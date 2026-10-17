@@ -56,6 +56,7 @@ export async function dispatchPostFinalizeJob(args: {
   uploadAttemptId?: string | null;
   uploadGenerationId?: string | null;
   regenerate?: boolean;
+  replaceImportId?: string | null;
   requireAccepted?: boolean;
 }): Promise<void> {
   const { requireAccepted = false, ...job } = args;

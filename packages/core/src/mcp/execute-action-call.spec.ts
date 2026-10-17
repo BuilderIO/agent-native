@@ -63,7 +63,11 @@ function execute(
   callable: Record<string, ActionEntry>,
   name: string,
   args: unknown = {},
-  options: { context?: McpActionCallContext; approval?: Call["approval"] } = {},
+  options: {
+    context?: McpActionCallContext;
+    approval?: Call["approval"];
+    actionRunContext?: Call["actionRunContext"];
+  } = {},
 ): Promise<McpActionCallOutcome> {
   return inRequest(() =>
     executeMcpActionCall(options.context ?? context, {
@@ -71,6 +75,7 @@ function execute(
       args,
       callable,
       approval: options.approval,
+      actionRunContext: options.actionRunContext,
     }),
   );
 }
@@ -282,6 +287,9 @@ describe("executeMcpActionCall", () => {
     // The signed state travels through the trusted host channel only.
     const { callerKey: _callerKey, consumed: _consumed, ...state } = grant;
     const resume = { state: () => state, decision: () => "approve" };
+    const actionRunContext = vi.fn((clientAccepted: boolean) =>
+      clientAccepted ? { mcpClientAccepted: true as const } : {},
+    );
     await expect(
       execute(callable, "publish", { draftId: "d-2" }, { approval: resume }),
     ).resolves.toEqual({
@@ -291,8 +299,21 @@ describe("executeMcpActionCall", () => {
     });
 
     await expect(
-      execute(callable, "publish", { draftId: "d-1" }, { approval: resume }),
+      execute(
+        callable,
+        "publish",
+        { draftId: "d-1" },
+        {
+          approval: resume,
+          actionRunContext,
+        },
+      ),
     ).resolves.toMatchObject({ status: "completed", value: { id: "d-1" } });
+    expect(actionRunContext).toHaveBeenCalledWith(true);
+    expect(run).toHaveBeenCalledWith(
+      { draftId: "d-1" },
+      expect.objectContaining({ mcpClientAccepted: true }),
+    );
     await expect(
       execute(callable, "publish", { draftId: "d-1" }, { approval: resume }),
     ).resolves.toEqual({

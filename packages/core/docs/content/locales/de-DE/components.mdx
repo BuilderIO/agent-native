@@ -18,7 +18,7 @@ import { PromptComposer } from "@agent-native/toolkit/app/chat/composer";
 import { AgentConversation } from "@agent-native/toolkit/app/chat/conversation";
 import { usePresence } from "@agent-native/core/client/collab";
 import { SharedRichEditor } from "@agent-native/toolkit/editor";
-import { ResourcesPanel } from "@agent-native/core/client/resources";
+import { ResourcesPanel } from "@agent-native/toolkit/app/resources";
 ```
 
 Vermeiden Sie den Import von UI-Komponenten aus dem bloßen `@agent-native/core`-Paket. Verwenden Sie
@@ -619,7 +619,7 @@ Workspace-Ressourcenmodell, das die Registerkarte „Workspace“ des Agentenber
 Das komplette Panel benötigt keine Requisiten:
 
 ```tsx
-import { ResourcesPanel } from "@agent-native/core/client/resources";
+import { ResourcesPanel } from "@agent-native/toolkit/app/resources";
 
 <ResourcesPanel />;
 ```
@@ -631,6 +631,8 @@ import { useState } from "react";
 import {
   ResourceEditor,
   ResourceTree,
+} from "@agent-native/toolkit/app/resources";
+import {
   useResource,
   useResourceTree,
   useUpdateResource,
@@ -669,16 +671,16 @@ function WorkspaceResources() {
 
 ## Andere öffentliche UI {#other-ui}
 
-| Bereich            | APIs                                                   | Importpfad                                |
-| ------------------ | ------------------------------------------------------ | ----------------------------------------- |
-| Teilen             | `<ShareButton>`, `<ShareDialog>`                       | `@agent-native/core/client/sharing`       |
-| Sharing UI         | `<VisibilityBadge>`                                    | `@agent-native/toolkit/sharing`           |
-| Benachrichtigungen | `<NotificationsBell>`                                  | `@agent-native/core/client/notifications` |
-| Fortschritt        | `<RunsTray>`, Fortschritts-Hooks und -Typen            | `@agent-native/core/client/progress`      |
-| Onboarding         | `useOnboarding()`, Onboarding-Panel-Haken              | `@agent-native/core/client/onboarding`    |
-| Beobachtbarkeit    | `<ObservabilityDashboard>`, `<ThumbsFeedback>`         | `@agent-native/toolkit/app/observability` |
-| Ressourcen         | `<ResourcesPanel>`, `<ResourceTree>`, Ressourcen-Hooks | `@agent-native/core/client/resources`     |
-| Rich-Editor        | `<SharedRichEditor>`, Slash-Befehle, Blockknoten-Hooks | `@agent-native/toolkit/editor`            |
+| Bereich            | APIs                                                          | Importpfad                                                                  |
+| ------------------ | ------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Teilen             | `<ShareButton>`, `<ShareDialog>`                              | `@agent-native/toolkit/app/sharing`                                         |
+| Sharing UI         | `<VisibilityBadge>`                                           | `@agent-native/toolkit/sharing`                                             |
+| Benachrichtigungen | `<NotificationsBell>`                                         | `@agent-native/toolkit/app/notifications`                                   |
+| Run-Registry       | `<RunsTray>`, Run-Typen und serverseitige Registry-Funktionen | `@agent-native/toolkit/app/progress + @agent-native/core/progress`          |
+| Onboarding         | `useOnboarding()`, Onboarding-Panel-Haken                     | `@agent-native/core/client/onboarding`                                      |
+| Beobachtbarkeit    | `<ObservabilityDashboard>`, `<ThumbsFeedback>`                | `@agent-native/toolkit/app/observability`                                   |
+| Ressourcen         | `<ResourcesPanel>`, `<ResourceTree>`, Ressourcen-Hooks        | `@agent-native/toolkit/app/resources + @agent-native/core/client/resources` |
+| Rich-Editor        | `<SharedRichEditor>`, Slash-Befehle, Blockknoten-Hooks        | `@agent-native/toolkit/editor`                                              |
 
 ## Einmalige Textvervollständigung {#one-off-text-completion}
 

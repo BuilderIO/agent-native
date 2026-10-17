@@ -113,6 +113,7 @@ describe("fetchOrgApps", () => {
 
   it("fetches the directory and normalizes the app list", async () => {
     process.env.AGENT_NATIVE_ORG_DIRECTORY_URL = "https://dispatch.acme.com";
+    const callerAuth = await import("../a2a/caller-auth.js");
     const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
       expect(url).toBe("https://dispatch.acme.com/_agent-native/org/apps");
       expect((init?.headers as Record<string, string>).Authorization).toBe(
@@ -139,6 +140,9 @@ describe("fetchOrgApps", () => {
     vi.stubGlobal("fetch", fetchSpy);
 
     const apps = await fetchOrgApps({ selfId: "mail" });
+    expect(callerAuth.resolveA2ACallerAuth).toHaveBeenCalledWith({
+      audience: "https://dispatch.acme.com",
+    });
     expect(apps).toEqual([
       {
         id: "calendar",
@@ -351,7 +355,7 @@ describe("fetchOrgApps", () => {
       {
         expiresIn: "5m",
         preferGlobalSecret: true,
-        audience: "https://dispatch.acme.com/_agent-native/org/apps",
+        audience: "https://dispatch.acme.com",
       },
     );
     expect(signA2AOrganizationTokenMock).toHaveBeenNthCalledWith(
@@ -362,7 +366,7 @@ describe("fetchOrgApps", () => {
       {
         expiresIn: "5m",
         preferGlobalSecret: false,
-        audience: "https://dispatch.acme.com/_agent-native/org/apps",
+        audience: "https://dispatch.acme.com",
       },
     );
     expect(authHeaders).toEqual([

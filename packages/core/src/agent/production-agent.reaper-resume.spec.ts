@@ -73,7 +73,11 @@ beforeEach(() => {
 async function recover(
   events: AgentChatEvent[] | Error,
   ignoreContext: boolean | "after-read" | "verify-live" = false,
-  isRecovery: boolean | "client" | "continuation" = true,
+  isRecovery:
+    | boolean
+    | "client"
+    | "client-continuation"
+    | "continuation" = true,
   failFinalization:
     | boolean
     | "serialization"
@@ -95,12 +99,13 @@ async function recover(
   withAttachment = false,
   onEmailWrite?: () => void,
   withCustomAgent = false,
+  retrySafe = false,
 ) {
   sequence++;
   const threadId = `reaper-thread-${sequence}`;
   const turnId = `reaper-turn-${sequence}`;
   const runId = `reaper-run-${sequence}`;
-  if (isRecovery !== "client") {
+  if (isRecovery !== "client" && isRecovery !== "client-continuation") {
     await insertRun(runId, threadId, turnId, { dispatchMode: "background" });
   }
   if (events instanceof Error) ledger.mockRejectedValue(events);
@@ -244,6 +249,7 @@ async function recover(
         },
         readOnly: false,
         run: sendEmail,
+        ...(retrySafe ? { retrySafe: true } : {}),
         ...(failFinalization === "validation"
           ? defineAction({
               description: "Send email",
@@ -346,9 +352,10 @@ async function recover(
     },
   });
   const requestBody = {
-    message: resumeContinue
-      ? AGENT_INTERNAL_CONTINUE_PROMPT
-      : "Send the refund email, then finish the refund.",
+    message:
+      resumeContinue || isRecovery === "client-continuation"
+        ? AGENT_INTERNAL_CONTINUE_PROMPT
+        : "Send the refund email, then finish the refund.",
     threadId,
     turnId,
     ...(withCustomAgent
@@ -362,7 +369,9 @@ async function recover(
           ],
         }
       : {}),
-    ...(isRecovery === true || isRecovery === "continuation"
+    ...(isRecovery === true ||
+    isRecovery === "client-continuation" ||
+    isRecovery === "continuation"
       ? { internalContinuation: true }
       : {}),
     ...(isRecovery === true ||
@@ -370,7 +379,7 @@ async function recover(
     isRecovery === "continuation"
       ? { __agentChatRecoveryOfRunId: "dead-worker" }
       : {}),
-    ...(isRecovery !== "client"
+    ...(isRecovery !== "client" && isRecovery !== "client-continuation"
       ? {
           __backgroundRun: {
             runId,
@@ -399,7 +408,11 @@ async function recover(
       : {}),
     ...(resumeContinue === "manual" ? { continueOfRunId: "stopped-run" } : {}),
   };
-  if (resumeContinue || isRecovery === "continuation") {
+  if (
+    resumeContinue ||
+    isRecovery === "client-continuation" ||
+    isRecovery === "continuation"
+  ) {
     const { buildUserMessage, buildAssistantMessage } =
       await import("./thread-data-builder.js");
     threadRead.mockResolvedValue({
@@ -640,6 +653,14 @@ describe("reaper successor resume context", () => {
     );
   });
 
+  it("restores the journal note on a client continuation without a run id", async () => {
+    const result = await recover([START], false, "client-continuation");
+
+    expect(result.sendEmail).not.toHaveBeenCalled();
+    expect(JSON.stringify(result.seen[0])).toContain("Tool-call journal");
+    expect(JSON.stringify(result.seen[0])).toContain("unknown outcome");
+  });
+
   it("blocks the same write tool after an ambiguous error at an ordinary continuation boundary", async () => {
     const result = await recover(
       [
@@ -688,6 +709,23 @@ describe("reaper successor resume context", () => {
       expect(next.sendEmail).toHaveBeenCalledTimes(1);
     },
   );
+  it("lets a retry-safe write be corrected and re-run after a handler error", async () => {
+    const result = await recover(
+      [],
+      "verify-live",
+      false,
+      "action",
+      undefined,
+      false,
+      undefined,
+      false,
+      true,
+    );
+    expect(result.sendEmail).toHaveBeenCalledTimes(2);
+    expect(result.run?.terminalReason).not.toBe(
+      "error:write_tool_outcome_unknown",
+    );
+  });
   it.each(["precondition", "connection"] as const)(
     "does not certify a direct typed handler failure as unexecuted (%s)",
     async (failure) => {

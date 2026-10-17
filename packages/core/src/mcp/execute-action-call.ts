@@ -1,4 +1,4 @@
-import { isActionContractError } from "../action.js";
+import { isActionContractError, type ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import {
   type McpActionResult,
@@ -276,6 +276,8 @@ export interface McpActionCall {
   args: unknown;
   /** The actions this caller can reach in its catalog. */
   callable: Record<string, ActionEntry>;
+  /** Adapter-specific facts to attach to the action's audit context. */
+  actionRunContext?: (clientAccepted: boolean) => Partial<ActionRunContext>;
   approval?: McpActionApprovalResponse;
 }
 
@@ -383,29 +385,32 @@ export async function runMcpActionCallUnredacted(
   }
 
   try {
-    const refusal = await authorizeApproval(
+    const authorization = await authorizeApproval(
       context,
       call,
       entry,
       (args as Record<string, unknown>) ?? {},
     );
-    if (refusal !== undefined) return refusal;
+    if (authorization.status !== "authorized") return authorization;
+
+    const { clientAccepted } = authorization;
+
+    try {
+      // coercion-ok: a call that omits `arguments` passes no arguments, which is an empty object.
+      const result = await entry.run((args as Record<string, string>) ?? {}, {
+        userEmail: getRequestUserEmail(),
+        orgId: getRequestOrgId() ?? null,
+        appId: context.appId,
+        caller: "mcp",
+        actionName: name,
+        ...call.actionRunContext?.(clientAccepted),
+      });
+      return { status: "ran", entry, result };
+    } catch (error) {
+      return { status: "threw", stage: "action", error };
+    }
   } catch (error) {
     return { status: "threw", stage: "approval", error };
-  }
-
-  try {
-    // coercion-ok: a call that omits `arguments` passes no arguments, which is an empty object.
-    const result = await entry.run((args as Record<string, string>) ?? {}, {
-      userEmail: getRequestUserEmail(),
-      orgId: getRequestOrgId() ?? null,
-      appId: context.appId,
-      caller: "mcp",
-      actionName: name,
-    });
-    return { status: "ran", entry, result };
-  } catch (error) {
-    return { status: "threw", stage: "action", error };
   }
 }
 
@@ -478,7 +483,10 @@ async function authorizeApproval(
   call: McpActionCall,
   entry: ActionEntry,
   args: Record<string, unknown>,
-): Promise<McpActionCallRefusal<Readonly<McpActionApprovalState>> | undefined> {
+): Promise<
+  | McpActionCallRefusal<Readonly<McpActionApprovalState>>
+  | { status: "authorized"; clientAccepted: boolean }
+> {
   const { name } = call;
   const { identity, approvalCallerKey } = context;
   const verifiedState = call.approval?.state();
@@ -523,10 +531,12 @@ async function authorizeApproval(
     if (call.approval?.decision() !== "approve") {
       return approvalDenied(`${name} was not approved.`);
     }
-    return undefined;
+    return { status: "authorized", clientAccepted: true };
   }
 
-  if (entry.needsApproval === undefined) return undefined;
+  if (entry.needsApproval === undefined) {
+    return { status: "authorized", clientAccepted: false };
+  }
   let mustApprove = false;
   try {
     mustApprove =
@@ -544,7 +554,7 @@ async function authorizeApproval(
   } catch {
     mustApprove = true;
   }
-  if (!mustApprove) return undefined;
+  if (!mustApprove) return { status: "authorized", clientAccepted: false };
 
   if (!hasVerifiedUserIdentity) {
     return approvalDenied(

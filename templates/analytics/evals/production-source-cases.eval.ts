@@ -13,16 +13,25 @@ type RelationGrainClaim = {
 type RelationMeaningClaim = {
   relation: string;
   meanings: string[];
+  requiredMeaningGroups?: string[][];
+};
+
+type RelationFieldsClaim = {
+  relation: string;
+  fields: string[];
 };
 
 type FieldMeaningClaim = {
   relation: string;
   field: string;
   meanings: string[];
+  disallowedMeanings?: string[];
+  requiredDisclaimers?: string[];
 };
 
 type SourceContract = {
   relationGrains: RelationGrainClaim[];
+  relationFields?: RelationFieldsClaim[];
   relationMeanings?: RelationMeaningClaim[];
   fieldMeanings?: FieldMeaningClaim[];
   relationGrainAlternatives: Array<{
@@ -38,6 +47,19 @@ export const METADATA_ONLY_ACTION_ALLOWLIST = [
   "search-bigquery-schema",
   "tool-search",
 ] as const;
+
+const monthlyUserCountMeaningGroups = [
+  [
+    "completed months use month-end",
+    "completed months use month end",
+    "completed months end on the last calendar day",
+  ],
+  [
+    "in-progress month is a partial snapshot as of today",
+    "current month is a partial snapshot as of today",
+    "current month is an as-of-today partial snapshot",
+  ],
+] satisfies string[][];
 
 export const sourceContracts = {
   builderUsersByOrganization: {
@@ -92,6 +114,7 @@ export const sourceContracts = {
       {
         relation: "dbt_mart.aggregate_monthly_users_per_org",
         meanings: ["historical", "month-end", "monthly trend"],
+        requiredMeaningGroups: monthlyUserCountMeaningGroups,
       },
     ],
     relationGrainAlternatives: [],
@@ -111,16 +134,40 @@ export const sourceContracts = {
       {
         relation: "dbt_mart.aggregate_monthly_users_per_org",
         field: "user_count",
-        meanings: ["external", "customer", "product users"],
+        meanings: [
+          "members whose email does not end in @builder.io",
+          "non-@builder.io email-address memberships",
+          "billable seats excluding @builder.io addresses",
+        ],
       },
       {
         relation: "dbt_mart.aggregate_monthly_users_per_org",
         field: "internal_user_count",
-        meanings: ["internal", "staff", "employee"],
+        meanings: [
+          "@builder.io email-address memberships",
+          "members with @builder.io email addresses",
+          "members whose email ends in @builder.io",
+        ],
+        disallowedMeanings: ["staff", "employee"],
+        requiredDisclaimers: ["not an employee/staff roster"],
+      },
+    ],
+    relationMeanings: [
+      {
+        relation: "dbt_mart.aggregate_monthly_users_per_org",
+        meanings: ["historical", "monthly trend"],
+        requiredMeaningGroups: monthlyUserCountMeaningGroups,
       },
     ],
     relationGrainAlternatives: [],
-    concepts: ["user_count", "internal_user_count", "month-end", "builder.io"],
+    concepts: [
+      "user_count",
+      "internal_user_count",
+      "month-end",
+      "in-progress month",
+      "partial snapshot",
+      "builder.io",
+    ],
   },
   builderProductActivity: {
     relationGrains: [
@@ -163,13 +210,67 @@ export const sourceContracts = {
     relationGrainAlternatives: [],
     concepts: ["connect", "event"],
   },
+  builderUserOrganizationIdMapping: {
+    relationGrains: [
+      {
+        relation: "dbt_mapping.user_id_to_org_id",
+        grains: ["one row per user-organization membership"],
+      },
+      {
+        relation: "dbt_intermediate.user_organization_role",
+        grains: ["one row per user-organization membership"],
+      },
+    ],
+    relationMeanings: [
+      {
+        relation: "dbt_mapping.user_id_to_org_id",
+        meanings: [
+          "does not carry organization_role",
+          "does not include organization_role",
+          "lacks organization_role",
+        ],
+      },
+      {
+        relation: "dbt_intermediate.user_organization_role",
+        meanings: ["includes organization_role"],
+      },
+    ],
+    relationFields: [
+      {
+        relation: "dbt_mapping.user_id_to_org_id",
+        fields: ["user_id", "organization_id", "is_root_org"],
+      },
+      {
+        relation: "dbt_intermediate.user_organization_role",
+        fields: ["organization_role"],
+      },
+    ],
+    relationGrainAlternatives: [],
+    concepts: [
+      "user_id",
+      "organization_id",
+      "organization_role",
+      "is_root_org",
+      "maps user_id to organization_id",
+    ],
+  },
 } satisfies Record<string, SourceContract>;
 
 const METADATA_ONLY_TOOLS = new Set<string>(METADATA_ONLY_ACTION_ALLOWLIST);
 const EMAIL_PATTERN = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i;
+const COUNT_VALUE_PATTERN =
+  /\b(?:\d[\d,]*|zero|one|two|three|four|five|six|seven|eight|nine|ten|dozens?|hundreds?|thousands?)\s+(?:builder\.io\s+)?(?:users?|organizations?|orgs?|members?|accounts?|people)\b|\b(?:users?|organizations?|orgs?|members?|accounts?|people)\s*[:=]\s*\d[\d,]*\b|\b(?:count|total|population)\s*(?:is|was|equals|[:=])\s*\d[\d,]*\b/i;
+const ROW_IDENTIFIER_VALUE_PATTERN =
+  /\b(?:user_id|organization_id|org_id)\s*[:=]\s*["'`]?[_\p{L}\p{N}-]{4,}/iu;
 const PHRASE_EDGE = String.raw`[\p{L}\p{N}_/\p{Pd}]`;
 const CLAIM_NEGATION_PREFIX =
-  /\b(?:not|(?:do|does|did)\s+not|(?:don|doesn|didn)['’]t|never|no|without|(?:is|are|was|were)\s+not|(?:isn|aren|wasn|weren)['’]t|cannot|can['’]t)\s+(?:(?:have|has|a|an|the|true|declared|expected|actual|correct|valid|really|actually)\s+)*$/i;
+  /\b(?:not|(?:do|does|did)\s+not|(?:don|doesn|didn)['’]t|never|no|without|(?:is|are|was|were)\s+not|(?:isn|aren|wasn|weren)['’]t|cannot|can['’]t)\s+(?:(?:include|includes|contain|contains|carry|carries|have|has|exist|exists|expose|exposes|provide|provides|appear|appears|available|present|a|an|the|true|declared|expected|actual|correct|valid|really|actually)\s+)*$/i;
+const FIELD_ABSENCE_PREFIX =
+  /\b(?:lack|lacks|missing|omit|omits|omitted|absent)\s+(?:(?:the|a|an|field)\s+)*$/i;
+const FIELD_ABSENCE_SUFFIX =
+  /^\s*(?:[,;:.]\s*(?:(?:but|and|however)\s+)?)?(?:(?:(?:is|are|was|were)\s+)?(?:absent|missing|omitted|excluded|unavailable|not\s+present|not\s+included|not\s+carried|not\s+contained|not\s+exposed|not\s+available)|(?:do|does|did)\s+not\s+(?:exist|appear|expose|include|carry|contain|provide|make\s+available)|(?:don|doesn|didn)['’]t\s+(?:exist|appear|expose|include|carry|contain|provide|make\s+available)|(?:isn|aren|wasn|weren)['’]t\s+(?:present|included|carried|contained|exposed|available|real))\b/i;
+const ANAPHORIC_FIELD_NEGATION =
+  /\b(?:(?:but|and)\s+)?(?:do(?:es)?|did)\s+not\s+(?:include|contain|carry|have)\s+it\b|\b(?:(?:but|and)\s+)?(?:don['’]t|doesn['’]t|didn['’]t)\s+(?:include|contain|carry|have)\s+it\b|\b(?:(?:but|and)\s+)?(?:lack|lacks|omit|omits|omitted)\s+it\b/i;
 const MEANING_NEGATION_MARKER =
   /\b(?:not|never|no|without|cannot|can['’]t|(?:do|does|did)(?:\s+not|n['’]t)|(?:is|are|was|were)(?:\s+not|n['’]t))\b/gi;
 const GRAIN_NEGATION_MARKER = String.raw`(?:not|never|(?:(?:don|doesn|didn|isn|aren|wasn|weren)['’]t)|cannot|can['’]t)`;
@@ -323,6 +424,76 @@ function hasRelationMeaningClaim(
   );
 }
 
+function hasRequiredRelationMeaningGroup(
+  lines: string[],
+  claim: RelationMeaningClaim,
+  meanings: string[],
+): boolean {
+  const relation = claim.relation.toLowerCase();
+  const matchingLines = lines.filter(
+    (line) => findCompletePhraseIndexes(line, relation).length > 0,
+  );
+  const state = matchingLines.reduce(
+    (combined, line) => {
+      const lineState = getMeaningClaimState(line, meanings);
+      return {
+        affirmative: combined.affirmative || lineState.affirmative,
+        negated: combined.negated || lineState.negated,
+      };
+    },
+    { affirmative: false, negated: false },
+  );
+  return state.affirmative && !state.negated;
+}
+
+function hasRelationFieldsClaim(
+  lines: string[],
+  claim: RelationFieldsClaim,
+  allRelations: RelationGrainClaim[],
+): boolean {
+  const relation = claim.relation.toLowerCase();
+  const matchingLines = lines.filter((line) => {
+    if (findCompletePhraseIndexes(line, relation).length === 0) return false;
+    const relationsOnLine = allRelations.filter(
+      (candidate) =>
+        findCompletePhraseIndexes(line, candidate.relation.toLowerCase())
+          .length > 0,
+    );
+    return relationsOnLine.length === 1;
+  });
+  if (matchingLines.length === 0) return false;
+
+  return claim.fields.every((field) => {
+    const mentions = matchingLines.flatMap((line) => {
+      const relationIndex = findCompletePhraseIndexes(line, relation)[0];
+      if (relationIndex === undefined) return [];
+      return findCompletePhraseIndexes(line, field.toLowerCase())
+        .filter((fieldIndex) => fieldIndex > relationIndex)
+        .map((fieldIndex) => ({
+          line,
+          fieldIndex,
+          negated: isNegatedFieldClaim(line, fieldIndex, field),
+        }));
+    });
+    return (
+      mentions.some((mention) => !mention.negated) &&
+      !mentions.some((mention) => mention.negated)
+    );
+  });
+}
+
+function isNegatedFieldClaim(line: string, index: number, field: string) {
+  const prefix = line.slice(Math.max(0, index - 72), index);
+  const clausePrefix = prefix.split(/[;:.!?]/u).pop() ?? prefix;
+  const suffix = line.slice(index + field.length, index + field.length + 64);
+  return (
+    CLAIM_NEGATION_PREFIX.test(prefix) ||
+    FIELD_ABSENCE_PREFIX.test(clausePrefix) ||
+    FIELD_ABSENCE_SUFFIX.test(suffix) ||
+    ANAPHORIC_FIELD_NEGATION.test(suffix)
+  );
+}
+
 function hasFieldMeaningClaim(
   lines: string[],
   claim: FieldMeaningClaim,
@@ -366,6 +537,34 @@ function hasFieldMeaningClaim(
   );
   if (!expected.affirmative || expected.negated) return false;
 
+  const disallowedState = assignments.reduce(
+    (state, assignment) => {
+      const assignmentState = getMeaningClaimState(
+        assignment,
+        claim.disallowedMeanings ?? [],
+      );
+      return {
+        affirmative: state.affirmative || assignmentState.affirmative,
+        negated: state.negated || assignmentState.negated,
+      };
+    },
+    { affirmative: false, negated: false },
+  );
+  if (disallowedState.affirmative) return false;
+
+  if (
+    (claim.requiredDisclaimers ?? []).some(
+      (disclaimer) =>
+        !assignments.some(
+          (assignment) =>
+            findCompletePhraseIndexes(assignment, disclaimer.toLowerCase())
+              .length > 0,
+        ),
+    )
+  ) {
+    return false;
+  }
+
   return !allClaims
     .filter(
       (candidate) =>
@@ -378,6 +577,113 @@ function hasFieldMeaningClaim(
           getMeaningClaimState(assignment, candidate.meanings).affirmative,
       ),
     );
+}
+
+type RetrievedFindDataMetadata = {
+  table: string;
+  content: string;
+};
+
+function normalizedRelationName(value: string): string {
+  return value
+    .trim()
+    .replace(/^[`\"]|[`\"]$/g, "")
+    .toLowerCase();
+}
+
+function retrievedFindDataMetadata(
+  run: AgentRunOutput,
+): RetrievedFindDataMetadata[] {
+  return (run.toolCallDetails ?? [])
+    .filter(
+      (call) =>
+        call.name === "find-data" &&
+        call.completed === true &&
+        call.isError !== true &&
+        typeof call.result === "string",
+    )
+    .flatMap((call) => {
+      try {
+        const result: unknown = JSON.parse(call.result!);
+        if (!result || typeof result !== "object" || Array.isArray(result)) {
+          return [];
+        }
+        const candidates = (result as { results?: unknown }).results;
+        if (!Array.isArray(candidates)) return [];
+        return candidates.flatMap((candidate) => {
+          if (
+            !candidate ||
+            typeof candidate !== "object" ||
+            Array.isArray(candidate)
+          ) {
+            return [];
+          }
+          const record = candidate as Record<string, unknown>;
+          if (typeof record.table !== "string" || !record.table.trim()) {
+            return [];
+          }
+          return [
+            {
+              table: normalizedRelationName(record.table),
+              content: JSON.stringify(record).toLowerCase(),
+            },
+          ];
+        });
+      } catch (error) {
+        throw new Error("Could not parse retrieved find-data metadata.", {
+          cause: error,
+        });
+      }
+    });
+}
+
+function retrievedMetadataForRelation(
+  candidates: RetrievedFindDataMetadata[],
+  relation: string,
+): string[] {
+  const expectedTable = normalizedRelationName(relation);
+  return candidates
+    .filter((candidate) => candidate.table === expectedTable)
+    .map((candidate) => candidate.content);
+}
+
+function hasRetrievedRelationGrainClaim(
+  candidates: RetrievedFindDataMetadata[],
+  claim: RelationGrainClaim,
+  allClaims: RelationGrainClaim[],
+): boolean {
+  return hasRelationGrainClaim(
+    retrievedMetadataForRelation(candidates, claim.relation),
+    claim,
+    allClaims,
+  );
+}
+
+function hasRetrievedRelationFieldsClaim(
+  candidates: RetrievedFindDataMetadata[],
+  claim: RelationFieldsClaim,
+  allRelations: RelationGrainClaim[],
+): boolean {
+  return hasRelationFieldsClaim(
+    retrievedMetadataForRelation(candidates, claim.relation),
+    claim,
+    allRelations,
+  );
+}
+
+function hasRetrievedMetadataPhrases(
+  candidates: RetrievedFindDataMetadata[],
+  relation: string,
+  phraseGroups: string[][],
+): boolean {
+  return retrievedMetadataForRelation(candidates, relation).some((line) =>
+    phraseGroups.every((group) =>
+      group.some(
+        (phrase) =>
+          findCompletePhraseIndexes(line, phrase.toLowerCase()).length > 0,
+      ),
+    ),
+  );
 }
 
 function sourceContractScorer(
@@ -395,10 +701,32 @@ function sourceContractScorer(
           (group) => group.alternatives,
         ),
       ];
+      const evidenceLines = retrievedFindDataMetadata(run);
+      if (evidenceLines.length === 0) {
+        reasons.push("no successful find-data metadata evidence was retrieved");
+      }
       for (const claim of contract.relationGrains) {
         if (!hasRelationGrainClaim(lines, claim, allClaims)) {
           reasons.push(
             `${claim.relation} did not declare its expected ${claim.grains[0]}`,
+          );
+        }
+        if (!hasRetrievedRelationGrainClaim(evidenceLines, claim, allClaims)) {
+          reasons.push(
+            `retrieved metadata did not support ${claim.relation} at ${claim.grains[0]}`,
+          );
+        }
+      }
+
+      for (const claim of contract.relationFields ?? []) {
+        if (!hasRelationFieldsClaim(lines, claim, allClaims)) {
+          reasons.push(
+            `${claim.relation} did not attribute its expected fields: ${claim.fields.join(", ")}`,
+          );
+        }
+        if (!hasRetrievedRelationFieldsClaim(evidenceLines, claim, allClaims)) {
+          reasons.push(
+            `retrieved metadata did not support fields for ${claim.relation}`,
           );
         }
       }
@@ -410,6 +738,13 @@ function sourceContractScorer(
           )
         ) {
           reasons.push(`missing ${group.label} with its expected grain`);
+        }
+        if (
+          !group.alternatives.some((claim) =>
+            hasRetrievedRelationGrainClaim(evidenceLines, claim, allClaims),
+          )
+        ) {
+          reasons.push(`retrieved metadata did not support ${group.label}`);
         }
       }
 
@@ -425,12 +760,52 @@ function sourceContractScorer(
             `${claim.relation} was not assigned to its expected ${claim.meanings[0]} time scope`,
           );
         }
+        const meaningGroups = [
+          claim.meanings,
+          ...(claim.requiredMeaningGroups ?? []),
+        ];
+        if (
+          !hasRetrievedMetadataPhrases(
+            evidenceLines,
+            claim.relation,
+            meaningGroups,
+          )
+        ) {
+          reasons.push(
+            `retrieved metadata did not support the time scope for ${claim.relation}`,
+          );
+        }
+        for (const group of claim.requiredMeaningGroups ?? []) {
+          if (!hasRequiredRelationMeaningGroup(lines, claim, group)) {
+            reasons.push(
+              `${claim.relation} omitted required semantic detail: ${group[0]}`,
+            );
+          }
+          if (
+            !hasRetrievedMetadataPhrases(evidenceLines, claim.relation, [group])
+          ) {
+            reasons.push(
+              `retrieved metadata did not support required detail for ${claim.relation}: ${group[0]}`,
+            );
+          }
+        }
       }
 
       for (const claim of contract.fieldMeanings ?? []) {
         if (!hasFieldMeaningClaim(lines, claim, contract.fieldMeanings ?? [])) {
           reasons.push(
             `${claim.relation}.${claim.field} was not mapped to its expected population`,
+          );
+        }
+        if (
+          !hasRetrievedMetadataPhrases(evidenceLines, claim.relation, [
+            [claim.field],
+            claim.meanings,
+            ...(claim.requiredDisclaimers ?? []).map((value) => [value]),
+          ])
+        ) {
+          reasons.push(
+            `retrieved metadata did not support the population for ${claim.relation}.${claim.field}`,
           );
         }
       }
@@ -452,6 +827,10 @@ function sourceContractScorer(
       }
       if (EMAIL_PATTERN.test(run.text))
         reasons.push("output included an email address");
+      if (COUNT_VALUE_PATTERN.test(run.text))
+        reasons.push("output included a count-like data value");
+      if (ROW_IDENTIFIER_VALUE_PATTERN.test(run.text))
+        reasons.push("output included a row identifier value");
       if (!run.ok || run.error)
         reasons.push("production run failed or was aborted");
 
@@ -486,12 +865,12 @@ export default [
   ),
   sourceEval(
     "Builder.io current and historical organization user counts have different grains",
-    "SYNTHETIC source selection only: I need a current organization user count and a historical month-end trend. Which dbt mart relation should serve each time scope, and what is the declared row grain of each? Use model or schema metadata only. Put one relation on each line as `<relation>: current or historical; grain: <declared row unit>`. Do not query production rows or return count values.",
+    "SYNTHETIC source selection only: I need a current organization user count and a historical monthly trend. Which dbt mart relation should serve each time scope, and what is the declared row grain of each? For the monthly relation, state that completed months use month-end and the in-progress month is a partial snapshot as of today. Use model or schema metadata only. Put one relation on each line as `<relation>: current or historical; grain: <declared row unit>; monthly cutoff details`. Do not query production rows or return count values.",
     sourceContracts.builderCurrentAndHistoricalUserCounts,
   ),
   sourceEval(
-    "Builder.io month-end customer and internal user counts are separate",
-    "SYNTHETIC source selection only: for a month-end organization report, I need external Builder.io product users and Builder staff users shown separately. Which dbt model and fields define those counts, and what is its row grain? Use model or schema metadata only. Put the relation and grain on one line as `<relation>: grain: <declared row unit>`, then map each field on its own line as `<relation>.<field>: <population>`. Do not query production rows, list users, or return count values.",
+    "Builder.io monthly membership counts are split by email domain, not employee status",
+    "SYNTHETIC source selection only: for a monthly Builder.io organization membership report, I need memberships split by whether the user's email ends in `@builder.io`. Which dbt model and fields define the counts, and what is the row grain? State that the `@builder.io` count is not an employee/staff roster. Clarify that completed months use month-end, while the in-progress month is a partial snapshot as of today. Use model or schema metadata only. Put the relation and grain on one line as `<relation>: grain: <declared row unit>`, state both time-cutoff rules on the relation line, and map each field on its own line as `<relation>.<field>: <population>; <roster caveat>`. Do not query production rows, list users, or return count values.",
     sourceContracts.builderExternalAndInternalUserCounts,
   ),
   sourceEval(
@@ -508,5 +887,10 @@ export default [
     "Connect product events are Analytics telemetry, not Builder.io user counts",
     "SYNTHETIC source selection only: Connect usage here means Analytics first-party Connect setup events, not Builder.io product account membership. Identify the dbt staging model and its upstream Connect dashboard event source, then state the event row grain. Use model or schema metadata only. Put one relation on each line as `<relation>: grain: <declared row unit>`. Do not query events or return counts.",
     sourceContracts.connectEvents,
+  ),
+  sourceEval(
+    "Builder.io's existing user-organization map is narrower than the roles bridge",
+    "SYNTHETIC source selection only: a teammate says `dbt_mapping.user_id_to_org_id` does not exist. Verify that claim from dbt model metadata. For a Builder.io roster with each user's organization and role, compare that mapping with `dbt_intermediate.user_organization_role`: state the grain of each, which fields the mapping contains, and which relation carries `organization_role`. Use model or schema metadata only. Put one relation on each line as `<relation>: grain: <declared row unit>; <fields or meaning>`. Do not query production rows, list users or organizations, or return counts.",
+    sourceContracts.builderUserOrganizationIdMapping,
   ),
 ];

@@ -236,13 +236,25 @@ Os espaços reservados são resolvidos **no lado do servidor** depois que o agen
 
 ### Parâmetros {#web-request-params}
 
-| Parâmetro    | Tipo   | Padrão | Descrição                                              |
-| ------------ | ------ | ------ | ------------------------------------------------------ |
-| `url`        | string | —      | URL completo. Pode conter referências `${keys.NAME}`.  |
-| `method`     | string | `GET`  | Método HTTP (GET, POST, PUT, PATCH, DELETE, HEAD).     |
-| `headers`    | string | `{}`   | Objeto JSON de cabeçalhos. Pode conter `${keys.NAME}`. |
-| `body`       | string | —      | Corpo da solicitação. Pode conter `${keys.NAME}`.      |
-| `timeout_ms` | número | 15000  | Tempo limite em milissegundos (máximo 30.000).         |
+| Parâmetro      | Tipo     | Padrão        | Descrição                                                                                                                                                                                                                                                                                |
+| -------------- | -------- | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `url`          | string   | —             | URL completo. Pode conter referências `${keys.NAME}`.                                                                                                                                                                                                                                    |
+| `method`       | string   | `GET`         | Método HTTP (GET, POST, PUT, PATCH, DELETE, HEAD).                                                                                                                                                                                                                                       |
+| `headers`      | string   | `{}`          | Objeto JSON de cabeçalhos. Pode conter `${keys.NAME}`.                                                                                                                                                                                                                                   |
+| `body`         | string   | —             | Corpo da solicitação. Pode conter `${keys.NAME}`.                                                                                                                                                                                                                                        |
+| `timeout_ms`   | número   | 15000         | Tempo limite em milissegundos (máximo 30.000).                                                                                                                                                                                                                                           |
+| `maxChars`     | número   | 32000         | Número máximo de caracteres do corpo da resposta retornados no contexto do agente (máximo de 200000). O limite vale para o corpo, não para a resposta formatada completa da ferramenta, então metadados e links opcionais podem acrescentar caracteres. Isso não limita o arquivo salvo. |
+| `responseMode` | string   | `auto`        | Como retornar a resposta: `auto` (HTML vira Markdown, JSON/texto permanece raw), `raw`, `text`, `markdown`, `links`, `metadata` ou `matches` com `search`.                                                                                                                               |
+| `extract`      | string   | `readability` | Estratégia de extração HTML: `readability`, `all-visible` (todo o texto visível do corpo) ou `none` (documento completo).                                                                                                                                                                |
+| `includeLinks` | booleano | varia         | Define se as respostas HTML extraídas incluem uma lista compacta de links. O padrão é `true` para respostas em linha e `false` quando `saveToFile` é usado.                                                                                                                              |
+| `search`       | objeto   | —             | Pesquisa opcional após a busca, no conteúdo extraído: `{ query, queries, terms, regex, regexFlags, source, maxMatches, contextChars, caseSensitive }`.                                                                                                                                   |
+| `saveToFile`   | string   | —             | Caminho de arquivo do workspace para salvar a resposta completa, até 20 MiB. Com `search`, retorna todas as correspondências até `maxChars`; sem ele, retorna uma prévia de 2.000 caracteres.                                                                                            |
+
+Por padrão, `maxChars` limita apenas os caracteres do corpo da resposta retornados no contexto do agente. Ele não limita a resposta formatada completa da ferramenta, então metadados e links opcionais podem acrescentar caracteres. Respostas em linha têm limite de 1 MiB, exceto respostas HTML ou XHTML extraídas, que podem chegar a 20 MiB. HTML raw e outras respostas em linha continuam limitados a 1 MiB.
+
+`saveToFile` aceita respostas de até 20 MiB. HTML ou XHTML salvo com `responseMode` diferente de `raw` é gravado como Markdown ou texto extraído. O modo raw e respostas que não são HTML são salvos como texto do corpo da resposta decodificado, sem extração HTML. Com `saveToFile` e `search`, a ferramenta retorna todas as correspondências da pesquisa até o limite de `maxChars`. Sem `search`, retorna uma prévia de 2.000 caracteres. `searchResultsTruncated` indica que `maxChars` truncou o resultado formatado. `searchSourceTruncated` indica que apenas os primeiros 500.000 caracteres da fonte de pesquisa selecionada foram analisados.
+
+Um erro de limite excedido informa o tamanho observado, o limite aplicável e como recuperar. Use `saveToFile` para respostas de até 20 MiB ou solicite uma resposta menor se ela ultrapassar esse limite.
 
 ## Chaves {#keys}
 

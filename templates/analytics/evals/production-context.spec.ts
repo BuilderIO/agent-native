@@ -2,12 +2,47 @@ import { actionsToEngineTools } from "@agent-native/core/server";
 import { describe, expect, it } from "vitest";
 
 import {
+  buildAnalyticsPromptContext,
   filterAnalyticsEvalActions,
   resolveProductionEvalContext,
 } from "./production-context.js";
 import { METADATA_ONLY_ACTION_ALLOWLIST } from "./production-source-cases.eval.js";
 
 describe("Analytics production eval context", () => {
+  it("keeps search guidance when Analytics prefetch is degraded", () => {
+    const prompt = buildAnalyticsPromptContext("system prompt", {
+      jevPromptCandidates: [
+        {
+          id: "reference-1",
+          description: "Current dashboard reference",
+          metadata: {},
+          name: "User counts",
+          scope: "analytics-catalog",
+          content: "Reference details",
+        },
+      ],
+      jevFallbackCandidateIds: ["reference-1"],
+      prefetchStatus: "failed",
+    });
+
+    expect(prompt).toContain("Reference details");
+    expect(prompt).toContain("Some preloaded context was unavailable");
+    expect(prompt).toContain("if the request depends on workspace knowledge");
+  });
+
+  it("keeps the production agent path available after an empty prefetch times out", () => {
+    const prompt = buildAnalyticsPromptContext("system prompt", {
+      jevPromptCandidates: [],
+      jevFallbackCandidateIds: [],
+      prefetchStatus: "timed_out",
+    });
+
+    expect(prompt).toContain(
+      "Preloaded context was unavailable this turn (timed out)",
+    );
+    expect(prompt).toContain("if the request depends on workspace knowledge");
+  });
+
   it("uses the Analytics guard, explicit identity, and read-only query actions", () => {
     const context = resolveProductionEvalContext({
       ownerEmail: "eval-owner@example.com",

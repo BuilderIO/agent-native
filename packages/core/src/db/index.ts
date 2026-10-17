@@ -16,6 +16,7 @@ export {
 } from "./migrations.js";
 export {
   getDbExec,
+  withDbExec,
   createDbExec,
   getDatabaseUrl,
   getRuntimeDatabaseUrl,

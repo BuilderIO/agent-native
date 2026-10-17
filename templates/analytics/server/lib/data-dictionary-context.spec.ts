@@ -93,6 +93,33 @@ describe("renderDataDictionary", () => {
     );
   });
 
+  it("renders generated source kind, model type, status, and grain", () => {
+    const context = renderDataDictionary([
+      {
+        metric: "model:user_organization_role",
+        definition: "One row per user-organization membership.",
+        source: "dbt",
+        sourceKind: "dbt",
+        entryType: "model",
+        status: "active",
+        grain: "Unique key: user_id, organization_id",
+        primaryEntity: "user",
+        timeDimension: "created_at",
+        semanticModel: "users",
+        approved: false,
+        aiGenerated: true,
+      },
+    ]);
+
+    expect(context).toContain("source kind: dbt");
+    expect(context).toContain("entry type: model");
+    expect(context).toContain("source status: active");
+    expect(context).toContain("grain: Unique key: user_id, organization_id");
+    expect(context).toContain("primary entity: user");
+    expect(context).toContain("time dimension: created_at");
+    expect(context).toContain("semantic model: users");
+  });
+
   it("caps injected entries and points the agent to focused dictionary lookup", () => {
     const entries = Array.from({ length: 45 }, (_, index) => ({
       metric: `Metric ${String(index + 1).padStart(2, "0")}`,
@@ -109,6 +136,33 @@ describe("renderDataDictionary", () => {
     );
     expect(context).toContain("find-data");
     expect(context).toContain("search-bigquery-schema");
+  });
+
+  it("labels inferred SQL output columns as unverified and grain keys as inferred", () => {
+    const context = renderDataDictionary([
+      {
+        metric: "model:user_organization_role",
+        definition: "Generated dbt source metadata.",
+        sqlProjectedColumns: "user_id, organization_id, role",
+        inferredMembershipKeys: ["user_id", "organization_id"],
+        inferredMembershipKeyRoles: {
+          user: "user_id",
+          organization: "organization_id",
+        },
+        approved: false,
+        aiGenerated: true,
+      },
+    ]);
+
+    expect(context).toContain(
+      "SQL projected columns (inferred; verify against schema): user_id, organization_id, role",
+    );
+    expect(context).toContain(
+      "membership row keys inferred from structural dbt SQL analysis: user_id, organization_id",
+    );
+    expect(context).toContain(
+      "inferred membership key roles: user key user_id; organization key organization_id",
+    );
   });
 
   it("caps the total rendered block at a total char budget even under the 40-entry count cap", () => {

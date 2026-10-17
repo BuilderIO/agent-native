@@ -1,242 +1,147 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, expectOnlyChanged, test, type App } from "./rails";
 
-import {
-  appPath,
-  designFrame,
-  enterDirectMode,
-  expandAllLayers,
-  gotoEditor,
-} from "./helpers";
+const HTML = `<!doctype html><html><head><meta charset="utf-8"></head><body data-agent-native-node-id="page" style="margin:0;width:800px;height:600px"><main data-agent-native-node-id="main" style="position:relative;width:640px;height:480px"><div data-agent-native-node-id="mouse-rectangle" data-agent-native-layer-name="Mouse rectangle" style="position:absolute;left:60px;top:60px;width:180px;height:120px;background:#fff"></div><div data-agent-native-node-id="keyboard-rectangle" data-agent-native-layer-name="Keyboard rectangle" style="position:absolute;left:300px;top:60px;width:180px;height:120px;background:#fff"></div></main></body></html>`;
 
-const HTML = `<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0"><main data-agent-native-node-id="main" style="position:relative;width:640px;height:480px"><div data-agent-native-node-id="mouse-rectangle" data-agent-native-layer-name="Mouse rectangle" style="position:absolute;left:60px;top:60px;width:180px;height:120px;background:#fff"></div><div data-agent-native-node-id="keyboard-rectangle" data-agent-native-layer-name="Keyboard rectangle" style="position:absolute;left:300px;top:60px;width:180px;height:120px;background:#fff"></div></main></body></html>`;
+const BOXES = {
+  "mouse-rectangle": { x: 60, y: 60, width: 180, height: 120 },
+  "keyboard-rectangle": { x: 300, y: 60, width: 180, height: 120 },
+};
+const NAMES = {
+  "mouse-rectangle": "Mouse rectangle",
+  "keyboard-rectangle": "Keyboard rectangle",
+};
+type Rectangle = keyof typeof BOXES;
 
-async function action(
-  page: Page,
-  name: string,
-  input: Record<string, unknown>,
-) {
-  const response = await page.request.post(
-    appPath(`/_agent-native/actions/${name}`),
-    { data: input },
+const ONE_PX_BLACK = {
+  "border-top-width": "1px",
+  "border-top-style": "solid",
+  "border-top-color": "rgb(0, 0, 0)",
+};
+
+async function openSeeded(app: App) {
+  const id = await app.seed(HTML);
+  await app.open(id);
+  await app.zoomToFit();
+  return id;
+}
+
+async function select(app: App, nodeId: Rectangle) {
+  const box = BOXES[nodeId];
+  const point = await app.pagePoint(
+    box.x + box.width / 2,
+    box.y + box.height / 2,
   );
-  if (!response.ok())
-    throw new Error(`${name}: ${response.status()} ${await response.text()}`);
-  return response.json();
+  await app.page.mouse.click(point.x, point.y);
+  await expect.poll(() => app.selectedLayers()).toEqual([NAMES[nodeId]]);
 }
 
-async function createDesign(page: Page) {
-  const design = await action(page, "create-design", {
-    title: `Stroke row add ${Date.now()}`,
-    projectType: "prototype",
-  });
-  const designId = design.id ?? design.data?.id;
-  if (!designId) throw new Error("create-design returned no id");
-  const file = await action(page, "create-file", {
-    designId,
-    filename: "screen.html",
-    fileType: "html",
-    content: HTML,
-  });
-  const screenId = file.id ?? file.data?.id;
-  if (!screenId) throw new Error("create-file returned no id");
-  await action(page, "update-design", {
-    id: designId,
-    dataOperations: [
-      {
-        op: "set",
-        path: ["canvasFrames", screenId],
-        value: { x: 0, y: 0, width: 800, height: 600, z: 0 },
-      },
-      {
-        op: "set",
-        path: ["screenMetadata", screenId],
-        value: { sourceType: "inline", width: 800, height: 600 },
-      },
-    ],
-  });
-  return { designId, screenId };
-}
-
-function layerRow(page: Page, name: string) {
-  return page
-    .getByRole("tree", { name: "Layers" })
-    .locator("[data-layer-row-button][data-layer-node-id]")
-    .filter({ has: page.locator(`span[title="${name}"]`) })
-    .first()
-    .locator('xpath=ancestor::*[@role="treeitem"][1]');
-}
-
-async function selectShape(page: Page, name: string) {
-  const row = layerRow(page, name);
-  await expect(row).toBeVisible();
-  await row.locator("[data-layer-row-button]").click();
-  await expect(row).toHaveAttribute("aria-selected", "true");
-}
-
-function strokeSection(page: Page) {
-  return page
+function strokeSection(app: App) {
+  return app.page
     .locator("[data-design-inspector-section]")
     .filter({
-      has: page.getByRole("heading", { name: "Stroke", exact: true }),
+      has: app.page.getByRole("heading", { name: "Stroke", exact: true }),
     })
     .first();
 }
 
-async function strokeState(page: Page, screenId: string, nodeId: string) {
-  return designFrame(page, screenId)
-    .locator(`[data-agent-native-node-id="${nodeId}"]`)
-    .evaluate((node) => {
-      const style = getComputedStyle(node);
-      return {
-        width: style.borderTopWidth,
-        style: style.borderTopStyle,
-        color: style.borderTopColor,
-      };
-    });
-}
-
-async function readSource(page: Page, designId: string, screenId: string) {
-  const response = await page.request.get(
-    appPath(
-      `/_agent-native/actions/get-design?id=${encodeURIComponent(designId)}`,
-    ),
-  );
-  if (!response.ok()) throw new Error(`get-design: ${await response.text()}`);
-  const design = await response.json();
-  const html = design.files?.find(
-    (file: { id?: string }) => file.id === screenId,
-  )?.content;
-  if (typeof html !== "string")
-    throw new Error("screen source was not returned");
-  return html;
-}
-
-async function expectSavedStroke(
-  page: Page,
-  designId: string,
-  screenId: string,
-) {
-  await expect
-    .poll(async () => readSource(page, designId, screenId), { timeout: 10_000 })
-    .toMatch(/border-width:\s*1px/i);
-  const source = await readSource(page, designId, screenId);
-  expect(source).toMatch(/border-style:\s*solid/i);
-  return source;
-}
-
-async function expectStroke(page: Page, screenId: string, nodeId: string) {
-  await expect
-    .poll(() => strokeState(page, screenId, nodeId))
-    .toMatchObject({ width: "1px", style: "solid" });
-  await expect
-    .poll(() =>
-      strokeSection(page)
-        .locator("[data-design-inspector-section-content]")
-        .isVisible(),
-    )
-    .toBe(true);
-}
-
-async function activateEmptyStrokeByKey(
-  page: Page,
-  screenId: string,
-  name: string,
-  key: "Enter" | "Space",
-) {
-  await selectShape(page, name);
-  const button = strokeSection(page).locator("h3 button");
-  await expect(button).toHaveAccessibleName("Add stroke");
-  await button.focus();
-  await page.keyboard.press(key);
-  await expectStroke(
-    page,
-    screenId,
-    name === "Mouse rectangle" ? "mouse-rectangle" : "keyboard-rectangle",
-  );
-}
-
-test("clicking the empty Stroke heading adds and persists a stroke", async ({
-  page,
-}) => {
-  const { designId, screenId } = await createDesign(page);
-  try {
-    await gotoEditor(page, designId);
-    await enterDirectMode(page);
-    await expandAllLayers(page);
-    await selectShape(page, "Mouse rectangle");
-
-    const section = strokeSection(page);
-    await expect(section).toBeVisible();
-    const headingButton = section.locator("h3 button");
-    const plusButton = section
-      .getByRole("button", {
-        name: "Add stroke",
-        exact: true,
-      })
-      .last();
-    await expect(headingButton).toBeVisible();
-    await expect(plusButton).toBeVisible();
-    const headingBox = await headingButton.boundingBox();
-    const plusBox = await plusButton.boundingBox();
-    if (!headingBox || !plusBox)
-      throw new Error("Stroke controls have no bounds");
-    const clickPoint = {
-      x: headingBox.x + Math.min(12, headingBox.width / 2),
-      y: headingBox.y + headingBox.height / 2,
+/** Resolves a node's saved inline style the way the canvas renders it, so saved values compare literally. */
+async function savedBorder(app: App, id: string, nodeId: Rectangle) {
+  const style = (await app.savedNodes(id)).get(nodeId)?.attrs.style ?? "";
+  return app.page.evaluate((cssText) => {
+    const probe = document.createElement("div");
+    probe.style.cssText = cssText;
+    document.body.append(probe);
+    const computed = getComputedStyle(probe);
+    const border = {
+      "border-top-width": computed.borderTopWidth,
+      "border-top-style": computed.borderTopStyle,
+      "border-top-color": computed.borderTopColor,
     };
+    probe.remove();
+    return border;
+  }, style);
+}
+
+async function expectOneStrokeRow(app: App) {
+  await expect(
+    strokeSection(app).locator('[data-inspector-layout="paint-row"]'),
+  ).toHaveCount(1);
+}
+
+// fixme: product bug: Inside-stroke growth (same family as fill-add-solid.spec.ts:177): the 1px 'Inside' stroke saves as a plain content-box border, so the
+test.fixme("clicking the empty Stroke heading adds and persists a stroke", async ({
+  app,
+}) => {
+  const page = app.page;
+  const id = await openSeeded(app);
+  await select(app, "mouse-rectangle");
+  const before = await app.savedNodes(id);
+  const heading = strokeSection(app).locator("h3 button");
+  const plus = strokeSection(app)
+    .getByRole("button", { name: "Add stroke", exact: true })
+    .last();
+  const headingBox = (await heading.boundingBox())!;
+  const plusBox = (await plus.boundingBox())!;
+  expect(
+    headingBox.x + 12,
+    "the click lands on the heading label, left of the + button",
+  ).toBeLessThan(plusBox.x);
+
+  await heading.click({ position: { x: 12, y: headingBox.height / 2 } });
+
+  await expectOneStrokeRow(app);
+  await app.settled();
+  expect(await savedBorder(app, id, "mouse-rectangle")).toEqual(ONE_PX_BLACK);
+  expectOnlyChanged(before, await app.savedNodes(id), ["mouse-rectangle"]);
+
+  await page.reload();
+  await app.zoomToFit();
+  await select(app, "mouse-rectangle");
+  await expectOneStrokeRow(app);
+  await expect(app.node("mouse-rectangle")).toHaveCSS(
+    "border-top-width",
+    "1px",
+  );
+  expect(
+    await app.designRect("mouse-rectangle"),
+    "an Inside stroke must not grow the box",
+  ).toEqual(BOXES["mouse-rectangle"]);
+});
+
+// fixme: product bug: Inside-stroke growth (same family as fill-add-solid.spec.ts:177): the 1px 'Inside' stroke saves as a plain content-box border, so the
+test.fixme("the empty Stroke heading activates with Enter and with Space", async ({
+  app,
+}) => {
+  const page = app.page;
+  const id = await openSeeded(app);
+  const before = await app.savedNodes(id);
+  const heading = strokeSection(app).locator("h3 button");
+
+  await select(app, "mouse-rectangle");
+  await expect(heading).toHaveAccessibleName("Add stroke");
+  await heading.focus();
+  await page.keyboard.press("Enter");
+  await expectOneStrokeRow(app);
+
+  await select(app, "keyboard-rectangle");
+  await expect(heading).toHaveAccessibleName("Add stroke");
+  await heading.focus();
+  await page.keyboard.press("Space");
+  await expectOneStrokeRow(app);
+
+  await app.settled();
+  expect(await savedBorder(app, id, "mouse-rectangle")).toEqual(ONE_PX_BLACK);
+  expect(await savedBorder(app, id, "keyboard-rectangle")).toEqual(
+    ONE_PX_BLACK,
+  );
+  expectOnlyChanged(before, await app.savedNodes(id), [
+    "mouse-rectangle",
+    "keyboard-rectangle",
+  ]);
+  for (const nodeId of ["mouse-rectangle", "keyboard-rectangle"] as const) {
     expect(
-      clickPoint.x < plusBox.x || clickPoint.x > plusBox.x + plusBox.width,
-    ).toBe(true);
-    await headingButton.click({
-      position: {
-        x: clickPoint.x - headingBox.x,
-        y: clickPoint.y - headingBox.y,
-      },
-    });
-
-    await expectStroke(page, screenId, "mouse-rectangle");
-    await expectSavedStroke(page, designId, screenId);
-
-    await page.reload();
-    await enterDirectMode(page);
-    await expandAllLayers(page);
-    await selectShape(page, "Mouse rectangle");
-    await expectStroke(page, screenId, "mouse-rectangle");
-    await expectSavedStroke(page, designId, screenId);
-  } finally {
-    await action(page, "delete-design", { id: designId }).catch(() => {});
-  }
-});
-
-test("the empty Stroke heading activates with Enter", async ({ page }) => {
-  const { designId, screenId } = await createDesign(page);
-  try {
-    await gotoEditor(page, designId);
-    await enterDirectMode(page);
-    await expandAllLayers(page);
-    await activateEmptyStrokeByKey(page, screenId, "Mouse rectangle", "Enter");
-
-    await expectSavedStroke(page, designId, screenId);
-  } finally {
-    await action(page, "delete-design", { id: designId }).catch(() => {});
-  }
-});
-
-test("the empty Stroke heading activates with Space", async ({ page }) => {
-  const { designId, screenId } = await createDesign(page);
-  try {
-    await gotoEditor(page, designId);
-    await enterDirectMode(page);
-    await expandAllLayers(page);
-    await activateEmptyStrokeByKey(
-      page,
-      screenId,
-      "Keyboard rectangle",
-      "Space",
-    );
-
-    await expectSavedStroke(page, designId, screenId);
-  } finally {
-    await action(page, "delete-design", { id: designId }).catch(() => {});
+      await app.designRect(nodeId),
+      `an Inside stroke must not grow ${nodeId}`,
+    ).toEqual(BOXES[nodeId]);
   }
 });

@@ -85,6 +85,7 @@ import {
   trackMcpToolsList,
 } from "./analytics.js";
 import { getBuiltinCrossAppTools } from "./builtin-tools.js";
+import { mcpCallAttribution } from "./call-attribution.js";
 import {
   MCP_CONNECT_OAUTH_CLIENT_ID,
   MCP_CONNECT_SCOPE,
@@ -1647,6 +1648,11 @@ function mcpDirectoryWidgetSessionTool(config: MCPConfig): Tool | null {
       },
       required: ["sourceTicket"],
     },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      openWorldHint: false,
+    },
     _meta: { ui: { visibility: ["app"] } },
   } as Tool;
 }
@@ -3175,6 +3181,13 @@ export async function createMCPServerForRequest(
           name,
           args,
           callable: callableActions,
+          actionRunContext: (clientAccepted) =>
+            mcpCallAttribution({
+              request,
+              envelope: ctx.mcpReq.envelope,
+              oauthClientId: effectiveIdentity?.oauthClientId,
+              clientAccepted,
+            }),
           approval: {
             state: () =>
               ctx.mcpReq.requestState<McpActionApprovalState>() ?? undefined,
@@ -3721,6 +3734,13 @@ export class McpIdentityVerificationUnavailableError extends Error {
   }
 }
 
+export class McpIdentityVerificationRefusedError extends Error {
+  constructor() {
+    super("MCP identity verification was refused");
+    this.name = "McpIdentityVerificationRefusedError";
+  }
+}
+
 async function verifyA2AJwtForMcp(
   token: string,
   resourceUrl?: string | string[],
@@ -4245,6 +4265,9 @@ export async function verifyAuth(
     if (error instanceof McpIdentityVerificationUnavailableError) {
       return { authed: false, unavailable: true };
     }
+    if (error instanceof McpIdentityVerificationRefusedError) {
+      return { authed: false, refusal: "invalid" };
+    }
     throw error;
   }
   if (payload) {
@@ -4334,13 +4357,17 @@ export async function resolveOrgIdFromDomain(
   orgDomain: string | undefined,
 ): Promise<string | undefined> {
   if (!orgDomain) return undefined;
+  const { lookupOrgByDomain } = await import("../org/context.js");
+  let result: Awaited<ReturnType<typeof lookupOrgByDomain>>;
   try {
-    const { resolveOrgByDomain } = await import("../org/context.js");
-    const org = await resolveOrgByDomain(orgDomain);
-    return org?.orgId ?? undefined;
-  } catch {
-    return undefined;
+    result = await lookupOrgByDomain(orgDomain);
+  } catch (cause) {
+    throw new McpIdentityVerificationUnavailableError(cause);
   }
+  if (result.status === "ambiguous") {
+    throw new McpIdentityVerificationRefusedError();
+  }
+  return result.status === "found" ? result.org.orgId : undefined;
 }
 
 export async function resolveMcpIdentityOrgId(
@@ -4348,8 +4375,13 @@ export async function resolveMcpIdentityOrgId(
 ): Promise<string | undefined> {
   if (identity?.orgId !== undefined) return identity.orgId ?? undefined;
 
-  const orgIdFromDomain = await resolveOrgIdFromDomain(identity?.orgDomain);
-  if (orgIdFromDomain) return orgIdFromDomain;
+  if (identity?.orgDomain !== undefined) {
+    const orgIdFromDomain = await resolveOrgIdFromDomain(identity.orgDomain);
+    if (!orgIdFromDomain) {
+      throw new McpIdentityVerificationRefusedError();
+    }
+    return orgIdFromDomain;
+  }
 
   const userEmail = identity?.userEmail?.trim();
   if (!userEmail) return undefined;

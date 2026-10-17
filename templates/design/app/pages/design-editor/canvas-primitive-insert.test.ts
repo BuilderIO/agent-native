@@ -58,6 +58,12 @@ describe("blankScreenHtml", () => {
     );
     expect(blankScreenHtml("A & B")).toContain("<title>A &amp; B</title>");
   });
+
+  it("loads the Inter family used by new screens", () => {
+    expect(blankScreenHtml("Screen 1")).toMatch(
+      /fonts\.googleapis\.com[^\"]*family=Inter/,
+    );
+  });
 });
 
 describe("appendCanvasPrimitiveToHtml on a URL-backed live screen", () => {
@@ -120,6 +126,20 @@ describe("appendCanvasPrimitiveToHtml on a URL-backed live screen", () => {
 
     expect(element?.style.width).toBe("max-content");
     expect(element?.style.height).toBe("auto");
+  });
+
+  it("loads Inter when new text is added to an existing screen", () => {
+    const html = appendCanvasPrimitiveToHtml(
+      "<!doctype html><html><head></head><body></body></html>",
+      {
+        kind: "text",
+        nodeId: "inter-text",
+        geometry: { x: 0, y: 0, width: 80, height: 24 },
+        text: "Hello",
+      },
+    );
+
+    expect(html).toMatch(/fonts\.googleapis\.com[^\"]*family=Inter/);
   });
 
   const withContainer = (kind: "frame" | "rectangle") =>

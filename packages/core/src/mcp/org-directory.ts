@@ -235,7 +235,7 @@ async function fetchOrgAppsResultInternal(
   }
   try {
     const directoryUrl = `${origin}/_agent-native/org/apps`;
-    const audience = canonicalA2AAudience(directoryUrl);
+    const audience = canonicalA2AAudience(origin);
     const auth = serviceOrgId
       ? await resolveOrgDirectoryServiceAuth(serviceOrgId, audience)
       : await resolveOrgDirectoryCallerAuth(audience);

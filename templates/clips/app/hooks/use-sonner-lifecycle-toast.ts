@@ -34,7 +34,9 @@ export function useSonnerLifecycleToast() {
       const id = toastIdRef.current;
       const nextOptions = {
         ...options,
-        duration: options?.duration ?? 6_000,
+        duration:
+          options?.duration ??
+          (options?.action ? Number.POSITIVE_INFINITY : 6_000),
         ...(id === null ? {} : { id }),
       };
       toast[kind](message, nextOptions);

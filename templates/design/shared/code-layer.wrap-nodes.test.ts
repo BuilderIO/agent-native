@@ -392,6 +392,58 @@ describe("applyWrapNodes (Shift+A auto-layout wrap)", () => {
     expect(patch.result.status).toBe("applied");
     expect(patch.content).toContain('data-agent-native-layer-name="Group"');
   });
+
+  it("keeps intrinsic widths while preserving explicit fill and alignment", () => {
+    const content = `<body>
+  <div data-agent-native-node-id="title" style="position:absolute;left:20px;top:20px;width:max-content;height:auto">A longer title</div>
+  <div data-agent-native-node-id="creator" style="position:absolute;left:20px;top:48px;width:30px;height:20px;align-self:center">Ada</div>
+  <div data-agent-native-node-id="fill" style="position:absolute;left:20px;top:76px;width:100%;height:20px">Details</div>
+</body>`;
+    const patch = applyVisualEdit(content, {
+      kind: "wrapNodes",
+      targetIds: ["title", "creator", "fill"],
+      autoLayout: true,
+      sizeHints: {
+        title: { width: 117, height: 20, left: 20, top: 20 },
+        creator: { width: 30, height: 20, left: 20, top: 48 },
+        fill: { width: 240, height: 20, left: 20, top: 76 },
+      },
+    });
+
+    expect(patch.result.status).toBe("applied");
+    const projection = buildCodeLayerProjection(patch.content);
+    const wrapper = projection.nodes.find(
+      (node) =>
+        node.dataAttributes["data-agent-native-group-wrapper"] === "true",
+    );
+    const title = projection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "title",
+    );
+    const creator = projection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "creator",
+    );
+    const fill = projection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "fill",
+    );
+
+    expect(wrapper?.style).toMatchObject({
+      display: "flex",
+      "flex-direction": "column",
+      "align-items": "flex-start",
+      gap: "8px",
+    });
+    expect(title?.style).toMatchObject({
+      width: "max-content",
+      height: "auto",
+    });
+    expect(title?.style.width).not.toBe("117px");
+    expect(creator?.style).toMatchObject({
+      width: "30px",
+      height: "20px",
+      "align-self": "center",
+    });
+    expect(fill?.style).toMatchObject({ width: "100%", height: "20px" });
+  });
 });
 
 describe("applyWrapNodes (Cmd+Opt+G frame selection, sizeHints fallback)", () => {

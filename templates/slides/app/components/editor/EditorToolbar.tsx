@@ -16,7 +16,6 @@ import { RunsTray } from "@agent-native/toolkit/app/progress";
 import { ShareButton } from "@agent-native/toolkit/app/sharing";
 import { PresenceBar } from "@agent-native/toolkit/collab-ui";
 import {
-  IconArrowLeft,
   IconCircle,
   IconPlayerPlay,
   IconLayoutSidebar,
@@ -29,8 +28,6 @@ import {
   IconMoon,
   IconDotsVertical,
   IconExternalLink,
-  IconArrowBackUp,
-  IconArrowForwardUp,
   IconLoader2,
   IconAdjustments,
   IconPencilPlus,
@@ -43,7 +40,7 @@ import {
   IconSquare,
   IconTextSize,
   IconBolt,
-  IconLayersSubtract,
+  IconStack2,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
@@ -109,6 +106,12 @@ import {
 } from "@/lib/upload-response";
 
 import {
+  normalizeSlideTransition,
+  SLIDE_TRANSITION_TYPES,
+  type SlideTransitionType,
+} from "../../../shared/slide-transitions";
+import { AppMenu } from "./AppMenu";
+import {
   registerEditorCommands,
   type EditorCommand,
 } from "./editor-command-model";
@@ -119,9 +122,17 @@ import {
 import {
   ExportMenu,
   ExportStatusDialog,
+  ExportSubmenu,
   type ExportMenuHandle,
   type ExportStatus,
 } from "./ExportMenu";
+import type { SlideCanvasCommands } from "./SlideEditor";
+import {
+  SLIDE_TRANSITION_LABEL_KEYS,
+  SlideTransitionControl,
+  type SlideTransitionPatch,
+} from "./SlideTransitionControl";
+
 export type PresentRequest = {
   preserveNativeNavigation: true;
 };
@@ -139,7 +150,7 @@ interface EditorToolbarProps {
   onGenerateImage: () => void;
   onOpenAssetLibrary: () => void;
   onShowHistory: () => void;
-  historyButtonRef: React.RefObject<HTMLButtonElement | null>;
+  panelAnchorRef: React.RefObject<HTMLDivElement | null>;
   currentSlide?: Slide;
   onWideContextToolbarSlotChange?: (element: HTMLDivElement | null) => void;
   activeUsers?: CollabUser[];
@@ -163,7 +174,9 @@ interface EditorToolbarProps {
   onToggleTextBoxMode?: () => void;
   shapeType?: SlideShapeType | null;
   onSelectShape?: (shape: SlideShapeType) => void;
-  onChangeSlideTransition?: (transition: SlideTransition) => void;
+  onChangeSlideTransition?: (patch: SlideTransitionPatch) => void;
+  onApplySlideTransitionToAll?: (patch: SlideTransitionPatch) => void;
+  onPlaySlideTransition?: () => void;
   onDuplicateDeck?: () => void;
   onExportPdf?: () => Promise<void> | void;
   onExportPptx?: () => Promise<void> | void;
@@ -177,19 +190,23 @@ interface EditorToolbarProps {
   canRedo?: boolean;
   onUndo?: () => void;
   onRedo?: () => void;
+  canvasCommandsRef?: { current: SlideCanvasCommands | null };
+  onDuplicateSlides?: () => void;
+  onDeleteSlides?: () => void;
+  onPreviousSlide?: () => void;
+  onNextSlide?: () => void;
 }
 
 const TOOLBAR_ICON_BUTTON_CLASS =
   "inline-flex size-8 flex-shrink-0 items-center justify-center rounded-md transition-colors";
 
-type SlideTransition = NonNullable<Slide["transition"]>;
-
-const SLIDE_TRANSITIONS: { value: SlideTransition; labelKey: string }[] = [
-  { value: "instant", labelKey: "editorToolbar.transition_instant" },
-  { value: "fade", labelKey: "editorToolbar.transition_fade" },
-  { value: "slide", labelKey: "editorToolbar.transition_slide" },
-  { value: "zoom", labelKey: "editorToolbar.transition_zoom" },
-];
+const SLIDE_TRANSITIONS: {
+  value: SlideTransitionType;
+  labelKey: string;
+}[] = SLIDE_TRANSITION_TYPES.map((value) => ({
+  value,
+  labelKey: SLIDE_TRANSITION_LABEL_KEYS[value],
+}));
 
 export default function EditorToolbar({
   deck,
@@ -202,7 +219,7 @@ export default function EditorToolbar({
   onGenerateImage,
   onOpenAssetLibrary,
   onShowHistory,
-  historyButtonRef,
+  panelAnchorRef,
   currentSlide,
   onWideContextToolbarSlotChange,
   activeUsers,
@@ -227,6 +244,8 @@ export default function EditorToolbar({
   shapeType,
   onSelectShape,
   onChangeSlideTransition,
+  onApplySlideTransitionToAll,
+  onPlaySlideTransition,
   onDuplicateDeck,
   onExportPdf,
   onExportPptx,
@@ -240,6 +259,11 @@ export default function EditorToolbar({
   canRedo = false,
   onUndo,
   onRedo,
+  canvasCommandsRef,
+  onDuplicateSlides,
+  onDeleteSlides,
+  onPreviousSlide,
+  onNextSlide,
   canEdit = true,
   canComment = canEdit,
 }: EditorToolbarProps) {
@@ -326,6 +350,15 @@ export default function EditorToolbar({
   }, []);
 
   const contextToolbarVisible = canEdit && Boolean(currentSlide);
+  const showSlideTools =
+    (canEdit &&
+      Boolean(
+        (currentSlide && onToggleAnimations) ||
+        onToggleTweaks ||
+        onToggleDrawMode,
+      )) ||
+    (canComment && Boolean(onTogglePinMode));
+  const showCommentsItem = !widgetEmbed && Boolean(onToggleComments);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const backupInputRef = useRef<HTMLInputElement>(null);
   const exportMenuRef = useRef<ExportMenuHandle>(null);
@@ -343,19 +376,9 @@ export default function EditorToolbar({
   const [themeMounted, setThemeMounted] = useState(false);
   useEffect(() => setThemeMounted(true), []);
   const isDark = themeMounted ? resolvedTheme === "dark" : false;
-  const activeSlideTransition: SlideTransition =
-    !currentSlide?.transition || currentSlide.transition === "none"
-      ? "instant"
-      : currentSlide.transition;
-  const undoModifier =
-    typeof navigator !== "undefined" &&
-    /Mac|iPhone|iPad/.test(navigator.platform)
-      ? "⌘"
-      : "Ctrl";
-  const undoShortcut = `${undoModifier} Z`;
-  const redoShortcut =
-    undoModifier === "⌘" ? `${undoModifier} ⇧ Z` : `${undoModifier} Shift Z`;
-
+  const activeSlideTransition = normalizeSlideTransition(
+    currentSlide?.transition,
+  );
   const openFileImport = useCallback(() => {
     if (storageQuery.isLoading) {
       setShowStorageSetup(true);
@@ -587,7 +610,7 @@ export default function EditorToolbar({
           group: "slideTools",
           label: t("editorToolbar.layers"),
           keywords: ["layers", "hierarchy", "stack"],
-          icon: IconLayersSubtract,
+          icon: IconStack2,
           active: layersOpen,
           run: onToggleLayers,
         });
@@ -636,7 +659,7 @@ export default function EditorToolbar({
           keywords: ["slide", "transition", transition.value],
           icon: IconBolt,
           active: activeSlideTransition === transition.value,
-          run: () => onChangeSlideTransition(transition.value),
+          run: () => onChangeSlideTransition({ transition: transition.value }),
         })),
       );
     }
@@ -806,21 +829,31 @@ export default function EditorToolbar({
 
   return (
     <div className="deck-editor-toolbar flex h-12 shrink-0 items-center gap-1 overflow-x-auto whitespace-nowrap bg-background px-2 sm:px-3">
-      {/* Back button */}
-      {!widgetEmbed && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Link
-              to="/home"
-              className={`${TOOLBAR_ICON_BUTTON_CLASS} hover:bg-accent`}
-              aria-label={t("editorToolbar.backToDecks")}
-            >
-              <IconArrowLeft className="size-4 text-muted-foreground" />
-            </Link>
-          </TooltipTrigger>
-          <TooltipContent>{t("editorToolbar.backToDecks")}</TooltipContent>
-        </Tooltip>
-      )}
+      <AppMenu
+        widgetEmbed={widgetEmbed}
+        canEdit={canEdit}
+        exportMenu={
+          <ExportSubmenu
+            exportMenuRef={exportMenuRef}
+            hasSlides={hasSlides}
+            showGoogleSlides={Boolean(onExportGoogleSlides)}
+          />
+        }
+        importing={importing}
+        onImportFile={() => void openFileImport()}
+        onDuplicateDeck={onDuplicateDeck}
+        onDownloadBackup={onDownloadBackup}
+        onShowHistory={onShowHistory}
+        canUndo={canUndo}
+        canRedo={canRedo}
+        onUndo={onUndo}
+        onRedo={onRedo}
+        canvasCommandsRef={canvasCommandsRef}
+        onDuplicateSlides={onDuplicateSlides}
+        onDeleteSlides={onDeleteSlides}
+        onPreviousSlide={onPreviousSlide}
+        onNextSlide={onNextSlide}
+      />
 
       {/* Slide-list toggle (mobile only — desktop uses the app sidebar rail) */}
       <Tooltip>
@@ -838,12 +871,9 @@ export default function EditorToolbar({
         <TooltipContent>{t("editorToolbar.toggleSlideList")}</TooltipContent>
       </Tooltip>
 
-      {/* New Slide and the text-box tool live at the head of the contextual
-       * toolbar below, which SlideEditor portals in at every viewport size
-       * (a wide inline row or a narrow standalone row) whenever there's a
-       * current slide. Render this fallback only when there isn't one — an
-       * empty deck — so those two rows never end up showing the same
-       * buttons twice. */}
+      {/* The contextual toolbar below carries the text-box tool whenever
+       * there's a current slide (New Slide lives in the sidebar then). Render
+       * this fallback only for an empty deck so the buttons never show twice. */}
       {canEdit && !contextToolbarVisible && (
         <EditorActionCluster
           textBoxMode={textBoxMode}
@@ -935,7 +965,45 @@ export default function EditorToolbar({
       )}
 
       {/* Top-right editor actions */}
-      <div className="ml-auto flex shrink-0 items-center gap-1">
+      <div
+        ref={panelAnchorRef}
+        className="ml-auto flex shrink-0 items-center gap-1"
+      >
+        {/* Slide transition — the current slide's entry transition, speed,
+            apply-to-all, and preview. */}
+        {canEdit &&
+          currentSlide &&
+          onChangeSlideTransition &&
+          onApplySlideTransitionToAll && (
+            <SlideTransitionControl
+              currentSlide={currentSlide}
+              currentSlideIndex={currentSlideIndex}
+              canEdit={canEdit}
+              onChange={onChangeSlideTransition}
+              onApplyToAll={onApplySlideTransitionToAll}
+              onPlay={onPlaySlideTransition}
+            />
+          )}
+
+        {canEdit && currentSlide && onToggleLayers && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className={`${TOOLBAR_ICON_BUTTON_CLASS} cursor-pointer hover:bg-accent ${layersOpen ? "bg-accent text-accent-foreground" : "text-muted-foreground"}`}
+                aria-label={t("editorToolbar.layers")}
+                aria-pressed={layersOpen}
+                onClick={onToggleLayers}
+              >
+                <IconStack2 className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{t("editorToolbar.layers")}</TooltipContent>
+          </Tooltip>
+        )}
+
         {/* Presence avatars — shared PresenceBar (agent + collaborators) */}
         <PresenceBar
           activeUsers={activeUsers ?? []}
@@ -946,198 +1014,134 @@ export default function EditorToolbar({
         />
 
         {/* Consolidated editor menu */}
-        <DropdownMenu>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  ref={historyButtonRef}
-                  className={`${TOOLBAR_ICON_BUTTON_CLASS} cursor-pointer text-muted-foreground hover:bg-accent hover:text-foreground/70`}
-                  aria-label={t("editorToolbar.more")}
-                >
-                  <IconDotsVertical className="size-4" />
-                </Button>
-              </DropdownMenuTrigger>
-            </TooltipTrigger>
-            <TooltipContent>{t("editorToolbar.more")}</TooltipContent>
-          </Tooltip>
-          <DropdownMenuContent
-            forceMount
-            align="end"
-            className="max-h-[90vh] w-64 overflow-y-auto"
-          >
-            {((canEdit &&
-              (onToggleAnimations ||
-                onToggleLayers ||
-                onToggleTweaks ||
-                onToggleDrawMode)) ||
-              (canComment && onTogglePinMode)) && (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuLabel>
-                  {t("editorToolbar.slideTools")}
-                </DropdownMenuLabel>
-                <DropdownMenuGroup>
-                  {canEdit && currentSlide && onToggleAnimations && (
-                    <DropdownMenuItem
-                      onSelect={onToggleAnimations}
-                      className={
-                        animationsOpen
-                          ? "bg-accent text-accent-foreground"
-                          : undefined
-                      }
-                    >
-                      <IconBolt className="size-4" />
-                      {t("animations.title")}
-                    </DropdownMenuItem>
-                  )}
-                  {canEdit && currentSlide && onToggleLayers && (
-                    <DropdownMenuItem
-                      onSelect={onToggleLayers}
-                      className={
-                        layersOpen
-                          ? "bg-accent text-accent-foreground"
-                          : undefined
-                      }
-                    >
-                      <IconLayersSubtract className="size-4" />
-                      {t("editorToolbar.layers")}
-                    </DropdownMenuItem>
-                  )}
-                  {canEdit && onToggleTweaks && (
-                    <DropdownMenuItem
-                      onSelect={onToggleTweaks}
-                      className={
-                        tweaksOpen
-                          ? "bg-accent text-accent-foreground"
-                          : undefined
-                      }
-                    >
-                      <IconAdjustments className="size-4" />
-                      {t("editorToolbar.tweaks")}
-                    </DropdownMenuItem>
-                  )}
-                  {canEdit && onToggleDrawMode && (
-                    <DropdownMenuItem
-                      onSelect={onToggleDrawMode}
-                      data-toolbar-draw-button
-                      className={
-                        drawMode
-                          ? "bg-accent text-accent-foreground"
-                          : undefined
-                      }
-                    >
-                      <IconPencilPlus className="size-4" />
-                      {t("editorToolbar.drawOnSlide")}
-                    </DropdownMenuItem>
-                  )}
-                  {canComment && onTogglePinMode && (
-                    <DropdownMenuItem
-                      onSelect={onTogglePinMode}
-                      data-toolbar-pin-button
-                      className={
-                        pinMode ? "bg-accent text-accent-foreground" : undefined
-                      }
-                    >
-                      <IconPin className="size-4" />
-                      {t("editorToolbar.pinComments")}
-                    </DropdownMenuItem>
-                  )}
-                </DropdownMenuGroup>
-              </>
-            )}
+        {(showSlideTools || showCommentsItem) && (
+          <DropdownMenu>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className={`${TOOLBAR_ICON_BUTTON_CLASS} cursor-pointer text-muted-foreground hover:bg-accent hover:text-foreground/70`}
+                    aria-label={t("editorToolbar.more")}
+                  >
+                    <IconDotsVertical className="size-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent>{t("editorToolbar.more")}</TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent
+              forceMount
+              align="end"
+              className="max-h-[90vh] w-64 overflow-y-auto"
+            >
+              {showSlideTools && (
+                <>
+                  <DropdownMenuLabel>
+                    {t("editorToolbar.slideTools")}
+                  </DropdownMenuLabel>
+                  <DropdownMenuGroup>
+                    {canEdit && currentSlide && onToggleAnimations && (
+                      <DropdownMenuItem
+                        onSelect={onToggleAnimations}
+                        className={
+                          animationsOpen
+                            ? "bg-accent text-accent-foreground"
+                            : undefined
+                        }
+                      >
+                        <IconBolt className="size-4" />
+                        {t("animations.title")}
+                      </DropdownMenuItem>
+                    )}
+                    {canEdit && onToggleTweaks && (
+                      <DropdownMenuItem
+                        onSelect={onToggleTweaks}
+                        className={
+                          tweaksOpen
+                            ? "bg-accent text-accent-foreground"
+                            : undefined
+                        }
+                      >
+                        <IconAdjustments className="size-4" />
+                        {t("editorToolbar.tweaks")}
+                      </DropdownMenuItem>
+                    )}
+                    {canEdit && onToggleDrawMode && (
+                      <DropdownMenuItem
+                        onSelect={onToggleDrawMode}
+                        data-toolbar-draw-button
+                        className={
+                          drawMode
+                            ? "bg-accent text-accent-foreground"
+                            : undefined
+                        }
+                      >
+                        <IconPencilPlus className="size-4" />
+                        {t("editorToolbar.drawOnSlide")}
+                      </DropdownMenuItem>
+                    )}
+                    {canComment && onTogglePinMode && (
+                      <DropdownMenuItem
+                        onSelect={onTogglePinMode}
+                        data-toolbar-pin-button
+                        className={
+                          pinMode
+                            ? "bg-accent text-accent-foreground"
+                            : undefined
+                        }
+                      >
+                        <IconPin className="size-4" />
+                        {t("editorToolbar.pinComments")}
+                      </DropdownMenuItem>
+                    )}
+                  </DropdownMenuGroup>
+                </>
+              )}
 
-            {!widgetEmbed && onToggleComments && (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onSelect={onToggleComments}
-                  className={
-                    commentsOpen
-                      ? "bg-accent text-accent-foreground"
-                      : undefined
-                  }
-                >
-                  <IconMessage className="size-4" />
-                  {t("editorToolbar.comments")}
-                  {unresolvedCommentCount > 0 && (
-                    <span className="ml-auto rounded-full bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground">
-                      {unresolvedCommentCount > 9
-                        ? "9+"
-                        : unresolvedCommentCount}
-                    </span>
-                  )}
-                </DropdownMenuItem>
-              </>
-            )}
-
-            <DropdownMenuSeparator />
-            {(onUndo || onRedo) && (
-              <>
-                <DropdownMenuGroup>
-                  {onUndo && (
-                    <DropdownMenuItem disabled={!canUndo} onSelect={onUndo}>
-                      <IconArrowBackUp className="size-4" />
-                      {t("editorToolbar.undoWithShortcut", {
-                        shortcut: undoShortcut,
-                      })}
-                    </DropdownMenuItem>
-                  )}
-                  {onRedo && (
-                    <DropdownMenuItem disabled={!canRedo} onSelect={onRedo}>
-                      <IconArrowForwardUp className="size-4" />
-                      {t("editorToolbar.redoWithShortcut", {
-                        shortcut: redoShortcut,
-                      })}
-                    </DropdownMenuItem>
-                  )}
-                </DropdownMenuGroup>
-                <DropdownMenuSeparator />
-              </>
-            )}
-            {!widgetEmbed && (
-              <>
-                <DropdownMenuGroup>
-                  <DropdownMenuItem onSelect={onShowHistory}>
-                    <IconHistory className="size-4" />
-                    {t("editorToolbar.savedVersions")}
+              {showCommentsItem && (
+                <>
+                  {showSlideTools && <DropdownMenuSeparator />}
+                  <DropdownMenuItem
+                    onSelect={onToggleComments}
+                    className={
+                      commentsOpen
+                        ? "bg-accent text-accent-foreground"
+                        : undefined
+                    }
+                  >
+                    <IconMessage className="size-4" />
+                    {t("editorToolbar.comments")}
+                    {unresolvedCommentCount > 0 && (
+                      <span className="ml-auto rounded-full bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground">
+                        {unresolvedCommentCount > 9
+                          ? "9+"
+                          : unresolvedCommentCount}
+                      </span>
+                    )}
                   </DropdownMenuItem>
-                </DropdownMenuGroup>
-                <DropdownMenuSeparator />
-                <ExportMenu
-                  ref={exportMenuRef}
-                  inline
-                  hideExportDialog
-                  onExportStatusChange={setExportStatus}
-                  hasSlides={hasSlides}
-                  deckId={deckId}
-                  deckTitle={deckTitle}
-                  onDuplicate={onDuplicateDeck ?? (() => {})}
-                  onExportPdf={onExportPdf ?? (() => {})}
-                  onExportPptx={onExportPptx ?? (() => {})}
-                  onExportGoogleSlides={onExportGoogleSlides}
-                />
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  disabled={importing}
-                  onSelect={() => void openFileImport()}
-                >
-                  {importing ? (
-                    <IconLoader2 className="size-4 animate-spin" />
-                  ) : (
-                    <IconDownload className="size-4" />
-                  )}
-                  {importing
-                    ? t("editorToolbar.importing")
-                    : t("editorToolbar.importFile")}
-                </DropdownMenuItem>
-              </>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+        {/* Always mounted so the command palette's export commands have a
+            handle even while the app menu is closed. */}
+        <ExportMenu
+          ref={exportMenuRef}
+          headless
+          hideExportDialog
+          onExportStatusChange={setExportStatus}
+          hasSlides={hasSlides}
+          deckId={deckId}
+          deckTitle={deckTitle}
+          onDuplicate={onDuplicateDeck ?? (() => {})}
+          onExportPdf={onExportPdf ?? (() => {})}
+          onExportPptx={onExportPptx ?? (() => {})}
+          onExportGoogleSlides={onExportGoogleSlides}
+        />
         <ExportStatusDialog
           status={exportStatus}
           onStatusChange={setExportStatus}

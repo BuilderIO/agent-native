@@ -1,8 +1,11 @@
 import { mergeAttributes, Node } from "@tiptap/core";
 import { NodeViewWrapper, ReactNodeViewRenderer } from "@tiptap/react";
 
-import { MentionItemMedia } from "../MentionItemMedia.js";
+import { MentionChip } from "../MentionChip.js";
 import type { MentionItemMedia as MentionItemMediaValue } from "../types.js";
+
+const NAME_START = /^[\p{L}\p{M}\p{N}_]/u;
+const NAME_END = /[\p{L}\p{M}\p{N}_]$/u;
 
 function parseMentionItemMedia(
   value: string | null,
@@ -46,21 +49,16 @@ function parseMentionItemMedia(
 const MentionReferenceComponent = ({ node }: { node: any }) => {
   return (
     <NodeViewWrapper as="span" className="inline">
-      <span
-        className="inline-flex items-center gap-1 rounded-md border border-input bg-muted/50 px-1.5 py-0.5 text-xs font-medium text-foreground align-middle mx-0.5 max-w-[200px] select-none"
+      <MentionChip
+        className="select-none"
         title={node.attrs.refPath || node.attrs.refId || node.attrs.label}
         data-mention-reference=""
         data-mention-ref-type={node.attrs.refType || undefined}
         data-mention-ref-id={node.attrs.refId || undefined}
-      >
-        <MentionItemMedia
-          icon={node.attrs.icon}
-          media={node.attrs.media}
-          size="sm"
-          fallbackIcon="stack"
-        />
-        <span className="truncate">{node.attrs.label}</span>
-      </span>
+        icon={node.attrs.icon}
+        media={node.attrs.media}
+        label={node.attrs.label}
+      />
     </NodeViewWrapper>
   );
 };
@@ -106,8 +104,18 @@ export const MentionReference = Node.create({
     ];
   },
 
-  renderText({ node }) {
-    return `@${node.attrs.label}`;
+  renderText({ node, parent, index }) {
+    const text = `@${node.attrs.label}`;
+    // Text matches a mention only as a whole @name token, so a chip right
+    // against a word would read as no mention, or as a later one.
+    const before = parent.maybeChild(index - 1);
+    const after = parent.maybeChild(index + 1);
+    const leading = before?.isText && NAME_END.test(before.text ?? "");
+    const trailing =
+      NAME_END.test(text) &&
+      ((after?.isText && NAME_START.test(after.text ?? "")) ||
+        after?.type === node.type);
+    return `${leading ? " " : ""}${text}${trailing ? " " : ""}`;
   },
 
   addNodeView() {

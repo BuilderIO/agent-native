@@ -1,5 +1,238 @@
 # @agent-native/skills
 
+## 0.3.36
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [f99e655]
+- Updated dependencies [579d66c]
+- Updated dependencies [d2587cf]
+- Updated dependencies [29928da]
+- Updated dependencies [61089ee]
+- Updated dependencies [ce4eca0]
+- Updated dependencies [ce4eca0]
+- Updated dependencies [8fbccb3]
+- Updated dependencies [ce4eca0]
+- Updated dependencies [61089ee]
+- Updated dependencies [ce4eca0]
+- Updated dependencies [69ad141]
+- Updated dependencies [ce4eca0]
+- Updated dependencies [6ed8f2b]
+- Updated dependencies [ce4eca0]
+- Updated dependencies [29928da]
+- Updated dependencies
+- Updated dependencies [a25c2a1]
+- Updated dependencies [36fc751]
+- Updated dependencies [ce4eca0]
+- Updated dependencies [bc7309d]
+- Updated dependencies [9d86528]
+- Updated dependencies [f99e655]
+- Updated dependencies [d094432]
+- Updated dependencies [4e79d4e]
+- Updated dependencies [38a66a8]
+- Updated dependencies [bf66cdc]
+  - @agent-native/core@0.209.2
+
+## 0.3.35
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [eb4cd30]
+- Updated dependencies [ebf1cc7]
+- Updated dependencies [e90b90a]
+- Updated dependencies [db3a30e]
+- Updated dependencies [ce01559]
+- Updated dependencies [b95626f]
+- Updated dependencies
+- Updated dependencies [517fade]
+- Updated dependencies [c139e35]
+- Updated dependencies [c139e35]
+- Updated dependencies [64bf791]
+- Updated dependencies [e5a64ae]
+- Updated dependencies [ef6a530]
+- Updated dependencies [e6e1f56]
+- Updated dependencies [4e49b3a]
+  - @agent-native/core@0.209.1
+
+## 0.3.34
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [d52c0b3]
+- Updated dependencies [9df9b9e]
+- Updated dependencies [340b878]
+- Updated dependencies [1856007]
+- Updated dependencies [980bd9f]
+- Updated dependencies [d31e11d]
+- Updated dependencies [11c3988]
+- Updated dependencies [62cc000]
+- Updated dependencies
+- Updated dependencies [3be2c82]
+- Updated dependencies [8961aeb]
+- Updated dependencies [3be2c82]
+- Updated dependencies [3be2c82]
+- Updated dependencies [6c0529a]
+- Updated dependencies [3b9d3cd]
+- Updated dependencies [9bb5cda]
+- Updated dependencies [3ab5193]
+- Updated dependencies [49ec8ae]
+- Updated dependencies [459b1eb]
+  - @agent-native/core@0.209.0
+
+## 0.3.33
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [789eb04]
+- Updated dependencies [4434457]
+- Updated dependencies [d7d852c]
+- Updated dependencies [590252b]
+- Updated dependencies [9cb95d8]
+- Updated dependencies [0fb4de3]
+- Updated dependencies [cde733c]
+- Updated dependencies [4434457]
+- Updated dependencies
+- Updated dependencies [db2f859]
+- Updated dependencies [4434457]
+- Updated dependencies [0fb4de3]
+- Updated dependencies [75e39e8]
+- Updated dependencies [0fb4de3]
+- Updated dependencies [0fb4de3]
+- Updated dependencies [4434457]
+- Updated dependencies [cde733c]
+- Updated dependencies [4434457]
+- Updated dependencies [afe2ee7]
+- Updated dependencies [4434457]
+- Updated dependencies [cde733c]
+  - @agent-native/core@0.208.0
+
+## 0.3.32
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [a784860]
+- Updated dependencies [29ad75e]
+- Updated dependencies [f1324b1]
+- Updated dependencies [1c4a192]
+- Updated dependencies [9b463c8]
+- Updated dependencies [5989b7f]
+- Updated dependencies [5619bf5]
+- Updated dependencies
+- Updated dependencies [77c15ee]
+- Updated dependencies [d62d56e]
+- Updated dependencies [1c4a192]
+- Updated dependencies [8c97965]
+- Updated dependencies [77c15ee]
+  - @agent-native/core@0.207.1
+
+## 0.3.31
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- e818cf9: Device-flow browser approval links use the same configured public origin and base path as MCP identity and OAuth discovery, so an internal proxy host does not leak into the URL the CLI opens.
+
+  The MCP server settings and `/mcp/connect` page add **Add to Cursor**, **Add to VS Code**, and **Add to VS Code Insiders** install links, a VS Code guide, and a Codex guide that uses `codex mcp add` and `codex mcp login`. The app now names its own MCP server through a public `GET /mcp/connect/identity` route: production keeps the bare name (`agent-native-mail`), while beta, preview, and local deployments put the environment first (`beta-agent-native-mail`), so one client can hold both. Because no production name starts with `beta-`, `preview-`, or `local-`, beta `mail` and a production app named `mail-beta` (`agent-native-mail-beta`) never share an entry; `mcp.serverName` cannot start with those prefixes. Settings, the connect page, install links, and `npx @agent-native/core connect` all use that name instead of each deriving one from the hostname. Install links carry only the server name, transport, and MCP URL. Use `buildMcpInstallLink` from `@agent-native/core/shared/mcp-connect-content` and `useMcpConnectIdentity` from `@agent-native/core/client/mcp-connect-identity` to build them elsewhere. When both `VITE_APP_BASE_PATH` and `APP_BASE_PATH` are set, the connect page, the identity route, and the MCP OAuth metadata now resolve the base path the way the MCP server mounts it, with `VITE_APP_BASE_PATH` first, instead of advertising `APP_BASE_PATH`. `connect` and `@agent-native/skills` now escape every control character they write into Codex's `config.toml`, in server names from `--name` and in URLs and header values, so no name or value can break the file. A server name that is not a plain identifier (letters, digits, `-` and `_`, at most 64 characters) now fails the connect page and identity route with an error naming `mcp.serverName`, instead of being published into copyable `claude mcp add` and `codex mcp add` commands. The connect routes resolve that name before minting a token, so a refused name never leaves an issued token behind. A name derived from the app id or hostname is shortened and cleaned to fit instead of refused, and one that had to change ends in `__` and a 53-bit hash of the original, such as `agent-native-acme-notes__<hash>` for `@acme/notes`. No derived name used as is contains `__`, so a cleaned name never matches another app's plain derived name, and two cleaned names match only on a hash collision. A configured `mcp.serverName` is used as given, so it can still match another app's configured or derived name. An app with no `app.id`, template, or slug takes its name from the public URL that OAuth discovery advertises rather than the request's host, so one served behind a proxy under an internal hostname can get a new name; set `mcp.serverName` to keep the old one. `GET /mcp/connect/identity` stays mounted when `mcp.connect` is `false`, so Settings and share dialogs still show the server; its new `connect` field is then `false`, and they show the server URL without install links, client guides, or the connect-page link, since none of those can sign in. The identity's URLs are the public URL MCP OAuth discovery advertises (`APP_URL` or `WORKSPACE_OAUTH_ORIGIN` when set) rather than the request's `Host`, so a link installed behind a proxy signs in against the same resource. Listing and revoking tokens keeps working when the server name is refused. `connect` now stops with an error on an empty `--name` before it starts the browser approval.
+
+- Updated dependencies [204e4b3]
+- Updated dependencies [3d09f9f]
+- Updated dependencies [a06e1cb]
+- Updated dependencies [eb2ca66]
+- Updated dependencies [d7da131]
+- Updated dependencies [d7da131]
+- Updated dependencies [dfcc0de]
+- Updated dependencies [43d0aa8]
+- Updated dependencies [d407242]
+- Updated dependencies [5debd13]
+- Updated dependencies [2e167cf]
+- Updated dependencies [58e7808]
+- Updated dependencies [6f1fa56]
+- Updated dependencies [58e7808]
+- Updated dependencies [a9c8414]
+- Updated dependencies [08e3932]
+- Updated dependencies [19cd58b]
+- Updated dependencies [d7da131]
+- Updated dependencies [aa34418]
+- Updated dependencies [7f11f95]
+- Updated dependencies [a2e4a26]
+- Updated dependencies [a5dfaee]
+- Updated dependencies [644ec0a]
+- Updated dependencies [0c33f1c]
+- Updated dependencies [00b9885]
+- Updated dependencies [4132473]
+- Updated dependencies [c9ad0b8]
+- Updated dependencies [5debd13]
+- Updated dependencies [44ba265]
+- Updated dependencies [ad92b85]
+- Updated dependencies [692e50f]
+- Updated dependencies [d8404f1]
+- Updated dependencies [dce2ac0]
+- Updated dependencies [3a1fc0f]
+- Updated dependencies [13d37c7]
+- Updated dependencies [ccddd3a]
+- Updated dependencies [fbba54f]
+- Updated dependencies [9bb40f0]
+- Updated dependencies [b3653e1]
+- Updated dependencies [ece64fa]
+- Updated dependencies [8e1d625]
+- Updated dependencies [1284000]
+- Updated dependencies [1615011]
+- Updated dependencies
+- Updated dependencies [19092a7]
+- Updated dependencies [e818cf9]
+- Updated dependencies [9f18cc9]
+- Updated dependencies [7294eed]
+- Updated dependencies [529881a]
+- Updated dependencies [7a5b2be]
+- Updated dependencies [d7da131]
+- Updated dependencies [8e165e4]
+- Updated dependencies [d44b119]
+- Updated dependencies [5debd13]
+- Updated dependencies [cdc66e3]
+- Updated dependencies [0d9c1c4]
+- Updated dependencies [cbca71a]
+- Updated dependencies [58e7808]
+- Updated dependencies [7f11f95]
+- Updated dependencies [58e7808]
+- Updated dependencies [44ba265]
+- Updated dependencies [c9ad0b8]
+- Updated dependencies [41700be]
+- Updated dependencies [fbba54f]
+- Updated dependencies [fbba54f]
+- Updated dependencies [4ff59ad]
+- Updated dependencies [079f025]
+- Updated dependencies [2f9ec18]
+- Updated dependencies [c2ea6bf]
+- Updated dependencies [24740f4]
+- Updated dependencies [d7da131]
+- Updated dependencies [5f05a4e]
+- Updated dependencies [d7da131]
+- Updated dependencies [3451273]
+- Updated dependencies [4135e74]
+- Updated dependencies [44ba265]
+- Updated dependencies [bc9e159]
+- Updated dependencies [b4e78ea]
+- Updated dependencies [7f11f95]
+- Updated dependencies [2e74b7b]
+- Updated dependencies [9bb40f0]
+- Updated dependencies [f8930b5]
+- Updated dependencies [9bb40f0]
+- Updated dependencies [3daa76a]
+- Updated dependencies [fbba54f]
+- Updated dependencies [75a4b65]
+- Updated dependencies [b9179b0]
+- Updated dependencies [9759752]
+- Updated dependencies [12a8ede]
+- Updated dependencies [d7da131]
+- Updated dependencies [70bf54c]
+- Updated dependencies [d4854b8]
+  - @agent-native/core@0.207.0
+
 ## 0.3.30
 
 ### Patch Changes
@@ -2102,58 +2335,5 @@
 
 - Updated dependencies [d3210d7]
   - @agent-native/core@0.167.5
-
-## 0.2.669
-
-### Patch Changes
-
-- Updated dependencies [8b73951]
-  - @agent-native/core@0.167.4
-
-## 0.2.668
-
-### Patch Changes
-
-- Updated dependencies [1aafc1d]
-- Updated dependencies [40baf42]
-- Updated dependencies [1aafc1d]
-  - @agent-native/core@0.167.3
-
-## 0.2.667
-
-### Patch Changes
-
-- Updated dependencies [95d9d70]
-- Updated dependencies [7f22204]
-  - @agent-native/core@0.167.2
-
-## 0.2.666
-
-### Patch Changes
-
-- Updated dependencies [ca9ee7e]
-  - @agent-native/core@0.167.1
-
-## 0.2.665
-
-### Patch Changes
-
-- Updated dependencies [3a7a8f0]
-  - @agent-native/core@0.167.0
-
-## 0.2.664
-
-### Patch Changes
-
-- 10de7b9: Remove unused imports and unreachable declarations. Dispatch drops unused
-  imports from its layout, transactional email pages, and MCP gateway;
-  creative-context drops unused type imports and an unread `headingStyle`;
-  recap-cli drops the `node:os` import and two unread locals; skills drops the
-  unreferenced `maybeUpdateInstructions` helper; toolkit drops unused imports and
-  an unread `REALTIME_VOICE_REQUEST_SOURCE`. No runtime behavior changes.
-  `eslint/no-unused-vars` is now an oxlint error instead of a warning, so CI
-  blocks new ones.
-- Updated dependencies [8fd035c]
-  - @agent-native/core@0.166.1
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

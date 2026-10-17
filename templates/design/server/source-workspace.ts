@@ -170,6 +170,11 @@ function dbExecForDrizzleTransaction(
 
 const _designTransactionExecs = new WeakMap<object, DbExec>();
 
+export interface DesignSourceMutationTransactionOutcome {
+  callbackCompleted: boolean;
+  rollbackConfirmed: boolean;
+}
+
 export function getDesignSourceMutationExec(transaction: object): DbExec {
   const exec = _designTransactionExecs.get(transaction);
   if (!exec) {
@@ -183,19 +188,46 @@ export function getDesignSourceMutationExec(transaction: object): DbExec {
 export function withDesignSourceMutationTransaction<T>(
   designId: string,
   callback: (tx: DesignSourceMutationTransaction) => Promise<T>,
+  outcome?: DesignSourceMutationTransactionOutcome,
 ): Promise<T> {
-  return getDb().transaction(async (tx) => {
-    await tx.execute(
-      sql`SELECT pg_advisory_xact_lock(hashtextextended(${designSourceMutationLockKey(designId)}, 0::bigint))`,
-    );
-    const transactionExec = dbExecForDrizzleTransaction(tx);
-    _designTransactionExecs.set(tx, transactionExec);
-    try {
-      return await callback(tx);
-    } finally {
-      _designTransactionExecs.delete(tx);
-    }
-  });
+  if (outcome) {
+    outcome.callbackCompleted = false;
+    outcome.rollbackConfirmed = false;
+  }
+  let callbackError: unknown;
+  let callbackThrew = false;
+  return getDb()
+    .transaction(async (tx) => {
+      await tx.execute(
+        sql`SELECT pg_advisory_xact_lock(hashtextextended(${designSourceMutationLockKey(designId)}, 0::bigint))`,
+      );
+      const transactionExec = dbExecForDrizzleTransaction(tx);
+      _designTransactionExecs.set(tx, transactionExec);
+      try {
+        try {
+          const result = await callback(tx);
+          if (outcome) outcome.callbackCompleted = true;
+          return result;
+        } catch (error) {
+          callbackThrew = true;
+          callbackError = error;
+          throw error;
+        }
+      } finally {
+        _designTransactionExecs.delete(tx);
+      }
+    })
+    .catch((error: unknown) => {
+      if (
+        outcome &&
+        callbackThrew &&
+        !outcome.callbackCompleted &&
+        callbackError === error
+      ) {
+        outcome.rollbackConfirmed = true;
+      }
+      throw error;
+    });
 }
 
 export function withDesignSourceReadTransaction<T>(
@@ -444,12 +476,17 @@ export async function prepareInlineSourceEdit(args: {
       "A source revision is required with current editor content.",
     );
   }
-  if (!args.file.updatedAt || args.revision !== args.file.updatedAt) {
+  if (!args.file.updatedAt) {
     throw new SourceWorkspaceEditConflictError();
   }
 
+  const revisionMatches = args.revision === args.file.updatedAt;
   const persistedVersionHash = sourceContentHash(args.file.content ?? "");
   const workingVersionHash = sourceContentHash(args.currentContent);
+  // A lagging editor timestamp is safe only when it already holds the live bytes.
+  if (!revisionMatches && workingVersionHash !== live.versionHash) {
+    throw new SourceWorkspaceEditConflictError();
+  }
   if (
     live.versionHash !== persistedVersionHash &&
     live.versionHash !== workingVersionHash

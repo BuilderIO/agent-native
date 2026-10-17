@@ -15,3 +15,18 @@ description: "在 Core 兼容路径、模板模式与 Toolkit 原语之间作出
 | 画布呈现     | Toolkit 或应用的组合。                                      |
 
 请从 `@agent-native/toolkit/editor` 导入编辑器。旧 Core 路径继续作为兼容性重导出。架构、命令和持久化仍由应用负责。Blocks 仍归 Core，但 Toolkit 栏目是可复用 UI 的统一目录，因此文档集中在这里。
+
+Core负责Blocks架构和运行时契约；Toolkit提供可复用的客户端UI。Context X-Ray引擎和actions归Core所有；Toolkit界面从app/context-xray导出。.
+
+## 画布交互和注释
+
+Toolkit提供手势和快捷键的无界面辅助工具，以及用于绘图和文字指令的DrawOverlay、用于可发送给智能体的锚定反馈的CanvasCommentPins。画布模型、渲染、持久化和智能体上下文由应用负责。
+
+<WireframeBlock id="doc-block-toolkit-canvas-interactions">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:500px;box-sizing:border-box;padding:24px;display:grid;grid-template-columns:1fr 250px;gap:14px'><main class='wf-card' style='display:flex;flex-direction:column;gap:12px'><div style='display:flex;align-items:center;gap:8px'><span class='wf-pill accent'>选择</span><span class='wf-pill'>绘制</span><span class='wf-pill'>评论</span><div style='flex:1'></div><span class='wf-muted'>画布控件</span></div><div class='wf-box' style='position:relative;flex:1;min-height:330px;display:flex;align-items:center;justify-content:center'><div style='width:72%;height:76%;border:1px solid var(--wf-line);border-radius:10px;padding:18px;display:flex;flex-direction:column;gap:10px'><strong>活动页</strong><div style='position:relative;height:70px;border-radius:8px;background:var(--wf-accent-soft);overflow:hidden'><span class='wf-pill accent' style='position:absolute;top:42%;left:38%'>绘图备注</span></div><div style='height:10px;width:85%;background:var(--wf-line);border-radius:4px'></div><div style='height:10px;width:65%;background:var(--wf-line);border-radius:4px'></div></div><span class='wf-pill accent' style='position:absolute;top:34%;left:61%'>1</span><span class='wf-pill accent' style='position:absolute;bottom:28%;left:41%'>2</span></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px;padding-top:26px'><strong>反馈</strong><div class='wf-box'>1 &nbsp; 将此标题移到图片上方。</div><div class='wf-box'>2 &nbsp; 提高此标签的对比度。</div><div style='flex:1'></div><button class='primary'><span data-icon='send'></span> 发送反馈</button></aside></div>"
+    }
+  />
+</WireframeBlock>

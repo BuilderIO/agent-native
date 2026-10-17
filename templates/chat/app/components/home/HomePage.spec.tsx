@@ -208,16 +208,10 @@ describe("HomePage", () => {
   it("links to the docs and community", () => {
     act(() => root.render(<HomePage />));
 
-    expect(
-      container.querySelector(
-        'a[href="https://www.agent-native.com/docs/getting-started#connect-an-llm"]',
-      )?.textContent,
-    ).toBe("home.llmSetupLink");
     const hrefs = Array.from(container.querySelectorAll("a")).map((link) =>
       link.getAttribute("href"),
     );
     expect(hrefs).toEqual([
-      "https://www.agent-native.com/docs/getting-started#connect-an-llm",
       "https://www.agent-native.com/docs/getting-started",
       "https://www.agent-native.com/docs/getting-started-actions",
       "https://www.agent-native.com/docs/getting-started-pages",

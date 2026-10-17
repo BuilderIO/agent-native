@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  assertPlanContentAuthoringChanges,
+  agentPlanContentSchema,
   applyPlanContentPatches,
+  PlanContentValidationError,
   migratePlanContent,
   planContentSchema,
+  storedPlanContentSchema,
   type PlanContent,
   type PlanWireframeNode,
 } from "../shared/plan-content.js";
@@ -16,6 +20,7 @@ import {
   createUiPlanContent,
   createVisualQuestionsContent,
   normalizePlanDesignContent,
+  normalizePlanContent,
   parsePlanContent,
   sanitizeCustomHtml,
   serializePlanContent,
@@ -1496,6 +1501,233 @@ describe("parsePlanContent per-block salvage", () => {
     expect(result).not.toBeNull();
     expect(result?.blocks).toHaveLength(2);
     expect(result?.blocks[0]?.type).toBe("rich-text");
+  });
+
+  it("preserves legacy block types when optional fields are omitted", () => {
+    const result = parsePlanContent({
+      version: 2,
+      blocks: [
+        { id: "legacy-checklist", type: "checklist", data: {} },
+        { id: "legacy-questions", type: "question-form", data: {} },
+        { id: "legacy-visual-questions", type: "visual-questions", data: {} },
+        {
+          id: "legacy-tabs",
+          type: "tabs",
+          data: { orientation: "vertical" },
+        },
+        { id: "legacy-data-model", type: "data-model", data: {} },
+        { id: "legacy-annotated-code", type: "annotated-code", data: {} },
+      ],
+    });
+
+    expect(result?.blocks.map((block) => block.type)).toEqual([
+      "checklist",
+      "question-form",
+      "visual-questions",
+      "tabs",
+      "data-model",
+      "annotated-code",
+    ]);
+    expect(result?.blocks).toMatchObject([
+      { id: "legacy-checklist", data: { items: [] } },
+      { id: "legacy-questions", data: { questions: [] } },
+      { id: "legacy-visual-questions", data: { questions: [] } },
+      {
+        id: "legacy-tabs",
+        data: { orientation: "vertical", tabs: [] },
+      },
+      { id: "legacy-data-model", data: { entities: [] } },
+      { id: "legacy-annotated-code", data: { code: "" } },
+    ]);
+
+    const roundTripped = parsePlanContent(serializePlanContent(result!));
+    expect(roundTripped?.blocks).toMatchObject(result?.blocks);
+  });
+
+  it("does not accept an explicitly invalid legacy field as an omission", () => {
+    const result = parsePlanContent({
+      version: 2,
+      blocks: [{ id: "invalid-tabs", type: "tabs", data: { tabs: null } }],
+    });
+
+    expect(result?.blocks[0]?.type).toBe("callout");
+    const placeholder = result?.blocks[0];
+    if (placeholder?.type !== "callout") throw new Error("expected callout");
+    expect(placeholder.data.body).toContain(UNKNOWN_MARKER);
+    expect(placeholder.data.body).toContain("tabs");
+  });
+
+  it("keeps legacy defaults on reads while requiring authored fields on writes", () => {
+    const cases = [
+      [{ id: "legacy-checklist", type: "checklist", data: {} }, { items: [] }],
+      [
+        { id: "legacy-questions", type: "question-form", data: {} },
+        { questions: [] },
+      ],
+      [{ id: "legacy-tabs", type: "tabs", data: {} }, { tabs: [] }],
+      [{ id: "legacy-model", type: "data-model", data: {} }, { entities: [] }],
+      [{ id: "legacy-code", type: "annotated-code", data: {} }, { code: "" }],
+    ] as const;
+
+    for (const [block, expectedData] of cases) {
+      const input = { version: 2, blocks: [block] };
+      const stored = storedPlanContentSchema.parse(input);
+      expect(stored.blocks[0]).toMatchObject({ data: expectedData });
+      expect(planContentSchema.safeParse(input).success).toBe(false);
+      expect(agentPlanContentSchema.safeParse(input).success).toBe(false);
+      expect(() => normalizePlanContent(input)).toThrow();
+    }
+
+    expect(
+      planContentSchema.safeParse({
+        version: 2,
+        blocks: [
+          {
+            id: "parent",
+            type: "tabs",
+            data: {
+              tabs: [
+                {
+                  id: "tab",
+                  label: "Tab",
+                  blocks: [{ id: "nested", type: "checklist", data: {} }],
+                },
+              ],
+            },
+          },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("allows unchanged stored empty defaults but rejects new incomplete source blocks", () => {
+    const legacy = storedPlanContentSchema.parse({
+      version: 2,
+      blocks: [
+        { id: "legacy-questions", type: "question-form", data: {} },
+        { id: "legacy-tabs", type: "tabs", data: {} },
+        { id: "legacy-model", type: "data-model", data: {} },
+      ],
+    });
+    expect(() =>
+      assertPlanContentAuthoringChanges(legacy, legacy),
+    ).not.toThrow();
+
+    const withNewIncompleteBlock = storedPlanContentSchema.parse({
+      ...legacy,
+      blocks: [
+        ...legacy.blocks,
+        {
+          id: "new-empty-questions",
+          type: "question-form",
+          data: { questions: [] },
+        },
+      ],
+    });
+    expect(() =>
+      assertPlanContentAuthoringChanges(withNewIncompleteBlock, legacy),
+    ).toThrow(/question-form blocks require at least one questions entry/);
+
+    const previouslyValid = storedPlanContentSchema.parse({
+      version: 2,
+      blocks: [
+        {
+          id: "questions",
+          type: "question-form",
+          data: {
+            questions: [{ id: "q1", title: "Question", mode: "freeform" }],
+          },
+        },
+      ],
+    });
+    const emptied = storedPlanContentSchema.parse({
+      version: 2,
+      blocks: [
+        { id: "questions", type: "question-form", data: { questions: [] } },
+      ],
+    });
+    expect(() =>
+      assertPlanContentAuthoringChanges(emptied, previouslyValid),
+    ).toThrow(/question-form blocks require at least one questions entry/);
+  });
+
+  it("validates block replacements against existing legacy defaults", () => {
+    const legacy = storedPlanContentSchema.parse({
+      version: 2,
+      blocks: [
+        { id: "legacy-questions", type: "question-form", data: {} },
+        { id: "legacy-tabs", type: "tabs", data: {} },
+      ],
+    });
+    const questions = legacy.blocks[0];
+    if (questions?.type !== "question-form") {
+      throw new Error("Expected a question-form block");
+    }
+
+    expect(() =>
+      applyPlanContentPatches(legacy, [
+        { op: "replace-block", blockId: questions.id, block: questions },
+        { op: "replace-blocks", blocks: legacy.blocks },
+      ]),
+    ).not.toThrow();
+
+    expect(() =>
+      applyPlanContentPatches(legacy, [
+        {
+          op: "replace-blocks",
+          blocks: [
+            ...legacy.blocks,
+            {
+              id: "new-questions",
+              type: "question-form",
+              data: { questions: [] },
+            },
+          ],
+        },
+      ]),
+    ).toThrow(/question-form blocks require at least one questions entry/);
+  });
+
+  it("strictly validates authored content when there is no previous plan", () => {
+    const incomplete = storedPlanContentSchema.parse({
+      version: 2,
+      blocks: [
+        {
+          id: "new-questions",
+          type: "question-form",
+          data: { questions: [] },
+        },
+      ],
+    });
+
+    expect(() => assertPlanContentAuthoringChanges(incomplete, null)).toThrow(
+      PlanContentValidationError,
+    );
+    expect(() => assertPlanContentAuthoringChanges(incomplete, null)).toThrow(
+      /question-form blocks require at least one questions entry/,
+    );
+  });
+
+  it("rejects null in lenient stored fields and empty required authoring arrays", () => {
+    expect(
+      storedPlanContentSchema.safeParse({
+        version: 2,
+        blocks: [{ id: "bad", type: "tabs", data: { tabs: null } }],
+      }).success,
+    ).toBe(false);
+
+    for (const [type, field] of [
+      ["question-form", "questions"],
+      ["tabs", "tabs"],
+      ["data-model", "entities"],
+    ] as const) {
+      expect(
+        planContentSchema.safeParse({
+          version: 2,
+          blocks: [{ id: `empty-${type}`, type, data: { [field]: [] } }],
+        }).success,
+      ).toBe(false);
+    }
   });
 
   it("salvages good blocks and replaces the bad block with a callout placeholder", () => {

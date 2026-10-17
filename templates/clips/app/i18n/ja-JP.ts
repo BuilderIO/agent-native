@@ -6,6 +6,9 @@ const messages = {
     includeLast: "直前を含める",
     whatIsThis: "これは何ですか？",
     off: "オフ",
+    none: "なし",
+    noneExplanation:
+      "「なし」は、新しいClipに録画前の画面を含めないという意味です。Rewindがオンの間は画面を録画し続けます。停止するには、下の「オフにする」を選択してください。",
     custom: "カスタム…",
     customLabel: "カスタムの長さ",
     customAmount: "長さ",
@@ -17,9 +20,29 @@ const messages = {
     customErrorInvalid: "秒または分の整数で入力してください。",
     customErrorTooLong: "5分以内にしてください。",
     turnOnRewind: "Rewindをオンにする",
+    turnOffRewind: "オフにする",
+    turnOffRewindFailed:
+      "Rewindをオフにできませんでした。録画を停止してからもう一度お試しください。",
+    turnOnRewindFailed:
+      "Rewindをオンにできませんでした。もう一度お試しください。",
+    turnOnRewindPermissionFailed:
+      "システム設定 > プライバシーとセキュリティ > 画面収録とシステムオーディオ収録でClipsの画面収録を許可し、Clipsを再起動してからもう一度お試しください。",
+    turnOnRewindUnsupported: "Rewindの画面収録はmacOSでのみ利用できます。",
+    turnOnRewindNoSpace:
+      "Rewindを開始するためのディスク空き容量が不足しています。空き容量を確保して、もう一度お試しください。",
+    turnOnRewindStopClip:
+      "Rewindをオンにする前に、現在のClipを停止してください。",
+    turnOnRewindStorageFailed:
+      "Rewindの保存領域にアクセスできません。ディスクの空き容量とフォルダのアクセス権を確認して、もう一度お試しください。",
+    rewindConsentTitle: "Rewindをオンにしますか？",
+    rewindConsentBody:
+      "Rewindがオンの間、Clipsは画面を継続的に録画し、選択した時間またはストレージの上限に達するまで最近の履歴をこのデバイスに保存します。「画面 + 音声」を選ぶと、マイクとシステム音声も録音します。接続したエージェントはClipsの承認なしで画面画像に直接アクセスできます。その後の画像の扱いはエージェントによって異なります。設定した以前の画面時間は新しいClipごとに自動で追加され、そのClipの共有設定が適用されます。選択した時間をClipとして共有するリクエストは、既定で送信前に確認されます。Rewind設定で送信前の確認をオフにすると、リクエストは自動送信されます。Clipには録音済みのマイク音声やシステム音声が含まれることがあります。Rewindをオフにすると新しい録画は停止しますが、保存済みの履歴は残ります。オフの間、履歴は時間またはストレージの上限を超えて残ることがあり、録画を再開すると上限が適用されます。「すべて削除」を選ぶと今すぐ履歴を消去できます。",
+    rewindConsentCancel: "今はしない",
+    rewindConsentConfirm: "Rewindをオンにする",
+    rewindConsentBusy: "Rewindをオンにしています…",
     rewindOffTitle: "Rewindをオンにする",
     rewindOffBody:
-      "Rewindは画面のローカル履歴を保持するため、録画前の直近数分間を含めることができます。映像は、含めることを選んだか承認した場合にのみアップロードされます。",
+      "以前の画面を含めるには、まずRewindをオンにしてください。Rewindがオンの間は、このデバイスに最近の画面履歴を保存し、時間とストレージの上限に合わせて整理します。Rewindがオフの間は、録画が再開されるまで履歴が上限を超えて残ることがあります。今すぐ削除するには、Settings > Rewind > Storage > On this deviceを開き、Delete allを選んでください。Clipの共有リクエストは既定で送信前に確認されますが、Rewind設定で送信前の確認をオフにすると自動送信されます。",
     requestFailed:
       "録画前の画面を含められませんでした。録画はそのまま続きます。",
     localOnlyUnavailable:
@@ -207,9 +230,12 @@ const messages = {
     expandSidebar: "サイドバーを展開",
     collapseSidebar: "サイドバーを折りたたむ",
     agentEmptyState: "録画についてどのようにお手伝いしましょうか？",
-    agentSuggestionSummary: "最新の録画を要約して",
-    agentSuggestionPricing: "価格について話した箇所を探して",
-    agentSuggestionFiller: "このクリップからフィラー語を削除して",
+    agentSuggestionSummary: "録画を要約して",
+    agentSuggestionPricing: "価格の言及を探して",
+    agentSuggestionFiller: "フィラー語を削除して",
+    agentScreenshotSuggestionSummary: "スクリーンショットを要約して",
+    agentScreenshotSuggestionText: "スクリーンショット内の文字を探して",
+    agentScreenshotSuggestionCompare: "スクリーンショットを比較して",
     createFolderError: "作成に失敗しました",
     folderCreated: "フォルダを作成しました",
     folderNamePlaceholder: "フォルダ名",
@@ -305,6 +331,10 @@ const messages = {
     transcriptionCompleted: "文字起こしが完了しました",
     transcriptNotReady: "トランスクリプトはまだ準備ができていません",
     tryAfterTranscription: "文字起こしが完了してからもう一度お試しください。",
+    silenceTranscriptUnavailableTitle:
+      "この文字起こしは無音部分の削除に使用できません",
+    silenceTranscriptUnavailableDescription:
+      "新しい文字起こしを生成してから、もう一度無音部分を削除してください。",
     titleGenerationQueued: "タイトルを生成中…",
     descriptionQueued: "説明を生成中…",
     chapterQueued: "チャプターを生成中…",
@@ -618,6 +648,34 @@ const messages = {
     groqKeysStart: "Groq キーは次で始まります",
     waiting: "待っている…",
     nativeSpeechPrimary: "ネイティブ音声が引き続き主な文字起こしソースです。",
+  },
+  transcriptImport: {
+    addFile: "トランスクリプトファイルを追加",
+    imported: "インポート済み",
+    replaceTitle: "トランスクリプトを置き換えますか？",
+    replaceDescription:
+      "{{fileName}} で現在のトランスクリプトが置き換えられます。",
+    replace: "置き換える",
+    regenerateOverImportTitle:
+      "インポートしたトランスクリプトを置き換えますか？",
+    regenerateOverImportDescription:
+      "録画の音声から作成した新しいトランスクリプトで、ファイルからインポートしたものが置き換えられます。",
+    added: "トランスクリプトを追加しました",
+    replaced: "トランスクリプトを置き換えました",
+    failed: "トランスクリプトを追加できませんでした",
+    invalidFile: "{{fileName}} を読み取れませんでした",
+    errorEmpty: "ファイルにトランスクリプトのテキストがありません。",
+    errorTooLarge: "ファイルが大きすぎるためインポートできません。",
+    errorNotUtf8:
+      "ファイルが UTF-8 のテキストではありません。UTF-8 で保存してから、もう一度お試しください。",
+    errorMissingTiming:
+      "{{line}} 行目: 00:00:01.000 --> 00:00:04.000 のような字幕のタイミング行が必要です。",
+    errorBadTiming: "{{line}} 行目: 字幕のタイミングを読み取れませんでした。",
+    errorBadRange: "{{line}} 行目: 字幕が開始前に終了しています。",
+    errorMissingTimestamp:
+      "{{line}} 行目: 0:21 や [0:21] のような開始時刻が必要です。",
+    errorOutOfOrder: "{{line}} 行目: この時刻は直前の時刻より前です。",
+    errorPastEnd: "{{line}} 行目: この時刻は動画の終了より後です。",
   },
   thumbnailPicker: {
     failedCapture: "フレームのキャプチャに失敗しました",
@@ -1545,6 +1603,9 @@ const messages = {
     disconnected: "マイクが切断されました。",
   },
   storageSetup: {
+    builderStorageOffer:
+      "Builder.io の無料プランには動画ストレージが含まれ、ワンクリックで設定できます。",
+    customKeys: "カスタムキー",
     builderConnectPopupError:
       "Builder.io を開けませんでした。このアプリがチャットに埋め込まれている場合はブラウザーのタブで開き、それ以外の場合はもう一度お試しください。",
     builderConnectError:
@@ -1558,13 +1619,14 @@ const messages = {
     builderGrantAskAdmin:
       "オーナーまたは管理者に、クリップのアップロード権限を付けて Builder.io を接続するよう依頼してください。",
     statusUnavailable: "動画ストレージの状態を確認できませんでした。",
+    hostedStorageUnavailable:
+      "Clips のホストストレージは一時的に利用できません。無料クリップの残り枠は変わりません。時間をおいて再度アップロードしてください。",
     checkingBuilderConnection: "Builder への接続を確認しています…",
     builderTimeout:
       "Builder.io ストレージの準備ができていることを確認できませんでした。もう一度お試しください。",
     builderConnected: "Builder.io 接続済み",
     waitingForBuilder: "Builder を待機中...",
-    description:
-      "録画した動画を Builder.io または S3 互換ストレージに保存します。Builder.io には無料のホスティングと AI クレジットが含まれています。",
+    description: "録画した動画の保存先を選びます。",
     createBuilderAccount: "Builder.io を使う",
     signInWithBuilderAccount: "Builder.io アカウントでサインイン",
     free: "無料",
@@ -1856,6 +1918,16 @@ const messages = {
     validWebUrl: "有効な http:// または https:// アドレスを入力してください。",
   },
   recordRoute: {
+    freeClipsLeft_one: "無料クリップの残り {{count}} 本",
+    freeClipsLeft_other: "無料クリップの残り {{count}} 本",
+    hostedClipsExhaustedTitle: "Builder.io に無料で接続して録画を続ける",
+    hostedClipsExhaustedDescription:
+      "無料のホスト録画枠を使い切りました。Builder.io ストレージに接続すると、ライブラリへのクリップ保存を続けられます。",
+    clipExceedsSizeLimit:
+      "このクリップは現在のアップロード容量制限を超えています。",
+    clipExceedsMaxDuration: "このクリップは現在の録画時間制限を超えています。",
+    maxClipDurationReached:
+      "クリップの最大時間に達しました。録画を保存しています。",
     pageTitle: "New recording — Clips (ローカライズ済み)",
     uploadFailed: "Upload failed (ローカライズ済み)",
     uploadFailedAtChunk:
@@ -1878,6 +1950,8 @@ const messages = {
     noLocalRecordingData:
       "No local recording data is available to download. (ローカライズ済み)",
     recordingDownloadStarted: "Recording download started (ローカライズ済み)",
+    partialLocalCopyDownloadStarted:
+      "ローカルコピーは不完全な可能性があります。利用可能な録画データをダウンロードしています。",
     backToLibrary: "Back to library (ローカライズ済み)",
     clipsRecorder: "Clips recorder (ローカライズ済み)",
     preparingSources: "Preparing sources… (ローカライズ済み)",
@@ -2043,6 +2117,10 @@ const messages = {
     cleanupWithAi: "Cleanup with AI (ローカライズ済み)",
     cleanupComplete: "ディクテーションをクリーンアップしました",
     cleanupFailed: "ディクテーションをクリーンアップできませんでした",
+    undoCleanup: "元に戻す",
+    restoreOriginal: "元に戻す",
+    cleanupRestored: "元のディクテーションを復元しました",
+    cleanupRestoreFailed: "元のディクテーションを復元できませんでした",
     startFirst: "考えをテキストに変えましょう",
     recordOnDesktop: "デスクトップで録音",
     emptyDesktopDescription:
@@ -2093,6 +2171,10 @@ const messages = {
     vocabularyRemoveFailed: "用語を削除できませんでした",
   },
   clipsFinalRaw: {
+    hostedStorageFull:
+      "Clips のホストストレージがいっぱいです。クリップを保存し続けるには Builder.io ストレージを接続してください。",
+    hostedRecordingTakenDown:
+      "この録画は Clips のホストストレージから削除されました。",
     splitAtPlayhead: "再生位置で分割 (S)",
     selectedCount: "{{count}} 件選択中",
     selectAll: "すべて選択",
@@ -2123,6 +2205,7 @@ const messages = {
     viewsCount: "{{count}} 回表示",
     recordingMenu: "録画メニュー",
     moveToFolder: "フォルダーに移動",
+    moveHere: "ここに移動",
     unarchive: "アーカイブ解除",
     shareNamedMeeting: "「{{title}}」を共有",
     shareMeeting: "会議を共有",
@@ -2274,9 +2357,15 @@ const messages = {
     issues: "問題",
     consoleSource: "コンソール",
     networkSource: "ネットワーク",
+    appSource: "アプリのアクティビティ",
+    appEvent: "イベント",
+    appData: "データ",
+    appFailureSummary: "アプリの失敗 {{count}} 件",
+    appUnavailable: "アプリのアクティビティを読み込めませんでした。",
     consoleCount: "コンソール {{count}}",
     networkCount: "ネットワーク {{count}}",
     afterRecording: "録画終了後",
+    beforeRecording: "録画開始前",
     seekToTime: "{{time}} に移動",
     occurrences: "発生時刻",
     message: "メッセージ",
@@ -2288,6 +2377,7 @@ const messages = {
     noIssuesTitle: "ブラウザの問題は検出されませんでした",
     noConsoleTitle: "コンソールイベントはありません",
     noNetworkTitle: "ネットワークリクエストはありません",
+    noAppTitle: "アプリのアクティビティはありません",
     capturedDescription: "この録画の診断情報を取得しました。",
   },
   timeline: { clipStartedHere: "クリップはここから開始" },

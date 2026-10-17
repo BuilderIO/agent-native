@@ -83,6 +83,13 @@ type MeasurementTestWindow = Window & {
   __svgDescendantScanQueries?: number;
 };
 
+type PositionMeasurementWindow = Window & {
+  __positionMeasurements?: {
+    correlationId: string;
+    payload: ElementInfo | null;
+  }[];
+};
+
 async function startAltMeasurement(
   page: import("@playwright/test").Page,
 ): Promise<void> {
@@ -139,7 +146,120 @@ async function select(page: import("@playwright/test").Page, selector: string) {
   await page.waitForTimeout(50);
 }
 
+async function measurePositionContext(
+  page: import("@playwright/test").Page,
+  correlationId: string,
+): Promise<ElementInfo | null> {
+  await page.evaluate((id) => {
+    window.postMessage(
+      {
+        type: "agent-native:measure-selection",
+        screenId: "selection-chrome",
+        correlationId: id,
+        selector: "#offset-root",
+      },
+      "*",
+    );
+  }, correlationId);
+  await page.waitForFunction(
+    (id) =>
+      (window as PositionMeasurementWindow).__positionMeasurements?.some(
+        (measurement) => measurement.correlationId === id,
+      ),
+    correlationId,
+  );
+  return page.evaluate((id) => {
+    const measurements = (window as PositionMeasurementWindow)
+      .__positionMeasurements;
+    return (
+      measurements?.find((measurement) => measurement.correlationId === id)
+        ?.payload ?? null
+    );
+  }, correlationId);
+}
+
 describe("editor chrome selection overlays", () => {
+  it("omits position context when the board content offset is unreadable", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 800, height: 600 },
+      });
+      await page.setContent(`<!doctype html><html><head></head><body style="margin:0">
+        <div id="offset-root" data-agent-native-node-id="offset-root" style="position:absolute;left:0;top:0;width:100px;height:60px"></div>
+      </body></html>`);
+      await page.evaluate(() => {
+        const testWindow = window as PositionMeasurementWindow;
+        testWindow.__positionMeasurements = [];
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "agent-native:selection-measured") {
+            testWindow.__positionMeasurements?.push({
+              correlationId: event.data.correlationId,
+              payload: event.data.payload,
+            });
+          }
+        });
+      });
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+
+      const absentMarker = await measurePositionContext(page, "offset-absent");
+      expect(absentMarker).toMatchObject({
+        boundingRect: { x: 0, y: 0, width: 100, height: 60 },
+        positionReferenceRect: { x: 0, y: 0, width: 800, height: 600 },
+        positionContainingBlockOrigin: { x: 0, y: 0 },
+        positionContainingBlockTransform: { a: 1, b: 0, c: 0, d: 1 },
+      });
+
+      await page.evaluate(() => {
+        const offsetStyle = document.createElement("style");
+        offsetStyle.setAttribute("data-agent-native-content-offset", "");
+        offsetStyle.setAttribute("data-agent-native-content-offset-x", "29");
+        offsetStyle.setAttribute("data-agent-native-content-offset-y", "17");
+        offsetStyle.textContent =
+          "body > [data-agent-native-node-id]{translate:29px 17px;}";
+        document.head.appendChild(offsetStyle);
+      });
+      const validMetadata = await measurePositionContext(page, "offset-valid");
+      expect(validMetadata).toMatchObject({
+        boundingRect: { x: 29, y: 17, width: 100, height: 60 },
+        positionReferenceRect: { x: 29, y: 17, width: 800, height: 600 },
+        positionContainingBlockOrigin: { x: 29, y: 17 },
+        positionContainingBlockTransform: { a: 1, b: 0, c: 0, d: 1 },
+      });
+
+      await page.evaluate(() => {
+        const offsetStyle = document.querySelector(
+          "style[data-agent-native-content-offset]",
+        )!;
+        offsetStyle.setAttribute(
+          "data-agent-native-content-offset-x",
+          "unreadable",
+        );
+        offsetStyle.textContent =
+          "body > [data-agent-native-node-id]{translate:calc(20px + 13px) 17px;}";
+      });
+      const unreadableMetadata = await measurePositionContext(
+        page,
+        "offset-unreadable",
+      );
+      expect(unreadableMetadata?.boundingRect).toEqual({
+        x: 33,
+        y: 17,
+        width: 100,
+        height: 60,
+      });
+      expect(unreadableMetadata).not.toHaveProperty("positionReferenceRect");
+      expect(unreadableMetadata).not.toHaveProperty(
+        "positionContainingBlockOrigin",
+      );
+      expect(unreadableMetadata).not.toHaveProperty(
+        "positionContainingBlockTransform",
+      );
+    } finally {
+      await browser.close();
+    }
+  });
+
   it("publishes stylesheet-backed vector gradients on select and refresh", async () => {
     const browser = await chromium.launch({ headless: true });
     try {

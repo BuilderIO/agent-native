@@ -20,7 +20,10 @@ import {
   ANALYTICS_CLIENT_PLATFORM_PROPERTY,
   type AnalyticsClientPlatform,
 } from "../shared/analytics-platform.js";
-import { hasAttributionSource } from "../shared/attribution-source.js";
+import {
+  hasAttributionSource,
+  type AttributionTouch,
+} from "../shared/attribution-source.js";
 import { resolveLaneEndpoint } from "../shared/environment-lanes.js";
 import {
   classifyErrorNoise,
@@ -58,6 +61,11 @@ import {
   installErrorCapture,
   type CapturedExceptionEvent,
 } from "./error-capture.js";
+import {
+  buildRecorderReport,
+  recorderSentryEnabled,
+  type RecorderEvent,
+} from "./recorder.js";
 import { currentRouteTemplate } from "./route-template.js";
 import type {
   SessionReplayOptions,
@@ -698,7 +706,9 @@ function scrubReferrerHost(referrer: string | undefined): string {
   }
 }
 
-function buildFirstTouchAttribution(): FirstTouchAttribution {
+function buildFirstTouchAttribution(
+  landingPathname: string,
+): FirstTouchAttribution {
   const attribution: FirstTouchAttribution = {};
   let params: URLSearchParams | null = null;
   try {
@@ -712,7 +722,7 @@ function buildFirstTouchAttribution(): FirstTouchAttribution {
       if (value) attribution[field] = value;
     }
   }
-  const landingPath = truncateFirstTouchField(window.location.pathname);
+  const landingPath = truncateFirstTouchField(landingPathname);
   if (landingPath) attribution.landing_path = landingPath;
   const landingReferrer =
     typeof document !== "undefined" ? scrubReferrerHost(document.referrer) : "";
@@ -843,12 +853,16 @@ function backfillAttributionCookie(
  * from replaces it. Without that, an untagged first visit would hide every
  * tagged visit after it.
  */
-function captureFirstTouchAttribution(): void {
+function captureFirstTouchAttribution(
+  options: CaptureAttributionOptions = {},
+): void {
   if (_firstTouchCaptured) return;
   _firstTouchCaptured = true;
   if (typeof window === "undefined") return;
   try {
-    const current = buildFirstTouchAttribution();
+    const current = buildFirstTouchAttribution(
+      options.landingPath ?? window.location.pathname,
+    );
     const existing = getFirstTouchAttribution();
     if (
       existing &&
@@ -921,37 +935,89 @@ function readForwardedLastTouch(): LastTouchAttribution | null {
   return hasAttributionSource(forwarded) ? forwarded : null;
 }
 
-function readStoredAttribution<T>(storageKey: string): T | null {
-  if (typeof window === "undefined") return null;
+function parseAttribution<T>(raw: string | null): T | null {
+  if (!raw) return null;
   try {
-    const raw = safeStorageGet(storageKey);
-    if (!raw) return null;
     const parsed = JSON.parse(raw) as unknown;
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       return null;
     }
-    return parsed as T;
+    // Every field is a string; a corrupted non-string one would make source
+    // detection throw, so it is dropped like any unreadable value.
+    const touch: Record<string, string> = {};
+    for (const [field, value] of Object.entries(parsed)) {
+      if (typeof value === "string") touch[field] = value;
+    }
+    return touch as T;
   } catch {
+    // coercion-ok: an unparseable value holds no touch; the caller tries the
+    // next source.
     return null;
   }
 }
 
+function readAttributionCookieValue<T>(cookieName: string): T | null {
+  const cookie = readAttributionCookie(cookieName);
+  if (!cookie) return null;
+  try {
+    return parseAttribution<T>(decodeURIComponent(cookie));
+  } catch {
+    // coercion-ok: a malformed cookie encoding holds no touch.
+    return null;
+  }
+}
+
+/**
+ * The stored touch, unless only its cookie says where the visitor came from:
+ * storage can be blocked, cleared, or hold an unreadable or empty value. The
+ * cookie is what signup reads, so a source that survives only there still
+ * counts, and capture must not overwrite it as if this were a first visit.
+ */
+function readStoredAttribution<T extends AttributionTouch>(
+  storageKey: string,
+  cookieName: string,
+): T | null {
+  if (typeof window === "undefined") return null;
+  const stored = parseAttribution<T>(safeStorageGet(storageKey));
+  if (hasAttributionSource(stored)) return stored;
+  const cookie = readAttributionCookieValue<T>(cookieName);
+  return hasAttributionSource(cookie) ? cookie : (stored ?? cookie);
+}
+
 export function getFirstTouchAttribution(): FirstTouchAttribution | null {
-  return readStoredAttribution<FirstTouchAttribution>(FIRST_TOUCH_STORAGE_KEY);
+  return readStoredAttribution<FirstTouchAttribution>(
+    FIRST_TOUCH_STORAGE_KEY,
+    FIRST_TOUCH_COOKIE_NAME,
+  );
 }
 
 export function getLastTouchAttribution(): LastTouchAttribution | null {
-  return readStoredAttribution<LastTouchAttribution>(LAST_TOUCH_STORAGE_KEY);
+  return readStoredAttribution<LastTouchAttribution>(
+    LAST_TOUCH_STORAGE_KEY,
+    LAST_TOUCH_COOKIE_NAME,
+  );
+}
+
+export interface CaptureAttributionOptions {
+  /**
+   * The app path this visit entered, when the page isn't it. The sign-in page
+   * stands in front of the path the visitor asked for, and `landing_path`
+   * must name that path, not the sign-in page.
+   */
+  landingPath?: string;
 }
 
 /**
  * Store the visitor's first and last touch now instead of in
- * `configureTracking()`, for a page that reads them before tracking starts.
- * It runs once per page load, so tracking's own capture is then a no-op.
+ * `configureTracking()`, for a page that reads them before tracking starts,
+ * or that never starts tracking, like the sign-in page. It runs once per page
+ * load, so tracking's own capture is then a no-op.
  */
-export function captureAttribution(): void {
+export function captureAttribution(
+  options: CaptureAttributionOptions = {},
+): void {
   if (isSyntheticBrowserTraffic()) return;
-  captureFirstTouchAttribution();
+  captureFirstTouchAttribution(options);
 }
 
 function isLocalAnalyticsHostname(hostname: string | undefined): boolean {
@@ -1065,6 +1131,57 @@ function shouldDropBrowserSentryNoise(event: Sentry.Event): boolean {
   }).drop;
 }
 
+// Sentry keeps 100 breadcrumbs by default; the attachment carries the whole report.
+const SENTRY_RECORDER_BREADCRUMBS = 100;
+
+function recorderBreadcrumb(recorded: RecorderEvent): Sentry.Breadcrumb {
+  const { t: _t, at, type, name, data: _data, ...outcome } = recorded;
+  return {
+    category: `recorder.${type}`,
+    message: [
+      name,
+      outcome.ok === undefined ? undefined : outcome.ok ? "ok" : "failed",
+      outcome.status,
+      outcome.errorCode,
+      outcome.ms === undefined ? undefined : `${outcome.ms}ms`,
+    ]
+      .filter((part) => part !== undefined)
+      .join(" "),
+    level:
+      type === "error" || (type === "toast" && name === "error")
+        ? "error"
+        : type === "toast" || outcome.ok === false
+          ? "warning"
+          : "info",
+    timestamp: at / 1000,
+    data: outcome,
+  };
+}
+
+function addRecorderContext(
+  event: Sentry.ErrorEvent,
+  hint: Sentry.EventHint,
+): void {
+  if (!recorderSentryEnabled()) return;
+  const report = buildRecorderReport("error");
+  if (report.events.length > 0) {
+    event.breadcrumbs = [
+      ...(event.breadcrumbs ?? []),
+      ...report.events
+        .slice(-SENTRY_RECORDER_BREADCRUMBS)
+        .map(recorderBreadcrumb),
+    ].sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0));
+  }
+  hint.attachments = [
+    ...(hint.attachments ?? []),
+    {
+      filename: "recorder.json",
+      data: JSON.stringify(report),
+      contentType: "application/json",
+    },
+  ];
+}
+
 function firstNonEmpty(...values: Array<string | undefined>): string {
   for (const value of values) {
     const trimmed = value?.trim();
@@ -1157,7 +1274,7 @@ function ensureSentry(loadWithoutDsn = false): void {
         dsn,
         environment: resolveClientDeploymentEnvironment(),
         release: resolveClientRelease(),
-        beforeSend(event) {
+        beforeSend(event, hint = {}) {
           if (isSyntheticBrowserTraffic()) return null;
           event.tags = {
             ...event.tags,
@@ -1185,6 +1302,7 @@ function ensureSentry(loadWithoutDsn = false): void {
               }
             }
           }
+          addRecorderContext(event, hint);
           return event;
         },
       });

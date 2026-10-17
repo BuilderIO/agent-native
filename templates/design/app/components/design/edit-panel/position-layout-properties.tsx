@@ -12,6 +12,7 @@ import {
   IconAxisY,
   IconFlipHorizontal,
   IconFlipVertical,
+  IconLink,
   IconLayoutAlignBottom,
   IconLayoutAlignCenter,
   IconLayoutAlignLeft,
@@ -21,6 +22,7 @@ import {
   IconLayoutDistributeHorizontal,
   IconPerspective,
   IconRotate3d,
+  IconUnlink,
 } from "@tabler/icons-react";
 import { useCallback, useState } from "react";
 
@@ -55,10 +57,14 @@ import {
 } from "./inspector-controls";
 import { authoredStyleValue } from "./interaction-state-helpers";
 import { useLiveDragPosition } from "./live-drag-position";
+import { MotionOriginControl } from "./motion-inspector-properties";
 import {
   INSPECTOR_GRID_ACTION_GUTTER_SPAN,
   INSPECTOR_GRID_ACTION_PAIR_SPAN,
   INSPECTOR_GRID_ACTION_SPAN,
+  INSPECTOR_GRID_MOTION_ACTION_SPAN,
+  INSPECTOR_GRID_MOTION_FIELD_SPAN,
+  INSPECTOR_GRID_MOTION_GUTTER_SPAN,
   INSPECTOR_GRID_PAIR_GUTTER_SPAN,
   INSPECTOR_GRID_PAIR_SPAN,
   InspectorActionPairGrid,
@@ -425,6 +431,8 @@ export function PositionLayoutProperties({
   alignSelectionDisabled = false,
   motionKeyframeContext,
   breakpointOverrideContext,
+  motionInspector = false,
+  onMotionOriginEditingChange,
 }: {
   element: ElementInfo;
   onStyleChange: StyleChangeHandler;
@@ -435,12 +443,19 @@ export function PositionLayoutProperties({
   alignSelectionDisabled?: boolean;
   motionKeyframeContext?: MotionKeyframeFieldContext;
   breakpointOverrideContext?: BreakpointOverrideFieldContext;
+  motionInspector?: boolean;
+  onMotionOriginEditingChange?: (open: boolean) => void;
 }) {
   const t = useT();
   const applePlatform = useApplePlatform();
   const shortcut = (binding: string) =>
     formatShortcutLabel(binding, applePlatform);
   const styles = element.computedStyles;
+  const scaleIsMixed = isMixedValue(styles.scale);
+  const [scaleX, scaleY] = scaleIsMixed
+    ? [1, 1]
+    : parseScaleValue(styles.scale);
+  const [scaleAspectLocked, setScaleAspectLocked] = useState(true);
   const constrainedPosition =
     styles.position === "absolute" || styles.position === "fixed";
   const alignmentDisabled = alignSelectionDisabled || !onAlignSelection;
@@ -490,96 +505,113 @@ export function PositionLayoutProperties({
 
   return (
     <PanelSection
-      title={t("editPanel.sections.positionLayout")}
+      title={
+        motionInspector
+          ? t("designEditor.motion.transform")
+          : t("editPanel.sections.positionLayout")
+      }
       actions={
-        <SectionIconToggle
-          label={"Absolute position" /* i18n-ignore design inspector action */}
-          active={constrainedPosition}
-          onClick={() =>
-            commitStylePatch(
-              constrainedPosition
-                ? {
-                    position: "relative",
-                    inset: "auto",
-                    left: "auto",
-                    right: "auto",
-                    top: "auto",
-                    bottom: "auto",
-                  }
-                : { position: "absolute" },
-              onStyleChange,
-              onStylesChange,
-            )
-          }
-        >
-          <IconLayoutDistributeHorizontal className="size-3.5" />
-        </SectionIconToggle>
+        motionInspector ? (
+          <MotionOriginControl
+            element={element}
+            onStyleChange={onStyleChange}
+            onStylesChange={onStylesChange}
+            onEditingChange={onMotionOriginEditingChange}
+          />
+        ) : (
+          <SectionIconToggle
+            label={
+              "Absolute position" /* i18n-ignore design inspector action */
+            }
+            active={constrainedPosition}
+            onClick={() =>
+              commitStylePatch(
+                constrainedPosition
+                  ? {
+                      position: "relative",
+                      inset: "auto",
+                      left: "auto",
+                      right: "auto",
+                      top: "auto",
+                      bottom: "auto",
+                    }
+                  : { position: "absolute" },
+                onStyleChange,
+                onStylesChange,
+              )
+            }
+          >
+            <IconLayoutDistributeHorizontal className="size-3.5" />
+          </SectionIconToggle>
+        )
       }
     >
-      <div className="design-sidebar-property-group">
-        <SubsectionLabel>
-          {"Alignment" /* i18n-ignore design inspector label */}
-        </SubsectionLabel>
-        <InspectorActionPairGrid
-          className="items-center"
-          left={
-            <InspectorSegment className="w-full">
-              <InspectorIconButton
-                label={t("editPanel.positionAligns.left")}
-                shortcut={shortcut("alt+a")}
-                disabled={alignmentDisabled}
-                onClick={() => handlePositionAlignH("left")}
-              >
-                <IconLayoutAlignLeft className="size-3.5" />
-              </InspectorIconButton>
-              <InspectorIconButton
-                label={t("editPanel.positionAligns.centerHorizontal")}
-                shortcut={shortcut("alt+h")}
-                disabled={alignmentDisabled}
-                onClick={() => handlePositionAlignH("center")}
-              >
-                <IconLayoutAlignCenter className="size-3.5" />
-              </InspectorIconButton>
-              <InspectorIconButton
-                label={t("editPanel.positionAligns.right")}
-                shortcut={shortcut("alt+d")}
-                disabled={alignmentDisabled}
-                onClick={() => handlePositionAlignH("right")}
-              >
-                <IconLayoutAlignRight className="size-3.5" />
-              </InspectorIconButton>
-            </InspectorSegment>
-          }
-          right={
-            <InspectorSegment className="w-full">
-              <InspectorIconButton
-                label={t("editPanel.positionAligns.top")}
-                shortcut={shortcut("alt+w")}
-                disabled={alignmentDisabled}
-                onClick={() => handlePositionAlignV("top")}
-              >
-                <IconLayoutAlignTop className="size-3.5" />
-              </InspectorIconButton>
-              <InspectorIconButton
-                label={t("editPanel.positionAligns.centerVertical")}
-                shortcut={shortcut("alt+v")}
-                disabled={alignmentDisabled}
-                onClick={() => handlePositionAlignV("middle")}
-              >
-                <IconLayoutAlignMiddle className="size-3.5" />
-              </InspectorIconButton>
-              <InspectorIconButton
-                label={t("editPanel.positionAligns.bottom")}
-                shortcut={shortcut("alt+s")}
-                disabled={alignmentDisabled}
-                onClick={() => handlePositionAlignV("bottom")}
-              >
-                <IconLayoutAlignBottom className="size-3.5" />
-              </InspectorIconButton>
-            </InspectorSegment>
-          }
-        />
-      </div>
+      {!motionInspector ? (
+        <div className="design-sidebar-property-group">
+          <SubsectionLabel>
+            {"Alignment" /* i18n-ignore design inspector label */}
+          </SubsectionLabel>
+          <InspectorActionPairGrid
+            className="items-center"
+            left={
+              <InspectorSegment className="w-full">
+                <InspectorIconButton
+                  label={t("editPanel.positionAligns.left")}
+                  shortcut={shortcut("alt+a")}
+                  disabled={alignmentDisabled}
+                  onClick={() => handlePositionAlignH("left")}
+                >
+                  <IconLayoutAlignLeft className="size-3.5" />
+                </InspectorIconButton>
+                <InspectorIconButton
+                  label={t("editPanel.positionAligns.centerHorizontal")}
+                  shortcut={shortcut("alt+h")}
+                  disabled={alignmentDisabled}
+                  onClick={() => handlePositionAlignH("center")}
+                >
+                  <IconLayoutAlignCenter className="size-3.5" />
+                </InspectorIconButton>
+                <InspectorIconButton
+                  label={t("editPanel.positionAligns.right")}
+                  shortcut={shortcut("alt+d")}
+                  disabled={alignmentDisabled}
+                  onClick={() => handlePositionAlignH("right")}
+                >
+                  <IconLayoutAlignRight className="size-3.5" />
+                </InspectorIconButton>
+              </InspectorSegment>
+            }
+            right={
+              <InspectorSegment className="w-full">
+                <InspectorIconButton
+                  label={t("editPanel.positionAligns.top")}
+                  shortcut={shortcut("alt+w")}
+                  disabled={alignmentDisabled}
+                  onClick={() => handlePositionAlignV("top")}
+                >
+                  <IconLayoutAlignTop className="size-3.5" />
+                </InspectorIconButton>
+                <InspectorIconButton
+                  label={t("editPanel.positionAligns.centerVertical")}
+                  shortcut={shortcut("alt+v")}
+                  disabled={alignmentDisabled}
+                  onClick={() => handlePositionAlignV("middle")}
+                >
+                  <IconLayoutAlignMiddle className="size-3.5" />
+                </InspectorIconButton>
+                <InspectorIconButton
+                  label={t("editPanel.positionAligns.bottom")}
+                  shortcut={shortcut("alt+s")}
+                  disabled={alignmentDisabled}
+                  onClick={() => handlePositionAlignV("bottom")}
+                >
+                  <IconLayoutAlignBottom className="size-3.5" />
+                </InspectorIconButton>
+              </InspectorSegment>
+            }
+          />
+        </div>
+      ) : null}
 
       <div className="design-sidebar-property-group">
         <SubsectionLabel>{t("editPanel.labels.position")}</SubsectionLabel>
@@ -617,15 +649,17 @@ export function PositionLayoutProperties({
                 );
               }}
             />
-            <FieldTrailer
-              element={element}
-              motionCssProperty="translate"
-              overrideProperty="left"
-              motionKeyframeContext={motionKeyframeContext}
-              breakpointOverrideContext={breakpointOverrideContext}
-              className="absolute -top-3.5 right-0"
-              hoverRevealClassName="opacity-0 group-hover/field:opacity-100"
-            />
+            {!motionInspector ? (
+              <FieldTrailer
+                element={element}
+                motionCssProperty="translate"
+                overrideProperty="left"
+                motionKeyframeContext={motionKeyframeContext}
+                breakpointOverrideContext={breakpointOverrideContext}
+                className="absolute -top-3.5 right-0"
+                hoverRevealClassName="opacity-0 group-hover/field:opacity-100"
+              />
+            ) : null}
           </InspectorGridCell>
           <InspectorGridCell
             span={INSPECTOR_GRID_ACTION_GUTTER_SPAN}
@@ -664,58 +698,81 @@ export function PositionLayoutProperties({
                 );
               }}
             />
-            <FieldTrailer
-              element={element}
-              motionCssProperty="translate"
-              overrideProperty="top"
-              motionKeyframeContext={motionKeyframeContext}
-              breakpointOverrideContext={breakpointOverrideContext}
-              className="absolute -top-3.5 right-0"
-              hoverRevealClassName="opacity-0 group-hover/field:opacity-100"
-            />
+            {!motionInspector ? (
+              <FieldTrailer
+                element={element}
+                motionCssProperty="translate"
+                overrideProperty="top"
+                motionKeyframeContext={motionKeyframeContext}
+                breakpointOverrideContext={breakpointOverrideContext}
+                className="absolute -top-3.5 right-0"
+                hoverRevealClassName="opacity-0 group-hover/field:opacity-100"
+              />
+            ) : null}
           </InspectorGridCell>
-          <InspectorGridCell
-            span={INSPECTOR_GRID_ACTION_GUTTER_SPAN}
-            ariaHidden
-          />
-          <InspectorGridCell
-            span={INSPECTOR_GRID_ACTION_SPAN}
-            className="flex items-center justify-center"
-          >
-            {/* Auto-layout containers position in-flow children. An absolutely
+          {motionInspector ? (
+            <>
+              <InspectorGridCell
+                span={INSPECTOR_GRID_ACTION_GUTTER_SPAN}
+                ariaHidden
+              />
+              <InspectorGridCell
+                span={INSPECTOR_GRID_ACTION_SPAN}
+                className="flex items-center justify-center"
+              >
+                <FieldTrailer
+                  element={element}
+                  motionCssProperty="translate"
+                  motionKeyframeContext={motionKeyframeContext}
+                />
+              </InspectorGridCell>
+            </>
+          ) : (
+            <>
+              <InspectorGridCell
+                span={INSPECTOR_GRID_ACTION_GUTTER_SPAN}
+                ariaHidden
+              />
+              <InspectorGridCell
+                span={INSPECTOR_GRID_ACTION_SPAN}
+                className="flex items-center justify-center"
+              >
+                {/* Auto-layout containers position in-flow children. An absolutely
               positioned descendant leaves that flow and can still use anchors. */}
-            {constraintsSuppressed ? null : (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    aria-label={
-                      "Constraints" /* i18n-ignore design inspector action */
-                    }
-                    aria-pressed={constraintsExpanded}
-                    onClick={() =>
-                      setConstraintsExpanded((expanded) => !expanded)
-                    }
-                    className={cn(
-                      "flex size-6 items-center justify-center rounded-md transition-colors",
-                      "hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
-                      "focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
-                      constraintsExpanded
-                        ? "bg-[var(--design-editor-selection-color)] text-[var(--design-editor-accent-color)] hover:text-[var(--design-editor-accent-color)]"
-                        : "text-muted-foreground",
-                    )}
-                  >
-                    <ConstraintsPreview value={constraintsValue} />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {"Constraints" /* i18n-ignore design inspector tooltip */}
-                </TooltipContent>
-              </Tooltip>
-            )}
-          </InspectorGridCell>
+                {constraintsSuppressed ? null : (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        aria-label={
+                          "Constraints" /* i18n-ignore design inspector action */
+                        }
+                        aria-pressed={constraintsExpanded}
+                        onClick={() =>
+                          setConstraintsExpanded((expanded) => !expanded)
+                        }
+                        className={cn(
+                          "flex size-6 items-center justify-center rounded-md transition-colors",
+                          "hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
+                          "focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
+                          constraintsExpanded
+                            ? "bg-[var(--design-editor-selection-color)] text-[var(--design-editor-accent-color)] hover:text-[var(--design-editor-accent-color)]"
+                            : "text-muted-foreground",
+                        )}
+                      >
+                        <ConstraintsPreview value={constraintsValue} />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {"Constraints" /* i18n-ignore design inspector tooltip */}
+                    </TooltipContent>
+                  </Tooltip>
+                )}
+              </InspectorGridCell>
+            </>
+          )}
         </InspectorGrid>
-        {constraintsExpanded && !constraintsSuppressed ? (
+        {!motionInspector && constraintsExpanded && !constraintsSuppressed ? (
           <ConstraintsWidget
             value={constraintsValue}
             onChange={handleConstraintsChange}
@@ -724,11 +781,122 @@ export function PositionLayoutProperties({
         ) : null}
       </div>
 
+      {motionInspector ? (
+        <div className="design-sidebar-property-group">
+          <SubsectionLabel>{t("editPanel.scale.title")}</SubsectionLabel>
+          <InspectorGrid
+            className="group/field relative items-center"
+            layout="columns"
+          >
+            <InspectorGridCell
+              span={INSPECTOR_GRID_MOTION_FIELD_SPAN}
+              className="min-w-0"
+            >
+              <ScrubStyleInput
+                label="X"
+                ariaLabel={`${t("editPanel.scale.factor")} X`}
+                tooltipLabel={t("editPanel.scale.title")}
+                precision={2}
+                step={1}
+                unit="%"
+                value={scaleIsMixed ? MIXED_VALUE : String(scaleX * 100)}
+                inputClassName="h-6"
+                onChange={(value, meta) => {
+                  const nextX = value / 100;
+                  const ratio = scaleX === 0 ? 1 : scaleY / scaleX;
+                  const nextY = scaleAspectLocked ? nextX * ratio : scaleY;
+                  commitStylePatch(
+                    {
+                      scale: `${Number(nextX.toFixed(3))} ${Number(nextY.toFixed(3))}`,
+                    },
+                    onStyleChange,
+                    onStylesChange,
+                    meta,
+                  );
+                }}
+              />
+            </InspectorGridCell>
+            <InspectorGridCell
+              span={INSPECTOR_GRID_MOTION_GUTTER_SPAN}
+              ariaHidden
+            />
+            <InspectorGridCell
+              span={INSPECTOR_GRID_MOTION_FIELD_SPAN}
+              className="min-w-0"
+            >
+              <ScrubStyleInput
+                label="Y"
+                ariaLabel={`${t("editPanel.scale.factor")} Y`}
+                tooltipLabel={t("editPanel.scale.title")}
+                precision={2}
+                step={1}
+                unit="%"
+                value={scaleIsMixed ? MIXED_VALUE : String(scaleY * 100)}
+                inputClassName="h-6"
+                onChange={(value, meta) => {
+                  const nextY = value / 100;
+                  const ratio = scaleY === 0 ? 1 : scaleX / scaleY;
+                  const nextX = scaleAspectLocked ? nextY * ratio : scaleX;
+                  commitStylePatch(
+                    {
+                      scale: `${Number(nextX.toFixed(3))} ${Number(nextY.toFixed(3))}`,
+                    },
+                    onStyleChange,
+                    onStylesChange,
+                    meta,
+                  );
+                }}
+              />
+            </InspectorGridCell>
+            <InspectorGridCell
+              span={INSPECTOR_GRID_MOTION_GUTTER_SPAN}
+              ariaHidden
+            />
+            <InspectorGridCell
+              span={INSPECTOR_GRID_MOTION_ACTION_SPAN}
+              className="flex items-center justify-center"
+            >
+              <FieldTrailer
+                element={element}
+                motionCssProperty="scale"
+                overrideProperty="scale"
+                motionKeyframeContext={motionKeyframeContext}
+                breakpointOverrideContext={breakpointOverrideContext}
+              />
+            </InspectorGridCell>
+            <InspectorGridCell
+              span={INSPECTOR_GRID_MOTION_ACTION_SPAN}
+              className="flex items-center justify-center"
+            >
+              <SectionIconToggle
+                label={
+                  scaleAspectLocked
+                    ? t("editPanel.labels.unlockAspectRatio")
+                    : t("editPanel.labels.lockAspectRatio")
+                }
+                active={scaleAspectLocked}
+                onClick={() => setScaleAspectLocked((locked) => !locked)}
+              >
+                {scaleAspectLocked ? (
+                  <IconLink className="size-3.5" />
+                ) : (
+                  <IconUnlink className="size-3.5" />
+                )}
+              </SectionIconToggle>
+            </InspectorGridCell>
+          </InspectorGrid>
+        </div>
+      ) : null}
+
       <div className="design-sidebar-property-group">
         <SubsectionLabel>{t("editPanel.labels.rotation")}</SubsectionLabel>
         <InspectorGrid className="items-center" layout="action-pair">
           <InspectorGridCell
-            span={INSPECTOR_GRID_ACTION_PAIR_SPAN}
+            span={
+              motionInspector
+                ? INSPECTOR_GRID_PAIR_SPAN
+                : INSPECTOR_GRID_ACTION_PAIR_SPAN
+            }
             className="group relative"
           >
             <ScrubStyleInput
@@ -741,9 +909,9 @@ export function PositionLayoutProperties({
               value={
                 isMixedValue(styles.transform)
                   ? MIXED_VALUE
-                  : `${-parseRotationValue(rotationTransform)}deg`
+                  : `${-parseRotationValue(rotationTransform)}${motionInspector ? "°" : "deg"}`
               }
-              unit="deg"
+              unit={motionInspector ? "°" : "deg"}
               inputClassName="h-6"
               onChange={(v, meta) => {
                 const mixedRotation = isMixedValue(styles.transform);
@@ -779,66 +947,86 @@ export function PositionLayoutProperties({
               hoverRevealClassName="opacity-0 group-hover:opacity-100"
             />
           </InspectorGridCell>
-          <InspectorGridCell
-            span={INSPECTOR_GRID_ACTION_GUTTER_SPAN}
-            ariaHidden
-          />
-          <InspectorGridCell span={INSPECTOR_GRID_ACTION_PAIR_SPAN}>
-            <InspectorSegment className="w-full">
-              <InspectorIconButton
-                label={t("editPanel.labels.flipHorizontal")}
-                onClick={() => {
-                  const [sx, sy] = parseScaleValue(styles.scale);
-                  onStyleChange("scale", `${sx === -1 ? 1 : -1} ${sy}`);
-                }}
+          {!motionInspector ? (
+            <>
+              <InspectorGridCell
+                span={INSPECTOR_GRID_ACTION_GUTTER_SPAN}
+                ariaHidden
+              />
+              <InspectorGridCell
+                span={INSPECTOR_GRID_ACTION_PAIR_SPAN}
+                className="group/field relative"
               >
-                <IconFlipHorizontal className="size-4" />
-              </InspectorIconButton>
-              <InspectorIconButton
-                label={t("editPanel.labels.flipVertical")}
-                onClick={() => {
-                  const [sx, sy] = parseScaleValue(styles.scale);
-                  onStyleChange("scale", `${sx} ${sy === -1 ? 1 : -1}`);
-                }}
+                <InspectorSegment className="w-full">
+                  <InspectorIconButton
+                    label={t("editPanel.labels.flipHorizontal")}
+                    onClick={() => {
+                      const [sx, sy] = parseScaleValue(styles.scale);
+                      onStyleChange("scale", `${sx === -1 ? 1 : -1} ${sy}`);
+                    }}
+                  >
+                    <IconFlipHorizontal className="size-4" />
+                  </InspectorIconButton>
+                  <InspectorIconButton
+                    label={t("editPanel.labels.flipVertical")}
+                    onClick={() => {
+                      const [sx, sy] = parseScaleValue(styles.scale);
+                      onStyleChange("scale", `${sx} ${sy === -1 ? 1 : -1}`);
+                    }}
+                  >
+                    <IconFlipVertical className="size-4" />
+                  </InspectorIconButton>
+                </InspectorSegment>
+                {motionInspector ? null : (
+                  <FieldTrailer
+                    element={element}
+                    motionCssProperty="scale"
+                    overrideProperty="scale"
+                    motionKeyframeContext={motionKeyframeContext}
+                    breakpointOverrideContext={breakpointOverrideContext}
+                    className="absolute -top-3.5 right-0"
+                    hoverRevealClassName="opacity-0 group-hover/field:opacity-100"
+                  />
+                )}
+              </InspectorGridCell>
+              <InspectorGridCell
+                span={INSPECTOR_GRID_ACTION_GUTTER_SPAN}
+                ariaHidden
+              />
+              <InspectorGridCell
+                span={INSPECTOR_GRID_ACTION_SPAN}
+                className="flex justify-center"
               >
-                <IconFlipVertical className="size-4" />
-              </InspectorIconButton>
-            </InspectorSegment>
-          </InspectorGridCell>
-          <InspectorGridCell
-            span={INSPECTOR_GRID_ACTION_GUTTER_SPAN}
-            ariaHidden
-          />
-          <InspectorGridCell
-            span={INSPECTOR_GRID_ACTION_SPAN}
-            className="flex justify-center"
-          >
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  aria-label={t("editPanel.labels.rotation3d")}
-                  aria-pressed={rotation3DExpanded}
-                  onClick={() => setRotation3DExpanded((expanded) => !expanded)}
-                  className={cn(
-                    "flex size-6 shrink-0 items-center justify-center rounded-md transition-colors",
-                    "hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
-                    "focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
-                    rotation3DExpanded
-                      ? "bg-[var(--design-editor-selection-color)] text-[var(--design-editor-accent-color)] hover:text-[var(--design-editor-accent-color)]"
-                      : "text-muted-foreground",
-                  )}
-                >
-                  <IconRotate3d className="size-3.5" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>
-                {t("editPanel.labels.rotation3d")}
-              </TooltipContent>
-            </Tooltip>
-          </InspectorGridCell>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label={t("editPanel.labels.rotation3d")}
+                      aria-pressed={rotation3DExpanded}
+                      onClick={() =>
+                        setRotation3DExpanded((expanded) => !expanded)
+                      }
+                      className={cn(
+                        "flex size-6 shrink-0 items-center justify-center rounded-md transition-colors",
+                        "hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
+                        "focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
+                        rotation3DExpanded
+                          ? "bg-[var(--design-editor-selection-color)] text-[var(--design-editor-accent-color)] hover:text-[var(--design-editor-accent-color)]"
+                          : "text-muted-foreground",
+                      )}
+                    >
+                      <IconRotate3d className="size-3.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {t("editPanel.labels.rotation3d")}
+                  </TooltipContent>
+                </Tooltip>
+              </InspectorGridCell>
+            </>
+          ) : null}
         </InspectorGrid>
-        {rotation3DExpanded ? (
+        {!motionInspector && rotation3DExpanded ? (
           <Rotation3DControls styles={styles} onStyleChange={onStyleChange} />
         ) : null}
       </div>

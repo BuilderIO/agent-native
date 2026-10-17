@@ -336,4 +336,16 @@ export const creativeContextMigrations: CreativeContextMigration[] = [
         ON creative_contexts (default_scope_key);
     `,
   },
+  {
+    version: 8,
+    name: "creative-context-share-tables-notified-at",
+    // Core's createSharesTable names notified_at in every share insert; these
+    // tables were created without it, so every share attempt failed.
+    sql: `
+      ALTER TABLE IF EXISTS creative_context_source_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+      ALTER TABLE IF EXISTS creative_context_brand_profile_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+      ALTER TABLE IF EXISTS creative_context_pack_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+      ALTER TABLE IF EXISTS creative_context_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+    `,
+  },
 ];

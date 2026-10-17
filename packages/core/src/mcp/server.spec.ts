@@ -166,9 +166,11 @@ vi.mock("./builtin-tools.js", () => ({
 }));
 const resolveOrgIdForEmailMock = vi.hoisted(() => vi.fn(async () => null));
 const resolveA2AOrganizationMetadataByIdMock = vi.hoisted(() => vi.fn());
+const lookupOrgByDomainMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../org/context.js", () => ({
   resolveOrgByDomain: vi.fn(async () => null),
+  lookupOrgByDomain: (...args: any[]) => lookupOrgByDomainMock(...args),
   resolveA2AOrganizationMetadataById: (
     ...args: Parameters<typeof resolveA2AOrganizationMetadataByIdMock>
   ) => resolveA2AOrganizationMetadataByIdMock(...args),
@@ -862,6 +864,8 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       async (orgId: string) =>
         orgId === "org_123" ? { orgId, orgDomain: null } : null,
     );
+    lookupOrgByDomainMock.mockReset();
+    lookupOrgByDomainMock.mockResolvedValue({ status: "not-found" });
   });
   afterEach(() => {
     delete process.env.ACCESS_TOKEN;
@@ -4856,7 +4860,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     }
   });
 
-  it("executes an approval-gated action only after one exact accepted retry", async () => {
+  it("executes a conditional approval-gated action only after one exact accepted retry", async () => {
     const run = vi.fn(async () => ({ ok: true }));
     const approvalConfig = {
       ...config,
@@ -4866,11 +4870,15 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
             description: "Publish a draft",
             parameters: {
               type: "object" as const,
-              properties: { draftId: { type: "string" } },
+              properties: {
+                draftId: { type: "string" },
+                allowLockedLayers: { type: "boolean" },
+              },
               required: ["draftId"],
             },
           },
-          needsApproval: true,
+          needsApproval: (args: { allowLockedLayers?: boolean }) =>
+            args.allowLockedLayers === true,
           run,
         },
       },
@@ -4884,7 +4892,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       const first = (await client.callTool(
         {
           name: "publish-draft",
-          arguments: { draftId: "draft-1" },
+          arguments: { draftId: "draft-1", allowLockedLayers: true },
           inputResponses: {
             actionApproval: {
               action: "accept",
@@ -4908,7 +4916,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
       const approved = await client.callTool({
         name: "publish-draft",
-        arguments: { draftId: "draft-1" },
+        arguments: { draftId: "draft-1", allowLockedLayers: true },
         requestState: first.requestState,
         inputResponses: {
           actionApproval: {
@@ -4919,11 +4927,24 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       } as any);
       expect(approved.isError).not.toBe(true);
       expect(run).toHaveBeenCalledTimes(1);
+      expect(run).toHaveBeenCalledWith(
+        { draftId: "draft-1", allowLockedLayers: true },
+        expect.objectContaining({
+          caller: "mcp",
+          userEmail: "oauth@example.com",
+          mcpClientAccepted: true,
+          mcpClient: {
+            name: "agent-native-server-spec",
+            version: "1.0.0",
+            oauthClientId: "client-123",
+          },
+        }),
+      );
       expect(actionChangeMocks.writeMarker).toHaveBeenCalledOnce();
 
       const replay = await client.callTool({
         name: "publish-draft",
-        arguments: { draftId: "draft-1" },
+        arguments: { draftId: "draft-1", allowLockedLayers: true },
         requestState: first.requestState,
         inputResponses: {
           actionApproval: {
@@ -5181,6 +5202,18 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       });
       expect(ordinary.isError).not.toBe(true);
       expect(ordinaryRun).toHaveBeenCalledTimes(1);
+      expect(ordinaryRun).toHaveBeenCalledWith(
+        {},
+        expect.objectContaining({
+          mcpClient: expect.objectContaining({ oauthClientId: "client-123" }),
+        }),
+      );
+      expect(ordinaryRun).toHaveBeenCalledWith(
+        {},
+        expect.not.objectContaining({
+          mcpClientAccepted: expect.anything(),
+        }),
+      );
 
       await expect(
         client.callTool({ name: "throwing", arguments: {} }),
@@ -8975,6 +9008,74 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       delete process.env.BETTER_AUTH_SECRET;
     }
   });
+
+  it("answers 503 without an auth challenge when the token's org domain cannot be resolved", async () => {
+    process.env.BETTER_AUTH_SECRET = "oauth-secret-at-least-32-characters-long";
+    const { signMcpOAuthAccessToken } = await import("./oauth-token.js");
+    const token = await signMcpOAuthAccessToken({
+      ownerEmail: "oauth@example.com",
+      orgDomain: "example.com",
+      clientId: "client-123",
+      scope: "mcp:read",
+      resource: "https://mail.agent-native.com/mcp",
+      issuer: "https://mail.agent-native.com",
+    });
+    lookupOrgByDomainMock.mockRejectedValueOnce(
+      new Error("database connection failed"),
+    );
+
+    const event = makeWebEvent({
+      method: "POST",
+      body: { jsonrpc: "2.0", id: 12, method: "tools/list", params: {} },
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const result = await handleMcpRequest(event, config as any);
+
+    expect(lookupOrgByDomainMock).toHaveBeenCalledWith("example.com");
+    expect(event._status).toBe(503);
+    expect(event._responseHeaders?.["retry-after"]).toBe("5");
+    expect(event._responseHeaders?.["www-authenticate"]).toBeUndefined();
+    expect(result).toMatchObject({ error: "Service Unavailable" });
+  });
+
+  it.each([
+    ["unknown", { status: "not-found" }],
+    ["ambiguous", { status: "ambiguous" }],
+  ] as const)(
+    "refuses an %s signed org domain as unauthorized instead of returning 500",
+    async (_label, resolution) => {
+      process.env.BETTER_AUTH_SECRET =
+        "oauth-secret-at-least-32-characters-long";
+      const { signMcpOAuthAccessToken } = await import("./oauth-token.js");
+      const token = await signMcpOAuthAccessToken({
+        ownerEmail: "oauth@example.com",
+        orgDomain: "example.com",
+        clientId: "client-123",
+        scope: "mcp:read",
+        resource: "https://mail.agent-native.com/mcp",
+        issuer: "https://mail.agent-native.com",
+      });
+      lookupOrgByDomainMock.mockResolvedValueOnce(resolution);
+
+      const event = makeWebEvent({
+        method: "POST",
+        body: { jsonrpc: "2.0", id: 13, method: "tools/list", params: {} },
+        headers: { authorization: `Bearer ${token}` },
+      });
+      const result = await handleMcpRequest(event, config as any);
+
+      expect(lookupOrgByDomainMock).toHaveBeenCalledWith("example.com");
+      expect(event._status).toBe(401);
+      expect(event._responseHeaders?.["www-authenticate"]).toContain(
+        'error="invalid_token"',
+      );
+      expect(event._responseHeaders?.["retry-after"]).toBeUndefined();
+      expect(result).toMatchObject({
+        error: "Unauthorized",
+        reason: "invalid",
+      });
+    },
+  );
 
   it("preserves the legacy MCP resource in its OAuth challenge", async () => {
     process.env.ACCESS_TOKEN = "secret-token";

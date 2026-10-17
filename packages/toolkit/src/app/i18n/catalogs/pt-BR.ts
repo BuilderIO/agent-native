@@ -1,6 +1,8 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "block.renderUnavailable": "Este bloco está temporariamente indisponível.",
+  "block.loading": "Carregando bloco.",
   "composer.contextUrlLabel": "Endereço URL",
   "composer.contextInvalidUrl": "Insira uma URL HTTP ou HTTPS válida.",
   "composer.contextAttach": "Anexar",
@@ -153,8 +155,17 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderAccountExistsTitle": "Você já tem uma conta do Builder.io",
   "onboarding.builderAccountExistsDescription":
     "Faça login para usar sua conta.",
+  "onboarding.builderActivationChecking":
+    "Verificando se a criação de uma nova conta está disponível.",
+  "onboarding.builderActivationUnavailable":
+    "Crie uma conta ou faça login para se conectar ao Builder.io.",
+  "onboarding.builderActivationUnavailableInMode":
+    "Crie uma conta ou faça login para se conectar ao Builder.io.",
+  "onboarding.builderActivationCheckFailed":
+    "Não foi possível verificar se este app pode criar novas contas.",
+
   "onboarding.builderActivationDescription":
-    "Crie ou conecte uma conta do Builder.io com um clique para obter créditos grátis.",
+    "Crie uma nova conta para ativar créditos grátis ou continue com uma conta existente.",
   "onboarding.builderOrgActivationDescription":
     "Criaremos sua conta do Builder.io com um clique para que sua organização possa usá-la.",
   "onboarding.builderCreateAndActivate": "Criar e ativar",
@@ -163,7 +174,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderTerms": "Termos de Serviço",
   "onboarding.builderPrivacy": "Política de Privacidade",
   "onboarding.builderConsentAnd": "e",
-  "onboarding.builderExistingAccount": "Usar Builder.io",
+  "onboarding.builderExistingAccount": "Tenho uma conta Builder.io",
+  "onboarding.builderConnect": "Conectar Builder.io",
   "onboarding.builderActivating":
     "Ativando os créditos gratuitos do Builder.io",
   "onboarding.builderConnecting":
@@ -204,6 +216,11 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.keySummary": "Vetores semânticos",
   "onboarding.capability.embeddings.why":
     "Vetores semânticos melhoram a busca semântica. A busca por palavras-chave continua funcionando sem eles.",
+  "onboarding.capability.webSearch.label": "Pesquisa na Web",
+  "onboarding.capability.webSearch.keySummary":
+    "Pesquisa na Web gerenciada pelo Builder",
+  "onboarding.capability.webSearch.why":
+    "Pesquise em fontes públicas atuais na Web. A pesquisa gerenciada pelo Builder usa os créditos de IA incluídos, sem exigir uma chave de pesquisa separada.",
   "onboarding.capability.systemOne.why":
     "Jev é um modelo de decisão opcional que ajuda a escolher ferramentas e habilidades relevantes antes da primeira solicitação de modelo do agente.",
   "onboarding.capability.assetsImageGeneration.label": "Geração de imagens",
@@ -823,6 +840,12 @@ const messages: ToolkitAgentChatTranslation = {
     "Esta execução não pode mais ser continuada. Envie uma mensagem para seguir.",
   "errorMessages.invalidAttachmentNamed":
     "O provedor do modelo rejeitou {{name}} porque o formato ou o tamanho não é compatível. Para imagens, exporte um PNG, JPEG, GIF ou WebP menor; para documentos, use um formato compatível ou cole o texto relevante e tente novamente.",
+  "recovery.resendVerificationEmail": "Reenviar e-mail de verificação",
+  "recovery.sendingVerificationEmail": "Enviando...",
+  "recovery.verificationEmailRequested":
+    "E-mail de verificação solicitado. Confira sua caixa de entrada e a pasta de spam.",
+  "recovery.verificationEmailFailed":
+    "Não foi possível solicitar o e-mail de verificação. Tente novamente.",
   "recovery.retryWithoutAttachment": "Tentar novamente sem o anexo",
   "recovery.retryAttachmentUnavailable":
     "Esta solicitação incluía um arquivo que não pode ser reenviado. Anexe-o novamente no campo de mensagem e tente outra vez.",
@@ -868,6 +891,8 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.emptyMore":
     "e mais {{count}} em Novo, ou adicione qualquer chave personalizada",
   "secrets.emptyTitle": "Nenhuma chave ainda.",
+  "secrets.figmaTokenMustBeToken":
+    "Cole um token de acesso do Figma, não uma URL de arquivo do Figma.",
   "secrets.fromEnvironment": "Fornecido pelo ambiente de implantação.",
   "secrets.managedInVault":
     "Gerenciado no Vault do espaço de trabalho. Todos os apps deste espaço de trabalho usam este valor.",
@@ -893,6 +918,12 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.usePersonalKey": "Usar uma chave pessoal",
   "selection.attached": "{{formattedCount}} caracteres da seleção anexados",
   "selection.clear": "Limpar contexto da seleção",
+  "setup.addKeyInSettings": "Adicionar uma chave nas Configurações",
+  "setup.addKeyInSettingsDescription": "Para sua conta ou organização.",
+  "setup.setEnvironmentVariable": "Definir uma variável de ambiente",
+  "setup.setEnvironmentVariableDescription":
+    "Uma chave de provedor para todos neste app.",
+
   "setup.addOwnKeys": "Adicionar suas próprias chaves",
   "setup.builderCredits":
     "O Builder.io inclui créditos gratuitos, ou você pode usar sua própria chave de API.",
@@ -1312,6 +1343,10 @@ const messages: ToolkitAgentChatTranslation = {
     "O provedor do modelo rejeitou esta solicitação por estar malformada, então ela não foi repetida. Tente novamente ou inicie um novo chat se continuar acontecendo.",
   "errorMessages.requestTooLarge":
     "Esta solicitação excedeu o limite de tamanho do servidor (HTTP 413). Inicie um novo chat ou remova anexos ou referências grandes e tente novamente.",
+  "errorMessages.capabilityUnavailable":
+    "Não foi possível enviar sua mensagem agora. Tente novamente em instantes.",
+  "errorMessages.capabilityUnsupported":
+    "Este app ainda não pode tentar novamente com segurança o seu prompt salvo. Atualize o app e tente de novo.",
   "errorMessages.runInterrupted": "O agente parou antes de terminar.",
   "errorMessages.runFailed": "A execução do agente falhou.",
   "errorMessages.runUnverified":
@@ -2754,6 +2789,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.search.appDefaultModel": "Modelo padrão do app",
   "settingsShell.search.backgroundAgents": "Agentes em segundo plano",
   "settingsShell.search.browserAutomation": "Automação de navegador",
+  "settingsShell.search.webSearch": "Pesquisa na Web",
   "settingsShell.search.connectedAgents": "Agentes conectados",
   "settingsShell.search.database": "Banco de dados",
   "settingsShell.search.defaultModel": "Modelo padrão",
@@ -2894,6 +2930,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Faz alterações no código a partir da produção.",
   "settingsInfra.whyBrowser":
     "Permite que o agente use um navegador em produção.",
+  "settingsInfra.whyWebSearch":
+    "Encontra informações públicas atuais e documentação oficial.",
   "settingsInfra.provider": "Provedor",
   "settingsInfra.keyOrg": "Usa a chave do {{provider}} da organização.",
   "settingsInfra.manageKey": "Gerenciar chave",
@@ -3245,6 +3283,20 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsSubAgents.close": "Fechar",
   "observability.insights.rawTrace":
     "Trace bruto (todos os spans, com entradas e saídas)",
+  "reportProblem.menuItem": "Relatar um problema",
+  "reportProblem.title_one":
+    "Anexar o que o app fez no último {{count}} segundo?",
+  "reportProblem.title_many":
+    "Anexar o que o app fez nos últimos {{count}} segundos?",
+  "reportProblem.title_other":
+    "Anexar o que o app fez nos últimos {{count}} segundos?",
+  "reportProblem.noEvents": "Nada registrado ainda.",
+  "reportProblem.send": "Enviar ao agente",
+  "reportProblem.copy": "Copiar relatório do problema",
+  "reportProblem.attaching": "Anexando…",
+  "reportProblem.notAttached": "O relatório não foi anexado.",
+  "reportProblem.agentMessage":
+    "Algo deu errado no app. Use o relatório do problema anexado para explicar o que aconteceu.",
 };
 
 export default messages;

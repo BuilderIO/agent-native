@@ -7,10 +7,10 @@
 +
  import { closeDbExec, withMigrationRuntime } from "@agent-native/core/db";
  import { loadEnv } from "@agent-native/core/scripts";
- import { runFrameworkReleaseMigrations } from "@agent-native/core/server";
- 
-@@ -9,8 +12,37 @@
-     await runFrameworkReleaseMigrations(null);
+ import {
+   runAppReleaseMigrations,
+@@ -13,8 +16,37 @@
+     await runAppReleaseMigrations();
    });
  }
  

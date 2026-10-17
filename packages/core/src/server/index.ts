@@ -15,10 +15,14 @@ export {
   getAppConfig,
   resolveAppHomePath,
   resetAppConfigForTests,
+  resolveClipsHostedStorageConfig,
   appConfigSchema,
   type AppConfig,
   type AppConfigInput,
+  type ClipsHostedStorageConfig,
+  type ResolvedClipsHostedStorageConfig,
 } from "../app-config/index.js";
+export { platformWaitUntil } from "./background-work.js";
 export { resolveDeployEnvironment } from "./deploy-environment.js";
 export { isTestIdentity, testIdentitySql } from "./test-identity.js";
 export {
@@ -135,6 +139,7 @@ export {
 export {
   createBetterAuthSessionForEmail,
   ensureGoogleAuthIdentity,
+  getBetterAuthUserIdForEmail,
   hasGoogleAuthIdentity,
   setBetterAuthSessionCookie,
 } from "./better-auth-instance.js";
@@ -246,6 +251,10 @@ export {
 } from "./better-auth-migrations.js";
 export { runFrameworkReleaseMigrations } from "./release-migrations.js";
 export {
+  runAppReleaseMigrations,
+  type AppReleaseMigrationResult,
+} from "./app-release-migrations.js";
+export {
   initServerSentry,
   isServerSentryEnabled,
   setSentryUserForRequest,
@@ -286,6 +295,12 @@ export {
   loadResourcesForPrompt,
   type AgentChatPluginOptions,
 } from "./agent-chat-plugin.js";
+export type {
+  AgentChatAdditionalActionsDetails,
+  AgentChatAdditionalActionsExternalSurface,
+  AgentChatAdditionalActionsSurface,
+  ResolveAgentChatAdditionalActions,
+} from "./agent-chat/additional-actions.js";
 export {
   buildFrameworkPrompts,
   generateActionsPrompt,
@@ -766,6 +781,7 @@ export {
   requestBuilderBrowserConnection,
   resolveBuilderBranchProjectId,
   resolveIsBuilderBranchingEnabled,
+  normalizeBuilderAgentAttachments,
   runBuilderAgent,
   type BuilderAgentAttachment,
   type BuilderAgentUploadAttachment,

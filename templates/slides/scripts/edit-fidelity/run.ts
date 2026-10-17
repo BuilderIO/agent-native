@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
   existsSync,
+  fstatSync,
   mkdirSync,
   openSync,
   readdirSync,
@@ -22,19 +23,37 @@ import {
 } from "../export-fidelity/resolve-pkg.ts";
 import {
   assertAuthoringPersistence,
+  authoringFuzzBrowserSessionCorsHeaders,
+  authoringFuzzBrowserSessionResponse,
   authoringFuzzUnavailableExitCode,
   authoringFuzzProfileIndex,
   canonicalizeAuthoringFuzzPersistence,
+  cleanupNavigationSessionCorrelation,
   formatAuthoringFuzzCleanupIssue,
   formatAuthoringFuzzUnavailable,
+  browserSessionNavigationRequestIdentity,
+  hasActiveCleanupNavigationSessionCompetitor,
+  isCleanupNavigationCompetitionPage,
   isExpectedCleanupNavigationError as isExpectedCleanupNavigationRequestError,
+  isExpectedCleanupRecoveryPageBrowserSessionError,
+  cleanupRecoveryClaimRequestAgeMs,
+  isPotentialCleanupRecoveryPageBrowserSessionError,
+  isWithinCleanupRecoveryClaimCorrelationWindow,
   isFirefoxBrowserSessionConsoleError,
   lineNavigationKeys,
   normalizeFirefoxBrowserSessionConsoleError,
+  recordCleanupNavigationSessionCompetitor,
+  removeCleanupNavigationSessionCompetitor,
+  recordCleanupRequestOutcome,
+  retiredBrowserSessionPollConsoleGraceMs,
+  redactBrowserSessionRequestPath,
+  redactBrowserSessionSensitiveText,
   retryAuthoringFuzzScratchDeckLookup,
   runAuthoringFuzz,
+  shouldRetainCleanupRecoveryClaimEvidence,
   type AuthoringFuzzPersistence,
 } from "./authoring-fuzz.ts";
+import { devServerListeningUrl } from "./dev-server-url.ts";
 import {
   CHROME_SELECTOR,
   installInPageHelpers,
@@ -112,10 +131,18 @@ const getSlashListbox = async (page: any, editor: any) => {
     (element: HTMLElement) => {
       const listboxId = element.getAttribute("aria-controls");
       const listbox = listboxId ? document.getElementById(listboxId) : null;
-      return listbox?.getAttribute("role") === "listbox";
+      if (listbox?.getAttribute("role") !== "listbox") return false;
+      const style = getComputedStyle(listbox);
+      const rect = listbox.getBoundingClientRect();
+      return (
+        style.display !== "none" &&
+        style.visibility !== "hidden" &&
+        rect.width > 0 &&
+        rect.height > 0
+      );
     },
     editorHandle,
-    { timeout: 5_000 },
+    { polling: 50, timeout: 5_000 },
   );
   const listboxId = await editor.getAttribute("aria-controls");
   if (!listboxId) throw new Error("slash menu did not expose its listbox");
@@ -593,6 +620,8 @@ async function startServer(): Promise<{
   const port = await freePort();
   const logPath = path.join(outRoot, "server.log");
   const log = openSync(logPath, "a");
+  // The log is appended across runs; only this server's banner counts.
+  const logStart = fstatSync(log).size;
   // Scratch PGlite from claude-launch, wiped when the launcher exits.
   const child: ChildProcess = spawn(
     "pnpm",
@@ -650,11 +679,26 @@ async function startServer(): Promise<{
       }
     }
   };
-  const base = `http://localhost:${port}`;
+  let base: string | undefined;
   const deadline = Date.now() + 240_000;
   while (Date.now() < deadline) {
     if (exited !== null) {
       throw new CouldNotRun(`dev server exited with ${exited}; see ${logPath}`);
+    }
+    // --port is only a request: the server moves to the next free port when it
+    // loses the bind, so poll the URL it prints rather than the one we asked for.
+    base ??= devServerListeningUrl(
+      readFileSync(logPath).subarray(logStart).toString("utf8"),
+    );
+    if (!base) {
+      await sleep(1000);
+      continue;
+    }
+    if (!LOCAL_HOSTS.has(new URL(base).hostname)) {
+      await stop();
+      throw new CouldNotRun(
+        `dev server listens on ${base}, not localhost; refusing (this harness writes decks)`,
+      );
     }
     try {
       const controller = new AbortController();
@@ -674,7 +718,9 @@ async function startServer(): Promise<{
   }
   await stop();
   throw new CouldNotRun(
-    `dev server did not answer on ${base} within 240s; see ${logPath}`,
+    base
+      ? `dev server did not answer on ${base} within 240s; see ${logPath}`
+      : `dev server (requested port ${port}) never printed its listening URL within 240s; see ${logPath}`,
   );
 }
 
@@ -843,10 +889,9 @@ async function settle(page: Page) {
       style.textContent = css;
       document.head.appendChild(style);
     }
-    // The renderer injects a webfont stylesheet per slide font, and a face
-    // starts loading only once text using it lays out, so `fonts.ready` can
-    // resolve before the slide's font was even requested (display=swap then
-    // paints the fallback). A failed font request can also leave it pending.
+    // The renderer injects a webfont stylesheet per slide font. Load only
+    // faces used by visible canvas text; unrelated registered faces may stay
+    // unloaded and keep the global FontFaceSet in `loading` indefinitely.
     const frame = () =>
       new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
     const stylesheetState = () => {
@@ -861,11 +906,152 @@ async function settle(page: Page) {
       );
       return { failed, pending };
     };
+    const fontStretchKeywords = [
+      { value: 50, keyword: "ultra-condensed" },
+      { value: 62.5, keyword: "extra-condensed" },
+      { value: 75, keyword: "condensed" },
+      { value: 87.5, keyword: "semi-condensed" },
+      { value: 100, keyword: "normal" },
+      { value: 112.5, keyword: "semi-expanded" },
+      { value: 125, keyword: "expanded" },
+      { value: 150, keyword: "extra-expanded" },
+      { value: 200, keyword: "ultra-expanded" },
+    ] as const;
+    const fontStretchToken = (value: string) => {
+      const normalized = value.trim().toLowerCase();
+      if (fontStretchKeywords.some(({ keyword }) => keyword === normalized)) {
+        return normalized === "normal" ? "" : normalized;
+      }
+      const percentage = Number.parseFloat(normalized);
+      if (!normalized.endsWith("%") || !Number.isFinite(percentage)) return "";
+      const nearest = fontStretchKeywords.reduce((best, option) =>
+        Math.abs(option.value - percentage) < Math.abs(best.value - percentage)
+          ? option
+          : best,
+      );
+      return nearest.keyword === "normal" ? "" : nearest.keyword;
+    };
+    const usedFontSpecs = () => {
+      const specs = new Map<string, { font: string; text: string }>();
+      for (const block of Array.from(
+        document.querySelectorAll<HTMLElement>(
+          '[data-main-slide-canvas="true"] [data-slide-text-block="true"]',
+        ),
+      )) {
+        const rect = block.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) continue;
+        const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+          const textNode = node as Text;
+          const text = textNode.data;
+          const element = textNode.parentElement;
+          if (!element || !text.trim()) continue;
+          const style = getComputedStyle(element);
+          if (
+            style.display === "none" ||
+            style.visibility === "hidden" ||
+            style.visibility === "collapse"
+          ) {
+            continue;
+          }
+          const range = document.createRange();
+          range.selectNodeContents(textNode);
+          const textRect = range.getBoundingClientRect();
+          if (textRect.width <= 0 || textRect.height <= 0) continue;
+          // `FontFaceSet.load` accepts stretch keywords, not computed percentages.
+          const font = [
+            style.fontStyle === "normal" ? "" : style.fontStyle,
+            style.fontVariant === "normal" ? "" : style.fontVariant,
+            style.fontWeight === "400" ? "" : style.fontWeight,
+            fontStretchToken(style.fontStretch),
+            style.fontSize,
+            style.fontFamily,
+          ]
+            .filter(Boolean)
+            .join(" ");
+          const existing = specs.get(font);
+          specs.set(font, {
+            font,
+            text: existing ? `${existing.text} ${text}` : text,
+          });
+        }
+      }
+      return Array.from(specs, ([key, spec]) => ({ ...spec, key }));
+    };
+    const fontRequests = new Map<
+      string,
+      {
+        status: "loading" | "loaded" | "failed";
+        promise: Promise<void>;
+        loadedFaces: number;
+      }
+    >();
+    const failedFonts: string[] = [];
+    let stylesheetSignature = "";
+    let stylesheetEpoch = 0;
+    const currentStylesheetSignature = () =>
+      Array.from(
+        document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]'),
+      )
+        .map(
+          (link) =>
+            `${link.href}:${link.sheet ? "loaded" : "pending"}:${link.dataset.editFidelityLoadError ?? ""}`,
+        )
+        .sort()
+        .join("\n");
+    const requestUsedFonts = () => {
+      const signature = currentStylesheetSignature();
+      if (signature !== stylesheetSignature) {
+        fontRequests.clear();
+        failedFonts.length = 0;
+        stylesheetSignature = signature;
+        stylesheetEpoch += 1;
+      }
+      const requestEpoch = stylesheetEpoch;
+      for (const spec of usedFontSpecs()) {
+        if (fontRequests.has(spec.key)) continue;
+        const request: {
+          status: "loading" | "loaded" | "failed";
+          promise: Promise<void>;
+          loadedFaces: number;
+        } = { status: "loading", promise: Promise.resolve(), loadedFaces: 0 };
+        request.promise = document.fonts.load(spec.font, spec.text).then(
+          (faces) => {
+            request.status = "loaded";
+            request.loadedFaces = faces.length;
+          },
+          (error: unknown) => {
+            request.status = "failed";
+            if (requestEpoch === stylesheetEpoch) {
+              failedFonts.push(`${spec.font}: ${String(error)}`);
+            }
+          },
+        );
+        fontRequests.set(spec.key, request);
+      }
+    };
+    const waitForStylesheet = (link: HTMLLinkElement) =>
+      new Promise<void>((resolve) => {
+        const finish = () => {
+          link.removeEventListener("load", finish);
+          link.removeEventListener("error", finish);
+          resolve();
+        };
+        link.addEventListener("load", finish, { once: true });
+        link.addEventListener("error", finish, { once: true });
+      });
     const currentState = (settled: boolean) => {
       const stylesheets = stylesheetState();
       return {
         settled,
         fonts: document.fonts.status,
+        usedFonts: usedFontSpecs().map((spec) => ({
+          font: spec.font,
+          requestStatus: fontRequests.get(spec.key)?.status ?? "not-needed",
+          loadedFaces: fontRequests.get(spec.key)?.loadedFaces ?? 0,
+          textLength: spec.text.length,
+        })),
+        failedFonts,
         pendingFontFaces: Array.from(document.fonts)
           .filter((font) => font.status !== "loaded")
           .slice(0, 10)
@@ -881,19 +1067,26 @@ async function settle(page: Page) {
     await frame();
     let ready = false;
     for (let i = 0; i < 20; i++) {
+      let stylesheets = stylesheetState();
+      if (stylesheets.failed.length > 0) return currentState(false);
+      if (stylesheets.pending.length === 0) requestUsedFonts();
       await Promise.race([
-        document.fonts.ready,
+        Promise.all([
+          ...[...fontRequests.values()].map((request) => request.promise),
+          ...stylesheets.pending.map(waitForStylesheet),
+        ]),
         new Promise((resolve) => setTimeout(resolve, 500)),
       ]);
       await frame();
-      const stylesheets = stylesheetState();
-      if (stylesheets.failed.length > 0) {
-        return currentState(false);
-      }
-      if (
-        stylesheets.pending.length === 0 &&
-        document.fonts.status === "loaded"
-      ) {
+      stylesheets = stylesheetState();
+      if (stylesheets.failed.length > 0) return currentState(false);
+      if (stylesheets.pending.length > 0) continue;
+      requestUsedFonts();
+      if (failedFonts.length > 0) return currentState(false);
+      const fontsReady = usedFontSpecs().every(
+        (spec) => fontRequests.get(spec.key)?.status === "loaded",
+      );
+      if (stylesheets.pending.length === 0 && fontsReady) {
         ready = true;
         break;
       }
@@ -928,14 +1121,17 @@ async function settle(page: Page) {
     return {
       ...finalState,
       settled:
-        finalState.fonts === "loaded" &&
         finalState.pendingStylesheets === 0 &&
-        finalState.failedStylesheets.length === 0,
+        finalState.failedStylesheets.length === 0 &&
+        finalState.failedFonts.length === 0 &&
+        usedFontSpecs().every(
+          (spec) => fontRequests.get(spec.key)?.status === "loaded",
+        ),
     };
   }, MASK_CSS);
   if (!settleState.settled) {
     throw new CouldNotRun(
-      `slide fonts or stylesheets did not settle (font status: ${settleState.fonts}; pending font faces: ${settleState.pendingFontFaces.join(", ") || "none"}; pending stylesheets: ${settleState.pendingStylesheets}; failed stylesheets: ${settleState.failedStylesheets.join(", ") || "none"})`,
+      `slide fonts or stylesheets did not settle (font status: ${settleState.fonts}; visible slide font checks: ${JSON.stringify(settleState.usedFonts)}; failed fonts: ${settleState.failedFonts.join(", ") || "none"}; pending font faces: ${settleState.pendingFontFaces.join(", ") || "none"}; pending stylesheets: ${settleState.pendingStylesheets}; failed stylesheets: ${settleState.failedStylesheets.join(", ") || "none"})`,
     );
   }
   // Autofit measures after paint; give it one more beat.
@@ -2948,6 +3144,8 @@ async function runAuthoringParityQa(
     })),
     { id: "authoring-list-ul", kind: "ul-flow" as const },
     { id: "authoring-list-ol", kind: "ol-flow" as const },
+    { id: "authoring-list-ul-enter-exit", kind: "ul-enter-exit" as const },
+    { id: "authoring-list-ol-enter-exit", kind: "ol-enter-exit" as const },
     { id: "authoring-list-styled", kind: "styled-flow" as const },
     {
       id: "authoring-list-boundary-delete",
@@ -2983,14 +3181,14 @@ async function runAuthoringParityQa(
   const created = await action(page, "create-deck", {
     title: `[edit-fidelity] authoring parity ${Date.now()}`,
     slides: cases.map((test) => {
-      if (test.kind === "ul-flow") {
+      if (test.kind === "ul-flow" || test.kind === "ul-enter-exit") {
         return {
           id: test.id,
           content:
             '<div class="fmd-slide"><ul style="list-style-type: disc"><li><p>Alpha</p></li></ul></div>',
         };
       }
-      if (test.kind === "ol-flow") {
+      if (test.kind === "ol-flow" || test.kind === "ol-enter-exit") {
         return {
           id: test.id,
           content:
@@ -3264,6 +3462,16 @@ async function runAuthoringParityQa(
         tailInBullet: authoredListText.some((value) => value.includes("Tail")),
         retainedSourceText: text.includes("Alpha"),
         hasTypedText: text.includes("Tail"),
+        markerFontSizesMatchText: bulletRows.every((row) => {
+          const marker = row.firstElementChild;
+          const text = row.lastElementChild;
+          return (
+            marker instanceof HTMLElement &&
+            text instanceof HTMLElement &&
+            getComputedStyle(marker).fontSize ===
+              getComputedStyle(text).fontSize
+          );
+        }),
         html: root.innerHTML,
       };
     });
@@ -3271,7 +3479,8 @@ async function runAuthoringParityQa(
       state.bulletCount === 0 ||
       !state.tailInBullet ||
       !state.retainedSourceText ||
-      !state.hasTypedText
+      !state.hasTypedText ||
+      !state.markerFontSizesMatchText
     ) {
       throw new Error(
         `bullet shortcut did not create a new bullet containing the inserted text: ${JSON.stringify(state)}`,
@@ -3613,6 +3822,16 @@ async function runAuthoringParityQa(
             );
           }
         });
+      } else if (
+        test.kind === "ul-enter-exit" ||
+        test.kind === "ol-enter-exit"
+      ) {
+        await editor.press(lineEndKey);
+        await editor.press("Enter");
+        await editor.press("Enter");
+        await editor.pressSequentially("Plain");
+        await assertPlainLine(editor);
+        await finish(index, async () => {});
       } else if (test.kind === "ul-flow" || test.kind === "ol-flow") {
         await editor.press(lineEndKey);
         await editor.press("Enter");
@@ -3632,7 +3851,7 @@ async function runAuthoringParityQa(
           }
           await editor.press(lineEndKey);
           await editor.press("Enter");
-          await editor.press("Enter");
+          await editor.press("Backspace");
           await editor.pressSequentially("Plain");
           await assertPlainLine(editor);
         } else {
@@ -3651,7 +3870,7 @@ async function runAuthoringParityQa(
           }
           await editor.press(lineEndKey);
           await editor.press("Enter");
-          await editor.press("Enter");
+          await editor.press("Backspace");
           await editor.pressSequentially("Plain");
           await assertPlainLine(editor);
         }
@@ -5399,36 +5618,275 @@ async function runAuthoringFuzzQa(
     let createError: unknown = null;
     let seedHarnessUnavailable: CouldNotRun | null = null;
     const unavailableCleanupPages = new Set<Page>();
+    type CleanupSessionIdentity = {
+      kind: "poll" | "heartbeat";
+      sessionId: string;
+      pathname: string;
+    };
     const cleanupRequestStartTimes = new Map<
       any,
-      { page: Page; startedAt: number }
+      {
+        page: Page;
+        startedAt: number;
+        requestSourceIsMainFrame: boolean;
+        requestFrameUrl: string | null;
+        outgoingDocumentUrl: string | null;
+        sessionIdentity: CleanupSessionIdentity | null;
+      }
     >();
+    const cleanupRequestFinishedAt = new WeakMap<any, number>();
+    const cleanupClaimSequenceByRequest = new WeakMap<any, number>();
+    const cleanupClaimSequenceByPage = new Map<Page, number>();
+    const cleanupClaimSequenceByPageAndUrl = new WeakMap<
+      Page,
+      Map<string, number>
+    >();
+    const cleanupPendingClaimRequestsByPage = new Map<Page, Set<any>>();
+    const cleanupMainFrameNavigationStartsByPage = new Map<Page, number[]>();
+    const failedCleanupBrowserSessionClaims: Array<{
+      page: Page;
+      url: string;
+      pathname: string;
+      method: string;
+      sessionId: string;
+      startedAt: number;
+      failedAt: number;
+      sameOrigin: boolean;
+      sequence: number;
+      competingClaimPendingAtFailure: boolean;
+      competingSameUrlClaimStartedAfterFailure?: boolean;
+      competingSameUrlClaimPendingAtFailure: boolean;
+      requestWasPendingAtNavigation: boolean;
+    }> = [];
+    let cleanupClaimSequence = 0;
+    let cleanupNavigationStarted = false;
+    let cleanupNavigationPage: Page | null = null;
+    let cleanupNavigationCompetingPollStarted = false;
+    let cleanupNavigationCompetingClaimStarted = false;
+    const cleanupNavigationCompetingClaimUrls = new Set<string>();
+    const cleanupNavigationCompetingRequestUrls = new Set<string>();
+    const cleanupNavigationCompetingSessionRequests = new Map<
+      string,
+      Set<object>
+    >();
+    const cleanupNavigationCompetingSessionRequestKeysByRequest = new Map<
+      object,
+      string[]
+    >();
+    const removePendingCleanupClaim = (target: Page, request: any) => {
+      const pendingClaims = cleanupPendingClaimRequestsByPage.get(target);
+      if (!pendingClaims) return;
+      pendingClaims.delete(request);
+      if (pendingClaims.size === 0) {
+        cleanupPendingClaimRequestsByPage.delete(target);
+      }
+    };
+    const cleanupSessionIdentityFor = (
+      request: any,
+    ): CleanupSessionIdentity | null => {
+      const requestUrl = new URL(request.url());
+      if (
+        !/^\/_agent-native\/browser-sessions(?:\/|$)/.test(requestUrl.pathname)
+      ) {
+        return null;
+      }
+      let postData: string | null = null;
+      if (request.method() === "POST") {
+        try {
+          postData = request.postData() ?? null;
+        } catch {
+          postData = null;
+        }
+      }
+      const identity = browserSessionNavigationRequestIdentity(
+        request.method(),
+        requestUrl.pathname,
+        postData,
+      );
+      if (identity?.status === "identified") {
+        return {
+          kind: identity.kind,
+          sessionId: identity.sessionId,
+          pathname: requestUrl.pathname,
+        };
+      }
+      return null;
+    };
+    const isBrowserSessionRequest = (request: any) =>
+      /^\/_agent-native\/browser-sessions(?:\/|$)/.test(
+        new URL(request.url()).pathname,
+      );
+    const isCleanupPollRequest = (request: any) => {
+      const requestUrl = new URL(request.url());
+      return (
+        request.method() === "GET" &&
+        requestUrl.pathname === "/_agent-native/poll"
+      );
+    };
     const cleanupRequestTrackingPages = new Map<
       Page,
       {
         onRequest: (request: any) => void;
-        onRequestSettled: (request: any) => void;
+        onRequestFinished: (request: any) => void;
+        onRequestFailed: (request: any) => void;
       }
     >();
     const trackCleanupRequests = (target: Page) => {
       if (cleanupRequestTrackingPages.has(target)) return;
       const onRequest = (request: any) => {
+        let requestFrame: any = null;
+        const sessionIdentity = cleanupSessionIdentityFor(request);
+        try {
+          if (request.serviceWorker() === null) requestFrame = request.frame();
+        } catch {
+          requestFrame = null;
+        }
+        const startedAt = Date.now();
+        let isMainFrameNavigationRequest = false;
+        try {
+          isMainFrameNavigationRequest =
+            request.isNavigationRequest() &&
+            requestFrame === target.mainFrame();
+        } catch {
+          isMainFrameNavigationRequest = false;
+        }
+        if (isMainFrameNavigationRequest) {
+          const navigationStarts =
+            cleanupMainFrameNavigationStartsByPage.get(target) ?? [];
+          navigationStarts.push(startedAt);
+          cleanupMainFrameNavigationStartsByPage.set(
+            target,
+            navigationStarts.slice(-20),
+          );
+        }
+        if (sessionIdentity?.kind === "poll") {
+          cleanupClaimSequence += 1;
+          cleanupClaimSequenceByRequest.set(request, cleanupClaimSequence);
+          cleanupClaimSequenceByPage.set(target, cleanupClaimSequence);
+          const claimSequencesByUrl =
+            cleanupClaimSequenceByPageAndUrl.get(target) ?? new Map();
+          claimSequencesByUrl.set(request.url(), cleanupClaimSequence);
+          cleanupClaimSequenceByPageAndUrl.set(target, claimSequencesByUrl);
+          const pendingClaims =
+            cleanupPendingClaimRequestsByPage.get(target) ?? new Set();
+          pendingClaims.add(request);
+          cleanupPendingClaimRequestsByPage.set(target, pendingClaims);
+        }
+        if (
+          isCleanupNavigationCompetitionPage(
+            target,
+            cleanupNavigationPage,
+            cleanupNavigationStarted,
+          ) &&
+          isBrowserSessionRequest(request)
+        ) {
+          cleanupNavigationCompetingRequestUrls.add(request.url());
+          if (sessionIdentity) {
+            recordCleanupNavigationSessionCompetitor(
+              request,
+              sessionIdentity,
+              cleanupNavigationCompetingSessionRequests,
+              cleanupNavigationCompetingSessionRequestKeysByRequest,
+            );
+          }
+        }
+        if (
+          cleanupNavigationStarted &&
+          target === cleanupNavigationPage &&
+          isCleanupPollRequest(request)
+        ) {
+          cleanupNavigationCompetingPollStarted = true;
+        }
+        if (
+          cleanupNavigationStarted &&
+          target === cleanupNavigationPage &&
+          sessionIdentity?.kind === "poll"
+        ) {
+          cleanupNavigationCompetingClaimStarted = true;
+          cleanupNavigationCompetingClaimUrls.add(request.url());
+        }
         cleanupRequestStartTimes.set(request, {
           page: target,
           startedAt: Date.now(),
+          requestSourceIsMainFrame: requestFrame === target.mainFrame(),
+          requestFrameUrl: requestFrame?.url() ?? null,
+          outgoingDocumentUrl: target.url() || null,
+          sessionIdentity,
         });
       };
-      const onRequestSettled = (request: any) => {
+      const onRequestFinished = (request: any) => {
+        removeCleanupNavigationSessionCompetitor(
+          request,
+          cleanupNavigationCompetingSessionRequests,
+          cleanupNavigationCompetingSessionRequestKeysByRequest,
+        );
+        recordCleanupRequestOutcome(
+          cleanupRequestFinishedAt,
+          request,
+          "finished",
+          Date.now(),
+        );
+        removePendingCleanupClaim(target, request);
+        cleanupRequestStartTimes.delete(request);
+      };
+      const onRequestFailed = (request: any) => {
+        removeCleanupNavigationSessionCompetitor(
+          request,
+          cleanupNavigationCompetingSessionRequests,
+          cleanupNavigationCompetingSessionRequestKeysByRequest,
+        );
+        const started = cleanupRequestStartTimes.get(request);
+        if (started && started.sessionIdentity?.kind === "poll") {
+          const requestUrl = new URL(request.url());
+          const failedAt = Date.now();
+          failedCleanupBrowserSessionClaims.push({
+            page: target,
+            url: request.url(),
+            pathname: requestUrl.pathname,
+            method: request.method(),
+            sessionId: started.sessionIdentity.sessionId,
+            startedAt: started.startedAt,
+            failedAt,
+            sameOrigin: requestUrl.origin === new URL(base).origin,
+            sequence: cleanupClaimSequenceByRequest.get(request) ?? 0,
+            competingClaimPendingAtFailure: [
+              ...(cleanupPendingClaimRequestsByPage.get(target) ?? []),
+            ].some((pendingRequest) => pendingRequest !== request),
+            competingSameUrlClaimPendingAtFailure: [
+              ...(cleanupPendingClaimRequestsByPage.get(target) ?? []),
+            ].some(
+              (pendingRequest) =>
+                pendingRequest !== request &&
+                pendingRequest.url() === request.url(),
+            ),
+            requestWasPendingAtNavigation: (
+              cleanupMainFrameNavigationStartsByPage.get(target) ?? []
+            ).some(
+              (navigationStartedAt) =>
+                started.startedAt <= navigationStartedAt &&
+                navigationStartedAt <= failedAt,
+            ),
+          });
+        }
+        recordCleanupRequestOutcome(
+          cleanupRequestFinishedAt,
+          request,
+          "failed",
+          Date.now(),
+        );
+        removePendingCleanupClaim(target, request);
         cleanupRequestStartTimes.delete(request);
       };
       target.on("request", onRequest);
-      target.on("requestfinished", onRequestSettled);
-      target.on("requestfailed", onRequestSettled);
+      target.on("requestfinished", onRequestFinished);
+      target.on("requestfailed", onRequestFailed);
       cleanupRequestTrackingPages.set(target, {
         onRequest,
-        onRequestSettled,
+        onRequestFinished,
+        onRequestFailed,
       });
     };
+    trackCleanupRequests(stableCleanupPage);
     const scratchTitle = `[edit-fidelity] authoring fuzz ${seed} ${randomUUID()}`;
     try {
       const activePage = await runSetupAsCouldNotRun(
@@ -5597,17 +6055,32 @@ async function runAuthoringFuzzQa(
       }
     } finally {
       const cleanupErrors: string[] = [];
-      const pendingCleanupConsoleInspections = new Set<Promise<void>>();
+      const pendingCleanupErrorInspections = new Set<Promise<void>>();
+      const pendingRecoveryPageErrors = new Set<{ at: number }>();
       const monitoredPages = new Set<Page>();
+      const cleanupPageListeners = new Map<
+        Page,
+        {
+          onConsole: (message: any) => void;
+          onPageError: (error: Error) => void;
+          onResponse: (response: { status(): number; url(): string }) => void;
+        }
+      >();
       const recoveryPages = new Set<Page>();
       let cleanupNavigationCandidates: Array<{
+        request: any;
         url: string;
         pathname: string;
         method: string;
         startedAt: number;
+        sessionIdentity: CleanupSessionIdentity | null;
+        sameOrigin: boolean;
+        requestSourceIsMainFrame: boolean;
+        requestFrameUrl: string | null;
+        outgoingDocumentUrl: string | null;
+        retiredSessionId: string | null;
         requestWasPendingAtNavigation: true;
       }> = [];
-      let cleanupNavigationPending = false;
       let recoveryPage: Page | null = stableCleanupPage;
       let lastCleanupPage: Page | null = null;
       const recordCleanupFailure = (
@@ -5616,7 +6089,9 @@ async function runAuthoringFuzzQa(
         target: Page | null = lastCleanupPage,
       ) => {
         cleanupErrors.push(
-          formatAuthoringFuzzCleanupIssue(label, deckId, error),
+          redactBrowserSessionSensitiveText(
+            formatAuthoringFuzzCleanupIssue(label, deckId, error),
+          ),
         );
         if (
           target &&
@@ -5632,21 +6107,129 @@ async function runAuthoringFuzzQa(
       const getCleanupNavigationCandidates = () => {
         const now = Date.now();
         return cleanupNavigationCandidates.map(
-          ({ startedAt, ...candidate }) => ({
-            ...candidate,
-            ageMs: now - startedAt,
-          }),
+          ({ request, startedAt, sessionIdentity, ...candidate }) => {
+            const finishedAt = cleanupRequestFinishedAt.get(request);
+            const sessionCorrelation =
+              cleanupNavigationSessionCorrelation(sessionIdentity);
+            const competingSessionRequestStarted = sessionIdentity
+              ? hasActiveCleanupNavigationSessionCompetitor(
+                  sessionIdentity,
+                  cleanupNavigationCompetingSessionRequests,
+                )
+              : cleanupNavigationCompetingRequestUrls.has(candidate.url);
+            return {
+              ...candidate,
+              ageMs: now - startedAt,
+              ...(finishedAt === undefined
+                ? {}
+                : {
+                    requestFinishedSuccessfully: true,
+                    settledAgeMs: now - finishedAt,
+                  }),
+              competingRequestStartedAfterNavigation:
+                candidate.pathname === "/_agent-native/poll"
+                  ? cleanupNavigationCompetingPollStarted
+                  : competingSessionRequestStarted,
+              competingClaimStartedAfterNavigation:
+                sessionIdentity?.kind === "poll" &&
+                cleanupNavigationCompetingClaimStarted,
+              competingSameUrlClaimStartedAfterNavigation:
+                cleanupNavigationCompetingClaimUrls.has(candidate.url),
+              competingRegistrationStartedAfterNavigation:
+                sessionIdentity?.kind === "heartbeat" &&
+                competingSessionRequestStarted,
+              ...sessionCorrelation,
+              competingSameTypeRequest:
+                sessionIdentity?.kind === "heartbeat"
+                  ? competingSessionRequestStarted
+                  : undefined,
+            };
+          },
         );
       };
-      const isExpectedCleanupNavigationError = (
-        message: string,
-        candidates = getCleanupNavigationCandidates(),
-        navigationPending = cleanupNavigationPending,
+      const navigationCandidatesFor = (target: Page) =>
+        target === cleanupNavigationPage
+          ? getCleanupNavigationCandidates()
+          : [];
+      const pruneFailedCleanupBrowserSessionClaims = (now = Date.now()) => {
+        const pendingPageErrorAts = Array.from(
+          pendingRecoveryPageErrors,
+          ({ at }) => at,
+        );
+        for (
+          let index = failedCleanupBrowserSessionClaims.length - 1;
+          index >= 0;
+          index -= 1
+        ) {
+          if (
+            !shouldRetainCleanupRecoveryClaimEvidence(
+              failedCleanupBrowserSessionClaims[index].failedAt,
+              now,
+              pendingPageErrorAts,
+            )
+          ) {
+            failedCleanupBrowserSessionClaims.splice(index, 1);
+          }
+        }
+      };
+      const recoveryPollCandidatesFor = (
+        target: Page,
+        pageErrorAt = Date.now(),
+        now = Date.now(),
       ) => {
-        return isExpectedCleanupNavigationRequestError(
-          message,
-          candidates,
-          navigationPending,
+        pruneFailedCleanupBrowserSessionClaims(now);
+        return failedCleanupBrowserSessionClaims
+          .filter(
+            (candidate) =>
+              candidate.page === target &&
+              isWithinCleanupRecoveryClaimCorrelationWindow(
+                candidate.failedAt,
+                pageErrorAt,
+              ),
+          )
+          .map((candidate) => ({
+            url: candidate.url,
+            pathname: candidate.pathname,
+            method: candidate.method,
+            sessionId: candidate.sessionId,
+            requestAgeMs: cleanupRecoveryClaimRequestAgeMs(
+              candidate.startedAt,
+              pageErrorAt,
+            ),
+            failureOffsetMs: candidate.failedAt - pageErrorAt,
+            sameOrigin: candidate.sameOrigin,
+            competingClaimStartedAfterFailure:
+              (cleanupClaimSequenceByPage.get(target) ?? candidate.sequence) >
+              candidate.sequence,
+            competingClaimPendingAtFailure:
+              candidate.competingClaimPendingAtFailure,
+            competingSameUrlClaimStartedAfterFailure:
+              (cleanupClaimSequenceByPageAndUrl
+                .get(target)
+                ?.get(candidate.url) ?? candidate.sequence) >
+              candidate.sequence,
+            competingSameUrlClaimPendingAtFailure:
+              candidate.competingSameUrlClaimPendingAtFailure,
+            requestWasPendingAtNavigation:
+              candidate.requestWasPendingAtNavigation,
+          }));
+      };
+      const isExpectedCleanupNavigationError = (
+        target: Page,
+        message: string,
+        recoveryPageErrorAt = Date.now(),
+      ) => {
+        return (
+          isExpectedCleanupNavigationRequestError(
+            message,
+            navigationCandidatesFor(target),
+            cleanupNavigationStarted && target === cleanupNavigationPage,
+          ) ||
+          (target !== page &&
+            isExpectedCleanupRecoveryPageBrowserSessionError(
+              message,
+              recoveryPollCandidatesFor(target, recoveryPageErrorAt),
+            ))
         );
       };
       if (authoringSucceeded && page && !page.isClosed()) {
@@ -5661,55 +6244,101 @@ async function runAuthoringFuzzQa(
           );
         }
       }
-      const onConsole = (message: any) => {
-        if (message.type() === "error") {
-          const text = message.text();
-          if (
-            !cleanupNavigationPending ||
-            !isFirefoxBrowserSessionConsoleError(text)
-          ) {
-            if (isExpectedCleanupNavigationError(text)) return;
-            cleanupErrors.push(`console: ${text}`);
-            return;
-          }
-          const candidates = getCleanupNavigationCandidates();
-          const navigationPending = cleanupNavigationPending;
-          let inspection: Promise<void>;
-          inspection = normalizeFirefoxBrowserSessionConsoleError(message)
-            .then((normalized) => {
-              if (
-                isExpectedCleanupNavigationError(
-                  normalized,
-                  candidates,
-                  navigationPending,
-                )
-              ) {
-                return;
-              }
-              cleanupErrors.push(`console: ${normalized}`);
-            })
-            .catch((error: unknown) => {
-              cleanupErrors.push(`console: ${text} (${String(error)})`);
-            })
-            .finally(() => pendingCleanupConsoleInspections.delete(inspection));
-          pendingCleanupConsoleInspections.add(inspection);
-        }
-      };
-      const onPageError = (error: Error) => {
-        if (isExpectedCleanupNavigationError(error.message)) return;
-        cleanupErrors.push(`pageerror: ${error.stack ?? String(error)}`);
-      };
-      const onResponse = (response: { status(): number; url(): string }) => {
-        if (response.status() >= 400) {
-          cleanupErrors.push(`HTTP ${response.status()} ${response.url()}`);
-        }
-      };
       const monitorCleanupPage = (target: Page) => {
         if (!authoringSucceeded || monitoredPages.has(target)) return;
         trackCleanupRequests(target);
+        const onConsole = (message: any) => {
+          if (message.type() !== "error") return;
+          const text = message.text();
+          const shouldIgnore = (normalized: string) =>
+            isExpectedCleanupNavigationError(target, normalized);
+          if (!isFirefoxBrowserSessionConsoleError(text)) {
+            if (!shouldIgnore(text))
+              cleanupErrors.push(
+                redactBrowserSessionSensitiveText(`console: ${text}`),
+              );
+            return;
+          }
+          let inspection: Promise<void>;
+          inspection = normalizeFirefoxBrowserSessionConsoleError(message)
+            .then((normalized) => {
+              if (!shouldIgnore(normalized))
+                cleanupErrors.push(
+                  redactBrowserSessionSensitiveText(`console: ${normalized}`),
+                );
+            })
+            .catch((error: unknown) => {
+              cleanupErrors.push(
+                redactBrowserSessionSensitiveText(
+                  `console: ${text} (${String(error)})`,
+                ),
+              );
+            })
+            .finally(() => pendingCleanupErrorInspections.delete(inspection));
+          pendingCleanupErrorInspections.add(inspection);
+        };
+        const onPageError = (error: Error) => {
+          const pageErrorAt = Date.now();
+          if (
+            isPotentialCleanupRecoveryPageBrowserSessionError(error.message)
+          ) {
+            const pendingPageError = { at: pageErrorAt };
+            pendingRecoveryPageErrors.add(pendingPageError);
+            let inspection: Promise<void>;
+            inspection = new Promise<void>((resolve) =>
+              setTimeout(resolve, retiredBrowserSessionPollConsoleGraceMs),
+            )
+              .then(() => {
+                if (
+                  !isExpectedCleanupNavigationError(
+                    target,
+                    error.message,
+                    pageErrorAt,
+                  )
+                ) {
+                  cleanupErrors.push(
+                    redactBrowserSessionSensitiveText(
+                      `pageerror: ${error.stack ?? String(error)}`,
+                    ),
+                  );
+                }
+              })
+              .finally(() => {
+                pendingRecoveryPageErrors.delete(pendingPageError);
+                pruneFailedCleanupBrowserSessionClaims();
+                pendingCleanupErrorInspections.delete(inspection);
+              });
+            pendingCleanupErrorInspections.add(inspection);
+            return;
+          }
+          if (
+            isExpectedCleanupNavigationError(target, error.message, pageErrorAt)
+          ) {
+            return;
+          }
+          cleanupErrors.push(
+            redactBrowserSessionSensitiveText(
+              `pageerror: ${error.stack ?? String(error)}`,
+            ),
+          );
+        };
+        const onResponse = (response: { status(): number; url(): string }) => {
+          if (response.status() >= 400) {
+            cleanupErrors.push(
+              redactBrowserSessionSensitiveText(
+                `HTTP ${response.status()} ${response.url()}`,
+              ),
+            );
+          }
+        };
         target.on("console", onConsole);
         target.on("pageerror", onPageError);
         target.on("response", onResponse);
+        cleanupPageListeners.set(target, {
+          onConsole,
+          onPageError,
+          onResponse,
+        });
         monitoredPages.add(target);
       };
       const getCleanupPage = async (): Promise<Page> => {
@@ -5846,36 +6475,40 @@ async function runAuthoringFuzzQa(
           }
           try {
             const cleanupPage = await getCleanupPage();
+            const cleanupUrl = new URL(cleanupPage.url());
             cleanupNavigationCandidates = [
               ...cleanupRequestStartTimes.entries(),
             ]
               .filter(([, request]) => request.page === cleanupPage)
-              .map(([request, { startedAt }]) => {
+              .map(([request, tracked]) => {
                 const url = request.url();
+                const requestUrl = new URL(url);
                 return {
+                  request,
                   url,
-                  pathname: new URL(url).pathname,
+                  pathname: requestUrl.pathname,
                   method: request.method(),
-                  startedAt,
+                  startedAt: tracked.startedAt,
+                  sessionIdentity: tracked.sessionIdentity,
+                  sameOrigin: requestUrl.origin === cleanupUrl.origin,
+                  requestSourceIsMainFrame: tracked.requestSourceIsMainFrame,
+                  requestFrameUrl: tracked.requestFrameUrl,
+                  outgoingDocumentUrl: tracked.outgoingDocumentUrl,
+                  retiredSessionId: tracked.sessionIdentity?.sessionId ?? null,
                   requestWasPendingAtNavigation: true as const,
                 };
               });
-            const cleanupUrl = new URL(cleanupPage.url());
             const homeUrl = new URL(`${base}/home`);
             if (
               cleanupUrl.origin !== homeUrl.origin ||
               cleanupUrl.pathname !== homeUrl.pathname
             ) {
-              cleanupNavigationPending = true;
-              try {
-                await cleanupPage.goto(`${base}/home`, {
-                  waitUntil: "domcontentloaded",
-                  timeout: 120_000,
-                });
-              } finally {
-                cleanupNavigationPending = false;
-                cleanupNavigationCandidates = [];
-              }
+              cleanupNavigationPage = cleanupPage;
+              cleanupNavigationStarted = true;
+              await cleanupPage.goto(`${base}/home`, {
+                waitUntil: "domcontentloaded",
+                timeout: 120_000,
+              });
             }
           } catch (error) {
             recordCleanupFailure("could not leave scratch deck", error);
@@ -5890,15 +6523,17 @@ async function runAuthoringFuzzQa(
       } finally {
         for (const monitoredPage of monitoredPages) {
           if (monitoredPage.isClosed()) continue;
-          monitoredPage.off("console", onConsole);
-          monitoredPage.off("pageerror", onPageError);
-          monitoredPage.off("response", onResponse);
+          const listeners = cleanupPageListeners.get(monitoredPage);
+          if (!listeners) continue;
+          monitoredPage.off("console", listeners.onConsole);
+          monitoredPage.off("pageerror", listeners.onPageError);
+          monitoredPage.off("response", listeners.onResponse);
         }
         for (const [trackedPage, listeners] of cleanupRequestTrackingPages) {
           if (trackedPage.isClosed()) continue;
           trackedPage.off("request", listeners.onRequest);
-          trackedPage.off("requestfinished", listeners.onRequestSettled);
-          trackedPage.off("requestfailed", listeners.onRequestSettled);
+          trackedPage.off("requestfinished", listeners.onRequestFinished);
+          trackedPage.off("requestfailed", listeners.onRequestFailed);
         }
       }
       const closePage = async (target: Page, label: string) => {
@@ -5909,9 +6544,10 @@ async function runAuthoringFuzzQa(
           recordCleanupFailure(label, error, target);
         }
       };
-      while (pendingCleanupConsoleInspections.size) {
-        await Promise.all([...pendingCleanupConsoleInspections]);
+      while (pendingCleanupErrorInspections.size) {
+        await Promise.all([...pendingCleanupErrorInspections]);
       }
+      cleanupNavigationCandidates = [];
       if (page) await closePage(page, "could not close authoring page");
       for (const cleanupPage of recoveryPages) {
         await closePage(cleanupPage, "could not close recovery page");
@@ -7267,6 +7903,49 @@ async function main() {
       viewport: { width: 1600, height: 1000 },
       deviceScaleFactor: 1,
     });
+    if (authoringFuzzOnly) {
+      // Fuzz covers slide authoring, not an idle host session's long poll.
+      await context.route(
+        "**/_agent-native/browser-sessions**",
+        async (route: any) => {
+          const request = route.request();
+          const corsHeaders = authoringFuzzBrowserSessionCorsHeaders(
+            request.headers().origin,
+          );
+          if (request.method() === "OPTIONS") {
+            await route.fulfill({ status: 204, headers: corsHeaders });
+            return;
+          }
+          const requestBody =
+            request.method() === "POST" && request.postData()
+              ? request.postDataJSON()
+              : undefined;
+          const pathname = new URL(request.url()).pathname;
+          const response = authoringFuzzBrowserSessionResponse(
+            request.method(),
+            pathname,
+            requestBody,
+          );
+          const status = response ? (response.ok ? 200 : 400) : 501;
+          if (!response) {
+            console.error(
+              `[edit-fidelity] unexpected browser-session mock request: ${request.method()} ${redactBrowserSessionRequestPath(pathname)} (${status})`,
+            );
+          }
+          await route.fulfill({
+            status,
+            contentType: "application/json",
+            headers: corsHeaders,
+            body: JSON.stringify(
+              response ?? {
+                ok: false,
+                error: "Unexpected browser-session request in authoring fuzz",
+              },
+            ),
+          });
+        },
+      );
+    }
     // The local app can still be compiling when a new page first opens /home.
     context.setDefaultNavigationTimeout(120_000);
     // Observe link failures before the app starts injecting slide stylesheets.

@@ -357,7 +357,7 @@ Template Roots rufen `configureTracking()` einmal beim Start auf. Mit `trackEven
 - `llm_connection_source` – `app_secrets`, `settings` oder `env`
 - `llm_connection_configured` – ob eine LLM-Verbindung verfügbar ist
 
-Das Framework verfolgt auch `builder connect clicked` wenn jemand eine CTA zur Verwendung von Builder.io auswählt und die serverseitigen Builder-Connect-Routen verfolgen gestartete/erfolgreiche/fehlgeschlagene Lebenszyklusereignisse. `configureTracking()` wird vom Framework automatisch aufgerufen; Sie müssen es nicht in Ihrem eigenen Vorlagencode aufrufen.
+Das Framework verfolgt auch `builder_connect_clicked` wenn jemand eine CTA zur Verwendung von Builder.io auswählt und die serverseitigen Builder-Connect-Routen verfolgen gestartete/erfolgreiche/fehlgeschlagene Lebenszyklusereignisse. Die Kontoerstellung mit einem Klick setzt `connect_url_kind: "provision"`; das Anmelde-Popup erfasst zusätzlich den alten Namen `builder connect clicked`, der Ein-Klick-Erstellungen nicht enthält. `configureTracking()` wird vom Framework automatisch aufgerufen; Sie müssen es nicht in Ihrem eigenen Vorlagencode aufrufen.
 
 </details>
 

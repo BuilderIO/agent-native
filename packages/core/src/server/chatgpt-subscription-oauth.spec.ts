@@ -6,9 +6,21 @@ import { _resetLabRegistryForTests, registerLabs } from "../labs/registry.js";
 
 const mocks = vi.hoisted(() => ({
   getUserLabEnabled: vi.fn(),
+  getUserSetting: vi.fn(),
 }));
 
 vi.mock("../labs/store.js", () => mocks);
+vi.mock("../oauth-tokens/index.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../oauth-tokens/index.js")>()),
+  listOAuthAccountsByOwner: vi.fn(async () => []),
+}));
+vi.mock("../settings/user-settings.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../settings/user-settings.js")>()),
+  getUserSetting: mocks.getUserSetting,
+  mutateUserSetting: vi.fn(),
+  putUserSetting: vi.fn(),
+  deleteUserSetting: vi.fn(),
+}));
 
 import {
   getChatGPTSubscriptionAccess,
@@ -29,6 +41,7 @@ const NONCE = "fresh-test-nonce";
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.getUserLabEnabled.mockResolvedValue(false);
+  mocks.getUserSetting.mockResolvedValue(null);
   _resetLabRegistryForTests();
   registerLabs([CHATGPT_SUBSCRIPTION_LAB]);
 });
@@ -38,7 +51,9 @@ describe("ChatGPT subscription OAuth contract", () => {
     await runWithRequestContext(
       {
         isLoopbackRequest: true,
+        isDirectLoopbackRequest: true,
         requestOrigin: "http://127.0.0.1:1455",
+        orgScope: "personal",
       },
       async () => {
         await expect(
@@ -54,6 +69,54 @@ describe("ChatGPT subscription OAuth contract", () => {
     expect(mocks.getUserLabEnabled).toHaveBeenCalledTimes(2);
   });
 
+  it("does not grant local ChatGPT credentials to a durable worker", async () => {
+    mocks.getUserLabEnabled.mockResolvedValue(true);
+
+    await runWithRequestContext(
+      {
+        isLoopbackRequest: true,
+        isDirectLoopbackRequest: true,
+        requestOrigin: "http://127.0.0.1:1455",
+        orgScope: "personal",
+        run: { isBackgroundWorker: true },
+      },
+      async () => {
+        await expect(
+          hasChatGPTSubscriptionCredential("alice@example.com"),
+        ).resolves.toBe(false);
+      },
+    );
+
+    expect(mocks.getUserLabEnabled).not.toHaveBeenCalled();
+  });
+
+  it("does not treat a loopback request with unresolved scope as personal", async () => {
+    mocks.getUserLabEnabled.mockResolvedValue(true);
+
+    await runWithRequestContext(
+      {
+        isLoopbackRequest: true,
+        isDirectLoopbackRequest: true,
+        requestOrigin: "http://127.0.0.1:1455",
+      },
+      async () => {
+        await expect(
+          hasChatGPTSubscriptionCredential("alice@example.com"),
+        ).resolves.toBe(false);
+        await expect(
+          getChatGPTSubscriptionStatus("alice@example.com"),
+        ).resolves.toMatchObject({
+          supported: false,
+          localLoopback: false,
+          supportReason: "requires_local_loopback",
+        });
+        await expect(
+          getChatGPTSubscriptionAccess("alice@example.com"),
+        ).rejects.toThrow("available only from a local app");
+      },
+    );
+  });
+
   it("surfaces lab preference read failures instead of treating them as off", async () => {
     const error = new Error("settings unavailable");
     mocks.getUserLabEnabled.mockRejectedValue(error);
@@ -61,7 +124,9 @@ describe("ChatGPT subscription OAuth contract", () => {
     await runWithRequestContext(
       {
         isLoopbackRequest: true,
+        isDirectLoopbackRequest: true,
         requestOrigin: "http://127.0.0.1:1455",
+        orgScope: "personal",
       },
       async () => {
         await expect(
@@ -77,7 +142,9 @@ describe("ChatGPT subscription OAuth contract", () => {
     await runWithRequestContext(
       {
         isLoopbackRequest: true,
+        isDirectLoopbackRequest: true,
         requestOrigin: "http://127.0.0.1:1455",
+        orgScope: "personal",
       },
       async () => {
         await expect(
@@ -91,6 +158,31 @@ describe("ChatGPT subscription OAuth contract", () => {
       },
     );
     expect(mocks.getUserLabEnabled).not.toHaveBeenCalled();
+  });
+
+  it("does not grant local ChatGPT access through a forwarded loopback request", async () => {
+    mocks.getUserLabEnabled.mockResolvedValue(true);
+
+    await runWithRequestContext(
+      {
+        isLoopbackRequest: true,
+        isDirectLoopbackRequest: false,
+        requestOrigin: "http://127.0.0.1:1455",
+        orgScope: "personal",
+      },
+      async () => {
+        await expect(
+          getChatGPTSubscriptionStatus("alice@example.com"),
+        ).resolves.toMatchObject({
+          supported: false,
+          localLoopback: false,
+          supportReason: "requires_local_loopback",
+        });
+        await expect(
+          getChatGPTSubscriptionAccess("alice@example.com"),
+        ).rejects.toThrow("available only from a local app");
+      },
+    );
   });
 
   it("accepts only the fixed HTTP 127.0.0.1 callback URI", () => {

@@ -4,6 +4,9 @@ const messages = {
     includeLast: "包含最近",
     whatIsThis: "這是什麼？",
     off: "關",
+    none: "無",
+    noneExplanation:
+      "「無」表示新的 Clip 不會包含先前的螢幕時間。Rewind 開啟時仍會持續錄製螢幕。若要停止，請選擇下方的「關閉」。",
     custom: "自訂…",
     customLabel: "自訂長度",
     customAmount: "長度",
@@ -15,9 +18,26 @@ const messages = {
     customErrorInvalid: "請輸入整數秒數或分鐘數。",
     customErrorTooLong: "請不超過 5 分鐘。",
     turnOnRewind: "開啟 Rewind",
+    turnOffRewind: "關閉",
+    turnOffRewindFailed: "無法關閉 Rewind。請先停止錄製，然後再試一次。",
+    turnOnRewindFailed: "無法開啟 Rewind。請再試一次。",
+    turnOnRewindPermissionFailed:
+      "在系統設定 > 隱私權與安全性 > 螢幕與系統音訊錄製中允許 Clips 錄製螢幕，然後重新啟動 Clips 並再試一次。",
+    turnOnRewindUnsupported: "Rewind 螢幕錄製僅支援 macOS。",
+    turnOnRewindNoSpace:
+      "磁碟空間不足，無法啟動 Rewind。請釋出空間後再試一次。",
+    turnOnRewindStopClip: "請先停止目前的 Clip，再開啟 Rewind。",
+    turnOnRewindStorageFailed:
+      "無法存取 Rewind 儲存空間。請檢查磁碟空間和資料夾權限後再試一次。",
+    rewindConsentTitle: "開啟 Rewind？",
+    rewindConsentBody:
+      "Rewind 開啟時，Clips 會持續錄製螢幕，並在此裝置保留近期記錄，直到達到你設定的時間或儲存空間上限。選擇「螢幕 + 音訊」也會錄製麥克風和系統音效。已連線的代理程式無須 Clips 個別核准即可直接存取螢幕影像；之後如何使用這些影像取決於代理程式。你選擇的較早螢幕時間會自動加入每個新 Clip，並遵循該 Clip 的分享設定。預設情況下，將選定時段分享為 Clip 的要求會在傳送前審核。在 Rewind 設定中關閉傳送前審核，即可自動傳送這些要求。Clip 可能包含錄到的麥克風和系統音訊。關閉 Rewind 會停止新的錄製，但會保留已儲存的記錄。Rewind 關閉期間，記錄可能超過時間或儲存空間上限，直到錄製再次開始。選擇「全部刪除」可立即清除已儲存的記錄。",
+    rewindConsentCancel: "暫不",
+    rewindConsentConfirm: "開啟 Rewind",
+    rewindConsentBusy: "正在開啟 Rewind…",
     rewindOffTitle: "開啟 Rewind",
     rewindOffBody:
-      "Rewind 會在本機保存螢幕的歷史紀錄，方便你在錄製前加入最近幾分鐘的畫面。只有在你選擇包含或核准後，畫面才會上傳。",
+      "如要包含更早的螢幕時間，請先開啟 Rewind。Rewind 開啟時，會在此裝置保留近期螢幕記錄並遵守時間和儲存空間上限。Rewind 關閉期間，已儲存的記錄可能超過這些上限，直到錄製再次開始。若要立即清除，請開啟 Settings > Rewind > Storage > On this device 並選擇 Delete all。預設情況下，分享所選時段的 Clip 要求會在傳送前審核；在 Rewind 設定中關閉傳送前審核後，這些要求會自動傳送。",
     requestFailed: "無法包含更早的螢幕時間。錄製會繼續，但不含這部分。",
     localOnlyUnavailable: "僅限本機的錄製不會儲存更早的螢幕時間。",
     saving: "正在儲存錄製前的 {{window}}…",
@@ -195,9 +215,12 @@ const messages = {
     expandSidebar: "展開側邊欄",
     collapseSidebar: "收起側邊欄",
     agentEmptyState: "我可以怎樣幫助你處理錄製？",
-    agentSuggestionSummary: "總結我最近的錄製",
-    agentSuggestionPricing: "尋找我提到價格的位置",
-    agentSuggestionFiller: "從這個剪輯中移除口頭禪",
+    agentSuggestionSummary: "總結一段錄製",
+    agentSuggestionPricing: "尋找價格提及",
+    agentSuggestionFiller: "移除填充詞",
+    agentScreenshotSuggestionSummary: "總結螢幕截圖",
+    agentScreenshotSuggestionText: "尋找螢幕截圖中的文字",
+    agentScreenshotSuggestionCompare: "比較螢幕截圖",
     createFolderError: "建立失敗",
     folderCreated: "資料夾已建立",
     folderNamePlaceholder: "資料夾名稱",
@@ -291,6 +314,9 @@ const messages = {
     transcriptionCompleted: "轉錄完成",
     transcriptNotReady: "逐字稿尚未準備好",
     tryAfterTranscription: "轉錄完成後重試。",
+    silenceTranscriptUnavailableTitle: "無法使用這份逐字稿移除靜音片段",
+    silenceTranscriptUnavailableDescription:
+      "試著產生新的逐字稿，再次移除靜音片段。",
     titleGenerationQueued: "正在產生標題…",
     descriptionQueued: "正在產生描述…",
     chapterQueued: "正在產生章節…",
@@ -576,6 +602,31 @@ const messages = {
     groqKeysStart: "Groq 鍵開頭為",
     waiting: "等待…",
     nativeSpeechPrimary: "原生語音仍然是主要的轉錄來源。",
+  },
+  transcriptImport: {
+    addFile: "新增逐字稿檔案",
+    imported: "已匯入",
+    replaceTitle: "要取代逐字稿嗎？",
+    replaceDescription: "{{fileName}} 將取代目前的逐字稿。",
+    replace: "取代",
+    regenerateOverImportTitle: "要取代匯入的逐字稿嗎？",
+    regenerateOverImportDescription:
+      "根據錄影音訊產生的新逐字稿將取代從檔案匯入的逐字稿。",
+    added: "已新增逐字稿",
+    replaced: "已取代逐字稿",
+    failed: "無法新增逐字稿",
+    invalidFile: "無法讀取 {{fileName}}",
+    errorEmpty: "檔案中沒有逐字稿內容。",
+    errorTooLarge: "檔案太大，無法匯入。",
+    errorNotUtf8: "檔案不是 UTF-8 文字。請另存為 UTF-8 後再試一次。",
+    errorMissingTiming:
+      "第 {{line}} 行：應為字幕時間行，例如 00:00:01.000 --> 00:00:04.000。",
+    errorBadTiming: "第 {{line}} 行：無法讀取字幕時間。",
+    errorBadRange: "第 {{line}} 行：字幕的結束時間早於開始時間。",
+    errorMissingTimestamp:
+      "第 {{line}} 行：應為開始時間，例如 0:21 或 [0:21]。",
+    errorOutOfOrder: "第 {{line}} 行：此時間早於上一個時間。",
+    errorPastEnd: "第 {{line}} 行：此時間晚於影片結束時間。",
   },
   thumbnailPicker: {
     failedCapture: "擷取影格失敗",
@@ -1460,6 +1511,9 @@ const messages = {
     disconnected: "麥克風已中斷連線。",
   },
   storageSetup: {
+    builderStorageOffer:
+      "Builder.io 免費方案包含影片儲存空間，可一鍵完成設定。",
+    customKeys: "自訂金鑰",
     builderConnectPopupError:
       "無法開啟 Builder.io。如果此應用程式嵌入在聊天中，請在瀏覽器分頁中開啟；否則請重試。",
     builderConnectError:
@@ -1472,12 +1526,13 @@ const messages = {
     builderGrantAskAdmin:
       "請擁有者或管理員連線具有片段上傳權限的 Builder.io 帳戶。",
     statusUnavailable: "無法檢查影片儲存是否就緒。",
+    hostedStorageUnavailable:
+      "Clips 託管儲存空間暫時無法使用。您的免費片段額度不變，請稍後再試上傳。",
     checkingBuilderConnection: "正在檢查 Builder 連線…",
     builderTimeout: "無法確認 Builder.io 儲存空間已就緒，請再試一次。",
     builderConnected: "Builder.io 已連線",
     waitingForBuilder: "正在等待 Builder...",
-    description:
-      "使用 Builder.io 或相容 S3 的儲存空間來保存錄製的影片。Builder.io 包含免費代管和 AI 額度。",
+    description: "選擇錄製影片的儲存位置。",
     createBuilderAccount: "使用 Builder.io",
     signInWithBuilderAccount: "使用 Builder.io 帳戶登入",
     free: "免費",
@@ -1754,6 +1809,14 @@ const messages = {
     validWebUrl: "請輸入有效的 http:// 或 https:// 位址。",
   },
   recordRoute: {
+    freeClipsLeft_one: "還剩 {{count}} 個免費片段",
+    freeClipsLeft_other: "還剩 {{count}} 個免費片段",
+    hostedClipsExhaustedTitle: "免費連接 Builder.io，繼續錄製",
+    hostedClipsExhaustedDescription:
+      "免費託管錄製次數已用完。連接 Builder.io 儲存空間，即可繼續將片段儲存到資料庫。",
+    clipExceedsSizeLimit: "此片段超出目前上傳大小限制。",
+    clipExceedsMaxDuration: "此片段超出目前錄製時長限制。",
+    maxClipDurationReached: "已達片段時長上限。正在儲存錄製內容。",
     pageTitle: "新增錄製 · Clips",
     uploadFailed: "上傳失敗",
     uploadFailedAtChunk: "第 {{chunk}}/{{total}} 個區塊上傳失敗：{{message}}",
@@ -1773,6 +1836,8 @@ const messages = {
     copyLinkAction: "複製連結",
     noLocalRecordingData: "沒有可下載的本機錄製資料。",
     recordingDownloadStarted: "已開始下載錄製",
+    partialLocalCopyDownloadStarted:
+      "本機副本可能不完整。正在下載目前可用的錄影資料。",
     backToLibrary: "返回媒體庫",
     clipsRecorder: "Clips 錄製工具",
     preparingSources: "正在準備來源…",
@@ -1919,6 +1984,10 @@ const messages = {
     cleanupWithAi: "使用 AI 清理",
     cleanupComplete: "聽寫已清理",
     cleanupFailed: "無法清理聽寫",
+    undoCleanup: "復原",
+    restoreOriginal: "還原原文",
+    cleanupRestored: "已還原原始聽寫",
+    cleanupRestoreFailed: "無法還原原始聽寫",
     startFirst: "把想法變成文字",
     recordOnDesktop: "在桌面版錄製",
     emptyDesktopDescription:
@@ -1963,6 +2032,9 @@ const messages = {
     vocabularyRemoveFailed: "無法移除詞彙",
   },
   clipsFinalRaw: {
+    hostedStorageFull:
+      "Clips 託管儲存空間已滿。請連接 Builder.io 儲存空間以繼續儲存片段。",
+    hostedRecordingTakenDown: "這段錄影已從 Clips 託管儲存空間移除。",
     splitAtPlayhead: "在播放頭處分割 (S)",
     selectedCount: "已選取 {{count}} 項",
     selectAll: "全選",
@@ -1990,6 +2062,7 @@ const messages = {
     viewsCount: "{{count}} 次觀看",
     recordingMenu: "錄製選單",
     moveToFolder: "移動到資料夾",
+    moveHere: "移到此處",
     unarchive: "取消封存",
     shareNamedMeeting: "分享“{{title}}”",
     shareMeeting: "分享會議",
@@ -2131,9 +2204,15 @@ const messages = {
     issues: "問題",
     consoleSource: "主控台",
     networkSource: "網路",
+    appSource: "應用程式活動",
+    appEvent: "事件",
+    appData: "資料",
+    appFailureSummary: "{{count}} 個應用程式失敗",
+    appUnavailable: "無法載入應用程式活動。",
     consoleCount: "主控台 {{count}}",
     networkCount: "網路 {{count}}",
     afterRecording: "錄製結束後",
+    beforeRecording: "錄製開始前",
     seekToTime: "跳至 {{time}}",
     occurrences: "出現時間",
     message: "訊息",
@@ -2145,6 +2224,7 @@ const messages = {
     noIssuesTitle: "未偵測到瀏覽器問題",
     noConsoleTitle: "沒有主控台事件",
     noNetworkTitle: "沒有網路請求",
+    noAppTitle: "沒有應用程式活動",
     capturedDescription: "已為此錄製擷取診斷資訊。",
   },
   timeline: { clipStartedHere: "剪輯從這裡開始" },

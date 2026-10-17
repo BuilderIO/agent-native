@@ -133,6 +133,15 @@ vi.mock("../chat-threads/store.js", () => ({
 const runAgentLoopMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../agent/run-loop-with-resume.js", () => ({
+  AgentLoopAbortedError: class AgentLoopAbortedError extends Error {
+    usage: unknown;
+
+    constructor(usage: unknown) {
+      super("Agent run was aborted.");
+      this.name = "AbortError";
+      this.usage = usage;
+    }
+  },
   runAgentLoopDirectWithSoftTimeout: runAgentLoopMock,
 }));
 

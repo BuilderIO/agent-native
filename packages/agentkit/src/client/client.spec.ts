@@ -9,6 +9,8 @@ import type {
 } from "../protocol/index.js";
 import type { AgentStreamIntegrityReport } from "../protocol/index.js";
 import {
+  AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY,
+  AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY,
   AgentProtocolValidationError,
   AgentKitProtocolError,
   createAgentKitProtocolVersionOffer,
@@ -74,7 +76,9 @@ function createTransport(events: AgentEvent[]): AgentTransport {
   };
 }
 
-function createTerminalCatchUpTransport(): AgentTransport {
+function createTerminalCatchUpTransport(
+  messageStatus: "streaming" | "complete" = "streaming",
+): AgentTransport {
   const transport = createTransport([]);
   transport.getThreadSnapshot = async () => ({
     id: "thread-1",
@@ -84,7 +88,7 @@ function createTerminalCatchUpTransport(): AgentTransport {
       {
         id: "assistant-1",
         role: "assistant",
-        status: "streaming",
+        status: messageStatus,
         parts: [{ type: "text", text: "Partial response" }],
       },
     ],
@@ -563,7 +567,7 @@ describe("AgentKitClient", () => {
       messages.find((message) => message.id === "assistant-first")?.parts,
     ).toContainEqual({
       type: "text",
-      text: "Some tool-call history was omitted to keep the added history under 256 KiB and 64 calls.",
+      text: "Some tool-call history could not be included in the history supplied for this turn.",
     });
   });
 
@@ -601,7 +605,7 @@ describe("AgentKitClient", () => {
           (part) =>
             part.type === "text" &&
             part.text ===
-              "Some tool-call history was omitted to keep the added history under 256 KiB and 64 calls.",
+              "Some tool-call history could not be included in the history supplied for this turn.",
         ),
     );
     const userMessageIndex = messages.findIndex(
@@ -656,7 +660,7 @@ describe("AgentKitClient", () => {
     expect(statusReads).toBeLessThanOrEqual(4_096);
     expect(messages.at(-2)?.parts).toContainEqual({
       type: "text",
-      text: "Some tool-call history was omitted to keep the added history under 256 KiB and 64 calls.",
+      text: "Some tool-call history could not be included in the history supplied for this turn.",
     });
   });
 
@@ -1661,11 +1665,11 @@ describe("AgentKitClient", () => {
     ).toHaveLength(64 * 2);
     expect(earlierAssistantMessage?.parts).toContainEqual({
       type: "text",
-      text: "Some tool-call history was omitted to keep the added history under 256 KiB and 64 calls.",
+      text: "Some tool-call history could not be included in the history supplied for this turn.",
     });
     expect(assistantMessage?.parts).not.toContainEqual({
       type: "text",
-      text: "Some tool-call history was omitted to keep the added history under 256 KiB and 64 calls.",
+      text: "Some tool-call history could not be included in the history supplied for this turn.",
     });
     expect(assistantMessage?.parts).not.toContainEqual(
       expect.objectContaining({
@@ -1922,6 +1926,22 @@ describe("AgentKitClient", () => {
       expect(messages.at(-2)?.id).not.toBe("assistant-1");
     },
   );
+
+  it("reports completed tool-call history without an assistant message link", async () => {
+    const messages = await assistantPartsAfterToolHistory({
+      beforeFollowup(client) {
+        delete client.getThread("thread-1").tools["call-search"]!.messageId;
+      },
+      finalParts: [{ type: "text", text: "The release is ready." }],
+    });
+
+    expect(
+      messages.find((message) => message.id === "assistant-1")?.parts,
+    ).toContainEqual({
+      type: "text",
+      text: "Some tool-call history could not be included in the history supplied for this turn.",
+    });
+  });
 
   it("keeps the user's prompt last when unorderable tool history is omitted", async () => {
     const messages = await assistantPartsAfterToolHistory({
@@ -2336,7 +2356,7 @@ describe("AgentKitClient", () => {
     expect(dataParts?.[0]).toMatchObject({ data: { id: "call-2" } });
     expect(assistantMessage?.parts).toContainEqual({
       type: "text",
-      text: "Some tool-call history was omitted to keep the added history under 256 KiB and 64 calls.",
+      text: "Some tool-call history could not be included in the history supplied for this turn.",
     });
     await client.shutdown();
   });
@@ -2733,7 +2753,7 @@ describe("AgentKitClient", () => {
     expect(dataParts?.[0]).toMatchObject({ data: { id: "call-1" } });
     expect(assistantMessage?.parts).toContainEqual({
       type: "text",
-      text: "Some tool-call history was omitted to keep the added history under 256 KiB and 64 calls.",
+      text: "Some tool-call history could not be included in the history supplied for this turn.",
     });
     await client.shutdown();
   });
@@ -2939,7 +2959,7 @@ describe("AgentKitClient", () => {
         message.parts.some(
           (part) =>
             part.type === "text" &&
-            part.text.includes("Some tool-call history was omitted"),
+            part.text.includes("Some tool-call history could not be included"),
         ),
       ),
     ).toBe(true);
@@ -3036,7 +3056,7 @@ describe("AgentKitClient", () => {
       );
       expect(assistantMessage?.parts).toContainEqual({
         type: "text",
-        text: "Some tool-call history was omitted to keep the added history under 256 KiB and 64 calls.",
+        text: "Some tool-call history could not be included in the history supplied for this turn.",
       });
       expect(
         assistantMessage?.parts.filter((part) => part.type === "data"),
@@ -5265,9 +5285,8 @@ describe("AgentKitClient", () => {
 
     try {
       await client.loadThread("thread-1");
-      await vi.waitFor(() =>
-        expect(client.getSnapshot().connection).toBe("error"),
-      );
+      await vi.waitFor(() => expect(subscriptions).toBe(2));
+      expect(client.getSnapshot().connection).toBe("connected");
 
       expect(client.getThread("thread-1").runs["run-approval"]).toMatchObject({
         status: "completed",
@@ -5283,18 +5302,72 @@ describe("AgentKitClient", () => {
       );
 
       await client.loadThread("thread-1");
-      await Promise.resolve();
-      expect(subscriptions).toBe(2);
+      await vi.waitFor(() => {
+        expect(subscriptions).toBe(2);
+        expect(client.getThread("thread-1").messages).toContainEqual(
+          expect.objectContaining({ id: "assistant-1", status: "error" }),
+        );
+      });
+    } finally {
+      await client.dispose();
+    }
+  });
+
+  it("keeps a completed response visible when terminal replay ends early", async () => {
+    const reports: AgentStreamIntegrityReport[] = [];
+    let subscriptions = 0;
+    const transport = createTerminalCatchUpTransport("complete");
+    transport.subscribeToRun = async function* ({ afterSequence }) {
+      subscriptions += 1;
+      if (subscriptions === 1) {
+        expect(afterSequence).toBe(2);
+        yield {
+          ...protocolEvent(3, {
+            type: "approval.resolved",
+            approvalId: "approval-1",
+            response: { decision: "approve", optionIds: ["approve"] },
+          }),
+          runId: "run-approval",
+        };
+      } else {
+        expect(afterSequence).toBe(3);
+      }
+    };
+    const client = new AgentKitClient({
+      transport,
+      reconnect: { attempts: 1, delayMs: () => 0 },
+      onIntegrityReport: (report) => reports.push(report),
+    });
+
+    try {
+      await client.loadThread("thread-1");
+      await vi.waitFor(() => expect(subscriptions).toBe(2));
+      expect(client.getSnapshot().connection).toBe("connected");
+
       expect(client.getThread("thread-1").messages).toContainEqual(
-        expect.objectContaining({ id: "assistant-1", status: "error" }),
+        expect.objectContaining({
+          id: "assistant-1",
+          status: "complete",
+          parts: [{ type: "text", text: "Partial response" }],
+        }),
+      );
+      expect(client.getThread("thread-1").runs["run-approval"]).toMatchObject({
+        status: "completed",
+        lastSequence: 3,
+      });
+      expect(subscriptions).toBe(2);
+      expect(reports).toContainEqual(
+        expect.objectContaining({ code: "run_missing_terminal" }),
       );
     } finally {
       await client.dispose();
     }
   });
 
-  it("settles terminal catch-up when replay fails before its terminal event", async () => {
+  it("surfaces transport errors after partial terminal catch-up replay", async () => {
     let subscriptions = 0;
+    const reports: AgentStreamIntegrityReport[] = [];
+    const onError = vi.fn();
     const transport = createTransport([]);
     transport.getThreadSnapshot = async () => ({
       id: "thread-1",
@@ -5355,12 +5428,20 @@ describe("AgentKitClient", () => {
     const client = new AgentKitClient({
       transport,
       reconnect: { attempts: 3 },
+      onError,
+      onIntegrityReport: (report) => reports.push(report),
     });
 
     try {
       await client.loadThread("thread-1");
       await vi.waitFor(() =>
-        expect(client.getSnapshot().connection).toBe("error"),
+        expect(client.getSnapshot()).toMatchObject({
+          connection: "error",
+          error: expect.objectContaining({ message: "Replay is unavailable" }),
+        }),
+      );
+      expect(onError).toHaveBeenCalledWith(
+        expect.objectContaining({ message: "Replay is unavailable" }),
       );
 
       expect(client.getThread("thread-1").runs["run-approval"]).toMatchObject({
@@ -5372,12 +5453,52 @@ describe("AgentKitClient", () => {
       expect(client.getThread("thread-1").messages).toContainEqual(
         expect.objectContaining({ id: "assistant-1", status: "error" }),
       );
+      expect(reports).not.toContainEqual(
+        expect.objectContaining({ code: "run_missing_terminal" }),
+      );
+    } finally {
+      await client.dispose();
+    }
+  });
 
+  it("reports exhausted terminal catch-up transport failures as stream errors", async () => {
+    const reports: AgentStreamIntegrityReport[] = [];
+    let subscriptions = 0;
+    const onError = vi.fn();
+    const transport = createTerminalCatchUpTransport();
+    transport.subscribeToRun = async function* () {
+      subscriptions += 1;
+      throw Object.assign(new Error("Temporary upstream failure"), {
+        status: 503,
+      });
+    };
+    const client = new AgentKitClient({
+      transport,
+      reconnect: { attempts: 1, delayMs: () => 0 },
+      onError,
+      onIntegrityReport: (report) => reports.push(report),
+    });
+
+    try {
       await client.loadThread("thread-1");
-      await Promise.resolve();
-      expect(subscriptions).toBe(1);
-      expect(client.getThread("thread-1").messages).toContainEqual(
-        expect.objectContaining({ id: "assistant-1", status: "error" }),
+      await vi.waitFor(() =>
+        expect(client.getSnapshot()).toMatchObject({
+          connection: "error",
+          error: expect.objectContaining({
+            message: "Temporary upstream failure",
+          }),
+        }),
+      );
+
+      expect(subscriptions).toBe(2);
+      expect(onError).toHaveBeenCalledWith(
+        expect.objectContaining({ message: "Temporary upstream failure" }),
+      );
+      expect(client.getThread("thread-1").runs["run-approval"]).toMatchObject({
+        status: "completed",
+      });
+      expect(reports).not.toContainEqual(
+        expect.objectContaining({ code: "run_missing_terminal" }),
       );
     } finally {
       await client.dispose();
@@ -5443,8 +5564,11 @@ describe("AgentKitClient", () => {
     try {
       await client.loadThread("thread-1");
       await vi.waitFor(() =>
-        expect(client.getSnapshot().connection).toBe("error"),
+        expect(reports).toContainEqual(
+          expect.objectContaining({ code: "sequence_gap" }),
+        ),
       );
+      expect(client.getSnapshot().connection).toBe("connected");
 
       expect(client.getThread("thread-1").runs["run-approval"]).toMatchObject({
         status: "completed",
@@ -6024,7 +6148,7 @@ describe("AgentKitClient", () => {
       expect(thread.connectionRequestRunIds["connection-1"]).toBe("run-1");
     });
 
-    it("keeps it for a completed run whose terminal events cannot be replayed", async () => {
+    it("keeps it open after terminal catch-up transport failure", async () => {
       const transport = createTransport([]);
       transport.getThreadSnapshot = async () => ({
         id: "thread-1",
@@ -6068,12 +6192,13 @@ describe("AgentKitClient", () => {
       try {
         await client.loadThread("thread-1");
         await vi.waitFor(() =>
-          expect(client.getSnapshot().connection).toBe("error"),
+          expect(client.getThread("thread-1").messages).toContainEqual(
+            expect.objectContaining({ id: "assistant-1", status: "error" }),
+          ),
         );
+        expect(client.getSnapshot().connection).toBe("error");
 
         const thread = client.getThread("thread-1");
-        // The unconfirmed replay settles the run's items as failed; the run
-        // itself still completed, so the user's answer is still wanted.
         expect(thread.messages).toContainEqual(
           expect.objectContaining({ id: "assistant-1", status: "error" }),
         );
@@ -8692,7 +8817,7 @@ describe("AgentKitClient", () => {
               id: "run-1",
               threadId: "thread-1",
               status: "running" as const,
-              lastSequence: 2,
+              lastSequence: 3,
             },
             {
               id: "run-2",
@@ -8711,6 +8836,10 @@ describe("AgentKitClient", () => {
                 label: "Inspect workspace",
                 status: "running",
               },
+            }),
+            protocolEvent(3, {
+              type: "x-agent-native.persisted-event-omission-range",
+              payload: { lastSequence: 5 },
             }),
           ],
         };
@@ -8735,7 +8864,8 @@ describe("AgentKitClient", () => {
       label: "Inspect workspace",
     });
     expect(thread.activeRunIds).toEqual(["run-1", "run-2"]);
-    expect(new Set(subscriptions)).toEqual(new Set(["run-1:2", "run-2:1"]));
+    expect(new Set(subscriptions)).toEqual(new Set(["run-1:5", "run-2:1"]));
+    expect(client.getThread("thread-1").runs["run-1"]?.lastSequence).toBe(6);
   });
 
   it("aborts active stream consumers when disposed", async () => {
@@ -9947,6 +10077,57 @@ describe("AgentKitClient", () => {
     }
   });
 
+  it("promotes the next queued message after removing an expired queue head", async () => {
+    const threadId = "thread-expired-queue-head";
+    const expiredHead = {
+      id: "queued-expired",
+      threadId,
+      text: "Expired retry",
+      createdAt: "2026-10-01T00:00:00.000Z",
+    };
+    const nextMessage = {
+      id: "queued-next",
+      threadId,
+      text: "Next prompt",
+      createdAt: "2026-10-01T00:00:01.000Z",
+    };
+    let queuedMessages = [expiredHead, nextMessage];
+    const steeredMessageIds: string[] = [];
+    const client = new AgentKitClient({
+      transport: {
+        capabilities: { messageQueue: true },
+        async getThreadSnapshot() {
+          return {
+            id: threadId,
+            createdAt: expiredHead.createdAt,
+            updatedAt: nextMessage.createdAt,
+            messages: [],
+            queuedMessages,
+          };
+        },
+        async steerQueuedMessage({ messageId }) {
+          steeredMessageIds.push(messageId);
+          if (messageId === expiredHead.id) {
+            queuedMessages = [nextMessage];
+            return { alreadyRemoved: true };
+          }
+          queuedMessages = [];
+          return undefined;
+        },
+      },
+    });
+
+    try {
+      await client.loadThread(threadId);
+      await vi.waitFor(() =>
+        expect(steeredMessageIds).toEqual([expiredHead.id, nextMessage.id]),
+      );
+      expect(client.getThread(threadId).queuedMessages).toEqual([]);
+    } finally {
+      await client.dispose();
+    }
+  });
+
   it("honors queueWhileRunning=false when the server reports a busy slot", async () => {
     const finishRun = Promise.withResolvers<void>();
     const runStarted = Promise.withResolvers<void>();
@@ -10011,6 +10192,417 @@ describe("AgentKitClient", () => {
     } finally {
       finishRun.resolve();
       await activeRun?.completed.catch(() => undefined);
+      await client.dispose();
+    }
+  });
+
+  it("does not queue a deadline-bound prompt when a run is active", async () => {
+    const finishRun = Promise.withResolvers<void>();
+    const runStarted = Promise.withResolvers<void>();
+    const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
+      async () => ({
+        message: {
+          id: "queued-1",
+          threadId: "thread-1",
+          text: "Retry",
+          createdAt: "2026-08-29T00:00:00.000Z",
+        },
+      }),
+    );
+    let startCount = 0;
+    const client = new AgentKitClient({
+      transport: {
+        capabilities: {
+          messageQueue: true,
+          "x-agent-native-submission-deadlines": true,
+        },
+        async startRun() {
+          startCount += 1;
+          if (startCount > 1) throw new AgentKitRunSlotBusyError("run-1");
+          return { runId: "run-1" };
+        },
+        async *subscribeToRun({ threadId, runId }) {
+          yield {
+            ...protocolEvent(1, { type: "run.started" }),
+            threadId,
+            runId,
+          };
+          runStarted.resolve();
+          await finishRun.promise;
+          yield {
+            ...protocolEvent(2, { type: "run.completed" }),
+            threadId,
+            runId,
+          };
+        },
+        async cancelRun() {},
+        queueMessage,
+      },
+    });
+    let activeRun: AgentRunHandle | undefined;
+
+    try {
+      activeRun = await client.sendMessage({
+        threadId: "thread-1",
+        text: "Current turn",
+      });
+      await runStarted.promise;
+
+      await expect(
+        client.sendMessage({
+          threadId: "thread-1",
+          text: "Retry",
+          metadata: {
+            custom: {
+              [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]:
+                Date.now() + 20_000,
+            },
+          },
+        }),
+      ).rejects.toBeInstanceOf(AgentKitRunSlotBusyError);
+
+      expect(startCount).toBe(2);
+      expect(queueMessage).not.toHaveBeenCalled();
+    } finally {
+      finishRun.resolve();
+      await activeRun?.completed.catch(() => undefined);
+      await client.dispose();
+    }
+  });
+
+  it("rejects a deadline-bound prompt that expires during readiness", async () => {
+    const readiness = Promise.withResolvers<void>();
+    const readinessStarted = Promise.withResolvers<void>();
+    const startRun = vi.fn(async () => ({ runId: "run-1" }));
+    const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
+      async () => ({
+        message: {
+          id: "queued-1",
+          threadId: "thread-1",
+          text: "Retry",
+          createdAt: "2026-08-29T00:00:00.000Z",
+        },
+      }),
+    );
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        capabilities: {
+          messageQueue: true,
+          "x-agent-native-submission-deadlines": true,
+        },
+        async assertAiSetupReady() {
+          readinessStarted.resolve();
+          await readiness.promise;
+        },
+        startRun,
+        queueMessage,
+      },
+    });
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
+    const submission = client.sendMessage({
+      threadId: "thread-1",
+      text: "Retry",
+      metadata: {
+        custom: {
+          [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]: 1_001,
+        },
+      },
+    });
+
+    try {
+      await readinessStarted.promise;
+      now.mockReturnValue(1_001);
+      readiness.resolve();
+      await expect(submission).rejects.toMatchObject({
+        code: "submission_expired",
+      });
+      expect(startRun).not.toHaveBeenCalled();
+      expect(queueMessage).not.toHaveBeenCalled();
+    } finally {
+      readiness.resolve();
+      now.mockRestore();
+      await client.dispose();
+    }
+  });
+
+  it("sends the remaining retry lifetime when a direct request reaches transport", async () => {
+    const readiness = Promise.withResolvers<void>();
+    const readinessStarted = Promise.withResolvers<void>();
+    const startRun = vi.fn(async () => ({ runId: "run-1" }));
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([
+          protocolEvent(1, { type: "run.started" }),
+          protocolEvent(2, { type: "run.completed" }),
+        ]),
+        capabilities: { "x-agent-native-submission-deadlines": true },
+        async assertAiSetupReady() {
+          readinessStarted.resolve();
+          await readiness.promise;
+        },
+        startRun,
+      },
+    });
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
+
+    try {
+      const sending = client.sendMessage({
+        threadId: "thread-1",
+        text: "Retry",
+        metadata: {
+          custom: {
+            [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]: 2_000,
+          },
+        },
+      });
+      await readinessStarted.promise;
+      now.mockReturnValue(1_250);
+      readiness.resolve();
+      const run = await sending;
+
+      expect(startRun.mock.calls[0]?.[0].metadata).toMatchObject({
+        custom: {
+          [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]: 2_000,
+          [AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY]: 750,
+        },
+      });
+      await run.completed;
+    } finally {
+      readiness.resolve();
+      now.mockRestore();
+      await client.dispose();
+    }
+  });
+
+  it("sends the remaining retry lifetime when a queue request reaches transport", async () => {
+    const readiness = Promise.withResolvers<void>();
+    const readinessStarted = Promise.withResolvers<void>();
+    const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
+      async ({ threadId, text }) => ({
+        message: {
+          id: "queued-1",
+          threadId,
+          text,
+          createdAt: "2026-08-29T00:00:00.000Z",
+        },
+      }),
+    );
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        capabilities: {
+          messageQueue: true,
+          "x-agent-native-submission-deadlines": true,
+        },
+        async assertAiSetupReady() {
+          readinessStarted.resolve();
+          await readiness.promise;
+        },
+        queueMessage,
+      },
+    });
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
+
+    try {
+      const queued = client.queueMessage({
+        threadId: "thread-1",
+        text: "Retry",
+        metadata: {
+          custom: {
+            [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]: 2_000,
+          },
+        },
+      });
+      await readinessStarted.promise;
+      now.mockReturnValue(1_250);
+      readiness.resolve();
+      await queued;
+
+      expect(queueMessage.mock.calls[0]?.[0].metadata).toMatchObject({
+        custom: {
+          [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]: 2_000,
+          [AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY]: 750,
+        },
+      });
+    } finally {
+      readiness.resolve();
+      now.mockRestore();
+      await client.dispose();
+    }
+  });
+
+  it.each([
+    { scenario: "at the runtime handoff", expireAtHandoff: true },
+    { scenario: "in the server persistence request", expireAtHandoff: false },
+  ])(
+    "removes an expired optimistic prompt and restores suggestions when it expires $scenario",
+    async ({ expireAtHandoff }) => {
+      const suggestion = {
+        id: "suggestion-1",
+        label: "Continue",
+        prompt: "Continue the review",
+      };
+      const expiredError = Object.assign(
+        new Error("The prompt expired before it could be submitted."),
+        { code: "submission_expired", retryable: false },
+      );
+      let rejectFirstStart = !expireAtHandoff;
+      const startRun = vi.fn<AgentTransport["startRun"]>(async () => {
+        if (rejectFirstStart) {
+          rejectFirstStart = false;
+          throw expiredError;
+        }
+        return { runId: "run-1" };
+      });
+      const client = new AgentKitClient({
+        transport: {
+          ...createTransport([]),
+          capabilities: {
+            "x-agent-native-submission-deadlines": true,
+          },
+          getThreadSnapshot: async () => ({
+            id: "thread-1",
+            createdAt: "2026-08-29T00:00:00.000Z",
+            updatedAt: "2026-08-29T00:00:01.000Z",
+            messages: [],
+            suggestions: [suggestion],
+          }),
+          startRun,
+          async *subscribeToRun({ threadId, runId }) {
+            yield {
+              ...protocolEvent(1, { type: "run.started" }),
+              threadId,
+              runId,
+            };
+            yield {
+              ...protocolEvent(2, { type: "run.completed" }),
+              threadId,
+              runId,
+            };
+          },
+        },
+      });
+      const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
+
+      try {
+        await client.loadThread("thread-1");
+        await expect(
+          client.sendMessage({
+            threadId: "thread-1",
+            text: "Retry the prompt",
+            metadata: {
+              custom: {
+                [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]: 1_001,
+              },
+            },
+            onLocalSubmit() {
+              expect(client.getThread("thread-1").messages).toHaveLength(1);
+              expect(client.getThread("thread-1").suggestions).toEqual([]);
+              if (expireAtHandoff) now.mockReturnValue(1_001);
+            },
+          }),
+        ).rejects.toMatchObject({ code: "submission_expired" });
+
+        expect(startRun).toHaveBeenCalledTimes(expireAtHandoff ? 0 : 1);
+        expect(client.getThread("thread-1").messages).toEqual([]);
+        expect(client.getThread("thread-1").suggestions).toEqual([suggestion]);
+        expect(
+          client.getThread("thread-1").suggestionsPendingTurn,
+        ).toBeUndefined();
+        expect(client.getSnapshot().connection).toBe("connected");
+        expect(client.getSnapshot().error).toBeUndefined();
+
+        now.mockReturnValue(1_000);
+        const nextRun = await client.sendMessage({
+          threadId: "thread-1",
+          text: "Fresh prompt",
+        });
+        expect(startRun.mock.calls.at(-1)?.[0].messages).toEqual([
+          expect.objectContaining({
+            role: "user",
+            parts: [{ type: "text", text: "Fresh prompt" }],
+          }),
+        ]);
+        await nextRun.completed;
+      } finally {
+        now.mockRestore();
+        await client.dispose();
+      }
+    },
+  );
+
+  it("rejects deadline-bound prompts when the agent has no expiry support", async () => {
+    const startRun = vi.fn(async () => ({ runId: "run-1" }));
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        capabilities: { messageQueue: true },
+        startRun,
+      },
+    });
+
+    try {
+      await expect(
+        client.sendMessage({
+          threadId: "thread-1",
+          text: "Retry",
+          metadata: {
+            custom: {
+              [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]:
+                Date.now() + 60_000,
+            },
+          },
+        }),
+      ).rejects.toMatchObject({
+        code: "capability_unsupported",
+        capability: "x-agent-native-submission-deadlines",
+      });
+      expect(startRun).not.toHaveBeenCalled();
+      expect(client.getThread("thread-1").messages).toEqual([]);
+    } finally {
+      await client.dispose();
+    }
+  });
+
+  it("rejects deadline-bound queue messages when the agent has no expiry support", async () => {
+    const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
+      async ({ threadId, text }) => ({
+        message: {
+          id: "queued-1",
+          threadId,
+          text,
+          createdAt: "2026-08-29T00:00:00.000Z",
+        },
+      }),
+    );
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        capabilities: { messageQueue: true },
+        queueMessage,
+      },
+    });
+
+    try {
+      await expect(
+        client.queueMessage({
+          threadId: "thread-1",
+          text: "Retry",
+          metadata: {
+            custom: {
+              [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]:
+                Date.now() + 60_000,
+            },
+          },
+        }),
+      ).rejects.toMatchObject({
+        code: "capability_unsupported",
+        capability: "x-agent-native-submission-deadlines",
+      });
+      expect(queueMessage).not.toHaveBeenCalled();
+      expect(client.getThread("thread-1").queuedMessages).toEqual([]);
+    } finally {
       await client.dispose();
     }
   });

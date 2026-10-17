@@ -58,6 +58,15 @@ vi.mock("../agent/engine/index.js", async (importOriginal) => {
 });
 
 vi.mock("../agent/run-loop-with-resume.js", () => ({
+  AgentLoopAbortedError: class AgentLoopAbortedError extends Error {
+    usage: unknown;
+
+    constructor(usage: unknown) {
+      super("Agent run was aborted.");
+      this.name = "AbortError";
+      this.usage = usage;
+    }
+  },
   runAgentLoopDirectWithSoftTimeout: vi.fn(async (opts) => {
     opts.send?.({
       type: "tool_done",
@@ -107,6 +116,7 @@ vi.mock("../secrets/storage.js", async (importOriginal) => ({
 const {
   BACKGROUND_RUN_HARD_TIMEOUT_MS,
   backgroundRunTerminalError,
+  resolveBackgroundAutomationIdentity,
   runBackgroundAutomation,
 } = await import("./background-automation-runner.js");
 
@@ -129,6 +139,29 @@ const testEngine = {
   defaultModel: "test-model",
   supportedModels: ["test-model"],
 } as any;
+
+describe("background automation identity scope", () => {
+  it("uses deployment defaults for a no-org shared job without reading personal defaults", async () => {
+    const result = await resolveBackgroundAutomationIdentity({
+      resource: {
+        owner: "__shared__",
+        path: "jobs/daily-digest.md",
+      },
+      meta: {
+        createdBy: "owner@example.test",
+        runAs: "creator",
+      },
+    } as any);
+
+    expect(result).toMatchObject({
+      ok: true,
+      identity: {
+        userEmail: "owner@example.test",
+        defaultAgentEngineScope: "deployment",
+      },
+    });
+  });
+});
 
 describe("automation history ownership", () => {
   it.each([
@@ -799,7 +832,10 @@ describe("default selection reaches new chats and background runs", () => {
       await import("../server/request-context.js");
     const { runAgentLoopDirectWithSoftTimeout } =
       await import("../agent/run-loop-with-resume.js");
-    const ctx = { userEmail: "default-model@example.test" };
+    const ctx = {
+      userEmail: "default-model@example.test",
+      orgScope: "personal" as const,
+    };
     const fakeEngine = {
       ...testEngine,
       name: "default-model-fixture",
@@ -877,6 +913,7 @@ describe("default selection reaches new chats and background runs", () => {
               } as any,
             },
             ownerEmail: ctx.userEmail,
+            requestContext: { orgScope: ctx.orgScope },
             prompt: "Return a short status.",
             threadTitle: "Job: model precedence",
             runIdPrefix: `job-model-${pinned}`,
@@ -2065,6 +2102,146 @@ describe("runBackgroundAutomation — preconditions fail before any thread or ru
 });
 
 describe("runBackgroundAutomation — a failed run reports its own cause", () => {
+  it("keeps usage from retries of the same trigger event", async () => {
+    const { AgentLoopAbortedError, runAgentLoopDirectWithSoftTimeout } =
+      await import("../agent/run-loop-with-resume.js");
+    const automation = precondition("event-retry-usage");
+    const usage = {
+      inputTokens: 19,
+      outputTokens: 7,
+      cacheReadTokens: 2,
+      cacheWriteTokens: 1,
+      engineName: "test",
+      model: "test-model",
+    };
+    const firstAttempt = async (
+      opts: Parameters<typeof runAgentLoopDirectWithSoftTimeout>[0],
+    ) => {
+      opts.send({
+        type: "tool_done",
+        tool: "send-notification",
+        result: "Sent",
+        completedSideEffect: true,
+      });
+      throw new AgentLoopAbortedError(usage);
+    };
+    const retry = async (
+      opts: Parameters<typeof runAgentLoopDirectWithSoftTimeout>[0],
+    ) => {
+      opts.send({
+        type: "tool_done",
+        tool: "send-notification",
+        result: "Sent",
+        completedSideEffect: true,
+      });
+      return usage;
+    };
+    vi.mocked(runAgentLoopDirectWithSoftTimeout)
+      .mockImplementationOnce(firstAttempt)
+      .mockImplementationOnce(retry);
+
+    const options = runOptions(automation, { usageRefId: "event-123" });
+    await expect(
+      runBackgroundAutomation(options, standardDeps),
+    ).rejects.toThrow("Agent run was aborted.");
+    await runBackgroundAutomation(options, standardDeps);
+
+    const rows = (await pglite
+      .prepare(`SELECT ref_id FROM token_usage WHERE label = ?`)
+      .all("recurring-job:event-retry-usage")) as Array<{ ref_id: string }>;
+    expect(rows).toHaveLength(2);
+    expect(rows.every(({ ref_id }) => ref_id.startsWith("event-123:"))).toBe(
+      true,
+    );
+    expect(new Set(rows.map(({ ref_id }) => ref_id)).size).toBe(2);
+  });
+
+  it("records usage accumulated before a canceled rate-limit retry", async () => {
+    const { AgentLoopAbortedError, runAgentLoopDirectWithSoftTimeout } =
+      await import("../agent/run-loop-with-resume.js");
+    const automation = precondition("rate-limit-cancel-usage");
+    vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
+      async () => {
+        throw new AgentLoopAbortedError({
+          inputTokens: 19,
+          outputTokens: 7,
+          cacheReadTokens: 2,
+          cacheWriteTokens: 1,
+          engineName: "test",
+          model: "test-model",
+        });
+      },
+    );
+
+    await expect(
+      runBackgroundAutomation(runOptions(automation), standardDeps),
+    ).rejects.toThrow("Agent run was aborted.");
+
+    const recorded = (await pglite
+      .prepare(
+        `SELECT input_tokens, output_tokens, cache_read_tokens, cache_write_tokens
+         FROM token_usage WHERE label = ?`,
+      )
+      .get("recurring-job:rate-limit-cancel-usage")) as
+      | {
+          input_tokens: number;
+          output_tokens: number;
+          cache_read_tokens: number;
+          cache_write_tokens: number;
+        }
+      | undefined;
+    expect(recorded).toEqual({
+      input_tokens: 19,
+      output_tokens: 7,
+      cache_read_tokens: 2,
+      cache_write_tokens: 1,
+    });
+  });
+
+  it("records usage accumulated before a later continuation fails", async () => {
+    const { runAgentLoopDirectWithSoftTimeout } =
+      await import("../agent/run-loop-with-resume.js");
+    const automation = precondition("failed-continuation-usage");
+    const usage = {
+      inputTokens: 19,
+      outputTokens: 7,
+      cacheReadTokens: 2,
+      cacheWriteTokens: 1,
+      engineName: "test",
+      model: "test-model",
+    };
+    vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
+      async (_opts, _timeout, _timeoutOptions, _control, onUsage) => {
+        onUsage?.(usage);
+        throw new Error("later continuation failed");
+      },
+    );
+
+    await expect(
+      runBackgroundAutomation(runOptions(automation), standardDeps),
+    ).rejects.toThrow("later continuation failed");
+
+    const recorded = (await pglite
+      .prepare(
+        `SELECT input_tokens, output_tokens, cache_read_tokens, cache_write_tokens
+         FROM token_usage WHERE label = ?`,
+      )
+      .get("recurring-job:failed-continuation-usage")) as
+      | {
+          input_tokens: number;
+          output_tokens: number;
+          cache_read_tokens: number;
+          cache_write_tokens: number;
+        }
+      | undefined;
+    expect(recorded).toEqual({
+      input_tokens: 19,
+      output_tokens: 7,
+      cache_read_tokens: 2,
+      cache_write_tokens: 1,
+    });
+  });
+
   it.each(["journal", "delivery evidence", "thread", "transcript", "claim"])(
     "keeps unfinished history retryable after a temporary %s storage failure",
     async (failureAt) => {

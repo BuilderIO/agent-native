@@ -64,7 +64,6 @@ const messages = {
       "Edita {{file}}, guarda y vuelve a preguntar para ver el nuevo saludo.",
     lead: "La interfaz de tu app y su agente comparten las mismas acciones.",
     leadTry: "Pide al agente que llame a la acción hello.",
-    llmSetupLink: "Configurar una clave de LLM para toda la app",
     title: "Empieza aquí",
   },
   navigation: {
