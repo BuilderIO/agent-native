@@ -55,6 +55,7 @@ import {
   CommentAiModelList,
   CommentAiSendControl,
   commentAiSelectionKey,
+  commentAiSelections,
   modelAliases,
   type CommentAiMode,
   type CommentAiSelection,
@@ -375,14 +376,11 @@ export const CommentComposer = forwardRef<
 
   const connectedModels = useMemo<CommentAiSelection[]>(
     () =>
-      (models.configuredModels ?? []).flatMap((group) =>
-        group.models.map((model) => ({
-          model,
-          engine: group.engine,
-          provider: group.label,
-        })),
-      ),
-    [models.configuredModels],
+      commentAiSelections(models.configuredModels ?? [], {
+        model: models.selectedModel,
+        engine: models.selectedEngine,
+      }),
+    [models.configuredModels, models.selectedEngine, models.selectedModel],
   );
 
   const mentionItems = useMemo<MentionItem[]>(() => {
