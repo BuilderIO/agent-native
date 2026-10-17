@@ -169,13 +169,6 @@ function connectExternalExtensionLinks(
     activeHostBridgePort = null;
     activePortWindow = null;
     if (recoveryTimer) clearTimeout(recoveryTimer);
-    recoveryTimer = null;
-    if (!isInitialLoad && handshakeAcknowledged) {
-      handshakeAcknowledged = false;
-      readyReported = false;
-      recover();
-      return;
-    }
     recoveryTimer = setTimeout(() => {
       recoveryTimer = null;
       recover();

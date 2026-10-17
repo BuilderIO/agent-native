@@ -200,6 +200,7 @@ export function buildExtensionExternalLinkTargetBootstrap(
       var linkNonce = bootstrapScript && bootstrapScript.getAttribute('data-link-nonce');
       // Route URLs carry the nonce separately from the extension's app fragment.
       var routeHashMatch = /^__agent_native_link_nonce=([0-9a-f]{48})&__agent_native_app_fragment=([^&=]*)$/.exec(window.location.hash.slice(1));
+      var routeHashContainsNonce = Boolean(routeHashMatch);
       if (!linkNonce && routeHashMatch) {
         try {
           var appFragment = decodeURIComponent(routeHashMatch[2]);
@@ -214,6 +215,21 @@ export function buildExtensionExternalLinkTargetBootstrap(
         }
       }
       if (!linkNonce) linkNonce = ${JSON.stringify(linkNonce ?? "")};
+      var shouldBlockExternalLinksWithoutNonce = false;
+      if (!linkNonce && parentWindow !== window) {
+        var navigationEntry = null;
+        var navigationEntryUnreadable = false;
+        try {
+          var navigationEntries = window.performance.getEntriesByType('navigation');
+          navigationEntry = navigationEntries.length ? navigationEntries[0] : null;
+        } catch (_) {
+          navigationEntryUnreadable = true;
+        }
+        var navigationRequiresRecovery =
+          navigationEntryUnreadable || !navigationEntry || navigationEntry.type !== 'navigate';
+        shouldBlockExternalLinksWithoutNonce =
+          routeHashContainsNonce || navigationRequiresRecovery;
+      }
       if (linkNonce) {
         Object.defineProperty(window, '__agentNativeExternalLinkBridgeActive', {
           value: true
@@ -497,7 +513,12 @@ export function buildExtensionExternalLinkTargetBootstrap(
 
       function routeExternalLink(event) {
         if (!event.isTrusted) return;
-        if (!linkNonce) return;
+        if (!linkNonce) {
+          if (shouldBlockExternalLinksWithoutNonce) {
+            blockExternalLinkWithoutNonce(event);
+          }
+          return;
+        }
         if (event.defaultPrevented) return;
         if (routedLinkEvents.has(event)) return;
         if (event.type === 'click' && event.button !== 0) return;
@@ -507,7 +528,9 @@ export function buildExtensionExternalLinkTargetBootstrap(
         if (!link) return;
         if (event.type === 'click' && event.altKey) return;
         var href = link.getAttribute('href');
-        if (href === null) href = link.getAttributeNS('http://www.w3.org/1999/xlink', 'href');
+        if (href === null) {
+          href = link.getAttributeNS('http://www.w3.org/1999/xlink', 'href');
+        }
         if (href === null) href = link.getAttribute('xlink:href');
         if (href === null) return;
         var destination;
@@ -539,6 +562,32 @@ export function buildExtensionExternalLinkTargetBootstrap(
         if (openInNewContext) request.openInNewContext = true;
         routedLinkEvents.add(event);
         routeExternalLinkAfterHandlers(event, request);
+      }
+
+      function blockExternalLinkWithoutNonce(event) {
+        if (!event.isTrusted || event.defaultPrevented) return;
+        if (event.type === 'click' && event.button !== 0) return;
+        if (event.type === 'auxclick' && event.button !== 1) return;
+        if (event.type !== 'click' && event.type !== 'auxclick') return;
+        if (event.type === 'click' && event.altKey) return;
+        var link = linkFromEvent(event);
+        if (!link) return;
+        var href = link.getAttribute('href');
+        if (href === null) href = link.getAttributeNS('http://www.w3.org/1999/xlink', 'href');
+        if (href === null) href = link.getAttribute('xlink:href');
+        if (href === null) return;
+        try {
+          var destination = new URL(href, document.baseURI);
+          if (
+            (destination.protocol === 'http:' ||
+              destination.protocol === 'https:') &&
+            destination.origin !== new URL(document.baseURI).origin
+          ) {
+            event.preventDefault();
+          }
+        } catch (_) {
+          event.preventDefault();
+        }
       }
 
       if (linkNonce && typeof Element !== 'undefined' && Element.prototype.attachShadow) {

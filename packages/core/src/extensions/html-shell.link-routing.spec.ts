@@ -32,6 +32,7 @@ function loadShell(
     linkNonce?: string;
     linkChannelReady?: boolean;
     hostParent?: boolean;
+    navigationType?: string | null;
     url?: string;
   } = {},
 ) {
@@ -64,6 +65,17 @@ function loadShell(
         options.url ??
         "https://analytics.example/_agent-native/extensions/ext/render",
       beforeParse(window: any) {
+        const navigationType =
+          options.navigationType === undefined
+            ? "navigate"
+            : options.navigationType;
+        Object.defineProperty(window.performance, "getEntriesByType", {
+          configurable: true,
+          value: (entryType: string) =>
+            entryType === "navigation" && navigationType
+              ? [{ type: navigationType }]
+              : [],
+        });
         class TestMessagePort {
           peer: TestMessagePort | null = null;
           listeners: Array<(event: any) => void> = [];
@@ -647,6 +659,30 @@ describe("extension shell link routing", () => {
     expect(shell.clickTrusted(shadowText, { button: 2 }, "auxclick")).toBe(
       false,
     );
+  });
+
+  it("blocks external links in a sandboxed reload that lost its nonce", () => {
+    const shell = loadShell(
+      '<a id="external" href="https://example.com/">external</a>',
+      { hostParent: true, navigationType: "reload" },
+    );
+    const link = shell.window.document.getElementById("external");
+    const currentUrl = shell.window.location.href;
+
+    expect(shell.clickTrusted(link)).toBe(true);
+    expect(shell.window.location.href).toBe(currentUrl);
+    expect(shell.linkRequests()).toEqual([]);
+  });
+
+  it("keeps external links native on a fresh nonce-less frame load", () => {
+    const shell = loadShell(
+      '<a id="external" href="https://example.com/">external</a>',
+      { hostParent: true, navigationType: "navigate" },
+    );
+
+    expect(
+      shell.clickTrusted(shell.window.document.getElementById("external")),
+    ).toBe(false);
   });
 
   it("routes links after stopImmediatePropagation", async () => {

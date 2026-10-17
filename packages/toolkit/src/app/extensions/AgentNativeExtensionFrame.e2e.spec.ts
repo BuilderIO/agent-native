@@ -505,6 +505,9 @@ describe("AgentNativeExtensionFrame browser links", () => {
       const routeReadyCount = await page.evaluate(
         () => window.__extensionRouteLinkReadyCount ?? 0,
       );
+      const routeReload = initialRouteFrame!.waitForNavigation({
+        waitUntil: "load",
+      });
       const recoveredRouteReady = page.waitForFunction(
         (previousReadyCount) =>
           (window.__extensionRouteLinkReadyCount ?? 0) > previousReadyCount,
@@ -512,6 +515,11 @@ describe("AgentNativeExtensionFrame browser links", () => {
         { timeout: 10_000 },
       );
       await initialRouteFrame!.evaluate(() => window.location.reload());
+      await routeReload;
+      expect(initialRouteFrame!.isDetached()).toBe(false);
+      const reloadedRouteUrl = initialRouteFrame!.url();
+      await initialRouteFrame!.locator("#route-external-link").click();
+      expect(initialRouteFrame!.url()).toBe(reloadedRouteUrl);
       await recoveredRouteReady;
       expect(initialRouteFrame!.isDetached()).toBe(true);
       const routeFrame = page

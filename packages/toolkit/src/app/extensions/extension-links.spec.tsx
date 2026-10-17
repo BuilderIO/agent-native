@@ -360,12 +360,16 @@ describe("useExternalExtensionLinks", () => {
     });
   });
 
-  it("immediately remounts after a frame's initial document reloads", async () => {
+  it("recovers when a frame navigates after its initial handshake", async () => {
     const frame = await connectFrame(undefined, {
       initialLoadBeforeHello: true,
     });
     const originalIframe = frame.iframe;
+    vi.useFakeTimers();
     act(() => originalIframe.dispatchEvent(new Event("load")));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2500);
+    });
 
     const recoveredIframe = container.querySelector(
       "iframe",
@@ -374,7 +378,6 @@ describe("useExternalExtensionLinks", () => {
       recoveredIframe
         .getAttribute("srcdoc")
         ?.match(/data-link-nonce="([^"]+)"/)?.[1] ?? "";
-    expect(recoveredIframe).not.toBe(originalIframe);
     expect(recoveredNonce).not.toBe(frame.nonce);
   });
 
