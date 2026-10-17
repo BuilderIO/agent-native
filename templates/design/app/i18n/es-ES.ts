@@ -1858,6 +1858,8 @@ export default {
         "Elige una ruta para añadirla como nuevo marco, o escribe una ruta.",
       searchPlaceholder: "Buscar rutas…",
       noRoutes: "No hay rutas que coincidan",
+      noDiscoveredRoutes:
+        "No se han encontrado rutas en esta app. Escribe una ruta para añadir una pantalla.",
       useCustomPath: 'Añadir "{{path}}"',
       viewportDesktop: "Escritorio",
       viewportMobile: "Móvil",

@@ -536,6 +536,25 @@ export function styleOf(node: SavedNode | undefined) {
   return style;
 }
 
+export async function normalizeStyleAttribute(
+  page: Page,
+  style: string | undefined,
+) {
+  if (style === undefined) return null;
+  return page.evaluate((value) => {
+    const element = document.createElement("div");
+    element.setAttribute("style", value);
+    return Object.fromEntries(
+      Array.from(element.style)
+        .sort()
+        .map((property) => [
+          property,
+          element.style.getPropertyValue(property),
+        ]),
+    );
+  }, style);
+}
+
 export const test = base.extend<{ app: App }>({
   app: [
     async ({ page }, use, testInfo) => {
