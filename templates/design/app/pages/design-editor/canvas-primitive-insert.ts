@@ -513,10 +513,12 @@ function paintedSurfaceAtPoint(
     }
     if (!fill) {
       return stroke
-        ? `rgb(${stroke.r} ${stroke.g} ${stroke.b} / ${stroke.a})`
+        ? `rgb(${stroke.r} ${stroke.g} ${stroke.b} / ${stroke.a})` // guard:allow-raw-color — This serializes sampled SVG paint for contrast parsing.
         : null;
     }
-    if (!stroke) return `rgb(${fill.r} ${fill.g} ${fill.b} / ${fill.a})`;
+    if (!stroke) {
+      return `rgb(${fill.r} ${fill.g} ${fill.b} / ${fill.a})`; // guard:allow-raw-color — This serializes sampled SVG paint for contrast parsing.
+    }
     if (
       fill.a === 1 &&
       stroke.a === 1 &&
@@ -524,7 +526,7 @@ function paintedSurfaceAtPoint(
       fill.g === stroke.g &&
       fill.b === stroke.b
     ) {
-      return `rgb(${fill.r} ${fill.g} ${fill.b})`;
+      return `rgb(${fill.r} ${fill.g} ${fill.b})`; // guard:allow-raw-color — This serializes sampled SVG paint for contrast parsing.
     }
     return "unmeasured";
   };
