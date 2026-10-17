@@ -406,6 +406,7 @@ export class TabSet {
   private readonly stranded = new WeakSet<Request>();
   private readonly heldAnswers = new WeakMap<Request, SaveAnswer>();
   private readonly answered = new WeakSet<Request>();
+  private readonly fetching = new Set<Request>();
 
   private constructor(readonly context: BrowserContext) {}
 
@@ -548,12 +549,23 @@ export class TabSet {
   }
 
   /**
-   * Keep the answer a SaveGate fetched for a save it holds. The gate won't
+   * Fetch the answer to a save a SaveGate holds, and keep it. The gate won't
    * pass on a stranded save's answer, so the set records it as late instead.
+   * The fetch outlives the save's page, so `quiet()` waits for it either way.
    */
-  holdAnswer(request: Request, answer: SaveAnswer): void {
-    if (this.stranded.has(request)) this.recordAnswer(request, answer);
-    else this.heldAnswers.set(request, answer);
+  async fetchAnswer<T extends SaveAnswer>(
+    request: Request,
+    fetch: () => Promise<T>,
+  ): Promise<T> {
+    this.fetching.add(request);
+    try {
+      const answer = await fetch();
+      if (this.stranded.has(request)) this.recordAnswer(request, answer);
+      else this.heldAnswers.set(request, answer);
+      return answer;
+    } finally {
+      this.fetching.delete(request);
+    }
   }
 
   /** Settle as stranded every save a tab's departing document had in flight. */
@@ -586,12 +598,15 @@ export class TabSet {
     }
   }
 
-  /** The saves still on the wire or held at a gate, and whose they are. */
+  /**
+   * The saves still on the wire or held at a gate, including stranded saves
+   * whose answer a gate is still fetching, and whose they are.
+   */
   private unanswered(): string[] {
     const now = Date.now();
-    return [...this.inFlight].map(
+    return [...new Set([...this.inFlight, ...this.fetching])].map(
       (request) =>
-        `${this.recordOf(request).label}'s save sent ${now - (this.sentAt.get(request) ?? now)} ms ago`,
+        `${this.recordOf(request).label}'s ${this.stranded.has(request) ? "stranded " : ""}save sent ${now - (this.sentAt.get(request) ?? now)} ms ago`,
     );
   }
 
@@ -805,12 +820,11 @@ export class SaveGate {
     if (this.mode === "answer") {
       let response: Awaited<ReturnType<Route["fetch"]>>;
       try {
-        response = await route.fetch();
+        response = await this.tabs.fetchAnswer(request, () => route.fetch());
       } catch (error) {
         if (this.page.isClosed()) return;
         throw error;
       }
-      this.tabs.holdAnswer(request, response);
       if (this.tabs.isStranded(request)) return;
       this.heldCount++;
       this.queue.push({
@@ -1264,6 +1278,9 @@ export async function observeIntegrity(
   const alone = await tabs.open("alone", id);
   await settle("reopened-alone", [alone]);
   await alone.close();
+  // Closing the tabs strands any save they sent after the last wait, and a
+  // gate may still be fetching its answer; the record must include it.
+  await tabs.quiet();
   return observations;
 }
 
