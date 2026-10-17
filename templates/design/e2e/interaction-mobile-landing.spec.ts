@@ -2,6 +2,7 @@ import { appPath, expandAllLayers } from "./helpers";
 import {
   expect,
   expectOnlyChanged,
+  normalizeStyleAttribute,
   styleOf,
   test,
   type App,
@@ -338,7 +339,9 @@ test.describe("mobile app build", () => {
     const original = before.get("card")!;
     const copiedTitles: string[] = [];
     for (const copy of copies) {
-      expect(after.get(copy)?.attrs.style).toBe(original.attrs.style);
+      expect(
+        await normalizeStyleAttribute(app.page, after.get(copy)?.attrs.style),
+      ).toEqual(await normalizeStyleAttribute(app.page, original.attrs.style));
       const [title] = childrenOf(after, copy);
       copiedTitles.push(title);
       expect(after.get(title)).toMatchObject({
@@ -410,8 +413,7 @@ test.describe("mobile app build", () => {
     ).toHaveCount(1);
   });
 
-  // fixme: fails on current main after the merge: Error: saved design has no __board__.html
-  test.fixme("dragging Card out of the Home screen onto the board reparents it to the board, and one undo restores it inside Home at the exact original position", async ({
+  test("dragging Card out of the Home screen onto the board reparents it to the board, and one undo restores it inside Home at the exact original position", async ({
     app,
   }) => {
     const id = await openSeeded(app, MOBILE_HOME_HTML);

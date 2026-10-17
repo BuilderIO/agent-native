@@ -67,6 +67,7 @@ import {
   hasTriageSourceChanged,
   statusAfterPullRequestPoll,
   statusAfterTriageSourceUpdate,
+  triageSourceUpsertGuard,
 } from "../server/triage/review-state.js";
 
 type NewlyObservedSource = {
@@ -850,6 +851,7 @@ export default defineAction({
               updatedAt,
               factoryId,
             },
+            setWhere: triageSourceUpsertGuard(existing, status, now),
           });
         issueCount += 1;
       }
@@ -1048,6 +1050,7 @@ export default defineAction({
                 updatedAt: now,
                 factoryId,
               },
+              setWhere: triageSourceUpsertGuard(existing, status, now),
             });
         }
         pullRequestCount += 1;

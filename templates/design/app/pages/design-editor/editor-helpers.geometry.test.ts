@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ElementInfo } from "@/components/design/types";
 
@@ -8,8 +8,13 @@ import { withMeasuredGeometry } from "./editor-helpers";
 
 const frames: HTMLIFrameElement[] = [];
 
+beforeEach(() => {
+  vi.stubGlobal("CSS", { escape: (value: string) => value });
+});
+
 afterEach(() => {
   frames.splice(0).forEach((frame) => frame.remove());
+  vi.unstubAllGlobals();
 });
 
 function mockRect(

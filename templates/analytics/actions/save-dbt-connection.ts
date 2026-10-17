@@ -5,7 +5,9 @@ import {
   getRequestUserEmail,
 } from "@agent-native/core/server";
 import {
-  listWorkspaceConnectionsForApp,
+  listWorkspaceConnectionGrants,
+  listWorkspaceConnections,
+  resolveWorkspaceConnectionsForApp,
   upsertWorkspaceConnection,
 } from "@agent-native/core/workspace-connections";
 import { z } from "zod";
@@ -77,12 +79,45 @@ export default defineAction({
       );
     }
 
-    // Same listing as get-dbt-connection, so save updates the row the UI reads.
-    const [existing] = await listWorkspaceConnectionsForApp({
+    // Save only writes to a row this caller can use. With several such rows there
+    // is no single target, so refuse rather than overwrite whichever lists first.
+    const visible = await resolveWorkspaceConnectionsForApp({
       appId: ANALYTICS_APP_ID,
       provider: DBT_PROVIDER_ID,
       includeDisabled: true,
     });
+    // A row granted to Analytics that this caller cannot use would be duplicated by
+    // a new row. Rows granted only to other apps do not block setup here.
+    const orgRows = await listWorkspaceConnections({
+      provider: DBT_PROVIDER_ID,
+      includeDisabled: true,
+    });
+    const analyticsGrants = await listWorkspaceConnectionGrants({
+      appId: ANALYTICS_APP_ID,
+      provider: DBT_PROVIDER_ID,
+    });
+    const grantedIds = new Set(
+      analyticsGrants.map((grant) => grant.connectionId),
+    );
+    const analyticsRows = orgRows.filter(
+      (row) =>
+        row.allowedApps.length === 0 ||
+        row.allowedApps.includes(ANALYTICS_APP_ID) ||
+        grantedIds.has(row.id),
+    );
+    if (visible.length === 0 && analyticsRows.length > 0) {
+      fail(
+        "A dbt connection already exists for this organization that you cannot manage. Ask an organization admin to change it in Settings → Integrations.",
+        { errorCode: "dbt_connection_restricted", statusCode: 409 },
+      );
+    }
+    if (visible.length > 1) {
+      fail(
+        "Several dbt connections are granted to Analytics. Choose one in Settings → Integrations before saving.",
+        { errorCode: "dbt_connection_ambiguous", statusCode: 409 },
+      );
+    }
+    const existing = visible[0];
 
     // upsertWorkspaceConnection replaces these lists and account fields
     // outright, so anything omitted here is reset on every save.

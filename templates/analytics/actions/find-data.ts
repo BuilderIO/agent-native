@@ -12,6 +12,39 @@ import type {
   SourceIndexSourcesFreshness,
 } from "../server/lib/source-index-store.js";
 
+const MAX_DASHBOARD_QUERY_PREVIEW_CHARS = 1_200;
+
+function compactDashboardQuery(candidate: unknown): {
+  candidate: unknown;
+  truncated: boolean;
+} {
+  if (
+    candidate === null ||
+    typeof candidate !== "object" ||
+    Array.isArray(candidate) ||
+    (candidate as { kind?: unknown }).kind !== "dashboard-panel" ||
+    !("query" in candidate)
+  ) {
+    return { candidate, truncated: false };
+  }
+
+  const { query, ...metadata } = candidate as Record<string, unknown>;
+  const queryText =
+    typeof query === "string" ? query : JSON.stringify(query ?? "");
+  if (queryText.length <= MAX_DASHBOARD_QUERY_PREVIEW_CHARS) {
+    return { candidate, truncated: false };
+  }
+
+  return {
+    candidate: {
+      ...metadata,
+      queryPreview: queryText.slice(0, MAX_DASHBOARD_QUERY_PREVIEW_CHARS),
+      queryPreviewTruncated: true,
+    },
+    truncated: true,
+  };
+}
+
 function countLabel(
   count: number,
   singular: string,
@@ -77,7 +110,7 @@ function sourceIndexSourcesFreshnessGuidance(
 
 export default defineAction({
   description:
-    "Find definitions, dashboard SQL, and source-index references. Returns ranked metadata, freshness and coverage, not live values. For rosters, use row-grain sources over aggregates. Stale generated entries are hints; use `search-bigquery-schema` for columns or partitions, then query live before reporting.",
+    "Find definitions, dashboard SQL previews, and source-index references. Returns ranked metadata, freshness and coverage, not live values. For full panel SQL, call `get-sql-dashboard` with `id` set to the result's dashboardId and `panelIds` containing its panelId. dbt-sourced metrics are owner-defined: query them with `query-dbt-semantic-metric` before warehouse SQL. For rosters, use row-grain sources over aggregates. Stale generated entries are hints; use `search-bigquery-schema` for columns or partitions, then query live before reporting.",
   schema: z.object({
     question: z
       .string()
@@ -105,6 +138,10 @@ export default defineAction({
       orgId: getRequestOrgId() || null,
     });
     const { candidates, ...paginationAndCoverage } = result;
+    const compactedCandidates = candidates.map(compactDashboardQuery);
+    const dashboardQueryPreviewsTruncated = compactedCandidates.some(
+      ({ truncated }) => truncated,
+    );
     const sourceIndexGuidance =
       result.sourceIndexStatus === "not-configured"
         ? "The generated source index is not configured, so absence from these references is not evidence that a warehouse relation does not exist. Use search-bigquery-schema for connected BigQuery schemas."
@@ -126,11 +163,20 @@ export default defineAction({
     );
     return {
       question,
-      results: candidates,
+      results: compactedCandidates.map(({ candidate }) => candidate),
+      ...(dashboardQueryPreviewsTruncated
+        ? { dashboardQueryPreviewsTruncated: true }
+        : {}),
       ...paginationAndCoverage,
       resultType: "reference-metadata",
       guidance: [
-        "Treat saved SQL and source-index entries as examples or unapproved metadata. Verify source scope, live schema, partitions, and current values before answering. For rosters, exclude aggregates and snapshots as member sources. If none remain, report no row-grain source and check index coverage or schema. If truncated is true and nextPage is present, continue with that cursor; if truncated is true and nextPage is null, refine the search or use an explicit dashboard/schema search because a source cap was reached.",
+        "Treat saved SQL and source-index entries as examples or unapproved metadata. dbt-sourced metrics are owner-defined and must go through `query-dbt-semantic-metric`. A related metric is a lead, not a substitute: match the requested measure, population, and grain exactly. If no exact definition is found, verify an authoritative schema or semantic metric and report the gap instead of using a nearby metric's value. Verify source scope, live schema, partitions, and current values before answering. For rosters, exclude aggregates and snapshots as member sources. An empty result does not establish that a row-grain source is absent: check index coverage and live schema first, then scope any absence claim to the source and schema you actually checked. If truncated is true and nextPage is present, continue with that cursor; if truncated is true and nextPage is null, refine the search or use an explicit dashboard/schema search because a source cap was reached.",
+        result.dashboardPanelReferenceNextPage
+          ? "Dashboard panel references have a separate continuation cursor. Pass dashboardPanelReferenceNextPage to search-dashboard-references; it is not the find-data nextPage cursor."
+          : "",
+        dashboardQueryPreviewsTruncated
+          ? "Some dashboard SQL previews were shortened to keep the result readable. Call `get-sql-dashboard` with `id` set to the matching dashboardId and `panelIds` containing the panelId before relying on the full query."
+          : "",
         sourceIndexGuidance,
         scanGuidance,
         freshnessGuidance,

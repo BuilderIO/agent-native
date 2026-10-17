@@ -72,8 +72,7 @@ function childrenOf(nodes: Map<string, SavedNode>, parent: string) {
     .map((node) => node.id);
 }
 
-// fixme: product bug: The screen grows while the layer is dragged below it and stays grown after the layer leaves: it renders 1124 design px tall over a saved
-test.fixme("a layer dragged below a fixed-height Screen moves to the board at the release point and leaves the Screen's size alone", async ({
+test("a layer dragged below a fixed-height Screen moves to the board at the release point and leaves the Screen's size alone", async ({
   app,
 }) => {
   const id = await app.seed(SCREEN_HTML);

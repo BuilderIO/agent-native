@@ -79,6 +79,8 @@ describe("Footer", () => {
     expect(hrefs).toEqual(
       expect.arrayContaining([
         "/es-es/apps/chat/",
+        "/es-es/articles/",
+        "/es-es/use-cases/",
         "/es-es/about/",
         "/es-es/docs/key-concepts/",
       ]),

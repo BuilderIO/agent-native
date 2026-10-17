@@ -1,8 +1,10 @@
 import type { PanelEvent } from "../app/pages/adhoc/sql-dashboard/types";
+import { isSafeSvgHexColor } from "./svg-color";
 
 export interface ResolvedPanelEvent {
   index: number;
   x: string;
+  xValue: string | number;
   date: string;
   time?: string;
   timeZone?: string;
@@ -14,6 +16,7 @@ export interface ResolvedPanelEvent {
 export interface PanelEventGroup {
   index: number;
   x: string;
+  xValue: string | number;
   events: ResolvedPanelEvent[];
 }
 
@@ -54,8 +57,8 @@ export function panelEventProblem(value: unknown): string | null {
   if (typeof label !== "string" || label.trim() === "") {
     return "label must be a non-empty string";
   }
-  if (color !== undefined && typeof color !== "string") {
-    return "color must be a string";
+  if (color !== undefined && !isSafeSvgHexColor(color)) {
+    return "color must be a 3, 4, 6, or 8 digit hex color";
   }
   if (time === undefined) {
     return timeZone === undefined ? null : "timeZone needs a time";
@@ -157,6 +160,7 @@ export function panelEventInstant(
   return instant;
 }
 
+/** Numeric x values are Unix epoch milliseconds, matching JavaScript Date. */
 export function xInstant(value: unknown): number | null {
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
   if (typeof value !== "string") return null;
@@ -432,18 +436,29 @@ export function resolvePanelEvents(
     if (typeof date !== "string") continue;
     const day = Date.parse(date);
     if (Number.isNaN(day) || day < earliest || day > latest) continue;
-    if (!isValidPanelEvent(event)) continue;
-    const best = rowFor(event);
+    // Older saved events can contain CSS colors accepted before hex validation.
+    // Keep the event visible and let the marker use its default for those values.
+    const safeColor = isSafeSvgHexColor(event?.color)
+      ? event.color.trim()
+      : undefined;
+    const renderableEvent = { ...event, color: safeColor };
+    if (!isValidPanelEvent(renderableEvent)) continue;
+    const best = rowFor(renderableEvent);
     if (best < 0) continue;
     const { row } = rows[best];
+    const xValue = xValues[row];
+    if (typeof xValue !== "string" && typeof xValue !== "number") continue;
     resolved.push({
       index: row,
-      x: String(xValues[row]),
-      date: event.date,
-      ...(event.time ? { time: event.time } : {}),
-      ...(event.timeZone ? { timeZone: event.timeZone } : {}),
-      label: event.label,
-      ...(event.color ? { color: event.color } : {}),
+      x: String(xValue),
+      xValue,
+      date: renderableEvent.date,
+      ...(renderableEvent.time ? { time: renderableEvent.time } : {}),
+      ...(renderableEvent.timeZone
+        ? { timeZone: renderableEvent.timeZone }
+        : {}),
+      label: renderableEvent.label,
+      ...(renderableEvent.color ? { color: renderableEvent.color } : {}),
     });
   }
   return resolved;
@@ -461,6 +476,7 @@ export function groupPanelEvents(
       groups.set(event.index, {
         index: event.index,
         x: event.x,
+        xValue: event.xValue,
         events: [event],
       });
   }

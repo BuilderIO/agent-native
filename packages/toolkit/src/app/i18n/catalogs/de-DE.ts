@@ -219,6 +219,11 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.keySummary": "Semantische Vektoren",
   "onboarding.capability.embeddings.why":
     "Semantische Vektoren verbessern die semantische Suche. Die Stichwortsuche funktioniert auch ohne sie.",
+  "onboarding.capability.webSearch.label": "Websuche",
+  "onboarding.capability.webSearch.keySummary":
+    "Von Builder verwaltete Websuche",
+  "onboarding.capability.webSearch.why":
+    "Durchsuche aktuelle öffentliche Webquellen. Die von Builder verwaltete Suche nutzt enthaltene Builder-KI-Credits, daher ist kein separater Such-API-Schlüssel erforderlich.",
   "onboarding.capability.systemOne.why":
     "Jev ist ein optionales Entscheidungsmodell, das vor der ersten Modellanfrage des Agenten passende Tools und Skills auswählt.",
   "onboarding.capability.assetsImageGeneration.label": "Bilderzeugung",
@@ -2775,6 +2780,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.search.appDefaultModel": "Standardmodell der App",
   "settingsShell.search.backgroundAgents": "Hintergrund-Agenten",
   "settingsShell.search.browserAutomation": "Browser-Automatisierung",
+  "settingsShell.search.webSearch": "Websuche",
   "settingsShell.search.connectedAgents": "Verbundene Agenten",
   "settingsShell.search.database": "Datenbank",
   "settingsShell.search.defaultModel": "Standardmodell",
@@ -2912,6 +2918,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.whyBackground": "Nimmt Codeänderungen aus der Produktion vor.",
   "settingsInfra.whyBrowser":
     "Lässt den Agenten in der Produktion einen Browser nutzen.",
+  "settingsInfra.whyWebSearch":
+    "Findet aktuelle öffentliche Informationen und offizielle Dokumentation.",
   "settingsInfra.provider": "Anbieter",
   "settingsInfra.keyOrg": "Nutzt den {{provider}}-Schlüssel der Organisation.",
   "settingsInfra.manageKey": "Schlüssel verwalten",
