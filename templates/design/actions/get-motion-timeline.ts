@@ -992,6 +992,14 @@ export default defineAction({
       string,
       Promise<InlineManagedSourceRead>
     >();
+    const inlineTimelines =
+      designSourceType === "localhost"
+        ? timelines.filter(
+            (timeline) =>
+              timeline.sourceRef !== null &&
+              !screenIsLocalhost(design.data, timeline.sourceRef),
+          )
+        : timelines;
     const readInlineManagedSource = (inlineSourceRef: string) => {
       let result = inlineManagedSourceCache.get(inlineSourceRef);
       if (!result) {
@@ -1066,8 +1074,11 @@ export default defineAction({
         });
       }
     }
-    if (sourceType === "inline" && !useLocalSource) {
-      for (const timeline of timelines) {
+    if (
+      (sourceType === "inline" && !useLocalSource) ||
+      (designSourceType === "localhost" && inlineTimelines.length > 0)
+    ) {
+      for (const timeline of inlineTimelines) {
         const sourceRead = timeline.sourceRef
           ? await readInlineManagedSource(timeline.sourceRef)
           : null;

@@ -1,11 +1,11 @@
 import { type Locator, type Page } from "@playwright/test";
 
-import { normalizedStyle } from "./css-style-helpers";
 import { appPath, expandAllLayers } from "./helpers";
 import {
   childrenOf,
   expect,
   expectOnlyChanged,
+  normalizeStyleAttribute,
   savedNodeMap,
   styleOf,
   test,
@@ -60,7 +60,7 @@ async function selectCardRow(app: App) {
 
 /** Every node under `rootId` in document order, without ids, so a copy can be compared to its source. */
 async function subtreeShape(
-  page: Page,
+  app: App,
   nodes: Map<string, SavedNode>,
   rootId: string,
 ) {
@@ -80,7 +80,7 @@ async function subtreeShape(
   return Promise.all(
     shape.map(async ({ style, ...node }) => ({
       ...node,
-      style: await normalizedStyle(page, style),
+      style: await normalizeStyleAttribute(app.page, style),
     })),
   );
 }
@@ -158,8 +158,8 @@ test.describe("card component: structure, duplicate, rename, reorder, group", ()
     const after = await app.savedNodes(id);
     const copyId = childrenOf(after, "page")[1];
     expect(childrenOf(after, "page")).toStrictEqual(["card", copyId]);
-    expect(await subtreeShape(app.page, after, copyId)).toEqual(
-      await subtreeShape(app.page, before, "card"),
+    expect(await subtreeShape(app, after, copyId)).toEqual(
+      await subtreeShape(app, before, "card"),
     );
     const copyIds = subtreeIds(after, copyId);
     expect(

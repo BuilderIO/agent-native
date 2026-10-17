@@ -605,6 +605,7 @@ export default {
     notConnected: "未连接",
     needsReauth: "需要重新授权",
     error: "错误",
+    unknown: "未知",
     indexNotImported: "尚未导入生成的索引。",
     indexUnreadable: "无法读取已保存的索引。请上传有效的索引。",
     indexReadFailed: "无法加载索引状态。",
@@ -1159,6 +1160,8 @@ export default {
     addEventToSeeResults: "添加事件并选择它以查看结果",
     queryError: "Query error: {{message}}",
     noDataReturned: "没有返回数据",
+    incompleteResultsWarning:
+      "此结果可能不完整。缺失的行或源数据可能会影响总计。",
     rowsRange: "{{start}}-{{end}} of {{total}}",
     filterBy: "过滤依据",
     pickPropertyToFilter: "选择要过滤的属性",

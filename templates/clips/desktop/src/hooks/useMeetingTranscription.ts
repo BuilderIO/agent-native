@@ -10,8 +10,10 @@ import {
   canDiscardTerminalTranscriptForReplacement,
   isTerminalMeetingStopError,
   isTerminalTranscriptSaveResult,
+  resolveMeetingStopCompletion,
   shouldHoldQuitForTranscriptRecovery,
   stopMeetingBeforeTranscriptFlush,
+  type MeetingStopCompletion,
 } from "../lib/meeting-stop";
 import { writeClipboardText } from "../lib/recording-link";
 import { subscribeAutoStop } from "../lib/silence-events";
@@ -68,6 +70,8 @@ interface MeetingTranscriptionSession {
   audioTransitionInFlight: Promise<void> | null;
   liveTimelineOffsetMs: number;
   historyInFlight: Promise<void> | null;
+  engineStartInFlight: Promise<TranscriptionEngine> | null;
+  startRecordingInFlight: Promise<void> | null;
   flushInFlight: Promise<void> | null;
   flushSeq: number;
   dirtySeq: number;
@@ -149,9 +153,7 @@ async function waitForSettlingRunDeadlines(
   }
 }
 
-type StopTranscriptionResult =
-  | { completed: true }
-  | { completed: false; holdQuit: boolean; error: ClipsActionError };
+type StopTranscriptionResult = MeetingStopCompletion;
 
 function unlistenAll(unlisteners: Array<() => void>): void {
   for (const unlisten of unlisteners) {
@@ -255,17 +257,31 @@ export function useMeetingTranscription({
   }, [callClipsAction]);
 
   const stopInFlightRef = useRef<Promise<StopTranscriptionResult> | null>(null);
+  const startInFlightRef = useRef<Promise<void> | null>(null);
 
   const stopTranscription = useCallback(
     async (reason: string = "manual") => {
       const session = sessionRef.current;
       if (!session) {
+        const inFlightStop = stopInFlightRef.current;
+        if (
+          inFlightStop &&
+          resolveMeetingStopCompletion(await inFlightStop) === "hold-quit"
+        ) {
+          return;
+        }
         await acknowledgeQuitTeardown();
         return;
       }
       if (session.stopping) {
-        await stopInFlightRef.current;
-        if (session.stopRecovery?.source === "transcript") return;
+        const inFlightStop = stopInFlightRef.current;
+        if (!inFlightStop) {
+          await acknowledgeQuitTeardown();
+          return;
+        }
+        if (resolveMeetingStopCompletion(await inFlightStop) === "hold-quit") {
+          return;
+        }
         await acknowledgeQuitTeardown();
         return;
       }
@@ -274,43 +290,57 @@ export function useMeetingTranscription({
         : reason;
       session.stopping = true;
       const run = (async () => {
-        if (session.flushTimer) {
-          window.clearTimeout(session.flushTimer);
-          session.flushTimer = null;
-        }
-        await session.audioTransitionInFlight?.catch(() => {});
-        const stoppingRunId = session.audioRunId;
-        const enginesToStop: TranscriptionEngine[] = session.engineStarting
-          ? ["whisper", "macos-native"]
-          : [session.engine];
-        const stopResults = await Promise.allSettled(
-          enginesToStop.map((engine) =>
-            stopTranscriptionEngine(engine, stoppingRunId),
-          ),
-        );
-        for (const result of stopResults) {
-          if (result.status === "rejected") {
-            console.warn(
-              "[clips-popover] meeting audio stop failed:",
-              result.reason,
-            );
-          }
-        }
-        if (!session.paused) {
-          session.settlingRunDeadlines.set(
-            stoppingRunId,
-            Date.now() + TRANSCRIPTION_STOP_SETTLE_MS,
-          );
-        }
-        await waitForSettlingRunDeadlines(session.settlingRunDeadlines);
-        if (session.flushTimer) {
-          window.clearTimeout(session.flushTimer);
-          session.flushTimer = null;
-        }
-        unlistenAll(session.unlisten.splice(0));
-        await invoke("silence_detector_stop").catch(() => {});
         let terminalStopError: ClipsActionError | undefined;
         try {
+          if (session.flushTimer) {
+            window.clearTimeout(session.flushTimer);
+            session.flushTimer = null;
+          }
+          await session.audioTransitionInFlight?.catch(() => {});
+          const engineWasStarting = Boolean(session.engineStarting);
+          const stoppingRunId = session.audioRunId;
+          const enginesToStop: TranscriptionEngine[] = engineWasStarting
+            ? ["whisper", "macos-native"]
+            : [session.engine];
+          const stopResults = await Promise.allSettled(
+            enginesToStop.map((engine) =>
+              stopTranscriptionEngine(engine, stoppingRunId),
+            ),
+          );
+          for (const result of stopResults) {
+            if (result.status === "rejected") {
+              console.warn(
+                "[clips-popover] meeting audio stop failed:",
+                result.reason,
+              );
+            }
+          }
+          const firstStopFailure = stopResults.find(
+            (result) => result.status === "rejected",
+          );
+          if (!engineWasStarting && firstStopFailure?.status === "rejected") {
+            throw firstStopFailure.reason;
+          }
+          const startedEngine = await session.engineStartInFlight?.catch(
+            () => null,
+          );
+          if (engineWasStarting && startedEngine) {
+            await stopTranscriptionEngine(startedEngine, stoppingRunId);
+          }
+          if (!session.paused) {
+            session.settlingRunDeadlines.set(
+              stoppingRunId,
+              Date.now() + TRANSCRIPTION_STOP_SETTLE_MS,
+            );
+          }
+          await waitForSettlingRunDeadlines(session.settlingRunDeadlines);
+          if (session.flushTimer) {
+            window.clearTimeout(session.flushTimer);
+            session.flushTimer = null;
+          }
+          unlistenAll(session.unlisten.splice(0));
+          await invoke("silence_detector_stop").catch(() => {});
+          await session.startRecordingInFlight;
           let stopConfirmed = false;
           const result = await stopMeetingBeforeTranscriptFlush({
             stopRecording: async () => {
@@ -469,10 +499,7 @@ export function useMeetingTranscription({
       stopInFlightRef.current = run;
       try {
         const completed = await run;
-        if (!completed.completed) {
-          if (completed.holdQuit) return;
-          throw completed.error;
-        }
+        if (resolveMeetingStopCompletion(completed) === "hold-quit") return;
         recoveryRetryDelayRef.current = RECOVERY_RETRY_INITIAL_MS;
         if (!pendingStartRef.current && recoveryRetryTimerRef.current) {
           window.clearTimeout(recoveryRetryTimerRef.current);
@@ -600,18 +627,22 @@ export function useMeetingTranscription({
           payload.reason === "user" &&
           payload.scheduledStart
         ) {
+          let historyStatus: { available: boolean } | undefined;
           try {
-            const historyStatus = await invoke<{ available: boolean }>(
+            historyStatus = await invoke<{ available: boolean }>(
               "rewind_meeting_history_status",
               { scheduledStart: payload.scheduledStart },
             );
-            includeFromMeetingStart = historyStatus.available === true;
           } catch (error) {
             console.warn(
               "[clips-popover] Rewind meeting history status unavailable:",
               error,
             );
           }
+          if (quitTeardownPendingRef.current) {
+            throw MEETING_START_CANCELLED;
+          }
+          includeFromMeetingStart = historyStatus?.available === true;
         }
         if (includeFromMeetingStart) {
           if (payload.reason !== "user" || !payload.scheduledStart) {
@@ -626,6 +657,9 @@ export function useMeetingTranscription({
           }>("rewind_meeting_history_prepare", {
             scheduledStart: payload.scheduledStart,
           });
+          if (quitTeardownPendingRef.current) {
+            throw MEETING_START_CANCELLED;
+          }
         }
 
         const session: MeetingTranscriptionSession = {
@@ -647,6 +681,8 @@ export function useMeetingTranscription({
           audioTransitionInFlight: null,
           liveTimelineOffsetMs: 0,
           historyInFlight: null,
+          engineStartInFlight: null,
+          startRecordingInFlight: null,
           flushInFlight: null,
           flushSeq: 0,
           dirtySeq: 0,
@@ -703,7 +739,10 @@ export function useMeetingTranscription({
                   })),
                 }
               : event;
-            if (appendFinalTranscript(timelineEvent, session.lines)) {
+            if (
+              appendFinalTranscript(timelineEvent, session.lines) &&
+              !session.stopping
+            ) {
               scheduleFlush();
             }
           }),
@@ -739,12 +778,26 @@ export function useMeetingTranscription({
         });
         engineStarting = enginePromise;
         session.engineStarting = enginePromise;
+        session.engineStartInFlight = enginePromise.then((engine) => {
+          session.engine = engine;
+          return engine;
+        });
 
-        const result = await callClipsAction<{
-          meetingId?: string;
-          scheduledEnd?: string | null;
-          recording?: { id?: string | null } | null;
-        }>("start-meeting-recording", { meetingId });
+        const startRecordingRequest = withMeetingActionTimeout(
+          (signal) =>
+            callClipsAction<{
+              meetingId?: string;
+              scheduledEnd?: string | null;
+              recording?: { id?: string | null } | null;
+            }>("start-meeting-recording", { meetingId }, { signal }),
+          MEETING_ACTION_TIMEOUT_MS,
+          "Starting the meeting timed out.",
+        );
+        session.startRecordingInFlight = startRecordingRequest.then(
+          () => undefined,
+          () => undefined,
+        );
+        const result = await startRecordingRequest;
         const resolvedMeetingId = result.meetingId ?? meetingId;
         const recordingId = result.recording?.id;
         session.meetingId = resolvedMeetingId;
@@ -1009,31 +1062,33 @@ export function useMeetingTranscription({
           })
           .catch(() => {});
 
-        const startedEngine = await enginePromise;
+        const startedEngine = await session.engineStartInFlight;
         engineStarting = null;
         session.engineStarting = null;
         liveEngine = startedEngine;
         if (!sessionIsActive()) {
-          await stopTranscriptionEngine(
-            startedEngine,
-            session.audioRunId,
-          ).catch(() => {});
-          liveEngine = null;
-          if (historyPreparedRef.current) {
-            invoke("rewind_meeting_history_cancel", {
-              token: historyPreparedRef.current.token,
-            }).catch(() => {});
-          }
-          if (session.recordingId) {
-            await callClipsAction("stop-meeting-recording", {
-              meetingId: session.meetingId,
-              reason: "superseded",
-            }).catch((err) => {
-              console.warn(
-                "[clips-popover] could not close a superseded meeting row:",
-                err,
-              );
-            });
+          if (!session.stopping) {
+            await stopTranscriptionEngine(
+              startedEngine,
+              session.audioRunId,
+            ).catch(() => {});
+            liveEngine = null;
+            if (historyPreparedRef.current) {
+              invoke("rewind_meeting_history_cancel", {
+                token: historyPreparedRef.current.token,
+              }).catch(() => {});
+            }
+            if (session.recordingId) {
+              await callClipsAction("stop-meeting-recording", {
+                meetingId: session.meetingId,
+                reason: "superseded",
+              }).catch((err) => {
+                console.warn(
+                  "[clips-popover] could not close a superseded meeting row:",
+                  err,
+                );
+              });
+            }
           }
           return;
         }
@@ -1135,44 +1190,94 @@ export function useMeetingTranscription({
         emit("meetings:hide-notification", { meetingId }).catch(() => {});
       } catch (err) {
         const sessionWasStopping = startedSession?.stopping === true;
+        const concurrentStop = sessionWasStopping
+          ? stopInFlightRef.current
+          : null;
         if (startedSession) {
           startedSession.stopping = true;
           unlistenAll(startedSession.unlisten.splice(0));
         }
-        if (liveEngine) {
-          await stopTranscriptionEngine(
-            liveEngine,
-            startedSession!.audioRunId,
-          ).catch(() => {});
-        } else if (engineStarting) {
-          // coercion-ok: an engine that never started has nothing to tear
-          // down, and null is distinguishable from a started one below. The
-          // start failure itself is already being reported by this catch.
-          const engine = await engineStarting.catch(() => null);
-          if (engine) {
+        const failedStartCleanup = (async () => {
+          if (sessionWasStopping) {
+            if (
+              historyPreparedRef.current &&
+              !startedSession?.historyInFlight
+            ) {
+              await invoke("rewind_meeting_history_cancel", {
+                token: historyPreparedRef.current.token,
+              }).catch(() => {});
+            }
+            if (concurrentStop) return await concurrentStop;
+            return { completed: true as const };
+          }
+          if (liveEngine) {
             await stopTranscriptionEngine(
-              engine,
+              liveEngine,
               startedSession!.audioRunId,
             ).catch(() => {});
+          } else if (engineStarting) {
+            // coercion-ok: an engine that never started has nothing to tear
+            // down, and null is distinguishable from a started one below. The
+            // start failure itself is already being reported by this catch.
+            const engine = await engineStarting.catch(() => null);
+            if (engine) {
+              await stopTranscriptionEngine(
+                engine,
+                startedSession!.audioRunId,
+              ).catch(() => {});
+            }
           }
-        }
-        if (historyPreparedRef.current) {
-          invoke("rewind_meeting_history_cancel", {
-            token: historyPreparedRef.current.token,
-          }).catch(() => {});
-        }
-        if (!sessionWasStopping) {
+          if (historyPreparedRef.current) {
+            await invoke("rewind_meeting_history_cancel", {
+              token: historyPreparedRef.current.token,
+            }).catch(() => {});
+          }
           const superseded =
             sessionRef.current !== null &&
             sessionRef.current !== startedSession;
+          const stopFailedStart = async (reason: string) => {
+            try {
+              const result = await withMeetingActionTimeout(
+                (signal) =>
+                  callClipsAction<{
+                    actualEnd?: string | null;
+                  }>(
+                    "stop-meeting-recording",
+                    {
+                      meetingId: startedSession!.meetingId,
+                      reason,
+                    },
+                    { signal },
+                  ),
+                MEETING_ACTION_TIMEOUT_MS,
+                "Stopping the failed meeting start timed out.",
+              );
+              if (!result?.actualEnd) {
+                throw new Error(
+                  "The server did not confirm that the failed meeting start stopped.",
+                );
+              }
+            } catch (stopError) {
+              if (isTerminalMeetingStopError(stopError)) return;
+              if (
+                !superseded &&
+                startedSession &&
+                sessionRef.current === startedSession
+              ) {
+                startedSession.stopping = false;
+                startedSession.stopPending = true;
+                startedSession.pendingStopReason = "start-failed";
+                scheduleRecoveryRetry();
+              }
+              throw stopError;
+            }
+          };
           if (!superseded) {
-            const failedSession = startedSession;
-            sessionRef.current = null;
-            if (failedSession?.meetingId) {
-              await callClipsAction("stop-meeting-recording", {
-                meetingId: failedSession.meetingId,
-                reason: "start-failed",
-              }).catch(() => {});
+            if (startedSession?.meetingId) {
+              await stopFailedStart("start-failed");
+            }
+            if (sessionRef.current === startedSession) {
+              sessionRef.current = null;
             }
             pendingPillInitRef.current = null;
             await invoke("recording_pill_hide").catch(() => {});
@@ -1183,18 +1288,35 @@ export function useMeetingTranscription({
               () => {},
             );
           } else if (startedSession?.meetingId) {
-            await callClipsAction("stop-meeting-recording", {
-              meetingId: startedSession.meetingId,
-              reason: "superseded",
+            await stopFailedStart("superseded");
+          }
+          if (err !== MEETING_START_CANCELLED && !sessionWasStopping) {
+            const message = meetingStartErrorMessage(err);
+            emit("meetings:transcription-error", {
+              meetingId,
+              error: message,
             }).catch(() => {});
           }
+          return { completed: true as const };
+        })();
+        if (startedSession && !sessionWasStopping) {
+          stopInFlightRef.current = failedStartCleanup;
         }
-        if (err !== MEETING_START_CANCELLED && !sessionWasStopping) {
-          const message = meetingStartErrorMessage(err);
-          emit("meetings:transcription-error", {
-            meetingId,
-            error: message,
-          }).catch(() => {});
+        try {
+          await failedStartCleanup;
+        } catch (cleanupError) {
+          if (err !== MEETING_START_CANCELLED && !sessionWasStopping) {
+            const message = meetingStartErrorMessage(err);
+            emit("meetings:transcription-error", {
+              meetingId,
+              error: message,
+            }).catch(() => {});
+          }
+          throw cleanupError;
+        } finally {
+          if (stopInFlightRef.current === failedStartCleanup) {
+            stopInFlightRef.current = null;
+          }
         }
       }
     },
@@ -1209,7 +1331,6 @@ export function useMeetingTranscription({
     ],
   );
 
-  const startInFlightRef = useRef<Promise<void> | null>(null);
   const startTranscription = useCallback(
     async (payload: MeetingTranscriptionPayload) => {
       const run = (startInFlightRef.current ?? Promise.resolve())
@@ -1371,7 +1492,12 @@ export function useMeetingTranscription({
         window.clearTimeout(recoveryRetryTimerRef.current);
         recoveryRetryTimerRef.current = null;
       }
-      stopTranscription("app-quit").catch((error) => {
+      void (async () => {
+        const starting = startInFlightRef.current;
+        if (!sessionRef.current && starting) await starting.catch(() => {});
+        if (!quitTeardownPendingRef.current) return;
+        await stopTranscription("app-quit");
+      })().catch((error) => {
         console.warn("[clips-popover] app-quit teardown failed:", error);
       });
     })
@@ -1447,7 +1573,7 @@ export function useMeetingTranscription({
     const timer = window.setInterval(() => {
       const session = sessionRef.current;
       if (!session) {
-        if (quitTeardownPendingRef.current) {
+        if (quitTeardownPendingRef.current && !startInFlightRef.current) {
           acknowledgeQuitTeardown().catch((error) => {
             console.warn(
               "[clips-popover] quit acknowledgement retry failed:",

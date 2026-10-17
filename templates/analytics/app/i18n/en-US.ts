@@ -855,6 +855,8 @@ export default {
     addEventToSeeResults: "Add an event and select it to see results",
     queryError: "Query error: {{message}}",
     noDataReturned: "No data returned",
+    incompleteResultsWarning:
+      "This result may be incomplete. Missing rows or source data can affect totals.",
     rowsRange: "{{start}}-{{end}} of {{total}}",
     filterBy: "Filter by",
     pickPropertyToFilter: "Pick a property to filter",
@@ -1203,6 +1205,7 @@ export default {
     notConnected: "Not connected",
     needsReauth: "Needs reauth",
     error: "Error",
+    unknown: "Unknown",
     indexNotImported: "No generated index has been imported.",
     indexUnreadable: "The saved index could not be read. Upload a valid index.",
     indexReadFailed: "Index status could not be loaded.",

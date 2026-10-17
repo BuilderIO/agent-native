@@ -814,6 +814,8 @@ export interface QueryResult {
   bytesProcessed: number;
   cached?: boolean;
   truncated?: boolean;
+  partial?: boolean;
+  warnings?: Array<{ message: string; reason?: string }>;
   /**
    * When the app first received this result from BigQuery; preserved across
    * app-cache hits. Not when the warehouse computed it: a provider cache hit
@@ -1384,17 +1386,32 @@ export async function runQuery(
         ? { providerCacheHit: data.cacheHit }
         : {}),
       ...(totalRows > rows.length ? { truncated: true } : {}),
+      ...(data.errors?.length
+        ? {
+            partial: true,
+            warnings: data.errors.slice(0, 20).map((warning) => ({
+              message: (
+                warning.message ?? "BigQuery returned a query warning"
+              ).slice(0, 4_000),
+              ...(warning.reason ? { reason: warning.reason } : {}),
+            })),
+          }
+        : {}),
     };
 
     if (cacheFence) {
-      const persisted = await finishCacheQuery(
-        cacheKey,
-        cacheableSql,
-        result,
-        cacheFence,
-      );
-      if (persisted) setL1(cacheKey, result, persisted);
-      else await releaseCacheQuery(cacheKey, cacheFence);
+      if (result.partial) {
+        await releaseCacheQuery(cacheKey, cacheFence);
+      } else {
+        const persisted = await finishCacheQuery(
+          cacheKey,
+          cacheableSql,
+          result,
+          cacheFence,
+        );
+        if (persisted) setL1(cacheKey, result, persisted);
+        else await releaseCacheQuery(cacheKey, cacheFence);
+      }
     }
 
     // The cached copy stays unflagged: every read of it sets `cached: true`.

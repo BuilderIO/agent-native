@@ -1868,6 +1868,8 @@ export default {
         "Wähle eine Route als neuen Rahmen aus oder gib einen Pfad ein.",
       searchPlaceholder: "Routen durchsuchen…",
       noRoutes: "Keine passenden Routen",
+      noDiscoveredRoutes:
+        "Für diese App wurden keine Routen gefunden. Gib einen Pfad ein, um einen Screen hinzuzufügen.",
       useCustomPath: "„{{path}}“ hinzufügen",
       viewportDesktop: "Desktop",
       viewportMobile: "Mobil",

@@ -8,12 +8,18 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 ### Improved
 
 - Dashboard freshness stays in the title row, with compact update times on wide cards and a clock on narrow cards.
+- Analytics preserves metric breakdowns across continued queries and keeps partial totals clearly labeled.
+- Analytics query errors now explain safe next steps without exposing raw SQL or backend details
+- Analytics separates related metrics from the measure you asked for and retries partial BigQuery results.
 
 ### Fixed
 
+- Explorer flags incomplete query results
 - Chart drilldowns preserve the selected series and report lookup or export failures safely.
 - CSV downloads show when results are limited to the first 500 records
 - Dashboard update status remains visible for sources without fetch-time or cache metadata
+- Normalize typed date literals in first-party BigQuery queries
+- Treat incomplete schema and truncated BigQuery results as partial evidence
 
 ## 2026-10-15
 
@@ -27,6 +33,14 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Active-user answers distinguish Builder product activity from Agent-Native app opens, and dbt metric follow-ups keep their original filters.
+- Analytics keeps ambiguous active-user questions open across product activity and membership sources, and validates dbt metric date ranges before reporting results
+- Analytics keeps ambiguous active-user searches open across Builder activity, organization membership, and app opens until you choose the population.
+- Analytics now shows when a data connection is still checking and flags warehouse results that may be incomplete
+- Analytics seat and permission questions now find membership data.
+- Metric queries can resume after an interruption without starting over.
+- Oversized dbt responses now give safe recovery guidance instead of repeating the same page.
+- Time-based active-user questions now find matching sources, and connections being checked are no longer reported as disconnected.
 - Dashboard history now says what each save changed, and the save toast names the change
 - The agent now sees which key dates and data notes a dashboard's charts draw, and confirms which charts a new key date or data note shows on.
 - Collapsed navigation has clearer spacing between its icons
@@ -35,6 +49,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 - Dashboard query costs and refresh confirmations reflect actual execution, and disconnected sources clear saved rows
 - Dashboard results disappear when access is withdrawn, and Explorer query costs exclude cached scans
+- Analytics now distinguishes empty and partial dbt metric results from complete answers.
 
 ## 2026-10-14
 

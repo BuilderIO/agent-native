@@ -4,6 +4,16 @@ import { appPath } from "./helpers";
 import { expect, test } from "./rails";
 
 const FLAG = "design-system-workflows";
+const TIER_LIMIT_ACTION = "get-design-system-tier-limit";
+const ENTERPRISE_TIER_LIMIT = {
+  status: "ok",
+  plan: "enterprise",
+  current: 0,
+  max: null,
+  atMax: false,
+  codeIndexingAllowed: true,
+  upgradeUrl: null,
+};
 
 async function setFlagRules(page: Page, rules: Record<string, unknown>) {
   const response = await page.request.post(
@@ -31,29 +41,13 @@ async function enableDesignSystemWorkflows(page: Page) {
   return () => setFlagRules(page, { mode, emails, orgIds, percentage });
 }
 
-/** Answers the Builder plan lookup as Enterprise for both its first GET and batched refetches. */
+/** Answers the Builder plan lookup as Enterprise, whether it is a single GET or part of a batch group. */
 async function grantBuilderCodeIndexing(page: Page) {
-  const enterpriseTierLimit = {
-    status: "ok",
-    plan: "enterprise",
-    current: 0,
-    max: null,
-    atMax: false,
-    codeIndexingAllowed: true,
-    upgradeUrl: null,
-  };
-
   await page.route(
     "**/_agent-native/actions/get-design-system-tier-limit**",
     async (route) => {
-      if (route.request().method() !== "GET") {
-        await route.continue();
-        return;
-      }
-      await route.fulfill({
-        contentType: "application/json",
-        body: JSON.stringify(enterpriseTierLimit),
-      });
+      if (route.request().method() !== "GET") return route.continue();
+      await route.fulfill({ json: ENTERPRISE_TIER_LIMIT });
     },
   );
   await page.route(
@@ -62,12 +56,30 @@ async function grantBuilderCodeIndexing(page: Page) {
       const { requests } = route.request().postDataJSON() as {
         requests: { action: string }[];
       };
+      const tierLimitIndexes = requests.flatMap((request, index) =>
+        request.action === TIER_LIMIT_ACTION ? [index] : [],
+      );
+      if (tierLimitIndexes.length === 0) return route.continue();
+
       const response = await route.fetch();
-      const json = (await response.json()) as { results: { body: unknown }[] };
-      requests.forEach((request, index) => {
-        if (request.action !== "get-design-system-tier-limit") return;
-        json.results[index]!.body = enterpriseTierLimit;
-      });
+      if (!response.ok()) return route.fulfill({ response });
+      const json = (await response.json()) as {
+        results: {
+          status: number;
+          body?: unknown;
+          error?: unknown;
+          headers?: Record<string, string>;
+        }[];
+      };
+      expect(json.results).toHaveLength(requests.length);
+      for (const index of tierLimitIndexes) {
+        const result = json.results[index]!;
+        json.results[index] = {
+          status: 200,
+          body: ENTERPRISE_TIER_LIMIT,
+          ...(result.headers ? { headers: result.headers } : {}),
+        };
+      }
       await route.fulfill({ response, json });
     },
   );

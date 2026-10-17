@@ -658,6 +658,7 @@ export default {
     notConnected: "Non connecté",
     needsReauth: "Réauthentification requise",
     error: "Erreur",
+    unknown: "Inconnu",
     indexNotImported: "Aucun index généré n’a été importé.",
     indexUnreadable:
       "Impossible de lire l’index enregistré. Importez un index valide.",
@@ -1259,6 +1260,8 @@ export default {
       "Ajoutez un événement et sélectionnez-le pour voir les résultats",
     queryError: "Query error: {{message}}",
     noDataReturned: "Aucune donnée renvoyée",
+    incompleteResultsWarning:
+      "Ce résultat peut être incomplet. Des lignes ou des données source manquantes peuvent fausser les totaux.",
     rowsRange: "{{start}}-{{end}} of {{total}}",
     filterBy: "Filtrer par",
     pickPropertyToFilter: "Choisissez une propriété à filtrer",
