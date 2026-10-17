@@ -102,9 +102,39 @@ export default defineAction({
     const hasReadyTranscript =
       current?.status === "ready" &&
       (Boolean(current.fullText?.trim()) || Boolean(hasReadySegments));
+    const dispatchMeetingFinalization = async (requireAccepted = true) => {
+      const endedMeetings = await listEndedMeetingsForRecording(
+        db,
+        args.recordingId,
+        { includePending: true },
+      );
+      if (endedMeetings.length) {
+        await dispatchPostFinalizeJob({
+          recordingId: args.recordingId,
+          kind: "meeting-finalize",
+          requireAccepted,
+        });
+      }
+    };
+    const dispatchPreservedTranscriptFinalization = async () => {
+      try {
+        await dispatchMeetingFinalization(false);
+      } catch (err) {
+        console.warn(
+          `[clips] meeting finalization re-dispatch failed for preserved transcript ${args.recordingId}:`,
+          (err as Error)?.message ?? String(err),
+        );
+      }
+    };
+    const dispatchForExistingTranscript = async () => {
+      if (hasReadyTranscript && current?.fullText?.trim()) {
+        await dispatchPreservedTranscriptFinalization();
+      }
+    };
 
     if (!fullText) {
       if (!failureReason) {
+        await dispatchForExistingTranscript();
         return {
           recordingId: args.recordingId,
           status: "skipped" as const,
@@ -112,6 +142,7 @@ export default defineAction({
         };
       }
       if (hasReadyTranscript) {
+        await dispatchForExistingTranscript();
         return {
           recordingId: args.recordingId,
           status: "skipped" as const,
@@ -144,8 +175,12 @@ export default defineAction({
       status: "skipped" as const,
       reason: "Imported transcript is kept",
     };
-    if (current?.source === IMPORTED_TRANSCRIPT_SOURCE) return importKept;
+    if (current?.source === IMPORTED_TRANSCRIPT_SOURCE) {
+      await dispatchForExistingTranscript();
+      return importKept;
+    }
     if (hasReadySegments && !args.overwriteReady) {
+      await dispatchForExistingTranscript();
       return {
         recordingId: args.recordingId,
         status: "skipped" as const,
@@ -188,11 +223,16 @@ export default defineAction({
           .returning({ recordingId: t.recordingId });
     if (written.length === 0) {
       const [row] = await db
-        .select({ source: t.source })
+        .select({ source: t.source, status: t.status, fullText: t.fullText })
         .from(t)
         .where(eq(t.recordingId, args.recordingId))
         .limit(1);
-      if (row?.source === IMPORTED_TRANSCRIPT_SOURCE) return importKept;
+      if (row?.source === IMPORTED_TRANSCRIPT_SOURCE) {
+        if (row.status === "ready" && row.fullText?.trim()) {
+          await dispatchPreservedTranscriptFinalization();
+        }
+        return importKept;
+      }
       fail(`Transcript row for ${args.recordingId} was removed while saving`, {
         errorCode: "transcript_removed",
         statusCode: 409,
@@ -206,18 +246,8 @@ export default defineAction({
     );
 
     await writeAppState("refresh-signal", { ts: Date.now() });
-    if (savedStatus === "ready") {
-      const endedMeetings = await listEndedMeetingsForRecording(
-        db,
-        args.recordingId,
-      );
-      if (endedMeetings.length) {
-        await dispatchPostFinalizeJob({
-          recordingId: args.recordingId,
-          kind: "meeting-finalize",
-          requireAccepted: true,
-        });
-      }
+    if (savedStatus === "ready" && fullText) {
+      await dispatchMeetingFinalization();
     }
 
     const [rec] = await db
