@@ -1464,6 +1464,18 @@ export const runContentMigrations = runMigrations(
       name: "content-preview-draft-base-content-hash",
       sql: `ALTER TABLE document_preview_drafts ADD COLUMN IF NOT EXISTS base_content_hash TEXT`,
     },
+    {
+      version: 123,
+      name: "content-document-versions-recovery-claim-index",
+      // Built CONCURRENTLY like migration 115: history takes writes on most
+      // saves. A failed build leaves an invalid index, so the rerun drops it.
+      sql: {
+        postgres: `DROP INDEX CONCURRENTLY IF EXISTS document_versions_owner_recovery_claim_idx;
+        CREATE INDEX CONCURRENTLY document_versions_owner_recovery_claim_idx
+          ON document_versions (owner_email)
+          WHERE operation IN ('use-saved-preview-draft', 'claim-preview-draft-keep_mine', 'claim-preview-draft-save_separately')`,
+      },
+    },
   ],
   { table: "content_migrations" },
 );
