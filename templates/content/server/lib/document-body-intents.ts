@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { and, asc, desc, eq, gt, lte } from "drizzle-orm";
+import { and, asc, desc, eq, gt, isNull, lte } from "drizzle-orm";
 
 import type { PriorDocumentBodyIntent } from "../../shared/document-intent-merge.js";
 import type { DocumentBodyIntent } from "../../shared/document-intent-order.js";
@@ -60,8 +60,12 @@ export async function findDocumentBodyIntent(args: {
   return intent ?? null;
 }
 
-/** Whether a body from `writerId` after `generation` was applied to the page. */
-export async function hasDocumentBodyIntentAfterGeneration(args: {
+/**
+ * Whether a body from `writerId` after `generation` was applied to the page
+ * whole. A merge that moved any of a body to History may have left out the
+ * very text a caller asks about.
+ */
+export async function hasWholeDocumentBodyAfterGeneration(args: {
   db: ContentDb;
   ownerEmail: string;
   documentId: string;
@@ -77,6 +81,7 @@ export async function hasDocumentBodyIntentAfterGeneration(args: {
         eq(schema.documentBodyIntents.documentId, args.documentId),
         eq(schema.documentBodyIntents.writerId, args.writerId),
         gt(schema.documentBodyIntents.generation, args.generation),
+        isNull(schema.documentBodyIntents.displacedCheckpointId),
       ),
     )
     .limit(1);

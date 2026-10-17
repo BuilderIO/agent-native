@@ -33,6 +33,7 @@ let getDraft: typeof import("./get-preview-document-draft.js").default;
 let updateDraft: typeof import("./update-preview-document-draft.js").default;
 let resolveDraft: typeof import("./resolve-preview-document-draft.js").default;
 let updateDocument: typeof import("./update-document.js").default;
+let editDocument: typeof import("./edit-document.js").default;
 let settlement: typeof import("./_preview-document-draft-settlement.js");
 
 beforeAll(async () => {
@@ -48,6 +49,7 @@ beforeAll(async () => {
   updateDraft = (await import("./update-preview-document-draft.js")).default;
   resolveDraft = (await import("./resolve-preview-document-draft.js")).default;
   updateDocument = (await import("./update-document.js")).default;
+  editDocument = (await import("./edit-document.js")).default;
   settlement = await import("./_preview-document-draft-settlement.js");
   await (await import("../server/plugins/db.js")).default(undefined as any);
 }, 60_000);
@@ -111,6 +113,23 @@ async function authoredSaveBase(documentId: string, candidate: string) {
     authoredBaseContent: current.content,
     authoredCandidateContent: candidate,
   };
+}
+
+// An agent's edit to the page body, through edit-document.
+async function agentEdit(documentId: string, find: string, replace: string) {
+  const { baseRevision } = await authoredSaveBase(documentId, "");
+  return asUser(OWNER, () =>
+    editDocument.run(
+      {
+        id: documentId,
+        baseRevision,
+        idempotencyKey: crypto.randomUUID(),
+        find,
+        replace,
+      },
+      { caller: "mcp", userEmail: OWNER } as any,
+    ),
+  );
 }
 
 async function legacyClaimId(args: {
@@ -1234,6 +1253,96 @@ describe("private preview document drafts", () => {
         expect(await save({ journalReplay: true })).toMatchObject(refusal);
         expect((await documentRowForDraftTest(documentId)).content).toBe(
           "Server body",
+        );
+      },
+    );
+
+    it("refuses a replay without an authored base over a stale timestamp as it refuses an open editor's save", async () => {
+      const { documentId, editorSessionId } =
+        await discardDraftGeneration(OWNER);
+      const save = (marker: { journalReplay?: true }) =>
+        asUser(OWNER, () =>
+          updateDocument.run(
+            {
+              id: documentId,
+              browserSaveAttemptId: crypto.randomUUID(),
+              ...marker,
+              title: "Local title",
+              baseTitle: "Builder row",
+              content: "Server body",
+              baseUpdatedAt: "2000-01-01T00:00:00.000Z",
+              editorSessionId,
+              editorEditGeneration: 2,
+              editorSnapshotTitle: "Local title",
+              editorSnapshotContent: "Server body",
+              reuseLabels: [],
+            },
+            { caller: "frontend" } as any,
+          ),
+        );
+
+      expect(await save({})).toMatchObject({ conflict: true });
+      expect(await save({ journalReplay: true })).toMatchObject({
+        conflict: true,
+      });
+      expect((await documentRowForDraftTest(documentId)).title).toBe(
+        "Builder row",
+      );
+    });
+
+    it.each([
+      ["all", false],
+      ["part", true],
+    ])(
+      "keeps a newer journal generation in History after the session's later body had %s of it displaced to History",
+      async (_kind, partial) => {
+        const { documentId, editorSessionId, journalBase } =
+          await discardDraftGeneration(OWNER);
+        const cleanBody = partial ? "Server body\nOther body" : "Server body";
+        let base = journalBase;
+        if (partial) {
+          await agentEdit(documentId, "Server body", cleanBody);
+          base = await authoredSaveBase(documentId, "");
+        }
+        await agentEdit(documentId, "Server body", "Agent body");
+        const typed = (text: string) =>
+          partial ? `${text}\nOther body edited` : text;
+        // The merge keeps the agent's edit and moves the session's first
+        // paragraph to History.
+        await expect(
+          replayJournal({
+            userEmail: OWNER,
+            documentId,
+            editorSessionId,
+            editGeneration: 2,
+            content: typed("Local recovery, then more typing"),
+            journalBase: base,
+            fromOpenEditor: true,
+          }),
+        ).resolves.toMatchObject({
+          bodyIntentOutcome: { status: "displaced-preserved" },
+        });
+        expect(
+          (await documentRowForDraftTest(documentId)).content,
+        ).not.toContain("Local recovery");
+        await agentEdit(
+          documentId,
+          (await documentRowForDraftTest(documentId)).content,
+          cleanBody,
+        );
+
+        const replayed = await replayJournal({
+          userEmail: OWNER,
+          documentId,
+          editorSessionId,
+          editGeneration: 3,
+          content: typed("Local recovery, then more typing, last word"),
+          journalBase: base,
+        });
+
+        expect(replayed).toMatchObject({ preservationRequired: true });
+        expect((await documentRowForDraftTest(documentId)).content).toBe(
+          cleanBody,
         );
       },
     );

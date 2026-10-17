@@ -36,7 +36,7 @@ import {
 } from "../server/lib/document-attribution.js";
 import {
   findDocumentBodyIntent,
-  hasDocumentBodyIntentAfterGeneration,
+  hasWholeDocumentBodyAfterGeneration,
   preserveDocumentBodyIntent,
   readDocumentBodyIntents,
   recordDocumentBodyIntent,
@@ -1177,7 +1177,7 @@ const updateDocumentAction = defineAction({
             }
             // A journal replay resends typing from an editor that is no
             // longer open. If recovery discarded one of its generations and
-            // no later body from the session was applied here, a later
+            // no later body from the session was applied here whole, a later
             // generation was typed on top of the discarded edits and still
             // holds them. The settled generation cannot tell: Save separately
             // settles one without applying its body here, and a body applied
@@ -1185,7 +1185,7 @@ const updateDocumentAction = defineAction({
             replayExtendsDiscardedGeneration =
               args.journalReplay === true &&
               discardedGeneration !== null &&
-              !(await hasDocumentBodyIntentAfterGeneration({
+              !(await hasWholeDocumentBodyAfterGeneration({
                 db: tx as ReturnType<typeof getDb>,
                 ownerEmail,
                 documentId: id,
@@ -1452,6 +1452,17 @@ const updateDocumentAction = defineAction({
             historyBefore.title !== args.baseTitle
           ) {
             measurement.reason_code = "title_base_changed";
+            contentCasConflict = true;
+            return;
+          }
+          // The write below checks the same base; the row is locked, so this
+          // refuses exactly what it would.
+          if (
+            useDocumentCas &&
+            !intentMerge &&
+            historyBefore.updatedAt !== args.baseUpdatedAt
+          ) {
+            measurement.reason_code = "timestamp_cas_conflict";
             contentCasConflict = true;
             return;
           }
