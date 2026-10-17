@@ -1142,7 +1142,7 @@ describe("extension shell link routing", () => {
     expect(shell.linkRequests()).toEqual([]);
   });
 
-  it("keeps a delayed nonce bridge READY alive through all HELLO retries.", async () => {
+  it("queues trusted links until the private channel is ready.", async () => {
     const shell = loadShell(
       '<a id="external" href="https://example.com/metric">external</a>',
       {
@@ -1154,7 +1154,8 @@ describe("extension shell link routing", () => {
     );
     const link = shell.window.document.getElementById("external");
     expect(shell.clickTrusted(link)).toBe(true);
-    expect(shell.fallbackLinkRequests()).toHaveLength(1);
+    expect(shell.fallbackLinkRequests()).toHaveLength(0);
+    expect(shell.linkRequests()).toHaveLength(0);
     await new Promise((resolve) => shell.window.setTimeout(resolve, 550));
 
     const [acceptedPort, retryPort] = shell.linkChannelPorts();
@@ -1166,9 +1167,15 @@ describe("extension shell link routing", () => {
     expect(acceptedPort.closed).toBe(false);
     shell.deliverLinkChannelReady(acceptedPort);
     expect(acceptedPort.closed).toBe(false);
+    expect(shell.linkRequests()).toEqual([
+      {
+        type: EXTENSION_OPEN_EXTERNAL_LINK_MESSAGE_TYPE,
+        href: "https://example.com/metric",
+      },
+    ]);
     expect(retryPort.closed).toBe(true);
     expect(shell.clickTrusted(link)).toBe(true);
-    expect(shell.linkRequests()).toHaveLength(1);
+    expect(shell.linkRequests()).toHaveLength(2);
   });
 
   it("marks only explicit new-context activations in routed host requests", () => {

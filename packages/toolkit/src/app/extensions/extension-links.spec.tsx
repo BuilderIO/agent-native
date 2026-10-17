@@ -292,43 +292,31 @@ describe("useExternalExtensionLinks", () => {
     expect(retryReady).not.toHaveBeenCalled();
   });
 
-  it("routes nonce-authenticated links while the port is not ready", async () => {
-    await act(async () => {
-      root.render(<LinkFrame />);
-    });
-    await vi.waitFor(() => {
-      expect(
-        container.querySelector("iframe")?.getAttribute("srcdoc"),
-      ).toContain("data-link-nonce=");
-    });
-
-    const iframe = container.querySelector("iframe") as HTMLIFrameElement;
-    const nonce =
-      iframe.getAttribute("srcdoc")?.match(/data-link-nonce="([^"]+)"/)?.[1] ??
-      "";
-    const href = "https://example.com/early-click";
+  it("ignores nonce-only navigation requests before channel acknowledgement", async () => {
+    const frame = await connectFrame(undefined, { acknowledge: false });
+    const assign = vi.fn();
+    vi.stubGlobal("location", { ...window.location, assign });
     vi.stubGlobal("navigator", {
       ...navigator,
       userActivation: { isActive: true },
     });
-    const open = vi.spyOn(window, "open").mockImplementation(() => null);
 
     act(() => {
       window.dispatchEvent(
         new MessageEvent("message", {
           data: {
-            type: EXTENSION_OPEN_EXTERNAL_LINK_MESSAGE_TYPE,
-            href,
-            nonce,
+            type: EXTENSION_NAVIGATE_SAME_ORIGIN_MESSAGE_TYPE,
+            href: "https://analytics.example/dashboards/forged",
+            nonce: frame.nonce,
           },
           origin: "null",
-          source: iframe.contentWindow,
+          source: frame.iframe.contentWindow,
           ports: [],
         }),
       );
     });
 
-    expect(open).toHaveBeenCalledWith(href, "_blank", "noopener,noreferrer");
+    expect(assign).not.toHaveBeenCalled();
   });
 
   it("reconnects the acknowledged channel after a BFCache restore", async () => {

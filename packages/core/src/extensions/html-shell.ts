@@ -180,6 +180,7 @@ export function buildExtensionExternalLinkTargetBootstrap(
   return `<script${nonceAttribute}>
     (function() {
       var sendExternalLink = null;
+      var pendingLinkRequests = [];
       var NativeMessageChannel = window.MessageChannel;
       var messagePortPrototype = window.MessagePort && window.MessagePort.prototype;
       var eventTargetPrototype = window.EventTarget && window.EventTarget.prototype;
@@ -272,6 +273,9 @@ export function buildExtensionExternalLinkTargetBootstrap(
           portPostMessage.call(childPort, {
             type: ${JSON.stringify(EXTENSION_LINK_CHANNEL_ACK_MESSAGE_TYPE)}
           });
+          pendingLinkRequests.splice(0).forEach(function(request) {
+            sendExternalLink(request);
+          });
         });
         portStart.call(childPort);
         pendingPorts.push(childPort);
@@ -307,6 +311,14 @@ export function buildExtensionExternalLinkTargetBootstrap(
         }
         sendLinkChannelRequest();
       }
+
+      function sendLinkRequest(request) {
+        if (sendExternalLink) {
+          sendExternalLink(request);
+          return;
+        }
+        pendingLinkRequests.push(request);
+      }
       // replaceState cannot hide this fragment from PerformanceNavigationTiming.name.
       // Claim the one-use nonce before extension-provided scripts can read it and race HELLO.
       startLinkChannel();
@@ -322,6 +334,7 @@ export function buildExtensionExternalLinkTargetBootstrap(
         if (activeChildPort && !activeChildWasPending) portClose.call(activeChildPort);
         activeChildPort = null;
         sendExternalLink = null;
+        pendingLinkRequests = [];
         handshakeAttempts = 0;
         if (activeHostPort) portClose.call(activeHostPort);
         activeHostPort = null;
@@ -471,18 +484,7 @@ export function buildExtensionExternalLinkTargetBootstrap(
           ) return;
           if (!sendExternalLink && parentWindow === window) return;
           event.preventDefault();
-          if (sendExternalLink) {
-            sendExternalLink(request);
-            return;
-          }
-          var fallbackRequest = {
-            type: request.type,
-            href: request.href,
-            nonce: linkNonce
-          };
-          if (request.target) fallbackRequest.target = request.target;
-          if (request.openInNewContext) fallbackRequest.openInNewContext = true;
-          parentPostMessage(fallbackRequest, '*');
+          sendLinkRequest(request);
         }
         function observe(isCapture) {
           if (routerPrevented) return;

@@ -205,22 +205,6 @@ function connectExternalExtensionLinks(
     };
 
     if (
-      event.ports.length === 0 &&
-      message.nonce === nonce &&
-      !handshakeAcknowledged
-    ) {
-      if (message.type === EXTENSION_NAVIGATE_SAME_ORIGIN_MESSAGE_TYPE) {
-        navigateSameOriginExtensionLink(message.href);
-      } else if (message.type === EXTENSION_OPEN_EXTERNAL_LINK_MESSAGE_TYPE) {
-        openExternalExtensionLink(
-          message.href,
-          message.openInNewContext === true,
-        );
-      }
-      return;
-    }
-
-    if (
       message.type !== EXTENSION_LINK_CHANNEL_HELLO_MESSAGE_TYPE ||
       message.nonce !== nonce ||
       event.ports.length !== 1 ||
