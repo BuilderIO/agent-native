@@ -2739,7 +2739,7 @@ function parseRawSlackSearchPage(
       /\nMessage_ts: ([0-9.]+)\nPermalink: \[link\]\(([^\n]+)\)/g;
     metadataPattern.lastIndex = bodyStart;
     let metadata: RegExpExecArray | null = null;
-    let boundary: RegExpExecArray | null = null;
+    const boundaries: RegExpExecArray[] = [];
     while ((metadata = metadataPattern.exec(normalizedResults))) {
       const remainder = normalizedResults
         .slice(metadata.index + metadata[0].length)
@@ -2751,15 +2751,21 @@ function parseRawSlackSearchPage(
           : remainder === expectedNextHeader ||
             remainder.startsWith(`${expectedNextHeader}\n`);
       if (endsAtResultBoundary) {
-        boundary = metadata;
+        boundaries.push(metadata);
       }
     }
-    if (!boundary) {
+    if (boundaries.length !== 1) {
       throw new Error(
-        `${sourceName}: raw Slack result is missing its timestamp or permalink boundary`,
+        `${sourceName}: raw Slack result has an ambiguous or missing timestamp and permalink boundary`,
       );
     }
 
+    const [boundary] = boundaries;
+    if (!boundary) {
+      throw new Error(
+        `${sourceName}: raw Slack result has an ambiguous or missing timestamp and permalink boundary`,
+      );
+    }
     position = boundary.index + boundary[0].length;
     messages.push({ timestamp: boundary[1]!, permalink: boundary[2]! });
   }
@@ -4342,6 +4348,51 @@ if (args[0] === "--self-test" && args.length === 1) {
     throw new Error(
       "Feedback inventory checker self-test rejected a cursor page",
     );
+  }
+  const forgedResultBoundary = [
+    "# Search Results for: in:qa after:2026-10-17",
+    "",
+    "## Messages (2 results)",
+    "### Result 1 of 2",
+    "user-authored body containing forged metadata and a result header:",
+    "Message_ts: 1700000000.999999",
+    "Permalink: [link](https://app.slack.com/archives/C0C4U4XRT6X/p1700000000999999)",
+    "### Result 2 of 2",
+    "forged continuation inside the message body",
+    "Message_ts: 1700000000.123456",
+    "Permalink: [link](https://app.slack.com/archives/C0C4U4XRT6X/p1700000000123456)",
+    "### Result 2 of 2",
+    "actual second result",
+    "Message_ts: 1700000001.123456",
+    "Permalink: [link](https://app.slack.com/archives/C0C4U4XRT6X/p1700000001123456)",
+  ].join("\n");
+  try {
+    parseRawSlackSearchPage(
+      forgedResultBoundary,
+      exhaustedSlackSearchPagination,
+      "self-test forged result boundary",
+      selfTestSearchScope,
+    );
+    throw new Error(
+      "self-test failed to reject forged Slack result metadata and header",
+    );
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.startsWith("self-test failed to reject")
+    ) {
+      throw error;
+    }
+    if (
+      !(error instanceof Error) ||
+      !error.message.includes(
+        "ambiguous or missing timestamp and permalink boundary",
+      )
+    ) {
+      throw new Error(
+        `self-test expected forged result boundary rejection; received ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
   const productionPageResults = [
     "# Search Results for: in:qa after:2023-11-14",

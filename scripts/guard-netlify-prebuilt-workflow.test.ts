@@ -2005,11 +2005,27 @@ describe("production Netlify site concurrency guard", () => {
     const upload = steps.find(
       (step) => step.name === "Upload the prebuilt deploy",
     );
+    const preUploadFreshness = steps.find(
+      (step) =>
+        step.name === "Verify docs source is current immediately before upload",
+    );
 
     assert(freshness);
     assert(pause);
     assert(unlock);
     assert(upload);
+    assert(preUploadFreshness);
+    assert.equal(preUploadFreshness.id, "docs_freshness");
+    assert.equal(steps.indexOf(preUploadFreshness), steps.indexOf(upload) - 1);
+    assert.match(String(preUploadFreshness.if), /inputs\.caller == 'docs'/);
+    assert.match(
+      String(upload.if),
+      /steps\.docs_freshness\.outcome == 'success'/,
+    );
+    assert.match(
+      String(upload.if),
+      /steps\.docs_freshness\.outputs\.current == 'true'/,
+    );
     assert.equal(freshness.id, "freshness");
     assert.doesNotMatch(
       reusableSource,
@@ -2033,8 +2049,34 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(script, /files\.length >= 300/);
     assert.match(script, /file\.previous_filename/);
     assert.match(script, /core\.setOutput\("current", "false"\)/);
+    const preUploadScript = String(
+      (preUploadFreshness.with as Workflow).script,
+    );
+    const preUploadDocsPathList = preUploadScript.match(
+      /const docsPaths = \[([\s\S]*?)\];/,
+    )?.[1];
+    assert(preUploadDocsPathList);
+    const preUploadDocsPaths = [
+      ...preUploadDocsPathList.matchAll(/"([^"]+)"/g),
+    ].map((match) => match[1]);
+    assert.deepEqual(preUploadDocsPaths, push.paths);
+    assert.match(preUploadScript, /github\.rest\.git\.getRef/);
+    assert.match(preUploadScript, /github\.rest\.repos\.compareCommits/);
+    assert.match(preUploadScript, /per_page: 100/);
+    assert.match(
+      preUploadScript,
+      /for \(let page = 1; page <= pageCount; page \+= 1\)/,
+    );
+    assert.match(
+      preUploadScript,
+      /data\.commits\.length !== expectedPageCommits/,
+    );
+    assert.match(preUploadScript, /files\.length >= 300/);
+    assert.match(preUploadScript, /file\.previous_filename/);
+    assert.match(preUploadScript, /core\.setOutput\("current", "false"\)/);
 
     const runFreshnessScript = async (
+      freshnessScript: string,
       files: Array<{ filename: string; previous_filename?: string }>,
       page2Commits: Array<{ sha: string }>,
     ) => {
@@ -2088,7 +2130,7 @@ describe("production Netlify site concurrency guard", () => {
         "context",
         "core",
         "process",
-        `return (async () => {\n${script}\n})();`,
+        `return (async () => {\n${freshnessScript}\n})();`,
       ) as (
         github: typeof github,
         context: typeof context,
@@ -2100,6 +2142,7 @@ describe("production Netlify site concurrency guard", () => {
     };
 
     const fresh = await runFreshnessScript(
+      script,
       [{ filename: "README.md" }],
       [{ sha: "commit-100" }],
     );
@@ -2108,6 +2151,7 @@ describe("production Netlify site concurrency guard", () => {
     assert.deepEqual(fresh.failures, []);
 
     const stale = await runFreshnessScript(
+      script,
       [{ filename: "packages/docs/content/guide.mdx" }],
       [{ sha: "commit-100" }],
     );
@@ -2116,12 +2160,43 @@ describe("production Netlify site concurrency guard", () => {
     assert.deepEqual(stale.failures, []);
 
     const incomplete = await runFreshnessScript(
+      script,
       [{ filename: "README.md" }],
       [],
     );
     assert.equal(incomplete.outputs.current, "false");
     assert.match(
       incomplete.failures[0] ?? "",
+      /Cannot verify every newer commit/,
+    );
+
+    const sourceWasFreshBeforeBuild = await runFreshnessScript(
+      script,
+      [{ filename: "README.md" }],
+      [{ sha: "commit-100" }],
+    );
+    assert.equal(sourceWasFreshBeforeBuild.outputs.current, "true");
+    const docsChangedDuringBuild = await runFreshnessScript(
+      preUploadScript,
+      [{ filename: "packages/docs/content/guide.mdx" }],
+      [{ sha: "commit-100" }],
+    );
+    assert.deepEqual(docsChangedDuringBuild.pagesRequested, [1, 2]);
+    assert.equal(docsChangedDuringBuild.outputs.current, "false");
+    assert.match(
+      docsChangedDuringBuild.notices[0] ?? "",
+      /newer docs deployment inputs/,
+    );
+    assert.deepEqual(docsChangedDuringBuild.failures, []);
+
+    const incompletePreUpload = await runFreshnessScript(
+      preUploadScript,
+      [{ filename: "README.md" }],
+      [],
+    );
+    assert.equal(incompletePreUpload.outputs.current, "false");
+    assert.match(
+      incompletePreUpload.failures[0] ?? "",
       /Cannot verify every newer commit/,
     );
 
