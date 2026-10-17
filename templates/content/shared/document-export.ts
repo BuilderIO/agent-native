@@ -123,7 +123,9 @@ export function markdownWithTitle(
   content: string | null | undefined,
 ): string {
   const safeTitle = normalizeTitle(title);
-  const body = (content ?? "").trim();
+  // A paragraph can open with spaces the editor keeps, so only blank lines
+  // come off the start; an import of the export reads the body back as is.
+  const body = (content ?? "").replace(/^(?:[ \t]*\r?\n)+/, "").trimEnd();
   const firstHeading = body.match(/^#\s+(.+?)(?:\n|$)/);
 
   if (firstHeading?.[1]?.trim().toLowerCase() === safeTitle.toLowerCase()) {

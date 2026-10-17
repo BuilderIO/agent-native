@@ -186,6 +186,12 @@ describe("document export", () => {
     );
   });
 
+  it("keeps the spaces a body's first line opens with", () => {
+    expect(markdownWithTitle("Roadmap", "\n  \n    code line\n")).toBe(
+      "# Roadmap\n\n    code line\n",
+    );
+  });
+
   it("composes collection items as readable document sections", () => {
     expect(
       collectionItemsMarkdown([
