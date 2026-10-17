@@ -2005,13 +2005,14 @@ type DocumentUpdates = {
 export function liveCopyBodySaveResult(args: {
   titleSaved: boolean;
   bodyAcknowledged: boolean;
+  writePathConfirmed: boolean;
   stillWritesThroughLiveCopy: boolean;
 }): DocumentSaveResult {
   // The server stopped deriving the body, and leaving the live copy queued a
   // legacy save of it.
   if (!args.stillWritesThroughLiveCopy)
     return { contentPersisted: false, outcome: "superseded" };
-  if (!args.bodyAcknowledged)
+  if (!args.bodyAcknowledged || !args.writePathConfirmed)
     return { contentPersisted: false, outcome: "pending_collaboration_flush" };
   return { contentPersisted: args.titleSaved };
 }
@@ -2037,6 +2038,66 @@ export async function confirmLiveCopyWritePath(
   if (!writePath)
     throw new Error("The page did not say how its body is written.");
   return writePath === "live_copy";
+}
+
+/**
+ * Whether an editor writing a page's body through its live copy knows the
+ * server still writes it from there. An acknowledgment that changed nothing
+ * makes it unknown until a check, or a changed update's acknowledgment, says.
+ */
+export function liveCopyWritePathConfirmer(options: {
+  readDocument: () => Promise<Pick<Document, "writePath"> | null | undefined>;
+  leave: () => void;
+}) {
+  let known = true;
+  let left = false;
+  let askAgain = false;
+  let running: Promise<void> | null = null;
+  const leave = () => {
+    left = true;
+    options.leave();
+  };
+  const check = async () => {
+    do {
+      askAgain = false;
+      try {
+        if (!(await confirmLiveCopyWritePath(options.readDocument)))
+          return leave();
+      } catch (error) {
+        // It stays unknown, so a save asks again and reads as unsaved.
+        console.warn(
+          "Could not confirm that this page's body is still written from its live copy.",
+          error,
+        );
+        return;
+      }
+      // An acknowledgment that came in while the page was read may be for an
+      // update the server took after that read.
+      if (!askAgain) known = true;
+    } while (askAgain);
+  };
+  const start = () =>
+    (running ??= check().finally(() => {
+      running = null;
+    }));
+  return {
+    acknowledge(action: ReturnType<typeof liveCopyAcknowledgmentAction>) {
+      if (action === "leave") return leave();
+      if (action === "keep") {
+        known = true;
+        return;
+      }
+      known = false;
+      askAgain = true;
+      void start();
+    },
+    /** Settles any check, asking again once if it is still unknown. */
+    async confirmed(): Promise<boolean> {
+      while (running) await running;
+      if (!known && !left) await start();
+      return known && !left;
+    },
+  };
 }
 
 /**
@@ -3469,38 +3530,26 @@ function PageEditorSessionBody({
   }
   const bodyWritesThroughLiveCopy = liveCopyBody === true && collabEnabled;
   bodyWritesThroughLiveCopyRef.current = bodyWritesThroughLiveCopy;
-  const liveCopyWritePathCheckRef = useRef<Promise<void> | null>(null);
+  const liveCopyWritePath = useMemo(
+    () =>
+      liveCopyWritePathConfirmer({
+        readDocument: () =>
+          callAction("get-document", { id: documentId }, { method: "GET" }),
+        leave: () => {
+          if (!bodyWritesThroughLiveCopyRef.current) return;
+          bodyWritesThroughLiveCopyRef.current = false;
+          setLiveCopyBody(false);
+          leaveLiveCopyRef.current();
+        },
+      }),
+    [documentId],
+  );
   const handleUpdateAcknowledged = useCallback(
     (ack: CollabUpdateAck) => {
       if (!bodyWritesThroughLiveCopyRef.current) return;
-      const leave = () => {
-        if (!bodyWritesThroughLiveCopyRef.current) return;
-        bodyWritesThroughLiveCopyRef.current = false;
-        setLiveCopyBody(false);
-        leaveLiveCopyRef.current();
-      };
-      const action = liveCopyAcknowledgmentAction(ack);
-      if (action === "leave") return leave();
-      if (action !== "confirm" || liveCopyWritePathCheckRef.current) return;
-      liveCopyWritePathCheckRef.current = confirmLiveCopyWritePath(() =>
-        callAction("get-document", { id: documentId }, { method: "GET" }),
-      )
-        .then((stillLiveCopy) => {
-          if (!stillLiveCopy) leave();
-        })
-        .catch((error) => {
-          // A later acknowledgment settles it: a changed update answers
-          // derived or not_derived, and a no-op one checks again.
-          console.warn(
-            "Could not confirm that this page's body is still written from its live copy.",
-            error,
-          );
-        })
-        .finally(() => {
-          liveCopyWritePathCheckRef.current = null;
-        });
+      liveCopyWritePath.acknowledge(liveCopyAcknowledgmentAction(ack));
     },
-    [documentId],
+    [liveCopyWritePath],
   );
   const {
     ydoc,
@@ -4213,14 +4262,15 @@ function PageEditorSessionBody({
       const bodyAcknowledged = await flushBeforeSave(flushCollabUpdates);
       // An acknowledgment that could not say where the body went is checked
       // before the save reports.
-      await liveCopyWritePathCheckRef.current;
+      const writePathConfirmed = await liveCopyWritePath.confirmed();
       return liveCopyBodySaveResult({
         titleSaved,
         bodyAcknowledged,
+        writePathConfirmed,
         stillWritesThroughLiveCopy: bodyWritesThroughLiveCopyRef.current,
       });
     },
-    [flushCollabUpdates, persistDocumentUpdates],
+    [flushCollabUpdates, liveCopyWritePath, persistDocumentUpdates],
   );
   const saveDocumentImmediately = useCallback(
     async (

@@ -10,6 +10,7 @@ import {
   liveCopyAcknowledgmentAction,
   liveCopyBodySaveResult,
   liveCopyTitleSave,
+  liveCopyWritePathConfirmer,
 } from "./DocumentEditor";
 
 describe("a save on a page whose body is written through its live copy", () => {
@@ -18,6 +19,7 @@ describe("a save on a page whose body is written through its live copy", () => {
       liveCopyBodySaveResult({
         titleSaved: true,
         bodyAcknowledged: false,
+        writePathConfirmed: true,
         stillWritesThroughLiveCopy: true,
       }),
     ).toEqual({
@@ -28,6 +30,7 @@ describe("a save on a page whose body is written through its live copy", () => {
       liveCopyBodySaveResult({
         titleSaved: true,
         bodyAcknowledged: true,
+        writePathConfirmed: true,
         stillWritesThroughLiveCopy: true,
       }),
     ).toEqual({ contentPersisted: true });
@@ -38,6 +41,7 @@ describe("a save on a page whose body is written through its live copy", () => {
       liveCopyBodySaveResult({
         titleSaved: false,
         bodyAcknowledged: true,
+        writePathConfirmed: true,
         stillWritesThroughLiveCopy: true,
       }),
     ).toEqual({ contentPersisted: false });
@@ -49,9 +53,93 @@ describe("a save on a page whose body is written through its live copy", () => {
       liveCopyBodySaveResult({
         titleSaved: true,
         bodyAcknowledged: true,
+        writePathConfirmed: true,
         stillWritesThroughLiveCopy: false,
       }),
     ).toEqual({ contentPersisted: false, outcome: "superseded" });
+  });
+
+  it("does not read as saved while nothing says where the body went", () => {
+    expect(
+      liveCopyBodySaveResult({
+        titleSaved: true,
+        bodyAcknowledged: true,
+        writePathConfirmed: false,
+        stillWritesThroughLiveCopy: true,
+      }),
+    ).toEqual({
+      contentPersisted: false,
+      outcome: "pending_collaboration_flush",
+    });
+  });
+});
+
+describe("confirming where a live-copy page's body goes", () => {
+  function confirmer(...answers: Array<"live_copy" | "legacy" | Error>) {
+    const leave = vi.fn();
+    const reads: Array<(value: unknown) => void> = [];
+    const readDocument = vi.fn(() => {
+      const answer = answers.shift();
+      if (answer === undefined)
+        return new Promise<{ writePath: "live_copy" }>((resolve) => {
+          reads.push(resolve as (value: unknown) => void);
+        });
+      return answer instanceof Error
+        ? Promise.reject(answer)
+        : Promise.resolve({ writePath: answer });
+    });
+    return {
+      leave,
+      readDocument,
+      reads,
+      path: liveCopyWritePathConfirmer({ readDocument, leave }),
+    };
+  }
+
+  it("does not count a check that failed as confirmed, and asks again", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const { path, readDocument } = confirmer(
+        new Error("offline"),
+        new Error("offline"),
+        "live_copy",
+      );
+      path.acknowledge("confirm");
+      await expect(path.confirmed()).resolves.toBe(false);
+      expect(readDocument).toHaveBeenCalledTimes(2);
+      await expect(path.confirmed()).resolves.toBe(true);
+      expect(readDocument).toHaveBeenCalledTimes(3);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("checks again for a no-op acknowledgment that arrives during a check", async () => {
+    const { path, readDocument, reads, leave } = confirmer();
+    path.acknowledge("confirm");
+    path.acknowledge("confirm");
+    const confirmed = path.confirmed();
+    await vi.waitFor(() => expect(reads).toHaveLength(1));
+    reads[0]!({ writePath: "live_copy" });
+    // The second read finds the server stopped writing the body from the copy.
+    await vi.waitFor(() => expect(reads).toHaveLength(2));
+    reads[1]!({ writePath: "legacy" });
+    await expect(confirmed).resolves.toBe(false);
+    expect(readDocument).toHaveBeenCalledTimes(2);
+    expect(leave).toHaveBeenCalledTimes(1);
+  });
+
+  it("takes a changed update's acknowledgment as confirmation", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const { path, readDocument } = confirmer(new Error("offline"));
+      path.acknowledge("confirm");
+      path.acknowledge("keep");
+      await expect(path.confirmed()).resolves.toBe(true);
+      expect(readDocument).toHaveBeenCalledTimes(1);
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
 
