@@ -6,6 +6,7 @@ import {
   type LiveCopyMutationResult,
 } from "@agent-native/core/collab";
 import type { DbExec } from "@agent-native/core/db";
+import { assertAccess, currentAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
@@ -190,7 +191,8 @@ export async function editContentLiveCopy<Edit extends string>(
  * whatever a selector such as "the first image with this URL" would pick in
  * the newer body. A change whose place that commit leaves ambiguous, or a
  * target `rewrite` (null) doesn't find, is refused as
- * DOCUMENT_REVISION_CONFLICT. False when the page is not on its live copy,
+ * DOCUMENT_REVISION_CONFLICT. The caller's editor access is checked again in
+ * the commit's transaction. False when the page is not on its live copy,
  * or left it before anything committed, so the writer takes its legacy path.
  */
 export async function rewriteContentLiveCopyBody(
@@ -219,6 +221,12 @@ export async function rewriteContentLiveCopyBody(
       cause: options.cause,
       edit: CONTENT_LIVE_COPY_EDITS.rebaseBody,
       input: { base: body, candidate: content },
+      persist: async (tx) => {
+        await assertAccess("document", documentId, "editor", {
+          ...currentAccess(),
+          transaction: tx,
+        });
+      },
     });
     return true;
   } catch (error) {
