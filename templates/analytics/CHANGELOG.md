@@ -15,6 +15,8 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 ### Fixed
 
 - Explorer flags incomplete query results
+- Chart drilldowns preserve the selected series and report lookup or export failures safely.
+- CSV downloads show when results are limited to the first 500 records
 - Dashboard update status remains visible for sources without fetch-time or cache metadata
 - Normalize typed date literals in first-party BigQuery queries
 - Treat incomplete schema and truncated BigQuery results as partial evidence
@@ -23,6 +25,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Added
 
+- Click any bar, line point, funnel stage or slice on the first-party dashboard to open the underlying records in a pop-up, with filter, SQL and CSV export.
 - Add key dates and data notes from the dashboard's new Annotations menu or a chart's menu, show or hide key-date sets per dashboard, and mark a note fixed or hide it on one chart from its hover card.
 - Data notes shade the days a chart's numbers were affected by an incident or a tracking problem, on the dashboard and in scheduled email reports.
 - Each dashboard save you make pops up with Undo, says whether everyone sees it, and shows how many others have the dashboard open.

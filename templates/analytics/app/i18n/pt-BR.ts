@@ -1375,6 +1375,23 @@ export default {
     resetFilters: "Redefinir filtros",
     collapseFilters: "Recolher filtros",
     expandFilters: "Expandir filtros",
+    drilldownChartPoints: "Pontos do gráfico",
+    drilldownPreviousPage: "Página anterior dos pontos do gráfico",
+    drilldownNextPage: "Página seguinte dos pontos do gráfico",
+    drilldownPageRange: "Exibindo {{start}}–{{end}} de {{total}}",
+    drilldownFilterRows: "Filtrar linhas",
+    drilldownShowSql: "Mostrar SQL",
+    drilldownHideSql: "Ocultar SQL",
+    drilldownDownloadCsv: "Baixar CSV",
+    drilldownShowing: "Mostrando {{shown}} de {{total}} registros",
+    drilldownCsvTruncated:
+      "Exportação incompleta: a consulta encontrou {{total}} registros, mas apenas os primeiros {{loaded}} foram carregados; este arquivo inclui {{exported}} após a filtragem.",
+    drilldownCountMismatch:
+      "O gráfico mostra {{chart}}, mas {{total}} registros correspondem",
+    drilldownAggregateOnly:
+      "Este painel tem apenas linhas agregadas. As linhas do ponto clicado estão destacadas.",
+    drilldownNoRecords: "Nenhum registro correspondente",
+    drilldownLoadFailed: "Não foi possível carregar os registros",
     filterSeries: "Filter",
     chartTimeRangeOverride: "Substituir o intervalo de tempo deste gráfico",
     chartTimeRangeInherit: "Intervalo do painel",
