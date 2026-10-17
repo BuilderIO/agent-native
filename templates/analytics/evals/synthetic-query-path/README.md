@@ -46,9 +46,9 @@ Set `ANALYTICS_QUERY_EVAL_PHASE` to `baseline` or `candidate` and
 CSV. Each row includes that source revision and the SHA-256 of the shared test
 harness, so paired baseline and candidate runs can be checked for identical
 cases. The CSV allowlist contains only synthetic case keys, pass/fail reason
-codes, production-path and guard booleans, action-call counts, and synthetic
-token and latency counters. It deliberately excludes prompts, SQL, action
-arguments, transcripts, provider rows, user/org/connection identifiers,
+codes, production-path and guard booleans, action-call counts, fixture token
+counters, and locally measured elapsed time. It deliberately excludes prompts,
+SQL, action arguments, transcripts, provider rows, user/org/connection identifiers,
 cursors, and tokens. The CSV is a repeatability artifact for this deterministic
 fixture; it is not a live model benchmark or evidence of live warehouse
 accuracy.
@@ -139,9 +139,9 @@ snapshots and is not causal attribution to only the PR's changes.
 This is a deterministic scripted-engine contract comparison with mocked
 provider responses; it does not measure independent model choices, live
 warehouse accuracy, user outcomes, or provider latency. The paired CSV contains
-only synthetic case keys, reason codes, booleans, call counts, and synthetic
-usage counters. It contains no prompts, SQL, provider rows, identity values,
-cursors, or credentials.
+only synthetic case keys, reason codes, booleans, call counts, fixture token
+counters, and locally measured elapsed time. It contains no prompts, SQL,
+provider rows, identity values, cursors, or credentials.
 
 ### Previous v8 snapshot
 
@@ -215,9 +215,9 @@ under `templates/analytics` changed between the baseline and main. This is a
 deterministic scripted-engine contract comparison with mocked provider
 responses; it does not measure independent model choices, live warehouse
 accuracy, user outcomes, or provider latency. The paired CSV contains only
-synthetic case keys, reason codes, booleans, call counts, and synthetic usage
-counters. It contains no prompts, SQL, provider rows, identity values, cursors,
-or credentials.
+synthetic case keys, reason codes, booleans, call counts, fixture token counts,
+and locally measured elapsed time. It contains no prompts, SQL, provider rows,
+identity values, cursors, or credentials.
 
 The v6 run refreshes the candidate phase at the exact source revision
 containing the latest prompt guidance; v5 remains as the earlier snapshot.
@@ -300,8 +300,8 @@ The engine scripts the action sequence, query, and final response. The paired
 score therefore measures the related-metric guidance check and production-path
 plumbing; it does not show that a model independently selected the right
 source, wrote the query, or answered correctly. It does not measure live
-Builder data accuracy or provider performance. Latency and token counters
-describe these local fixture runs only.
+Builder data accuracy or provider performance. Elapsed time is measured during
+the local fixture run; token counts come from its deterministic model fixture.
 
 ## Previous-wave comparison
 
