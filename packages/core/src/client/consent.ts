@@ -23,6 +23,8 @@ const REGION_STORAGE_KEY = "an_consent_region";
  * injects into the page, queue `[category, run]` here.
  */
 const SCRIPT_QUEUE_KEY = "__AN_CONSENT_QUEUE__";
+/** The Google data layers the server's Consent Mode default script set up. */
+const GOOGLE_CONSENT_LAYERS_KEY = "__AN_CONSENT_LAYERS__";
 
 interface Waiter {
   category: ConsentCategory;
@@ -199,19 +201,63 @@ export function consentAllowsNow(category: ConsentCategory): boolean {
   return allows(category, regionGuess());
 }
 
+/**
+ * Whether `category` is allowed, from the visitor's choice or the server's
+ * region; `null` until one of them is known, where `consentAllowsNow` would
+ * guess from the time zone. For what `revoke` can't undo once it's sent.
+ */
+export function consentDecision(category: ConsentCategory): boolean | null {
+  if (typeof window === "undefined") return false;
+  const choice = getConsentChoice();
+  if (choice) return choice[category];
+  const region = state().region ?? readCachedRegion();
+  if (region) return region === "none";
+  void resolveConsentRegion();
+  return null;
+}
+
+/**
+ * Google's tags can't be unloaded, but they follow Consent Mode: a reject
+ * stops what's already on the page from storing or sending identifiers.
+ */
+function updateGoogleConsent(region: ConsentRegion | null): void {
+  const holder = window as unknown as Record<string, unknown>;
+  const layers = holder[GOOGLE_CONSENT_LAYERS_KEY];
+  if (!Array.isArray(layers)) return;
+  const grant = (category: ConsentCategory) =>
+    allows(category, region) ? "granted" : "denied";
+  const update = {
+    analytics_storage: grant("performance"),
+    ad_storage: grant("targeting"),
+    ad_user_data: grant("targeting"),
+    ad_personalization: grant("targeting"),
+  };
+  for (const name of layers) {
+    if (typeof name !== "string") continue;
+    const layer = (holder[name] ??= []) as unknown[];
+    // gtag reads an `arguments` object from the data layer, never an array.
+    (function gtag(..._args: unknown[]) {
+      layer.push(arguments);
+    })("consent", "update", update);
+  }
+}
+
 function settle(): void {
   const region = state().region;
+  if (region || getConsentChoice()) updateGoogleConsent(region);
   for (const waiter of state().waiters) {
     const allowed = allows(waiter.category, region);
     if (allowed && !waiter.ran) {
       waiter.ran = true;
       waiter.run();
-    } else if (!allowed && region) {
+    } else if (!allowed && (region || getConsentChoice())) {
       // Also clears what an earlier page stored before the banner existed.
       waiter.ran = false;
       waiter.revoke?.();
     }
   }
+  // A choice stored here or in another tab decides before the region does.
+  if (region || getConsentChoice()) releaseHeldForDecision?.(true);
 }
 
 function notify(): void {
@@ -247,8 +293,73 @@ export function whenConsentAllows(
   if (allows(category, region)) {
     waiter.ran = true;
     run();
+  } else if (state().region || getConsentChoice()) {
+    // A reject decided before this caller asked still clears what it stored.
+    options.revoke?.();
   }
   if (!state().region) void resolveConsentRegion();
+}
+
+let heldForDecision: ((decided: boolean) => void)[] | null = null;
+let releaseHeldForDecision: ((decided: boolean) => void) | null = null;
+
+/**
+ * Run `send` once the visitor's choice or the server's region is known, so
+ * the time zone's guess never sends what consent covers. `decided` is false
+ * when the page closes first; send then without what consent covers.
+ */
+export function whenConsentDecided(send: (decided: boolean) => void): void {
+  if (consentDecision("performance") !== null) {
+    send(true);
+    return;
+  }
+  if (!heldForDecision) {
+    const held: ((decided: boolean) => void)[] = [];
+    heldForDecision = held;
+    const release = (decided: boolean) => {
+      if (heldForDecision !== held) return;
+      heldForDecision = null;
+      releaseHeldForDecision = null;
+      window.removeEventListener("pagehide", onPageHide);
+      for (const run of held) run(decided);
+    };
+    const onPageHide = () => release(false);
+    releaseHeldForDecision = release;
+    window.addEventListener("pagehide", onPageHide);
+    void resolveConsentRegion().then(() => release(true));
+  }
+  heldForDecision.push(send);
+}
+
+const CONSENT_CHANNEL_NAME = "agent-native-consent";
+let seenChoice: string | null = null;
+let consentChannel: BroadcastChannel | null = null;
+
+/**
+ * Apply a choice another tab or app stored: at once in other tabs of this
+ * app, and on the next focus for another app on the site.
+ */
+function recheckStoredChoice(): void {
+  const raw = readCookie(CONSENT_COOKIE_NAME);
+  if (raw === seenChoice) return;
+  seenChoice = raw;
+  state().settingsOpen = false;
+  settle();
+  notify();
+}
+
+function watchOtherTabs(): void {
+  if (typeof window === "undefined" || typeof document === "undefined") return;
+  seenChoice = readCookie(CONSENT_COOKIE_NAME);
+  window.addEventListener?.("focus", recheckStoredChoice);
+  document.addEventListener?.("visibilitychange", recheckStoredChoice);
+  if (typeof BroadcastChannel !== "function") return;
+  try {
+    consentChannel = new BroadcastChannel(CONSENT_CHANNEL_NAME);
+    consentChannel.onmessage = recheckStoredChoice;
+  } catch {
+    // coercion-ok: without the channel, other tabs recheck on focus.
+  }
 }
 
 /** Store the visitor's choice for every app on this site, and apply it. */
@@ -263,6 +374,12 @@ export function setConsentChoice(choice: ConsentChoice): void {
     // applies to this page.
   }
   storeChoiceOnServer(choice);
+  seenChoice = readCookie(CONSENT_COOKIE_NAME);
+  try {
+    consentChannel?.postMessage("changed");
+  } catch {
+    // coercion-ok: other tabs still recheck on focus.
+  }
   state().settingsOpen = false;
   if (!state().region) state().region = "consent";
   settle();
@@ -303,3 +420,4 @@ function drainScriptQueue(): void {
 }
 
 drainScriptQueue();
+watchOtherTabs();

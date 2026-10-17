@@ -39,6 +39,7 @@ import {
   type AppShellSkeletonLayout,
 } from "../shared/AppShellSkeleton.js";
 import { ClientOnly } from "../shared/ClientOnly.js";
+import { ConsentBanner } from "../shared/ConsentBanner.js";
 import { EnvironmentBadge } from "../shared/EnvironmentBadge.js";
 import { RouteTransitionIndicator } from "../shared/RouteTransitionIndicator.js";
 import { RuntimeConfigNotice } from "../shared/RuntimeConfigNotice.js";
@@ -409,12 +410,17 @@ function ProvidersInner({
   settingsShortcut: boolean;
   children: React.ReactNode;
 }) {
+  // The banner reads the app's locale, so it sits inside the same provider.
   const localizedChildren =
     i18n === false ? (
-      children
+      <>
+        {children}
+        <ConsentBanner />
+      </>
     ) : (
       <AgentNativeI18nProvider {...(i18n ?? {})}>
         {children}
+        <ConsentBanner />
       </AgentNativeI18nProvider>
     );
 

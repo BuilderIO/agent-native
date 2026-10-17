@@ -2,6 +2,7 @@
 
 import {
   captureAttribution,
+  getAnalyticsAnonymousId,
   getAnalyticsSessionId,
 } from "@agent-native/core/client/analytics";
 import { frameworkRoutePrefix } from "@agent-native/core/client/api-path";
@@ -12,6 +13,7 @@ import {
   normalizeOAuthReturnPath,
   shouldRetryAuthSessionProbe,
 } from "@agent-native/core/client/auth/auth-page-helpers";
+import { whenConsentDecided } from "@agent-native/core/client/consent";
 import { openOAuthPopup } from "@agent-native/core/client/oauth-popup";
 import { navigateForSession } from "@agent-native/core/client/use-session";
 import { normalizeLocaleCode } from "@agent-native/core/localization/shared";
@@ -65,7 +67,6 @@ type AuthRequestResult = {
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const TAB_STORAGE_KEY = "an.onboarding.tab";
 const PENDING_SIGNUP_EMAIL_STORAGE_KEY = "an.onboarding.pendingSignupEmail";
-const ANALYTICS_ANONYMOUS_ID_KEY = "agent-native.anonymous_id";
 const GOOGLE_AUTH_URL_PATH = "/_agent-native/google/auth-url";
 const BUILDER_DESKTOP_RETURN_ORIGIN = "http://127.0.0.1:8080";
 const useIsomorphicLayoutEffect =
@@ -261,15 +262,6 @@ async function requestJson(
   return { response, data, readable };
 }
 
-function generateAnonymousId(): string {
-  try {
-    if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
-  } catch {
-    // coercion-ok: the browser fallback remains usable when crypto is unavailable.
-  }
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-}
-
 function trackAuth(
   app: string,
   name: string,
@@ -298,9 +290,8 @@ function trackAuth(
       }
     ).__AGENT_NATIVE_CONFIG__;
     if (!config?.agentNativeAnalyticsPublicKey) return;
-    const anonymousId = readStorage(ANALYTICS_ANONYMOUS_ID_KEY);
-    if (!anonymousId) return;
     const sessionId = getAnalyticsSessionId();
+    const timestamp = new Date().toISOString();
     const endpoint = resolveLaneEndpoint(
       config.agentNativeAnalyticsEndpoint ??
         "https://analytics.agent-native.com/track",
@@ -313,23 +304,33 @@ function trackAuth(
     }> = [{ name, properties: legacyProperties }];
     const canonical = canonicalTrackingEvent(name, legacyProperties);
     if (canonical) events.push(canonical);
-    for (const event of events) {
-      const body = JSON.stringify({
-        publicKey: config.agentNativeAnalyticsPublicKey,
-        event: event.name,
-        properties: event.properties,
-        anonymousId,
-        sessionId,
-        timestamp: new Date().toISOString(),
-      });
-      if (navigator.sendBeacon?.(endpoint, body)) continue;
-      void fetch(endpoint, {
-        method: "POST",
-        body,
-        keepalive: true,
-        headers: { "Content-Type": "text/plain;charset=UTF-8" },
-      }).catch(() => undefined);
-    }
+    const publicKey = config.agentNativeAnalyticsPublicKey;
+    // The visitor id waits for analytics consent, as in the app bundle.
+    whenConsentDecided((decided) => {
+      const anonymousId = decided ? getAnalyticsAnonymousId() : undefined;
+      for (const event of events) {
+        const body = JSON.stringify({
+          publicKey,
+          event: event.name,
+          properties: anonymousId
+            ? event.properties
+            : {
+                ...event.properties,
+                analytics_consent: decided ? "withheld" : "unknown",
+              },
+          anonymousId,
+          sessionId,
+          timestamp,
+        });
+        if (navigator.sendBeacon?.(endpoint, body)) continue;
+        void fetch(endpoint, {
+          method: "POST",
+          body,
+          keepalive: true,
+          headers: { "Content-Type": "text/plain;charset=UTF-8" },
+        }).catch(() => undefined);
+      }
+    });
   } catch {
     // coercion-ok: analytics is best effort and cannot block authentication.
   }
@@ -1036,16 +1037,8 @@ export function AuthPage(props: AuthPageProps) {
   }, [apiPath, redirectToSignedInApp, runtimeBasePathResolved, view]);
 
   React.useEffect(() => {
-    let anonymousId = readStorage(ANALYTICS_ANONYMOUS_ID_KEY);
-    if (!/^[A-Za-z0-9_-]{1,128}$/.test(anonymousId)) {
-      anonymousId = generateAnonymousId();
-      writeStorage(ANALYTICS_ANONYMOUS_ID_KEY, anonymousId);
-    }
-    try {
-      document.cookie = `an_aid=${encodeURIComponent(anonymousId)}; path=/; max-age=2592000; SameSite=Lax`;
-    } catch {
-      // coercion-ok: attribution cookies are optional for authentication.
-    }
+    // Stores `an_aid` only with analytics consent, and asks for the region.
+    getAnalyticsAnonymousId();
     // Capture is once per page load, so it must wait for a workspace's
     // inferred base path or `landing_path` falls back to the wrong home.
     if (runtimeBasePathResolved) {

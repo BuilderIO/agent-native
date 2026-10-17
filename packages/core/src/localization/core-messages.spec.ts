@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { CONSENT_BANNER_MESSAGES } from "./consent-banner-messages.js";
 import {
   coreMessagesForLocale,
   loadCoreMessagesForLocale,
@@ -68,8 +69,9 @@ describe("Core localization", () => {
     }
   });
 
-  it("keeps localized environment badges in synchronous boot messages", () => {
+  it("keeps localized environment badges and the consent banner in synchronous boot messages", () => {
     expect(coreMessagesForLocale("es-ES")).toEqual({
+      consentBanner: CONSENT_BANNER_MESSAGES["es-ES"],
       environmentBadge: ENVIRONMENT_BADGE_MESSAGES["es-ES"],
     });
     expect(coreMessagesForLocale("es-ES")).not.toHaveProperty("settings");

@@ -55,7 +55,12 @@ import { agentNativePath } from "./api-path.js";
 import { agentNativeApiDisabledReason } from "./api-surface.js";
 import { injectedAgentNativeConfig } from "./app-config.js";
 import { clientBuildId } from "./build-compatibility.js";
-import { consentAllowsNow, whenConsentAllows } from "./consent.js";
+import {
+  consentAllowsNow,
+  consentDecision,
+  whenConsentAllows,
+  whenConsentDecided,
+} from "./consent.js";
 import { clientFailureContext } from "./failure-report.js";
 import { replayEndpointFromAnalyticsEndpoint } from "./session-replay-endpoint.js";
 import { scheduleAfterPaint } from "./use-after-paint.js";
@@ -217,6 +222,8 @@ let _amplitudeModule: typeof amplitude | null = null;
 let _amplitudeLoadPromise: Promise<typeof amplitude | null> | null = null;
 let _amplitudeApiKey: string | null = null;
 let _pendingAmplitudeEvents: Array<[string, Record<string, unknown>]> = [];
+let _amplitudeConsent: "unasked" | "waiting" | "granted" | "revoked" =
+  "unasked";
 let _sentryInitialized = false;
 let _sentryModule: typeof Sentry | null = null;
 let _sentryLoadPromise: Promise<typeof Sentry | null> | null = null;
@@ -1209,11 +1216,34 @@ function isSyntheticBrowserTraffic(): boolean {
 
 function ensureAmplitude(): boolean {
   if (isSyntheticBrowserTraffic()) return false;
-  if (_amplitudeInitialized) return true;
   const key = (import.meta.env as Record<string, string | undefined>)
     ?.VITE_AMPLITUDE_API_KEY;
   if (!key) return false;
   _amplitudeApiKey = key;
+  if (_amplitudeConsent !== "granted") {
+    if (_amplitudeConsent === "unasked") {
+      _amplitudeConsent = "waiting";
+      // Amplitude keeps a device id in the browser, so where the banner
+      // applies it waits for performance cookies.
+      whenConsentAllows(
+        "performance",
+        () => {
+          _amplitudeConsent = "granted";
+          _amplitudeModule?.setOptOut(false);
+          ensureAmplitude();
+        },
+        {
+          revoke: () => {
+            _amplitudeConsent = "revoked";
+            _pendingAmplitudeEvents = [];
+            _amplitudeModule?.setOptOut(true);
+          },
+        },
+      );
+    }
+    return false;
+  }
+  if (_amplitudeInitialized) return true;
   if (_amplitudeLoadPromise) return false;
 
   _amplitudeLoadPromise = loadOptionalPeer(
@@ -1221,6 +1251,8 @@ function ensureAmplitude(): boolean {
     () => import("@amplitude/analytics-browser"),
   )
     .then((module) => {
+      // A reject while the SDK loaded: the next accept initializes it.
+      if (_amplitudeConsent !== "granted") return null;
       module.init(key, { autocapture: false });
       _amplitudeModule = module;
       _amplitudeInitialized = true;
@@ -2621,16 +2653,34 @@ function sendAgentNativeAnalytics(
   );
   const userId =
     typeof properties.userId === "string" ? properties.userId : undefined;
-  const body = JSON.stringify({
-    publicKey,
-    event: name,
-    properties,
-    userId,
-    anonymousId: getOrCreateAnonymousId(),
-    sessionId: getOrCreateSessionId(),
-    timestamp: new Date().toISOString(),
+  const sessionId = getOrCreateSessionId();
+  const timestamp = new Date().toISOString();
+  whenConsentDecided((decided) => {
+    const anonymousId = decided ? getOrCreateAnonymousId() : undefined;
+    postAgentNativeAnalytics(
+      endpoint,
+      JSON.stringify({
+        publicKey,
+        event: name,
+        // The visitor id waits for analytics consent; mark the event so
+        // reports can tell it from one that lost its id some other way, and
+        // a refusal from a page that closed before the region was known.
+        properties: anonymousId
+          ? properties
+          : {
+              ...properties,
+              analytics_consent: decided ? "withheld" : "unknown",
+            },
+        userId,
+        anonymousId,
+        sessionId,
+        timestamp,
+      }),
+    );
   });
+}
 
+function postAgentNativeAnalytics(endpoint: string, body: string): void {
   try {
     if (navigator.sendBeacon) {
       const sent = navigator.sendBeacon(endpoint, body);
@@ -2670,12 +2720,22 @@ function emitBrowserTrackingEvent(
   } = options;
   const amplitudeProps = amplitudeEventProperties(name, props);
   if (sendGtag) {
-    const gtag = window.__AGENT_NATIVE_GA_GTAG__ ?? window.gtag;
-    gtag?.("event", name.replace(/\s+/g, "_"), gtagProperties);
+    whenConsentDecided(() => {
+      if (consentDecision("performance") !== true) return;
+      const gtag = window.__AGENT_NATIVE_GA_GTAG__ ?? window.gtag;
+      gtag?.("event", name.replace(/\s+/g, "_"), gtagProperties);
+    });
   }
   if (ensureAmplitude()) {
     _amplitudeModule?.track(name, amplitudeProps);
-  } else if (_amplitudeApiKey) {
+  } else if (
+    _amplitudeApiKey &&
+    // Only while it loads after an accept, or before the region is known;
+    // the region's answer clears what's held if the visitor must choose.
+    (_amplitudeConsent === "granted" ||
+      (_amplitudeConsent !== "revoked" &&
+        consentDecision("performance") === null))
+  ) {
     if (_pendingAmplitudeEvents.length < 100) {
       _pendingAmplitudeEvents.push([name, amplitudeProps]);
     }

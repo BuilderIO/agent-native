@@ -17,6 +17,7 @@ import {
   getOrCreateAnalyticsAnonymousId,
   getOrCreateAnalyticsSessionId,
 } from "./analytics-session.js";
+import { whenConsentAllows } from "./consent.js";
 import { replayEndpointFromAnalyticsEndpoint } from "./session-replay-endpoint.js";
 import {
   SESSION_REPLAY_BLOCK_ATTRIBUTE,
@@ -242,7 +243,8 @@ export interface SessionReplayStartResult {
     | "url-blocked"
     | "already-active"
     | "import-failed"
-    | "record-failed";
+    | "record-failed"
+    | "consent-required";
   replayId?: string;
   sessionId?: string;
   sampled?: boolean;
@@ -1716,6 +1718,9 @@ function isDefinitiveReplayUploadClientError(status: number): boolean {
 const MAX_TRANSIENT_REPLAY_CLIENT_FAILURES = 3;
 const REPLAY_UPLOAD_TIMEOUT_MS = 15_000;
 
+// Uploads in flight, so a consent reject can abort them.
+const activeReplayUploads = new Set<AbortController>();
+
 function startReplayUploadTimeout(): {
   signal: AbortSignal | undefined;
   promise: Promise<never>;
@@ -1735,11 +1740,15 @@ function startReplayUploadTimeout(): {
     controller?.abort();
     rejectTimeout(timeoutError);
   }, REPLAY_UPLOAD_TIMEOUT_MS);
+  if (controller) activeReplayUploads.add(controller);
   return {
     signal: controller?.signal,
     promise,
     didTimeout: () => timedOut,
-    done: () => clearTimeout(timer),
+    done: () => {
+      clearTimeout(timer);
+      if (controller) activeReplayUploads.delete(controller);
+    },
   };
 }
 
@@ -2187,6 +2196,12 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
   if (isSyntheticBrowserTraffic()) return;
   const state = getState();
   if (!state.options) return;
+  if (replayConsentWithdrawn) {
+    // An upload in flight at the reject can put its batch back; drop it.
+    discardWithdrawnReplay(state);
+    for (const resolve of state.pendingFlushWaiters.splice(0)) resolve();
+    return;
+  }
   if (replayUploadsParked(state, Date.now())) return;
   if (state.pendingReplayUpload) {
     state.pendingFlushReason = mergePendingFlushReason(
@@ -2232,6 +2247,9 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
     return;
   }
   state.flushing = true;
+  // A reject while this upload is in flight withdraws its events for good,
+  // even if the visitor accepts again before it settles.
+  const consentGeneration = replayConsentGeneration;
   let uploaded = false;
   let reservedSequence = false;
   let splitRejectedBatch = false;
@@ -2255,6 +2273,8 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
     // between; it is queued as the pending reason.
     const outcome = await sendReplayUpload(state.options, payload.body, {
       beforeUpload: (keepalive) => {
+        // Compression can take long enough for a reject to land first.
+        if (consentGeneration !== replayConsentGeneration) return "defer";
         const pendingReason = state.pendingFlushReason;
         if (
           !keepalive &&
@@ -2270,7 +2290,9 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
       },
     });
     if (outcome === "deferred") {
-      restoreReplayEvents(state, events);
+      if (consentGeneration === replayConsentGeneration) {
+        restoreReplayEvents(state, events);
+      }
     } else {
       state.automaticConflictRestartAttempted = false;
       state.transientClientErrorFailures = 0;
@@ -2336,7 +2358,9 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
           quotaDecision?.kind === "stop") &&
         !splitBatch &&
         !isUnsplittableOversizedBatch;
-      if (splitBatch) {
+      if (consentGeneration !== replayConsentGeneration) {
+        // Withdrawn while in flight; nothing goes back on the queue.
+      } else if (splitBatch) {
         state.retryBatches.unshift(...splitBatch);
         splitRejectedBatch = true;
       } else if (isUnsplittableOversizedBatch) {
@@ -3549,6 +3573,77 @@ function installCaptureInterceptors(state: SessionReplayState): void {
   };
 }
 
+let replayConsentWatched = false;
+let replayConsentGranted = false;
+let replayConsentWithdrawn = false;
+let replayConsentGeneration = 0;
+let replayAllowedOptions: SessionReplayOptions | null = null;
+
+function discardWithdrawnReplay(state: SessionReplayState): void {
+  for (const upload of activeReplayUploads) upload.abort();
+  activeReplayUploads.clear();
+  state.queue = [];
+  state.queuedBytes = 0;
+  state.retryBatches = [];
+  state.pendingFlushReason = null;
+}
+let replayAwaitingConsent: SessionReplayOptions | null = null;
+
+/**
+ * Replay waits for analytics consent where the banner applies, without the
+ * time zone's early guess: a recording that already uploaded can't be undone.
+ * A start asked for before the answer runs once consent arrives.
+ */
+function replayConsentAllows(options: SessionReplayOptions): boolean {
+  if (!replayConsentWatched) {
+    replayConsentWatched = true;
+    whenConsentAllows(
+      "performance",
+      () => {
+        replayConsentGranted = true;
+        // What an upload in flight at the reject put back stays withdrawn.
+        if (replayConsentWithdrawn) discardWithdrawnReplay(getState());
+        replayConsentWithdrawn = false;
+        const waiting = replayAwaitingConsent;
+        replayAwaitingConsent = null;
+        if (!waiting) return;
+        // A reject during the last start cancels it, and an accept that
+        // quickly gets that canceled start back; ask once more after it.
+        void startSessionReplay(waiting).then((result) => {
+          if (!result.started && replayConsentGranted && !getState().active) {
+            void startSessionReplay(waiting);
+          }
+        });
+      },
+      {
+        // The region's first answer revokes before any choice, so a start
+        // asked for earlier keeps waiting for an accept.
+        revoke: () => {
+          const wasGranted = replayConsentGranted;
+          replayConsentGranted = false;
+          if (!wasGranted) {
+            // A replay id an earlier page stored never carries past a reject.
+            const storedReplayId = readStoredReplaySession()?.replayId;
+            if (storedReplayId) removeStoredReplaySession(storedReplayId);
+            return;
+          }
+          replayConsentWithdrawn = true;
+          replayConsentGeneration += 1;
+          // A fresh accept on this page records again, under a new identity.
+          replayAwaitingConsent = replayAllowedOptions ?? replayAwaitingConsent;
+          void stopSessionReplay("consent-revoked");
+        },
+      },
+    );
+  }
+  if (replayConsentGranted) {
+    replayAllowedOptions = options;
+    return true;
+  }
+  replayAwaitingConsent = options;
+  return false;
+}
+
 export async function startSessionReplay(
   options: SessionReplayOptions = {},
 ): Promise<SessionReplayStartResult> {
@@ -3564,6 +3659,9 @@ export async function startSessionReplay(
   }
   const normalized = normalizeOptions(options);
   if (!normalized) return { started: false, reason: "missing-public-key" };
+  if (!replayConsentAllows(options)) {
+    return { started: false, reason: "consent-required" };
+  }
 
   const sessionId = getOrCreateAnalyticsSessionId();
   if (!sessionId) return { started: false, reason: "missing-session-id" };
@@ -3870,6 +3968,13 @@ export async function stopSessionReplay(reason = "manual"): Promise<void> {
   if (reason !== "pagehide-persisted") {
     state.bfcacheRestored = false;
   }
+  if (reason === "consent-revoked") {
+    // Also when recording already stopped: a later accept starts afresh.
+    const storedReplayId =
+      state.replayId ?? readStoredReplaySession()?.replayId;
+    discardWithdrawnReplay(state);
+    if (storedReplayId) removeStoredReplaySession(storedReplayId);
+  }
   if (!state.active) {
     if (authClearedReplayId) removeStoredReplaySession(authClearedReplayId);
     if (reason === "auth-cleared") state.lastAuthenticatedProperties = null;
@@ -3928,6 +4033,8 @@ export async function stopSessionReplay(reason = "manual"): Promise<void> {
     // best-effort cleanup
   }
   state.broadcastChannel = null;
+  // A reject withdraws what is still buffered, so it is never uploaded.
+  if (reason === "consent-revoked") return;
   const sequenceBeforeFinalFlush = state.sequence;
   try {
     await flushSessionReplay(reason);

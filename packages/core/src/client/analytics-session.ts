@@ -1,10 +1,14 @@
-import { serializeAnalyticsAnonymousIdCookie } from "../shared/analytics-anonymous-id.js";
+import {
+  ANALYTICS_ANONYMOUS_ID_COOKIE_NAME,
+  serializeAnalyticsAnonymousIdCookie,
+} from "../shared/analytics-anonymous-id.js";
 import {
   ANALYTICS_SESSION_ID_COOKIE_NAME,
   ANALYTICS_SESSION_ID_MAX_LENGTH,
   normalizeAnalyticsSessionId,
   serializeAnalyticsSessionIdCookie,
 } from "../shared/analytics-session-id.js";
+import { consentDecision, whenConsentAllows } from "./consent.js";
 
 const ANONYMOUS_ID_STORAGE_KEY = "agent-native.anonymous_id";
 const SESSION_ID_STORAGE_KEY = "agent-native.session_id";
@@ -82,8 +86,33 @@ export function getAnalyticsPageLoadId(): string {
   return pageLoadId;
 }
 
+let anonymousIdConsentWatched = false;
+
+function clearAnalyticsAnonymousId(): void {
+  safeStorageRemove(ANONYMOUS_ID_STORAGE_KEY);
+  try {
+    document.cookie = `${ANALYTICS_ANONYMOUS_ID_COOKIE_NAME}=; path=/; max-age=0; SameSite=Lax`;
+  } catch {
+    // coercion-ok: a frame that can't read cookies never stored one.
+  }
+}
+
+/**
+ * The visitor id, `an_aid`, waits for analytics consent where the banner
+ * applies, and for the server's region rather than the time zone's guess,
+ * since a sent id can't be recalled. Until then this returns `undefined` and
+ * stores nothing, so events still count but can't be tied to one visitor
+ * across pages.
+ */
 export function getOrCreateAnalyticsAnonymousId(): string | undefined {
   if (typeof window === "undefined") return undefined;
+  if (!anonymousIdConsentWatched) {
+    anonymousIdConsentWatched = true;
+    whenConsentAllows("performance", () => {}, {
+      revoke: clearAnalyticsAnonymousId,
+    });
+  }
+  if (consentDecision("performance") !== true) return undefined;
   let id = safeStorageGet(ANONYMOUS_ID_STORAGE_KEY);
   if (!id) {
     id = generateVisitorId();

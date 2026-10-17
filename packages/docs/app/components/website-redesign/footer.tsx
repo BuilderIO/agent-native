@@ -1,3 +1,4 @@
+import { openConsentSettings } from "@agent-native/core/client/consent";
 import { useLocale, useT } from "@agent-native/core/client/i18n";
 import { FeedbackButton } from "@agent-native/toolkit/app/feedback";
 import { IconBrandDiscord, IconBrandGithub } from "@tabler/icons-react";
@@ -159,6 +160,8 @@ export function Footer() {
   const { locale } = useLocale();
   const localizedPath = (path: string) => sitePathForLocale(path, locale);
   const columns = footerColumns(t, localizedPath);
+  const legalTitle = t("homepage.footer.legal");
+  const cookieSettingsLabel = t("consentBanner.cookieSettings"); // i18n-key-ignore: a core catalog key, translated with the banner
 
   return (
     <PageSection
@@ -194,6 +197,15 @@ export function Footer() {
                   {column.links.map((link) => (
                     <FooterNavLink key={link.href} {...link} />
                   ))}
+                  {column.title === legalTitle ? (
+                    <button
+                      type="button"
+                      onClick={openConsentSettings}
+                      className={`${linkClassName} cursor-pointer border-0 bg-transparent p-0 text-left`}
+                    >
+                      {cookieSettingsLabel}
+                    </button>
+                  ) : null}
                 </div>
               </div>
             ))}

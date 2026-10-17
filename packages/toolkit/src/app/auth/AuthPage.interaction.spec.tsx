@@ -247,6 +247,80 @@ describe("AuthPage interactions", () => {
     }
   });
 
+  it("stores no visitor id on the sign-in page before analytics consent", async () => {
+    const originalHref = window.location.href;
+    const sendBeacon = vi.fn(() => true);
+    Object.defineProperty(navigator, "sendBeacon", {
+      value: sendBeacon,
+      configurable: true,
+    });
+    window.happyDOM.setURL("https://clips.agent-native.com/signup");
+    // Earlier renders in this file already settled the region.
+    Reflect.deleteProperty(
+      globalThis,
+      Symbol.for("agent-native.client.consent"),
+    );
+    window.localStorage.removeItem("agent-native.anonymous_id");
+    document.cookie = "an_aid=; path=/; max-age=0";
+    window.sessionStorage.setItem("an_consent_region", "consent");
+    (
+      window as Window & { __AGENT_NATIVE_CONFIG__?: Record<string, string> }
+    ).__AGENT_NATIVE_CONFIG__ = {
+      agentNativeAnalyticsPublicKey: "anpk_test",
+      agentNativeAnalyticsEndpoint: "https://analytics.agent-native.com/track",
+    };
+
+    try {
+      await act(async () => {
+        root.render(
+          <AuthPage
+            {...propsFromHtml(
+              getOnboardingHtml({
+                requestHost: "clips.agent-native.com",
+                requestPath: "/signup",
+              }),
+            )}
+            initialView="signup"
+          />,
+        );
+        await Promise.resolve();
+      });
+
+      const email = container.querySelector<HTMLInputElement>("#s-email");
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(
+          HTMLInputElement.prototype,
+          "value",
+        )!.set!.call(email, "person@example.com");
+        email!.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+
+      expect(sendBeacon).toHaveBeenCalled();
+      for (const [, body] of sendBeacon.mock.calls as unknown as [
+        string,
+        string,
+      ][]) {
+        const sent = JSON.parse(body);
+        expect(sent.anonymousId).toBeUndefined();
+        expect(sent.properties.analytics_consent).toBe("withheld");
+      }
+      expect(window.localStorage.getItem("agent-native.anonymous_id")).toBe(
+        null,
+      );
+      expect(document.cookie).not.toMatch(/an_aid=[^;]/);
+    } finally {
+      delete (window as Window & { __AGENT_NATIVE_CONFIG__?: unknown })
+        .__AGENT_NATIVE_CONFIG__;
+      window.sessionStorage.removeItem("an_consent_region");
+      Reflect.deleteProperty(
+        globalThis,
+        Symbol.for("agent-native.client.consent"),
+      );
+      Reflect.deleteProperty(navigator, "sendBeacon");
+      window.happyDOM.setURL(originalHref);
+    }
+  });
+
   it("sends a beta app's sign-up events to beta Analytics", async () => {
     const originalHref = window.location.href;
     const sendBeacon = vi.fn(() => true);
