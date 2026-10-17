@@ -4,6 +4,7 @@ import {
   readLiveCopy,
   seedLiveCopy,
 } from "@agent-native/core/collab";
+import { ensureSuggestionTables } from "@agent-native/core/review";
 import { eq } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
@@ -59,6 +60,9 @@ export async function switchPageToLiveCopy(
         `The live-copy writer is off for page ${documentId}'s owner.`,
       );
     }
+    // The conversion commit re-baselines pending suggestions, and core
+    // creates their tables only outside a transaction.
+    await ensureSuggestionTables();
     const conversion = { documentId, baseRevision: page.bodyRevision };
     try {
       await withLiveBodyConversion(

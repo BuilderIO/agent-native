@@ -35,8 +35,11 @@ export default defineAction({
           errorCode:
             error.code === "flag_off"
               ? "LIVE_BODY_WRITER_OFF"
-              : "LIVE_BODY_SWITCH_CONFLICT",
+              : error.code === "rebaseline_blocked"
+                ? "LIVE_BODY_SWITCH_BLOCKED"
+                : "LIVE_BODY_SWITCH_CONFLICT",
           statusCode: 409,
+          ...(error.blocked ? { details: error.blocked } : {}),
         });
       }
       throw error;
