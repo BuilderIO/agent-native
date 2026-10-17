@@ -322,6 +322,49 @@ async function clickScreenNode(
   );
 }
 
+test("screen plain click selects the containing frame; Cmd-click selects the child", async ({
+  app,
+}) => {
+  const { id, before } = await openScreenFixture(app);
+
+  await clickScreenNode(app, "kid-a");
+  await expect.poll(() => app.selectedLayers()).toEqual(["Kid A"]);
+
+  const card = await app.designRect("card");
+  const emptyCardPoint = await app.pagePoint(
+    card.x + card.width / 2,
+    card.y + card.height - 20,
+  );
+  await app.page.mouse.click(emptyCardPoint.x, emptyCardPoint.y);
+  await expect.poll(() => app.selectedLayers()).toEqual(["Card"]);
+
+  await clickScreenNode(app, "kid-a");
+  await expect.poll(() => app.selectedLayers()).toEqual(["Card"]);
+
+  await clickScreenNode(app, "kid-a", ["Meta"]);
+  await expect.poll(() => app.selectedLayers()).toEqual(["Kid A"]);
+
+  await app.settled();
+  expectOnlyChanged(before, await app.savedNodes(id), []);
+});
+
+test("board plain click inside a selected Card keeps it; Cmd-click selects the child", async ({
+  app,
+  page,
+}) => {
+  await openBoardFixture(app, FIXTURE);
+  const card = (await node(page, "card").boundingBox())!;
+  await page.mouse.click(card.x + card.width / 2, card.y + card.height - 20);
+  await expect.poll(() => app.selectedLayers()).toEqual(["Card"]);
+
+  const kidA = (await node(page, "kid-a").boundingBox())!;
+  await click(page, kidA);
+  await expect.poll(() => app.selectedLayers()).toEqual(["Card"]);
+
+  await click(page, kidA, ["Meta"]);
+  await expect.poll(() => app.selectedLayers()).toEqual(["Kid A"]);
+});
+
 test.use({ viewport: { width: 1600, height: 1000 } });
 
 test.beforeEach(async ({ page }, testInfo) => {
