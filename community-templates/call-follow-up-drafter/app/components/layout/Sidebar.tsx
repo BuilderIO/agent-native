@@ -39,7 +39,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { APP_TITLE } from "@/lib/app-config";
-import { optimisticStartedThreads } from "@/lib/sidebar-thread-state";
 import { cn } from "@/lib/utils";
 
 const CHAT_STORAGE_KEY = "chat";
@@ -263,14 +262,10 @@ function ChatThreadsSection({ collapsed }: { collapsed: boolean }) {
   const { workingThreadIds, observedThreadStarts } =
     useAgentChatRunningThreads();
 
-  const optimisticStarts = optimisticStartedThreads(
-    threads,
-    observedThreadStarts,
-  );
   const localMineRows = ownDraftRows({
     threads,
     isNewThread,
-    observedThreadStarts: optimisticStarts,
+    observedThreadStarts,
   });
   const history = useOwnershipChatHistory({
     activeId:

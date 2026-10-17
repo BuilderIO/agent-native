@@ -3854,6 +3854,7 @@ export function MultiTabAssistantChat({
                 messageCount: messageCounts[thread.id] ?? thread.messageCount,
               })),
               isNewThread,
+              activeId: activeThreadId,
               observedThreadStarts: observedThreadStarts.current,
             })}
             openTabIds={new Set(openTabIds)}

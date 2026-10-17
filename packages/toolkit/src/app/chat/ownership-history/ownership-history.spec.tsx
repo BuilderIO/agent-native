@@ -50,6 +50,54 @@ const t = (key: string, options?: Record<string, unknown>) =>
   `${key}${options?.name ? `:${options.name}` : ""}`;
 
 describe("ownership history row boundary", () => {
+  it("opts proven active blank owners and new local rows in without relaxing ownership", () => {
+    const local = (id: string): ChatThreadSummary => ({
+      id,
+      title: "",
+      preview: "",
+      messageCount: 0,
+      createdAt: 1,
+      updatedAt: 1,
+      scope: null,
+    });
+    const threads = [
+      row("owner", { messageCount: 0 }),
+      row("owner-org", { messageCount: 0, visibility: "org" }),
+      local("new-local"),
+      local("unproven"),
+      { ...local("partial"), ownerEmail: "owner@example.com" },
+      row("archived", { messageCount: 0, archivedAt: 4 }),
+      row("direct", { messageCount: 0, accessBasis: "direct" }),
+      row("organization", { messageCount: 0, accessBasis: "organization" }),
+    ];
+    const options = {
+      threads,
+      isNewThread: (id: string) => id === "new-local" || id === "partial",
+    };
+    expect(ownDraftRows(options)).toEqual([]);
+    for (const activeId of ["owner", "owner-org", "new-local"]) {
+      expect(
+        ownDraftRows({ ...options, activeId }).map((row) => row.id),
+      ).toEqual([activeId]);
+    }
+    for (const activeId of [
+      "unproven",
+      "partial",
+      "archived",
+      "direct",
+      "organization",
+      "absent",
+    ]) {
+      expect(ownDraftRows({ ...options, activeId })).toEqual([]);
+    }
+    expect(
+      ownDraftRows({
+        threads: [],
+        isNewThread: () => true,
+        activeId: "absent-new",
+      }),
+    ).toEqual([]);
+  });
   it("maps owner organization visibility as Mine without attribution", () => {
     const item = chatThreadToHistoryItem(
       row("mine", { visibility: "org", pinnedAt: 2 }),
@@ -386,6 +434,187 @@ describe("ownership history adapter", () => {
     expect(item("shared")?.hideActions).toBe(true);
     expect(item("unloaded-shared")).toBeUndefined();
     expect(latest.findMine("shared")).toBeUndefined();
+  });
+
+  it.each(["server", "draft"] as const)(
+    "decorates the effective %s rename title while pending and restores it on rollback",
+    async (source) => {
+      renderRail = true;
+      const original = row("owned", { title: "Original", pinnedAt: 2 });
+      mine = source === "server" ? [original] : [];
+      const localMineRows =
+        source === "draft"
+          ? ownDraftRows({ threads: [original], isNewThread: () => false })
+          : [];
+      const pending = deferred<boolean>();
+      const decorateItem = vi.fn((item, effectiveRow) => ({
+        ...item,
+        title: (
+          <span data-testid="decorated-title">
+            {effectiveRow.title || effectiveRow.preview}
+          </span>
+        ),
+        titleText: effectiveRow.title || effectiveRow.preview,
+      }));
+      await render({
+        pinned: true,
+        localMineRows,
+        decorateItem,
+        mutations: { rename: () => pending.promise },
+      });
+      let result!: Promise<boolean>;
+      act(() => {
+        result = latest.listProps.onRename!("owned", "Optimistic");
+      });
+      expect(
+        container.querySelector('[data-testid="decorated-title"]')?.textContent,
+      ).toBe("Optimistic");
+      expect(item("owned")?.titleText).toBe("Optimistic");
+      expect(decorateItem.mock.lastCall?.[1].title).toBe("Optimistic");
+      expect(original.title).toBe("Original");
+      await act(async () => {
+        pending.resolve(false);
+        expect(await result).toBe(false);
+      });
+      expect(
+        container.querySelector('[data-testid="decorated-title"]')?.textContent,
+      ).toBe("Original");
+      expect(item("owned")?.titleText).toBe("Original");
+    },
+  );
+
+  it("retains the decorated rename after persistence when authoritative refresh fails", async () => {
+    renderRail = true;
+    mine = [row("owned", { title: "Original" })];
+    const pending = deferred<boolean>();
+    await render({
+      mutations: { rename: () => pending.promise },
+      decorateItem: (item, effectiveRow) => ({
+        ...item,
+        title: <span data-testid="decorated-title">{effectiveRow.title}</span>,
+        titleText: effectiveRow.title,
+      }),
+    });
+    let result!: Promise<boolean>;
+    act(() => {
+      result = latest.listProps.onRename!("owned", "Persisted title");
+    });
+    expect(
+      container.querySelector('[data-testid="decorated-title"]')?.textContent,
+    ).toBe("Persisted title");
+    failMine = true;
+    await act(async () => {
+      pending.resolve(true);
+      expect(await result).toBe(true);
+    });
+    expect(latest.error?.message).toContain("503");
+    expect(
+      container.querySelector('[data-testid="decorated-title"]')?.textContent,
+    ).toBe("Persisted title");
+    expect(latest.mineRows[0].title).toBe("Original");
+  });
+
+  it("filters local title/preview search case-sensitively without filtering server transcript matches", async () => {
+    mine = [row("server-body-match", { title: "Summary without the term" })];
+    shared = [row("shared", { title: "Plan shared", accessBasis: "direct" })];
+    const localMineRows = ownDraftRows({
+      threads: [
+        row("title", { title: "Quarterly Plan" }),
+        row("preview", { title: "Notes", preview: "The Plan begins" }),
+        row("case-mismatch", { title: "Quarterly plan", preview: "planning" }),
+        row("unrelated", { title: "Unrelated" }),
+        row("server-body-match", { title: "Plan stale local title" }),
+        row("shared", { title: "Plan shared", accessBasis: "direct" }),
+      ],
+      isNewThread: () => false,
+    });
+    await render({ query: "  Plan  ", localMineRows });
+    expect(section("mine").items.map((item) => item.id)).toEqual([
+      "title",
+      "preview",
+      "server-body-match",
+    ]);
+    expect(item("server-body-match")?.titleText).toBe(
+      "Summary without the term",
+    );
+    expect(latest.findMine("unrelated")?.id).toBe("unrelated");
+    expect(latest.findMine("shared")).toBeUndefined();
+    expect(section("shared").items.map((item) => item.id)).toEqual(["shared"]);
+    expect(
+      fetchMock.mock.calls.every(
+        ([url]) =>
+          new URL(String(url), "http://test.local").searchParams.get("q") ===
+          "Plan",
+      ),
+    ).toBe(true);
+
+    mine = [];
+    shared = [];
+    await render({ query: "plan", localMineRows });
+    expect(section("mine").items.map((item) => item.id)).toEqual([
+      "case-mismatch",
+    ]);
+    await render({ query: "   ", localMineRows });
+    expect(section("mine").items.map((item) => item.id)).toEqual([
+      "title",
+      "preview",
+      "case-mismatch",
+      "unrelated",
+      "server-body-match",
+    ]);
+  });
+
+  it("treats percent, underscore, and escape-looking search text literally in each local field", async () => {
+    const localMineRows = ownDraftRows({
+      threads: [
+        row("literal-title", { title: "Status 100%_! complete" }),
+        row("literal-preview", { title: "Status", preview: "100%_! complete" }),
+        row("wildcard-lookalike", { title: "Status 100abcZ! complete" }),
+        row("split-fields", { title: "100%", preview: "_!" }),
+      ],
+      isNewThread: () => false,
+    });
+    await render({ query: "  100%_!  ", localMineRows });
+    expect(section("mine").items.map((item) => item.id)).toEqual([
+      "literal-title",
+      "literal-preview",
+    ]);
+  });
+
+  it("keeps unfiltered owned draft lookup for another intent after a pending rename stops matching search", async () => {
+    const localMineRows = ownDraftRows({
+      threads: [row("local", { title: "Plan" })],
+      isNewThread: () => false,
+    });
+    const pendingRename = deferred<boolean>();
+    const pendingArchive = deferred<boolean>();
+    const archive = vi.fn(() => pendingArchive.promise);
+    await render({
+      query: "Plan",
+      localMineRows,
+      mutations: { rename: () => pendingRename.promise, archive },
+    });
+    let renameResult!: Promise<boolean>;
+    let archiveResult!: Promise<boolean>;
+    act(() => {
+      renameResult = latest.listProps.onRename!("local", "Other");
+    });
+    expect(item("local")).toBeUndefined();
+    expect(latest.findMine("local")?.id).toBe("local");
+    act(() => {
+      archiveResult = latest.listProps.onDelete!("local");
+    });
+    expect(archive).toHaveBeenCalledWith("local");
+    await act(async () => {
+      pendingRename.resolve(false);
+      expect(await renameResult).toBe(false);
+    });
+    expect(item("local")).toBeUndefined();
+    await act(async () => {
+      pendingArchive.resolve(false);
+      expect(await archiveResult).toBe(false);
+    });
+    expect(item("local")?.titleText).toBe("Plan");
   });
 
   it("moves optimistic pins, retitles, and archives, then reconciles successful persistence", async () => {

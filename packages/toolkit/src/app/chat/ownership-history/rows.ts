@@ -17,12 +17,14 @@ export interface OwnDraftRowsOptions {
   threads: readonly ChatThreadSummary[];
   isNewThread: (id: string) => boolean;
   observedThreadStarts?: ReadonlyMap<string, number>;
+  activeId?: string | null;
 }
 
 export function ownDraftRows({
   threads,
   isNewThread,
   observedThreadStarts,
+  activeId,
 }: OwnDraftRowsOptions): OwnDraftRow[] {
   const rows: OwnDraftRow[] = [];
   const known = new Set(threads.map((thread) => thread.id));
@@ -34,7 +36,11 @@ export function ownDraftRows({
       thread.visibility === undefined;
     const owned = thread.accessBasis === "owner" && !!thread.ownerEmail;
     if (!owned && !(metadataAbsent && isNewThread(thread.id))) continue;
-    if (thread.messageCount <= 0 && !observedThreadStarts?.has(thread.id))
+    if (
+      thread.messageCount <= 0 &&
+      !observedThreadStarts?.has(thread.id) &&
+      thread.id !== activeId
+    )
       continue;
     rows.push({
       id: thread.id,

@@ -122,11 +122,12 @@ export function useOwnershipChatHistory(
     minePreviewCount = 5,
     sharedPreviewCount = 5,
   } = options;
+  const normalizedQuery = query?.trim() ?? "";
   const listOptions = {
     apiUrl,
     scope,
     includeExternal,
-    query,
+    query: normalizedQuery,
     pageSize,
     enabled,
   };
@@ -139,7 +140,7 @@ export function useOwnershipChatHistory(
     scope?.type,
     scope?.id,
     includeExternal,
-    query?.trim(),
+    normalizedQuery,
     pageSize,
     enabled,
   ]);
@@ -369,22 +370,32 @@ export function useOwnershipChatHistory(
     section: OwnershipChatHistorySection,
   ) => {
     const override = overrides.get(row.id);
+    const effectiveRow = override
+      ? {
+          ...row,
+          ...(override.title === undefined ? {} : { title: override.title }),
+          ...(override.pinned === undefined
+            ? {}
+            : {
+                pinnedAt: override.pinned
+                  ? (("pinnedAt" in row ? row.pinnedAt : null) ?? Date.now())
+                  : null,
+              }),
+        }
+      : row;
     const mapped =
-      "accessBasis" in row
-        ? chatThreadToHistoryItem(row as ChatThreadListRow, {
+      "accessBasis" in effectiveRow
+        ? chatThreadToHistoryItem(effectiveRow as ChatThreadListRow, {
             t,
             activeId,
             locale,
           })
-        : ownDraftToHistoryItem(row, { t, activeId, locale });
+        : ownDraftToHistoryItem(effectiveRow, { t, activeId, locale });
     const item = {
       ...mapped,
-      ...(override?.title === undefined
-        ? {}
-        : { title: override.title, titleText: override.title }),
       ...(override?.pinned === undefined ? {} : { pinned: override.pinned }),
     };
-    const decorated = decorateItem?.(item, row, { section }) ?? item;
+    const decorated = decorateItem?.(item, effectiveRow, { section }) ?? item;
     return section === "shared"
       ? { ...decorated, pinned: false, hideActions: true }
       : decorated;
@@ -399,6 +410,12 @@ export function useOwnershipChatHistory(
   const mineItems = [
     ...drafts
       .filter((row) => !overrides.get(row.id)?.hidden)
+      .filter(
+        (row) =>
+          (overrides.get(row.id)?.title ?? row.title ?? "").includes(
+            normalizedQuery,
+          ) || (row.preview ?? "").includes(normalizedQuery),
+      )
       .map((row) => mapItem(row, "mine")),
     ...visibleMine
       .filter((row) => !pinnedIds.has(row.id))

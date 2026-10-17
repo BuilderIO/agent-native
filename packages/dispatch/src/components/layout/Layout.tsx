@@ -657,7 +657,11 @@ function DispatchChatsSection({
   const history = useOwnershipChatHistory({
     includeExternal,
     activeId: displayedActiveThreadId,
-    localMineRows: ownDraftRows({ threads, isNewThread }),
+    localMineRows: ownDraftRows({
+      threads,
+      isNewThread,
+      activeId: activeThreadId,
+    }),
     mutations: { pin: pinThread, rename: renameThread, archive: archiveThread },
     onMutationFailed: () =>
       toast.error(t("dispatch.integrations.failedToSave")),

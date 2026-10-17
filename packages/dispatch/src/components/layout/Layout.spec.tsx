@@ -30,6 +30,7 @@ const clientState = vi.hoisted(() => ({
   pinThread: vi.fn().mockResolvedValue(true),
   archiveThread: vi.fn().mockResolvedValue(true),
   isNewThread: () => false,
+  mineThreads: null as Array<Record<string, unknown>> | null,
   sharedThreads: [] as Array<Record<string, unknown>>,
   sharedHasMore: false,
   loadMore: vi.fn().mockResolvedValue(undefined),
@@ -88,7 +89,7 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
       threads:
         options.ownership === "shared"
           ? clientState.sharedThreads
-          : clientState.threads,
+          : (clientState.mineThreads ?? clientState.threads),
       loading: false,
       loadingMore: false,
       error: null,
@@ -402,6 +403,7 @@ describe("Dispatch NavContent", () => {
     clientState.pinThread.mockReset().mockResolvedValue(true);
     clientState.archiveThread.mockReset().mockResolvedValue(true);
     clientState.sharedThreads = [];
+    clientState.mineThreads = null;
     clientState.sharedHasMore = false;
     clientState.loadMore.mockClear();
     clientState.listQueries.mockClear();
@@ -1270,6 +1272,58 @@ describe("Dispatch NavContent", () => {
       row!.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
     });
   }
+
+  it.each([false, true])(
+    "keeps the proven-owned active empty chat and hides inactive blanks (chat-first %s)",
+    async (chatFirstMode) => {
+      clientState.mineThreads = [];
+      clientState.threads = clientState.threads.map((thread) => ({
+        ...thread,
+        messageCount: 0,
+      }));
+      await renderHistory(chatFirstMode, "/chat");
+
+      expect(container.textContent).toContain("Current Dispatch work");
+      expect(container.textContent).not.toContain("Earlier Dispatch work");
+      expect(container.querySelectorAll(".an-chat-history-row")).toHaveLength(
+        1,
+      );
+      expect(clientState.switchThread).not.toHaveBeenCalled();
+      expect(clientState.lifecycleOptions).toHaveBeenLastCalledWith({
+        autoCreate: false,
+        includeExternal: false,
+      });
+    },
+  );
+
+  it.each(
+    [false, true].flatMap((chatFirstMode) =>
+      ["direct", "organization", "unproven"].map(
+        (basis) => [chatFirstMode, basis] as const,
+      ),
+    ),
+  )(
+    "does not promote an active empty %s/%s lifecycle row into Mine",
+    async (chatFirstMode, basis) => {
+      clientState.mineThreads = [];
+      const active = clientState.threads[0];
+      clientState.threads = [
+        {
+          ...active,
+          messageCount: 0,
+          accessBasis: basis === "unproven" ? undefined : basis,
+          ownerEmail:
+            basis === "unproven" ? undefined : "colleague@example.com",
+          visibility: basis === "unproven" ? undefined : "organization",
+        },
+      ];
+      await renderHistory(chatFirstMode);
+
+      expect(container.textContent).not.toContain("Current Dispatch work");
+      expect(container.querySelector(".an-chat-history-row")).toBeNull();
+      expect(clientState.switchThread).not.toHaveBeenCalled();
+    },
+  );
 
   it.each([false, true])(
     "renders server Shared attribution, five-row disclosure and paging (chat-first %s)",

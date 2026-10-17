@@ -7876,6 +7876,7 @@ describe("MultiTabAssistantChat history popover", () => {
   let container: HTMLDivElement;
   let root: Root;
   let sharedHistoryRows: ChatThreadSummary[];
+  let mineHistoryRows: ChatThreadSummary[] | undefined;
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -7885,6 +7886,7 @@ describe("MultiTabAssistantChat history popover", () => {
     });
     resetThreadMocks();
     sharedHistoryRows = [];
+    mineHistoryRows = undefined;
     const now = Date.now();
     threadMocks.activeThreadId = "thread-1";
     const historyThreads: ChatThreadSummary[] = [
@@ -7926,7 +7928,7 @@ describe("MultiTabAssistantChat history popover", () => {
         if (ownership) {
           const source =
             ownership === "mine"
-              ? threadMocks.threads.map((thread) => ({
+              ? (mineHistoryRows ?? threadMocks.threads).map((thread) => ({
                   ...thread,
                   ownerEmail: "me@example.com",
                   accessBasis: "owner",
@@ -7992,6 +7994,74 @@ describe("MultiTabAssistantChat history popover", () => {
       await Promise.resolve();
     });
   }
+
+  it.each(["local", "owner"] as const)(
+    "keeps the active proven-%s empty chat before persistence and hides inactive blanks",
+    async (proof) => {
+      mineHistoryRows = [];
+      threadMocks.isNewThread.mockImplementation(() => proof === "local");
+      threadMocks.threads = threadMocks.threads.slice(0, 2).map((thread) => ({
+        ...thread,
+        messageCount: 0,
+        ...(proof === "owner"
+          ? {
+              accessBasis: "owner" as const,
+              ownerEmail: "me@example.com",
+              visibility: "private" as const,
+            }
+          : {}),
+      }));
+      await openHistory();
+
+      const mine = container.querySelector(
+        '.an-chat-history__section[data-section-id="mine"]',
+      )!;
+      expect(
+        Array.from(mine.querySelectorAll(".an-chat-history-row__title")).map(
+          (element) => element.textContent,
+        ),
+      ).toEqual(["Active chat"]);
+      expect(mine.querySelector(".an-chat-history-row--active")).not.toBeNull();
+      expect(
+        mine.querySelector(".an-chat-history-row__timestamp")?.textContent,
+      ).toBe("Active");
+      expect(threadMocks.saveThreadData).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([false, true])(
+    "never recasts an active shared empty chat as Mine (server row loaded: %s)",
+    async (loaded) => {
+      mineHistoryRows = [];
+      threadMocks.isNewThread.mockReturnValue(true);
+      const shared: ChatThreadSummary = {
+        ...threadMocks.threads[0],
+        messageCount: 0,
+        accessBasis: "direct",
+        ownerEmail: "pat@example.com",
+        visibility: "private",
+      };
+      threadMocks.threads = [shared];
+      sharedHistoryRows = loaded ? [shared] : [];
+      await openHistory();
+
+      expect(
+        container.querySelector(
+          '.an-chat-history__section[data-section-id="mine"] .an-chat-history-row',
+        ),
+      ).toBeNull();
+      const sharedSection = container.querySelector(
+        '.an-chat-history__section[data-section-id="shared"]',
+      );
+      expect(
+        sharedSection?.querySelectorAll(".an-chat-history-row").length ?? 0,
+      ).toBe(loaded ? 1 : 0);
+      expect(
+        sharedSection?.querySelector(".an-chat-history-row__menu-trigger") ??
+          null,
+      ).toBeNull();
+    },
+  );
 
   it("loads both ownership lists only while open and debounces search to both", async () => {
     await act(async () => {
