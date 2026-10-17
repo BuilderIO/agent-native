@@ -1,3 +1,4 @@
+import { ActionContractError } from "@agent-native/core";
 import { getDbExec, type DbExec } from "@agent-native/core/db";
 import {
   evaluateFeatureFlagRules,
@@ -83,6 +84,28 @@ export async function liveBodyWriterGateForRow(
       return (rows[0] as { version?: unknown } | undefined)?.version;
     },
     options,
+  );
+}
+
+/**
+ * Refuses a legacy body write to a page that now writes its body through its
+ * live copy. Call it in the write's transaction, on the page row read under
+ * its lock: a page can switch after the writer chose the legacy path, and a
+ * SQL write then would never reach the live copy or the tabs open on it.
+ */
+export async function assertLegacyBodyWritePath(
+  row: LiveBodyWriterPageRow,
+  options: { transaction?: DbExec } = {},
+): Promise<void> {
+  if ((await liveBodyWriterGateForRow(row, options)).writePath === "legacy")
+    return;
+  throw new ActionContractError(
+    `Page ${row.id} started taking writes through its live copy while this write was in flight. Read it again and retry.`,
+    {
+      errorCode: "LIVE_BODY_WRITE_PATH_CHANGED",
+      statusCode: 409,
+      details: { documentId: row.id, reason: "live_copy" },
+    },
   );
 }
 

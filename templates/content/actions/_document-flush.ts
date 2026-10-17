@@ -11,6 +11,8 @@ import {
 } from "@agent-native/core/collab";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 
+import { isLiveBodyWriterPage } from "../server/lib/live-body-writer.js";
+
 const FLUSH_POLL_INTERVAL_MS = 200;
 const FLUSH_TIMEOUT_MS = 4000;
 
@@ -54,6 +56,12 @@ export async function flushOpenDocumentEditorToSql(args: {
   propertyId?: string;
 }) {
   if (!(await hasCollabState(args.documentId))) return;
+  // A switched page's body is its live copy, and each tab's commit to it
+  // already wrote SQL, so an editor's save would add nothing; waiting for one
+  // only times out. A Blocks field outside the body still needs its save.
+  if (!args.propertyId && (await isLiveBodyWriterPage(args.documentId))) {
+    return;
+  }
 
   const awarenessRows = await loadAwarenessRowsStrict(args.documentId);
   const flushCandidates = awarenessRows

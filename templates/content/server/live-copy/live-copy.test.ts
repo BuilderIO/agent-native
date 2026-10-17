@@ -3,10 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { getDbExec, type DbExec } from "@agent-native/core/db";
+import { serializeIconValue } from "@agent-native/core/icons";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { putSetting } from "@agent-native/core/settings";
 import { initProseMirrorDoc, updateYFragment } from "@tiptap/y-tiptap";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import {
   afterAll,
   beforeAll,
@@ -32,8 +33,29 @@ vi.mock("@agent-native/creative-context/server", async (importOriginal) => ({
   >()),
   getGenerationCreativeContext: vi.fn(async () => null),
 }));
+// Runs once, before the next editor flush: a legacy restore flushes after
+// it chose its path and before its transaction.
+const { beforeEditorFlush } = vi.hoisted(() => ({
+  beforeEditorFlush: { current: null as null | (() => Promise<void>) },
+}));
+vi.mock("../../actions/_document-flush.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../../actions/_document-flush.js")>();
+  return {
+    ...actual,
+    flushOpenDocumentEditorToSql: async (
+      ...args: Parameters<typeof actual.flushOpenDocumentEditorToSql>
+    ) => {
+      const hook = beforeEditorFlush.current;
+      beforeEditorFlush.current = null;
+      await hook?.();
+      return actual.flushOpenDocumentEditorToSql(...args);
+    },
+  };
+});
 // Runs once, after the next write-path read from another module: a server
-// writer reads its path after it read the body it changes.
+// writer reads its path after it read the body it changes, and a legacy
+// edit reads it before its transaction.
 const { afterWritePathRead } = vi.hoisted(() => ({
   afterWritePathRead: { current: null as null | (() => Promise<void>) },
 }));
@@ -2228,6 +2250,561 @@ describe("a server rewrite of a switched page's body", () => {
     expect(after.content).toBe(`Intro\n\n![A cat](${IMAGE})`);
     expect(after.liveBodySwitchedAt).toBeNull();
     expect(await collabVersion("alt-text-off")).toBeUndefined();
+  });
+});
+
+describe("a version restore on a switched page", () => {
+  async function restore(
+    id: string,
+    versionId: string,
+    expectedUpdatedAt: string,
+    userEmail = OWNER,
+  ) {
+    const action = (await import("../../actions/restore-document-version.js"))
+      .default;
+    return runWithRequestContext({ userEmail }, async () =>
+      action.run(
+        { documentId: id, versionId, expectedUpdatedAt } as never,
+        { caller: "tool", userEmail } as never,
+      ),
+    ) as Promise<{ title: string; content: string; bodyRevision: number }>;
+  }
+
+  async function metadata(id: string) {
+    const [row] = await getDb()
+      .select({
+        title: schema.documents.title,
+        updatedAt: schema.documents.updatedAt,
+        bodyRevision: schema.documents.bodyRevision,
+      })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, id));
+    return row;
+  }
+
+  /** A server edit to `content`, so History holds the body it replaced. */
+  async function serverEdit(id: string, content: string) {
+    await writer.editContentLiveCopy(id, {
+      cause: { operation: "test-replace" },
+      edit: binding.CONTENT_LIVE_COPY_EDITS.replaceBody,
+      input: { content, expected: (await page(id)).content },
+    });
+  }
+
+  async function versionHolding(id: string, content: string) {
+    const [row] = await getDb()
+      .select({ id: schema.documentVersions.id })
+      .from(schema.documentVersions)
+      .where(
+        and(
+          eq(schema.documentVersions.documentId, id),
+          eq(schema.documentVersions.content, content),
+        ),
+      )
+      .orderBy(asc(schema.documentVersions.createdAt))
+      .limit(1);
+    if (!row)
+      throw new Error(`History holds no version of ${id} reading ${content}`);
+    return row.id;
+  }
+
+  async function rename(id: string, title: string) {
+    await getDb()
+      .update(schema.documents)
+      .set({ title })
+      .where(eq(schema.documents.id, id));
+  }
+
+  it("restores a version through the live copy, so the page stays switched", async () => {
+    await switchedPage("restore", "First draft");
+    await serverEdit("restore", "Second draft");
+    const versionId = await versionHolding("restore", "First draft");
+    const before = await metadata("restore");
+
+    const restored = await restore("restore", versionId, before.updatedAt);
+
+    expect(restored).toMatchObject({
+      content: "First draft",
+      bodyRevision: before.bodyRevision + 1,
+    });
+    expect((await page("restore")).content).toBe("First draft");
+    expect(await gateFor("restore")).toEqual({ writePath: "live_copy" });
+    await expect(
+      collab.readLiveCopy(binding.contentLiveCopy, "restore"),
+    ).resolves.toMatchObject({ kind: "live", text: "First draft" });
+    const rows = await history("restore");
+    expect(rows[rows.length - 1]).toMatchObject({
+      operation: "restore-document-version",
+      content: "First draft",
+      actorEmail: OWNER,
+    });
+  });
+
+  it("refuses a restore whose editor access was revoked before it committed", async () => {
+    await switchedPage("restore-revoked", "First draft");
+    await serverEdit("restore-revoked", "Second draft");
+    const versionId = await versionHolding("restore-revoked", "First draft");
+    await getDb().insert(schema.documentShares).values({
+      id: "restore-revoked-share",
+      resourceId: "restore-revoked",
+      principalType: "user",
+      principalId: OTHER,
+      role: "editor",
+      createdBy: OWNER,
+      createdAt: new Date().toISOString(),
+    });
+    const before = await metadata("restore-revoked");
+    const version = await collabVersion("restore-revoked");
+    const runner = binding.contentLiveCopy.runner;
+    const run = runner.run.bind(runner);
+    const spy = vi.spyOn(runner, "run").mockImplementation(async (...args) => {
+      const result = await run(...args);
+      await getDb()
+        .delete(schema.documentShares)
+        .where(eq(schema.documentShares.id, "restore-revoked-share"));
+      return result;
+    });
+    try {
+      await expect(
+        restore("restore-revoked", versionId, before.updatedAt, OTHER),
+      ).rejects.toThrow("No access to document restore-revoked");
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect(await metadata("restore-revoked")).toEqual(before);
+    expect((await page("restore-revoked")).content).toBe("Second draft");
+    expect(await collabVersion("restore-revoked")).toBe(version);
+  });
+
+  it("takes the version's title with its body", async () => {
+    await switchedPage("restore-title", "First draft");
+    await serverEdit("restore-title", "Second draft");
+    const versionId = await versionHolding("restore-title", "First draft");
+    await rename("restore-title", "Renamed");
+
+    const restored = await restore(
+      "restore-title",
+      versionId,
+      (await metadata("restore-title")).updatedAt,
+    );
+
+    expect(restored).toMatchObject({
+      title: "restore-title",
+      content: "First draft",
+    });
+    expect((await metadata("restore-title")).title).toBe("restore-title");
+  });
+
+  it("restores a version's title alone when the body already reads the same", async () => {
+    await switchedPage("restore-title-only", "Same body");
+    await serverEdit("restore-title-only", "Other body");
+    const versionId = await versionHolding("restore-title-only", "Same body");
+    await serverEdit("restore-title-only", "Same body");
+    await rename("restore-title-only", "Renamed");
+    const before = await metadata("restore-title-only");
+    const version = await collabVersion("restore-title-only");
+
+    const restored = await restore(
+      "restore-title-only",
+      versionId,
+      before.updatedAt,
+    );
+
+    expect(restored).toMatchObject({
+      title: "restore-title-only",
+      content: "Same body",
+      bodyRevision: before.bodyRevision,
+    });
+    expect(await collabVersion("restore-title-only")).toBe(version);
+    const rows = await history("restore-title-only");
+    expect(rows[rows.length - 1]).toMatchObject({
+      operation: "restore-document-version",
+      content: "Same body",
+    });
+  });
+
+  /** Makes `id` the page of a Files space, and blanks `versionId`'s title. */
+  async function filesPageWithBlankVersion(id: string, versionId: string) {
+    await getDb()
+      .insert(schema.contentSpaces)
+      .values({
+        id: `${id}-space`,
+        name: "Files",
+        kind: "user",
+        ownerEmail: OWNER,
+        filesDatabaseId: `${id}-files`,
+        createdBy: OWNER,
+      });
+    await getDb()
+      .insert(schema.contentDatabases)
+      .values({
+        id: `${id}-files`,
+        spaceId: `${id}-space`,
+        ownerEmail: OWNER,
+        documentId: id,
+        title: id,
+        systemRole: "files",
+      });
+    await getDb()
+      .update(schema.documentVersions)
+      .set({ title: "" })
+      .where(eq(schema.documentVersions.id, versionId));
+  }
+
+  async function lastHistoryTitle(id: string) {
+    const [row] = await getDb()
+      .select({ title: schema.documentVersions.title })
+      .from(schema.documentVersions)
+      .where(eq(schema.documentVersions.documentId, id))
+      .orderBy(
+        desc(schema.documentVersions.createdAt),
+        desc(schema.documentVersions.id),
+      )
+      .limit(1);
+    return row?.title;
+  }
+
+  it("records the title a Files page keeps when it restores a blank-titled version", async () => {
+    await switchedPage("restore-files", "First draft");
+    await serverEdit("restore-files", "Second draft");
+    const versionId = await versionHolding("restore-files", "First draft");
+    await filesPageWithBlankVersion("restore-files", versionId);
+
+    const restored = await restore(
+      "restore-files",
+      versionId,
+      (await metadata("restore-files")).updatedAt,
+    );
+
+    expect(restored).toMatchObject({
+      title: "Untitled",
+      content: "First draft",
+    });
+    expect((await metadata("restore-files")).title).toBe("Untitled");
+    expect(await lastHistoryTitle("restore-files")).toBe("Untitled");
+  });
+
+  it("records the title a Files page keeps when a blank-titled version's restore changes only the title", async () => {
+    await switchedPage("restore-files-title", "Same body");
+    await serverEdit("restore-files-title", "Other body");
+    const versionId = await versionHolding("restore-files-title", "Same body");
+    await serverEdit("restore-files-title", "Same body");
+    await filesPageWithBlankVersion("restore-files-title", versionId);
+    const before = await metadata("restore-files-title");
+
+    const restored = await restore(
+      "restore-files-title",
+      versionId,
+      before.updatedAt,
+    );
+
+    expect(restored).toMatchObject({
+      title: "Untitled",
+      bodyRevision: before.bodyRevision,
+    });
+    expect((await metadata("restore-files-title")).title).toBe("Untitled");
+    expect(await lastHistoryTitle("restore-files-title")).toBe("Untitled");
+  });
+
+  for (const bodyChanges of [true, false]) {
+    it(`records the same title on main's path when a blank-titled version's restore changes ${bodyChanges ? "the body" : "only the title"} (SF-11)`, async () => {
+      const id = bodyChanges ? "restore-files-off" : "restore-files-title-off";
+      await switchedPage(id, "Same body");
+      await serverEdit(id, "Other body");
+      const versionId = await versionHolding(id, "Same body");
+      if (!bodyChanges) await serverEdit(id, "Same body");
+      await filesPageWithBlankVersion(id, versionId);
+      await setFlags(false);
+
+      const restored = await restore(
+        id,
+        versionId,
+        (await metadata(id)).updatedAt,
+      );
+
+      expect(restored).toMatchObject({
+        title: "Untitled",
+        content: "Same body",
+      });
+      expect((await metadata(id)).title).toBe("Untitled");
+      expect(await lastHistoryTitle(id)).toBe("Untitled");
+      const [files] = await getDb()
+        .select({ title: schema.contentDatabases.title })
+        .from(schema.contentDatabases)
+        .where(eq(schema.contentDatabases.id, `${id}-files`));
+      expect(files?.title).toBe("Untitled");
+    });
+  }
+
+  it("records a title-only restore whose commit changes the live copy but not the body", async () => {
+    const body = "Read [the guide](https://example.com)";
+    await switchedPage("restore-title-relink", body);
+    await serverEdit("restore-title-relink", "Other body");
+    const versionId = await versionHolding("restore-title-relink", body);
+    await serverEdit("restore-title-relink", body);
+    // The Markdown doesn't carry a link's class, so the restore's rebuild
+    // resets the tab's and commits a live copy that derives the same body.
+    const update = await editorUpdate("restore-title-relink", [
+      {
+        type: "paragraph",
+        content: [
+          { type: "text", text: "Read " },
+          {
+            type: "text",
+            text: "the guide",
+            marks: [
+              {
+                type: "link",
+                attrs: { href: "https://example.com", class: "tab-link" },
+              },
+            ],
+          },
+        ],
+      },
+    ]);
+    await asOwner(() => collab.applyUpdate("restore-title-relink", update));
+    expect((await page("restore-title-relink")).content).toBe(body);
+    await rename("restore-title-relink", "Renamed");
+    const before = await metadata("restore-title-relink");
+    const version = await collabVersion("restore-title-relink");
+
+    const restored = await restore(
+      "restore-title-relink",
+      versionId,
+      before.updatedAt,
+    );
+
+    expect(restored).toMatchObject({
+      title: "restore-title-relink",
+      content: body,
+      bodyRevision: before.bodyRevision,
+    });
+    expect(await collabVersion("restore-title-relink")).toBe(version! + 1);
+    const rows = await history("restore-title-relink");
+    expect(rows[rows.length - 1]).toMatchObject({
+      operation: "restore-document-version",
+      content: body,
+    });
+    expect(await lastHistoryTitle("restore-title-relink")).toBe(
+      "restore-title-relink",
+    );
+  });
+
+  it("refuses a restore prepared before the page changed, and commits nothing", async () => {
+    await switchedPage("restore-stale", "First draft");
+    await serverEdit("restore-stale", "Second draft");
+    const versionId = await versionHolding("restore-stale", "First draft");
+    const prepared = await metadata("restore-stale");
+    await serverEdit("restore-stale", "Third draft");
+
+    await expect(
+      restore("restore-stale", versionId, prepared.updatedAt),
+    ).rejects.toMatchObject({
+      errorCode: "DOCUMENT_RESTORE_CONFLICT",
+      statusCode: 409,
+    });
+    expect((await page("restore-stale")).content).toBe("Third draft");
+  });
+
+  it("refuses a restore a tab's commit overtook, and keeps the tab's text", async () => {
+    await switchedPage("restore-overtaken", "First draft");
+    await serverEdit("restore-overtaken", "Second draft");
+    const versionId = await versionHolding("restore-overtaken", "First draft");
+    const prepared = await metadata("restore-overtaken");
+    const spy = peerCommitsAfterBuild("restore-overtaken", "Tab typed");
+    try {
+      await expect(
+        restore("restore-overtaken", versionId, prepared.updatedAt),
+      ).rejects.toMatchObject({
+        errorCode: "DOCUMENT_RESTORE_CONFLICT",
+        statusCode: 409,
+      });
+    } finally {
+      spy.mockRestore();
+    }
+    expect((await page("restore-overtaken")).content).toBe("Tab typed");
+    expect(await gateFor("restore-overtaken")).toEqual({
+      writePath: "live_copy",
+    });
+  });
+
+  it("refuses a restore when the page is renamed before it commits, and keeps the new title", async () => {
+    await switchedPage("restore-renamed", "First draft");
+    await serverEdit("restore-renamed", "Second draft");
+    const versionId = await versionHolding("restore-renamed", "First draft");
+    const prepared = await metadata("restore-renamed");
+    const runner = binding.contentLiveCopy.runner;
+    const run = runner.run.bind(runner);
+    let renamed = false;
+    const spy = vi
+      .spyOn(runner, "run")
+      .mockImplementation(async (task, ...rest) => {
+        const result = await run(task, ...rest);
+        if (renamed || task !== "liveCopy.edit") return result;
+        renamed = true;
+        await getDb()
+          .update(schema.documents)
+          .set({
+            title: "Renamed meanwhile",
+            updatedAt: new Date(Date.now() + 1_000).toISOString(),
+          })
+          .where(eq(schema.documents.id, "restore-renamed"));
+        return result;
+      });
+    try {
+      await expect(
+        restore("restore-renamed", versionId, prepared.updatedAt),
+      ).rejects.toMatchObject({
+        errorCode: "DOCUMENT_RESTORE_CONFLICT",
+        statusCode: 409,
+      });
+    } finally {
+      spy.mockRestore();
+    }
+    expect((await metadata("restore-renamed")).title).toBe("Renamed meanwhile");
+    expect((await page("restore-renamed")).content).toBe("Second draft");
+  });
+
+  it("restores with a tab open without waiting on the tab to save (SF-03)", async () => {
+    await switchedPage("restore-open", "First draft");
+    await serverEdit("restore-open", "Second draft");
+    const versionId = await versionHolding("restore-open", "First draft");
+    await collab.loadAwarenessRowsStrict("restore-open");
+    await getDbExec().execute({
+      sql: "INSERT INTO _collab_awareness (doc_id, client_id, state, last_seen) VALUES (?, ?, ?, ?)",
+      args: [
+        "restore-open",
+        7,
+        JSON.stringify({ user: { email: OWNER }, canFlushDocument: true }),
+        Date.now(),
+      ],
+    });
+    const { flushOpenDocumentEditorToSql } =
+      await import("../../actions/_document-flush.js");
+    const started = performance.now();
+
+    await asOwner(() =>
+      flushOpenDocumentEditorToSql({
+        documentId: "restore-open",
+        ownerEmail: OWNER,
+      }),
+    );
+    await restore(
+      "restore-open",
+      versionId,
+      (await metadata("restore-open")).updatedAt,
+    );
+
+    expect(performance.now() - started).toBeLessThan(2_000);
+    expect((await page("restore-open")).content).toBe("First draft");
+  });
+
+  it("restores a version's private callout icon in the page's canonical form", async () => {
+    const icon = serializeIconValue({
+      version: 1,
+      kind: "image",
+      authority: "private-icon",
+      assetId: "restore-icon-asset",
+    })!;
+    const saved = `Intro\n\n<callout icon="${icon.replace(/"/g, "&quot;")}">\n\tSaved\n</callout>`;
+    await switchedPage("restore-icon", "Current");
+    await getDb().insert(schema.documentVersions).values({
+      id: "restore-icon-version",
+      documentId: "restore-icon",
+      ownerEmail: OWNER,
+      title: "restore-icon",
+      content: saved,
+    });
+
+    const restored = await restore(
+      "restore-icon",
+      "restore-icon-version",
+      (await metadata("restore-icon")).updatedAt,
+    );
+
+    expect(restored.content).not.toBe(saved);
+    expect(restored.content).toContain("Saved");
+    const references = await getDb()
+      .select({ assetId: schema.privateIconReferences.assetId })
+      .from(schema.privateIconReferences)
+      .where(
+        eq(
+          schema.privateIconReferences.elementId,
+          "restore-icon:restore-icon-asset",
+        ),
+      );
+    expect(references).toEqual([{ assetId: "restore-icon-asset" }]);
+  });
+
+  it("refuses a legacy restore whose page switched to its live copy before it committed", async () => {
+    await switchedPage("restore-switching", "First draft");
+    await serverEdit("restore-switching", "Second draft");
+    const versionId = await versionHolding("restore-switching", "First draft");
+    await switching.switchPageToLegacy("restore-switching");
+    const prepared = await metadata("restore-switching");
+    beforeEditorFlush.current = async () => {
+      await expect(
+        switching.switchPageToLiveCopy("restore-switching"),
+      ).resolves.toEqual({ writePath: "live_copy" });
+    };
+    try {
+      await expect(
+        restore("restore-switching", versionId, prepared.updatedAt),
+      ).rejects.toMatchObject({
+        errorCode: "LIVE_BODY_WRITE_PATH_CHANGED",
+        statusCode: 409,
+      });
+    } finally {
+      beforeEditorFlush.current = null;
+    }
+    expect((await page("restore-switching")).content).toBe("Second draft");
+    expect(await gateFor("restore-switching")).toEqual({
+      writePath: "live_copy",
+    });
+  });
+
+  it("refuses a legacy restore whose page's flags turned on before it committed", async () => {
+    await switchedPage("restore-flags-on", "First draft");
+    await serverEdit("restore-flags-on", "Second draft");
+    const versionId = await versionHolding("restore-flags-on", "First draft");
+    await setFlags(false);
+    const prepared = await metadata("restore-flags-on");
+    beforeEditorFlush.current = () => setFlags(true);
+    try {
+      await expect(
+        restore("restore-flags-on", versionId, prepared.updatedAt),
+      ).rejects.toMatchObject({
+        errorCode: "LIVE_BODY_WRITE_PATH_CHANGED",
+        statusCode: 409,
+      });
+    } finally {
+      beforeEditorFlush.current = null;
+    }
+    expect((await page("restore-flags-on")).content).toBe("Second draft");
+    expect(await gateFor("restore-flags-on")).toEqual({
+      writePath: "live_copy",
+    });
+  });
+
+  it("restores through main's path once the page's flags are off (SF-11)", async () => {
+    await switchedPage("restore-off", "First draft");
+    await serverEdit("restore-off", "Second draft");
+    const versionId = await versionHolding("restore-off", "First draft");
+    const version = await collabVersion("restore-off");
+    await setFlags(false);
+
+    await restore(
+      "restore-off",
+      versionId,
+      (await metadata("restore-off")).updatedAt,
+    );
+
+    expect((await page("restore-off")).content).toBe("First draft");
+    expect(await collabVersion("restore-off")).toBe(version);
+    expect(await gateFor("restore-off")).not.toEqual({
+      writePath: "live_copy",
+    });
   });
 });
 
