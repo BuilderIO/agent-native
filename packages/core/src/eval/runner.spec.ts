@@ -249,7 +249,9 @@ describe("scoreEval with a JS scorer", () => {
       scoreEval(evalCase, reconstructedRunnerWithForwarders),
     ).rejects.toThrow("cannot define custom run callbacks");
     await expect(
-      scoreEval(evalCase, reconstructedWithFreshEngine),
+      scoreEval(evalCase, reconstructedWithFreshEngine, {
+        productionPath: true,
+      }),
     ).rejects.toThrow("cannot define custom run callbacks");
     await expect(
       runEvals([evalCase], runner, { persist: false }),
@@ -262,6 +264,7 @@ describe("scoreEval with a JS scorer", () => {
     ).rejects.toThrow("cannot define custom run callbacks");
     await expect(
       runEvals([evalCase], reconstructedWithFreshEngine, {
+        productionPath: true,
         persist: false,
       }),
     ).rejects.toThrow("cannot define custom run callbacks");
@@ -269,6 +272,7 @@ describe("scoreEval with a JS scorer", () => {
       runEvalSuite({
         evals: [evalCase],
         runner: reconstructedWithFreshEngine,
+        productionContext: testProductionContext(),
         persist: false,
       }),
     ).rejects.toThrow("cannot define custom run callbacks");
@@ -611,7 +615,7 @@ describe("scoreEval with a JS scorer", () => {
     const report = await runEvals(
       [uncloneable, following],
       fakeRunner({ text: "ok" }),
-      { persist: false, onRunOutput, nonProductionPath: true },
+      { persist: false, onRunOutput },
     );
 
     expect(report).toMatchObject({ total: 2, passed: 1, failed: 1 });
@@ -631,7 +635,7 @@ describe("scoreEval with a JS scorer", () => {
     expect(onRunOutput).toHaveBeenCalledTimes(1);
   });
 
-  it("requires an explicit non-production opt-out for lower-level callbacks", async () => {
+  it("allows lower-level callbacks and rejects production-path callbacks", async () => {
     const run = vi.fn(async () => ({
       text: "callback output",
       toolCalls: [],
@@ -647,22 +651,11 @@ describe("scoreEval with a JS scorer", () => {
     });
     const runner = fakeRunner({ text: "runner output" });
 
-    await expect(scoreEval(evalCase, runner)).rejects.toThrow(
-      "cannot define custom run callbacks",
-    );
-    await expect(
-      runEvals([evalCase], runner, { persist: false }),
-    ).rejects.toThrow("cannot define custom run callbacks");
-
-    const row = await scoreEval(evalCase, runner, { nonProductionPath: true });
-    const report = await runEvals([evalCase], runner, {
-      nonProductionPath: true,
-      persist: false,
-    });
+    const row = await scoreEval(evalCase, runner);
+    const report = await runEvals([evalCase], runner, { persist: false });
     const suite = await runEvalSuite({
       evals: [evalCase],
       runner,
-      nonProductionPath: true,
       persist: false,
     });
 
