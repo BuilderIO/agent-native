@@ -79,7 +79,7 @@ vi.mock("@agent-native/toolkit/app-shell", () => ({
   useSetPageTitle: () => {},
 }));
 
-vi.mock("@agent-native/toolkit/sharing", () => ({
+vi.mock("@agent-native/toolkit/app/sharing/VisibilityBadge", () => ({
   VisibilityBadge: () => null,
 }));
 

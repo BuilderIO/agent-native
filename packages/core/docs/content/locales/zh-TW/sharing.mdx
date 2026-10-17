@@ -361,3 +361,9 @@ For resources that execute code or carry elevated trust (like extensions), set `
 - [**驗證**](/docs/authentication) — 工作階段、組織，以及身分如何流入要求內容
 - [**Extensions**](/docs/extensions#sharing) — 沙箱化迷你應用程式介面中的共享
 - [**建立範本**](/docs/creating-templates) — 將 `ownableColumns` 接入新範本的結構描述
+
+## 共用聊天記錄
+
+`@agent-native/toolkit/app/chat/ownership-history` 提供 `useOwnershipChatHistory()` 和 `OwnershipChatHistoryRail`，用於分別顯示自己的聊天與共用聊天的側邊欄。共用列會顯示擁有者和存取依據。每個區段獨立分頁，重新整理失敗時仍會保留已載入的列和本機變更。
+
+作用中的空白草稿在等待首次儲存期間仍可選取並執行。確認已儲存之前，應隱藏釘選、重新命名和封存操作，介面配接器也會拒絕強制呼叫這些回呼。`ownDraftRows` 會提供自有草稿的持久化來源資訊，伺服器清單中已確認歸屬的列仍保留一般操作。對於自訂 `OwnDraftRow` 值，只有在確認伺服器已儲存該列且目前使用者擁有該列時，才將選用欄位 `persisted?: boolean` 設為 `true`。不要根據訊息數量或作用中 ID 推斷是否已儲存。角色、隱私，以及作用中的草稿是否為空白是彼此獨立的資訊。

@@ -6,7 +6,7 @@ import {
   SlugEditor,
 } from "@agent-native/scheduling/react/components";
 import { ShareButton } from "@agent-native/toolkit/app/sharing";
-import { VisibilityBadge } from "@agent-native/toolkit/sharing";
+import { VisibilityBadge } from "@agent-native/toolkit/app/sharing/VisibilityBadge";
 import type {
   AvailabilityConfig,
   BookingHost,

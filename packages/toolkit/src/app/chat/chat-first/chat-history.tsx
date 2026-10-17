@@ -1,3 +1,10 @@
+import { useT } from "@agent-native/core/client/i18n";
+import {
+  ChatHistoryRail,
+  type ChatHistoryRailLabels,
+  type ChatHistoryRailProps,
+  type ChatHistoryRailSection,
+} from "@agent-native/toolkit/chat-history/ChatHistoryRail";
 import type { ReactNode } from "react";
 
 import {
@@ -6,23 +13,61 @@ import {
   type ChatHistoryListProps,
 } from "../chat/ChatHistoryList.js";
 
-export interface ChatFirstChatHistoryProps extends Omit<
+interface ChatFirstChatHistoryItemsProps extends Omit<
   ChatHistoryListProps,
   "items" | "sections" | "variant"
 > {
   items: ChatHistoryItem[];
+  sections?: never;
   label?: ReactNode;
   headerAction?: ReactNode;
 }
 
+type ChatFirstChatHistorySectionsProps = Omit<
+  Extract<ChatHistoryRailProps, { sections: ChatHistoryRailSection[] }>,
+  "railLabels" | "renderRail"
+> & {
+  railLabels?: Partial<ChatHistoryRailLabels>;
+  label?: ReactNode;
+  headerAction?: ReactNode;
+};
+
+export type ChatFirstChatHistoryProps =
+  | ChatFirstChatHistoryItemsProps
+  | ChatFirstChatHistorySectionsProps;
+
+function SectionedChatHistory({
+  railLabels,
+  ...props
+}: ChatFirstChatHistorySectionsProps) {
+  const t = useT();
+  return (
+    <ChatHistoryRail
+      {...props}
+      railLabels={{
+        newChat: t("agentChat.tabs.newChat"),
+        showMore: t("agentChat.history.showAll"),
+        showLess: t("agentChat.history.showLess"),
+        ...railLabels,
+        sections: railLabels?.sections ?? {
+          showAll: t("agentChat.history.showAll"),
+          showLess: t("agentChat.history.showLess"),
+          loadMore: t("agentChat.history.loadMore"),
+          loadingMore: t("agentChat.history.loadingMore"),
+          retry: t("agentChat.history.retry"),
+        },
+      }}
+    />
+  );
+}
+
 export function ChatFirstChatHistory({
-  items,
   label = "Chats",
   headerAction,
   className,
   ...props
 }: ChatFirstChatHistoryProps) {
-  if (items.length === 0) {
+  if (!props.sections && props.items.length === 0) {
     return (
       <section
         data-chat-first-chat-history
@@ -51,12 +96,11 @@ export function ChatFirstChatHistory({
           </div>
         ) : null}
       </div>
-      <ChatHistoryList
-        {...props}
-        items={items}
-        variant="rail"
-        className="min-w-0"
-      />
+      {props.sections ? (
+        <SectionedChatHistory {...props} className="min-w-0" />
+      ) : (
+        <ChatHistoryList {...props} variant="rail" className="min-w-0" />
+      )}
     </section>
   );
 }

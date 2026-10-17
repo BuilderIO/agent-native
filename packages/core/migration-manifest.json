@@ -3330,7 +3330,7 @@
       "to": "@agent-native/core/client/sharing",
       "symbols": {
         "VisibilityBadge": {
-          "to": "@agent-native/toolkit/sharing"
+          "to": "@agent-native/toolkit/app/sharing"
         },
         "ShareButton": {
           "to": "@agent-native/toolkit/app/sharing"
@@ -4754,9 +4754,6 @@
     },
     "@agent-native/agentkit/react/chat": {
       "to": "@agent-native/toolkit/app/agentkit"
-    },
-    "@agent-native/agentkit/react/styles.css": {
-      "to": "@agent-native/toolkit/app/agentkit/react/styles.css"
     },
     "@agent-native/core/client/clipboard": {
       "to": "@agent-native/toolkit/clipboard"

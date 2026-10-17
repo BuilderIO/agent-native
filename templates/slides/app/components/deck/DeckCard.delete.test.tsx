@@ -29,7 +29,7 @@ vi.mock("@agent-native/creative-context/client", () => ({
   useCreativeContextLab: () => mocks.creativeContextLabEnabled.value,
 }));
 
-vi.mock("@agent-native/toolkit/sharing", () => ({
+vi.mock("@agent-native/toolkit/app/sharing/VisibilityBadge", () => ({
   VisibilityBadge: () => null,
 }));
 

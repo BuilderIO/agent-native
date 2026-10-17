@@ -4,6 +4,26 @@
   "catalogs": ["toolkit-ui", "remote-mcp-presets", "setup-readiness-ui"],
   "units": [
     {
+      "id": "toolkit/ownership-chat-history",
+      "label": "Ownership chat history",
+      "catalog": "toolkit-ui",
+      "catalogItems": ["ownership-chat-history"],
+      "entrypoints": ["./app/chat/ownership-history"],
+      "strategy": "source-copy",
+      "sourceEntries": ["src/app/chat/ownership-history"],
+      "targetRoot": "app/components/agent-native/toolkit",
+      "dependencies": ["@agent-native/core", "react"],
+      "protectedImports": [
+        "@agent-native/core/client/agent-chat",
+        "@agent-native/core/client/api-path",
+        "@agent-native/core/client/i18n",
+        "@agent-native/toolkit/chat-history/ChatHistoryRail",
+        "@agent-native/toolkit/chat-history/ChatHistoryList",
+        "@agent-native/toolkit/chat-history/useChatHistoryRailController"
+      ],
+      "verification": ["pnpm typecheck"]
+    },
+    {
       "id": "toolkit/root",
       "label": "Complete Toolkit source",
       "catalog": "toolkit-ui",

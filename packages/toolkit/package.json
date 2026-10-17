@@ -46,6 +46,13 @@
       "import": "./dist/app/chat/agent-sidebar-events.js",
       "default": "./dist/app/chat/agent-sidebar-events.js"
     },
+    "./app/chat/ownership-history": {
+      "types": "./dist/app/chat/ownership-history/index.d.ts",
+      "browser": "./dist/app/chat/ownership-history/index.js",
+      "development": "./dist/app/chat/ownership-history/index.js",
+      "import": "./dist/app/chat/ownership-history/index.js",
+      "default": "./dist/app/chat/ownership-history/index.js"
+    },
     "./app/chat": {
       "types": "./dist/app/chat/index.d.ts",
       "browser": "./dist/app/chat/index.js",

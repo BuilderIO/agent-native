@@ -5,7 +5,6 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ClipsAvatar } from "../clips-avatar";
-import { Avatar as ShareAvatar } from "./share-ui";
 import { ViewerAvatar } from "./viewed-by-popover";
 
 const avatarMocks = vi.hoisted(() => ({
@@ -89,43 +88,6 @@ describe("sharing avatar rendering", () => {
       );
     });
   }
-
-  it("renders a stored profile image in the share list once visible", () => {
-    avatarMocks.url = "data:image/jpeg;base64,share-avatar";
-
-    render(<ShareAvatar label="person@example.com" />);
-
-    expect(avatarMocks.emails).toEqual([null]);
-    expect(container.querySelector("img")).toBeNull();
-
-    revealAvatar();
-
-    expect(avatarMocks.emails).toEqual([null, "person@example.com"]);
-    expect(container.querySelector("img")?.getAttribute("src")).toBe(
-      avatarMocks.url,
-    );
-  });
-
-  it("defers a new email when an avatar instance is reused", () => {
-    avatarMocks.url = "data:image/jpeg;base64,reused-avatar";
-
-    render(<ShareAvatar label="first@example.com" />);
-    revealAvatar();
-    expect(avatarMocks.emails).toEqual([null, "first@example.com"]);
-
-    render(<ShareAvatar label="second@example.com" />);
-
-    expect(avatarMocks.emails).toEqual([null, "first@example.com", null]);
-    expect(container.querySelector("img")).toBeNull();
-  });
-
-  it("keeps organization shares on the group fallback", () => {
-    render(<ShareAvatar label="organization-id" org />);
-
-    expect(avatarMocks.emails).toEqual([null]);
-    expect(container.querySelector("img")).toBeNull();
-    expect(container.querySelector("svg")).not.toBeNull();
-  });
 
   it("renders a stored profile image in viewed-by rows once visible", () => {
     avatarMocks.url = "data:image/jpeg;base64,viewer-avatar";

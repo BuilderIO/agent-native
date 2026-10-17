@@ -27,7 +27,6 @@ import {
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
   useChatThreads,
-  type ChatThreadSummary,
 } from "@agent-native/core/client/agent-chat";
 import { appBasePath, appPath } from "@agent-native/core/client/api-path";
 import {
@@ -55,6 +54,11 @@ import type {
   ChatFirstCopy,
   ChatFirstEmbedTarget,
 } from "@agent-native/toolkit/app/chat/chat-first/types";
+import {
+  OwnershipChatHistoryRail,
+  ownDraftRows,
+  useOwnershipChatHistory,
+} from "@agent-native/toolkit/app/chat/ownership-history";
 import { FeedbackButton } from "@agent-native/toolkit/app/feedback";
 import { InvitationBanner, OrgSwitcher } from "@agent-native/toolkit/app/org";
 import { RunsTray } from "@agent-native/toolkit/app/progress";
@@ -64,10 +68,6 @@ import {
   AppSidebarHeader,
   openCommandMenu,
 } from "@agent-native/toolkit/app/shared";
-import {
-  ChatHistoryRail,
-  type ChatHistoryItem,
-} from "@agent-native/toolkit/chat-history";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import {
   IconApps,
@@ -143,7 +143,6 @@ import {
 } from "../deferred-chat-components.js";
 import { Button } from "../ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "../ui/sheet";
-import { Skeleton } from "../ui/skeleton";
 import {
   Tooltip,
   TooltipContent,
@@ -587,23 +586,6 @@ function threadIdFromPath(pathname: string): string | null {
   }
 }
 
-export function formatThreadAge(updatedAt: number, now = Date.now()) {
-  const diffMs = Math.max(0, now - updatedAt);
-  const minutes = Math.floor(diffMs / 60_000);
-  if (minutes < 1) return "now";
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h`;
-  const days = Math.floor(hours / 24);
-  if (days < 14) return `${days}d`;
-  if (days < 365) return `${Math.floor(days / 7)}w`;
-  return `${Math.floor(days / 365)}y`;
-}
-
-function threadTitle(thread: ChatThreadSummary, fallback: string) {
-  return thread.title || thread.preview || fallback;
-}
-
 function threadSourceIcon(platform: string | undefined): ReactNode {
   const normalized = platform?.trim().toLowerCase();
   if (!normalized) return null;
@@ -624,14 +606,6 @@ function readChatHistoryIncludesExternal(): boolean {
     // coercion-ok: localStorage is optional browser persistence.
     return false;
   }
-}
-
-function threadUpdatedAt(thread: ChatThreadSummary) {
-  return Number.isFinite(thread.updatedAt)
-    ? thread.updatedAt
-    : Number.isFinite(thread.createdAt)
-      ? thread.createdAt
-      : 0;
 }
 
 function DispatchChatsSection({
@@ -662,78 +636,73 @@ function DispatchChatsSection({
   const location = useLocation();
   const [includeExternal, setIncludeExternal] = useState(false);
   const [historyPreferenceReady, setHistoryPreferenceReady] = useState(false);
-  const historyModeRef = useRef(includeExternal);
   const {
     threads,
     activeThreadId,
-    isLoading: chatsLoading,
-    threadsLoadError,
     createThread,
     switchThread,
     renameThread,
-    refreshThreads,
+    pinThread,
+    archiveThread,
+    isNewThread,
   } = useChatThreads(undefined, "dispatch", undefined, {
     autoCreate: false,
     includeExternal,
   });
 
-  const visibleThreads = useMemo(
-    () =>
-      threads
-        .filter(
-          (thread) => thread.messageCount > 0 || thread.id === activeThreadId,
-        )
-        .sort((a, b) => threadUpdatedAt(b) - threadUpdatedAt(a))
-        .slice(0, 8),
-    [activeThreadId, threads],
-  );
   const localPathname = localDispatchPath(location.pathname);
   const displayedActiveThreadId =
     threadIdFromPath(localPathname) ??
     (localPathname === "/chat" ? null : activeThreadId);
-  const chatItems: ChatHistoryItem[] = visibleThreads.map((thread) => {
-    const title = threadTitle(thread, t("dispatch.sidebar.newChat"));
-    const sourceIcon = threadSourceIcon(thread.source?.platform);
-    const sourceLabel = thread.source?.platform
-      ? thread.source.platform[0].toUpperCase() +
-        thread.source.platform.slice(1)
-      : null;
-    return {
-      id: thread.id,
-      title: (
-        <span
-          className="flex min-w-0 items-center gap-1"
-          title={sourceLabel ? `${sourceLabel}: ${title}` : title}
-        >
-          {sourceIcon ? (
-            <span
-              className="shrink-0 text-sidebar-foreground/55"
-              aria-label={sourceLabel ?? "Connected source"}
-            >
-              {sourceIcon}
-            </span>
-          ) : null}
-          <span className="truncate">{title}</span>
-        </span>
-      ),
-      titleText: title,
-      timestamp:
-        thread.id === displayedActiveThreadId
-          ? ""
-          : formatThreadAge(threadUpdatedAt(thread)),
-    };
+  const history = useOwnershipChatHistory({
+    includeExternal,
+    activeId: displayedActiveThreadId,
+    localMineRows: ownDraftRows({
+      threads,
+      isNewThread,
+      activeId: activeThreadId,
+    }),
+    mutations: { pin: pinThread, rename: renameThread, archive: archiveThread },
+    onMutationFailed: () =>
+      toast.error(t("dispatch.integrations.failedToSave")),
+    decorateItem: (item, row) => {
+      const source = "source" in row ? row.source : undefined;
+      const sourceLabel = source?.platform
+        ? source.platform[0].toUpperCase() + source.platform.slice(1)
+        : undefined;
+      const sourceIcon = threadSourceIcon(source?.platform);
+      return {
+        ...item,
+        title: (
+          <span
+            className="flex min-w-0 items-center gap-1"
+            title={
+              sourceLabel ? `${sourceLabel}: ${item.titleText}` : item.titleText
+            }
+          >
+            {sourceIcon ? (
+              <span
+                className="shrink-0 text-sidebar-foreground/55"
+                aria-label={sourceLabel}
+              >
+                {sourceIcon}
+              </span>
+            ) : null}
+            <span className="truncate">{item.title}</span>
+          </span>
+        ),
+      };
+    },
   });
-  const chatHistoryError = threadsLoadError ? (
-    <button
-      type="button"
-      onClick={() => refreshThreads()}
-      className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-xs text-sidebar-foreground/65 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-    >
-      <span>Could not load chats</span>
-      <span className="font-medium">Retry</span>
-    </button>
-  ) : undefined;
-
+  const listProps = {
+    ...history.listProps,
+    onDelete: async (threadId: string) => {
+      const archived = await history.listProps.onDelete?.(threadId);
+      if (archived && threadId === displayedActiveThreadId)
+        await handleNewChat();
+      return archived === true;
+    },
+  };
   useEffect(() => {
     setIncludeExternal(readChatHistoryIncludesExternal());
     setHistoryPreferenceReady(true);
@@ -747,30 +716,7 @@ function DispatchChatsSection({
         includeExternal ? "all" : "local",
       );
     } catch {} // coercion-ok: localStorage is optional browser persistence.
-    if (historyModeRef.current !== includeExternal) {
-      historyModeRef.current = includeExternal;
-      refreshThreads();
-    }
-  }, [historyPreferenceReady, includeExternal, refreshThreads]);
-
-  useEffect(() => {
-    const refresh = () => refreshThreads();
-    const handleRunning = (event: Event) => {
-      const detail = (event as CustomEvent).detail as
-        | { isRunning?: unknown }
-        | undefined;
-      if (detail?.isRunning === false) refreshThreads();
-    };
-
-    window.addEventListener("agent-chat:threads-updated", refresh);
-    window.addEventListener("agentNative.chatRunning", handleRunning);
-    window.addEventListener("focus", refresh);
-    return () => {
-      window.removeEventListener("agent-chat:threads-updated", refresh);
-      window.removeEventListener("agentNative.chatRunning", handleRunning);
-      window.removeEventListener("focus", refresh);
-    };
-  }, [refreshThreads]);
+  }, [historyPreferenceReady, includeExternal]);
 
   function openThread(threadId: string, options?: { isNew?: boolean }) {
     switchThread(threadId);
@@ -794,6 +740,36 @@ function DispatchChatsSection({
     const threadId = await createThread();
     if (threadId) openThread(threadId, { isNew: true });
   }
+
+  const sourceToggle = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          data-dispatch-chat-source-toggle
+          aria-pressed={includeExternal}
+          aria-label={
+            includeExternal
+              ? t("dispatch.sidebar.showLocalChats")
+              : t("dispatch.sidebar.showAllChats")
+          }
+          onClick={() => setIncludeExternal((current) => !current)}
+          className="flex size-6 items-center justify-center rounded-md text-sidebar-foreground/55 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+        >
+          {includeExternal ? (
+            <IconWorld size={14} aria-hidden="true" />
+          ) : (
+            <IconDeviceDesktop size={14} aria-hidden="true" />
+          )}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right">
+        {includeExternal
+          ? t("dispatch.sidebar.showLocalChats")
+          : t("dispatch.sidebar.showAllChats")}
+      </TooltipContent>
+    </Tooltip>
+  );
 
   const collapsedChatFirst = collapsed && chatFirstMode;
 
@@ -821,80 +797,26 @@ function DispatchChatsSection({
         </nav>
       ) : null}
       {prelude}
-      {!collapsedChatFirst && !chatFirstMode ? (
-        <div className="flex justify-end px-2 pt-0.5">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                data-dispatch-chat-source-toggle
-                aria-pressed={includeExternal}
-                aria-label={
-                  includeExternal
-                    ? t("dispatch.sidebar.showLocalChats", {
-                        defaultValue: "Show local chats",
-                      })
-                    : t("dispatch.sidebar.showAllChats", {
-                        defaultValue: "Show all chats",
-                      })
-                }
-                onClick={() => setIncludeExternal((current) => !current)}
-                className="flex size-6 items-center justify-center rounded-md text-sidebar-foreground/55 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-              >
-                {includeExternal ? (
-                  <IconWorld size={14} aria-hidden="true" />
-                ) : (
-                  <IconDeviceDesktop size={14} aria-hidden="true" />
-                )}
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              {includeExternal
-                ? t("dispatch.sidebar.showLocalChats", {
-                    defaultValue: "Show local chats",
-                  })
-                : t("dispatch.sidebar.showAllChats", {
-                    defaultValue: "Show all chats",
-                  })}
-            </TooltipContent>
-          </Tooltip>
-        </div>
+      {!collapsedChatFirst ? (
+        <div className="flex justify-end px-2 pt-0.5">{sourceToggle}</div>
       ) : null}
       {!collapsedChatFirst &&
-        !chatFirstMode &&
-        chatsLoading &&
-        visibleThreads.length === 0 &&
-        Array.from({ length: 3 }).map((_, index) => (
-          <div
-            key={`chat-skeleton-${index}`}
-            className="flex items-center gap-2 px-3 py-1"
-          >
-            <Skeleton className="size-3.5 shrink-0 rounded-sm" />
-            <Skeleton className="h-3 w-3/4 rounded" />
-          </div>
-        ))}
-      {!collapsedChatFirst &&
       chatFirstMode &&
-      (chatsLoading || visibleThreads.length > 0) ? (
+      (history.loading ||
+        history.sections.some(
+          (section) => section.items.length > 0 || section.error,
+        )) ? (
         <ChatFirstChatHistory
-          items={chatItems}
+          sections={history.sections}
+          {...history.listProps}
+          onDelete={listProps.onDelete}
+          onNewChat={() => void handleNewChat()}
+          showNewChat={false}
+          railLabels={history.railLabels}
           activeId={displayedActiveThreadId}
-          loading={chatsLoading && visibleThreads.length === 0}
-          loadingLabel={
-            <div className="space-y-1 px-2 py-1">
-              {[0, 1, 2].map((index) => (
-                <div key={index} className="flex items-center gap-2 px-1 py-1">
-                  <Skeleton className="size-3.5 shrink-0 rounded-sm" />
-                  <Skeleton className="h-3 w-3/4 rounded" />
-                </div>
-              ))}
-            </div>
-          }
-          label={t("dispatch.sidebar.chats", { defaultValue: "Chats" })}
-          error={chatHistoryError}
+          label={t("dispatch.sidebar.chats")}
           onSelect={(threadId) => openThread(threadId)}
           renameMaxLength={160}
-          onRename={(threadId, title) => void renameThread(threadId, title)}
           labels={{
             options: (item) =>
               t("dispatch.sidebar.chatOptions", {
@@ -905,6 +827,9 @@ function DispatchChatsSection({
                 title: item.titleText ?? "",
               }),
             rename: t("dispatch.sidebar.renameChat"),
+            pin: t("agentChat.contextXray.pin"),
+            unpin: t("agentChat.contextXray.unpin"),
+            delete: t("extensions.delete"),
           }}
           renderAdditionalRowActions={(item, closeMenu) => (
             <>
@@ -917,14 +842,14 @@ function DispatchChatsSection({
                   void writeClipboardText(item.id).then((copied) => {
                     toast[copied ? "success" : "error"](
                       copied
-                        ? "Session ID copied"
-                        : "Could not copy the session ID",
+                        ? chatFirstCopy("sessionIdCopied")
+                        : t("agentChat.recovery.copyFailed"),
                     );
                   });
                 }}
               >
                 <IconCopy size={13} strokeWidth={1.8} />
-                <span>Copy session ID</span>
+                <span>{chatFirstCopy("copySessionId")}</span>
               </button>
               {!chatFirstEmbedded ? (
                 <button
@@ -942,16 +867,17 @@ function DispatchChatsSection({
                   }}
                 >
                   <IconEye size={13} strokeWidth={1.8} />
-                  <span>Watch and message session</span>
+                  <span>{chatFirstCopy("watchSession")}</span>
                 </button>
               ) : null}
             </>
           )}
           className="min-w-0 px-2"
         />
-      ) : !collapsedChatFirst ? (
-        <ChatHistoryRail
-          items={chatItems}
+      ) : !collapsedChatFirst && !chatFirstMode ? (
+        <OwnershipChatHistoryRail
+          sections={history.sections}
+          listProps={listProps}
           activeId={displayedActiveThreadId}
           onSelect={(threadId) => openThread(threadId)}
           onNewChat={() => void handleNewChat()}
@@ -960,9 +886,7 @@ function DispatchChatsSection({
             showMore: t("dispatch.sidebar.chats"),
             showLess: t("dispatch.sidebar.chats"),
           }}
-          error={chatHistoryError}
           renameMaxLength={160}
-          onRename={(threadId, title) => void renameThread(threadId, title)}
           labels={{
             options: (item) =>
               t("dispatch.sidebar.chatOptions", {
@@ -973,6 +897,9 @@ function DispatchChatsSection({
                 title: item.titleText ?? "",
               }),
             rename: t("dispatch.sidebar.renameChat"),
+            pin: t("agentChat.contextXray.pin"),
+            unpin: t("agentChat.contextXray.unpin"),
+            delete: t("extensions.delete"),
           }}
           renderAdditionalRowActions={(item, closeMenu) => (
             <>
@@ -985,14 +912,14 @@ function DispatchChatsSection({
                   void writeClipboardText(item.id).then((copied) => {
                     toast[copied ? "success" : "error"](
                       copied
-                        ? "Session ID copied"
-                        : "Could not copy the session ID",
+                        ? chatFirstCopy("sessionIdCopied")
+                        : t("agentChat.recovery.copyFailed"),
                     );
                   });
                 }}
               >
                 <IconCopy size={13} strokeWidth={1.8} />
-                <span>Copy session ID</span>
+                <span>{chatFirstCopy("copySessionId")}</span>
               </button>
               {chatFirstMode && !chatFirstEmbedded ? (
                 <button
@@ -1010,7 +937,7 @@ function DispatchChatsSection({
                   }}
                 >
                   <IconEye size={13} strokeWidth={1.8} />
-                  <span>Watch and message session</span>
+                  <span>{chatFirstCopy("watchSession")}</span>
                 </button>
               ) : null}
             </>

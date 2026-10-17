@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ChatThreadListConfigError,
   useChatThreadList,
+  type ChatThreadListRefreshOutcome,
   type UseChatThreadListOptions,
   type UseChatThreadListResult,
 } from "./use-chat-thread-list.js";
@@ -546,7 +547,7 @@ describe("useChatThreadList", () => {
       failOffset = 200;
 
       await act(async () => {
-        await latest.refresh();
+        expect(await latest.refreshWithResult()).toBe("error");
       });
 
       expect(latest.error).toBeInstanceOf(ChatThreadListError);
@@ -576,16 +577,16 @@ describe("useChatThreadList", () => {
         return serve(url);
       });
 
-      let refreshing!: Promise<void>;
+      let refreshing!: Promise<ChatThreadListRefreshOutcome>;
       await act(async () => {
-        refreshing = latest.refresh();
+        refreshing = latest.refreshWithResult();
       });
       expect(fetchMock).toHaveBeenCalledTimes(2);
 
       act(() => root.unmount());
       await act(async () => {
         releaseSecondPage.forEach((release) => release());
-        await refreshing;
+        expect(await refreshing).toBe("superseded");
       });
       // The stale refresh issued no further request and wrote nothing.
       expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -644,9 +645,175 @@ describe("useChatThreadList", () => {
 
   it("does not fetch while disabled", async () => {
     await mount({ ownership: "shared", enabled: false, apiUrl: "/api/chat" });
+    expect(await latest.refreshWithResult()).toBe("disabled");
+    expect(await latest.refresh()).toBeUndefined();
     expect(fetchMock).not.toHaveBeenCalled();
     expect(latest.loading).toBe(false);
     expect(latest.threads).toEqual([]);
+  });
+
+  it("reports success only once the complete expanded window is applied", async () => {
+    const original = Array.from({ length: 200 }, (_, i) => row(`old-${i}`));
+    const replacement = Array.from({ length: 200 }, (_, i) => row(`new-${i}`));
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ threads: original, hasMore: true }))
+      .mockResolvedValueOnce(
+        jsonResponse({ threads: [row("tail")], hasMore: true }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ threads: replacement, hasMore: true }),
+      );
+    await mount({ ownership: "mine", pageSize: 200, apiUrl: "/api/chat" });
+    await act(async () => {
+      await latest.loadMore();
+    });
+
+    let release!: (response: Response) => void;
+    fetchMock.mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          release = resolve;
+        }),
+    );
+    const settled = vi.fn();
+    let refreshing!: Promise<ChatThreadListRefreshOutcome>;
+    await act(async () => {
+      refreshing = latest.refreshWithResult().then((outcome) => {
+        settled(outcome);
+        return outcome;
+      });
+    });
+    expect(settled).not.toHaveBeenCalled();
+    expect(latest.threads).toEqual([...original, row("tail")]);
+    expect(
+      requestedUrls()
+        .slice(2)
+        .map((url) => [
+          url.searchParams.get("offset"),
+          url.searchParams.get("limit"),
+        ]),
+    ).toEqual([
+      [null, "200"],
+      ["200", "1"],
+    ]);
+
+    await act(async () => {
+      release(jsonResponse({ threads: [row("new-tail")], hasMore: false }));
+      expect(await refreshing).toBe("success");
+    });
+    expect(latest.threads).toEqual([...replacement, row("new-tail")]);
+    expect(latest.hasMore).toBe(false);
+    expect(latest.error).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it.each([
+    ["transport failure", () => Promise.reject(new Error("offline"))],
+    [
+      "HTTP failure",
+      () => Promise.resolve(jsonResponse({ error: "down" }, 503)),
+    ],
+    [
+      "missing pagination metadata",
+      () => Promise.resolve(jsonResponse({ threads: [row("new")] })),
+    ],
+    [
+      "invalid row metadata",
+      () =>
+        Promise.resolve(
+          jsonResponse({
+            threads: [row("new", { ownerEmail: undefined })],
+            hasMore: false,
+          }),
+        ),
+    ],
+  ])(
+    "reports error and preserves loaded rows on %s",
+    async (_name, respond) => {
+      fetchMock.mockResolvedValueOnce(
+        jsonResponse({ threads: [row("old")], hasMore: true }),
+      );
+      await mount({ ownership: "mine", pageSize: 1, apiUrl: "/api/chat" });
+      fetchMock.mockImplementationOnce(respond);
+      await act(async () => {
+        expect(await latest.refreshWithResult()).toBe("error");
+      });
+      expect(latest.threads).toEqual([row("old")]);
+      expect(latest.hasMore).toBe(true);
+      expect(latest.error).toBeInstanceOf(Error);
+      expect(latest.loading).toBe(false);
+      expect(latest.loadingMore).toBe(false);
+    },
+  );
+
+  it.each([
+    ["scope change", false],
+    ["scope change", true],
+    ["new refresh", false],
+    ["new refresh", true],
+  ])("reports superseded after %s (late failure: %s)", async (cause, fails) => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ threads: [row("old")], hasMore: false }),
+    );
+    await mount({ ownership: "mine", apiUrl: "/api/chat" });
+    let release!: (response: Response) => void;
+    let reject!: (error: Error) => void;
+    fetchMock.mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve, fail) => {
+          release = resolve;
+          reject = fail;
+        }),
+    );
+    let refreshing!: Promise<ChatThreadListRefreshOutcome>;
+    await act(async () => {
+      refreshing = latest.refreshWithResult();
+    });
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ threads: [row("current")], hasMore: false }),
+    );
+    if (cause === "scope change") {
+      await mount({
+        ownership: "mine",
+        scope: { type: "deck", id: "new-scope" },
+        apiUrl: "/api/chat",
+      });
+    } else {
+      await act(async () => {
+        expect(await latest.refreshWithResult()).toBe("success");
+      });
+    }
+    await act(async () => {
+      if (fails) reject(new Error("stale failure"));
+      else release(jsonResponse({ threads: [row("stale")], hasMore: false }));
+      expect(await refreshing).toBe("superseded");
+    });
+    expect(latest.threads).toEqual([row("current")]);
+    expect(latest.error).toBeNull();
+    expect(latest.loading).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("keeps refresh void and makes just one replacement request per call", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ threads: [row("old")], hasMore: false }),
+    );
+    await mount({ ownership: "mine", apiUrl: "/api/chat" });
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ threads: [row("new")], hasMore: false }),
+    );
+    await act(async () => {
+      const refreshing: Promise<void> = latest.refresh();
+      expect(await refreshing).toBeUndefined();
+    });
+    expect(latest.threads).toEqual([row("new")]);
+    fetchMock.mockRejectedValueOnce(new Error("offline"));
+    await act(async () => {
+      expect(await latest.refresh()).toBeUndefined();
+    });
+    expect(latest.error?.message).toBe("offline");
+    expect(latest.threads).toEqual([row("new")]);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   it.each<[string, Partial<UseChatThreadListOptions>]>([
@@ -735,8 +902,10 @@ describe("useChatThreadList", () => {
     await mount({ ownership: "mine", pageSize: 1, apiUrl: "/api/chat" });
     const stale = latest;
     const staleCalls: Promise<void>[] = [];
+    const staleOutcomes: Promise<ChatThreadListRefreshOutcome>[] = [];
     onLayout = () => {
       staleCalls.push(stale.refresh(), stale.loadMore());
+      staleOutcomes.push(stale.refreshWithResult());
     };
     fetchMock.mockClear();
     fetchMock.mockImplementation(() =>
@@ -746,6 +915,7 @@ describe("useChatThreadList", () => {
     );
     await mount({ ownership: "all", pageSize: 1, apiUrl: "/api/chat" });
     await Promise.all(staleCalls);
+    expect(await Promise.all(staleOutcomes)).toEqual(["superseded"]);
     expect(
       requestedUrls().map((url) => url.searchParams.get("ownership")),
     ).toEqual([null]);
@@ -755,6 +925,7 @@ describe("useChatThreadList", () => {
     await act(async () => {
       await stale.refresh();
       await stale.loadMore();
+      expect(await stale.refreshWithResult()).toBe("superseded");
     });
     expect(fetchMock).not.toHaveBeenCalled();
     expect(latest.threads.map((thread) => thread.id)).toEqual(["current"]);
@@ -781,8 +952,37 @@ describe("useChatThreadList", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(renders[0].threads).toBe(previous.threads);
     expect(latest.refresh).toBe(previous.refresh);
+    expect(latest.refreshWithResult).toBe(previous.refreshWithResult);
     expect(latest.loadMore).toBe(previous.loadMore);
     expect(latest.loading).toBe(false);
+  });
+
+  it("reports disabled only for the current disabled session and superseded for retired callbacks", async () => {
+    const options: UseChatThreadListOptions = {
+      ownership: "mine",
+      enabled: false,
+      apiUrl: "/api/chat",
+    };
+    await mount(options);
+    const disabled = latest;
+    expect(await disabled.refreshWithResult()).toBe("disabled");
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    fetchMock.mockResolvedValue(
+      jsonResponse({ threads: [row("current")], hasMore: false }),
+    );
+    await mount({ ...options, enabled: true });
+    const enabled = latest;
+    expect(await disabled.refreshWithResult()).toBe("superseded");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await mount(options);
+    expect(await latest.refreshWithResult()).toBe("disabled");
+    expect(await disabled.refreshWithResult()).toBe("superseded");
+    expect(await enabled.refreshWithResult()).toBe("superseded");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(latest.threads).toEqual([]);
+    expect(latest.error).toBeNull();
   });
 
   async function activity(

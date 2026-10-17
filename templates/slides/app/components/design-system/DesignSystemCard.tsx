@@ -1,6 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { ShareButton } from "@agent-native/toolkit/app/sharing";
-import { VisibilityBadge } from "@agent-native/toolkit/sharing";
+import { VisibilityBadge } from "@agent-native/toolkit/app/sharing/VisibilityBadge";
 import {
   IconBuildingCommunity,
   IconComponents,

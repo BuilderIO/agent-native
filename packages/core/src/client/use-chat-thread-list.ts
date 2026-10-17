@@ -29,6 +29,12 @@ export interface UseChatThreadListOptions {
   apiUrl?: string;
 }
 
+export type ChatThreadListRefreshOutcome =
+  | "success"
+  | "error"
+  | "superseded"
+  | "disabled";
+
 export interface UseChatThreadListResult {
   threads: ChatThreadListRow[];
   /** True until the first page of the current list settles. */
@@ -40,6 +46,8 @@ export interface UseChatThreadListResult {
   hasMore: boolean;
   loadMore: () => Promise<void>;
   refresh: () => Promise<void>;
+  /** Reports whether this invocation applied the complete refreshed window. */
+  refreshWithResult: () => Promise<ChatThreadListRefreshOutcome>;
 }
 
 /** `pageSize` is not an integer between 1 and the server's page cap. */
@@ -181,8 +189,8 @@ export function useChatThreadList(
   // them in only once every page has arrived. A failure part-way leaves the
   // rows and offset already on screen untouched.
   const replace = useCallback(
-    async (window: number): Promise<void> => {
-      if (!session.active) return;
+    async (window: number): Promise<ChatThreadListRefreshOutcome> => {
+      if (!session.active) return "superseded";
       const requestId = ++session.requestId;
       const isCurrent = () => session.active && requestId === session.requestId;
       session.inFlight = "replace";
@@ -196,7 +204,7 @@ export function useChatThreadList(
             offset: consumed,
             limit: Math.min(CHAT_THREADS_MAX_PAGE_SIZE, window - consumed),
           });
-          if (!isCurrent()) return;
+          if (!isCurrent()) return "superseded";
           for (const thread of page.threads) {
             if (!rows.has(thread.id)) rows.set(thread.id, thread);
           }
@@ -206,9 +214,11 @@ export function useChatThreadList(
         session.nextOffset = consumed;
         session.hasMore = more;
         update({ threads: [...rows.values()], hasMore: more, error: null });
+        return "success";
       } catch (failure) {
-        if (!isCurrent()) return;
+        if (!isCurrent()) return "superseded";
         update({ error: asError(failure) });
+        return "error";
       } finally {
         if (isCurrent()) {
           session.inFlight = null;
@@ -219,12 +229,18 @@ export function useChatThreadList(
     [request, session, update],
   );
 
+  const refreshWithResult =
+    useCallback(async (): Promise<ChatThreadListRefreshOutcome> => {
+      if (!session.active) return "superseded";
+      if (!enabled) return "disabled";
+      // Reload every row already on screen so a mutation does not collapse a
+      // list the person has paged through.
+      return replace(Math.max(pageSize, session.nextOffset));
+    }, [enabled, pageSize, replace, session]);
+
   const refresh = useCallback(async (): Promise<void> => {
-    if (!enabled) return;
-    // Reload every row already on screen so a mutation does not collapse a
-    // list the person has paged through.
-    await replace(Math.max(pageSize, session.nextOffset));
-  }, [enabled, pageSize, replace, session]);
+    await refreshWithResult();
+  }, [refreshWithResult]);
 
   const loadMore = useCallback(async (): Promise<void> => {
     if (!session.active || session.inFlight || !session.hasMore) return;
@@ -278,5 +294,14 @@ export function useChatThreadList(
   }, [enabled, refresh, refreshOnThreadUpdates]);
 
   const { threads, loading, loadingMore, error, hasMore } = state;
-  return { threads, loading, loadingMore, error, hasMore, loadMore, refresh };
+  return {
+    threads,
+    loading,
+    loadingMore,
+    error,
+    hasMore,
+    loadMore,
+    refresh,
+    refreshWithResult,
+  };
 }

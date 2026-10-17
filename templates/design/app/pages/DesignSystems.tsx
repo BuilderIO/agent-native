@@ -14,7 +14,7 @@ import {
   useSetPageTitle,
 } from "@agent-native/toolkit/app-shell";
 import { ShareButton } from "@agent-native/toolkit/app/sharing";
-import { VisibilityBadge } from "@agent-native/toolkit/sharing";
+import { VisibilityBadge } from "@agent-native/toolkit/app/sharing/VisibilityBadge";
 import {
   IconCheckbox,
   IconChecks,

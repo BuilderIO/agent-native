@@ -4,6 +4,7 @@ import { isSettingsPathname } from "@agent-native/toolkit/app/settings";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter, useLocation, useNavigate } from "react-router";
+import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CHAT_FIRST_PANE_STATE_KEY } from "../../shared/chat-first-pane";
@@ -13,7 +14,6 @@ import {
   buildChatFirstEmbedSessionInput,
   CHAT_FIRST_SURFACE_PANEL_TOGGLE_CLASS_NAME,
   dispatchNavLinkTarget,
-  formatThreadAge,
   isElectronEmbeddedSearch,
   isRedesignedSettingsPath,
   Layout,
@@ -26,6 +26,16 @@ import {
 const clientState = vi.hoisted(() => ({
   createThread: vi.fn<() => Promise<string | null>>(),
   switchThread: vi.fn(),
+  renameThread: vi.fn().mockResolvedValue(true),
+  pinThread: vi.fn().mockResolvedValue(true),
+  archiveThread: vi.fn().mockResolvedValue(true),
+  isNewThread: () => false,
+  mineThreads: null as Array<Record<string, unknown>> | null,
+  sharedThreads: [] as Array<Record<string, unknown>>,
+  sharedHasMore: false,
+  loadMore: vi.fn().mockResolvedValue(undefined),
+  listQueries: vi.fn(),
+  lifecycleOptions: vi.fn(),
   threads: [] as Array<Record<string, unknown>>,
   workspaceApps: [] as Array<Record<string, unknown>>,
   workspaceAppsError: null as Error | null,
@@ -70,15 +80,40 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
     onEffortChange: vi.fn(),
     refreshEngines: vi.fn(),
   }),
-  useChatThreads: () => ({
-    threads: clientState.threads,
-    activeThreadId: "active-thread",
-    isLoading: false,
-    createThread: clientState.createThread,
-    switchThread: clientState.switchThread,
-    renameThread: vi.fn(),
-    refreshThreads: vi.fn(),
-  }),
+  useChatThreadList: (options: {
+    ownership: string;
+    includeExternal?: boolean;
+  }) => {
+    clientState.listQueries(options);
+    return {
+      threads:
+        options.ownership === "shared"
+          ? clientState.sharedThreads
+          : (clientState.mineThreads ?? clientState.threads),
+      loading: false,
+      loadingMore: false,
+      error: null,
+      hasMore: options.ownership === "shared" && clientState.sharedHasMore,
+      loadMore: clientState.loadMore,
+      refresh: async () => {},
+      refreshWithResult: async () => "success",
+    };
+  },
+  useChatThreads: (...args: unknown[]) => {
+    clientState.lifecycleOptions(args[3]);
+    return {
+      threads: clientState.threads,
+      activeThreadId: "active-thread",
+      isLoading: false,
+      createThread: clientState.createThread,
+      switchThread: clientState.switchThread,
+      renameThread: clientState.renameThread,
+      pinThread: clientState.pinThread,
+      archiveThread: clientState.archiveThread,
+      isNewThread: clientState.isNewThread,
+      refreshThreads: vi.fn(),
+    };
+  },
   useChatModels: () => ({
     availableModels: [],
     defaultModel: "auto",
@@ -88,6 +123,14 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
     setSelectedModel: vi.fn(),
   }),
 }));
+
+vi.mock(
+  "@agent-native/toolkit/app/chat/ownership-history",
+  async () =>
+    import("../../../../toolkit/src/app/chat/ownership-history/index.tsx"),
+);
+
+vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 
 vi.mock("@agent-native/toolkit/app/chat/AgentSidebar", () => ({
   AgentToggleButton: () => null,
@@ -100,6 +143,9 @@ vi.mock("@agent-native/toolkit/app/chat/AgentSidebar", () => ({
 vi.mock("../deferred-chat-components.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../deferred-chat-components.js")>()),
   AgentChatSurface: () => null,
+  ChatFirstChatHistory: (
+    await import("../../../../toolkit/src/app/chat/chat-first/chat-history.tsx")
+  ).ChatFirstChatHistory,
 }));
 
 vi.mock("@agent-native/core/client/api-path", () => ({
@@ -173,6 +219,8 @@ vi.mock("next-themes", () => ({
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
+  DEFAULT_LOCALE: "en-US",
+  useOptionalLocale: () => ({ locale: "en-US" }),
   useFormatters: () => ({ formatNumber: (value: number) => String(value) }),
   useT: () => (key: string, values?: Record<string, unknown>) => {
     const messages: Record<string, string> = {
@@ -183,6 +231,23 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "dispatch.pages.workspaceApps": "Workspace apps",
       "dispatch.nav.operate": "Operate",
       "dispatch.nav.advanced": "Advanced",
+      "agentChat.history.mine": "My chats",
+      "agentChat.history.sharedWithYou": "Shared with you",
+      "agentChat.history.ownedBy": `Owner: ${values?.name ?? ""}`,
+      "agentChat.history.accessDirect": "Shared with you",
+      "agentChat.history.accessOrganization": "Shared with your organization",
+      "agentChat.history.showAll": "Show all",
+      "agentChat.history.showLess": "Show less",
+      "agentChat.history.loadMore": "Load more",
+      "agentChat.history.loadingMore": "Loading...",
+      "agentChat.history.emptyMine": "No chats yet",
+      "dispatch.sidebar.chats": "Chats",
+      "dispatch.sidebar.showLocalChats": "Show local chats",
+      "dispatch.sidebar.showAllChats": "Show all chats",
+      "agentChat.contextXray.pin": "Pin",
+      "agentChat.contextXray.unpin": "Unpin",
+      "extensions.delete": "Archive",
+      "dispatch.integrations.failedToSave": "Failed to save",
       "dispatch.sidebar.newChat": "New chat",
       "dispatch.sidebar.newDispatchChat": "New Dispatch chat",
       "dispatch.sidebar.renameChat": "Rename chat",
@@ -245,20 +310,6 @@ describe("Dispatch navigation paths", () => {
 
     vi.stubGlobal("window", { location: { pathname: "/chat" } });
     expect(dispatchNavLinkTarget("/apps")).toBe("/dispatch/apps");
-  });
-});
-
-describe("formatThreadAge", () => {
-  const now = 2_000_000_000_000;
-
-  it.each([
-    [0, "now"],
-    [2 * 60 * 60_000, "2h"],
-    [7 * 24 * 60 * 60_000, "7d"],
-    [21 * 24 * 60 * 60_000, "3w"],
-    [365 * 24 * 60 * 60_000, "1y"],
-  ])("formats %i milliseconds as %s", (elapsed, expected) => {
-    expect(formatThreadAge(now - elapsed, now)).toBe(expected);
   });
 });
 
@@ -347,8 +398,26 @@ describe("Dispatch NavContent", () => {
     });
     clientState.createThread.mockResolvedValue("new-thread");
     clientState.switchThread.mockReset();
+    clientState.createThread.mockClear();
+    clientState.renameThread.mockReset().mockResolvedValue(true);
+    clientState.pinThread.mockReset().mockResolvedValue(true);
+    clientState.archiveThread.mockReset().mockResolvedValue(true);
+    clientState.sharedThreads = [];
+    clientState.mineThreads = null;
+    clientState.sharedHasMore = false;
+    clientState.loadMore.mockClear();
+    clientState.listQueries.mockClear();
+    clientState.lifecycleOptions.mockClear();
+    localStorage.clear();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response("{}", { status: 200 })),
+    );
     clientState.threads = [
       {
+        ownerEmail: "probe@example.com",
+        accessBasis: "owner",
+        visibility: "private",
         id: "active-thread",
         title: "Current Dispatch work",
         messageCount: 2,
@@ -356,6 +425,9 @@ describe("Dispatch NavContent", () => {
         createdAt: Date.now(),
       },
       {
+        ownerEmail: "probe@example.com",
+        accessBasis: "owner",
+        visibility: "private",
         id: "older-thread",
         title: "Earlier Dispatch work",
         messageCount: 1,
@@ -1166,6 +1238,243 @@ describe("Dispatch NavContent", () => {
     expect(paths).toEqual(["/apps/mail"]);
   });
 
+  async function renderHistory(
+    chatFirstMode = false,
+    path = "/chat/active-thread",
+  ) {
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={[path]}>
+          <TooltipProvider>
+            <NavContent chatFirstMode={chatFirstMode} />
+          </TooltipProvider>
+        </MemoryRouter>,
+      );
+    });
+  }
+
+  async function clickText(scope: ParentNode, text: string) {
+    const button = [
+      ...scope.querySelectorAll<HTMLButtonElement>("button"),
+    ].find((button) => button.textContent?.trim() === text);
+    expect(button, text).toBeDefined();
+    await act(async () => {
+      button!.click();
+    });
+  }
+
+  async function openThreadMenu(title: string) {
+    const row = [
+      ...container.querySelectorAll<HTMLElement>(".an-chat-history-row"),
+    ].find((row) => row.textContent?.includes(title));
+    expect(row).toBeDefined();
+    await act(async () => {
+      row!.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
+    });
+  }
+
+  it.each([false, true])(
+    "keeps the proven-owned active empty chat and hides inactive blanks (chat-first %s)",
+    async (chatFirstMode) => {
+      clientState.mineThreads = [];
+      clientState.threads = clientState.threads.map((thread) => ({
+        ...thread,
+        messageCount: 0,
+      }));
+      await renderHistory(chatFirstMode, "/chat");
+
+      expect(container.textContent).toContain("Current Dispatch work");
+      expect(container.textContent).not.toContain("Earlier Dispatch work");
+      expect(container.querySelectorAll(".an-chat-history-row")).toHaveLength(
+        1,
+      );
+      expect(clientState.switchThread).not.toHaveBeenCalled();
+      expect(clientState.lifecycleOptions).toHaveBeenLastCalledWith({
+        autoCreate: false,
+        includeExternal: false,
+      });
+    },
+  );
+
+  it.each(
+    [false, true].flatMap((chatFirstMode) =>
+      ["direct", "organization", "unproven"].map(
+        (basis) => [chatFirstMode, basis] as const,
+      ),
+    ),
+  )(
+    "does not promote an active empty %s/%s lifecycle row into Mine",
+    async (chatFirstMode, basis) => {
+      clientState.mineThreads = [];
+      const active = clientState.threads[0];
+      clientState.threads = [
+        {
+          ...active,
+          messageCount: 0,
+          accessBasis: basis === "unproven" ? undefined : basis,
+          ownerEmail:
+            basis === "unproven" ? undefined : "colleague@example.com",
+          visibility: basis === "unproven" ? undefined : "organization",
+        },
+      ];
+      await renderHistory(chatFirstMode);
+
+      expect(container.textContent).not.toContain("Current Dispatch work");
+      expect(container.querySelector(".an-chat-history-row")).toBeNull();
+      expect(clientState.switchThread).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([false, true])(
+    "renders server Shared attribution, five-row disclosure and paging (chat-first %s)",
+    async (chatFirstMode) => {
+      clientState.sharedThreads = Array.from({ length: 6 }, (_, index) => ({
+        id: `shared-${index}`,
+        title: `Shared work ${index}`,
+        preview: "",
+        messageCount: 1,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        ownerEmail: "colleague@example.com",
+        accessBasis: index === 0 ? "direct" : "organization",
+        visibility: "organization",
+        pinnedAt: Date.now(),
+      }));
+      clientState.sharedHasMore = true;
+      await renderHistory(chatFirstMode, "/chat/shared-0");
+      const shared = container.querySelector(
+        '[data-section-id="shared"].an-chat-history__section',
+      )!;
+      expect(shared).not.toBeNull();
+      expect(shared.querySelectorAll(".an-chat-history-row")).toHaveLength(5);
+      expect(shared.textContent).toContain("Owner: colleague@example.com");
+      expect(
+        shared.querySelector('[data-access-basis="direct"]')?.textContent,
+      ).toContain("Shared with you");
+      expect(
+        shared.querySelector('[data-access-basis="organization"]')?.textContent,
+      ).toContain("Shared with your organization");
+      expect(shared.querySelector(".an-chat-history-row--pinned")).toBeNull();
+      expect(
+        shared.querySelector(".an-chat-history-row__menu-trigger"),
+      ).toBeNull();
+      expect(
+        shared.querySelector(".an-chat-history-row--active")?.textContent,
+      ).toContain("Shared work 0");
+      await clickText(shared, "Show all");
+      expect(shared.querySelectorAll(".an-chat-history-row")).toHaveLength(6);
+      clientState.sharedThreads = clientState.sharedThreads.map((row) => ({
+        ...row,
+      }));
+      await renderHistory(chatFirstMode, "/chat/shared-0");
+      expect(shared.querySelectorAll(".an-chat-history-row")).toHaveLength(6);
+      expect(
+        shared.querySelector(".an-chat-history-row--active")?.textContent,
+      ).toContain("Shared work 0");
+      expect(clientState.switchThread).not.toHaveBeenCalled();
+      await clickText(shared, "Load more");
+      expect(clientState.loadMore).toHaveBeenCalledOnce();
+      await clickText(shared, "Show less");
+      expect(shared.querySelectorAll(".an-chat-history-row")).toHaveLength(5);
+      await act(async () => {
+        shared
+          .querySelector<HTMLButtonElement>(".an-chat-history-row__button")!
+          .click();
+      });
+      expect(clientState.switchThread).toHaveBeenCalledWith("shared-0");
+      expect(clientState.lifecycleOptions).toHaveBeenLastCalledWith({
+        autoCreate: false,
+        includeExternal: false,
+      });
+    },
+  );
+
+  it.each([false, true])(
+    "passes the persisted external source toggle to both ownership queries (chat-first %s)",
+    async (chatFirstMode) => {
+      await renderHistory(chatFirstMode);
+      const toggle = container.querySelector<HTMLButtonElement>(
+        "[data-dispatch-chat-source-toggle]",
+      )!;
+      expect(toggle.getAttribute("aria-pressed")).toBe("false");
+      await act(async () => toggle.click());
+      for (const ownership of ["mine", "shared"]) {
+        expect(clientState.listQueries).toHaveBeenCalledWith(
+          expect.objectContaining({ ownership, includeExternal: true }),
+        );
+      }
+      expect(localStorage.getItem("dispatch.chat-history.source")).toBe("all");
+    },
+  );
+
+  it.each([false, true])(
+    "archives the active owned chat before opening New chat (chat-first %s)",
+    async (chatFirstMode) => {
+      let settle!: (value: boolean) => void;
+      clientState.archiveThread.mockReturnValue(
+        new Promise<boolean>((resolve) => {
+          settle = resolve;
+        }),
+      );
+      await renderHistory(chatFirstMode);
+      await openThreadMenu("Current Dispatch work");
+      await clickText(document.body, "Archive");
+      expect(clientState.archiveThread).toHaveBeenCalledWith("active-thread");
+      expect(clientState.createThread).not.toHaveBeenCalled();
+      await act(async () => settle(true));
+      expect(clientState.createThread).toHaveBeenCalledOnce();
+      expect(clientState.switchThread).toHaveBeenCalledWith("new-thread");
+    },
+  );
+
+  it.each([false, true])(
+    "rolls back a failed archive, toasts once and keeps the active chat (chat-first %s)",
+    async (chatFirstMode) => {
+      vi.mocked(toast.error).mockClear();
+      clientState.archiveThread.mockResolvedValue(false);
+      await renderHistory(chatFirstMode);
+      await openThreadMenu("Current Dispatch work");
+      await clickText(document.body, "Archive");
+      expect(container.textContent).toContain("Current Dispatch work");
+      expect(clientState.createThread).not.toHaveBeenCalled();
+      expect(clientState.switchThread).not.toHaveBeenCalled();
+      expect(toast.error).toHaveBeenCalledExactlyOnceWith("Failed to save");
+    },
+  );
+
+  it.each([false, true])(
+    "pins and renames owned rows through the adapter (chat-first %s)",
+    async (chatFirstMode) => {
+      await renderHistory(chatFirstMode);
+      await openThreadMenu("Earlier Dispatch work");
+      await clickText(document.body, "Pin");
+      expect(clientState.pinThread).toHaveBeenCalledWith("older-thread", true);
+      await openThreadMenu("Earlier Dispatch work");
+      await clickText(document.body, "Rename chat");
+      const input = container.querySelector<HTMLInputElement>(
+        ".an-chat-history-row__rename-input",
+      )!;
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(
+          HTMLInputElement.prototype,
+          "value",
+        )!.set!.call(input, "Revised work");
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      await act(async () => {
+        input.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+        );
+      });
+      expect(clientState.renameThread).toHaveBeenCalledWith(
+        "older-thread",
+        "Revised work",
+      );
+      expect(clientState.createThread).not.toHaveBeenCalled();
+    },
+  );
+
   it("uses the shared chat history rail and retains thread actions", async () => {
     await act(async () => {
       root.render(
@@ -1181,7 +1490,7 @@ describe("Dispatch NavContent", () => {
     expect(container.textContent).toContain("Current Dispatch work");
     expect(container.textContent).toContain("Earlier Dispatch work");
     expect(container.textContent).toContain("New chat");
-    expect(container.textContent).toContain("5m");
+    expect(container.textContent).toContain("5m ago");
     expect(container.querySelector('[aria-label="Slack"]')).not.toBeNull();
     const sourceToggle = container.querySelector(
       "[data-dispatch-chat-source-toggle]",
@@ -1192,7 +1501,7 @@ describe("Dispatch NavContent", () => {
     });
     expect(sourceToggle.getAttribute("aria-pressed")).toBe("true");
     const age = [...container.querySelectorAll("span")].find(
-      (element) => element.textContent === "5m",
+      (element) => element.textContent === "5m ago",
     );
     expect(age?.className).toContain("an-chat-history-row__timestamp");
     const historyList = container.querySelector(

@@ -361,3 +361,9 @@ O compartilhamento depende do modelo mais amplo de escopo de dados da estrutura:
 - [**Autenticação**](/docs/authentication) — sessões, organizações e como a identidade flui para o contexto da solicitação
 - [**Extensões**](/docs/extensions#sharing) — compartilhamento na superfície de miniaplicativos em sandbox
 - [**Criação de modelos**](/docs/creating-templates) — conexão de `ownableColumns` ao esquema de um novo modelo
+
+## Histórico de chats compartilhados
+
+`@agent-native/toolkit/app/chat/ownership-history` oferece `useOwnershipChatHistory()` e `OwnershipChatHistoryRail` para uma barra lateral com seções separadas para seus chats e os compartilhados com você. As linhas compartilhadas mostram o proprietário e a base de acesso. Cada seção é paginada separadamente e mantém as linhas carregadas e as alterações locais quando a atualização falha.
+
+Um rascunho ativo e vazio continua selecionável e pode ser iniciado enquanto aguarda o primeiro salvamento. Até que a persistência seja confirmada, oculte as ações de fixar, renomear e arquivar; o adaptador também rejeita chamadas forçadas a esses callbacks. `ownDraftRows` fornece a procedência de persistência dos rascunhos próprios, e as linhas próprias confirmadas da lista do servidor mantêm suas ações normais. Em valores personalizados de `OwnDraftRow`, defina o campo opcional `persisted?: boolean` como `true` somente quando estiver confirmado que a linha persistida no servidor pertence ao usuário atual. Não deduza a persistência pela quantidade de mensagens nem pelo ID ativo. Papel, privacidade e o fato de o rascunho ativo estar vazio são informações distintas.

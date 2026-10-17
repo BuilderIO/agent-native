@@ -1,9 +1,15 @@
 import { appPath } from "@agent-native/core/client/api-path";
-import {
-  useActionQuery,
-  useActionMutation,
-} from "@agent-native/core/client/hooks";
+import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import {
+  useShareButtonController,
+  type ShareButtonController,
+} from "@agent-native/core/client/sharing/useShareButtonController";
+import {
+  ShareGeneralAccessRow,
+  SharePeopleInvite,
+  SharePeopleList,
+} from "@agent-native/toolkit/app/sharing";
 import {
   useCallback,
   useEffect,
@@ -16,15 +22,8 @@ import { toast } from "sonner";
 
 import {
   CopyButton,
-  GeneralAccessSelect,
-  InvitePeopleField,
-  PeopleAccessSection,
   ShareSectionLabel,
   nestedLayerDismissGuards,
-  useResourceVisibilityMutation,
-  type SharesQuery,
-  type SharesResponse,
-  type Visibility,
 } from "@/components/sharing/share-ui";
 import { Button } from "@/components/ui/button";
 import {
@@ -80,32 +79,18 @@ function ShareMeetingContent({
     [meetingId],
   );
 
-  const sharesQuery = useActionQuery<SharesResponse>("list-resource-shares", {
+  const controller = useShareButtonController({
     resourceType: "meeting",
     resourceId: meetingId,
+    defaultOpen: true,
   });
-
-  const data = sharesQuery.data;
-  const canManage = data?.role === "owner" || data?.role === "admin";
-  const visibility: Visibility =
-    (data?.visibility as Visibility | null) ?? "private";
-  const { setResourceVisibility, isPending } = useResourceVisibilityMutation(
-    "meeting",
-    meetingId,
-    sharesQuery,
-  );
-  const visibilityPending = isPending || sharesQuery.isLoading;
 
   return (
     <div className="min-w-0 px-4 py-3">
       <LinkTab
         meetingId={meetingId}
         shareUrl={shareUrl}
-        sharesQuery={sharesQuery}
-        canManage={canManage}
-        visibility={visibility}
-        visibilityPending={visibilityPending}
-        onVisibilityChange={setResourceVisibility}
+        controller={controller}
         shareTranscript={shareTranscript}
         transcriptReady={transcriptReady}
       />
@@ -116,24 +101,13 @@ function ShareMeetingContent({
 function LinkTab({
   meetingId,
   shareUrl,
-  sharesQuery,
-  canManage,
-  visibility,
-  visibilityPending,
-  onVisibilityChange,
+  controller,
   shareTranscript,
   transcriptReady,
 }: {
   meetingId: string;
   shareUrl: string;
-  sharesQuery: SharesQuery;
-  canManage: boolean;
-  visibility: Visibility;
-  visibilityPending: boolean;
-  onVisibilityChange: (
-    next: Visibility,
-    options?: { onSuccess?: () => void },
-  ) => void;
+  controller: ShareButtonController;
   shareTranscript: boolean;
   transcriptReady: boolean;
 }) {
@@ -143,7 +117,7 @@ function LinkTab({
     { id: string; shareTranscript: boolean }
   >("update-meeting");
   const [includeTranscript, setIncludeTranscript] = useState(shareTranscript);
-  const data = sharesQuery.data;
+  const { sharesQuery, data, canManage, visibility } = controller;
   const isPublic = visibility === "public";
   const sharesLoaded = data?.visibility != null;
   const createAgentLink = useActionMutation("create-agent-resource-link");
@@ -216,45 +190,13 @@ function LinkTab({
 
   return (
     <div className="space-y-3">
-      {canManage ? (
-        <InvitePeopleField
-          resourceType="meeting"
-          resourceId={meetingId}
-          sharesQuery={sharesQuery}
-          onError={(err) =>
-            toast.error(
-              err instanceof Error
-                ? err.message
-                : t("clipsFinalRaw.inviteFailed"),
-            )
-          }
-        />
-      ) : null}
+      <SharePeopleInvite controller={controller} />
 
       <div className="space-y-2">
         <ShareSectionLabel>{t("shareUi.whoHasAccess")}</ShareSectionLabel>
         <div className="flex flex-col gap-1">
-          <PeopleAccessSection
-            resourceType="meeting"
-            resourceId={meetingId}
-            sharesQuery={sharesQuery}
-            canManage={canManage}
-            onError={(err, action) =>
-              toast.error(
-                err instanceof Error
-                  ? err.message
-                  : action === "permission"
-                    ? t("clipsFinalRaw.permissionUpdateFailed")
-                    : t("clipsFinalRaw.removePersonFailed"),
-              )
-            }
-          />
-          <GeneralAccessSelect
-            visibility={visibility}
-            canManage={canManage}
-            isPending={visibilityPending}
-            onChange={onVisibilityChange}
-          />
+          <SharePeopleList controller={controller} />
+          <ShareGeneralAccessRow controller={controller} />
         </div>
       </div>
 

@@ -312,6 +312,10 @@ const enUS = {
     },
   },
   dispatch: {
+    sidebar: {
+      showLocalChats: "Show local chats",
+      showAllChats: "Show all chats",
+    },
     nav: {
       admin: "Admin",
       automations: "Automations",
@@ -324,6 +328,9 @@ const enUS = {
       agent: "Agent",
     },
     pages: {
+      chatFirstCopySessionId: "Copy session ID",
+      chatFirstSessionIdCopied: "Session ID copied",
+      chatFirstWatchSession: "Watch",
       adminDescription: "Workspace controls and operations",
       simpleAgentsDescription:
         "Create reusable agents in minutes, or import a setup you already made in Claude or another agent tool.",
@@ -572,6 +579,7 @@ type PartialMessages = {
       } & Record<string, unknown>
     : K extends "dispatch"
       ? {
+          sidebar?: Partial<Messages["dispatch"]["sidebar"]>;
           nav?: Partial<Messages["dispatch"]["nav"]> & Record<string, unknown>;
           pages?: Partial<Messages["dispatch"]["pages"]> &
             Record<string, unknown>;
@@ -960,6 +968,10 @@ function mergeMessages(
     dispatch: {
       ...enUS.dispatch,
       ...overrides.dispatch,
+      sidebar: {
+        ...enUS.dispatch.sidebar,
+        ...overrides.dispatch?.sidebar,
+      },
       nav: {
         ...enUS.dispatch.nav,
         ...(overrides.dispatch as { nav?: Record<string, string> } | undefined)
@@ -1245,6 +1257,10 @@ export const messagesByLocale = {
       },
 
       dispatch: {
+        sidebar: {
+          showLocalChats: "显示本地聊天",
+          showAllChats: "显示所有聊天",
+        },
         nav: {
           admin: "管理",
           automations: "自动化",
@@ -1257,6 +1273,9 @@ export const messagesByLocale = {
           agent: "代理",
         },
         pages: {
+          chatFirstCopySessionId: "复制会话 ID",
+          chatFirstSessionIdCopied: "会话 ID 已复制",
+          chatFirstWatchSession: "观看",
           ...chatFirstPageTranslations["zh-CN"],
           adminDescription: "工作区控制与运营",
           connectApps: "连接应用",
@@ -1696,6 +1715,10 @@ export const messagesByLocale = {
       },
 
       dispatch: {
+        sidebar: {
+          showLocalChats: "Mostrar chats locales",
+          showAllChats: "Mostrar todos los chats",
+        },
         nav: {
           admin: "Administración",
           automations: "Automatizaciones",
@@ -1708,6 +1731,9 @@ export const messagesByLocale = {
           agent: "Agente",
         },
         pages: {
+          chatFirstCopySessionId: "Copiar ID de sesión",
+          chatFirstSessionIdCopied: "ID de sesión copiado",
+          chatFirstWatchSession: "Observar",
           ...chatFirstPageTranslations["es-ES"],
           adminDescription: "Controles y operaciones del espacio de trabajo",
           connectApps: "Conectar apps",
@@ -2161,6 +2187,10 @@ export const messagesByLocale = {
       },
 
       dispatch: {
+        sidebar: {
+          showLocalChats: "Afficher les conversations locales",
+          showAllChats: "Afficher toutes les conversations",
+        },
         nav: {
           admin: "Administration",
           automations: "Automatisations",
@@ -2173,6 +2203,9 @@ export const messagesByLocale = {
           agent: "Agent",
         },
         pages: {
+          chatFirstCopySessionId: "Copier l’identifiant de session",
+          chatFirstSessionIdCopied: "Identifiant de session copié",
+          chatFirstWatchSession: "Observer",
           ...chatFirstPageTranslations["fr-FR"],
           adminDescription: "Contrôles et opérations de l’espace de travail",
           connectApps: "Connecter des apps",
@@ -2617,6 +2650,10 @@ export const messagesByLocale = {
       },
 
       dispatch: {
+        sidebar: {
+          showLocalChats: "Lokale Chats anzeigen",
+          showAllChats: "Alle Chats anzeigen",
+        },
         nav: {
           admin: "Administration",
           automations: "Automatisierungen",
@@ -2629,6 +2666,9 @@ export const messagesByLocale = {
           agent: "Agent",
         },
         pages: {
+          chatFirstCopySessionId: "Sitzungs-ID kopieren",
+          chatFirstSessionIdCopied: "Sitzungs-ID kopiert",
+          chatFirstWatchSession: "Beobachten",
           ...chatFirstPageTranslations["de-DE"],
           adminDescription: "Arbeitsbereichssteuerung und -betrieb",
           connectApps: "Apps verbinden",
@@ -3067,6 +3107,10 @@ export const messagesByLocale = {
       },
 
       dispatch: {
+        sidebar: {
+          showLocalChats: "ローカルのチャットを表示",
+          showAllChats: "すべてのチャットを表示",
+        },
         nav: {
           admin: "管理",
           automations: "自動化",
@@ -3079,6 +3123,9 @@ export const messagesByLocale = {
           agent: "エージェント",
         },
         pages: {
+          chatFirstCopySessionId: "セッション ID をコピー",
+          chatFirstSessionIdCopied: "セッション ID をコピーしました",
+          chatFirstWatchSession: "ウォッチ",
           ...chatFirstPageTranslations["ja-JP"],
           adminDescription: "ワークスペースの管理と運用",
           connectApps: "アプリを接続",
@@ -3511,6 +3558,10 @@ export const messagesByLocale = {
       },
 
       dispatch: {
+        sidebar: {
+          showLocalChats: "로컬 채팅 표시",
+          showAllChats: "모든 채팅 표시",
+        },
         nav: {
           admin: "관리",
           automations: "자동화",
@@ -3523,6 +3574,9 @@ export const messagesByLocale = {
           agent: "에이전트",
         },
         pages: {
+          chatFirstCopySessionId: "세션 ID 복사",
+          chatFirstSessionIdCopied: "세션 ID가 복사되었습니다",
+          chatFirstWatchSession: "지켜보기",
           ...chatFirstPageTranslations["ko-KR"],
           adminDescription: "워크스페이스 제어 및 운영",
           connectApps: "앱 연결",
@@ -3963,6 +4017,10 @@ export const messagesByLocale = {
       },
 
       dispatch: {
+        sidebar: {
+          showLocalChats: "Mostrar conversas locais",
+          showAllChats: "Mostrar todas as conversas",
+        },
         nav: {
           admin: "Administração",
           automations: "Automações",
@@ -3975,6 +4033,9 @@ export const messagesByLocale = {
           agent: "Agente",
         },
         pages: {
+          chatFirstCopySessionId: "Copiar ID da sessão",
+          chatFirstSessionIdCopied: "ID da sessão copiado",
+          chatFirstWatchSession: "Observar",
           ...chatFirstPageTranslations["pt-BR"],
           adminDescription: "Controles e operações do espaço de trabalho",
           connectApps: "Conectar apps",
@@ -4408,6 +4469,10 @@ export const messagesByLocale = {
       },
 
       dispatch: {
+        sidebar: {
+          showLocalChats: "स्थानीय चैट दिखाएँ",
+          showAllChats: "सभी चैट दिखाएँ",
+        },
         nav: {
           admin: "व्यवस्थापक",
           automations: "ऑटोमेशन",
@@ -4420,6 +4485,9 @@ export const messagesByLocale = {
           agent: "एजेंट",
         },
         pages: {
+          chatFirstCopySessionId: "सत्र ID कॉपी करें",
+          chatFirstSessionIdCopied: "सत्र ID कॉपी किया गया",
+          chatFirstWatchSession: "देखें",
           ...chatFirstPageTranslations["hi-IN"],
           adminDescription: "वर्कस्पेस नियंत्रण और संचालन",
           connectApps: "ऐप कनेक्ट करें",
@@ -4881,6 +4949,10 @@ export const messagesByLocale = {
       },
 
       dispatch: {
+        sidebar: {
+          showLocalChats: "إظهار المحادثات المحلية",
+          showAllChats: "إظهار جميع المحادثات",
+        },
         nav: {
           admin: "الإدارة",
           automations: "الأتمتة",
@@ -4893,6 +4965,9 @@ export const messagesByLocale = {
           agent: "الوكيل",
         },
         pages: {
+          chatFirstCopySessionId: "نسخ معرّف الجلسة",
+          chatFirstSessionIdCopied: "تم نسخ معرّف الجلسة",
+          chatFirstWatchSession: "مشاهدة",
           ...chatFirstPageTranslations["ar-SA"],
           adminDescription: "عناصر التحكم في مساحة العمل وعملياتها",
           connectApps: "توصيل التطبيقات",
