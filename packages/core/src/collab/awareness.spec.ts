@@ -182,14 +182,47 @@ describe("postAwareness handler", () => {
     const map = getDocAwareness("post-doc");
     map.set(99, { clientId: 99, state: "other-state", lastSeen: Date.now() });
 
-    mockReadBody.mockResolvedValue({ clientId: 5, state: "my-state" });
+    const mine = JSON.stringify({ user: { name: "Me" } });
+    mockReadBody.mockResolvedValue({ clientId: 5, state: mine });
     const ev = event({ docId: "post-doc" });
     const res = (await postAwareness(ev)) as {
       states: Array<{ clientId: number; state: string }>;
     };
 
-    expect(map.get(5)?.state).toBe("my-state");
+    expect(map.get(5)?.state).toBe(mine);
     expect(res.states).toEqual([{ clientId: 99, state: "other-state" }]);
+  });
+
+  it("refuses an editor's state that is not a JSON object", async () => {
+    const map = getDocAwareness("writer-unreadable-doc");
+    for (const state of ["{broken", "null", "[]", "7"]) {
+      mockReadBody.mockResolvedValue({ clientId: 5, state });
+      const ev = event({ docId: "writer-unreadable-doc" });
+
+      expect(await postAwareness(ev)).toEqual({
+        error: "state must be a JSON object",
+      });
+      expect(ev._status).toBe(400);
+    }
+    expect(map.has(5)).toBe(false);
+  });
+
+  it("answers an editor with 503, keeping its entry, while stored presence cannot be read", async () => {
+    const map = getDocAwareness("writer-unread-doc");
+    const mine = JSON.stringify({ user: { name: "Me" } });
+    storedRows.unreadable = true;
+    mockReadBody.mockResolvedValue({ clientId: 5, state: mine });
+    const ev = event({ docId: "writer-unread-doc" });
+    try {
+      expect(await postAwareness(ev)).toEqual({
+        error: "Presence could not be read",
+      });
+    } finally {
+      storedRows.unreadable = false;
+    }
+
+    expect(ev._status).toBe(503);
+    expect(map.get(5)?.state).toBe(mine);
   });
 
   it("stores a reader's state as one that cannot flush the doc", async () => {
@@ -368,7 +401,10 @@ describe("postAwareness handler", () => {
       expect((await post("reader-raced-clear-doc", 7, null)).status).toBe(200);
       expect(await storedState("reader-raced-clear-doc", 7)).toBe(writer);
       // Nor does this server hide it the next time it reads the store.
-      mockReadBody.mockResolvedValue({ clientId: 8, state: "other-state" });
+      mockReadBody.mockResolvedValue({
+        clientId: 8,
+        state: JSON.stringify({ user: { name: "Other" } }),
+      });
       const res = (await postAwareness(
         event({ docId: "reader-raced-clear-doc" }),
       )) as { states: Array<{ clientId: number; state: string }> };
@@ -419,7 +455,10 @@ describe("postAwareness handler", () => {
     map.set(7, { clientId: 7, state: "expired", lastSeen: 0 });
 
     vi.setSystemTime(40_000);
-    mockReadBody.mockResolvedValue({ clientId: 5, state: "fresh" });
+    mockReadBody.mockResolvedValue({
+      clientId: 5,
+      state: JSON.stringify({ user: { name: "Fresh" } }),
+    });
     const res = (await postAwareness(event({ docId: "post-doc" }))) as {
       states: Array<{ clientId: number }>;
     };

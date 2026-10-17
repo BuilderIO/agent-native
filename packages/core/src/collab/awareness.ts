@@ -238,11 +238,11 @@ function storedRowWins(
 }
 
 /**
- * A presence state marked as one that cannot flush the doc, which clients
- * read as neither holding a stored revision nor able to lead; null when the
- * state is not a JSON object.
+ * A presence state as a JSON object, or null when it is not one: a client
+ * refuses a whole presence list with a state it cannot read, so one such
+ * state would hide every collaborator listed beside it.
  */
-function cannotFlushState(state: unknown): string | null {
+function readPresenceState(state: unknown): Record<string, unknown> | null {
   if (typeof state !== "string") return null;
   let parsed: unknown;
   try {
@@ -251,10 +251,9 @@ function cannotFlushState(state: unknown): string | null {
   } catch {
     return null;
   }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    return null;
-  }
-  return JSON.stringify({ ...parsed, canFlushDocument: false });
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    ? (parsed as Record<string, unknown>)
+    : null;
 }
 
 function isReaderEntry(entry: AwarenessEntry): boolean {
@@ -368,19 +367,23 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
     return { error: "clientId and state required" };
   }
 
+  const readOnly = context?._collabAwarenessReadOnly === true;
   let storedState = state;
-  if (state !== null && context?._collabAwarenessReadOnly) {
-    const marked = cannotFlushState(state);
-    if (marked === null) {
+  if (state !== null) {
+    const parsed = readPresenceState(state);
+    if (!parsed) {
       setResponseStatus(event, 400);
       return { error: "state must be a JSON object" };
     }
-    storedState = marked;
+    // A reader's state, which clients read as neither holding a stored
+    // revision nor able to lead.
+    if (readOnly) {
+      storedState = JSON.stringify({ ...parsed, canFlushDocument: false });
+    }
   }
 
   const map = getDocAwareness(docId);
 
-  const readOnly = context?._collabAwarenessReadOnly === true;
   if (readOnly) {
     const refused = await writeReaderPresence(
       docId,
@@ -404,8 +407,19 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
     void upsertAwarenessRow(docId, clientId, storedState, entry.lastSeen);
   }
 
-  // A reader's rows were merged above.
-  if (!readOnly) await mergeStoredAwareness(docId, map);
+  // A reader's rows were merged above. An answer without the stored rows
+  // would omit collaborators only the store knows, so it is refused; this
+  // caller's own entry stands.
+  if (!readOnly) {
+    let rows: AwarenessEntry[];
+    try {
+      rows = await loadAwarenessRowsStrict(docId, Date.now());
+    } catch {
+      setResponseStatus(event, 503);
+      return { error: "Presence could not be read" };
+    }
+    mergeAwarenessRows(docId, map, rows, Date.now());
+  }
 
   cleanExpired(map);
   pruneIfEmpty(docId, map);

@@ -294,8 +294,12 @@ class CollabDocConnection {
   /** Presence exchanges sent, and the latest whose answer was applied. */
   private awarenessExchangesSent = 0;
   private awarenessExchangeApplied = 0;
-  /** Presence answers and events refused as unreadable. */
-  private awarenessRefusals = 0;
+  /**
+   * Presence answers this client did not get or could not read, and events
+   * it refused as unreadable: any of them may name a collaborator it does not
+   * know.
+   */
+  private awarenessGaps = 0;
 
   private syncActive = false;
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
@@ -740,7 +744,7 @@ class CollabDocConnection {
       () => controller.abort(),
       STATE_VECTOR_FETCH_TIMEOUT_MS,
     );
-    const refusals = this.awarenessRefusals;
+    const gaps = this.awarenessGaps;
     try {
       const exchanged = await this.exchangeAwareness({
         signal: controller.signal,
@@ -748,8 +752,7 @@ class CollabDocConnection {
       return exchanged && !this.disposed
         ? {
             status: "ready",
-            current: () =>
-              !this.disposed && this.awarenessRefusals === refusals,
+            current: () => !this.disposed && this.awarenessGaps === gaps,
           }
         : { status: "unavailable" };
     } catch (error) {
@@ -778,31 +781,14 @@ class CollabDocConnection {
     const localState = this.awareness.getLocalState();
     if (!localState || this.disposed) return false;
     const exchange = ++this.awarenessExchangesSent;
-    const response = await fetch(`${this.baseUrl}/${this.docId}/awareness`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        clientId: this.ydoc.clientID,
-        state: JSON.stringify(localState),
-      }),
-      ...(signal ? { signal } : {}),
-    });
-    if (!response.ok) {
-      throw new Error(`Awareness request failed: HTTP ${response.status}`);
-    }
-    let awarenessData: { states?: unknown } | null;
+    let remoteStates: RemoteAwarenessSnapshot[];
     try {
-      awarenessData = (await response.json()) as { states?: unknown } | null;
-    } catch {
-      this.awarenessRefusals++;
-      throw new Error("Awareness response is unreadable");
+      remoteStates = await this.requestAwareness(localState, signal);
+    } catch (error) {
+      this.awarenessGaps++;
+      throw error;
     }
     if (this.disposed) return false;
-    const remoteStates = readRemoteAwarenessStates(awarenessData?.states);
-    if (!remoteStates) {
-      this.awarenessRefusals++;
-      throw new Error("Awareness response has an unreadable state");
-    }
     // The poll and discoverPeers exchange separately, and an answer replaces
     // the collaborators this client knows, so an answer older than one already
     // applied would remove collaborators the newer one reported.
@@ -821,6 +807,35 @@ class CollabDocConnection {
       this.awareness.emit("change", [changes, "remote"]);
     }
     return true;
+  }
+
+  private async requestAwareness(
+    localState: unknown,
+    signal: AbortSignal | undefined,
+  ): Promise<RemoteAwarenessSnapshot[]> {
+    const response = await fetch(`${this.baseUrl}/${this.docId}/awareness`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        clientId: this.ydoc.clientID,
+        state: JSON.stringify(localState),
+      }),
+      ...(signal ? { signal } : {}),
+    });
+    if (!response.ok) {
+      throw new Error(`Awareness request failed: HTTP ${response.status}`);
+    }
+    let answer: { states?: unknown } | null;
+    try {
+      answer = (await response.json()) as { states?: unknown } | null;
+    } catch {
+      throw new Error("Awareness response is unreadable");
+    }
+    const remoteStates = readRemoteAwarenessStates(answer?.states);
+    if (!remoteStates) {
+      throw new Error("Awareness response has an unreadable state");
+    }
+    return remoteStates;
   }
 
   flushUpdates = async (): Promise<boolean> => {
@@ -1295,7 +1310,7 @@ class CollabDocConnection {
     // An event replaces the collaborators this client knows, as an answer does.
     const remoteStates = readRemoteAwarenessStates(data.states);
     if (!remoteStates) {
-      this.awarenessRefusals++;
+      this.awarenessGaps++;
       return;
     }
     const changes = reconcileRemoteAwarenessStates(

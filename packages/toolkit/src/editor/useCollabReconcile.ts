@@ -453,8 +453,9 @@ export function useCollabReconcile({
     cancel: () => void;
   } | null>(null);
   // When the stored body must have reached a joining doc. Evidence asked for
-  // again about the same revision keeps it, so asking again cannot put the
-  // failure off for good; a retry or a newer revision sets a new one.
+  // again about the same revision keeps it, and must arrive by then too, so
+  // asking again cannot put the failure off; a retry or a newer revision sets
+  // a new one.
   const joinBodyDeadlineRef = useRef<{
     ydoc: YDoc;
     revision: string;
@@ -530,9 +531,15 @@ export function useCollabReconcile({
     };
     const fail = (error: unknown) =>
       settle({ ydoc: doc, revision, status: "failed", error });
+    const bodyDeadline = joinBodyDeadlineRef.current;
     const watchdog = setTimeout(
       () => fail(new Error("Timed out")),
-      JOIN_EVIDENCE_TIMEOUT_MS,
+      bodyDeadline?.ydoc === doc && bodyDeadline.revision === revision
+        ? Math.max(
+            0,
+            Math.min(JOIN_EVIDENCE_TIMEOUT_MS, bodyDeadline.at - Date.now()),
+          )
+        : JOIN_EVIDENCE_TIMEOUT_MS,
     );
     const attempt = async () => {
       const discovered = await discover();

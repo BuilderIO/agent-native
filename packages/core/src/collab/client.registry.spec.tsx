@@ -1180,6 +1180,14 @@ describe("useCollaborativeDoc connection registry", () => {
         Response.json({ states: [{ clientId: 77, state: "{broken" }] }),
     },
     { answer: "is not JSON", response: () => new Response("{broken") },
+    {
+      answer: "is an HTTP error",
+      response: () => new Response(null, { status: 503 }),
+    },
+    {
+      answer: "never arrives",
+      response: () => new TypeError("Failed to fetch"),
+    },
   ])(
     "keeps a collaborator an older discovery reports when a newer poll's answer $answer, and counts that discovery stale",
     async ({ response }) => {
@@ -1189,12 +1197,16 @@ describe("useCollaborativeDoc connection registry", () => {
         canFlushDocument: true,
         reconciledRevision: "body:2:c",
       };
-      const answers: Array<(response: Response) => void> = [];
+      const answers: Array<(response: Response | Error) => void> = [];
       vi.stubGlobal(
         "fetch",
         vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
           if (String(input).includes("/awareness") && init?.method === "POST") {
-            return new Promise<Response>((resolve) => answers.push(resolve));
+            return new Promise<Response>((resolve, reject) =>
+              answers.push((answer) =>
+                answer instanceof Error ? reject(answer) : resolve(answer),
+              ),
+            );
           }
           return fallback(input);
         }),
