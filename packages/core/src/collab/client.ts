@@ -374,35 +374,59 @@ interface StoredOutbox {
   raw: string;
 }
 
-// A candidate names the entries it was made from, in the one write that
-// stores it. It holds their content under another client id, so a page that
-// opens skips an entry a stored candidate names rather than apply that
-// content twice.
-interface StoredCandidate {
+// An entry names the entries whose content it took up, in the one write that
+// stores it, and a page that opens skips an entry a stored one names. A
+// candidate holds that content under another client id and an entry under
+// another owner, so two pages that each took up one of them could each
+// rebuild it, putting the content in twice. An entry that names nothing is
+// stored as its bare update.
+interface StoredRecord {
   replaces: Array<[key: string, digest: string]>;
   update: string;
 }
 
-function readStoredCandidate(raw: string): StoredCandidate {
-  const candidate = JSON.parse(raw) as Partial<StoredCandidate> | null;
+function readStoredRecord(raw: string): StoredRecord {
+  // Base64 never starts with a brace.
+  if (!raw.startsWith("{")) return { replaces: [], update: raw };
+  const record = JSON.parse(raw) as Partial<StoredRecord> | null;
   if (
-    typeof candidate?.update !== "string" ||
-    !Array.isArray(candidate.replaces) ||
-    !candidate.replaces.every(
+    typeof record?.update !== "string" ||
+    !Array.isArray(record.replaces) ||
+    !record.replaces.every(
       (entry) =>
         Array.isArray(entry) &&
         typeof entry[0] === "string" &&
         typeof entry[1] === "string",
     )
   ) {
-    throw new Error("Unreadable rebuild candidate");
+    throw new Error("Unreadable outbox entry");
   }
-  return candidate as StoredCandidate;
+  return record as StoredRecord;
 }
 
-// A candidate replaces the bytes it was made from, not whatever its key
-// holds later: without Web Locks the tab that kept them may still be open,
-// and what it writes after is content no candidate holds.
+// Null for an entry that cannot be read, which its own adoption reports.
+function readStoredRecordIfReadable(raw: string): StoredRecord | null {
+  try {
+    return readStoredRecord(raw);
+  } catch {
+    // coercion-ok: null marks it unreadable; it names nothing meanwhile.
+    return null;
+  }
+}
+
+function storedRecordRaw(update: Uint8Array, replaced: StoredOutbox[]): string {
+  const encoded = uint8ArrayToBase64(update);
+  if (replaced.length === 0) return encoded;
+  const record: StoredRecord = {
+    replaces: replaced.map(({ key, raw }) => [key, entryDigest(raw)]),
+    update: encoded,
+  };
+  return JSON.stringify(record);
+}
+
+// An entry replaces the bytes it took up, not whatever their key holds
+// later: without Web Locks the tab that kept them may still be open, and
+// what it writes after is content no other entry holds.
 function entryDigest(raw: string): string {
   let h1 = 0xdeadbeef;
   let h2 = 0x41c6ce57;
@@ -425,31 +449,42 @@ function readStoredEntry(key: string): StoredOutbox | null {
   return raw === null ? null : { key, raw };
 }
 
-// The candidates under `prefix` by key, with `stored` null for one that
-// cannot be read.
-function readStoredCandidates(
-  prefix: string,
-): Map<string, { raw: string; stored: StoredCandidate | null }> {
+// What the entries under `prefix` name, each as `key\0digest`.
+function readStoredNames(prefix: string): Set<string> {
   const storage = window.localStorage;
-  const candidates = new Map<
-    string,
-    { raw: string; stored: StoredCandidate | null }
-  >();
+  const names = new Set<string>();
   for (let index = 0; index < storage.length; index += 1) {
     const key = storage.key(index);
-    if (!key?.startsWith(prefix + REBUILD_CANDIDATE_MARK)) continue;
+    if (!key?.startsWith(prefix)) continue;
     const raw = storage.getItem(key);
     if (raw === null) continue;
-    let stored: StoredCandidate | null = null;
-    try {
-      stored = readStoredCandidate(raw);
-    } catch {
-      // coercion-ok: null marks it unreadable, which its own adoption
-      // reports; it replaces nothing meanwhile.
+    for (const [named, digest] of readStoredRecordIfReadable(raw)?.replaces ??
+      []) {
+      names.add(`${named}\0${digest}`);
     }
-    candidates.set(key, { raw, stored });
   }
-  return candidates;
+  return names;
+}
+
+// Adds the stored entries `replaces` names, and those they name in turn, each
+// after the ones it names.
+function collectNamedEntries(
+  replaces: StoredRecord["replaces"],
+  into: Map<string, StoredOutbox>,
+  visiting = new Set<string>(),
+): void {
+  for (const [key, digest] of replaces) {
+    if (into.has(key) || visiting.has(key)) continue;
+    const entry = readStoredEntry(key);
+    if (!entry || entryDigest(entry.raw) !== digest) continue;
+    visiting.add(key);
+    collectNamedEntries(
+      readStoredRecordIfReadable(entry.raw)?.replaces ?? [],
+      into,
+      visiting,
+    );
+    into.set(key, entry);
+  }
 }
 
 interface HeldSource {
@@ -526,10 +561,14 @@ class CollabDocConnection {
   private leftToAccount = false;
   // Other connections' entries this doc applied, by owner, with what lets go
   // of that owner's lock and the unsent updates that carry their content.
-  // Held until the server acknowledges those updates or a candidate of this
-  // doc replaces them, so no other page adopts the same edits meanwhile. A
-  // candidate comes after the entries it replaces, and is removed after them.
+  // Held until an entry of this doc that names them is stored or the server
+  // acknowledges those updates, so no other page adopts the same edits
+  // meanwhile. An entry comes after the entries it names, and is removed
+  // after them.
   private readonly heldSources = new Map<string, HeldSource>();
+  // Set while this doc applies kept entries, so what they queue is stored
+  // once they are held, by a write that names them.
+  private takingUp = false;
   private adoptionAbort: AbortController | null = null;
   // Remote updates wait while a rebuild reads this doc against the server's,
   // so the content it reads holds nothing that copy lacks.
@@ -738,35 +777,49 @@ class CollabDocConnection {
   }
 
   private storeUnsentUpdates(): void {
-    if (!this.keepsUnsentUpdates || this.leftToAccount) return;
-    this.writeUnsentUpdates();
-    this.retireAcknowledgedSources();
+    if (!this.keepsUnsentUpdates || this.leftToAccount || this.takingUp) {
+      return;
+    }
+    if (this.writeUnsentUpdates()) this.retireHeldSources(() => true);
+    else this.retireAcknowledgedSources();
   }
 
-  private writeUnsentUpdates(): void {
-    if (this.snapshot.updatesRefused) return;
+  // True once this connection's entry stores every unsent update, naming
+  // every entry this doc holds.
+  private writeUnsentUpdates(): boolean {
+    if (this.snapshot.updatesRefused) return false;
     const scope = this.outboxScope;
-    if (!scope) return;
+    if (!scope) return false;
     if (this.pendingUpdates.length === 0) {
       this.removeStoredKey(scope.key);
-      return;
+      return false;
     }
     // Kept once the lock is held, which stores them then.
     if (!this.ownsKeys) {
       void this.holdOwnerLock();
-      if (!this.ownsKeys) return;
+      if (!this.ownsKeys) return false;
     }
     try {
-      const raw = uint8ArrayToBase64(
+      const raw = storedRecordRaw(
         this.pendingUpdates.length === 1
           ? this.pendingUpdates[0]
           : Y.mergeUpdates(this.pendingUpdates),
+        this.heldEntries(),
       );
       window.localStorage.setItem(scope.key, raw);
       this.storedEntries.set(scope.key, raw);
+      return true;
     } catch {
       this.markDurableUpdatesFailed();
+      return false;
     }
+  }
+
+  private heldEntries(): StoredOutbox[] {
+    return Array.from(
+      this.heldSources.values(),
+      ({ entries }) => entries,
+    ).flat();
   }
 
   private removeStoredKey(key: string): void {
@@ -786,16 +839,9 @@ class CollabDocConnection {
     const scope = this.outboxScope;
     if (!scope) return true;
     const own = this.storedEntries.get(scope.key);
-    const replaced = Array.from(
-      this.heldSources.values(),
-      ({ entries }) => entries,
-    ).flat();
+    const replaced = this.heldEntries();
     if (own !== undefined) replaced.push({ key: scope.key, raw: own });
-    const stored: StoredCandidate = {
-      replaces: replaced.map(({ key, raw }) => [key, entryDigest(raw)]),
-      update: uint8ArrayToBase64(update),
-    };
-    const raw = JSON.stringify(stored);
+    const raw = storedRecordRaw(update, replaced);
     try {
       window.localStorage.setItem(scope.candidateKey, raw);
       this.storedEntries.set(scope.candidateKey, raw);
@@ -908,11 +954,12 @@ class CollabDocConnection {
    * Sends what other connections for this doc and user kept: a tab that
    * closed or reloaded before its updates were acknowledged. Applying them
    * queues what the doc lacks as this connection's own unsent updates; the
-   * other entry stays, held with its lock, until the server acknowledges them
-   * or a candidate replaces it. Each connection's entries are adopted
-   * while holding its lock, so for a tab that is still open with them, once
-   * it closes; until then it sends them itself. A refused connection adopts
-   * nothing; the one rebuilt from it does.
+   * other entry stays, held with its lock, until this connection's own entry
+   * stores them, naming it, or the server acknowledges them. Each
+   * connection's entries are adopted while holding its lock, so for a tab
+   * that is still open with them, once it closes; until then it sends them
+   * itself. A refused connection adopts nothing; the one rebuilt from it
+   * does.
    */
   private restoreUnsentUpdates(): void {
     if (
@@ -986,8 +1033,9 @@ class CollabDocConnection {
     await held;
   }
 
-  // Applying the entries queued what this doc lacked; with nothing queued,
-  // the server holds what they do once the updates already queued are sent.
+  // Applying the entries queued what this doc lacked, stored only now so the
+  // entry that stores it names them; with nothing queued, the server holds
+  // what they do once the updates already queued are sent.
   private holdSource(
     owner: string,
     entries: StoredOutbox[],
@@ -998,7 +1046,7 @@ class CollabDocConnection {
       release,
       covering: new Set(this.pendingUpdates),
     });
-    this.retireAcknowledgedSources();
+    this.storeUnsentUpdates();
   }
 
   /** The other connections with entries under `prefix`. */
@@ -1044,64 +1092,47 @@ class CollabDocConnection {
     }
   }
 
-  // Returns the entries left in storage whose content this doc now holds, a
-  // candidate after the ones it replaces. An entry a stored candidate
-  // replaces is left to the page that adopts that candidate, which removes
-  // it first; so the candidates are read before the entries, and an entry
-  // read after its candidate is gone is gone too.
+  // Returns the entries left in storage whose content this doc now holds,
+  // each after the ones it names. An entry a stored one names is left to the
+  // page that adopts the one naming it, which removes it first; so every
+  // entry is read for what it names before this owner's are read again, and
+  // an entry read after the one naming it is gone is gone too.
   private adoptOwnerEntries(prefix: string, owner: string): StoredOutbox[] {
-    const candidateKey = prefix + REBUILD_CANDIDATE_MARK + owner;
-    let candidates: Map<
-      string,
-      { raw: string; stored: StoredCandidate | null }
-    >;
-    let ordinary: StoredOutbox | null;
-    let replaces: StoredOutbox[];
+    const kept = new Map<string, StoredOutbox>();
+    this.takingUp = true;
     try {
-      candidates = readStoredCandidates(prefix);
-      ordinary = readStoredEntry(prefix + owner);
-      replaces = (candidates.get(candidateKey)?.stored?.replaces ?? []).flatMap(
-        ([key, digest]) => {
-          const entry = readStoredEntry(key);
-          return entry && entryDigest(entry.raw) === digest ? [entry] : [];
-        },
-      );
+      const names = readStoredNames(prefix);
+      for (const key of [
+        prefix + owner,
+        prefix + REBUILD_CANDIDATE_MARK + owner,
+      ]) {
+        const entry = readStoredEntry(key);
+        if (!entry || names.has(`${key}\0${entryDigest(entry.raw)}`)) continue;
+        const stored = readStoredRecordIfReadable(entry.raw);
+        if (!stored) {
+          if (this.discardUnreadable(entry) === "kept") kept.set(key, entry);
+          continue;
+        }
+        const adopted = this.adoptStored(entry, stored.update);
+        // What it names is held only once this doc has its content.
+        if (adopted === "applied") collectNamedEntries(stored.replaces, kept);
+        if (adopted !== "unreadable") kept.set(key, entry);
+      }
     } catch {
       this.markDurableUpdatesFailed();
-      return [];
+    } finally {
+      this.takingUp = false;
     }
-    const replaced = new Set<string>();
-    for (const { stored } of candidates.values()) {
-      for (const [key, digest] of stored?.replaces ?? []) {
-        replaced.add(`${key}\0${digest}`);
-      }
-    }
-    const adoptable = (entry: StoredOutbox | null): entry is StoredOutbox =>
-      entry !== null &&
-      !replaced.has(`${entry.key}\0${entryDigest(entry.raw)}`);
-    const kept: StoredOutbox[] = [];
-    if (
-      adoptable(ordinary) &&
-      this.adoptStored(ordinary, ordinary.raw) === "kept"
-    ) {
-      kept.push(ordinary);
-    }
-    const read = candidates.get(candidateKey);
-    const candidate = read ? { key: candidateKey, raw: read.raw } : null;
-    if (!read || !adoptable(candidate)) return kept;
-    const adopted = read.stored
-      ? this.adoptStored(candidate, read.stored.update)
-      : this.discardUnreadable(candidate);
-    return adopted === "kept" ? [...kept, ...replaces, candidate] : kept;
+    return Array.from(kept.values());
   }
 
   private adoptStored(
     entry: StoredOutbox,
     update: string,
-  ): "kept" | "unreadable" {
+  ): "applied" | "kept" | "unreadable" {
     try {
       Y.applyUpdate(this.ydoc, base64ToUint8Array(update), OUTBOX_ORIGIN);
-      return "kept";
+      return "applied";
     } catch {
       return this.discardUnreadable(entry);
     }
@@ -1584,8 +1615,14 @@ class CollabDocConnection {
     } catch (error) {
       return rebuildFailed(error);
     }
+    // Stored once the new doc holds what this one kept, so the entry that
+    // stores the update names it; a rebuild that changes nothing lets go of
+    // it at once.
+    next.takingUp = true;
     Y.applyUpdate(next.ydoc, measured.update, REBUILD_ORIGIN);
     this.handOverKept(next);
+    next.takingUp = false;
+    next.storeUnsentUpdates();
     this.pendingUpdates = [];
     this.replaced = true;
     collabConnectionRegistry.set(this.registryKey, next);
@@ -1598,10 +1635,9 @@ class CollabDocConnection {
   }
 
   // The new doc holds what this one kept, with the locks that keep other
-  // pages from adopting it, until the server acknowledges the update it
-  // sends. A later candidate of the new doc then replaces this doc's, rather
-  // than repeating its update under another client id beside it. Entries
-  // this doc's candidate replaces but could not remove come before it.
+  // pages from adopting it, until its own entry stores the update it sends,
+  // naming them, or the server acknowledges that update. Entries this doc's
+  // candidate replaces but could not remove come before it.
   private handOverKept(next: CollabDocConnection): void {
     const sources = Array.from(this.heldSources.values());
     this.heldSources.clear();
@@ -1627,8 +1663,6 @@ class CollabDocConnection {
     this.releaseOwnerLock = null;
     this.ownerLock = null;
     this.ownsKeys = false;
-    // A rebuild that changes nothing sends nothing to wait for.
-    next.retireAcknowledgedSources();
   }
 
   private async fetchServerState(): Promise<Uint8Array> {

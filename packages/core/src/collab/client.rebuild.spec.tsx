@@ -610,15 +610,22 @@ describe("rebuilding a doc whose update the server refused", () => {
     await settle();
 
     // Both tabs wrote after "kept " at once, so client ids order the two.
+    const content = first().ydoc!.getText("t").toString();
     expect([
       `kept ${PASTED}other typingtyped after`,
       `kept typed after${PASTED}other typing`,
-    ]).toContain(first().ydoc!.getText("t").toString());
-    // The server refuses the paste again, so that tab's entry stays, held,
-    // until a candidate keeps it.
+    ]).toContain(content);
+    // The server refuses the paste again; the rebuilt doc's own entry, which
+    // names that tab's, keeps it.
     expect(first().updatesRefused).toBe(true);
-    expect(window.localStorage.getItem(otherKey)).not.toBeNull();
-    expect(locks.held.has(ownerLock(otherKey))).toBe(true);
+    expect(window.localStorage.getItem(otherKey)).toBeNull();
+    expect(locks.held.has(ownerLock(otherKey))).toBe(false);
+    closeThisTab();
+    await settle(1100);
+
+    const reopened = await mountReady();
+    await settle();
+    expect(reopened().ydoc!.getText("t").toString()).toBe(content);
   });
 
   it("leaves another open tab's unsent paste to that tab, so the paste is kept once after both close", async () => {
@@ -837,33 +844,52 @@ describe("rebuilding a doc whose update the server refused", () => {
     expect(locks.held.size).toBe(0);
   });
 
-  it("holds the content once when a reload interrupts the handoff to the rebuilt doc", async () => {
+  it("holds the content once in every state storage passes through while it hands over to the rebuilt doc", async () => {
+    const initial = Y.encodeStateAsUpdate(server);
     const first = await refusedAfterPaste();
     expect((await rebuild(first)).status).toBe("too_large");
-    const [oldKey] = candidateKeys();
     removePaste(first);
-    // The rebuilt doc holds the old candidate until its update is acknowledged.
+    // Unsent, so the rebuilt doc's entry keeps its update.
     updatesOffline = true;
-    expect((await rebuild(first)).status).toBe("rebuilt");
-    const storage = window.localStorage;
-    const checkpoint = Object.fromEntries(
-      Object.keys(storage).map((name) => [name, storage.getItem(name)!]),
-    );
-    // The old candidate and the rebuilt doc's own entry.
-    expect(Object.keys(checkpoint)).toHaveLength(2);
-    expect(checkpoint[oldKey!]).toBeDefined();
+    const states = await outboxStatesDuring(async () => {
+      expect((await rebuild(first)).status).toBe("rebuilt");
+    });
     closeThisTab();
     await settle(1100);
     updatesOffline = false;
-    storage.clear();
-    for (const [key, value] of Object.entries(checkpoint)) {
-      storage.setItem(key, value);
+
+    for (const state of states) {
+      expect(["kept typed after", `kept ${PASTED}typed after`]).toContain(
+        await reopenedText(state, initial),
+      );
     }
+  });
 
-    const reopened = await mountReady();
-    await settle();
+  it("holds the content once in every state storage passes through while it hands over to the rebuilt doc, though two pages each take up part of it", async () => {
+    const first = await refusedAfterPaste();
+    expect((await rebuild(first)).status).toBe("too_large");
+    removePaste(first);
+    updatesOffline = true;
+    const states = await outboxStatesDuring(async () => {
+      expect((await rebuild(first)).status).toBe("rebuilt");
+    });
+    closeThisTab();
+    await settle(1100);
+    updatesOffline = false;
+    // A collaborator fills the doc, so the server refuses what either page
+    // sends and each keeps a candidate for what it took up.
+    const filler = server.getText("t");
+    const missing = () =>
+      COLLAB_MAX_STATE_BYTES - 8 - Y.encodeStateAsUpdate(server).length;
+    filler.insert(filler.length, "c".repeat(missing() - 16));
+    while (missing() > 0) filler.insert(filler.length, "c".repeat(missing()));
+    const full = Y.encodeStateAsUpdate(server);
 
-    expect(reopened().ydoc!.getText("t").toString()).toBe("kept typed after");
+    for (const state of states) {
+      const text = await splitReopenedText(state, full);
+      expect(text.split("typed after")).toHaveLength(2);
+      expect(text.split(PASTED).length).toBeLessThanOrEqual(2);
+    }
   });
 
   it("keeps its candidate, and its doc, while the candidate cannot be replaced", async () => {
@@ -1012,7 +1038,7 @@ describe("rebuilding a doc whose update the server refused", () => {
     ["an ordinary entry", "closed-tab"],
     ["a candidate", "rebuild:closed-tab"],
   ])(
-    "holds %s it adopted until a candidate keeps it, so a reload after the server refuses it again keeps the paste",
+    "takes up %s it adopted into its own entry, so a reload after the server refuses it again keeps the paste",
     async (_kind, owner) => {
       const closedKey = outboxKey(owner);
       keepClosedTabEntry(closedKey, PASTED);
@@ -1023,8 +1049,9 @@ describe("rebuilding a doc whose update the server refused", () => {
         await expect(result().flushUpdates()).resolves.toBe(false);
       });
       expect(result().updatesRefused).toBe(true);
-      expect(window.localStorage.getItem(closedKey)).not.toBeNull();
-      expect(locks.held.has(ownerLock(closedKey))).toBe(true);
+      expect(window.localStorage.getItem(closedKey)).toBeNull();
+      expect(locks.held.has(ownerLock(closedKey))).toBe(false);
+      expect(outboxEntries()).toHaveLength(1);
       closeThisTab();
       await settle(1100);
 
@@ -1034,7 +1061,7 @@ describe("rebuilding a doc whose update the server refused", () => {
     },
   );
 
-  it("holds an entry it adopted until the server acknowledges it", async () => {
+  it("takes up an entry it adopted into its own entry until the server acknowledges it", async () => {
     const closedKey = outboxKey("closed-tab");
     keepClosedTabEntry(closedKey, "word ");
     updatesOffline = true;
@@ -1042,8 +1069,9 @@ describe("rebuilding a doc whose update the server refused", () => {
     const result = await mountReady();
     await settle();
     expect(result().ydoc!.getText("t").toString()).toBe("kept word ");
-    expect(window.localStorage.getItem(closedKey)).not.toBeNull();
-    expect(locks.held.has(ownerLock(closedKey))).toBe(true);
+    expect(window.localStorage.getItem(closedKey)).toBeNull();
+    expect(locks.held.has(ownerLock(closedKey))).toBe(false);
+    expect(outboxEntries()).toHaveLength(1);
 
     updatesOffline = false;
     await settle(16_000);
@@ -1107,6 +1135,84 @@ describe("rebuilding a doc whose update the server refused", () => {
     await settle(1100);
     return text;
   }
+
+  // The text a page shows that opens, against a server holding `initial`,
+  // once two pages have each taken up part of the outbox `state` a closed
+  // page left, sent it, kept a candidate if refused, and closed: this page
+  // takes up the first owner's entries, the other page the rest.
+  async function splitReopenedText(
+    state: Record<string, string>,
+    initial: Uint8Array,
+  ) {
+    server = new Y.Doc();
+    Y.applyUpdate(server, initial);
+    window.localStorage.clear();
+    for (const [key, value] of Object.entries(state)) {
+      window.localStorage.setItem(key, value);
+    }
+    const [, ...rest] = Array.from(new Set(Object.keys(state).map(ownerLock)));
+    // This page asks for the other owners' locks only once the other page
+    // has them; each is still granted to one page at a time.
+    const request = navigator.locks.request.bind(navigator.locks);
+    let resume!: () => void;
+    const otherPageAsked = new Promise<void>((resolve) => {
+      resume = resolve;
+    });
+    const deferred = new Set(rest);
+    const spy = vi.spyOn(navigator.locks, "request").mockImplementation((async (
+      name: string,
+      ...args: unknown[]
+    ) => {
+      if (deferred.delete(name)) await otherPageAsked;
+      return (request as (...all: unknown[]) => Promise<unknown>)(
+        name,
+        ...args,
+      );
+    }) as typeof navigator.locks.request);
+    try {
+      const here = await mountReady();
+      const there = await openOtherTab(`split-${splitPages++}`);
+      resume();
+      await settle();
+      for (const page of [here, there.result]) {
+        await act(async () => {
+          await page().flushUpdates();
+        });
+        if (page().updatesRefused) {
+          expect((await rebuild(page)).status).toBe("too_large");
+        }
+      }
+      there.close();
+      closeThisTab();
+      await settle(1100);
+    } finally {
+      spy.mockRestore();
+    }
+    const reopened = await mountReady();
+    await settle();
+    const text = reopened().ydoc!.getText("t").toString();
+    closeThisTab();
+    await settle(1100);
+    return text;
+  }
+  let splitPages = 0;
+
+  it("holds a closed tab's paste once in every state storage passes through while a page takes it up, though two pages then each take up part of it", async () => {
+    keepClosedTabEntry(outboxKey("closed-tab"), PASTED);
+    const initial = Y.encodeStateAsUpdate(server);
+    const states = await outboxStatesDuring(async () => {
+      const result = await mountReady();
+      await act(async () => {
+        await expect(result().flushUpdates()).resolves.toBe(false);
+      });
+    });
+    closeThisTab();
+    await settle(1100);
+
+    for (const state of states) {
+      expect(await splitReopenedText(state, initial)).toBe(`kept ${PASTED}`);
+    }
+  });
 
   it("holds its own refused paste once in every state storage passes through on the way to its candidate", async () => {
     const initial = Y.encodeStateAsUpdate(server);
@@ -1221,17 +1327,18 @@ describe("rebuilding a doc whose update the server refused", () => {
   it("holds a closed tab's paste once when the candidate replacing one beside its entry cannot be written", async () => {
     const closedKey = outboxKey("closed-tab");
     keepClosedTabEntry(closedKey, PASTED);
-    const result = await mountReady();
-    await act(async () => {
-      await expect(result().flushUpdates()).resolves.toBe(false);
-    });
     const storage = window.localStorage;
     const removeItem = storage.removeItem.bind(storage);
     const remove = vi.spyOn(storage, "removeItem").mockImplementation((key) => {
       if (key === closedKey) throw new DOMException("denied", "SecurityError");
       removeItem(key);
     });
+    let result!: () => UseCollaborativeDocResult;
     try {
+      result = await mountReady();
+      await act(async () => {
+        await expect(result().flushUpdates()).resolves.toBe(false);
+      });
       expect((await rebuild(result)).status).toBe("too_large");
     } finally {
       remove.mockRestore();
@@ -1307,10 +1414,6 @@ describe("rebuilding a doc whose update the server refused", () => {
   it("holds an adopted entry's text once when the page closes still holding the entry beside its candidate", async () => {
     const closedKey = outboxKey("closed-tab");
     keepClosedTabEntry(closedKey, `words ${PASTED}`);
-    const result = await mountReady();
-    await act(async () => {
-      await expect(result().flushUpdates()).resolves.toBe(false);
-    });
     const storage = window.localStorage;
     const removeItem = storage.removeItem.bind(storage);
     const remove = vi.spyOn(storage, "removeItem").mockImplementation((key) => {
@@ -1318,6 +1421,11 @@ describe("rebuilding a doc whose update the server refused", () => {
       removeItem(key);
     });
     try {
+      const result = await mountReady();
+      await act(async () => {
+        await expect(result().flushUpdates()).resolves.toBe(false);
+      });
+      expect(window.localStorage.getItem(closedKey)).not.toBeNull();
       expect((await rebuild(result)).status).toBe("too_large");
     } finally {
       remove.mockRestore();
@@ -1408,10 +1516,10 @@ describe("rebuilding a doc whose update the server refused", () => {
 
     const back = await mountReady({ requestSource: "late-tab" });
     expect(back().ydoc!.getText("t").toString()).toBe("kept source-token");
-    // Nothing is acknowledged, so the entry it took up stays beside its own.
-    expect(outboxEntries()).toHaveLength(2);
-    expect(window.localStorage.getItem(closedKey)).not.toBeNull();
-    expect(locks.held.has(ownerLock(closedKey))).toBe(true);
+    // Nothing is acknowledged, so its own entry keeps what it took up.
+    expect(outboxEntries()).toHaveLength(1);
+    expect(window.localStorage.getItem(closedKey)).toBeNull();
+    expect(locks.held.has(ownerLock(closedKey))).toBe(false);
     closeThisTab();
     await settle(1100);
 
