@@ -10,8 +10,10 @@ import {
   canDiscardTerminalTranscriptForReplacement,
   isTerminalMeetingStopError,
   isTerminalTranscriptSaveResult,
+  resolveMeetingStopCompletion,
   shouldHoldQuitForTranscriptRecovery,
   stopMeetingBeforeTranscriptFlush,
+  type MeetingStopCompletion,
 } from "../lib/meeting-stop";
 import { writeClipboardText } from "../lib/recording-link";
 import { subscribeAutoStop } from "../lib/silence-events";
@@ -102,9 +104,7 @@ const MEETING_ACTION_TIMEOUT_MS = 10_000;
 const RECOVERY_RETRY_INITIAL_MS = 3_000;
 const RECOVERY_RETRY_MAX_MS = 30_000;
 
-type StopTranscriptionResult =
-  | { completed: true }
-  | { completed: false; holdQuit: boolean; error: ClipsActionError };
+type StopTranscriptionResult = MeetingStopCompletion;
 
 function unlistenAll(unlisteners: Array<() => void>): void {
   for (const unlisten of unlisteners) {
@@ -217,8 +217,15 @@ export function useMeetingTranscription({
         return;
       }
       if (session.stopping) {
-        await stopInFlightRef.current;
-        if (session.stopRecovery?.source === "transcript") return;
+        const inFlightStop = stopInFlightRef.current;
+        if (!inFlightStop) {
+          throw new Error(
+            "Meeting stop is marked in progress without a result.",
+          );
+        }
+        if (resolveMeetingStopCompletion(await inFlightStop) === "hold-quit") {
+          return;
+        }
         await acknowledgeQuitTeardown();
         return;
       }
@@ -399,10 +406,7 @@ export function useMeetingTranscription({
       stopInFlightRef.current = run;
       try {
         const completed = await run;
-        if (!completed.completed) {
-          if (completed.holdQuit) return;
-          throw completed.error;
-        }
+        if (resolveMeetingStopCompletion(completed) === "hold-quit") return;
         recoveryRetryDelayRef.current = RECOVERY_RETRY_INITIAL_MS;
         if (!pendingStartRef.current && recoveryRetryTimerRef.current) {
           window.clearTimeout(recoveryRetryTimerRef.current);

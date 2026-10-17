@@ -111,14 +111,21 @@ describe("finalize ended meetings for recording", () => {
   it("reports a missing transcript as retryable in strict mode", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     mockFinalizeMeeting
-      .mockResolvedValueOnce({ skipped: "no-transcript" })
+      .mockResolvedValueOnce({ skipped: "transcript-pending" })
       .mockResolvedValueOnce({ summaryMd: "Notes" });
 
     await expect(
       finalizeEndedMeetingsForRecording(mockDb as never, "rec-1", {
         throwOnFailure: true,
       }),
-    ).rejects.toMatchObject({ name: "RetryableMeetingFinalizationError" });
+    ).rejects.toMatchObject({
+      name: "RetryableMeetingFinalizationError",
+      failures: expect.arrayContaining([
+        expect.objectContaining({
+          message: expect.stringContaining("transcript-pending"),
+        }),
+      ]),
+    });
 
     expect(mockFinalizeMeeting).toHaveBeenCalledTimes(2);
   });
