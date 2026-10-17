@@ -25,6 +25,25 @@ describe("passiveMotionSourceReadCapability", () => {
     });
   });
 
+  it("returns unresolved external stylesheets as an unsupported passive read", () => {
+    expect(
+      passiveMotionSourceReadCapability(
+        {
+          errorCode: "motion_html_source_unresolved_stylesheet",
+          message:
+            "Resolve external stylesheets before editing or adding Motion.",
+          statusCode: 422,
+        },
+        "screen-1",
+      ),
+    ).toEqual({
+      status: "unsupported",
+      sourceRef: "screen-1",
+      errorCode: "motion_html_source_unresolved_stylesheet",
+      reason: "Resolve external stylesheets before editing or adding Motion.",
+    });
+  });
+
   it("does not reinterpret unrelated validation, access, or transport failures", () => {
     expect(
       passiveMotionSourceReadCapability(

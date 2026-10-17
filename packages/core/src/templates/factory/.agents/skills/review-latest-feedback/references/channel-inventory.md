@@ -9,14 +9,24 @@ place of Slack source messages.
   `cutoffTs` and `permalinkTs`. Slack's `oldest` parameter is exclusive, so
   query from at least one second earlier and filter locally by `ts >= cutoff`.
 - Resolve every returned message's `thread_ts` or permalink before calling it a
-  report parent. Only a message whose thread parent is itself is a top-level
-  report. Keep reply rows to audit reactions and reporter answers, but do not
-  count them as additional reports. This includes duplicate, owned, bot, and
-  boundary rows; reactions and ownership determine investigation, not inventory.
+  report parent. Only a message whose thread parent is itself is a candidate
+  report root. Classify every self-parented source row explicitly as
+  `rootClassification: "report"` or `"administrative"`; use the latter only
+  for a channel post such as a CI ledger or process notice that is not user
+  feedback, and record `rootClassificationReason`. Keep every such row in the
+  source manifest and disposition inventory. Count only `report` roots as
+  reports; list administrative roots separately. Keep reply rows to audit
+  reactions and reporter answers, but do not count them as additional reports.
+  Duplicates, bot reports, owned reports, and boundary rows remain in the
+  source inventory; reactions and ownership determine investigation, not
+  whether a report is counted.
 - Save `.tmp/feedback-inventory.json` with `cutoffTs`, optional `permalinkTs`,
   the exact connector `sweepActorId`, and `channels`. Set `permalinkTs` when a
   supplied message anchors the scan. Each channel must include `channelId`,
-  `oldestQuery`, and `pages`. Set `oldestQuery` to the exact timestamp passed to
+  `oldestQuery`, and `pages`. Record `readAt` on every page as a local ISO
+  timestamp captured immediately after that complete Slack response returns;
+  do not reuse a prior inventory's pages or timestamps. Set `oldestQuery` to the
+  exact timestamp passed to
   Slack, or explicitly to `null` when the request had no `oldest` bound; a
   missing or empty value is invalid. The exact source manifest and
   cutoff-crossing page still define the scan. A page has its requested
@@ -43,16 +53,25 @@ place of Slack source messages.
   in scope and must have its own source-manifest row. A root present in a page
   must have its own row with `ts === threadParentTs` and must not be duplicated
   in `threadRoots`.
-- For each source message with `eyes` owned by `sweepActorId`, record a current
-  status reply in that message's root thread, after the eyed message. Include
+- For every in-scope root classified as a report, pass the ownership gate. If
+  it is still open and no other actor owns it, claim it with this actor's root
+  `👀` and post a current status in its root thread. The checker rejects an
+  eligible open report without this claim and status. For every root already
+  owned by this actor (`👀`, `✅`, or `🎫`), record or reuse a current status
+  after the latest human reply; update it only when new human input, proof,
+  disposition, or next action changes. Do not reply on another actor's owned
+  root, an administrative post, or a duplicate; record the reason and link a
+  duplicate to its canonical report. Include
   the root `threadParentTs`, reply timestamp, author ID, matching disposition,
   evidence, and read-back text. For each human handoff, the visible reply must
   name its recorded owner and action; include the scope when the report
   context does not make it clear. A person being named or assigned is not
-  acceptance: each `handoffs[]` entry must also record the owner's exact Slack
-  ID and an explicit accepting reply read from the source thread. The accepting
-  actor must match the owner, differ from `sweepActorId`, and reply after the
-  root and before the status reply. Do not create a ticket or use **Blocked on
+  acceptance: each `handoffs[]` entry must record the owner's exact Slack ID
+  and accepting reply read from the source thread. A contextual assent qualifies
+  only when a preceding direct request names the owner and exact action; record
+  both the request and assent as described below. The accepting actor must match
+  the owner, differ from `sweepActorId`, and reply after the root and before the
+  status reply. Do not create a ticket or use **Blocked on
   human owner** until this acceptance exists; never assign the handoff to
   yourself. Reuse a qualifying reply while disposition and evidence remain
   current; update it when either materially changes. Do
@@ -71,17 +90,31 @@ place of Slack source messages.
   Record each verified `fixedScopes` entry with its proof; record every
   distinct human handoff in `handoffs[]`, with scope, assigned individual,
   owner Slack ID, action, and an `acceptanceReply` containing exact `ts`,
-  `threadParentTs`, `actorId`, and verbatim `text`. A role or unassigned team
-  is not an owner. Immediately after a scope passes verification, add this
-  actor's `✅` to the root and read it back before moving to another scope or
-  report. Do not wait for every scope to close. A verified fixed scope
-  requires this actor's `✅` even when the overall disposition is `Partially
-fixed`; a distinct human handoff requires this actor's `🎫`. Keep `👀` for
-  every open scope. The same-thread status reply must name the fixed scope(s),
+  `threadParentTs`, `actorId`, and verbatim `text`. When the acceptance is a
+  contextual assent that does not repeat the action, also record `requestReply`
+  with the exact preceding in-thread request's `ts`, `threadParentTs`,
+  `actorId`, and verbatim `text`. The request must be by this sweep actor, name
+  the accepted owner, request the exact ticketed action, and precede the
+  owner's unambiguous assent. Scope the ticket only to the request; do not infer
+  a broader fix, PR, or delivery promise. A role or unassigned team is not an
+  owner. As soon as direct post-change proof passes, add this actor's
+  `✅` to the root and read it back before moving to another scope or report,
+  including while its PR is open. Before merge, record **Verified locally** and
+  say merge is pending. `✅` and `👀` can coexist: the check marks the verified
+  scope; the eye marks the open merge or another scope/follow-up. After merge,
+  record **Fixed** (or **Partially fixed** when another scope remains); remove
+  this actor's `👀` only when no report scope or follow-up remains. Do not wait
+  for unrelated scopes to close. This actor's single root `✅` covers the
+  verified scopes listed in `fixedScopes[]`; a distinct human handoff requires
+  this actor's `🎫`. Keep `👀` for
+  every open scope. The same-thread status reply must name the verified scope(s),
   the remaining open scope(s), each open scope's blocker and next action, and
   why `✅` or `🎫` is absent when it does not apply. A reply does not replace a
   reaction, and a reaction does not replace a reply. Do not add status
-  requirements or reactions to another actor's eye.
+  requirements or reactions to another actor's eye. When every report scope
+  and follow-up is closed, post or reuse the final same-thread status, remove
+  only this actor's `👀`, and read back the status and reactions. Do not keep a
+  closed eye as claim history.
 - Keep the source manifest separate from disposition rows. Copy every message
   timestamp and the count from the full Slack response before filtering; the
   checker compares both lists, catches missing messages, and requires the
@@ -122,15 +155,18 @@ proof gap or next action for every remaining eye-only row. Slack thread
 replies appear under the root's reply count, not as separate channel posts;
 do not broadcast routine status replies.
 
-After any long investigation, CI/deploy wait, or handoff, record the latest
-fully read message timestamp for each channel. Immediately before recap, read
-each scoped channel newest-first from that high-water mark to the present,
-following all pages. Resolve every new reply to its root, read the complete
-thread and current reactions, and add every new root/reply to the inventory.
-Reconcile new human answers and changed marks before recap. Repeat the scan
-from the new high-water mark until a complete pass adds no messages; only then
-run the inventory checker and recap. A prior scan or a still-running CI wait
-does not establish that the channel is current.
+After any long investigation, CI/deploy wait, or handoff, a newest-first scan
+from the saved high-water mark can identify new activity. Immediately before
+recap, however, rerun the complete original bounded scan from the exact
+`oldestQuery` for every scoped channel, follow every cursor, and replace the
+saved page responses, timestamps, source manifests, and source rows. Do not
+append a delta to an older page chain or refresh its `readAt` without rereading
+the page. Resolve every newly found reply to its actual root, refresh root
+reactions, and reconcile human answers before replacement. Then reopen every
+marked root thread after the last channel page, read all replies, and refresh
+reply-level workflow reaction owners. If this final scan or any thread read is
+older than 15 minutes, repeat the full bounded scan and marked-thread reads
+before checking the inventory. Only a complete fresh pass can certify coverage.
 
 Channel history does not include the contents of existing thread replies. In
 that final pass, also enumerate every distinct root thread carrying this
@@ -145,6 +181,23 @@ so the snapshot proves the recorded status is the latest reply by this actor.
 Use the full thread to refresh `latestRelevantHumanReply`, `latestOwnedReply`,
 and `statusReply`; if a human replied after the last status, reconcile that
 answer and post a newer status before updating marks or closing the sweep.
+
+For every reply in each `threadSnapshot`, record `workflowReactionSummary` and
+`workflowReactionOwners`. Copy the exact owner IDs for `eyes`,
+`white_check_mark`, and `ticket`; omit unrelated emojis. Use `"none"` and `{}`
+when no workflow reaction is present. When the thread read shows any of those
+three reactions, call `slack_get_reactions` on that exact reply timestamp and
+use its full owner list; never infer reply owners from the root reaction read or
+from reply text. This proves that a visible checkoff or ticket is on the report
+root, and lets the checker reject workflow marks accidentally left on replies.
+
+The normal inventory check also requires every page and thread snapshot to have
+been read within the last 15 minutes, allows at most one minute of local clock
+skew, and requires every owned-thread snapshot to come after the channel's final
+page read. An old, complete inventory is stale: rerun the channel scan, then
+read every marked root thread again before recap. This freshness gate prevents a
+complete earlier scan from silently omitting reports or replies that arrived
+during investigation.
 
 The inventory checker requires a complete `threadSnapshot` for each distinct
 owned root, checks Slack's reply count and snapshot order, and rejects a newer

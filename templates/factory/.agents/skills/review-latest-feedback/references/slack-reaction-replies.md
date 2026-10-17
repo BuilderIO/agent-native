@@ -1,6 +1,6 @@
 # Slack Reaction Replies
 
-At sweep exit, reconcile every parent in the scoped inventory that has this
+At sweep exit, reconcile every report root in the scoped inventory that has this
 task's `👀`, including eyes left by earlier runs. Capture the exact Slack actor
 ID used by the connected tool at sweep start. Treat an eye as owned by this
 task only when its reaction owner ID matches that actor ID. Each owned eye
@@ -65,7 +65,7 @@ the connector hides `thread_ts`, resolve the permalink before recording it.
 
 The parent inventory must retain the reaction-owner IDs and the same-parent
 reply timestamp, author ID, disposition, evidence, and read-back text for every
-owned eye. Record an explicit decision for both `✅` and `🎫` on every owned
+owned root eye. Record an explicit decision for both `✅` and `🎫` on every owned
 eye: `present` with its scope, or `none` with the reason no mark applies. Record
 verified fixed scopes with their proof and each distinct human handoff with its
 scope, owner, and action. In the framework repository, run
@@ -106,14 +106,16 @@ End every new or edited Slack reply with the exact sentence
 not a substitute.
 
 Use reactions as current status, not permanent claim history. At the root,
-`👀` marks this workflow's open claim, `✅` marks a verified fixed scope, and
-`🎫` marks an accepted handoff to a named human. A partial fix can show both
-`👀` and `✅`. For every `👀` this workflow owns, post a current status in that
+`👀` marks this workflow's open claim, `✅` marks one or more named scopes that
+passed direct post-change proof, and `🎫` marks an accepted handoff to a named
+human. The single root `✅` covers the verified scopes listed in
+`fixedScopes[]`. A partial fix can show both `👀` and `✅`. For every `👀` this
+workflow owns, post a current status in that
 root's thread; unclaimed items and another actor's eyes are not ours to reply
 to. Reconcile each report as one unit: send or verify its current same-thread
 status reply, then immediately update and read back the applicable reactions
-before advancing to the next report. Add `✅` as soon as any reported scope is
-verified **Fixed** under the Phase 2 bar, including a partial fix; use
+before advancing to the next report. Add `✅` as soon as any reported scope
+passes the direct post-change proof bar, including before merge; use
 **Partially fixed** for the overall disposition when another scope remains,
 and describe both scopes separately in the reply. Do not wait for an entire
 multi-symptom report to be resolved before checking off its verified scope.
@@ -122,17 +124,26 @@ scopes and follow-ups close, post the final status, remove only your own eye,
 and read back the final reply and reactions. An eye is not kept as claim
 history after work closes. If the connector cannot remove it, use Slack UI; if
 that is also unavailable, record the exact blocker and leave the reaction
-unreconciled. An open PR can earn `✅` only after the relevant
-`verifying-changes` proof bar passes. For UI or other user-visible behavior,
-drive the running app or preview through the reported flow and confirm the
-symptom is gone; a focused source test alone does not qualify. For non-UI
-scopes, use the area-specific action, query, or test proof. Say that merge or
-rollout is still pending; the checkmark records the verified scope and does not
-claim the change is shipped or live.
-Add `🎫` only after a different named human accepts the exact unfinished action
-in the source thread. Record their Slack ID, accepting reply, and action; a role
-assignment, request for help, or unaccepted handoff is not acceptance. A
-partial fix with a separately accepted handoff can have both `✅` and `🎫`.
+unreconciled. An open PR can earn `✅` as soon as the relevant
+`verifying-changes` proof bar passes. During that period, `✅` marks the
+verified scope and `👀` remains for the open merge or another unresolved
+scope/follow-up; the marks are independent. For UI behavior, a focused
+regression qualifies only if it exercises the changed component and asserts the
+reported visible result or persisted state; callback-only assertions, mocked
+children, class-name checks, and source inspection do not. For clipping,
+wrapping, contrast, or alignment, inspect rendered geometry at the reported
+viewport or replay the flow in the running app. Use an app/preview replay when
+the regression does not meet that bar. For non-UI scopes, use the area-specific
+action, query, or test proof. Say that merge or rollout is still pending; the
+checkmark records the verified scope and does not claim it is shipped or live.
+Add `🎫` only after a different named human accepts a specific unfinished
+action in the source thread. An unambiguous contextual “yes”/“sure” may accept a
+preceding direct request when it names the human and exact action; record both
+the request and acceptance reply, including timestamps and actor IDs. The
+ticket covers only that requested action: do not infer a broader fix, PR, or
+delivery promise. A role assignment, generic team ping, ask without a reply, or
+ambiguous/hedged assent is not acceptance. A partial fix with a separately
+accepted handoff can have both `✅` and `🎫`.
 Work that remains with this workflow is active, not a human handoff. An
 unanswered reporter request stays at `👀` without `🎫`. Link a ticket only if
 one already exists; do not create or promise one without authorization. If a
@@ -188,6 +199,14 @@ and state the next action and owner. Leave commit hashes, branch names, CI
 results, workflow or publisher details, and run IDs out of reporter replies.
 For packages, link the merged PR and state availability without verification
 details.
+
+For every reply in each final full-thread snapshot, record a read-back of the
+workflow reactions on that reply. If the connector shows `👀`, `✅`, or `🎫`,
+call `slack_get_reactions` for the reply's own timestamp and record exact owner
+IDs for those workflow emoji; record `"none"` with `{}` when none appears and
+omit unrelated emoji. These reads are separate from the root read-back. The
+checker rejects any of this actor's workflow marks on a reply, so remove only
+this actor's misplaced reply mark and verify the reply again.
 
 Read back the reaction and reply through the same connector, and verify their
 actor IDs match the recorded sweep identity before recording the item as

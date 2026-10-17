@@ -1,6 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { IconArrowBackUp } from "@tabler/icons-react";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   addCut,
@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils";
 
 export type TrackSelection =
   | { kind: "clip"; anchorMs: number }
+  | { kind: "range"; startMs: number; endMs: number }
   | { kind: "gap"; cutId: string }
   /** A red line with no gap behind it yet — selected so it can be deleted. */
   | { kind: "split"; splitId: string };
@@ -59,7 +60,8 @@ export interface DragTarget {
   newCutId: string;
 }
 
-interface DragState {
+interface EdgeDragState {
+  kind: "edge";
   pointerId: number;
   startClientX: number;
   base: EditsJson;
@@ -68,8 +70,26 @@ interface DragState {
   moved: boolean;
 }
 
+interface RangeDragState {
+  kind: "range";
+  pointerId: number;
+  startClientX: number;
+  startMs: number;
+  moved: boolean;
+}
+
+type DragState = EdgeDragState | RangeDragState;
+
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
+}
+
+function selectionRange(startMs: number, endMs: number): TrackSelection {
+  return {
+    kind: "range",
+    startMs: Math.min(startMs, endMs),
+    endMs: Math.max(startMs, endMs),
+  };
 }
 
 export function trackBoundaries(pieces: TimelinePiece[]): TrackBoundary[] {
@@ -198,6 +218,38 @@ export function TimelineTrack({
   const rootRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<DragState | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [rangeMode, setRangeMode] = useState(false);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName?.toLowerCase();
+      if (
+        e.code !== "KeyR" ||
+        e.metaKey ||
+        e.ctrlKey ||
+        e.altKey ||
+        tag === "input" ||
+        tag === "textarea" ||
+        target?.isContentEditable
+      ) {
+        return;
+      }
+      setRangeMode(true);
+    };
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.code === "KeyR") setRangeMode(false);
+    };
+    const clearRangeMode = () => setRangeMode(false);
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    window.addEventListener("blur", clearRangeMode);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+      window.removeEventListener("blur", clearRangeMode);
+    };
+  }, []);
 
   const pieces = useMemo(
     () => buildTimelinePieces(durationMs, edits),
@@ -230,7 +282,7 @@ export function TimelineTrack({
       if (selection.kind === "gap") {
         return piece.kind === "gap" && piece.cutId === selection.cutId;
       }
-      if (selection.kind === "split") return false;
+      if (selection.kind !== "clip") return false;
       return (
         piece.kind === "clip" &&
         selection.anchorMs >= piece.startMs &&
@@ -249,9 +301,15 @@ export function TimelineTrack({
         drag.moved = true;
         setDragging(true);
       }
-      onPreview(applyDrag(drag.base, durationMs, drag.target, toMs(e.clientX)));
+      if (drag.kind === "range") {
+        onSelectionChange(selectionRange(drag.startMs, toMs(e.clientX)));
+      } else {
+        onPreview(
+          applyDrag(drag.base, durationMs, drag.target, toMs(e.clientX)),
+        );
+      }
     },
-    [durationMs, onPreview, toMs],
+    [durationMs, onPreview, onSelectionChange, toMs],
   );
 
   const endDrag = useCallback(
@@ -260,8 +318,17 @@ export function TimelineTrack({
       if (!drag || drag.pointerId !== e.pointerId) return;
       dragRef.current = null;
       setDragging(false);
-      onPreview(null);
+      if (drag.kind === "edge") onPreview(null);
       if (!commit) return;
+      if (drag.kind === "range") {
+        if (drag.moved) {
+          onSelectionChange(selectionRange(drag.startMs, toMs(e.clientX)));
+        } else {
+          onSelectionChange({ kind: "clip", anchorMs: drag.startMs });
+          onSeek?.(drag.startMs);
+        }
+        return;
+      }
       if (!drag.moved) {
         if (drag.splitId) {
           onSelectionChange({ kind: "split", splitId: drag.splitId });
@@ -270,8 +337,19 @@ export function TimelineTrack({
       }
       onCommit(applyDrag(drag.base, durationMs, drag.target, toMs(e.clientX)));
     },
-    [durationMs, onCommit, onPreview, onSelectionChange, toMs],
+    [durationMs, onCommit, onPreview, onSeek, onSelectionChange, toMs],
   );
+
+  const beginRangeDrag = (e: React.PointerEvent, startMs: number) => {
+    rootRef.current?.setPointerCapture?.(e.pointerId);
+    dragRef.current = {
+      kind: "range",
+      pointerId: e.pointerId,
+      startClientX: e.clientX,
+      startMs,
+      moved: false,
+    };
+  };
 
   const beginDrag = (
     e: React.PointerEvent,
@@ -280,6 +358,7 @@ export function TimelineTrack({
   ) => {
     rootRef.current?.setPointerCapture?.(e.pointerId);
     dragRef.current = {
+      kind: "edge",
       pointerId: e.pointerId,
       startClientX: e.clientX,
       base: edits,
@@ -331,6 +410,10 @@ export function TimelineTrack({
               onPointerDown={(e) => {
                 if (disabled || e.button !== 0) return;
                 e.preventDefault();
+                if (rangeMode) {
+                  beginRangeDrag(e, toMs(e.clientX));
+                  return;
+                }
                 onSelectionChange({ kind: "gap", cutId: piece.cutId });
               }}
             >
@@ -378,12 +461,27 @@ export function TimelineTrack({
               if (disabled || e.button !== 0) return;
               e.preventDefault();
               const at = toMs(e.clientX);
+              if (rangeMode) {
+                beginRangeDrag(e, at);
+                return;
+              }
               onSelectionChange({ kind: "clip", anchorMs: at });
               onSeek?.(at);
             }}
           />
         );
       })}
+
+      {selection?.kind === "range" ? (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute top-0 h-full rounded-[3px] border border-primary bg-primary/20 ring-2 ring-inset ring-primary"
+          style={{
+            left: toX(selection.startMs),
+            width: Math.max(1, toX(selection.endMs) - toX(selection.startMs)),
+          }}
+        />
+      ) : null}
 
       {/*
         Where the clip starts and where it stops: the same marker at both ends,

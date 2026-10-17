@@ -104,6 +104,28 @@ describe("ChatGPT subscription OAuth contract", () => {
     );
   });
 
+  it("does not read the lab preference for a non-loopback status request", async () => {
+    await runWithRequestContext(
+      {
+        isLoopbackRequest: false,
+        isDirectLoopbackRequest: false,
+        requestOrigin: "https://app.example.com",
+        orgScope: "organization",
+      },
+      async () => {
+        await expect(
+          getChatGPTSubscriptionStatus("alice@example.com"),
+        ).resolves.toMatchObject({
+          supported: false,
+          localLoopback: false,
+          supportReason: "requires_local_loopback",
+        });
+      },
+    );
+
+    expect(mocks.getUserLabEnabled).not.toHaveBeenCalled();
+  });
+
   it("surfaces lab preference read failures instead of treating them as off", async () => {
     const error = new Error("settings unavailable");
     mocks.getUserLabEnabled.mockRejectedValue(error);

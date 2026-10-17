@@ -13,27 +13,54 @@ metadata:
 
 # Review Latest Feedback
 
-This is the canonical source; generated skills are sync outputs. An owned `👀`
-marks open work. Before ending a run, reply in every
-owned root with verified scopes, open scopes, evidence, and next action. Add
-`✅` only to verified post-change scopes, keep `👀` while any scope or follow-up
-remains, and remove only your own after closure. Add `🎫` only after a named
-human accepts a specific action. Read back every write.
+An owned `👀` is an open commitment. Put every workflow-owned `👀`, `✅`, and
+`🎫` reaction on the report root, never on a reply. Classify every in-scope
+root as feedback or administrative; administrative means the post is not user
+feedback, not merely that it came from a bot or duplicates another report.
+Claim each eligible open report that passes the ownership gate and post one
+same-actor status in its root thread after the latest human reply. For roots
+already owned by this actor, reuse the current status unless new human input,
+proof, disposition, or next action changes it. Do not reply on another actor's
+owned root, administrative post, or duplicate thread; record the ownership or
+classification reason and link duplicates to their canonical report. Read each
+full thread and every changed status back.
+
+Add/read back a root `✅` when one or more named scopes pass direct post-change
+proof; the single reaction covers the root's listed `fixedScopes`. Keep `👀`
+while any scope, merge, or follow-up remains open. Add `🎫` only after a named
+human accepts a specific action in the source thread. A reply is not a
+substitute for its applicable root reaction, and a reaction is not a substitute
+for a status reply. Read back the final threads/reactions and pass the inventory
+checker before recap.
+
+`✅` covers each scope that passes direct post-change proof, including while
+its PR is open. Use a focused regression that asserts the reported behavior or
+replay the exact flow on the changed running app/preview; source inspection,
+merge, an unrelated suite, or deploy alone do not qualify. Before merge, call
+the scope **Verified locally**, say merge is pending, and keep `👀` while that
+merge or another scope/follow-up remains open. Both marks can be present:
+`✅` records the verified scope, while `👀` records the open commitment. After
+merge, call the scope **Fixed**; remove `👀` only when no report scope or
+follow-up remains. Reserve **Shipped**/**Live verified** for their
+release/runtime evidence. `🎫` records an accepted human action, not a ticket,
+mention, or assignment.
 
 Phase 0 gates and claims eligible work before investigation. Then answer newer
 replies, fix what the evidence proves at its owning boundary, and recap. Follow
 the shared mark lifecycle in
 [`slack-reaction-replies.md`](references/slack-reaction-replies.md).
 
-Before recapping, rescan every scoped channel newest-first from its saved
-high-water mark after any long investigation, CI/deploy wait, or handoff. Resolve
-new replies to roots, reconcile new answers and reactions, update the inventory
-and replies, then repeat until a complete scan adds no newer messages. In that
-final pass, also reopen every distinct root thread carrying this actor's `👀`,
-`✅`, or `🎫` and read the complete thread again, even when channel history has
-no new row: channel history exposes reply counts, not reply contents. Record
-each full read in `threadSnapshots` and run the checker; it rejects a status
-that predates a human reply found in the thread. See
+Before recap, repeat the complete original bounded scan for every scoped
+channel, starting at its original `oldestQuery` and following every page to
+Slack exhaustion or the cutoff. Replace that channel's old page manifests and
+rows with the new responses; a newest-first delta from a saved high-water mark
+is useful for discovery but cannot certify the complete inventory. Resolve new
+replies to their actual roots and reconcile them before replacing the inventory.
+Then read every marked root thread again after the final channel page, even when
+channel history has no new row: it exposes reply counts, not reply content. Save
+these reads in `threadSnapshots`. The checker requires status after the latest
+human reply and channel/thread reads within 15 minutes; repeat the full bounded
+scan and reread marked roots if stale. See
 [`channel-inventory.md`](references/channel-inventory.md).
 
 ## Slack channels
@@ -48,7 +75,10 @@ five days by default; dev is not a special-case exclusion.
 Resolve each channel-history row's `thread_ts` or permalink. Only self-parented
 messages are report roots; audit replies for reactions and answers, but don't
 count them as reports. Record the eyed message timestamp separately from its
-root. If the eye is on a reply, post status in the root after that reply.
+root. If one of this actor's workflow reactions is on a reply, migrate that
+mark to the report root only when its lifecycle rule still applies, then remove
+the reply mark and read back both messages' reactions. Post status in the root
+after the latest human reply; never react to the status reply itself.
 
 ## Slack ownership gate
 
@@ -84,46 +114,47 @@ doesn't close a separate defect. Tie each reaction to the scope it marks.
 ### Reaction and owned-eye reconciliation
 
 Reconcile each owned eye, even with `✅`. Keep source `ts` separate from root
-`threadParentTs`; Phase 1 handles newer replies.
+`threadParentTs`; Phase 1 handles newer replies. Audit reaction owners on the
+root and replies. The root is the only place this workflow reacts: a reply-only
+mark is still an owned mark to reconcile, not a separate report or an excuse
+to leave the root unmarked.
 
-Finish one eye before taking another. Treat the reactions as a scope ledger, not
-one final vote on the whole report:
+Finish one eye before taking another. Treat reactions as a scope ledger:
 
-1. Post a current same-thread status after the source and latest human reply.
-2. Split the report into distinct fixed and unfinished scopes. As soon as one
-   scope passes its verification bar, add your `✅` to the root and read it
-   back before moving to the next scope or report. Do this for partial fixes
-   and open PRs; do not wait for the whole report to close. UI proof requires
-   replaying the reported flow in the running app or preview; source tests,
-   merge, or deploy alone do not count. For connector/tool reports, inspect the
-   exact connector's live catalog and, when safe, invoke the reported
-   capability through that connector. Source presence, a merged PR, or another
-   connector's catalog alone is not proof.
-3. Keep `👀` while any distinct scope or follow-up remains open. In the status
-   reply, state each verified scope covered by `✅`, each open scope with its
-   exact blocker and next action, and whether `🎫` applies. If there is no
-   `✅`, say why no scope has passed verification; if there is no `🎫`, say why
-   no named human has accepted a separate action. A reply is not a substitute
-   for the applicable reaction, and a reaction is not a substitute for the
-   status reply. Do not mark an entire multi-symptom report fixed because one
-   scope passed.
-4. Add `🎫` only after a named person other than you accepts that exact
-   unfinished action in the source thread. A name, tag, role assignment, or
-   request to take a look is not acceptance. Record their Slack ID and exact
-   accepting reply; verify it is in-thread and predates your status. A later
-   refusal by that owner withdraws the handoff: remove only your stale `🎫`,
-   keep `👀`, and report the new blocker. Otherwise keep **In progress**/`👀`;
-   never ticket yourself.
-5. Save the disposition, reply, both decisions, and read-back in the inventory.
+1. Read the source and latest human replies, then post and read back a current
+   same-actor status in the root thread.
+2. Split fixed and unfinished scopes. When direct post-change proof exercises a
+   scope, add/read back `✅` immediately, including for partial fixes and open
+   PRs. Before merge, say **Verified locally** and that merge is pending; keep
+   `👀` while merge or another scope/follow-up remains open. The marks coexist:
+   `✅` records proof, `👀` records open work. After merge, say **Fixed** and
+   remove your eye only when all scopes/follow-ups close. A focused regression
+   or exact changed-app replay qualifies; a diff, merge, unrelated suite, or
+   deploy alone does not. Reserve **Shipped**/**Live verified** for release or
+   runtime evidence. For connector reports, inspect that connector's live
+   catalog and invoke the capability when safe.
+3. In the status, name verified scopes and proof, open scopes with blocker and
+   next owner/action, and why `🎫` applies or not. Explain absent `✅` when no
+   scope passed. Neither reply nor reaction replaces the other; never mark a
+   multi-symptom report fixed because one scope passed.
+4. Add `🎫` only when a named person other than you accepts a specific action
+   in the thread. A direct in-thread request that names the person and exact
+   action can be accepted by an unambiguous contextual “yes”/“sure” reply; the
+   acceptance need not repeat the action. Record both the request and accepting
+   reply, and scope the ticket to that requested action only. Do not infer a
+   broader fix, PR, or delivery promise. A tag, role, generic team ask, or
+   ambiguous/hedged response is not acceptance. On refusal, remove only your
+   stale ticket, keep `👀`, and report the blocker. Never ticket yourself.
+5. Save the disposition, reply, reaction decisions, and read-back in the
+   inventory. In recap, separate current-window roots, reply rows, and earlier
+   audits; exclude boundary rows and count marks by root. Never add marks to
+   balance totals.
 
-Slack status replies belong in the report's thread. They appear under the
-thread's reply count, not as separate channel messages; do not create a
-standalone channel post or broadcast every routine status update.
-
-Reconcile every owned eye against distinct report scopes. In the recap, report
-current-window roots separately from reply rows and pre-cutoff audits, exclude
-boundary rows, and count marks by root. Explain open scopes without `✅` and
-unfinished actions without `🎫`; never add marks to balance totals.
+Do not leave a report with only a reply-level eye, or a verified scope without
+its root `✅`. A reply reaction is not a checkoff: after the status reply is
+read back, apply the mark to the root and remove only this actor's obsolete
+reply mark. Re-read the root and every reply that showed a workflow reaction;
+the inventory checker rejects this actor's `👀`, `✅`, or `🎫` on replies.
 
 - Use the canonical disposition with evidence and fixed-scope verification; the
   checker rejects vague or negated labels.
@@ -172,8 +203,10 @@ questions separately.
   confirms an active owner; marks owned by another task are skipped by the
   ownership gate.
 
-Phase 2 proof can make a scope **Fixed** before merge. **Partially fixed** needs
-a verified fix and a distinct unfinished scope. Rollout never warrants `🎫`;
+Before merge, verified source work is **Verified locally**. After the fix is
+merged and its behavior is directly proven, mark the scope **Fixed** even if
+release/live layers remain. **Partially fixed** needs a verified fixed scope
+and a distinct unfinished scope. Rollout never warrants `🎫`;
 **Clustered** closes duplicate rows but keeps the ledger entry. Resolve reply
 rows to roots using [the inventory procedure](references/channel-inventory.md)
 and recheck fixed scopes' marks and new replies.
