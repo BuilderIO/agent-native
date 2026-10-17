@@ -465,6 +465,13 @@ export const ROUND_TRIP_CORPUS: readonly RoundTripSample[] = [
     note: "A backtick fence's language cannot hold a backtick.",
   },
   {
+    id: "code-language-with-backtick-after-tilde",
+    origin: "agent",
+    markdown: "~~~ ~a`\nx\n~~~",
+    canonical: "~~~ ~a`\nx\n~~~",
+    note: "A tilde starting the language would lengthen the fence.",
+  },
+  {
     id: "long-code-span-at-line-start",
     origin: "editor",
     markdown: "``` `` ```",
@@ -483,6 +490,13 @@ export const ROUND_TRIP_CORPUS: readonly RoundTripSample[] = [
     origin: "agent",
     markdown: "**a `*` b** and *`a_b`*",
     canonical: "**a ****`*`**** b** and *`a_b`*",
+  },
+  {
+    id: "bold-inside-italic",
+    origin: "agent",
+    markdown: "*Run **npm** install* and *a **b***",
+    canonical: "*Run ****npm**** install* and *a ****b***",
+    note: "A `**` that can only open is bold inside the italic.",
   },
   {
     id: "italic-space-opening-block",
@@ -734,6 +748,13 @@ export const ROUND_TRIP_CORPUS: readonly RoundTripSample[] = [
     id: "refuse-table-cell-open-before-next-cell",
     origin: "agent",
     markdown: "<table>\n<tr>\n<td>a\n<td>b</td>\n</tr>\n</table>",
+    unrepresentable: "A cell closes before the next one opens.",
+    losses: ["dropped-source"],
+  },
+  {
+    id: "refuse-table-cell-open-before-next-cell-on-line",
+    origin: "agent",
+    markdown: "<table>\n<tr>\n<td>a <td>b</td>\n</tr>\n</table>",
     unrepresentable: "A cell closes before the next one opens.",
     losses: ["dropped-source"],
   },
