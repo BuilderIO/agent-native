@@ -64,6 +64,41 @@ export function findReactRouterInvocation(
   };
 }
 
+const TYPE_SOURCE_EXTENSIONS = new Set([".ts", ".tsx", ".mts", ".cts"]);
+// `./+types/<route>` resolves through tsconfig rootDirs; some apps import the
+// `.react-router/types/...` path directly.
+const GENERATED_ROUTE_TYPES_PATH = /\/\+types\/|\.react-router\/types\//;
+// The only React Router APIs typed by typegen's `Register` augmentation.
+// Without it they fall back to loose types instead of failing.
+const REGISTER_TYPED_IMPORT =
+  /\bimport\s*(?:type\s*)?\{[^}]*\b(?:href|unstable_useRoute)\b[^}]*\}\s*from\s*["']react-router["']/;
+
+export function usesGeneratedRouteTypes(appRoot = process.cwd()): boolean {
+  const visit = (directory: string): boolean => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      // Dot-directories hold generated types and deploy output, never routes.
+      if (entry.name.startsWith(".") || entry.name === "node_modules") continue;
+      const entryPath = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        if (visit(entryPath)) return true;
+      } else if (
+        entry.isFile() &&
+        TYPE_SOURCE_EXTENSIONS.has(path.extname(entry.name))
+      ) {
+        const source = fs.readFileSync(entryPath, "utf-8");
+        if (
+          GENERATED_ROUTE_TYPES_PATH.test(source) ||
+          REGISTER_TYPED_IMPORT.test(source)
+        ) {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+  return visit(appRoot);
+}
+
 export function reactRouterTypegenEnv(
   env: NodeJS.ProcessEnv = process.env,
 ): NodeJS.ProcessEnv {

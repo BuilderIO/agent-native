@@ -11,6 +11,7 @@ import {
   resolveAgentNativeNitroPreset,
 } from "../deploy/nitro-preset.js";
 import { loadOptionalPeer } from "../shared/optional-peer.js";
+import { generateActionRegistryForProject } from "../vite/action-types-plugin.js";
 import { buildStepFailureReport } from "./build-failure-report.js";
 import { resolveDeployPostBuildInvocation } from "./deploy-build.js";
 import { cliSpawnOptions, runDevServer } from "./process.js";
@@ -18,6 +19,7 @@ import {
   findBinUpwards,
   findReactRouterInvocation,
   reactRouterTypegenEnv,
+  usesGeneratedRouteTypes,
 } from "./react-router-command.js";
 import {
   captureSentryException as captureOptionalSentryException,
@@ -688,20 +690,36 @@ switch (command) {
 
   case "typecheck": {
     if (isReactRouterFramework()) {
-      validateReactRouterBuildDependencies();
-      const rr = findReactRouterInvocation(["typegen"]);
-      const env = reactRouterTypegenEnv();
-      try {
-        if (rr.shell) {
-          execSync(`${rr.command} ${rr.args.join(" ")}`, {
-            stdio: "inherit",
-            env,
-          });
-        } else {
-          execFileSync(rr.command, rr.args, { stdio: "inherit", env });
+      // Typed action hooks and the server action registry import these. They
+      // used to appear only as a side effect of typegen loading vite.config.ts.
+      generateActionRegistryForProject(process.cwd());
+      if (usesGeneratedRouteTypes()) {
+        validateReactRouterBuildDependencies();
+        const rr = findReactRouterInvocation(["typegen"]);
+        const env = reactRouterTypegenEnv();
+        try {
+          if (rr.shell) {
+            execSync(`${rr.command} ${rr.args.join(" ")}`, {
+              stdio: "inherit",
+              env,
+            });
+          } else {
+            execFileSync(rr.command, rr.args, { stdio: "inherit", env });
+          }
+        } catch (error) {
+          console.error(
+            "\nreact-router typegen failed, so the route types this app imports are missing or stale. Fix the error above, then rerun typecheck.",
+          );
+          process.exit((error as { status?: number | null }).status ?? 1);
         }
-      } catch {
-        // typegen may fail if routes aren't set up yet; continue to TypeScript.
+      } else {
+        // Core declares virtual:react-router/server-build, so this app needs
+        // no typegen output. A copy left by the dev server still fails tsc
+        // once a route it names is deleted.
+        fs.rmSync(path.resolve(".react-router/types"), {
+          recursive: true,
+          force: true,
+        });
       }
     }
     run(findTypeScriptCompilerBin(), ["--noEmit", ...args]);
