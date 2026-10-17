@@ -4,7 +4,10 @@ import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { findDesignE2ETestRegistrations } from "./design-e2e-regression-pins.ts";
+import {
+  findDesignE2ESuppressionCallSites,
+  findDesignE2ETestRegistrations,
+} from "./design-e2e-regression-pins.ts";
 import {
   GUARD_EXIT_COULD_NOT_RUN,
   resolveDiffBase,
@@ -18,6 +21,8 @@ const E2E_DIR = "templates/design/e2e";
 const EXCEPTIONS_PATH = "scripts/design-e2e-coverage-exceptions.json";
 const CEILINGS = { [E2E_DIR]: 227 };
 const SKIP_CEILINGS = { [E2E_DIR]: 7 };
+const PLAYWRIGHT_DEFAULT_TEST_FILE =
+  /(?:^|\/)[^/]*\.(?:spec|test)\.(?:[cm]?[jt]sx?)$/;
 
 function key(file, title) {
   return JSON.stringify([file, title]);
@@ -58,15 +63,21 @@ function stableJson(value) {
   return JSON.stringify(value) ?? "undefined";
 }
 
-function listSpecFiles(directory, relative = "") {
+function isPlaywrightTestFile(file) {
+  return PLAYWRIGHT_DEFAULT_TEST_FILE.test(file);
+}
+
+function listPlaywrightTestFiles(directory, relative = "") {
   const files = [];
   for (const entry of readdirSync(path.join(directory, relative), {
     withFileTypes: true,
   })) {
     const child = path.posix.join(relative, entry.name);
-    if (entry.isDirectory()) files.push(...listSpecFiles(directory, child));
-    else if (entry.isFile() && entry.name.endsWith(".spec.ts"))
+    if (entry.isDirectory()) {
+      files.push(...listPlaywrightTestFiles(directory, child));
+    } else if (entry.isFile() && isPlaywrightTestFile(child)) {
       files.push(child);
+    }
   }
   return files.sort();
 }
@@ -122,8 +133,9 @@ export function readBaseRegistrations(cwd, baseCommit) {
     cwd,
   )
     .split("\n")
-    .filter((file) => file.endsWith(".spec.ts"));
-  if (files.length === 0) failToRun(`${E2E_DIR} has no base *.spec.ts files`);
+    .filter(isPlaywrightTestFile);
+  if (files.length === 0)
+    failToRun(`${E2E_DIR} has no base Playwright test files`);
 
   const registrations = [];
   for (const file of files) {
@@ -141,11 +153,11 @@ export function readBaseRegistrations(cwd, baseCommit) {
 export function readHeadRegistrations(cwd) {
   let files;
   try {
-    files = listSpecFiles(path.join(cwd, E2E_DIR));
+    files = listPlaywrightTestFiles(path.join(cwd, E2E_DIR));
   } catch (error) {
     failToRun(`cannot read ${E2E_DIR}: ${error.message}`);
   }
-  if (files.length === 0) failToRun(`${E2E_DIR} has no *.spec.ts files`);
+  if (files.length === 0) failToRun(`${E2E_DIR} has no Playwright test files`);
 
   const registrations = [];
   for (const file of files) {
@@ -713,7 +725,7 @@ export function readBaseExceptions(cwd, baseCommit) {
 }
 
 export function inspectCurrentFiles(cwd) {
-  const files = listSpecFiles(path.join(cwd, E2E_DIR));
+  const files = listPlaywrightTestFiles(path.join(cwd, E2E_DIR));
   let fixmeCount = 0;
   let skipCount = 0;
   const unexplained = [];
@@ -723,17 +735,22 @@ export function inspectCurrentFiles(cwd) {
       "utf8",
     );
     const lines = source.split("\n");
-    lines.forEach((line, index) => {
-      if (/test\.(?:describe\.)?skip\(/.test(line)) skipCount += 1;
-      if (!/test\.(?:describe\.)?fixme\(/.test(line)) return;
+    for (const callSite of findDesignE2ESuppressionCallSites(
+      source,
+      `${E2E_DIR}/${name}`,
+    )) {
+      if (callSite.modifier === "skip") {
+        skipCount += 1;
+        continue;
+      }
       fixmeCount += 1;
-      let cursor = index - 1;
+      let cursor = callSite.line - 2;
       while (cursor >= 0 && lines[cursor].trim() === "") cursor -= 1;
       const above = cursor >= 0 ? lines[cursor].trim() : "";
       if (!above.startsWith("//") && !above.startsWith("*")) {
-        unexplained.push(`${E2E_DIR}/${name}:${index + 1}`);
+        unexplained.push(`${E2E_DIR}/${name}:${callSite.line}`);
       }
-    });
+    }
   }
   return { files, fixmeCount, skipCount, unexplained };
 }

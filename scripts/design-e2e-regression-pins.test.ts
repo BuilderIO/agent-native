@@ -2620,6 +2620,62 @@ test("test.extend aliases register tests without nested aliases hiding their sco
   );
 });
 
+test("inline test.extend modifiers and suites stay attached to their registrations", () => {
+  const inlineExtended = [
+    'import { test } from "@playwright/test";',
+    'test.extend({}).skip("inline skipped behavior", () => {});',
+    'test.extend({}).fixme("inline fixme behavior", () => {});',
+    'test.extend({}).describe("inline active suite", () => {',
+    '  test("active suite behavior", () => {});',
+    "});",
+    'test.extend({}).describe.skip("inline skipped suite", () => {',
+    '  test("inline suite hidden behavior", () => {});',
+    "});",
+  ].join("\n");
+
+  assert.deepEqual(
+    findDesignE2ETestRegistrations(inlineExtended).map(
+      ({ title, modifier, suppressionKind }) => [
+        title,
+        modifier ?? null,
+        suppressionKind,
+      ],
+    ),
+    [
+      ["inline skipped behavior", "skip", "direct"],
+      ["inline fixme behavior", "fixme", "direct"],
+      ["active suite behavior", null, null],
+      ["inline suite hidden behavior", null, "suite"],
+    ],
+  );
+  assert.throws(
+    () => findDesignE2ETestLine(inlineExtended, "inline skipped behavior"),
+    /must run without test modifiers or suite\/file suppression/,
+  );
+  assert.throws(
+    () => findDesignE2ETestLine(inlineExtended, "inline fixme behavior"),
+    /must run without test modifiers or suite\/file suppression/,
+  );
+  assert.throws(
+    () => findDesignE2ETestLine(inlineExtended, "inline suite hidden behavior"),
+    /must run without test modifiers or suite\/file suppression/,
+  );
+  assert.equal(
+    findDesignE2ETestLine(inlineExtended, "active suite behavior"),
+    5,
+  );
+
+  const unrelatedFactory = [
+    "const factory = { extend: (_fixtures: object) => ({ fixme: () => {} }) };",
+    'factory.extend({}).fixme("ordinary factory lookalike", () => {});',
+    'test("ordinary test remains visible", () => {});',
+  ].join("\n");
+  assert.deepEqual(
+    findDesignE2ETestRegistrations(unrelatedFactory).map(({ title }) => title),
+    ["ordinary test remains visible"],
+  );
+});
+
 test("suppression fingerprints ignore lines and callback bodies but retain conditions, metadata, and every call", () => {
   const base = [
     'test.fixme("pinned behavior", (_fixtures, testInfo) => {',

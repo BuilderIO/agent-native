@@ -25,6 +25,17 @@ function parseDiagnostics(
   ).parseDiagnostics;
 }
 
+function scriptKindForFile(
+  file: string,
+  ts: typeof TypeScript,
+): TypeScript.ScriptKind {
+  if (file.endsWith(".jsx")) return ts.ScriptKind.JSX;
+  if (file.endsWith(".tsx")) return ts.ScriptKind.TSX;
+  if (/\.[cm]?js$/.test(file)) return ts.ScriptKind.JS;
+  if (file.endsWith(".json")) return ts.ScriptKind.JSON;
+  return file.endsWith("x") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+}
+
 export const DESIGN_E2E_REGRESSION_SHARDS = [
   "inspector-1a",
   "inspector-1b",
@@ -1544,12 +1555,238 @@ function testImports(
   return resolver;
 }
 
+export function findDesignE2ESuppressionCallSites(
+  source: string,
+  file = "",
+): Array<{
+  modifier: "fixme" | "skip";
+  start: number;
+  end: number;
+  line: number;
+}> {
+  const ts = loadTypeScript();
+  const sourceName = file || "design.spec.ts";
+  const sourceFile = ts.createSourceFile(
+    sourceName,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    scriptKindForFile(sourceName, ts),
+  );
+  const diagnostics = parseDiagnostics(sourceFile);
+  if (diagnostics.length > 0) {
+    const diagnostic = diagnostics[0]!;
+    const line =
+      sourceFile.getLineAndCharacterOfPosition(diagnostic.start ?? 0).line + 1;
+    throw new Error(
+      `${file || "Design E2E source"}:${line}: TypeScript syntax error; test suppression callsites could not be inspected`,
+    );
+  }
+
+  const aliases = testImports(sourceFile, ts);
+  const isSuppressionPath = (segments: string[]): boolean =>
+    (segments.length === 2 &&
+      segments[0] === "test" &&
+      (segments[1] === "fixme" || segments[1] === "skip")) ||
+    (segments.length === 3 &&
+      segments[0] === "test" &&
+      segments[1] === "describe" &&
+      (segments[2] === "fixme" || segments[2] === "skip"));
+  const modifierForPath = (
+    segments: string[],
+  ): "fixme" | "skip" | undefined => {
+    if (isSuppressionPath(segments)) return segments.at(-1) as "fixme" | "skip";
+    if (segments.at(-1) === "bound") {
+      const boundTarget = segments.slice(0, -1);
+      if (isSuppressionPath(boundTarget)) {
+        return boundTarget.at(-1) as "fixme" | "skip";
+      }
+    }
+    if (segments.at(-1) === "call" || segments.at(-1) === "apply") {
+      const calledTarget = segments.slice(0, -1);
+      if (isSuppressionPath(calledTarget)) {
+        return calledTarget.at(-1) as "fixme" | "skip";
+      }
+    }
+    return undefined;
+  };
+  const modifierForInvocation = (
+    expression: TypeScript.Expression,
+  ): "fixme" | "skip" | undefined => {
+    const modifier = modifierForPath(aliases.resolve(expression));
+    if (modifier) return modifier;
+
+    const candidate = unwrapExpression(expression, ts);
+    if (!ts.isCallExpression(candidate)) return undefined;
+    const wrapper = unwrapExpression(candidate.expression, ts);
+    const wrapperName = ts.isPropertyAccessExpression(wrapper)
+      ? wrapper.name.text
+      : ts.isElementAccessExpression(wrapper) && wrapper.argumentExpression
+        ? constantStringExpression(wrapper.argumentExpression, ts)
+        : undefined;
+    if (wrapperName !== "call" && wrapperName !== "apply") {
+      return undefined;
+    }
+    const target =
+      ts.isPropertyAccessExpression(wrapper) ||
+      ts.isElementAccessExpression(wrapper)
+        ? wrapper.expression
+        : undefined;
+    if (!target) return undefined;
+    const targetPath = aliases.resolve(target);
+    if (targetPath.at(-1) !== "bind") return undefined;
+    const boundTarget = targetPath.slice(0, -1);
+    return isSuppressionPath(boundTarget)
+      ? (boundTarget.at(-1) as "fixme" | "skip")
+      : undefined;
+  };
+  const hasDynamicTestModifier = (
+    expression: TypeScript.Expression,
+  ): boolean => {
+    const candidate = unwrapExpression(expression, ts);
+    if (
+      ts.isElementAccessExpression(candidate) &&
+      candidate.argumentExpression
+    ) {
+      if (
+        constantStringExpression(candidate.argumentExpression, ts) !== undefined
+      ) {
+        return false;
+      }
+      const receiverPath = aliases.resolve(candidate.expression);
+      return (
+        (receiverPath.length === 1 && receiverPath[0] === "test") ||
+        (receiverPath.length === 2 &&
+          receiverPath[0] === "test" &&
+          receiverPath[1] === "describe")
+      );
+    }
+    const wrapped = ts.isCallExpression(candidate)
+      ? unwrapExpression(candidate.expression, ts)
+      : candidate;
+    const wrapperName = ts.isPropertyAccessExpression(wrapped)
+      ? wrapped.name.text
+      : ts.isElementAccessExpression(wrapped) && wrapped.argumentExpression
+        ? constantStringExpression(wrapped.argumentExpression, ts)
+        : undefined;
+    if (
+      wrapperName !== "bind" &&
+      wrapperName !== "call" &&
+      wrapperName !== "apply"
+    ) {
+      return false;
+    }
+    const receiver =
+      ts.isPropertyAccessExpression(wrapped) ||
+      ts.isElementAccessExpression(wrapped)
+        ? wrapped.expression
+        : undefined;
+    return receiver ? hasDynamicTestModifier(receiver) : false;
+  };
+
+  const callSites: Array<{
+    modifier: "fixme" | "skip";
+    start: number;
+    end: number;
+    line: number;
+  }> = [];
+  const seen = new Set<string>();
+  const visit = (node: TypeScript.Node) => {
+    if (ts.isCallExpression(node)) {
+      const resolvedPath = aliases.resolve(node.expression);
+      const modifier =
+        modifierForPath(resolvedPath) ?? modifierForInvocation(node.expression);
+      if (modifier) {
+        if (aliases.isAmbiguous(node.expression)) {
+          const line =
+            sourceFile.getLineAndCharacterOfPosition(
+              node.expression.getStart(sourceFile),
+            ).line + 1;
+          throw new Error(
+            `${file || "Design E2E source"}:${line}: ambiguous Playwright test.${modifier} callsite could not be inspected`,
+          );
+        }
+        const start = node.expression.getStart(sourceFile);
+        const end = node.expression.end;
+        const range = `${start}:${end}`;
+        if (!seen.has(range)) {
+          seen.add(range);
+          callSites.push({
+            modifier,
+            start,
+            end,
+            line: sourceFile.getLineAndCharacterOfPosition(start).line + 1,
+          });
+        }
+      } else if (
+        (resolvedPath.length === 2 &&
+          resolvedPath[0] === "test" &&
+          resolvedPath[1] === "dynamic-bound") ||
+        hasDynamicTestModifier(node.expression) ||
+        aliases.isKnownModifierReference(node.expression) ||
+        aliases.isUnrecognizedDynamicTestModifier(node.expression)
+      ) {
+        const line =
+          sourceFile.getLineAndCharacterOfPosition(
+            node.expression.getStart(sourceFile),
+          ).line + 1;
+        throw new Error(
+          `${file || "Design E2E source"}:${line}: unsupported dynamic Playwright test modifier callsite could not be inspected`,
+        );
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return callSites;
+}
+
 function normalizedTestPath(
   expression: TypeScript.Expression,
   lookup: (name: string, at: TypeScript.Node) => TestAlias | undefined,
   ts: typeof TypeScript,
 ): string[] {
   const candidate = unwrapExpression(expression, ts);
+  const inlineExtendedTestPath = (
+    value: TypeScript.Expression,
+  ): string[] | undefined => {
+    const access = unwrapExpression(value, ts);
+    if (ts.isCallExpression(access)) {
+      const callee = unwrapExpression(access.expression, ts);
+      const memberName = ts.isPropertyAccessExpression(callee)
+        ? callee.name.text
+        : ts.isElementAccessExpression(callee) && callee.argumentExpression
+          ? constantStringExpression(callee.argumentExpression, ts)
+          : undefined;
+      if (memberName !== "extend") return undefined;
+      const receiver =
+        ts.isPropertyAccessExpression(callee) ||
+        ts.isElementAccessExpression(callee)
+          ? callee.expression
+          : undefined;
+      if (!receiver) return undefined;
+      const receiverPath = normalizedTestPath(receiver, lookup, ts);
+      return receiverPath.length === 1 && receiverPath[0] === "test"
+        ? ["test"]
+        : undefined;
+    }
+    if (ts.isPropertyAccessExpression(access)) {
+      const receiverPath = inlineExtendedTestPath(access.expression);
+      return receiverPath ? [...receiverPath, access.name.text] : undefined;
+    }
+    if (ts.isElementAccessExpression(access) && access.argumentExpression) {
+      const memberName = constantStringExpression(
+        access.argumentExpression,
+        ts,
+      );
+      if (memberName === undefined) return undefined;
+      const receiverPath = inlineExtendedTestPath(access.expression);
+      return receiverPath ? [...receiverPath, memberName] : undefined;
+    }
+    return undefined;
+  };
+  const inlineExtendedPath = inlineExtendedTestPath(candidate);
+  if (inlineExtendedPath) return inlineExtendedPath;
   const isDynamicKnownTestModifier = (value: TypeScript.Expression) => {
     const access = unwrapExpression(value, ts);
     if (
@@ -3955,12 +4192,13 @@ export function findDesignE2ETestRegistrations(
   file = "",
 ): DesignE2ETestRegistration[] {
   const ts = loadTypeScript();
+  const sourceName = file || "design.spec.ts";
   const sourceFile = ts.createSourceFile(
-    file || "design.spec.ts",
+    sourceName,
     source,
     ts.ScriptTarget.Latest,
     true,
-    ts.ScriptKind.TS,
+    scriptKindForFile(sourceName, ts),
   );
   const diagnostics = parseDiagnostics(sourceFile);
   if (diagnostics.length > 0) {

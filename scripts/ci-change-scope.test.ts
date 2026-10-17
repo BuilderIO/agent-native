@@ -8,6 +8,7 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -687,6 +688,7 @@ test("routes Design pin attestation inputs to core regression", () => {
 
 test("routes shared Design E2E support modules and keeps dedicated lanes", () => {
   for (const path of [
+    "templates/design/e2e/helpers.ts",
     "templates/design/e2e/rails.ts",
     "templates/design/e2e/interact-helpers.ts",
     "templates/design/e2e/startup-child.ts",
@@ -694,7 +696,12 @@ test("routes shared Design E2E support modules and keeps dedicated lanes", () =>
     const scope = classifyChangedPaths([path]);
     assert.equal(scope.checks.design_canvas_core_regression, true, path);
     assert.equal(scope.checks.design_canvas_broad_workflows, true, path);
-    assert.deepEqual(scope.designCanvasE2eSpecs, [], path);
+    assert.ok(scope.designCanvasE2eSpecs.length > 0, path);
+    assert.deepEqual(
+      scope.designCanvasE2eDiagnosticSpecs,
+      scope.designCanvasE2eSpecs,
+      path,
+    );
   }
 
   const pinReporter = classifyChangedPaths([
@@ -856,7 +863,7 @@ test("selects focused Design core regression for its runtime dependencies", () =
   );
 });
 
-test("routes CSS style helper changes to its importing Design E2E specs", () => {
+test("routes CSS style helper changes to its exact importing specs", () => {
   const helperPath = "templates/design/e2e/css-style-helpers.ts";
   const routedSpecs = [
     "templates/design/e2e/css-style-helpers.spec.ts",
@@ -864,24 +871,207 @@ test("routes CSS style helper changes to its importing Design E2E specs", () => 
     "templates/design/e2e/interaction-card-structure.spec.ts",
     "templates/design/e2e/interaction-mobile-landing.spec.ts",
   ];
-
-  const scope = classifyChangedPaths([helperPath]);
-  assert.equal(scope.checks.design_canvas_core_regression, true);
-  assert.equal(scope.checks.design_canvas_broad_workflows, true);
-  assert.deepEqual(scope.designCanvasE2eSpecs, routedSpecs);
-  assert.deepEqual(scope.designCanvasE2eDiagnosticSpecs, routedSpecs);
-  assert.equal(scope.designCanvasE2eSpecCount, routedSpecs.length);
+  const fixtureRoot = mkdtempSync(
+    join(tmpdir(), "ci-change-scope-css-helper-importers-"),
+  );
+  const writeSource = (path: string) => {
+    const destination = join(fixtureRoot, path);
+    mkdirSync(dirname(destination), { recursive: true });
+    writeFileSync(destination, 'import "./css-style-helpers";\n');
+  };
 
   const renamedSpec = "templates/design/e2e/renamed.spec.ts";
-  const withRename = classifyChangedPaths(
-    [helperPath, renamedSpec],
-    [renamedSpec],
+  try {
+    const helper = join(fixtureRoot, helperPath);
+    mkdirSync(dirname(helper), { recursive: true });
+    writeFileSync(helper, "export const styles = true;\n");
+    for (const spec of routedSpecs) writeSource(spec);
+
+    const scope = classifyChangedPaths([helperPath], [], fixtureRoot);
+    assert.equal(scope.checks.design_canvas_core_regression, true);
+    assert.equal(scope.checks.design_canvas_broad_workflows, true);
+    assert.deepEqual(scope.designCanvasE2eSpecs, routedSpecs);
+    assert.deepEqual(scope.designCanvasE2eDiagnosticSpecs, routedSpecs);
+    assert.equal(scope.designCanvasE2eSpecCount, routedSpecs.length);
+
+    const withRename = classifyChangedPaths(
+      [helperPath, renamedSpec],
+      [renamedSpec],
+      fixtureRoot,
+    );
+    assert.deepEqual(withRename.designCanvasE2eSpecs, [
+      ...routedSpecs,
+      renamedSpec,
+    ]);
+    assert.deepEqual(withRename.designCanvasE2eDiagnosticSpecs, routedSpecs);
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("traces Design E2E helper imports and literal dynamic imports", () => {
+  const fixtureRoot = mkdtempSync(
+    join(tmpdir(), "ci-change-scope-design-import-graph-"),
   );
-  assert.deepEqual(withRename.designCanvasE2eSpecs, [
-    ...routedSpecs,
-    renamedSpec,
-  ]);
-  assert.deepEqual(withRename.designCanvasE2eDiagnosticSpecs, routedSpecs);
+  const writeSource = (path: string, source: string) => {
+    const destination = join(fixtureRoot, path);
+    mkdirSync(dirname(destination), { recursive: true });
+    writeFileSync(destination, source);
+  };
+  const helperPath = "templates/design/e2e/shared-helper.ts";
+  const expectedSpecs = [
+    "templates/design/e2e/dynamic-consumer.test.tsx",
+    "templates/design/e2e/transitive-consumer.spec.ts",
+  ];
+
+  try {
+    writeSource(helperPath, "export const helper = true;\n");
+    writeSource(
+      "templates/design/e2e/intermediate-helper.ts",
+      'import "./shared-helper";\n',
+    );
+    writeSource(
+      "templates/design/e2e/transitive-consumer.spec.ts",
+      'import "./intermediate-helper";\n',
+    );
+    writeSource(
+      "templates/design/e2e/dynamic-consumer.test.tsx",
+      "void import(`./shared-helper`);\n",
+    );
+    writeSource(
+      "templates/design/e2e/unrelated.test.tsx",
+      "export const fixture = true;\n",
+    );
+    writeSource(
+      "templates/design/e2e/pre-auth-session-replay-smoke.spec.ts",
+      'import "./shared-helper";\n',
+    );
+
+    const scope = classifyChangedPaths([helperPath], [], fixtureRoot);
+    assert.deepEqual(scope.designCanvasE2eSpecs, expectedSpecs);
+    assert.deepEqual(scope.designCanvasE2eDiagnosticSpecs, expectedSpecs);
+    assert.ok(
+      !scope.designCanvasE2eSpecs.includes(
+        "templates/design/e2e/unrelated.test.tsx",
+      ),
+    );
+    assert.ok(
+      !scope.designCanvasE2eSpecs.includes(
+        "templates/design/e2e/pre-auth-session-replay-smoke.spec.ts",
+      ),
+    );
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("falls back safely for removed or untraceable Design E2E helpers", () => {
+  const fixtureRoot = mkdtempSync(
+    join(tmpdir(), "ci-change-scope-design-removed-helper-"),
+  );
+  const writeSource = (path: string, source: string) => {
+    const destination = join(fixtureRoot, path);
+    mkdirSync(dirname(destination), { recursive: true });
+    writeFileSync(destination, source);
+  };
+
+  try {
+    writeSource(
+      "templates/design/e2e/removed-helper-consumer.spec.ts",
+      'import "./removed-helper";\n',
+    );
+    writeSource(
+      "templates/design/e2e/unrelated.test.tsx",
+      "export const fixture = true;\n",
+    );
+    writeSource(
+      "templates/design/e2e/pre-auth-session-replay-smoke.spec.ts",
+      "export const dedicated = true;\n",
+    );
+
+    const deletedHelper = classifyChangedPaths(
+      ["templates/design/e2e/removed-helper.ts"],
+      [],
+      fixtureRoot,
+    );
+    assert.deepEqual(deletedHelper.designCanvasE2eSpecs, [
+      "templates/design/e2e/removed-helper-consumer.spec.ts",
+    ]);
+
+    writeSource(
+      "templates/design/e2e/orphan-helper.ts",
+      "export const orphan = true;\n",
+    );
+    const noKnownImporter = classifyChangedPaths(
+      ["templates/design/e2e/orphan-helper.ts"],
+      [],
+      fixtureRoot,
+    );
+    assert.deepEqual(noKnownImporter.designCanvasE2eSpecs, [
+      "templates/design/e2e/removed-helper-consumer.spec.ts",
+      "templates/design/e2e/unrelated.test.tsx",
+    ]);
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("falls back to all eligible specs when a dynamic import is computed", () => {
+  const fixtureRoot = mkdtempSync(
+    join(tmpdir(), "ci-change-scope-design-computed-import-"),
+  );
+  const writeSource = (path: string, source: string) => {
+    const destination = join(fixtureRoot, path);
+    mkdirSync(dirname(destination), { recursive: true });
+    writeFileSync(destination, source);
+  };
+
+  try {
+    writeSource(
+      "templates/design/e2e/computed-helper.ts",
+      "export const helper = true;\n",
+    );
+    writeSource(
+      "templates/design/e2e/static-consumer.spec.ts",
+      'import "./computed-helper";\n',
+    );
+    writeSource(
+      "templates/design/e2e/computed-import-consumer.spec.ts",
+      "void import(resolveModulePath());\n",
+    );
+    writeSource(
+      "templates/design/e2e/unrelated.test.tsx",
+      "export const fixture = true;\n",
+    );
+
+    const scope = classifyChangedPaths(
+      ["templates/design/e2e/computed-helper.ts"],
+      [],
+      fixtureRoot,
+    );
+    assert.deepEqual(scope.designCanvasE2eSpecs, [
+      "templates/design/e2e/computed-import-consumer.spec.ts",
+      "templates/design/e2e/static-consumer.spec.ts",
+      "templates/design/e2e/unrelated.test.tsx",
+    ]);
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("routes direct Design specs before source-graph discovery", () => {
+  const fixtureRoot = mkdtempSync(
+    join(tmpdir(), "ci-change-scope-design-cold-spec-"),
+  );
+  const specPath = "templates/design/e2e/virtual.spec.mts";
+
+  try {
+    const scope = classifyChangedPaths([specPath], [], fixtureRoot);
+    assert.deepEqual(scope.designCanvasE2eSpecs, [specPath]);
+    assert.deepEqual(scope.designCanvasE2eDiagnosticSpecs, [specPath]);
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
 });
 
 test("Design core and broad selectors cover the same on/off/full inputs", () => {
@@ -2966,6 +3156,11 @@ test(
         "scripts/design-e2e-spec-selection.ts",
         ".github/workflows/ci.yml",
         ".github/workflows/slides-authoring-fuzz-soak.yml",
+        "templates/design/e2e/css-style-helpers.ts",
+        "templates/design/e2e/css-style-helpers.spec.ts",
+        "templates/design/e2e/drag-and-drop.modifier-timing.spec.ts",
+        "templates/design/e2e/interaction-card-structure.spec.ts",
+        "templates/design/e2e/interaction-mobile-landing.spec.ts",
         "templates/design/e2e/interaction-selection-history-delete-screen.spec.ts",
         "community-templates/package.json",
         "templates/clips/desktop/package.json",

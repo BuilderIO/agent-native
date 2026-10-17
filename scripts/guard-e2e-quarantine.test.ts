@@ -953,6 +953,222 @@ test("nested specs keep e2e-relative identities and nested suppressions are coun
   }
 });
 
+test("head and base discovery match Playwright's default testMatch", () => {
+  const root = mkdtempSync(join(tmpdir(), "e2e-quarantine-playwright-files-"));
+  const e2e = join(root, "templates/design/e2e");
+  const matchingFiles = [
+    "nested/.spec.ts",
+    "nested/.test.ts",
+    "nested/standard.spec.js",
+    "nested/standard.test.ts",
+    "nested/jsx.spec.jsx",
+    "nested/jsx.spec.tsx",
+    "nested/tsx.test.tsx",
+    "nested/common.spec.cjs",
+    "nested/common.test.cts",
+    "nested/module.spec.mjs",
+    "nested/module.test.mts",
+    "nested/common-jsx.spec.cjsx",
+    "nested/common-tsx.test.ctsx",
+    "nested/module-jsx.spec.mjsx",
+    "nested/module-tsx.test.mtsx",
+  ].sort();
+  try {
+    for (const file of matchingFiles) {
+      const path = join(e2e, file);
+      mkdirSync(join(path, ".."), { recursive: true });
+      writeFileSync(
+        path,
+        file === "nested/jsx.spec.tsx"
+          ? [
+              `test(${JSON.stringify(file)}, () => <div />);`,
+              "// This test still fails while checking JSX parsing.",
+              'test.fixme("jsx suppression", () => <span />);',
+            ].join("\n")
+          : `test(${JSON.stringify(file)}, () => {});`,
+      );
+    }
+    for (const file of [
+      "nested/helper.ts",
+      "nested/spec.ts",
+      "nested/other.spec.json",
+    ]) {
+      const path = join(e2e, file);
+      mkdirSync(join(path, ".."), { recursive: true });
+      writeFileSync(path, 'test.fixme("not a Playwright test", () => {});');
+    }
+    execFileSync("git", ["init", "-q"], { cwd: root });
+    execFileSync("git", ["config", "user.name", "Guard test"], { cwd: root });
+    execFileSync(
+      "git",
+      ["config", "user.email", "guard-test@example.invalid"],
+      { cwd: root },
+    );
+    execFileSync("git", ["add", "templates/design/e2e"], { cwd: root });
+    execFileSync(
+      "git",
+      ["commit", "-qm", "Playwright file discovery fixture"],
+      {
+        cwd: root,
+      },
+    );
+
+    const base = readBaseRegistrations(root, "HEAD");
+    const head = readHeadRegistrations(root);
+    assert.deepEqual(
+      [...new Set(base.map(({ file }) => file))].sort(),
+      matchingFiles,
+    );
+    assert.deepEqual(
+      [...new Set(head.map(({ file }) => file))].sort(),
+      matchingFiles,
+    );
+    assert.deepEqual(inspectCurrentFiles(root).files, matchingFiles);
+    assert.equal(inspectCurrentFiles(root).fixmeCount, 1);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("multiline fixme callsites count and require a reason before the chain", () => {
+  const root = mkdtempSync(join(tmpdir(), "e2e-quarantine-multiline-fixme-"));
+  const e2e = join(root, "templates/design/e2e");
+  const file = join(e2e, "multiline.spec.ts");
+  mkdirSync(e2e, { recursive: true });
+  try {
+    writeFileSync(
+      file,
+      [
+        "// The browser behavior still fails in the local test environment.",
+        "test",
+        "  .fixme(",
+        '    "multiline quarantined behavior",',
+        "    () => {},",
+        "  );",
+      ].join("\n"),
+    );
+    const explained = inspectCurrentFiles(root);
+    assert.equal(explained.fixmeCount, 1);
+    assert.deepEqual(explained.unexplained, []);
+
+    writeFileSync(
+      file,
+      [
+        "test",
+        "  .fixme(",
+        '    "multiline quarantined behavior",',
+        "    () => {},",
+        "  );",
+      ].join("\n"),
+    );
+    const unexplained = inspectCurrentFiles(root);
+    assert.equal(unexplained.fixmeCount, 1);
+    assert.deepEqual(unexplained.unexplained, [
+      "templates/design/e2e/multiline.spec.ts:1",
+    ]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("multiline suppression sites still count against the existing ceilings", () => {
+  const root = mkdtempSync(
+    join(tmpdir(), "e2e-quarantine-multiline-ceilings-"),
+  );
+  const e2e = join(root, "templates/design/e2e");
+  mkdirSync(e2e, { recursive: true });
+  try {
+    const lines = [];
+    for (let index = 0; index < 228; index += 1) {
+      lines.push(
+        "// The browser behavior still fails in the local test environment.",
+        "test",
+        `  .fixme(${JSON.stringify(`quarantined behavior ${index}`)}, () => {});`,
+      );
+    }
+    for (let index = 0; index < 8; index += 1) {
+      lines.push(
+        "test",
+        `  .skip(isMobile, ${JSON.stringify(`conditionally unsupported ${index}`)});`,
+      );
+    }
+    writeFileSync(join(e2e, "multiline.spec.ts"), lines.join("\n"));
+
+    const inspection = inspectCurrentFiles(root);
+    assert.equal(inspection.fixmeCount, 228);
+    assert.equal(inspection.skipCount, 8);
+    assert.ok(inspection.fixmeCount > 227);
+    assert.ok(inspection.skipCount > 7);
+    assert.deepEqual(inspection.unexplained, []);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("known suppression aliases, wrappers, and extended tests count once", () => {
+  const root = mkdtempSync(join(tmpdir(), "e2e-quarantine-known-callsites-"));
+  const e2e = join(root, "templates/design/e2e");
+  const file = join(e2e, "known-callsites.spec.ts");
+  mkdirSync(e2e, { recursive: true });
+  try {
+    const source = [
+      'import { test as playwrightTest } from "@playwright/test";',
+      "const extendedTest = playwrightTest.extend({});",
+      "// This known regression still fails in the browser.",
+      "playwrightTest",
+      '  .fixme("multiline direct", () => {});',
+      "// This known regression still fails in the browser.",
+      'playwrightTest["fi" + "xme"].call(undefined, "computed call", () => {});',
+      "// This known regression still fails in the browser.",
+      'extendedTest.fixme("assigned extend alias", () => {});',
+      "// This known regression still fails in the browser.",
+      'playwrightTest.extend({}).describe["fixme"]("inline extended suite", () => {});',
+      "// This known regression still fails in the browser.",
+      'playwrightTest.fixme.bind(playwrightTest)("bound suppression", () => {});',
+      "// This known regression still fails in the browser.",
+      'playwrightTest["fixme"].apply(undefined, ["applied suppression", () => {}]);',
+      "// This known regression still fails in the browser.",
+      'playwrightTest.fixme.bind.call(playwrightTest.fixme, playwrightTest)("bound call suppression", () => {});',
+      'playwrightTest["sk" + "ip"](isMobile, "mobile only");',
+      "const factory = { extend: (_fixtures: object) => ({ fixme: () => {} }) };",
+      'factory.extend({}).fixme("ordinary factory lookalike", () => {});',
+    ].join("\n");
+    writeFileSync(file, source);
+
+    const inspection = inspectCurrentFiles(root);
+    assert.equal(inspection.fixmeCount, 7);
+    assert.equal(inspection.skipCount, 1);
+    assert.deepEqual(inspection.unexplained, []);
+
+    writeFileSync(
+      file,
+      source.replace(
+        "// This known regression still fails in the browser.\nextendedTest.fixme",
+        "extendedTest.fixme",
+      ),
+    );
+    const unexplained = inspectCurrentFiles(root);
+    assert.equal(unexplained.fixmeCount, 7);
+    assert.deepEqual(unexplained.unexplained, [
+      "templates/design/e2e/known-callsites.spec.ts:8",
+    ]);
+
+    writeFileSync(
+      file,
+      [
+        'const modifier = "fixme";',
+        'test[modifier]("dynamic suppression", () => {});',
+      ].join("\n"),
+    );
+    assert.throws(
+      () => inspectCurrentFiles(root),
+      /unsupported dynamic Playwright test modifier callsite/,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("every baseline suppression identity needs an explicit removal receipt", () => {
   const sources = [
     'test.skip("existing behavior", () => {});',
