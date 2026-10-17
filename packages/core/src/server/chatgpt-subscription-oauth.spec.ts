@@ -17,6 +17,9 @@ vi.mock("../labs/store.js", () => ({
 vi.mock("../settings/user-settings.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../settings/user-settings.js")>()),
   getUserSetting: mocks.getUserSetting,
+  mutateUserSetting: vi.fn(),
+  putUserSetting: vi.fn(),
+  deleteUserSetting: vi.fn(),
 }));
 
 vi.mock("../oauth-tokens/index.js", async (importOriginal) => ({

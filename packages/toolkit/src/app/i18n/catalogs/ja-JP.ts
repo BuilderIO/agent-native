@@ -216,6 +216,10 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.keySummary": "埋め込み",
   "onboarding.capability.embeddings.why":
     "埋め込みは意味検索を改善します。埋め込みがなくてもキーワード検索は使えます。",
+  "onboarding.capability.webSearch.label": "ウェブ検索",
+  "onboarding.capability.webSearch.keySummary": "Builder が管理するウェブ検索",
+  "onboarding.capability.webSearch.why":
+    "ウェブ上の最新の公開情報を検索します。Builder 管理の検索では付属の Builder AI クレジットを使うため、別の検索 API キーは不要です。",
   "onboarding.capability.systemOne.why":
     "Jev は、エージェントが最初にモデルへリクエストする前に、関連するツールやスキルを選ぶための任意の判断モデルです。",
   "onboarding.capability.assetsImageGeneration.label": "画像生成",
@@ -2667,6 +2671,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.search.appDefaultModel": "アプリのデフォルトモデル",
   "settingsShell.search.backgroundAgents": "バックグラウンドエージェント",
   "settingsShell.search.browserAutomation": "ブラウザ自動化",
+  "settingsShell.search.webSearch": "ウェブ検索",
   "settingsShell.search.connectedAgents": "接続済みエージェント",
   "settingsShell.search.database": "データベース",
   "settingsShell.search.defaultModel": "デフォルトモデル",
@@ -2802,6 +2807,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.whyBackground": "本番環境からコードを変更します。",
   "settingsInfra.whyBrowser":
     "本番環境でエージェントがブラウザを使えるようにします。",
+  "settingsInfra.whyWebSearch":
+    "最新の公開情報や公式ドキュメントを検索します。",
   "settingsInfra.provider": "プロバイダー",
   "settingsInfra.keyOrg": "組織の {{provider}} キーを使います。",
   "settingsInfra.manageKey": "キーを管理",

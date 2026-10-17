@@ -206,6 +206,10 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.keySummary": "التضمينات",
   "onboarding.capability.embeddings.why":
     "تُحسّن التضمينات البحث الدلالي. يظل البحث بالكلمات المفتاحية يعمل من دونها.",
+  "onboarding.capability.webSearch.label": "البحث على الويب",
+  "onboarding.capability.webSearch.keySummary": "بحث على الويب مُدار من Builder",
+  "onboarding.capability.webSearch.why":
+    "ابحث في المصادر العامة الحديثة على الويب. يستخدم البحث المُدار من Builder أرصدة Builder AI المضمنة، لذلك لا تحتاج إلى مفتاح بحث منفصل.",
   "onboarding.capability.systemOne.why":
     "Jev نموذج قرار اختياري يساعد في اختيار الأدوات والمهارات المناسبة قبل أول طلب للنموذج من الوكيل.",
   "onboarding.capability.assetsImageGeneration.label": "إنشاء الصور",
@@ -2799,6 +2803,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.search.appDefaultModel": "النموذج الافتراضي للتطبيق",
   "settingsShell.search.backgroundAgents": "الوكلاء في الخلفية",
   "settingsShell.search.browserAutomation": "أتمتة المتصفح",
+  "settingsShell.search.webSearch": "البحث على الويب",
   "settingsShell.search.connectedAgents": "الوكلاء المتصلون",
   "settingsShell.search.database": "قاعدة البيانات",
   "settingsShell.search.defaultModel": "النموذج الافتراضي",
@@ -2927,6 +2932,7 @@ const messages: ToolkitAgentChatTranslation = {
     "يُبقي الشرائح والتصاميم المُنشأة متوافقة مع علامتك التجارية.",
   "settingsInfra.whyBackground": "يُجري تغييرات في الكود من بيئة الإنتاج.",
   "settingsInfra.whyBrowser": "يتيح للوكيل استخدام متصفح في بيئة الإنتاج.",
+  "settingsInfra.whyWebSearch": "يعثر على معلومات عامة حديثة ووثائق رسمية.",
   "settingsInfra.provider": "المزوّد",
   "settingsInfra.keyOrg": "يستخدم مفتاح {{provider}} الخاص بالمؤسسة.",
   "settingsInfra.manageKey": "إدارة المفتاح",

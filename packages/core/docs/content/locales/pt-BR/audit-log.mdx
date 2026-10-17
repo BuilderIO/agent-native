@@ -26,7 +26,7 @@ Um registro de auditoria que é amostrado ou enviado para um provedor de anális
 Quando qualquer ação de **mutação** é executada (qualquer coisa que não seja um `GET` somente leitura), a estrutura anexa uma linha a `agent_audit_log` com:
 
 - **Ação** — o nome da ação (por exemplo, `delete-recording`).
-- **Ator** — `agent`, `human` ou `system`, além do e-mail do ator — preenchido **mesmo para chamadas de agente**, para que você obtenha "o agente, atuando em nome de alice@, …".
+- **Ator** — `agent`, `human` ou `system`, além do e-mail do ator — preenchido **mesmo para chamadas de agente**, para que você obtenha "o agente, atuando em nome de alice@, …". O e-mail é a conta com que a chamada é executada. Ele não diz quem aprovou a chamada.
 - **Run linkage** — o agente `threadId` / `turnId` que acionou a chamada (uma chamada de ferramenta), portanto, uma mutação remonta ao turno exato do agente.
 - **Superfície** — `tool` (agente), `frontend`, `http`, `cli`, `mcp`, `webmcp` ou `a2a`. São protocolos de agentes, então uma chamada por `mcp`, `webmcp` ou `a2a` é registrada como `agent` agindo em seu nome, não como você.
 - **Resultado** — `success`, `error` (com um código de erro) ou `denied` (bloqueado por um portão de aprovação humana).
@@ -34,6 +34,17 @@ Quando qualquer ação de **mutação** é executada (qualquer coisa que não se
 - **Destino e proprietário** — o recurso que a ação alterou, usado para [scope reads](#reading).
 
 Não é necessária fiação — a captura se conecta ao `defineAction` de forma transparente. actions somente leitura são ignorados, e algumas estruturas de alta frequência actions (sincronização de estado do aplicativo, raio X de contexto, navegação) são ignoradas por padrão para evitar inundar o log.
+
+### Principal, cliente e aprovação {#attribution}
+
+Uma chamada de agente registra quatro fatos separados. Nenhum deles substitui outro.
+
+- **Principal**: `actor_email` é a conta com que a chamada é executada. Não é prova de que alguém aprovou a chamada.
+- **Origem da execução**: `caller` indica a superfície. Uma chamada por `mcp`, `webmcp` ou `a2a` tem `actor_kind` `agent`, ou `service` para os principais de serviço da própria organização.
+- **Cliente**: em uma chamada `mcp`, `reported_client_name` e `reported_client_version` guardam o que o cliente enviou em seu `clientInfo` do MCP com aquela solicitação específica de `tools/call`. O cliente escolhe esses valores, então trate-os como autodeclarados. `oauth_client_id` é o cliente OAuth para o qual a credencial foi emitida, quando houver. Valores enviados somente na mensagem `initialize` anterior não são reaproveitados.
+- **Sinal de autorização**: `approval` registra o sinal de autorização associado à chamada. `agent-chat` registra a aprovação de uma pessoa no chat do agente. `mcp-client-accepted` registra que o cliente MCP aceitou a solicitação; o servidor não consegue verificar quem respondeu. Uma chamada que não precisou de aprovação deixa `approval` vazio.
+
+Linhas antigas nunca são reescritas. Linhas gravadas antes de essas colunas existirem têm os campos de cliente e aprovação vazios, mesmo quando a chamada foi aprovada. Linhas antigas de `mcp`, `webmcp` e `a2a` gravadas como `human` ou `system` são lidas como `agent`, para que filtros e exportações as tratem como linhas novas.
 
 ## Declare o que uma ação mudou {#target}
 
@@ -79,6 +90,8 @@ Três leituras actions estão disponíveis para o agente **e** o frontend em cad
 - **`get-audit-event`** — um evento por ID, incluindo sua carga útil de entrada editada.
 - **`export-audit-events`** — exporta a trilha em massa como CSV ou NDJSON em vez de paginar manualmente `list-audit-events`, para extrações de conformidade offline. Aceita os mesmos filtros de `list-audit-events` (sem `limit`) mais `format` (`csv` | `ndjson`, padrão `csv`) e `maxRows` (padrão 5000, limite máximo 10000), e retorna `{ content, rowCount, truncated, format }` — `truncated: true` significa que mais linhas corresponderam do que `maxRows` permitia. É, em si, uma leitura sensível, auditada via `audit: { onRead: true }`.
 
+A exportação CSV prefixa com apóstrofo os valores de todas as colunas que parecem fórmulas, para reduzir o risco de execução em planilhas.
+
 Crie um feed de atividades ou uma linha "quem mudou isto" chamando `list-audit-events` do UI com `useActionQuery` — nunca escreva manualmente uma busca na tabela de auditoria:
 
 ```tsx
@@ -105,7 +118,7 @@ O agente pode chamar a mesma ação - pergunte "o que você mudou nesta gravaç�
 
 Retorna `{ events, hasMore, nextCursor }`. Guarde cada `nextCursor` retornado e envie-o na próxima coleta, mesmo quando `events` estiver vazio; páginas vazias avançam o ready watermark. O cursor relê uma janela de sobreposição de cinco minutos para detectar gravações atrasadas; portanto, deduplique entre coletas usando `metadata.uid`. Os cinco segundos mais recentes são retidos para que uma linha gravada com atraso nunca seja ignorada.
 
-Cada evento mapeia `status` para `status_id` (`success` é Success; `error` e `denied` são Failure, e `denied` também recebe `action_id` Denied e um `severity_id` maior), o ator para `actor.user` (um principal de serviço é do tipo Service), a ação para `api.operation` e o alvo para `resources`. Os ids de execução, tarefa, tarefa pai, thread, turno e app não têm campo OCSF e ficam em `unmapped`. Os argumentos da chamada nunca são exportados.
+Cada evento mapeia `status` para `status_id` (`success` é Success; `error` e `denied` são Failure, e `denied` também recebe `action_id` Denied e um `severity_id` maior), o ator para `actor.user` (um principal de serviço é do tipo Service), a ação para `api.operation` e o alvo para `resources`. Os ids de execução, tarefa, tarefa pai, thread, turno e app não têm campo OCSF e ficam em `unmapped`. O nome e a versão informados pelo cliente, o id do cliente OAuth e a aprovação também ficam em `unmapped`. O nome do cliente não vai para um campo `actor` porque um SIEM o leria como verificado. Os argumentos da chamada nunca são exportados.
 
 ## Privacidade e retenção {#privacy}
 
