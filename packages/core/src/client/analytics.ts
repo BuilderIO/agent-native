@@ -58,8 +58,8 @@ import { clientBuildId } from "./build-compatibility.js";
 import {
   consentAllowsNow,
   consentDecision,
-  resolveConsentRegion,
   whenConsentAllows,
+  whenConsentDecided,
 } from "./consent.js";
 import { clientFailureContext } from "./failure-report.js";
 import { replayEndpointFromAnalyticsEndpoint } from "./session-replay-endpoint.js";
@@ -2655,7 +2655,7 @@ function sendAgentNativeAnalytics(
     typeof properties.userId === "string" ? properties.userId : undefined;
   const sessionId = getOrCreateSessionId();
   const timestamp = new Date().toISOString();
-  afterConsentDecision((decided) => {
+  whenConsentDecided((decided) => {
     const anonymousId = decided ? getOrCreateAnonymousId() : undefined;
     postAgentNativeAnalytics(
       endpoint,
@@ -2678,34 +2678,6 @@ function sendAgentNativeAnalytics(
       }),
     );
   });
-}
-
-let eventsAwaitingRegion: ((decided: boolean) => void)[] | null = null;
-
-/**
- * Hold an event until the visitor's choice or the server's region is known,
- * so the time zone's guess never sends what consent covers: `decided` is
- * false when the page closes first, and the event goes out without it.
- */
-function afterConsentDecision(send: (decided: boolean) => void): void {
-  if (consentDecision("performance") !== null) {
-    send(true);
-    return;
-  }
-  if (!eventsAwaitingRegion) {
-    const held: ((decided: boolean) => void)[] = [];
-    eventsAwaitingRegion = held;
-    const release = (decided: boolean) => {
-      if (eventsAwaitingRegion !== held) return;
-      eventsAwaitingRegion = null;
-      window.removeEventListener("pagehide", onPageHide);
-      for (const run of held) run(decided);
-    };
-    const onPageHide = () => release(false);
-    window.addEventListener("pagehide", onPageHide);
-    void resolveConsentRegion().then(() => release(true));
-  }
-  eventsAwaitingRegion.push(send);
 }
 
 function postAgentNativeAnalytics(endpoint: string, body: string): void {
@@ -2748,7 +2720,7 @@ function emitBrowserTrackingEvent(
   } = options;
   const amplitudeProps = amplitudeEventProperties(name, props);
   if (sendGtag) {
-    afterConsentDecision(() => {
+    whenConsentDecided(() => {
       if (consentDecision("performance") !== true) return;
       const gtag = window.__AGENT_NATIVE_GA_GTAG__ ?? window.gtag;
       gtag?.("event", name.replace(/\s+/g, "_"), gtagProperties);

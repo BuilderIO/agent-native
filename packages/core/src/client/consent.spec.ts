@@ -222,6 +222,40 @@ describe("client consent", () => {
     expect(consent.consentDecision("performance")).toBe(false);
   });
 
+  it("applies a reject another tab stored when this one regains focus", async () => {
+    const { windowMock } = installBrowser({ region: "none" });
+    const listeners = new Map<string, () => void>();
+    windowMock.addEventListener = (event: string, listener: () => void) =>
+      listeners.set(event, listener);
+    windowMock.removeEventListener = () => {};
+    const consent = await freshConsent();
+    const revoke = vi.fn();
+    consent.whenConsentAllows("performance", () => {}, { revoke });
+    await consent.resolveConsentRegion();
+    expect(revoke).not.toHaveBeenCalled();
+
+    // Another app on the site stores a reject.
+    document.cookie = "an_consent=1.p0.t0; path=/";
+    listeners.get("focus")!();
+
+    expect(revoke).toHaveBeenCalledTimes(1);
+  });
+
+  it("holds a send until the region is known", async () => {
+    const { windowMock } = installBrowser({ region: "consent" });
+    windowMock.addEventListener = () => {};
+    windowMock.removeEventListener = () => {};
+    const consent = await freshConsent();
+    const send = vi.fn();
+
+    consent.whenConsentDecided(send);
+    expect(send).not.toHaveBeenCalled();
+    await consent.resolveConsentRegion();
+    await tick();
+
+    expect(send).toHaveBeenCalledWith(true);
+  });
+
   it("reopens the banner from the settings link", async () => {
     installBrowser({ region: "none" });
     const consent = await freshConsent();

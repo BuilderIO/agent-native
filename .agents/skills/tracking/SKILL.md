@@ -297,8 +297,10 @@ Everyone else gets no banner and every tag at once.
   `properties.analytics_consent: "withheld"`. Events sent before the region
   is known wait for it, or leave without the id, marked
   `analytics_consent: "unknown"`, if the page closes first. The plain
-  sign-in page reads the id through the same helper; never write `an_aid`
-  directly. A
+  sign-in page reads the id through the same helper and holds its events
+  with `whenConsentDecided`; never write `an_aid` directly. A choice made in
+  another tab applies at once in tabs of the same app, and on focus in
+  another app on the site. A
   reject clears a stored id.
   Those rows count as events and views but never as people; the Analytics
   activation funnel joins them to a signup in the same session. Session

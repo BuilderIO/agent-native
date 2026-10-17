@@ -13,7 +13,7 @@ import {
   normalizeOAuthReturnPath,
   shouldRetryAuthSessionProbe,
 } from "@agent-native/core/client/auth/auth-page-helpers";
-import { consentDecision } from "@agent-native/core/client/consent";
+import { whenConsentDecided } from "@agent-native/core/client/consent";
 import { openOAuthPopup } from "@agent-native/core/client/oauth-popup";
 import { navigateForSession } from "@agent-native/core/client/use-session";
 import { normalizeLocaleCode } from "@agent-native/core/localization/shared";
@@ -290,10 +290,8 @@ function trackAuth(
       }
     ).__AGENT_NATIVE_CONFIG__;
     if (!config?.agentNativeAnalyticsPublicKey) return;
-    // The visitor id waits for analytics consent, as in the app bundle.
-    const anonymousId = getAnalyticsAnonymousId();
-    const decision = consentDecision("performance");
     const sessionId = getAnalyticsSessionId();
+    const timestamp = new Date().toISOString();
     const endpoint = resolveLaneEndpoint(
       config.agentNativeAnalyticsEndpoint ??
         "https://analytics.agent-native.com/track",
@@ -306,28 +304,33 @@ function trackAuth(
     }> = [{ name, properties: legacyProperties }];
     const canonical = canonicalTrackingEvent(name, legacyProperties);
     if (canonical) events.push(canonical);
-    for (const event of events) {
-      const body = JSON.stringify({
-        publicKey: config.agentNativeAnalyticsPublicKey,
-        event: event.name,
-        properties: anonymousId
-          ? event.properties
-          : {
-              ...event.properties,
-              analytics_consent: decision === null ? "unknown" : "withheld",
-            },
-        anonymousId,
-        sessionId,
-        timestamp: new Date().toISOString(),
-      });
-      if (navigator.sendBeacon?.(endpoint, body)) continue;
-      void fetch(endpoint, {
-        method: "POST",
-        body,
-        keepalive: true,
-        headers: { "Content-Type": "text/plain;charset=UTF-8" },
-      }).catch(() => undefined);
-    }
+    const publicKey = config.agentNativeAnalyticsPublicKey;
+    // The visitor id waits for analytics consent, as in the app bundle.
+    whenConsentDecided((decided) => {
+      const anonymousId = decided ? getAnalyticsAnonymousId() : undefined;
+      for (const event of events) {
+        const body = JSON.stringify({
+          publicKey,
+          event: event.name,
+          properties: anonymousId
+            ? event.properties
+            : {
+                ...event.properties,
+                analytics_consent: decided ? "withheld" : "unknown",
+              },
+          anonymousId,
+          sessionId,
+          timestamp,
+        });
+        if (navigator.sendBeacon?.(endpoint, body)) continue;
+        void fetch(endpoint, {
+          method: "POST",
+          body,
+          keepalive: true,
+          headers: { "Content-Type": "text/plain;charset=UTF-8" },
+        }).catch(() => undefined);
+      }
+    });
   } catch {
     // coercion-ok: analytics is best effort and cannot block authentication.
   }

@@ -2240,6 +2240,9 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
     return;
   }
   state.flushing = true;
+  // A reject while this upload is in flight withdraws its events for good,
+  // even if the visitor accepts again before it settles.
+  const consentGeneration = replayConsentGeneration;
   let uploaded = false;
   let reservedSequence = false;
   let splitRejectedBatch = false;
@@ -2344,7 +2347,9 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
           quotaDecision?.kind === "stop") &&
         !splitBatch &&
         !isUnsplittableOversizedBatch;
-      if (splitBatch) {
+      if (consentGeneration !== replayConsentGeneration) {
+        // Withdrawn while in flight; nothing goes back on the queue.
+      } else if (splitBatch) {
         state.retryBatches.unshift(...splitBatch);
         splitRejectedBatch = true;
       } else if (isUnsplittableOversizedBatch) {
@@ -3560,6 +3565,8 @@ function installCaptureInterceptors(state: SessionReplayState): void {
 let replayConsentWatched = false;
 let replayConsentGranted = false;
 let replayConsentWithdrawn = false;
+let replayConsentGeneration = 0;
+let replayAllowedOptions: SessionReplayOptions | null = null;
 
 function discardWithdrawnReplay(state: SessionReplayState): void {
   state.queue = [];
@@ -3596,12 +3603,18 @@ function replayConsentAllows(options: SessionReplayOptions): boolean {
           replayConsentGranted = false;
           if (!wasGranted) return;
           replayConsentWithdrawn = true;
+          replayConsentGeneration += 1;
+          // A fresh accept on this page records again, under a new identity.
+          replayAwaitingConsent = replayAllowedOptions ?? replayAwaitingConsent;
           void stopSessionReplay("consent-revoked");
         },
       },
     );
   }
-  if (replayConsentGranted) return true;
+  if (replayConsentGranted) {
+    replayAllowedOptions = options;
+    return true;
+  }
   replayAwaitingConsent = options;
   return false;
 }

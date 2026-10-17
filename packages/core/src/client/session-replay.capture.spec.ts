@@ -280,61 +280,73 @@ describe("session replay console/network capture", () => {
     expect(uploads()).toBe(uploadedBeforeReject);
   });
 
-  it("uploads nothing more when an upload in flight at a reject comes back 413", async () => {
-    const { fetchMock, windowStub } = installBrowser();
-    recordMock.mockReturnValue(vi.fn());
-    windowStub.sessionStorage = {
-      getItem: vi.fn((key: string) =>
-        key === "an_consent_region" ? "consent" : null,
-      ),
-      setItem: vi.fn(),
-      removeItem: vi.fn(),
-    };
-    const cookies = new Map<string, string>();
-    Object.defineProperty(globalThis.document, "cookie", {
-      configurable: true,
-      get: () =>
-        [...cookies].map(([name, value]) => `${name}=${value}`).join("; "),
-      set: (assignment: string) => {
-        const [pair] = assignment.split(";", 1);
-        const eq = pair!.indexOf("=");
-        cookies.set(pair!.slice(0, eq), pair!.slice(eq + 1));
-      },
-    });
-    const mod = await freshSessionReplay();
-    activeModule = mod;
-    await mod.startSessionReplay({ ...START_OPTIONS });
-    const { setConsentChoice } = await import("./consent.js");
-    setConsentChoice({ performance: true, targeting: false });
-    await vi.waitFor(() => expect(mod.isSessionReplayActive()).toBe(true));
-    const { emit } = recordMock.mock.calls[0]![0] as {
-      emit: (event: Record<string, unknown>) => void;
-    };
-    const uploads = () =>
-      fetchMock.mock.calls.filter(([input]) =>
-        String(input).startsWith(START_OPTIONS.endpoint),
-      ).length;
-    emit({ type: 4, timestamp: Date.now(), data: { href: "x" } });
-    emit({ type: 2, timestamp: Date.now(), data: { node: {} } });
-    await vi.waitFor(() => expect(uploads()).toBeGreaterThan(0));
-    await new Promise((resolve) => setTimeout(resolve, 0));
+  it.each([
+    ["", false],
+    [", even after a fresh accept", true],
+  ])(
+    "uploads nothing more when an upload in flight at a reject comes back 413%s",
+    async (_label, reaccept) => {
+      const { fetchMock, windowStub } = installBrowser();
+      recordMock.mockReturnValue(vi.fn());
+      windowStub.sessionStorage = {
+        getItem: vi.fn((key: string) =>
+          key === "an_consent_region" ? "consent" : null,
+        ),
+        setItem: vi.fn(),
+        removeItem: vi.fn(),
+      };
+      const cookies = new Map<string, string>();
+      Object.defineProperty(globalThis.document, "cookie", {
+        configurable: true,
+        get: () =>
+          [...cookies].map(([name, value]) => `${name}=${value}`).join("; "),
+        set: (assignment: string) => {
+          const [pair] = assignment.split(";", 1);
+          const eq = pair!.indexOf("=");
+          cookies.set(pair!.slice(0, eq), pair!.slice(eq + 1));
+        },
+      });
+      const mod = await freshSessionReplay();
+      activeModule = mod;
+      await mod.startSessionReplay({ ...START_OPTIONS });
+      const { setConsentChoice } = await import("./consent.js");
+      setConsentChoice({ performance: true, targeting: false });
+      await vi.waitFor(() => expect(mod.isSessionReplayActive()).toBe(true));
+      const { emit } = recordMock.mock.calls[0]![0] as {
+        emit: (event: Record<string, unknown>) => void;
+      };
+      const uploads = () =>
+        fetchMock.mock.calls.filter(([input]) =>
+          String(input).startsWith(START_OPTIONS.endpoint),
+        ).length;
+      emit({ type: 4, timestamp: Date.now(), data: { href: "x" } });
+      emit({ type: 2, timestamp: Date.now(), data: { node: {} } });
+      await vi.waitFor(() => expect(uploads()).toBeGreaterThan(0));
+      await new Promise((resolve) => setTimeout(resolve, 0));
 
-    let answer: (response: Response) => void = () => {};
-    fetchMock.mockImplementationOnce(
-      () => new Promise<Response>((resolve) => (answer = resolve)),
-    );
-    emit({ type: 3, timestamp: Date.now(), data: { source: 2 } });
-    emit({ type: 3, timestamp: Date.now(), data: { source: 3 } });
-    const inFlight = uploads() + 1;
-    void mod.flushSessionReplay("manual");
-    await vi.waitFor(() => expect(uploads()).toBe(inFlight));
+      let answer: (response: Response) => void = () => {};
+      fetchMock.mockImplementationOnce(
+        () => new Promise<Response>((resolve) => (answer = resolve)),
+      );
+      emit({ type: 3, timestamp: Date.now(), data: { source: 2 } });
+      emit({ type: 3, timestamp: Date.now(), data: { source: 3 } });
+      const inFlight = uploads() + 1;
+      void mod.flushSessionReplay("manual");
+      await vi.waitFor(() => expect(uploads()).toBe(inFlight));
 
-    setConsentChoice({ performance: false, targeting: false });
-    answer(new Response("too large", { status: 413 }));
-    await new Promise((resolve) => setTimeout(resolve, 20));
+      setConsentChoice({ performance: false, targeting: false });
+      if (reaccept) {
+        setConsentChoice({ performance: true, targeting: false });
+        await vi.waitFor(() => expect(mod.isSessionReplayActive()).toBe(true));
+      }
+      answer(new Response("too large", { status: 413 }));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      if (reaccept) await mod.flushSessionReplay("manual");
+      await new Promise((resolve) => setTimeout(resolve, 20));
 
-    expect(uploads()).toBe(inFlight);
-  });
+      expect(uploads()).toBe(inFlight);
+    },
+  );
 
   it("starts a first-visit recording on accept after the region's first answer", async () => {
     const { windowStub, fetchMock } = installBrowser();
