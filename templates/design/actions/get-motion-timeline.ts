@@ -967,12 +967,20 @@ export default defineAction({
         statusCode: 404,
       });
     }
-    const sourceType = designSourceTypeFromData(design.data);
+    const designSourceType = designSourceTypeFromData(design.data);
+    const usesLocalScreenSource =
+      designSourceType === "localhost" &&
+      (!managedSourceRef || screenIsLocalhost(design.data, managedSourceRef));
+    const sourceType =
+      designSourceType === "localhost" &&
+      managedSourceRef &&
+      !usesLocalScreenSource
+        ? "inline"
+        : designSourceType;
     const useLocalSource =
-      Boolean(timelines[0]?.filePath) ||
-      (sourceType === "localhost" &&
-        (!managedSourceRef ||
-          screenIsLocalhost(design.data, managedSourceRef)));
+      designSourceType === "localhost"
+        ? usesLocalScreenSource
+        : Boolean(timelines[0]?.filePath);
     let sourceReadCapability: MotionSourceReadCapability | null = null;
     type InlineManagedSourceRead =
       | { kind: "readable"; managedCss: ManagedCssSource | null }
