@@ -285,7 +285,7 @@ export function parseMarkdownImport(
   );
   const text = exported.body;
   const notes = new ImportNoteBag();
-  noteExportManifest(exported.manifest, text, notes);
+  const bodyField = noteExportManifest(exported.manifest, text, notes);
   const frontmatterMatch = FRONTMATTER_RE.exec(text);
   const body = frontmatterMatch ? text.slice(frontmatterMatch[0].length) : text;
   const frontmatter = readFrontmatter(
@@ -330,7 +330,13 @@ export function parseMarkdownImport(
     };
   }
 
-  const title = takeTitle(blocks, frontmatter.title, input.sourcePath, notes);
+  const title = takeTitle(
+    blocks,
+    frontmatter.title,
+    input.sourcePath,
+    notes,
+    bodyOwnsOpeningHeading(body, bodyField),
+  );
   return {
     sourceName: input.sourcePath,
     dialect,
@@ -519,23 +525,42 @@ function withoutCodeSpans(paragraph: string): string {
 
 // The page body is the export's primary field, one per database the page
 // belongs to, each a copy of it. Its other fields, and the block identities of
-// all of them, do not come back: an import is a new page.
+// all of them, do not come back: an import is a new page. Returns the field
+// that holds the body, when the manifest has one.
 function noteExportManifest(
   manifest: ExportManifest,
   body: string,
   notes: ImportNoteBag,
-) {
+): ExportManifestField | undefined {
   if (manifest.kind === "unreadable")
     notes.add("export-manifest-unreadable", manifest.reason);
-  if (manifest.kind !== "read") return;
-  const olderBodyField = manifest.fields.some((field) => field.primary === true)
-    ? undefined
-    : olderExportBodyField(manifest.fields, body);
+  if (manifest.kind !== "read") return undefined;
+  const bodyField =
+    manifest.fields.find((field) => field.primary === true) ??
+    olderExportBodyField(manifest.fields, body);
   for (const field of manifest.fields) {
-    if (field.primary === true || field === olderBodyField) continue;
+    if (field.primary === true || field === bodyField) continue;
     if (field.markdown.trim())
       notes.add("blocks-field-not-imported", field.name);
   }
+  return bodyField;
+}
+
+// An export heads the body with the page title unless the body already opens
+// with that heading, so a body whose field opens with the same line keeps it.
+function bodyOwnsOpeningHeading(
+  body: string,
+  bodyField: ExportManifestField | undefined,
+): boolean {
+  if (!bodyField) return false;
+  const opening = firstContentLine(body);
+  return (
+    /^#\s/.test(opening) && opening === firstContentLine(bodyField.markdown)
+  );
+}
+
+function firstContentLine(markdown: string): string {
+  return markdown.replace(/^(?:[ \t]*\r?\n)+/, "").split(/\r?\n/, 1)[0];
 }
 
 // An older export names no primary field; its body ends the file. Another
@@ -643,6 +668,7 @@ function takeTitle(
   frontmatterTitle: string | null,
   sourcePath: string,
   notes: ImportNoteBag,
+  headingInBody: boolean,
 ): {
   title: string;
   source: ImportedPage["titleSource"];
@@ -669,6 +695,8 @@ function takeTitle(
       heading: duplicate ? headingText : null,
     };
   }
+  if (heading && headingText && headingInBody)
+    return { title: headingText, source: "heading", heading: null };
   if (heading && headingText) {
     blocks.shift();
     if (

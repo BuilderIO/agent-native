@@ -467,6 +467,28 @@ describe("Markdown import", () => {
       expect(page.report.notes).toEqual([]);
     });
 
+    it("keeps a body's own opening heading that matches the title", () => {
+      const stored = "# Launch plan\nIntro";
+      const page = importMarkdown(
+        exported(stored, [field("Content", true, stored)]),
+        { sourcePath: "launch-plan.md" },
+      );
+      expect(page.title).toBe("Launch plan");
+      expect(page.content).toBe(stored);
+      expect(page.report.status).toBe("preserved");
+    });
+
+    it("takes the title the export added above a body's own heading", () => {
+      const stored = "# Other\nIntro";
+      const page = importMarkdown(
+        exported(stored, [field("Content", true, stored)]),
+        { sourcePath: "launch-plan.md" },
+      );
+      expect(page.title).toBe("Launch plan");
+      expect(page.content).toBe(stored);
+      expect(page.report.status).toBe("preserved");
+    });
+
     it.each(
       ROUND_TRIP_CORPUS.flatMap((sample) =>
         sample.canonical === undefined ? [] : [[sample.id, sample.canonical]],

@@ -45,6 +45,18 @@ describe("splitMarkdownExportManifest", () => {
       "a field without Markdown",
       comment('{"version":1,"fields":[{"name":"A"}]}'),
     ],
+    [
+      "a primary flag that is not true or false",
+      comment(
+        '{"version":1,"fields":[{"name":"A","primary":"yes","markdown":"Body"}]}',
+      ),
+    ],
+    [
+      "a null primary flag",
+      comment(
+        '{"version":1,"fields":[{"name":"A","primary":null,"markdown":"Body"}]}',
+      ),
+    ],
   ])("reports %s as unreadable, and keeps the body", (_, line) => {
     const { body, manifest } = splitMarkdownExportManifest(`Body\n\n${line}\n`);
     expect(body).toBe("Body\n");

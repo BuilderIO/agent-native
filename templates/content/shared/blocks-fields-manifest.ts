@@ -90,9 +90,15 @@ function readBlocksFieldsManifest(json: string): ExportManifest {
     const field = entry as Partial<Record<keyof BlocksFieldExport, unknown>>;
     if (typeof field?.name !== "string" || typeof field.markdown !== "string")
       return { kind: "unreadable", reason: "a field has no name or Markdown" };
+    // Only a manifest written before the flag existed lacks it.
+    if (field.primary !== undefined && typeof field.primary !== "boolean")
+      return {
+        kind: "unreadable",
+        reason: "a field's primary flag is not true or false",
+      };
     fields.push({
       name: field.name,
-      primary: typeof field.primary === "boolean" ? field.primary : null,
+      primary: field.primary ?? null,
       markdown: field.markdown,
     });
   }
