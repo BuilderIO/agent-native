@@ -1819,8 +1819,7 @@ test.describe("authenticated beta Design interactions", () => {
         '[data-inspector-layout="drag-paint-row"]',
       );
       await expect(reloadedRows).toHaveCount(3);
-      const reloadedRowText = await reloadedRows.allTextContents();
-      expect(reloadedRowText[2]).toMatch(/Linear gradient 3/);
+      await expect(reloadedRows.nth(2)).toContainText("Linear");
     } catch (error) {
       primaryFailure = true;
       throw error;

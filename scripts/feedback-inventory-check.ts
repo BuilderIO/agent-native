@@ -4905,6 +4905,10 @@ if (args[0] === "--self-test" && args.length === 1) {
       },
     },
     {
+      name: "sweep actor must be the connector identity",
+      inventory: { ...valid, sweepActorId: "" },
+    },
+    {
       name: "reply rows cannot carry scope evidence outside the root checkoff",
       inventory: {
         ...valid,
@@ -6524,6 +6528,43 @@ if (args[0] === "--self-test" && args.length === 1) {
       },
     },
     {
+      name: "unassigned team handoff without a ticket reaction",
+      inventory: withUnassignedTeamTicket({
+        reactionSummary: "eyes (1): USWEEPER",
+        reactionOwners: { eyes: ["USWEEPER"] },
+        reactionDecision: {
+          checkmark: {
+            state: "none",
+            reason: "No verified scope is complete yet",
+          },
+          ticket: {
+            state: "none",
+            reason: "No current ticket reaction is present",
+          },
+        },
+      }),
+    },
+    {
+      name: "unassigned team handoff ticket from another actor",
+      inventory: withUnassignedTeamTicket({
+        reactionSummary: "eyes (1): USWEEPER; ticket (1): UOTHER",
+        reactionOwners: {
+          eyes: ["USWEEPER"],
+          ticket: ["UOTHER"],
+        },
+        reactionDecision: {
+          checkmark: {
+            state: "none",
+            reason: "No verified scope is complete yet",
+          },
+          ticket: {
+            state: "none",
+            reason: "Another actor's ticket does not satisfy this sweep",
+          },
+        },
+      }),
+    },
+    {
       name: "ticket handoff cannot name an unassigned role",
       inventory: withUnownedTicket({
         handoffs: [
@@ -7219,6 +7260,8 @@ if (args[0] === "--self-test" && args.length === 1) {
       "administrative roots need a reason",
     "open in-scope report without this actor's eye is rejected":
       "In progress is open; keep this actor's 👀 until its scopes and follow-ups close",
+    "sweep actor must be the connector identity":
+      "sweepActorId must be the exact Slack user ID used by the connector",
     "reply rows cannot carry scope evidence outside the root checkoff":
       "scope and handoff evidence must be recorded on the actual root row; reply rows only audit reply-level history",
     "another actor's eye is not auto-claimed or replied to":
@@ -7395,6 +7438,10 @@ if (args[0] === "--self-test" && args.length === 1) {
     "ticket reaction without a human handoff":
       "this actor's 🎫 needs a distinct active or explicitly historical human action",
     "human handoff without a ticket reaction":
+      "every handoff needs this actor's 🎫",
+    "unassigned team handoff without a ticket reaction":
+      "every handoff needs this actor's 🎫",
+    "unassigned team handoff ticket from another actor":
       "every handoff needs this actor's 🎫",
     "ticket handoff cannot name an unassigned role":
       "unassigned handoffs may name a team/role, while accepted handoffs need the named individual",
