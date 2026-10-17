@@ -7,11 +7,13 @@ import type { ClipsActionError } from "../lib/clips-action";
 import { withMeetingActionTimeout } from "../lib/meeting-action-timeout";
 import { callAppBundleIdsForJoinUrl } from "../lib/meeting-call-app";
 import {
+  canDiscardTerminalTranscriptForReplacement,
   isTerminalMeetingStopError,
   isTerminalTranscriptSaveResult,
   shouldHoldQuitForTranscriptRecovery,
   stopMeetingBeforeTranscriptFlush,
 } from "../lib/meeting-stop";
+import { writeClipboardText } from "../lib/recording-link";
 import { subscribeAutoStop } from "../lib/silence-events";
 import {
   appendFinalTranscript,
@@ -477,7 +479,15 @@ export function useMeetingTranscription({
           await stopTranscription("replaced");
         } catch (error) {
           pendingStartRef.current = payload;
-          if (!sessionRef.current?.stopRecovery) scheduleRecoveryRetry();
+          const stoppedSession = sessionRef.current;
+          if (stoppedSession?.stopRecovery?.source === "transcript") {
+            emit("meetings:replacement-recovery-required", {
+              meetingId,
+              failedMeetingId: stoppedSession.meetingId,
+            }).catch(() => {});
+          } else {
+            scheduleRecoveryRetry();
+          }
           console.warn(
             "[clips-popover] replacement meeting queued until the previous recording is safely stopped:",
             error,
@@ -1060,6 +1070,100 @@ export function useMeetingTranscription({
     },
     [runStartTranscription],
   );
+
+  useEffect(() => {
+    let stopped = false;
+    let unlisten: (() => void) | null = null;
+    listen<{ meetingId: string; failedMeetingId: string }>(
+      "meetings:replacement-copy-and-start-request",
+      (event) => {
+        void (async () => {
+          const session = sessionRef.current;
+          const queuedStart = pendingStartRef.current;
+          const isValidRequest = () =>
+            session !== null &&
+            queuedStart !== null &&
+            sessionRef.current === session &&
+            pendingStartRef.current === queuedStart &&
+            canDiscardTerminalTranscriptForReplacement({
+              quitting: quitTeardownPendingRef.current,
+              activeMeetingId: session.meetingId,
+              failedMeetingId: event.payload.failedMeetingId,
+              terminalTranscriptFailure:
+                session.stopRecovery?.source === "transcript",
+              stopPending: session.stopPending,
+              queuedMeetingId: queuedStart.meetingId,
+              requestedMeetingId: event.payload.meetingId,
+            });
+          if (!isValidRequest() || !session || !queuedStart) {
+            emit("meetings:replacement-recovery-action-failed", {
+              meetingId: event.payload.meetingId,
+            }).catch(() => {});
+            return;
+          }
+          const transcript = transcriptFullText(session.lines).trim();
+          if (!transcript || !(await writeClipboardText(transcript))) {
+            emit("meetings:replacement-recovery-action-failed", {
+              meetingId: event.payload.meetingId,
+            }).catch(() => {});
+            return;
+          }
+          if (!isValidRequest()) {
+            emit("meetings:replacement-recovery-action-failed", {
+              meetingId: event.payload.meetingId,
+            }).catch(() => {});
+            return;
+          }
+
+          pendingStartRef.current = null;
+          session.stopPending = false;
+          session.pendingStopReason = null;
+          session.stopRecovery = null;
+          sessionRef.current = null;
+          recoveryRetryDelayRef.current = RECOVERY_RETRY_INITIAL_MS;
+          if (recoveryRetryTimerRef.current) {
+            window.clearTimeout(recoveryRetryTimerRef.current);
+            recoveryRetryTimerRef.current = null;
+          }
+          invoke("recording_pill_hide").catch(() => {});
+          invoke("set_recording_state", { active: false }).catch(() => {});
+          invoke("set_meeting_active", { active: false }).catch(() => {});
+          emit("meetings:transcription-stopped", {
+            meetingId: session.meetingId,
+            reason: "replaced",
+          }).catch(() => {});
+          startTranscription(queuedStart).catch((error) => {
+            console.warn(
+              "[clips-popover] queued meeting did not start after transcript copy:",
+              error,
+            );
+          });
+        })().catch((error) => {
+          console.warn(
+            "[clips-popover] could not copy the unsaved meeting transcript:",
+            error,
+          );
+          emit("meetings:replacement-recovery-action-failed", {
+            meetingId: event.payload.meetingId,
+          }).catch(() => {});
+        });
+      },
+    )
+      .then((dispose) => {
+        if (stopped) dispose();
+        else unlisten = dispose;
+      })
+      .catch((error) => {
+        console.warn(
+          "[clips-popover] replacement recovery listener registration failed:",
+          error,
+        );
+      });
+    return () => {
+      stopped = true;
+      unlisten?.();
+    };
+  }, [startTranscription]);
 
   const retryPendingWork = useCallback(() => {
     const session = sessionRef.current;

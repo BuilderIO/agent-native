@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { ClipsActionError } from "./clips-action";
 import {
+  canDiscardTerminalTranscriptForReplacement,
   isTerminalMeetingStopError,
   isTerminalTranscriptSaveError,
   isTerminalTranscriptSaveResult,
@@ -10,6 +11,38 @@ import {
 } from "./meeting-stop";
 
 describe("stopMeetingBeforeTranscriptFlush", () => {
+  it("only discards a terminally unsaved meeting for its queued replacement", () => {
+    const request = {
+      quitting: false,
+      activeMeetingId: "old-meeting",
+      failedMeetingId: "old-meeting",
+      terminalTranscriptFailure: true,
+      stopPending: true,
+      queuedMeetingId: "next-meeting",
+      requestedMeetingId: "next-meeting",
+    };
+
+    expect(canDiscardTerminalTranscriptForReplacement(request)).toBe(true);
+    expect(
+      canDiscardTerminalTranscriptForReplacement({
+        ...request,
+        quitting: true,
+      }),
+    ).toBe(false);
+    expect(
+      canDiscardTerminalTranscriptForReplacement({
+        ...request,
+        terminalTranscriptFailure: false,
+      }),
+    ).toBe(false);
+    expect(
+      canDiscardTerminalTranscriptForReplacement({
+        ...request,
+        queuedMeetingId: "another-meeting",
+      }),
+    ).toBe(false);
+  });
+
   it("identifies terminal transcript saves that must stay recoverable", () => {
     const result = {
       status: "terminal" as const,

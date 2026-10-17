@@ -4,6 +4,13 @@ const messages = {
   },
   meetingBrowserConfirmation:
     "Clips はこのブラウザのマイク使用を検出しましたが、会議中のタブを特定できません。",
+  meetingReplacement: {
+    title: "会議メモの確認が必要です",
+    description:
+      "前の会議のメモを保存できませんでした。この会議を開始する前にコピーしてください。",
+    copyAndStart: "メモをコピーして開始",
+    actionFailed: "会議の復旧を続行できませんでした。もう一度お試しください。",
+  },
   quitRecovery: {
     title: "会議の終了処理中です",
     body: "Clips は会議を停止して保存する処理を完了していません。今終了すると、最新の文字起こしが失われる可能性があります。",

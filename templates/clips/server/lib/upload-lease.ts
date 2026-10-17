@@ -250,9 +250,14 @@ class UploadReaperDispatchError extends Error {
 
 export async function markHostedCleanupConfirmed(
   recordingId: string,
+  ownerEmail: string,
   videoUrl: string | null = null,
 ): Promise<string> {
-  return writeHostedCleanupConfirmedMarker({ recordingId, videoUrl });
+  return writeHostedCleanupConfirmedMarker({
+    recordingId,
+    ownerEmail,
+    videoUrl,
+  });
 }
 
 function meetingFinalizationRetryKey(recordingId: string): string {
@@ -315,10 +320,12 @@ async function claimMeetingFinalizationDispatch(params: {
   now: number;
 }): Promise<MeetingFinalizationDispatchClaim> {
   const exec = getDbExec();
+  const ownerSessionId = params.ownerEmail.trim().toLowerCase();
   const key = meetingFinalizationRetryKey(params.recordingId);
   const current = await exec.execute({
-    sql: `SELECT value FROM application_state WHERE key = $1`,
-    args: [key],
+    sql: `SELECT value FROM application_state
+          WHERE session_id = $1 AND key = $2`,
+    args: [ownerSessionId, key],
   });
   const existing = (current.rows as Array<Record<string, unknown>>)[0];
   const oldValue = existing?.value;
@@ -341,10 +348,16 @@ async function claimMeetingFinalizationDispatch(params: {
     };
     const exhausted = await exec.execute({
       sql: `UPDATE application_state
-            SET value = $1
-            WHERE key = $2 AND value = $3
+            SET value = $1, updated_at = $2
+            WHERE session_id = $3 AND key = $4 AND value = $5
             RETURNING key`,
-      args: [JSON.stringify(exhaustedState), key, oldValue],
+      args: [
+        JSON.stringify(exhaustedState),
+        params.now,
+        ownerSessionId,
+        key,
+        oldValue,
+      ],
     });
     return (exhausted.rows as Array<unknown>).length > 0
       ? "exhausted"
@@ -366,18 +379,18 @@ async function claimMeetingFinalizationDispatch(params: {
   const claim =
     state === null
       ? await exec.execute({
-          sql: `INSERT INTO application_state (key, value)
-                VALUES ($1, $2)
-                ON CONFLICT (key) DO NOTHING
+          sql: `INSERT INTO application_state (session_id, key, value, updated_at)
+                VALUES ($1, $2, $3, $4)
+                ON CONFLICT (session_id, key) DO NOTHING
                 RETURNING key`,
-          args: [key, serialized],
+          args: [ownerSessionId, key, serialized, params.now],
         })
       : await exec.execute({
           sql: `UPDATE application_state
-                SET value = $1
-                WHERE key = $2 AND value = $3
+                SET value = $1, updated_at = $2
+                WHERE session_id = $3 AND key = $4 AND value = $5
                 RETURNING key`,
-          args: [serialized, key, oldValue],
+          args: [serialized, params.now, ownerSessionId, key, oldValue],
         });
   return (claim.rows as Array<unknown>).length > 0 ? "claimed" : "waiting";
 }
@@ -421,12 +434,13 @@ function parseStoredResumableSession(
 
 async function readResumableSessionState(
   exec: ReturnType<typeof getDbExec>,
-  placeholder: string,
   key: string,
+  ownerEmail: string,
 ): Promise<{ present: boolean; session: StoredResumableSession | null }> {
   const result = await exec.execute({
-    sql: `SELECT value FROM application_state WHERE key = ${placeholder}`,
-    args: [key],
+    sql: `SELECT value FROM application_state
+          WHERE LOWER(session_id) = LOWER($1) AND key = $2`,
+    args: [ownerEmail.trim(), key],
   });
   const row = (result.rows as Array<{ value?: unknown }> | undefined)?.[0];
   return {
@@ -438,10 +452,12 @@ async function readResumableSessionState(
 async function readUploadStateStatus(
   exec: ReturnType<typeof getDbExec>,
   recordingId: string,
+  ownerEmail: string,
 ): Promise<string | null> {
   const result = await exec.execute({
-    sql: `SELECT value FROM application_state WHERE key = $1`,
-    args: [`recording-upload-${recordingId}`],
+    sql: `SELECT value FROM application_state
+          WHERE LOWER(session_id) = LOWER($1) AND key = $2`,
+    args: [ownerEmail.trim(), `recording-upload-${recordingId}`],
   });
   const value = (result.rows as Array<{ value?: unknown }> | undefined)?.[0]
     ?.value;
@@ -478,7 +494,8 @@ export async function reapExpiredUploads(
                  s.value AS cleanup_confirmed_value
           FROM recordings r
           JOIN clips_hosted_clip_allowances a ON a.recording_id = r.id
-          LEFT JOIN application_state s ON s.key = $1 || r.id
+          LEFT JOIN application_state s
+            ON LOWER(s.session_id) = LOWER(r.owner_email) AND s.key = $1 || r.id
           WHERE r.storage_mode = 'hosted'
             AND r.status = 'failed'
             AND a.status = 'reserved'
@@ -487,7 +504,8 @@ export async function reapExpiredUploads(
               OR r.video_url IS NOT NULL
               OR EXISTS (
                 SELECT 1 FROM application_state session_state
-                WHERE session_state.key = CASE
+                WHERE LOWER(session_state.session_id) = LOWER(r.owner_email)
+                  AND session_state.key = CASE
                   WHEN r.upload_generation_id IS NULL
                   THEN 'resumable-session-' || r.id
                   ELSE 'resumable-session-' || r.id || '-' || r.upload_generation_id
@@ -495,7 +513,8 @@ export async function reapExpiredUploads(
               )
               OR EXISTS (
                 SELECT 1 FROM application_state upload_state
-                WHERE upload_state.key = 'recording-upload-' || r.id
+                WHERE LOWER(upload_state.session_id) = LOWER(r.owner_email)
+                  AND upload_state.key = 'recording-upload-' || r.id
               )
             )
           ORDER BY r.updated_at ASC
@@ -556,6 +575,10 @@ export async function reapExpiredUploads(
       const sessionKey = resumableSessionKey(id, generationId);
       const ownerEmail =
         typeof row.owner_email === "string" ? row.owner_email : null;
+      if (!ownerEmail) {
+        hostedCleanupFailed += 1;
+        continue;
+      }
       const cleanupConfirmed = typeof row.cleanup_confirmed_key === "string";
       const videoUrl = typeof row.video_url === "string" ? row.video_url : null;
       const expectedUpdatedAt =
@@ -585,15 +608,15 @@ export async function reapExpiredUploads(
       if (cleanupNeeded) {
         const sessionState = await readResumableSessionState(
           exec,
-          "$1",
           sessionKey,
+          ownerEmail,
         );
         if (sessionState.present && !sessionState.session) {
           hostedCleanupFailed += 1;
           continue;
         }
         const uploadStatus = !videoUrl
-          ? await readUploadStateStatus(exec, id)
+          ? await readUploadStateStatus(exec, id, ownerEmail)
           : null;
         if (
           !videoUrl &&
@@ -637,7 +660,11 @@ export async function reapExpiredUploads(
               hostedCleanupFailed += 1;
               continue;
             }
-            markerValue = await markHostedCleanupConfirmed(id, videoUrl);
+            markerValue = await markHostedCleanupConfirmed(
+              id,
+              ownerEmail,
+              videoUrl,
+            );
           }
           const cleared = await exec.execute({
             sql: `UPDATE recordings
@@ -652,7 +679,7 @@ export async function reapExpiredUploads(
           }
         }
         if (!videoUrl && !markerValue) {
-          markerValue = await markHostedCleanupConfirmed(id);
+          markerValue = await markHostedCleanupConfirmed(id, ownerEmail);
         }
       } else if (videoUrl) {
         const cleared = await exec.execute({
@@ -750,10 +777,15 @@ export async function reapExpiredUploads(
         expired.find((row) => row.id === id)?.uploadGenerationId ?? null;
       const reapedUpload = expired.find((row) => row.id === id);
       const sessionKey = resumableSessionKey(id, generationId);
+      const ownerEmail = reapedUpload?.ownerEmail;
+      if (!ownerEmail) {
+        resumableCleanupFailed += 1;
+        continue;
+      }
       const sessionState = await readResumableSessionState(
         exec,
-        "$1",
         sessionKey,
+        ownerEmail,
       );
       if (sessionState.present && !sessionState.session) {
         resumableCleanupFailed += 1;
@@ -778,8 +810,9 @@ export async function reapExpiredUploads(
 
       if (reapedUpload?.storageMode !== "hosted") {
         await exec.execute({
-          sql: `DELETE FROM application_state WHERE key = $1`,
-          args: [sessionKey],
+          sql: `DELETE FROM application_state
+                WHERE LOWER(session_id) = LOWER($1) AND key = $2`,
+          args: [ownerEmail.trim(), sessionKey],
         });
         continue;
       }
@@ -826,16 +859,17 @@ export async function reapExpiredUploads(
           continue;
         }
       }
+      if (!reapedUpload?.ownerEmail) {
+        hostedCleanupFailed += 1;
+        continue;
+      }
       const markerValue = await markHostedCleanupConfirmed(
         id,
+        reapedUpload.ownerEmail,
         reapedUpload.videoUrl,
       );
 
       try {
-        if (!reapedUpload?.ownerEmail) {
-          hostedCleanupFailed += 1;
-          continue;
-        }
         const allowanceVersion = await exec.execute({
           sql: `SELECT updated_at FROM clips_hosted_clip_allowances
                 WHERE recording_id = $1 AND status = 'reserved'`,
@@ -877,7 +911,7 @@ export async function reapExpiredUploads(
     const retryableMeetingFinalizations = await exec.execute({
       sql: `SELECT DISTINCT r.id, r.owner_email
             FROM recordings r
-            WHERE r.status = 'failed'
+            WHERE r.status IN ('ready', 'failed')
               AND EXISTS (
                 SELECT 1
                 FROM clips_meetings m
@@ -894,7 +928,8 @@ export async function reapExpiredUploads(
               AND NOT EXISTS (
                 SELECT 1
                 FROM application_state retry_state
-                WHERE retry_state.key = $1 || r.id
+                WHERE retry_state.session_id = LOWER(r.owner_email)
+                  AND retry_state.key = $1 || r.id
                   AND (
                     retry_state.value::jsonb ->> 'status' = 'exhausted'
                     OR (

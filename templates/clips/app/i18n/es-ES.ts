@@ -4,6 +4,14 @@ const messages = {
   },
   meetingBrowserConfirmation:
     "Clips detecta actividad del micrófono en este navegador, pero no puede saber qué pestaña está en la reunión.",
+  meetingReplacement: {
+    title: "Hay notas de reunión que requieren atención",
+    description:
+      "No se pudieron guardar las notas de la reunión anterior. Cópialas antes de empezar esta reunión.",
+    copyAndStart: "Copiar notas y empezar",
+    actionFailed:
+      "No se pudo continuar con la recuperación de la reunión. Inténtalo de nuevo.",
+  },
   quitRecovery: {
     title: "Clips aún está terminando la reunión",
     body: "Clips aún no ha terminado de detener y guardar esta reunión. Si sales ahora, es posible que se pierda la transcripción más reciente.",

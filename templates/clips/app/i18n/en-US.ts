@@ -2,6 +2,13 @@ const messages = {
   meetingAsk: { resizeOrDismissAnswers: "Resize or dismiss answers" },
   meetingBrowserConfirmation:
     "Clips sees microphone activity in this browser, but can't tell which tab is in the meeting.",
+  meetingReplacement: {
+    title: "Meeting notes need attention",
+    description:
+      "The previous meeting's notes couldn't be saved. Copy them before starting this meeting.",
+    copyAndStart: "Copy notes and start",
+    actionFailed: "Could not continue meeting recovery. Try again.",
+  },
   quitRecovery: {
     title: "Clips is still finishing the meeting",
     body: "Clips hasn't finished stopping and saving this meeting. The latest transcript may be lost if you quit now.",

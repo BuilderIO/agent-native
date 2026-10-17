@@ -3213,6 +3213,18 @@ fn finish_quit_teardown() -> bool {
     )
 }
 
+fn force_quit_teardown_for(state: &std::sync::atomic::AtomicU8) -> bool {
+    transition_quit_teardown_state(state, &[QUIT_TEARDOWN_RECOVERY], QUIT_TEARDOWN_EXIT_ALLOWED)
+}
+
+pub fn force_quit_teardown() -> bool {
+    let forced = force_quit_teardown_for(&QUIT_TEARDOWN_STATE);
+    if forced {
+        eprintln!("[clips-tray] second native quit request during recovery");
+    }
+    forced
+}
+
 /// Called after the popover has confirmed that the meeting stopped and its
 /// transcript was flushed. The second `app.exit(0)` is allowed through by the
 /// `ExitRequested` handler once this state moves past the pending value.
@@ -3238,11 +3250,7 @@ pub async fn quit_teardown_cancel(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn quit_teardown_force(app: AppHandle) -> Result<(), String> {
-    if !transition_quit_teardown_state(
-        &QUIT_TEARDOWN_STATE,
-        &[QUIT_TEARDOWN_RECOVERY],
-        QUIT_TEARDOWN_EXIT_ALLOWED,
-    ) {
+    if !force_quit_teardown_for(&QUIT_TEARDOWN_STATE) {
         return Err("Quit recovery is no longer pending.".to_string());
     }
     eprintln!("[clips-tray] quit_teardown_force — explicit quit during recovery");
@@ -3253,9 +3261,9 @@ pub async fn quit_teardown_force(app: AppHandle) -> Result<(), String> {
 #[cfg(test)]
 mod quit_teardown_tests {
     use super::{
-        begin_quit_teardown_for, quit_teardown_blocks_exit, show_quit_teardown_recovery_for,
-        transition_quit_teardown_state, QUIT_TEARDOWN_EXIT_ALLOWED, QUIT_TEARDOWN_PENDING,
-        QUIT_TEARDOWN_RECOVERY,
+        begin_quit_teardown_for, force_quit_teardown_for, quit_teardown_blocks_exit,
+        show_quit_teardown_recovery_for, transition_quit_teardown_state,
+        QUIT_TEARDOWN_EXIT_ALLOWED, QUIT_TEARDOWN_PENDING, QUIT_TEARDOWN_RECOVERY,
     };
     use std::sync::{atomic::AtomicU8, Mutex};
 
@@ -3314,11 +3322,12 @@ mod quit_teardown_tests {
     fn recovery_quit_requires_an_explicit_force_transition() {
         let state = AtomicU8::new(QUIT_TEARDOWN_RECOVERY);
 
-        assert!(transition_quit_teardown_state(
-            &state,
-            &[QUIT_TEARDOWN_RECOVERY],
-            QUIT_TEARDOWN_EXIT_ALLOWED,
-        ));
+        assert!(force_quit_teardown_for(&state));
+        assert_eq!(
+            state.load(std::sync::atomic::Ordering::SeqCst),
+            QUIT_TEARDOWN_EXIT_ALLOWED
+        );
+        assert!(!force_quit_teardown_for(&state));
         assert!(!transition_quit_teardown_state(
             &state,
             &[QUIT_TEARDOWN_PENDING, QUIT_TEARDOWN_RECOVERY],

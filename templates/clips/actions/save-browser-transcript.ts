@@ -215,6 +215,7 @@ export default defineAction({
         await dispatchPostFinalizeJob({
           recordingId: args.recordingId,
           kind: "meeting-finalize",
+          requireAccepted: true,
         });
       }
     }

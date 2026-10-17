@@ -934,7 +934,7 @@ export async function handleRecordingChunk(
         );
       }
       if (existing.storageMode === "hosted" && !existing.videoUrl) {
-        await markHostedCleanupConfirmed(recordingId);
+        await markHostedCleanupConfirmed(recordingId, ownerEmail);
         await releaseHostedClipRecording({
           recordingId,
           userId: authUserId,
@@ -1035,7 +1035,7 @@ export async function handleRecordingChunk(
             "Hosted Clips reservation is missing its authenticated user id.",
           );
         }
-        await markHostedCleanupConfirmed(recordingId);
+        await markHostedCleanupConfirmed(recordingId, ownerEmail);
         await releaseHostedClipRecording({
           recordingId,
           userId: authUserId,
@@ -1716,7 +1716,7 @@ async function handleResumableChunk(
             "Hosted Clips reservation is missing its authenticated user id.",
           );
         }
-        await markHostedCleanupConfirmed(recordingId);
+        await markHostedCleanupConfirmed(recordingId, ownerEmail);
         await releaseHostedClipRecording({
           recordingId,
           userId: authUserId,

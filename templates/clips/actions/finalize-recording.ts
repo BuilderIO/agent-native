@@ -483,7 +483,7 @@ async function failStoredButUnservableRecording(params: {
       });
     }
     if (deleted) {
-      await markHostedCleanupConfirmed(id, videoUrl);
+      await markHostedCleanupConfirmed(id, ownerEmail, videoUrl);
       const [cleared] = await db
         .update(schema.recordings)
         .set({
@@ -1344,7 +1344,11 @@ async function consumeHostedAllowanceIfNeeded(params: {
     );
   }
   if (deleted) {
-    await markHostedCleanupConfirmed(params.id, params.videoUrl);
+    await markHostedCleanupConfirmed(
+      params.id,
+      params.ownerEmail,
+      params.videoUrl,
+    );
     const [cleared] = await getDb()
       .update(schema.recordings)
       .set({
@@ -2048,7 +2052,7 @@ export default defineAction({
                   failedUploadState,
                 );
                 if (statePublished) {
-                  await markHostedCleanupConfirmed(id);
+                  await markHostedCleanupConfirmed(id, ownerEmail);
                   await releaseHostedClipRecording({
                     recordingId: id,
                     ownerEmail,
@@ -2311,7 +2315,7 @@ export default defineAction({
             failureCode,
           });
         if (failedRecording && existing.storageMode === "hosted") {
-          await markHostedCleanupConfirmed(id);
+          await markHostedCleanupConfirmed(id, ownerEmail);
           await releaseHostedClipRecording({
             recordingId: id,
             ownerEmail,

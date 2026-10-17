@@ -90,6 +90,18 @@ const {
 const NOW = Date.parse("2026-07-25T12:00:00.000Z");
 const iso = (offsetMs: number) => new Date(NOW + offsetMs).toISOString();
 
+async function insertAppState(
+  key: string,
+  value: string,
+  sessionId = "owner@example.com",
+) {
+  await execute(client, {
+    sql: `INSERT INTO application_state (session_id, key, value, updated_at)
+          VALUES (?, ?, ?, ?)`,
+    args: [sessionId, key, value, NOW],
+  });
+}
+
 async function insertRecording(row: {
   id: string;
   status: string;
@@ -114,13 +126,10 @@ async function insertRecording(row: {
 }
 
 async function insertChunk(recordingId: string, index: number) {
-  await execute(client, {
-    sql: `INSERT INTO application_state (key, value) VALUES (?, ?)`,
-    args: [
-      `recording-chunks-${recordingId}-${String(index).padStart(6, "0")}`,
-      "{}",
-    ],
-  });
+  await insertAppState(
+    `recording-chunks-${recordingId}-${String(index).padStart(6, "0")}`,
+    "{}",
+  );
 }
 
 async function chunkKeys(): Promise<string[]> {
@@ -179,8 +188,11 @@ describe("upload lease", () => {
     await execute(
       client,
       `CREATE TABLE application_state (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
+      session_id TEXT NOT NULL,
+      key TEXT NOT NULL,
+      value TEXT NOT NULL,
+      updated_at BIGINT NOT NULL,
+      PRIMARY KEY (session_id, key)
     )`,
     );
     await execute(
@@ -227,7 +239,11 @@ describe("upload lease", () => {
       },
     );
     mockReleaseHostedClipAllowanceAfterCleanup.mockImplementation(
-      async (input: { recordingId: string; sessionKey?: string }) => {
+      async (input: {
+        recordingId: string;
+        ownerEmail: string;
+        sessionKey?: string;
+      }) => {
         await execute(client, {
           sql: `UPDATE clips_hosted_clip_allowances
                 SET status = 'released', quota_bytes = 0, released_at = ?, updated_at = ?
@@ -235,8 +251,10 @@ describe("upload lease", () => {
           args: [iso(0), iso(0), input.recordingId],
         });
         await execute(client, {
-          sql: `DELETE FROM application_state WHERE key = ? OR key = ?`,
+          sql: `DELETE FROM application_state
+                WHERE LOWER(session_id) = LOWER(?) AND key IN (?, ?)`,
           args: [
+            input.ownerEmail,
             `hosted-cleanup-confirmed-${input.recordingId}`,
             input.sessionKey ?? "",
           ],
@@ -480,18 +498,15 @@ describe("upload lease", () => {
             VALUES (?, ?, ?, 'reserved', ?, ?)`,
       args: ["hosted-dead", "owner@example.com", "user-1", 250, iso(-1_000)],
     });
-    await execute(client, {
-      sql: `INSERT INTO application_state (key, value) VALUES (?, ?)`,
-      args: [
-        "resumable-session-hosted-dead",
-        JSON.stringify({
-          providerId: "clips-hosted",
-          sessionId: "hosted-upload",
-          meta: { objectKey: "clips/hosted-dead.webm" },
-          bytesUploaded: 10,
-        }),
-      ],
-    });
+    await insertAppState(
+      "resumable-session-hosted-dead",
+      JSON.stringify({
+        providerId: "clips-hosted",
+        sessionId: "hosted-upload",
+        meta: { objectKey: "clips/hosted-dead.webm" },
+        bytesUploaded: 10,
+      }),
+    );
 
     const result = await reapExpiredUploads({ now: NOW });
 
@@ -531,18 +546,15 @@ describe("upload lease", () => {
               VALUES (?, ?, ?, 'reserved', ?, ?)`,
         args: [recordingId, "owner@example.com", "user-1", 250, iso(-1_000)],
       });
-      await execute(client, {
-        sql: `INSERT INTO application_state (key, value) VALUES (?, ?)`,
-        args: [
-          `resumable-session-${recordingId}`,
-          JSON.stringify({
-            providerId: "clips-hosted",
-            sessionId: `session-${recordingId}`,
-            meta: { objectKey: `clips/${recordingId}.webm` },
-            bytesUploaded: 10,
-          }),
-        ],
-      });
+      await insertAppState(
+        `resumable-session-${recordingId}`,
+        JSON.stringify({
+          providerId: "clips-hosted",
+          sessionId: `session-${recordingId}`,
+          meta: { objectKey: `clips/${recordingId}.webm` },
+          bytesUploaded: 10,
+        }),
+      );
     }
     mockAbortResumableUploadSession.mockClear();
     mockReconcileMeetingOnRecordingFailed
@@ -667,34 +679,40 @@ describe("upload lease", () => {
         args: [recordingId, "Transcript text"],
       });
     }
-    await execute(client, {
-      sql: `INSERT INTO application_state (key, value) VALUES (?, ?)`,
-      args: [
-        "clips-meeting-finalize-retry-meeting-dispatch-a-waiting",
-        JSON.stringify({
-          recordingId: "meeting-dispatch-a-waiting",
-          ownerEmail: "owner@example.com",
-          status: "scheduled",
-          attempts: 1,
-          updatedAt: iso(0),
-          nextAttemptAt: iso(5 * 60_000),
-        }),
-      ],
-    });
-    await execute(client, {
-      sql: `INSERT INTO application_state (key, value) VALUES (?, ?)`,
-      args: [
-        "clips-meeting-finalize-retry-meeting-dispatch-b-exhausted",
-        JSON.stringify({
-          recordingId: "meeting-dispatch-b-exhausted",
-          ownerEmail: "owner@example.com",
-          status: "exhausted",
-          attempts: 5,
-          updatedAt: iso(0),
-          nextAttemptAt: iso(5 * 60_000),
-        }),
-      ],
-    });
+    await insertAppState(
+      "clips-meeting-finalize-retry-meeting-dispatch-a-waiting",
+      JSON.stringify({
+        recordingId: "meeting-dispatch-a-waiting",
+        ownerEmail: "owner@example.com",
+        status: "scheduled",
+        attempts: 1,
+        updatedAt: iso(0),
+        nextAttemptAt: iso(5 * 60_000),
+      }),
+    );
+    await insertAppState(
+      "clips-meeting-finalize-retry-meeting-dispatch-b-exhausted",
+      JSON.stringify({
+        recordingId: "meeting-dispatch-b-exhausted",
+        ownerEmail: "owner@example.com",
+        status: "exhausted",
+        attempts: 5,
+        updatedAt: iso(0),
+        nextAttemptAt: iso(5 * 60_000),
+      }),
+    );
+    await insertAppState(
+      "clips-meeting-finalize-retry-meeting-dispatch-z-new",
+      JSON.stringify({
+        recordingId: "meeting-dispatch-z-new",
+        ownerEmail: "other@example.com",
+        status: "exhausted",
+        attempts: 5,
+        updatedAt: iso(0),
+        nextAttemptAt: iso(5 * 60_000),
+      }),
+      "other@example.com",
+    );
 
     await reapExpiredUploads({ now: NOW, limit: 1 });
 
@@ -702,6 +720,46 @@ describe("upload lease", () => {
     expect(mockReconcileMeetingOnRecordingFailed).toHaveBeenCalledWith({
       recordingId: "meeting-dispatch-z-new",
       ownerEmail: "owner@example.com",
+    });
+  });
+
+  it("reaps ready recordings whose ended meeting still needs finalization", async () => {
+    const recordingId = "meeting-finalize-ready-retry";
+    await insertRecording({ id: recordingId, status: "ready" });
+    await execute(client, {
+      sql: `INSERT INTO clips_meetings
+            (id, owner_email, recording_id, actual_end, transcript_status, summary_md)
+            VALUES (?, ?, ?, ?, 'failed', '')`,
+      args: [recordingId, "owner@example.com", recordingId, iso(-60_000)],
+    });
+    await execute(client, {
+      sql: `INSERT INTO recording_transcripts (recording_id, status, full_text)
+            VALUES (?, 'ready', ?)`,
+      args: [recordingId, "Transcript text"],
+    });
+
+    await reapExpiredUploads({ now: NOW });
+
+    expect(mockReconcileMeetingOnRecordingFailed).toHaveBeenCalledWith({
+      recordingId,
+      ownerEmail: "owner@example.com",
+    });
+    const { rows } = await execute(client, {
+      sql: `SELECT session_id, updated_at, value FROM application_state
+            WHERE session_id = ? AND key = ?`,
+      args: [
+        "owner@example.com",
+        `clips-meeting-finalize-retry-${recordingId}`,
+      ],
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.session_id).toBe("owner@example.com");
+    expect(Number(rows[0]?.updated_at)).toBe(NOW);
+    expect(JSON.parse(String(rows[0]?.value))).toMatchObject({
+      recordingId,
+      ownerEmail: "owner@example.com",
+      status: "scheduled",
+      attempts: 1,
     });
   });
 
@@ -724,18 +782,15 @@ describe("upload lease", () => {
         iso(-1_000),
       ],
     });
-    await execute(client, {
-      sql: `INSERT INTO application_state (key, value) VALUES (?, ?)`,
-      args: [
-        "resumable-session-hosted-release-retry",
-        JSON.stringify({
-          providerId: "clips-hosted",
-          sessionId: "hosted-upload",
-          meta: { objectKey: "clips/hosted-release-retry.webm" },
-          bytesUploaded: 10,
-        }),
-      ],
-    });
+    await insertAppState(
+      "resumable-session-hosted-release-retry",
+      JSON.stringify({
+        providerId: "clips-hosted",
+        sessionId: "hosted-upload",
+        meta: { objectKey: "clips/hosted-release-retry.webm" },
+        bytesUploaded: 10,
+      }),
+    );
     mockReleaseHostedClipAllowanceAfterCleanup.mockRejectedValueOnce(
       new Error("temporary database failure"),
     );
@@ -790,13 +845,10 @@ describe("upload lease", () => {
       ],
     });
     const markerValue = JSON.stringify({ videoUrl, cleanupId: "confirmed" });
-    await execute(client, {
-      sql: `INSERT INTO application_state (key, value) VALUES (?, ?)`,
-      args: [
-        "hosted-cleanup-confirmed-hosted-delete-marker-crash",
-        markerValue,
-      ],
-    });
+    await insertAppState(
+      "hosted-cleanup-confirmed-hosted-delete-marker-crash",
+      markerValue,
+    );
 
     const result = await reapExpiredUploads({ now: NOW });
 
@@ -828,25 +880,21 @@ describe("upload lease", () => {
             VALUES (?, ?, ?, 'reserved', ?, ?)`,
       args: ["hosted-aborted", "owner@example.com", "user-1", 250, iso(-1_000)],
     });
-    await execute(client, {
-      sql: `INSERT INTO application_state (key, value) VALUES (?, ?)`,
-      args: [
-        "resumable-session-hosted-aborted",
-        JSON.stringify({
-          providerId: "clips-hosted",
-          sessionId: "hosted-upload",
-          meta: { objectKey: "clips/hosted-aborted.webm" },
-          bytesUploaded: 10,
-        }),
-      ],
-    });
-    await execute(client, {
-      sql: `INSERT INTO application_state (key, value) VALUES (?, ?)`,
-      args: [
-        "recording-upload-hosted-aborted",
-        JSON.stringify({ status: "failed", aborted: true }),
-      ],
-    });
+    await insertAppState(
+      "resumable-session-hosted-aborted",
+      JSON.stringify({
+        providerId: "clips-hosted",
+        sessionId: "hosted-upload",
+        meta: { objectKey: "clips/hosted-aborted.webm" },
+        bytesUploaded: 10,
+      }),
+      "OWNER@example.com",
+    );
+    await insertAppState(
+      "recording-upload-hosted-aborted",
+      JSON.stringify({ status: "failed", aborted: true }),
+      "OWNER@example.com",
+    );
 
     mockAbortResumableUploadSession.mockClear();
     mockAbortResumableUploadSession.mockResolvedValueOnce(false);
@@ -858,6 +906,12 @@ describe("upload lease", () => {
     const second = await reapExpiredUploads({ now: NOW + 1_000 });
     expect(second.hostedReservationsReleased).toBe(1);
     expect(mockAbortResumableUploadSession).toHaveBeenCalledTimes(2);
+    const { rows } = await execute(client, {
+      sql: `SELECT session_id FROM application_state
+            WHERE key = ? AND LOWER(session_id) = LOWER(?)`,
+      args: ["resumable-session-hosted-aborted", "owner@example.com"],
+    });
+    expect(rows).toEqual([]);
   });
 
   it("recovers an expired hosted upload when failure was saved before its cleanup marker", async () => {
@@ -878,13 +932,10 @@ describe("upload lease", () => {
         iso(-1_000),
       ],
     });
-    await execute(client, {
-      sql: `INSERT INTO application_state (key, value) VALUES (?, ?)`,
-      args: [
-        "recording-upload-hosted-marker-crash",
-        JSON.stringify({ status: "uploading" }),
-      ],
-    });
+    await insertAppState(
+      "recording-upload-hosted-marker-crash",
+      JSON.stringify({ status: "uploading" }),
+    );
 
     const result = await reapExpiredUploads({ now: NOW });
 
@@ -912,18 +963,15 @@ describe("upload lease", () => {
             VALUES (?, ?, ?, 'reserved', ?, ?)`,
       args: ["hosted-unclean", "owner@example.com", "user-1", 250, iso(-1_000)],
     });
-    await execute(client, {
-      sql: `INSERT INTO application_state (key, value) VALUES (?, ?)`,
-      args: [
-        "resumable-session-hosted-unclean",
-        JSON.stringify({
-          providerId: "clips-hosted",
-          sessionId: "hosted-upload",
-          meta: { objectKey: "clips/hosted-unclean.webm" },
-          bytesUploaded: 10,
-        }),
-      ],
-    });
+    await insertAppState(
+      "resumable-session-hosted-unclean",
+      JSON.stringify({
+        providerId: "clips-hosted",
+        sessionId: "hosted-upload",
+        meta: { objectKey: "clips/hosted-unclean.webm" },
+        bytesUploaded: 10,
+      }),
+    );
 
     const result = await reapExpiredUploads({ now: NOW });
 
@@ -956,18 +1004,15 @@ describe("upload lease", () => {
         iso(-1_000),
       ],
     });
-    await execute(client, {
-      sql: `INSERT INTO application_state (key, value) VALUES (?, ?)`,
-      args: [
-        "resumable-session-hosted-ambiguous",
-        JSON.stringify({
-          providerId: "clips-hosted",
-          sessionId: "hosted-upload",
-          meta: { objectKey: "clips/hosted-ambiguous.webm" },
-          bytesUploaded: 10,
-        }),
-      ],
-    });
+    await insertAppState(
+      "resumable-session-hosted-ambiguous",
+      JSON.stringify({
+        providerId: "clips-hosted",
+        sessionId: "hosted-upload",
+        meta: { objectKey: "clips/hosted-ambiguous.webm" },
+        bytesUploaded: 10,
+      }),
+    );
 
     const result = await reapExpiredUploads({ now: NOW });
 
@@ -996,22 +1041,16 @@ describe("upload lease", () => {
       sql: `UPDATE recordings SET upload_generation_id = ? WHERE id = ?`,
       args: ["generation-1", "fenced-dead"],
     });
-    await execute(client, {
-      sql: `INSERT INTO application_state (key, value) VALUES (?, ?)`,
-      args: [
-        "resumable-session-fenced-dead-generation-1",
-        JSON.stringify({
-          providerId: "s3",
-          sessionId: "remote-dead",
-          meta: { objectKey: "clips/fenced-dead.webm" },
-          bytesUploaded: 10,
-        }),
-      ],
-    });
-    await execute(client, {
-      sql: `INSERT INTO application_state (key, value) VALUES (?, ?)`,
-      args: ["resumable-session-fenced-dead", "{}"],
-    });
+    await insertAppState(
+      "resumable-session-fenced-dead-generation-1",
+      JSON.stringify({
+        providerId: "s3",
+        sessionId: "remote-dead",
+        meta: { objectKey: "clips/fenced-dead.webm" },
+        bytesUploaded: 10,
+      }),
+    );
+    await insertAppState("resumable-session-fenced-dead", "{}");
 
     const result = await reapExpiredUploads({ now: NOW });
 
@@ -1055,10 +1094,7 @@ describe("upload lease", () => {
       lease: iso(-1_000),
     });
     await insertChunk("renewing", 0);
-    await execute(client, {
-      sql: `INSERT INTO application_state (key, value) VALUES (?, ?)`,
-      args: ["resumable-session-renewing", "{}"],
-    });
+    await insertAppState("resumable-session-renewing", "{}");
 
     const realQuery = client.query.bind(client);
     let renewed = false;

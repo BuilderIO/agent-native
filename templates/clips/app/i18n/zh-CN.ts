@@ -2,6 +2,12 @@ const messages = {
   meetingAsk: { resizeOrDismissAnswers: "调整答案区域大小或关闭" },
   meetingBrowserConfirmation:
     "Clips 检测到此浏览器正在使用麦克风，但无法判断会议在哪个标签页中进行。",
+  meetingReplacement: {
+    title: "会议笔记需要处理",
+    description: "上一场会议的笔记未能保存。开始这场会议前，请先复制这些笔记。",
+    copyAndStart: "复制笔记并开始",
+    actionFailed: "无法继续恢复会议，请重试。",
+  },
   quitRecovery: {
     title: "Clips 正在完成会议",
     body: "Clips 尚未完成停止并保存此会议。现在退出可能会丢失最新的转录内容。",

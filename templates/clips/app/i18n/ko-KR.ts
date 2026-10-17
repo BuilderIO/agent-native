@@ -2,6 +2,13 @@ const messages = {
   meetingAsk: { resizeOrDismissAnswers: "답변 영역 크기 조절 또는 닫기" },
   meetingBrowserConfirmation:
     "Clips는 이 브라우저의 마이크 활동을 감지하지만 회의 중인 탭을 구분할 수 없습니다.",
+  meetingReplacement: {
+    title: "회의 메모 확인이 필요합니다",
+    description:
+      "이전 회의의 메모를 저장하지 못했습니다. 이 회의를 시작하기 전에 메모를 복사하세요.",
+    copyAndStart: "메모 복사 후 시작",
+    actionFailed: "회의 복구를 계속하지 못했습니다. 다시 시도하세요.",
+  },
   quitRecovery: {
     title: "Clips에서 회의를 마무리하는 중입니다",
     body: "Clips에서 이 회의를 중지하고 저장하는 작업을 완료하지 못했습니다. 지금 종료하면 최신 대화록이 손실될 수 있습니다.",

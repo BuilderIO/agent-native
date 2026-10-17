@@ -157,7 +157,30 @@ describe("save-browser-transcript", () => {
     expect(dispatchPostFinalizeJob).toHaveBeenCalledWith({
       recordingId: "rec-1",
       kind: "meeting-finalize",
+      requireAccepted: true,
     });
+  });
+
+  it("does not report transcript save success before finalization is accepted", async () => {
+    mocks.insert.mockReturnValue({ values: insertValues() });
+    mocks.rows = [
+      [],
+      [{ status: "ready", title: "Clip", description: "x", durationMs: 1200 }],
+    ];
+    mocks.listEndedMeetingsForRecording.mockResolvedValue([
+      { id: "meeting-1" },
+    ]);
+    vi.mocked(dispatchPostFinalizeJob).mockRejectedValue(
+      new Error("Post-finalize meeting-finalize worker returned HTTP 503"),
+    );
+
+    await expect(
+      saveBrowserTranscript.run({
+        recordingId: "rec-1",
+        fullText: "A saved transcript.",
+        source: "web-speech",
+      }),
+    ).rejects.toThrow("HTTP 503");
   });
 
   it("does not overwrite a pending cloud transcription with an empty native result", async () => {

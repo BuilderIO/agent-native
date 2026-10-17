@@ -57,6 +57,24 @@ export function shouldHoldQuitForTranscriptRecovery(
   return quitTeardownPending && isTerminalTranscriptSaveResult(result);
 }
 
+export function canDiscardTerminalTranscriptForReplacement(params: {
+  quitting: boolean;
+  activeMeetingId: string | null;
+  failedMeetingId: string;
+  terminalTranscriptFailure: boolean;
+  stopPending: boolean;
+  queuedMeetingId: string | null;
+  requestedMeetingId: string;
+}): boolean {
+  return (
+    !params.quitting &&
+    params.activeMeetingId === params.failedMeetingId &&
+    params.terminalTranscriptFailure &&
+    params.stopPending &&
+    params.queuedMeetingId === params.requestedMeetingId
+  );
+}
+
 export async function stopMeetingBeforeTranscriptFlush({
   stopRecording,
   isStopped,

@@ -2,6 +2,12 @@ const messages = {
   meetingAsk: { resizeOrDismissAnswers: "調整答案區域大小或關閉" },
   meetingBrowserConfirmation:
     "Clips 偵測到此瀏覽器正在使用麥克風，但無法判斷會議在哪個分頁進行。",
+  meetingReplacement: {
+    title: "會議筆記需要處理",
+    description: "上一場會議的筆記未能儲存。開始這場會議前，請先複製這些筆記。",
+    copyAndStart: "複製筆記並開始",
+    actionFailed: "無法繼續復原會議，請再試一次。",
+  },
   quitRecovery: {
     title: "Clips 正在完成會議",
     body: "Clips 尚未完成停止並儲存此會議。現在結束可能會遺失最新的逐字稿。",

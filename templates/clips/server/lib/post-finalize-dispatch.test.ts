@@ -34,6 +34,7 @@ describe("post-finalize dispatch", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
     vi.clearAllMocks();
@@ -129,6 +130,55 @@ describe("post-finalize dispatch", () => {
         }),
       }),
     );
+  });
+
+  it("waits for meeting finalization acceptance and propagates a late failure", async () => {
+    let resolveFetch!: (response: Response) => void;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveFetch = resolve;
+          }),
+      ),
+    );
+
+    let settled = false;
+    const dispatch = dispatchPostFinalizeJob({
+      recordingId: "rec-meeting",
+      kind: "meeting-finalize",
+      requireAccepted: true,
+    }).finally(() => {
+      settled = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    expect(settled).toBe(false);
+    resolveFetch(new Response("worker unavailable", { status: 503 }));
+    await expect(dispatch).rejects.toThrow("HTTP 503");
+  });
+
+  it("bounds required worker acceptance and aborts a stalled request", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise<Response>(() => {})),
+    );
+    const dispatch = dispatchPostFinalizeJob({
+      recordingId: "rec-meeting-timeout",
+      kind: "meeting-finalize",
+      requireAccepted: true,
+    });
+    const rejection = expect(dispatch).rejects.toThrow(
+      "worker acceptance timed out after 10000ms",
+    );
+
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    await rejection;
+    const request = vi.mocked(fetch).mock.calls[0]?.[1];
+    expect(request?.signal?.aborted).toBe(true);
   });
 
   it("routes hosted Netlify work through the durable background function", async () => {

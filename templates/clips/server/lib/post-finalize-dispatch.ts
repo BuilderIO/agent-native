@@ -20,6 +20,7 @@ export type PostFinalizeJobKind =
 export const POST_FINALIZE_JOB_TOKEN_KIND = "clips-post-finalize-job";
 
 const DISPATCH_SETTLE_MS = 250;
+const DISPATCH_ACCEPTANCE_TIMEOUT_MS = 10_000;
 
 function normalizeBasePath(value: string | undefined): string {
   const normalized = (value ?? "").trim().replace(/^\/+|\/+$/g, "");
@@ -79,6 +80,7 @@ export async function dispatchPostFinalizeJob(args: {
   const workerUrl = resolveWorkerUrl(dispatchPath);
   const usesDurableBackground =
     dispatchPathTargetsNetlifyBackgroundFunction(dispatchPath);
+  const controller = requireAccepted ? new AbortController() : null;
   const body = JSON.stringify({
     ...job,
     token,
@@ -100,6 +102,7 @@ export async function dispatchPostFinalizeJob(args: {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body,
+      ...(controller ? { signal: controller.signal } : {}),
     });
   const dispatch = post(workerUrl).then(async (initialResponse) => {
     const response =
@@ -132,7 +135,24 @@ export async function dispatchPostFinalizeJob(args: {
   });
 
   if (requireAccepted) {
-    await dispatch;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        dispatch,
+        new Promise<void>((_, reject) => {
+          timeout = setTimeout(() => {
+            reject(
+              new Error(
+                `Post-finalize ${args.kind} worker acceptance timed out after ${DISPATCH_ACCEPTANCE_TIMEOUT_MS}ms`,
+              ),
+            );
+            controller?.abort();
+          }, DISPATCH_ACCEPTANCE_TIMEOUT_MS);
+        }),
+      ]);
+    } finally {
+      if (timeout) clearTimeout(timeout);
+    }
     return;
   }
 
