@@ -1517,11 +1517,20 @@ function requestedComparisonCalendarRanges(
     count: Number(match[2]),
     unit: match[3]?.toLowerCase().replace(/s$/, ""),
   }));
+  const explicitDateRanges = requestedExplicitDateRanges(userText);
+  const equivalentYearAgo =
+    /\b(?:(?:(?:same|equivalent|comparable)\s+period\s+(?:(?:from|of)\s+)?)?(?:one|1)\s+year\s+ago|(?:same|equivalent|comparable)\s+period\s+last\s+year)\b/i.test(
+      userText,
+    );
+  const additionalCalendarPhrases = periodPhrases.filter(
+    (phrase) => !(equivalentYearAgo && /^last year$/i.test(phrase)),
+  );
   if (
-    namedPeriodRanges.length > 1 &&
-    (periodPhrases.length > 0 ||
+    namedPeriodRanges.length > 0 &&
+    (additionalCalendarPhrases.length > 0 ||
       rollingWindows.length > 0 ||
-      /\b(?:today|yesterday)\b/i.test(userText))
+      /\b(?:today|yesterday)\b/i.test(userText) ||
+      explicitDateRanges.length > 0)
   ) {
     return [];
   }
@@ -1534,10 +1543,6 @@ function requestedComparisonCalendarRanges(
   );
   const [currentWindow] = currentWindows;
   const [previousWindow] = previousWindows;
-  const equivalentYearAgo =
-    /\b(?:(?:(?:same|equivalent|comparable)\s+period\s+(?:(?:from|of)\s+)?)?(?:one|1)\s+year\s+ago|(?:same|equivalent|comparable)\s+period\s+last\s+year)\b/i.test(
-      userText,
-    );
   if (rollingWindows.length >= 2) {
     if (
       rollingWindows.length !== 2 ||
@@ -1580,7 +1585,6 @@ function requestedComparisonCalendarRanges(
     return priorYearRange ? [currentRange, priorYearRange] : [];
   }
 
-  const explicitDateRanges = requestedExplicitDateRanges(userText);
   if (explicitDateRanges.length > 1) {
     if (namedPeriodRanges.length > 0) return [];
     const distinctRanges = new Map(
