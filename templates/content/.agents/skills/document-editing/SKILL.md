@@ -166,6 +166,15 @@ page. When the refusal's `details` name a Notion page (`remotePageId`) or a loca
 file (`sourcePath`), that copy already changed; say so.
 `LIVE_BODY_WRITE_PATH_CHANGED` means the page switched while the write was in
 flight; read the page again and retry.
+Before a version restore, a move to another space, or a `pull-document`, the
+open editors of such a page save its title; its body is already in the live
+copy. `OPEN_EDITOR_TITLE_NOT_SAVED` (409, `retryable: true`) means an editor
+didn't confirm that save in time or couldn't make it, and nothing changed:
+retry, and if it refuses again, tell the user the open editor of page
+`details.documentId` didn't save. A restore or move result's `titleFlush` says
+what the editors answered. `unconfirmed` means an editor too old to ask was
+open on the pages in `documentIds`, so a title it hadn't saved yet may be
+missing; tell the user.
 
 ### update-document
 

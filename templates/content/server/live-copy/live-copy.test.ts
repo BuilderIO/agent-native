@@ -2,6 +2,7 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { appStateGet } from "@agent-native/core/application-state";
 import { getDbExec, type DbExec } from "@agent-native/core/db";
 import { serializeIconValue } from "@agent-native/core/icons";
 import { runWithRequestContext } from "@agent-native/core/server";
@@ -21,6 +22,10 @@ import * as Y from "yjs";
 
 import { createContentEditorStructuralSchema } from "../../shared/content-editor-structural-schema.js";
 import * as nfm from "../../shared/nfm.js";
+import {
+  answerFlushRequest,
+  openEditorTab,
+} from "../test-support/open-editor-tab.js";
 
 const { outcomeCounter } = vi.hoisted(() => ({ outcomeCounter: vi.fn() }));
 vi.mock("@agent-native/core/tracking", async (importOriginal) => ({
@@ -2267,7 +2272,12 @@ describe("a version restore on a switched page", () => {
         { documentId: id, versionId, expectedUpdatedAt } as never,
         { caller: "tool", userEmail } as never,
       ),
-    ) as Promise<{ title: string; content: string; bodyRevision: number }>;
+    ) as Promise<{
+      title: string;
+      content: string;
+      bodyRevision: number;
+      titleFlush?: unknown;
+    }>;
   }
 
   async function metadata(id: string) {
@@ -2326,6 +2336,7 @@ describe("a version restore on a switched page", () => {
     expect(restored).toMatchObject({
       content: "First draft",
       bodyRevision: before.bodyRevision + 1,
+      titleFlush: { status: "no_open_editor" },
     });
     expect((await page("restore")).content).toBe("First draft");
     expect(await gateFor("restore")).toEqual({ writePath: "live_copy" });
@@ -2666,38 +2677,154 @@ describe("a version restore on a switched page", () => {
     expect((await page("restore-renamed")).content).toBe("Second draft");
   });
 
-  it("restores with a tab open without waiting on the tab to save (SF-03)", async () => {
+  it("has an open tab save its title before it restores, so History keeps the typed title (SF-03)", async () => {
     await switchedPage("restore-open", "First draft");
     await serverEdit("restore-open", "Second draft");
     const versionId = await versionHolding("restore-open", "First draft");
-    await collab.loadAwarenessRowsStrict("restore-open");
-    await getDbExec().execute({
-      sql: "INSERT INTO _collab_awareness (doc_id, client_id, state, last_seen) VALUES (?, ?, ?, ?)",
-      args: [
-        "restore-open",
-        7,
-        JSON.stringify({ user: { email: OWNER }, canFlushDocument: true }),
-        Date.now(),
-      ],
-    });
-    const { flushOpenDocumentEditorToSql } =
-      await import("../../actions/_document-flush.js");
-    const started = performance.now();
-
-    await asOwner(() =>
-      flushOpenDocumentEditorToSql({
-        documentId: "restore-open",
-        ownerEmail: OWNER,
-      }),
+    const prepared = await metadata("restore-open");
+    await openEditorTab("restore-open", OWNER, { canFlushTitle: true });
+    const tab = answerFlushRequest(
+      "restore-open",
+      OWNER,
+      { status: "success", scope: "title", saved: true },
+      async () => {
+        await getDb()
+          .update(schema.documents)
+          .set({
+            title: "Typed title",
+            updatedAt: new Date(
+              Date.parse(prepared.updatedAt) + 1_000,
+            ).toISOString(),
+          })
+          .where(eq(schema.documents.id, "restore-open"));
+      },
     );
-    await restore(
+
+    const restored = await restore(
       "restore-open",
       versionId,
-      (await metadata("restore-open")).updatedAt,
+      prepared.updatedAt,
+    );
+
+    const request = await tab;
+    expect(request).toMatchObject({ scope: "title", status: "pending" });
+    expect(request).not.toHaveProperty("propertyId");
+    expect(restored).toMatchObject({
+      content: "First draft",
+      titleFlush: { status: "flushed" },
+    });
+    const versions = await getDb()
+      .select({
+        title: schema.documentVersions.title,
+        content: schema.documentVersions.content,
+      })
+      .from(schema.documentVersions)
+      .where(eq(schema.documentVersions.documentId, "restore-open"));
+    expect(versions).toContainEqual({
+      title: "Typed title",
+      content: "Second draft",
+    });
+    await expect(
+      appStateGet(OWNER, "flush-request-restore-open"),
+    ).resolves.toBeNull();
+  });
+
+  it("refuses, retryably, when an open tab doesn't confirm in time that it saved the title", async () => {
+    await switchedPage("restore-silent", "First draft");
+    await serverEdit("restore-silent", "Second draft");
+    const versionId = await versionHolding("restore-silent", "First draft");
+    await openEditorTab("restore-silent", OWNER, { canFlushTitle: true });
+
+    await expect(
+      restore(
+        "restore-silent",
+        versionId,
+        (await metadata("restore-silent")).updatedAt,
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "OPEN_EDITOR_TITLE_NOT_SAVED",
+      statusCode: 409,
+      details: {
+        documentId: "restore-silent",
+        reason: "timeout",
+        retryable: true,
+      },
+    });
+    expect((await page("restore-silent")).content).toBe("Second draft");
+    await expect(
+      appStateGet(OWNER, "flush-request-restore-silent"),
+    ).resolves.toBeNull();
+  });
+
+  it("refuses with the tab's code when it couldn't save the title", async () => {
+    await switchedPage("restore-title-conflict", "First draft");
+    await serverEdit("restore-title-conflict", "Second draft");
+    const versionId = await versionHolding(
+      "restore-title-conflict",
+      "First draft",
+    );
+    await openEditorTab("restore-title-conflict", OWNER, {
+      canFlushTitle: true,
+    });
+    const tab = answerFlushRequest("restore-title-conflict", OWNER, {
+      status: "error",
+      scope: "title",
+      code: "title_conflict",
+      error: "The title changed in another tab.",
+    });
+
+    await expect(
+      restore(
+        "restore-title-conflict",
+        versionId,
+        (await metadata("restore-title-conflict")).updatedAt,
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "OPEN_EDITOR_TITLE_NOT_SAVED",
+      details: {
+        reason: "editor_error",
+        code: "title_conflict",
+        retryable: true,
+      },
+    });
+    await tab;
+    expect((await page("restore-title-conflict")).content).toBe("Second draft");
+  });
+
+  it("restores with a tab too old for the title flush without waiting on it, and says so (SF-03)", async () => {
+    await switchedPage("restore-legacy-tab", "First draft");
+    await serverEdit("restore-legacy-tab", "Second draft");
+    const versionId = await versionHolding("restore-legacy-tab", "First draft");
+    await openEditorTab("restore-legacy-tab", OWNER);
+    const { flushOpenDocumentEditorToSql } =
+      await import("../../actions/_document-flush.js");
+    const unconfirmed = {
+      status: "unconfirmed",
+      reason: "legacy_editor",
+      documentIds: ["restore-legacy-tab"],
+    };
+    const started = performance.now();
+
+    await expect(
+      asOwner(() =>
+        flushOpenDocumentEditorToSql({
+          documentId: "restore-legacy-tab",
+          ownerEmail: OWNER,
+        }),
+      ),
+    ).resolves.toEqual(unconfirmed);
+    const restored = await restore(
+      "restore-legacy-tab",
+      versionId,
+      (await metadata("restore-legacy-tab")).updatedAt,
     );
 
     expect(performance.now() - started).toBeLessThan(2_000);
-    expect((await page("restore-open")).content).toBe("First draft");
+    expect(restored.titleFlush).toEqual(unconfirmed);
+    expect((await page("restore-legacy-tab")).content).toBe("First draft");
+    await expect(
+      appStateGet(OWNER, "flush-request-restore-legacy-tab"),
+    ).resolves.toBeNull();
   });
 
   it("restores a version's private callout icon in the page's canonical form", async () => {
@@ -2794,16 +2921,38 @@ describe("a version restore on a switched page", () => {
     const version = await collabVersion("restore-off");
     await setFlags(false);
 
-    await restore(
+    const restored = await restore(
       "restore-off",
       versionId,
       (await metadata("restore-off")).updatedAt,
     );
 
+    expect(restored).not.toHaveProperty("titleFlush");
     expect((await page("restore-off")).content).toBe("First draft");
     expect(await collabVersion("restore-off")).toBe(version);
     expect(await gateFor("restore-off")).not.toEqual({
       writePath: "live_copy",
+    });
+  });
+});
+
+describe("pull-document on a switched page", () => {
+  it("refuses, typed and retryable, when an open tab doesn't confirm in time that it saved the title", async () => {
+    await switchedPage("pull-silent", "Body");
+    await openEditorTab("pull-silent", OWNER, { canFlushTitle: true });
+    const pull = (await import("../../actions/pull-document.js")).default;
+
+    await expect(
+      asOwner(async () =>
+        pull.run({ id: "pull-silent", format: "markdown" } as never),
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "OPEN_EDITOR_TITLE_NOT_SAVED",
+      details: {
+        documentId: "pull-silent",
+        reason: "timeout",
+        retryable: true,
+      },
     });
   });
 });

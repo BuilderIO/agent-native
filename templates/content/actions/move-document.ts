@@ -261,13 +261,16 @@ export default defineAction({
     const db = getDb();
 
     if (args.spaceId && args.spaceId !== existing.spaceId) {
-      const { document: doc } = await movePageToSpace({
+      const { document: doc, titleFlush } = await movePageToSpace({
         root: existing as any,
         spaceId: args.spaceId,
         parentId: args.parentId ?? null,
       });
       await writeAppState("refresh-signal", { ts: Date.now() });
-      return documentMoveResult(doc);
+      return {
+        ...documentMoveResult(doc),
+        ...(titleFlush ? { titleFlush } : {}),
+      };
     }
 
     const updatedAt = new Date().toISOString();

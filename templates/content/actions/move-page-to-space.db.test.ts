@@ -5,7 +5,15 @@ import { join } from "node:path";
 import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq, inArray } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 vi.mock("./_local-file-documents.js", async (importOriginal) => {
   const original =
@@ -34,6 +42,8 @@ let duplicatePage: typeof import("./duplicate-page.js").default;
 let listComments: typeof import("./list-comments.js").default;
 let organizationContentSpaceId: typeof import("./_content-spaces.js").organizationContentSpaceId;
 let personalContentSpaceId: typeof import("./_content-spaces.js").personalContentSpaceId;
+let liveCopy: typeof import("../server/test-support/live-copy-page.js");
+let tabs: typeof import("../server/test-support/open-editor-tab.js");
 
 const OWNER = "owner@example.com";
 const EDITOR = "editor@example.com";
@@ -52,6 +62,8 @@ beforeAll(async () => {
   listComments = (await import("./list-comments.js")).default;
   ({ organizationContentSpaceId, personalContentSpaceId } =
     await import("./_content-spaces.js"));
+  liveCopy = await import("../server/test-support/live-copy-page.js");
+  tabs = await import("../server/test-support/open-editor-tab.js");
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
   await getDbExec().execute(`CREATE TABLE IF NOT EXISTS organizations (
@@ -400,7 +412,197 @@ describe("moving a page between Content spaces", () => {
   });
 });
 
+describe("moving a page that takes body writes through its live copy", () => {
+  afterEach(() => liveCopy.turnLiveCopyFlagsOff());
+
+  // The tabs below advertise the title flush and never answer unless a test
+  // answers for them, so a request nobody expects refuses the move.
+
+  it("asks no open editor for anything on a move within its space", async () => {
+    const parent = await as(OWNER, () =>
+      createDocument.run({ title: "Parent" }),
+    );
+    const page = await as(OWNER, () => createDocument.run({ title: "Stay" }));
+    await liveCopy.putPageOnLiveCopy(page.id);
+    await tabs.openEditorTab(page.id, EDITOR, { canFlushTitle: true });
+
+    const moved = await as(OWNER, () =>
+      moveDocument.run({ id: page.id, parentId: parent.id }),
+    );
+
+    expect(moved).toMatchObject({ parentId: parent.id });
+    expect(moved).not.toHaveProperty("titleFlush");
+  });
+
+  it("has the open editors of the page and its sub-pages save their titles before it moves them to another space", async () => {
+    const orgSpaceId = organizationContentSpaceId(ORG_ID);
+    const page = await as(OWNER, () => createDocument.run({ title: "Plan" }));
+    const child = await as(OWNER, () =>
+      createDocument.run({ title: "Details", parentId: page.id }),
+    );
+    for (const id of [page.id, child.id]) {
+      await liveCopy.putPageOnLiveCopy(id);
+      await tabs.openEditorTab(id, EDITOR, { canFlushTitle: true });
+    }
+    const saved = { status: "success", scope: "title", saved: true };
+    const answered = Promise.all([
+      tabs.answerFlushRequest(page.id, EDITOR, saved),
+      tabs.answerFlushRequest(child.id, EDITOR, saved),
+    ]);
+
+    const moved = await as(OWNER, () =>
+      moveDocument.run({ id: page.id, spaceId: orgSpaceId }),
+    );
+
+    expect(moved).toMatchObject({
+      spaceId: orgSpaceId,
+      titleFlush: { status: "flushed" },
+    });
+    expect(await answered).toEqual([
+      expect.objectContaining({ id: page.id, scope: "title" }),
+      expect.objectContaining({ id: child.id, scope: "title" }),
+    ]);
+  });
+
+  it("moves a page with no open editor to another space at once", async () => {
+    const page = await as(OWNER, () => createDocument.run({ title: "Alone" }));
+    await liveCopy.putPageOnLiveCopy(page.id);
+
+    const moved = await as(OWNER, () =>
+      moveDocument.run({
+        id: page.id,
+        spaceId: organizationContentSpaceId(ORG_ID),
+      }),
+    );
+
+    expect(moved).toMatchObject({ titleFlush: { status: "no_open_editor" } });
+  });
+
+  it("refuses, retryably and naming the page, a move to another space its open editor doesn't confirm in time", async () => {
+    const page = await as(OWNER, () => createDocument.run({ title: "Plan" }));
+    await liveCopy.putPageOnLiveCopy(page.id);
+    await tabs.openEditorTab(page.id, EDITOR, { canFlushTitle: true });
+
+    await expect(
+      as(OWNER, () =>
+        moveDocument.run({
+          id: page.id,
+          spaceId: organizationContentSpaceId(ORG_ID),
+        }),
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "OPEN_EDITOR_TITLE_NOT_SAVED",
+      statusCode: 409,
+      details: { documentId: page.id, reason: "timeout", retryable: true },
+    });
+    expect(await documentRows([page.id])).toEqual([
+      expect.objectContaining({ spaceId: personalContentSpaceId(OWNER) }),
+    ]);
+  });
+
+  it("refuses the whole move when a sub-page's open editor couldn't save its title", async () => {
+    const page = await as(OWNER, () => createDocument.run({ title: "Plan" }));
+    const child = await as(OWNER, () =>
+      createDocument.run({ title: "Details", parentId: page.id }),
+    );
+    await liveCopy.putPageOnLiveCopy(page.id);
+    await liveCopy.putPageOnLiveCopy(child.id);
+    await tabs.openEditorTab(child.id, EDITOR, { canFlushTitle: true });
+    const answered = tabs.answerFlushRequest(child.id, EDITOR, {
+      status: "error",
+      scope: "title",
+      code: "title_conflict",
+      error: "The title changed in another tab.",
+    });
+
+    await expect(
+      as(OWNER, () =>
+        moveDocument.run({
+          id: page.id,
+          spaceId: organizationContentSpaceId(ORG_ID),
+        }),
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "OPEN_EDITOR_TITLE_NOT_SAVED",
+      details: {
+        documentId: child.id,
+        reason: "editor_error",
+        code: "title_conflict",
+        retryable: true,
+      },
+    });
+    await answered;
+    expect(await documentRows([page.id, child.id])).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: page.id,
+          spaceId: personalContentSpaceId(OWNER),
+        }),
+        expect.objectContaining({
+          id: child.id,
+          spaceId: personalContentSpaceId(OWNER),
+        }),
+      ]),
+    );
+  });
+
+  it("moves to another space with an open editor too old for the title flush, and says so", async () => {
+    const orgSpaceId = organizationContentSpaceId(ORG_ID);
+    const page = await as(OWNER, () => createDocument.run({ title: "Plan" }));
+    await liveCopy.putPageOnLiveCopy(page.id);
+    await tabs.openEditorTab(page.id, EDITOR);
+
+    const moved = await as(OWNER, () =>
+      moveDocument.run({ id: page.id, spaceId: orgSpaceId }),
+    );
+
+    expect(moved).toMatchObject({
+      spaceId: orgSpaceId,
+      titleFlush: {
+        status: "unconfirmed",
+        reason: "legacy_editor",
+        documentIds: [page.id],
+      },
+    });
+  });
+
+  it("moves to another space as main does once the page's flags are off (SF-11)", async () => {
+    const orgSpaceId = organizationContentSpaceId(ORG_ID);
+    const page = await as(OWNER, () => createDocument.run({ title: "Plan" }));
+    await liveCopy.putPageOnLiveCopy(page.id);
+    await tabs.openEditorTab(page.id, EDITOR, { canFlushTitle: true });
+    await liveCopy.turnLiveCopyFlagsOff();
+
+    const moved = await as(OWNER, () =>
+      moveDocument.run({ id: page.id, spaceId: orgSpaceId }),
+    );
+
+    expect(moved).toMatchObject({ spaceId: orgSpaceId });
+    expect(moved).not.toHaveProperty("titleFlush");
+  });
+});
+
 describe("duplicating a page", () => {
+  it("copies a switched page from its last save when its open editor doesn't confirm the title, and says so", async () => {
+    const page = await as(OWNER, () =>
+      createDocument.run({ title: "Guide", content: "Body" }),
+    );
+    await liveCopy.putPageOnLiveCopy(page.id);
+    await tabs.openEditorTab(page.id, EDITOR, { canFlushTitle: true });
+    try {
+      const copy = await as(OWNER, () =>
+        duplicatePage.run({ documentId: page.id }),
+      );
+
+      expect(copy).toMatchObject({
+        title: "Copy of Guide",
+        copiedFromLastSave: [page.id],
+      });
+    } finally {
+      await liveCopy.turnLiveCopyFlagsOff();
+    }
+  });
+
   it("copies sub-pages beside the original in the same space", async () => {
     const parent = await as(OWNER, () =>
       createDocument.run({ title: "Parent" }),

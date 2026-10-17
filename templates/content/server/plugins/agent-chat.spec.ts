@@ -166,4 +166,38 @@ describe("Content agent chat plugin", () => {
       }),
     );
   });
+
+  it("lets a refused title save stop the chat-start version, for core to report", async () => {
+    const refused = Object.assign(
+      new Error(
+        "An open editor didn't confirm in time that it saved the title of page document-1. Nothing changed; try again.",
+      ),
+      { errorCode: "OPEN_EDITOR_TITLE_NOT_SAVED" },
+    );
+    mocks.assertAccess.mockResolvedValue({
+      resource: {
+        ownerEmail: "owner@example.com",
+        title: "Draft",
+        content: "body",
+      },
+    });
+    mocks.flushOpenDocumentEditorToSql.mockRejectedValue(refused);
+    mocks.recordDocumentHistoryTransition.mockClear();
+
+    await import("./agent-chat.js");
+    const options = mocks.createAgentChatPlugin.mock.calls[0]?.[0] as {
+      onAgentTurnStart?: (
+        scope: { type: string; id: string },
+        run: { threadId: string; runId: string },
+      ) => Promise<void>;
+    };
+
+    await expect(
+      options.onAgentTurnStart?.(
+        { type: "document", id: "document-1" },
+        { threadId: "thread-1", runId: "run-1" },
+      ),
+    ).rejects.toBe(refused);
+    expect(mocks.recordDocumentHistoryTransition).not.toHaveBeenCalled();
+  });
 });

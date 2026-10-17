@@ -39,7 +39,11 @@ document to markdown through its own existing serializer, calls
 `update-document`, and writes an explicit request-id-matched success/error
 acknowledgement. `pull-document` waits for that acknowledgement and fails
 closed if the open editor cannot save; when no active human editor is
-present, the SQL column is authoritative and the handshake is skipped. It is
+present, the SQL column is authoritative and the handshake is skipped. On a
+page that takes body writes through its live copy, the tabs already wrote the
+body, so the request carries `scope: "title"` and goes only to editors that
+advertise `canFlushTitle`; the editor saves its title alone, and a missing or
+failed acknowledgement fails with `OPEN_EDITOR_TITLE_NOT_SAVED`. It is
 GET + read-only + public-agent exposed (`requiresAuth: true`), returns
 `{ id, title, content, format, deepLink }`, and surfaces an "Open document"
 deep link for external agents. Use `--format text` for a plain-text strip of
