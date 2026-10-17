@@ -367,36 +367,6 @@ async function transcribeMedia(media: AudioOnlyTranscriptionMedia) {
   }
 }
 
-/** `content` with the transcript placed, or null when it has nowhere to go. */
-function transcriptInContent({
-  content,
-  mediaUrl,
-  mediaType,
-  placeholderText,
-  transcript,
-}: {
-  content: string;
-  mediaUrl: string;
-  mediaType: MediaType;
-  placeholderText?: string;
-  transcript: string;
-}): string | null {
-  let nextContent: string | null = null;
-
-  if (placeholderText && content.includes(placeholderText)) {
-    nextContent = content.replace(placeholderText, transcript);
-  } else {
-    nextContent = insertTranscriptAfterMedia({
-      content,
-      mediaUrl,
-      mediaType,
-      transcript,
-    });
-  }
-
-  return nextContent && nextContent !== content ? nextContent : null;
-}
-
 async function applyTranscriptToDocument({
   documentId,
   mediaUrl,
@@ -416,13 +386,24 @@ async function applyTranscriptToDocument({
   const freshDoc = freshAccess.resource;
 
   const content = freshDoc.content ?? "";
-  const placement = { mediaUrl, mediaType, placeholderText, transcript };
-  const nextContent = transcriptInContent({ content, ...placement });
+  let nextContent: string | null = null;
 
-  if (nextContent) {
+  if (placeholderText && content.includes(placeholderText)) {
+    nextContent = content.replace(placeholderText, transcript);
+  } else {
+    nextContent = insertTranscriptAfterMedia({
+      content,
+      mediaUrl,
+      mediaType,
+      transcript,
+    });
+  }
+
+  if (nextContent && nextContent !== content) {
     const wroteLiveCopy = await rewriteContentLiveCopyBody(documentId, {
       cause: { ctx, operation: "transcribe-media" },
-      rewrite: (body) => transcriptInContent({ content: body, ...placement }),
+      base: content,
+      candidate: nextContent,
     });
     if (wroteLiveCopy) return { sqlUpdated: true, collabUpdated: true };
     await updateDocument.run({ id: documentId, content: nextContent });

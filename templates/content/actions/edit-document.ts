@@ -3,7 +3,7 @@ import { defineAction, type ActionRunContext } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { agentTouchDocument } from "@agent-native/core/collab";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { assertAccess } from "@agent-native/core/sharing";
+import { assertAccess, currentAccess } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import {
   getGenerationCreativeContext,
@@ -253,6 +253,10 @@ async function editThroughLiveCopy(args: {
       edit: CONTENT_LIVE_COPY_EDITS.replaceBody,
       input: { content: args.content, expected: args.expected },
       persist: async (tx, change) => {
+        await assertAccess("document", args.id, "editor", {
+          ...currentAccess(),
+          transaction: tx,
+        });
         if (!change.changed || !args.creativeContext) return;
         await recordGenerationCreativeContext(
           {
