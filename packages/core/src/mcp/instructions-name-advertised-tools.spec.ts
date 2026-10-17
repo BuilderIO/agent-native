@@ -98,7 +98,6 @@ const NOT_TOOL_NAMES: Record<string, Record<string, string>> = {
       "slide-level",
       "deck-wide",
       "multi-slide",
-      "CSS-only",
       "per-slide",
     ),
     ...prose(

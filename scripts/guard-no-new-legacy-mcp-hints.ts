@@ -111,6 +111,7 @@ function git(args: string[], cwd: string): string | null {
       maxBuffer: 64 * 1024 * 1024,
     });
   } catch {
+    // coercion-ok: unavailable Git probes become exit 2 in their callers.
     return null;
   }
 }
