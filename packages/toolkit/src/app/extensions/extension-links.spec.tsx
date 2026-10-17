@@ -22,6 +22,7 @@ import {
   EXTENSION_LINK_CHANNEL_ACK_MESSAGE_TYPE,
   EXTENSION_LINK_CHANNEL_HELLO_MESSAGE_TYPE,
   EXTENSION_LINK_CHANNEL_READY_MESSAGE_TYPE,
+  EXTENSION_NAVIGATE_SAME_ORIGIN_MESSAGE_TYPE,
   EXTENSION_OPEN_EXTERNAL_LINK_MESSAGE_TYPE,
 } from "@agent-native/core/extensions/html-shell";
 
@@ -156,13 +157,13 @@ describe("useExternalExtensionLinks", () => {
 
   async function sendExternalLink(
     href: string,
-    options: { openInNewContext?: boolean; userActivated?: boolean } = {},
+    options: {
+      openInNewContext?: boolean;
+      userActivated?: boolean | "unavailable";
+    } = {},
   ) {
     const frame = await connectFrame();
-    vi.stubGlobal("navigator", {
-      ...navigator,
-      userActivation: { isActive: options.userActivated ?? true },
-    });
+    stubUserActivation(options.userActivated ?? true);
     await act(async () => {
       frame.childPort.postMessage({
         type: EXTENSION_OPEN_EXTERNAL_LINK_MESSAGE_TYPE,
@@ -170,6 +171,29 @@ describe("useExternalExtensionLinks", () => {
         ...(options.openInNewContext === undefined
           ? {}
           : { openInNewContext: options.openInNewContext }),
+      });
+    });
+    return frame;
+  }
+
+  function stubUserActivation(active: boolean | "unavailable") {
+    vi.stubGlobal("navigator", {
+      ...navigator,
+      userActivation:
+        active === "unavailable" ? undefined : { isActive: active },
+    } as unknown as Navigator);
+  }
+
+  async function sendSameOriginNavigation(
+    href: string,
+    active: boolean | "unavailable" = true,
+  ) {
+    const frame = await connectFrame();
+    stubUserActivation(active);
+    await act(async () => {
+      frame.childPort.postMessage({
+        type: EXTENSION_NAVIGATE_SAME_ORIGIN_MESSAGE_TYPE,
+        href,
       });
     });
     return frame;
@@ -476,6 +500,57 @@ describe("useExternalExtensionLinks", () => {
     const open = vi.spyOn(window, "open").mockImplementation(() => null);
 
     await sendExternalLink(href, { openInNewContext: true });
+
+    expect(open).not.toHaveBeenCalled();
+    expect(chatMocks.openMcpAppHostLink).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when user activation is unavailable", async () => {
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+
+    await sendExternalLink("https://example.com/metric", {
+      userActivated: "unavailable",
+    });
+
+    expect(open).not.toHaveBeenCalled();
+    expect(chatMocks.openMcpAppHostLink).not.toHaveBeenCalled();
+  });
+
+  it("fails closed on same-origin navigation when user activation is unavailable", async () => {
+    const assign = vi
+      .spyOn(window.location, "assign")
+      .mockImplementation(() => {});
+
+    await sendSameOriginNavigation(
+      new URL("/dashboards/metric", window.location.href).href,
+      "unavailable",
+    );
+
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "/_agent-native/auth/logout",
+    "/_agent-native/actions/update-profile",
+  ])("blocks same-origin framework endpoint navigation to %s", async (path) => {
+    const assign = vi
+      .spyOn(window.location, "assign")
+      .mockImplementation(() => {});
+
+    await sendSameOriginNavigation(new URL(path, window.location.href).href);
+
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "/_agent-native/auth/logout",
+    "/_agent-native/actions/update-profile",
+  ])("does not open framework endpoint %s in a new context", async (path) => {
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+
+    await sendExternalLink(new URL(path, window.location.href).href, {
+      openInNewContext: true,
+    });
 
     expect(open).not.toHaveBeenCalled();
     expect(chatMocks.openMcpAppHostLink).not.toHaveBeenCalled();

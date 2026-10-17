@@ -125,12 +125,7 @@ function connectExternalExtensionLinks(
       return;
     }
     if (message?.type === EXTENSION_NAVIGATE_SAME_ORIGIN_MESSAGE_TYPE) {
-      if (
-        typeof navigator.userActivation !== "undefined" &&
-        !navigator.userActivation.isActive
-      ) {
-        return;
-      }
+      if (!hasUserActivation()) return;
       navigateSameOriginExtensionLink(message.href);
       return;
     }
@@ -215,12 +210,7 @@ function connectExternalExtensionLinks(
       !handshakeAcknowledged
     ) {
       if (message.type === EXTENSION_NAVIGATE_SAME_ORIGIN_MESSAGE_TYPE) {
-        if (
-          typeof navigator.userActivation === "undefined" ||
-          navigator.userActivation.isActive
-        ) {
-          navigateSameOriginExtensionLink(message.href);
-        }
+        navigateSameOriginExtensionLink(message.href);
       } else if (message.type === EXTENSION_OPEN_EXTERNAL_LINK_MESSAGE_TYPE) {
         openExternalExtensionLink(
           message.href,
@@ -309,17 +299,12 @@ function openExternalExtensionLink(
 
   if (
     destination.origin === window.location.origin &&
-    isExtensionApiPath(destination.pathname)
+    isUnsafeFrameworkNavigationPath(destination.pathname)
   ) {
     return false;
   }
 
-  if (
-    typeof navigator.userActivation !== "undefined" &&
-    !navigator.userActivation.isActive
-  ) {
-    return false;
-  }
+  if (!hasUserActivation()) return false;
 
   if (isEmbedMcpChatBridgeActive()) {
     let hostRequest: Promise<boolean> | false;
@@ -362,36 +347,50 @@ function navigateSameOriginExtensionLink(value: unknown): boolean {
     return false;
   }
 
-  // The extensions API serves user-authored HTML at its /render endpoint.
-  if (isExtensionApiPath(destination.pathname)) return false;
+  if (isUnsafeFrameworkNavigationPath(destination.pathname)) return false;
 
-  if (
-    typeof navigator.userActivation !== "undefined" &&
-    !navigator.userActivation.isActive
-  ) {
-    return false;
-  }
+  if (!hasUserActivation()) return false;
 
   window.location.assign(destination.href);
   return true;
 }
 
 export function isExtensionApiPath(pathname: string): boolean {
+  return matchesFrameworkRoutePath(pathname, [
+    "/_agent-native/extensions",
+    "/_agent-native/tools",
+  ]);
+}
+
+function isUnsafeFrameworkNavigationPath(pathname: string): boolean {
+  return (
+    isExtensionApiPath(pathname) ||
+    matchesFrameworkRoutePath(pathname, [
+      "/_agent-native/auth",
+      "/_agent-native/actions",
+    ])
+  );
+}
+
+function matchesFrameworkRoutePath(
+  pathname: string,
+  routePrefixes: string[],
+): boolean {
   const baseHref =
     typeof window === "undefined"
       ? "http://agent-native.invalid/"
       : window.location.href;
-  const apiPathPrefixes = ["/_agent-native/extensions", "/_agent-native/tools"]
+  const frameworkPathPrefixes = routePrefixes
     .flatMap((path) => [agentNativePath(path), appPath(path)])
     .map((path) => new URL(path, baseHref).pathname.replace(/\/+$/, ""));
-  const matchesApiPath = (candidate: string) =>
-    apiPathPrefixes.some(
+  const matchesPrefix = (candidate: string) =>
+    frameworkPathPrefixes.some(
       (prefix) => candidate === prefix || candidate.startsWith(`${prefix}/`),
     );
 
   let candidate = pathname;
   for (let decodePass = 0; decodePass < 3; decodePass += 1) {
-    if (matchesApiPath(candidate)) return true;
+    if (matchesPrefix(candidate)) return true;
     const decoded = candidate
       .split("/")
       .map((segment) => {
@@ -405,7 +404,14 @@ export function isExtensionApiPath(pathname: string): boolean {
     if (decoded === candidate) return false;
     candidate = decoded;
   }
-  return matchesApiPath(candidate);
+  return matchesPrefix(candidate);
+}
+
+function hasUserActivation(): boolean {
+  return (
+    typeof navigator.userActivation !== "undefined" &&
+    navigator.userActivation.isActive
+  );
 }
 
 function reserveExternalLinkFallbackWindow(): Window | null {
