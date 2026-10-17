@@ -9,6 +9,7 @@ import {
   ownDraftRows,
   OwnershipChatHistoryRail,
   useOwnershipChatHistory,
+  type OwnDraftRow,
 } from "@agent-native/toolkit/app/chat/ownership-history";
 import { OrgSwitcher } from "@agent-native/toolkit/app/org";
 import { openCommandMenu } from "@agent-native/toolkit/app/shared";
@@ -93,10 +94,7 @@ function ThreadHistoryTitle({
   title,
   running,
 }: {
-  thread: Pick<
-    ChatThreadSummary,
-    "id" | "messageCount" | "createdAt" | "updatedAt"
-  > &
+  thread: OwnDraftRow &
     Partial<
       Pick<ChatThreadSummary, "preview" | "scope" | "source" | "pinnedAt">
     >;

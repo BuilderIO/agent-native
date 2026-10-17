@@ -530,7 +530,10 @@ export function useOwnershipChatHistory(
   if (options.mutations?.rename)
     listProps.onRename = (id, title) => {
       const persist = options.mutations!.rename!;
-      return mutate("rename", id, "title", title, () => persist(id, title));
+      const nextTitle = title.replace(/\s+/g, " ").trim().slice(0, 160);
+      return mutate("rename", id, "title", nextTitle, () =>
+        persist(id, nextTitle),
+      );
     };
   if (options.mutations?.archive)
     listProps.onDelete = (id) => {

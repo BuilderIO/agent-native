@@ -497,6 +497,127 @@ describe("ownership history adapter", () => {
     },
   );
 
+  it.each([
+    {
+      input: " \t Quarterly\n  Roadmap \r\n ",
+      expected: "Quarterly Roadmap",
+      label: "whitespace",
+    },
+    {
+      input: `  ${"A".repeat(158)}\t \n B overflow  `,
+      expected: `${"A".repeat(158)} B`,
+      label: "160 characters",
+    },
+  ])(
+    "normalized rename: $label agrees across pending decoration, callback, datastore and fresh read",
+    async ({ input, expected }) => {
+      renderRail = true;
+      mine = [row("owned", { title: "Original" })];
+      const transport = deferred<void>();
+      const rename = vi.fn(async (_id: string, title: string) => {
+        await transport.promise;
+        mine = [row("owned", { title })];
+        return true;
+      });
+      const onMutationFailed = vi.fn();
+      const options: UseOwnershipChatHistoryOptions = {
+        mutations: { rename },
+        onMutationFailed,
+        decorateItem: (item, effectiveRow) => ({
+          ...item,
+          title: (
+            <span data-testid="normalized-title">{effectiveRow.title}</span>
+          ),
+          titleText: effectiveRow.title,
+        }),
+      };
+      await render(options);
+      let result!: Promise<boolean>;
+      act(() => {
+        result = latest.listProps.onRename!("owned", input);
+      });
+      try {
+        expect(item("owned")?.titleText).toBe(expected);
+        expect(
+          container.querySelector('[data-testid="normalized-title"]')
+            ?.textContent,
+        ).toBe(expected);
+        expect(rename).toHaveBeenCalledExactlyOnceWith("owned", expected);
+        expect(mine[0].title).toBe("Original");
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+      } finally {
+        await act(async () => {
+          transport.resolve();
+          expect(await result).toBe(true);
+        });
+      }
+      expect(mine[0].title).toBe(expected);
+      expect(latest.mineRows).toEqual(mine);
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+      await act(async () => {
+        root.render(null);
+      });
+      await render(options);
+      expect(item("owned")?.titleText).toBe(expected);
+      expect(latest.mineRows[0].title).toBe(expected);
+      expect(onMutationFailed).not.toHaveBeenCalled();
+      expect(fetchMock).toHaveBeenCalledTimes(6);
+    },
+  );
+
+  it.each(["false", "throw"] as const)(
+    "normalized rename: %s rolls back the displayed value without changing persisted data",
+    async (failure) => {
+      mine = [row("owned", { title: "Original" })];
+      const pending = deferred<boolean>();
+      const rename = vi.fn(() => pending.promise);
+      const onMutationFailed = vi.fn();
+      await render({ mutations: { rename }, onMutationFailed });
+      let result!: Promise<boolean>;
+      act(() => {
+        result = latest.listProps.onRename!("owned", " \t Unsaved\n  title  ");
+      });
+      const cause = new Error("Rename failed");
+      try {
+        expect(item("owned")?.titleText).toBe("Unsaved title");
+        expect(rename).toHaveBeenCalledExactlyOnceWith(
+          "owned",
+          "Unsaved title",
+        );
+      } finally {
+        await act(async () => {
+          if (failure === "throw") pending.reject(cause);
+          else pending.resolve(false);
+          expect(await result).toBe(false);
+        });
+      }
+      expect(item("owned")?.titleText).toBe("Original");
+      expect(mine[0].title).toBe("Original");
+      expect(latest.mineRows).toEqual(mine);
+      expect(onMutationFailed).toHaveBeenCalledExactlyOnceWith(
+        "rename",
+        "owned",
+        ...(failure === "throw" ? [cause] : []),
+      );
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it("normalized rename: empty input retains the persistence callback's failure disposition", async () => {
+    mine = [row("owned", { title: "Original" })];
+    const rename = vi.fn(async () => false);
+    const onMutationFailed = vi.fn();
+    await render({ mutations: { rename }, onMutationFailed });
+    await act(async () => {
+      expect(await latest.listProps.onRename!("owned", " \t\n ")).toBe(false);
+    });
+    expect(rename).toHaveBeenCalledExactlyOnceWith("owned", "");
+    expect(item("owned")?.titleText).toBe("Original");
+    expect(mine[0].title).toBe("Original");
+    expect(onMutationFailed).toHaveBeenCalledExactlyOnceWith("rename", "owned");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("retains the decorated rename after persistence when authoritative refresh fails", async () => {
     renderRail = true;
     mine = [row("owned", { title: "Original" })];

@@ -15,6 +15,7 @@
       "dependencies": ["@agent-native/core", "react"],
       "protectedImports": [
         "@agent-native/core/client/agent-chat",
+        "@agent-native/core/client/api-path",
         "@agent-native/core/client/i18n",
         "@agent-native/toolkit/chat-history/ChatHistoryRail",
         "@agent-native/toolkit/chat-history/ChatHistoryList",
