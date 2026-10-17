@@ -9,6 +9,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
+import { assertLocalFileLinkable } from "../server/lib/live-body-writer.js";
 import {
   syncPrivateCalloutReferences,
   syncPrivateIconReference,
@@ -266,6 +267,13 @@ export default defineAction({
           typeof remainingValues.relativePath === "string"
             ? remainingValues.relativePath
             : remainingLocalRow?.sourceDisplayKey;
+        // Another folder's row doesn't mean the page is still linked: a
+        // Builder pull resets its source mode and leaves the rows.
+        if (remainingLocalRow) {
+          await assertLocalFileLinkable(target.document.id, {
+            transaction: tx,
+          });
+        }
         await tx
           .update(schema.documents)
           .set(

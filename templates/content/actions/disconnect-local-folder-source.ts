@@ -4,6 +4,7 @@ import { and, eq, inArray, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { assertLocalFileLinkable } from "../server/lib/live-body-writer.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
 import { LOCAL_FOLDER_SOURCE_TYPE } from "./_local-folder-source.js";
 
@@ -146,6 +147,9 @@ export default defineAction({
           typeof sourceValues.relativePath === "string"
             ? sourceValues.relativePath
             : remaining.sourceDisplayKey;
+        // Another folder's row doesn't mean the page is still linked: a
+        // Builder pull resets its source mode and leaves the rows.
+        await assertLocalFileLinkable(documentId, { transaction: tx });
         await tx
           .update(schema.documents)
           .set({

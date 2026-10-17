@@ -71,7 +71,10 @@ export function persistedContentBodyCommit(
   return persistedCommits.get(tx);
 }
 
-export type LiveBodyConversionErrorCode = "base_changed" | "flag_off";
+export type LiveBodyConversionErrorCode =
+  | "base_changed"
+  | "flag_off"
+  | "local_file";
 
 export class LiveBodyConversionError extends Error {
   constructor(
@@ -99,6 +102,7 @@ const pageColumns = {
   bodyRevision: schema.documents.bodyRevision,
   collabBodyRevision: schema.documents.collabBodyRevision,
   liveBodySwitchedAt: schema.documents.liveBodySwitchedAt,
+  sourceMode: schema.documents.sourceMode,
   liveCopyVersion: schema.documents.liveCopyVersion,
   ownerEmail: schema.documents.ownerEmail,
   orgId: schema.documents.orgId,
@@ -113,6 +117,7 @@ export type PageRow = {
   bodyRevision: number;
   collabBodyRevision: number | null;
   liveBodySwitchedAt: string | null;
+  sourceMode: string | null;
   liveCopyVersion: number | null;
   ownerEmail: string;
   orgId: string | null;
@@ -575,6 +580,13 @@ export async function persistLiveBodyConversion(
       "base_changed",
       conversion.documentId,
       `Page ${conversion.documentId} changed while it was being switched to its live copy.`,
+    );
+  }
+  if (page.sourceMode === "local-files") {
+    throw new LiveBodyConversionError(
+      "local_file",
+      conversion.documentId,
+      `Page ${conversion.documentId} is linked to a local file, so it can't take body writes through its live copy.`,
     );
   }
   if (!(await liveBodyWriterFlagsOn(page, { transaction: tx }))) {

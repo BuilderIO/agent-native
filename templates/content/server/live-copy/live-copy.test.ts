@@ -183,6 +183,18 @@ async function insertPage(id: string, content: string) {
   });
 }
 
+/** Links page `id` to a local file, as a local-folder sync does. */
+async function linkToLocalFile(id: string) {
+  await getDb()
+    .update(schema.documents)
+    .set({
+      sourceMode: "local-files",
+      sourceKind: "file",
+      sourcePath: `${id}.md`,
+    })
+    .where(eq(schema.documents.id, id));
+}
+
 async function page(id: string) {
   const [row] = await getDb()
     .select({
@@ -482,6 +494,46 @@ describe("switching a page to its live copy", () => {
     });
     expect((await page("off")).liveBodySwitchedAt).toBeNull();
     expect(await collabVersion("off")).toBeUndefined();
+  });
+
+  it("refuses a page linked to a local file, as set-live-body-switch says, and leaves it and its collab state alone", async () => {
+    await insertPage("linked", "Hello there");
+    await linkToLocalFile("linked");
+    const action = (await import("../../actions/set-live-body-switch.js"))
+      .default;
+
+    await expect(
+      switching.switchPageToLiveCopy("linked"),
+    ).rejects.toMatchObject({
+      name: "LiveBodyConversionError",
+      code: "local_file",
+    });
+    await expect(
+      asOwner(async () =>
+        action.run({ id: "linked", switched: true }, {
+          caller: "frontend",
+          userEmail: OWNER,
+        } as never),
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "LIVE_BODY_SWITCH_LOCAL_FILE",
+      statusCode: 409,
+    });
+    expect((await page("linked")).liveBodySwitchedAt).toBeNull();
+    expect(await collabVersion("linked")).toBeUndefined();
+  });
+
+  it("refuses a page linked to a local file whose live copy already holds its body", async () => {
+    await switchedPage("linked-again", "Hello there");
+    await switching.switchPageToLegacy("linked-again");
+    await linkToLocalFile("linked-again");
+    const version = await collabVersion("linked-again");
+
+    await expect(
+      switching.switchPageToLiveCopy("linked-again"),
+    ).rejects.toMatchObject({ code: "local_file" });
+    expect((await page("linked-again")).liveBodySwitchedAt).toBeNull();
+    expect(await collabVersion("linked-again")).toBe(version);
   });
 
   it("refuses to switch a page whose stored body the parser would drop part of", async () => {
@@ -2882,6 +2934,25 @@ describe("a browser save to a switched page's body", () => {
       );
     }
   }
+
+  it("writes the body of a page linked to a local file, whose editor saves it without the live copy", async () => {
+    await switchedPage("linked-file-save", "Hello there");
+    await linkToLocalFile("linked-file-save");
+    const loaded = await page("linked-file-save");
+    const version = await collabVersion("linked-file-save");
+
+    await browserSave("linked-file-save", loaded, "Hello there A");
+
+    expect(await page("linked-file-save")).toMatchObject({
+      content: "Hello there A",
+      bodyRevision: loaded.bodyRevision + 1,
+    });
+    expect(await collabVersion("linked-file-save")).toBe(version);
+    await expect(gateFor("linked-file-save")).resolves.toEqual({
+      writePath: "legacy",
+      reason: "local_file",
+    });
+  });
 
   it("answers a stale tab's body save with the live copy instead of diverting it to History", async () => {
     await switchedPage("two-tabs", "Hello there");

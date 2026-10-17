@@ -21,7 +21,6 @@ import {
   requireDocumentRequestActor,
 } from "../server/lib/document-attribution.js";
 import {
-  assertLegacyBodyWriter,
   isUnsupportedBodyWriter,
   lockLegacyBodyWrites,
 } from "../server/lib/document-body-revision.js";
@@ -515,9 +514,6 @@ export default defineAction({
             "No authenticated user is available for the local source write.",
         };
       }
-      // A linked file's edit has no live-copy route, and the file write
-      // can't be taken back, so a switched page refuses before it.
-      await assertLegacyBodyWriter(id, { operation: "edit-document" });
       const receipt = await editLinkedLocalDocumentThroughBrowser({
         ownerEmail,
         documentId: id,
@@ -664,8 +660,8 @@ export default defineAction({
     } catch (error) {
       if (!linkedLocalPersistence) throw error;
       if (isUnsupportedBodyWriter(error)) {
-        // The page took its live copy while the file took the edit, so the
-        // file has it and the page doesn't.
+        // The page left its file and took its live copy while the file took
+        // the edit, so the file has it and the page doesn't.
         throw new ActionContractError(
           `Wrote this edit to local file ${linkedLocalPersistence.path}, but page ${id} now takes body writes through its live copy, so the page doesn't have it.`,
           {
