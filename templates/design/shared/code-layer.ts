@@ -2403,7 +2403,19 @@ function layoutFor(
             ? "stretch"
             : classes.has("items-baseline")
               ? "baseline"
-              : undefined);
+              : classes.has("place-items-start")
+                ? "start"
+                : classes.has("place-items-center")
+                  ? "center"
+                  : classes.has("place-items-end")
+                    ? "end"
+                    : classes.has("place-items-stretch")
+                      ? "stretch"
+                      : classes.has("place-items-baseline")
+                        ? "baseline"
+                        : classes.has("place-items-normal")
+                          ? "normal"
+                          : undefined);
   const justifyContent =
     style["justify-content"] ??
     (classes.has("justify-start")
@@ -4435,16 +4447,9 @@ function simpleSelectorMatchesElement(
     return false;
   }
 
-  const idMatch = remaining.match(/#([A-Za-z_][A-Za-z0-9_-]*)/);
-  if (idMatch?.[1] && attributeValue(element, "id") !== idMatch[1]) {
-    return false;
-  }
-
-  const attributes = Array.from(
-    remaining.matchAll(
-      /\[([A-Za-z_][A-Za-z0-9_:.-]*)=(?:"((?:\\"|[^"])*)"|'((?:\\'|[^'])*)')\]/g,
-    ),
-  );
+  const attributeSelectorPattern =
+    /\[([A-Za-z_][A-Za-z0-9_:.-]*)=(?:"((?:\\"|[^"])*)"|'((?:\\'|[^'])*)')\]/g;
+  const attributes = Array.from(remaining.matchAll(attributeSelectorPattern));
   for (const match of attributes) {
     const name = match[1];
     if (!name) return false;
@@ -4452,9 +4457,18 @@ function simpleSelectorMatchesElement(
     if (attributeValue(element, name) !== expected) return false;
   }
 
+  const outsideAttributeValues = remaining.replace(
+    attributeSelectorPattern,
+    " ",
+  );
+  const idMatch = outsideAttributeValues.match(/#([A-Za-z_][A-Za-z0-9_-]*)/);
+  if (idMatch?.[1] && attributeValue(element, "id") !== idMatch[1]) {
+    return false;
+  }
+
   const classes = classList(element);
   const requiredClasses = Array.from(
-    remaining.matchAll(/\.([A-Za-z_][A-Za-z0-9_-]*)/g),
+    outsideAttributeValues.matchAll(/\.([A-Za-z_][A-Za-z0-9_-]*)/g),
     (match) => match[1],
   ).filter((value): value is string => Boolean(value));
   if (requiredClasses.some((className) => !classes.includes(className))) {

@@ -652,6 +652,23 @@ describe("text takes its colour from what it lands on", () => {
     );
   });
 
+  it("uses class-based dark surfaces when live computed paint is unavailable", () => {
+    const content =
+      "<!doctype html><html><head><title>S</title></head>" +
+      '<body style="background:#ffffff">' +
+      '<div class="bg-slate-900" style="position:absolute;left:20px;top:150px;width:280px;height:300px"></div>' +
+      "</body></html>";
+    const html =
+      appendCanvasPrimitiveToHtml(content, {
+        kind: "text",
+        nodeId: "t",
+        geometry: { x: 60, y: 260, width: 120, height: 24 },
+        text: "on a class-painted dark surface",
+      }) ?? "";
+
+    expect(styleOf(html, "t")).toMatch(/color:\s*#ffffff/i);
+  });
+
   it("composites a translucent surface over the surface below it", () => {
     expect(textColorOnBoard(["rgba(255, 255, 255, 0.4)"], "#111111")).toMatch(
       /color:\s*#ffffff/i,
@@ -667,10 +684,10 @@ describe("text takes its colour from what it lands on", () => {
     ).toMatch(/color:\s*#000000/i);
   });
 
-  it("keeps inherited text color when a surface has a background image", () => {
+  it("uses the dark-board fallback when a surface has a background image", () => {
     expect(
       textColorOnBoard(["linear-gradient(90deg, #ffffff, #111111)"], "#111111"),
-    ).toMatch(/color:\s*currentColor/i);
+    ).toMatch(/color:\s*#ffffff/i);
   });
 
   it("keeps inherited text color when a surface is translucent", () => {

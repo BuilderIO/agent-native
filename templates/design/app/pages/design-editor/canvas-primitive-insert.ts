@@ -345,11 +345,14 @@ function paintedSurfaceAtPoint(
   liveDocument?: Document | null,
   includeDocumentBackground = false,
   fallbackBackground: string | null = null,
-): { kind: "known"; color: Rgb } | { kind: "unknown" } | null {
+):
+  | { kind: "known"; color: Rgb }
+  | { kind: "unknown"; reason: "background-image" | "translucent" }
+  | null {
   const hasUnknownPaint = (
     style: CSSStyleDeclaration,
     includeBackgroundImage = true,
-  ): boolean => {
+  ): "background-image" | "translucent" | null => {
     const backgroundImage = style.backgroundImage?.trim().toLowerCase();
     if (
       includeBackgroundImage &&
@@ -363,12 +366,14 @@ function paintedSurfaceAtPoint(
         "revert-layer",
       ].includes(backgroundImage)
     ) {
-      return true;
+      return "background-image";
     }
     const opacity = style.opacity?.trim();
-    if (!opacity || opacity === "1") return false;
+    if (!opacity || opacity === "1") return null;
     const parsedOpacity = Number.parseFloat(opacity);
-    return !Number.isFinite(parsedOpacity) || parsedOpacity !== 1;
+    return !Number.isFinite(parsedOpacity) || parsedOpacity !== 1
+      ? "translucent"
+      : null;
   };
   const compositePaintStack = (
     colorsFromFrontToBack: ReadonlyArray<string | null>,
@@ -409,14 +414,11 @@ function paintedSurfaceAtPoint(
           includeDocumentBackground ||
           (element !== liveDocument.body &&
             element !== liveDocument.documentElement);
-        if (
-          hasUnknownPaint(
-            liveView.getComputedStyle(element),
-            includesBackgroundImage,
-          )
-        ) {
-          return { kind: "unknown" };
-        }
+        const unknownPaint = hasUnknownPaint(
+          liveView.getComputedStyle(element),
+          includesBackgroundImage,
+        );
+        if (unknownPaint) return { kind: "unknown", reason: unknownPaint };
       }
     }
     const colors = hits.flatMap((hit) => {
@@ -446,9 +448,11 @@ function paintedSurfaceAtPoint(
     const includesBackgroundImage =
       includeDocumentBackground ||
       (element !== root && element !== root.ownerDocument?.documentElement);
-    if (hasUnknownPaint(element.style, includesBackgroundImage)) {
-      return { kind: "unknown" };
-    }
+    const unknownPaint = hasUnknownPaint(
+      element.style,
+      includesBackgroundImage,
+    );
+    if (unknownPaint) return { kind: "unknown", reason: unknownPaint };
     const color =
       element.style.backgroundColor || element.style.background || null;
     if (color && parseCssColorExtended(color)) candidates.push({ color });
@@ -462,9 +466,8 @@ function paintedSurfaceAtPoint(
     const includesBackgroundImage =
       includeDocumentBackground ||
       (element !== root && element !== root.ownerDocument?.documentElement);
-    if (hasUnknownPaint(style, includesBackgroundImage)) {
-      return { kind: "unknown" };
-    }
+    const unknownPaint = hasUnknownPaint(style, includesBackgroundImage);
+    if (unknownPaint) return { kind: "unknown", reason: unknownPaint };
   }
   const colors: (string | null)[] = candidates
     .reverse()
@@ -878,12 +881,29 @@ export function appendCanvasPrimitiveToHtml(
         surfaceIsLight === null
           ? options?.isBoardTarget === true
           : !surfaceIsLight;
+      const sampledSurfaceIsLight =
+        paintedSurface?.kind === "known"
+          ? resolveDestinationBackgroundLightnessOrNull([
+              {
+                color: `rgb(${paintedSurface.color.r} ${paintedSurface.color.g} ${paintedSurface.color.b})`,
+              },
+            ])
+          : null;
+      const measuredSurfaceDisagreesWithSample =
+        !options?.liveDocument &&
+        surfaceIsLight !== null &&
+        sampledSurfaceIsLight !== null &&
+        sampledSurfaceIsLight !== surfaceIsLight;
+      const preserveInheritedTextColor =
+        paintedSurface?.kind === "unknown" &&
+        (paintedSurface.reason === "translucent" ||
+          (surfaceIsLight === null && options?.isBoardTarget !== true));
       const resolvedTextColor =
         primitive.fill ??
-        (paintedSurface?.kind === "unknown"
-          ? "currentColor"
-          : paintedSurface?.kind === "known"
-            ? textColorWithBestContrast(paintedSurface.color)
+        (paintedSurface?.kind === "known" && !measuredSurfaceDisagreesWithSample
+          ? textColorWithBestContrast(paintedSurface.color)
+          : preserveInheritedTextColor
+            ? "currentColor"
             : defaultCanvasTextColor(autoTextNeedsLightFill));
       element.style.color = resolvedTextColor;
       if (primitive.fill === undefined) {

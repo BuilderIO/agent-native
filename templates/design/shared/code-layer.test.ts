@@ -3514,6 +3514,24 @@ describe("autoLayout", () => {
     ).toBe("center");
   });
 
+  it("preserves place-items alignment supplied by a utility class", () => {
+    const patch = applyVisualEdit(
+      `<div data-agent-native-node-id="box" class="place-items-center"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+      },
+    );
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain('class="place-items-center"');
+    expect(patch.content).not.toContain("align-items: flex-start");
+    expect(
+      buildCodeLayerProjection(patch.content).nodes[0]?.layout.alignItems,
+    ).toBe("center");
+  });
+
   it("preserves an alignment supplied by a matching stylesheet rule", () => {
     const patch = applyVisualEdit(
       `<style>.stack { align-items: center; }</style><div data-agent-native-node-id="box" class="stack"><span>A</span></div>`,
@@ -3780,19 +3798,22 @@ describe("autoLayout", () => {
     },
   );
 
-  it("matches attribute selectors containing a quoted greater-than sign", () => {
-    const patch = applyVisualEdit(
-      `<style>.stack[data-x="a>b"] { align-items: center; }</style><div data-agent-native-node-id="box" class="stack" data-x="a>b"><span>A</span></div>`,
-      {
-        kind: "autoLayout",
-        targetId: "box",
-        enabled: true,
-      },
-    );
+  it.each(["a>b", "wide.compact", "wide#compact"] as const)(
+    "matches attribute selectors containing quoted punctuation: %s",
+    (value) => {
+      const patch = applyVisualEdit(
+        `<style>.stack[data-x="${value}"] { align-items: center; }</style><div data-agent-native-node-id="box" class="stack" data-x="${value}"><span>A</span></div>`,
+        {
+          kind: "autoLayout",
+          targetId: "box",
+          enabled: true,
+        },
+      );
 
-    expect(patch.result.status).toBe("applied");
-    expect(patch.content).not.toContain("align-items: flex-start");
-  });
+      expect(patch.result.status).toBe("applied");
+      expect(patch.content).not.toContain("align-items: flex-start");
+    },
+  );
 
   it("keeps direct Frame children as containing blocks when enabling auto-layout", () => {
     const html =
