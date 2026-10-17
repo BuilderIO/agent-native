@@ -496,6 +496,40 @@ describe("postAwareness handler", () => {
       },
     );
 
+    it("answers with a writer that opens while its clear is on its way, after an editor empties the doc", async () => {
+      const docId = "reader-clear-then-writer";
+      expect((await post(docId, 7, reader)).status).toBe(200);
+      storedRows.afterWrite = async () => {
+        // An editor's clear empties the doc's presence, and a writer opens.
+        for (const body of [
+          { clientId: 7, state: null },
+          { clientId: 77, state: writer },
+        ]) {
+          mockReadBody.mockResolvedValue(body);
+          await postAwareness({
+            ...event({ docId }),
+            context: { _collabAwarenessReadOnly: false },
+          });
+        }
+      };
+      const broadcasts: Array<Array<{ clientId: number; state: string }>> = [];
+      const listener = (change: {
+        docId: string;
+        states: Array<{ clientId: number; state: string }>;
+      }) => {
+        if (change.docId === docId) broadcasts.push(change.states);
+      };
+      getAwarenessEmitter().on("awareness-change", listener);
+      try {
+        expect((await post(docId, 7, null)).status).toBe(200);
+      } finally {
+        getAwarenessEmitter().off("awareness-change", listener);
+      }
+
+      expect(getDocAwareness(docId).get(77)?.state).toBe(writer);
+      expect(broadcasts.at(-1)).toContainEqual({ clientId: 77, state: writer });
+    });
+
     it("is refused, changing nothing, while its presence cannot be saved", async () => {
       storedRows.unwritable = true;
 

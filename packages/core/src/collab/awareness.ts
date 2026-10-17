@@ -215,18 +215,23 @@ export function cleanExpired(map: Map<number, AwarenessEntry>): void {
   }
 }
 
-function pruneIfEmpty(docId: string, map: Map<number, AwarenessEntry>): void {
-  if (map.size === 0) {
+// A request that waits can find its doc's map pruned and another one
+// registered meanwhile, so it looks the map up again after every wait rather
+// than writing to, answering from, or pruning one nobody else reads.
+function pruneIfEmpty(docId: string): void {
+  if (_awarenessMap.get(docId)?.size === 0) {
     _awarenessMap.delete(docId);
   }
 }
 
 async function mergeStoredAwareness(
   docId: string,
-  map: Map<number, AwarenessEntry>,
-): Promise<void> {
+): Promise<Map<number, AwarenessEntry>> {
   const now = Date.now();
-  mergeAwarenessRows(docId, map, await loadAwarenessRows(docId, now), now);
+  const rows = await loadAwarenessRows(docId, now);
+  const map = getDocAwareness(docId);
+  mergeAwarenessRows(docId, map, rows, now);
+  return map;
 }
 
 /** Returns the ids whose stored rows a clear on this server outdates. */
@@ -317,7 +322,6 @@ const BELONGS_TO_ANOTHER: PresenceRefusal = {
  */
 async function writeReaderPresence(
   docId: string,
-  map: Map<number, AwarenessEntry>,
   clientId: number,
   state: string | null,
 ): Promise<PresenceRefusal | null> {
@@ -334,6 +338,7 @@ async function writeReaderPresence(
     } catch {
       return { status: 503, error: "Presence could not be read" };
     }
+    const map = getDocAwareness(docId);
     const cleared = mergeAwarenessRows(docId, map, rows, Date.now());
     const row = rows.find((stored) => stored.clientId === clientId) ?? null;
     const judged = map.get(clientId);
@@ -360,7 +365,8 @@ async function writeReaderPresence(
     // A writer's post on this server, or a later one under this id, can set
     // the entry while the write is on its way, and a clear can remove it. Each
     // is newer, so it stays.
-    const current = map.get(clientId);
+    const registered = getDocAwareness(docId);
+    const current = registered.get(clientId);
     if (
       (current &&
         current !== judged &&
@@ -372,11 +378,11 @@ async function writeReaderPresence(
     // No clear is remembered: it would hide, and delete, an entry a writer
     // on another server stores under this id stamped before it.
     if (state === null) {
-      map.delete(clientId);
+      registered.delete(clientId);
       rememberMemoryClear(docId, clientId);
     } else {
       forgetAwarenessClear(docId, clientId);
-      map.set(clientId, { clientId, state, lastSeen });
+      registered.set(clientId, { clientId, state, lastSeen });
     }
     return null;
   }
@@ -424,48 +430,42 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
     }
   }
 
-  const map = getDocAwareness(docId);
-
   if (readOnly) {
-    const refused = await writeReaderPresence(
-      docId,
-      map,
-      clientId,
-      storedState,
-    );
+    const refused = await writeReaderPresence(docId, clientId, storedState);
     if (refused) {
       setResponseStatus(event, refused.status);
       return { error: refused.error };
     }
   } else if (storedState === null) {
     const clearedAt = Date.now();
-    map.delete(clientId);
+    getDocAwareness(docId).delete(clientId);
     rememberMemoryClear(docId, clientId);
     rememberAwarenessClear(docId, clientId, clearedAt);
     void deleteAwarenessRow(docId, clientId, clearedAt);
   } else {
     forgetAwarenessClear(docId, clientId);
     const entry = { clientId, state: storedState, lastSeen: Date.now() };
-    map.set(clientId, entry);
+    getDocAwareness(docId).set(clientId, entry);
     void upsertAwarenessRow(docId, clientId, storedState, entry.lastSeen);
   }
 
   // A reader's rows were merged above. An answer without the stored rows
   // would omit collaborators only the store knows, so it is refused; this
   // caller's own entry stands.
+  let rows: AwarenessEntry[] | null = null;
   if (!readOnly) {
-    let rows: AwarenessEntry[];
     try {
       rows = await loadAwarenessRowsStrict(docId, Date.now());
     } catch {
       setResponseStatus(event, 503);
       return { error: "Presence could not be read" };
     }
-    mergeAwarenessRows(docId, map, rows, Date.now());
   }
+  const map = getDocAwareness(docId);
+  if (rows) mergeAwarenessRows(docId, map, rows, Date.now());
 
   cleanExpired(map);
-  pruneIfEmpty(docId, map);
+  pruneIfEmpty(docId);
 
   const allStates: Array<{ clientId: number; state: string }> = [];
   const otherStates: Array<{ clientId: number; state: string }> = [];
@@ -495,10 +495,9 @@ export const getActiveUsers = defineEventHandler(async (event: H3Event) => {
     return { error: "docId required" };
   }
 
-  const map = getDocAwareness(docId);
-  await mergeStoredAwareness(docId, map);
+  const map = await mergeStoredAwareness(docId);
   cleanExpired(map);
-  pruneIfEmpty(docId, map);
+  pruneIfEmpty(docId);
 
   const users: Array<{ clientId: number; lastSeen: number }> = [];
   for (const [, entry] of map) {
