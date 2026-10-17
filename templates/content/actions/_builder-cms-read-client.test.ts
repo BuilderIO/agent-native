@@ -438,6 +438,32 @@ describe("Builder CMS read client", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  it("requires a saved source binding before OAuth live entry reads", async () => {
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "general-oauth-token",
+      authorization: "Bearer general-oauth-token",
+      source: "oauth",
+      oauthResource: "general",
+      oauthSelectedPublicKey: "selected-space-key",
+      oauthConnectionId: "connection-1",
+    });
+    const fetchImpl = vi.fn();
+    const args = {
+      model: "blog_article",
+      entryId: "builder-entry-1",
+      requireBoundOAuth: true,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    };
+
+    await expect(readBuilderCmsEntryLiveState(args)).rejects.toMatchObject({
+      errorCode: "builder_source_binding_required",
+    });
+    await expect(readBuilderCmsContentEntryResult(args)).rejects.toMatchObject({
+      errorCode: "builder_source_binding_required",
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it("rejects a query-data page that ignores the stable cursor", async () => {
     resolveBuilderCredentialMock.mockResolvedValue(null);
     resolveBuilderRequestAuthorizationMock.mockResolvedValue({

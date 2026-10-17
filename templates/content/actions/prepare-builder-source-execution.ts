@@ -11,7 +11,7 @@ import type {
 import {
   builderExecutionPayloadReference,
   cleanupBuilderPrivatePayload,
-  deleteBuilderPrivatePayload,
+  enqueueBuilderPrivatePayloadCleanup,
   readBuilderExecutionPayload,
   storeBuilderExecutionPayload,
 } from "./_builder-cms-blob-custody.js";
@@ -200,6 +200,12 @@ export default defineAction({
                 statusCode: 409,
               });
             }
+            if (previousReference && previousReference !== nextReference) {
+              await enqueueBuilderPrivatePayloadCleanup(
+                tx as unknown as ReturnType<typeof getDb>,
+                previousReference,
+              );
+            }
             replacementPrepared = true;
           } else if (!existing) {
             const payloadJson = await storeBuilderExecutionPayload({
@@ -258,8 +264,9 @@ export default defineAction({
           replacementCommitted = true;
         } else if (winner) {
           if (nextReference) {
-            await deleteBuilderPrivatePayload(nextReference).catch(
-              () => undefined,
+            await cleanupBuilderPrivatePayload(
+              nextReference,
+              "uncommitted prepared execution",
             );
           }
           // Only a row another prepare changed is a won race to reuse; an

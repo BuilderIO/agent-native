@@ -14,6 +14,7 @@ import { deleteBlocksFieldIdentity } from "./_blocks-field-identity.js";
 import {
   builderExecutionPayloadReference,
   cleanupBuilderPrivatePayload,
+  enqueueBuilderPrivatePayloadCleanup,
   isBuilderPrivatePayloadBoundToSource,
 } from "./_builder-cms-blob-custody.js";
 import {
@@ -901,6 +902,7 @@ async function deleteCollectedDocuments(
         )
       ) {
         deletedBlobReferences.add(reference);
+        await enqueueBuilderPrivatePayloadCleanup(db, reference);
       }
     }
     await db

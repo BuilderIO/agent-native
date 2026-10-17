@@ -11,7 +11,7 @@ import type {
 import {
   builderExecutionPayloadReference,
   cleanupBuilderPrivatePayload,
-  deleteBuilderPrivatePayload,
+  enqueueBuilderPrivatePayloadCleanup,
   readBuilderExecutionPayload,
   storeBuilderExecutionPayload,
 } from "./_builder-cms-blob-custody.js";
@@ -164,33 +164,49 @@ export default defineAction({
       execution.payloadJson,
     );
     try {
-      const [updated] = await db
-        .update(schema.contentDatabaseSourceExecutions)
-        .set({
-          state: dryRun?.status === "stale" ? "blocked" : plan.state,
-          summary,
-          payloadJson,
-          lastError:
-            dryRun?.status === "stale" ? dryRun.mismatches[0] : plan.lastError,
-          updatedAt: now,
-        })
-        .where(
-          and(
-            eq(schema.contentDatabaseSourceExecutions.id, execution.id),
-            eq(
-              schema.contentDatabaseSourceExecutions.payloadJson,
-              execution.payloadJson,
+      const updatedRows = await db.transaction(async (tx) => {
+        const updated = await tx
+          .update(schema.contentDatabaseSourceExecutions)
+          .set({
+            state: dryRun?.status === "stale" ? "blocked" : plan.state,
+            summary,
+            payloadJson,
+            lastError:
+              dryRun?.status === "stale"
+                ? dryRun.mismatches[0]
+                : plan.lastError,
+            updatedAt: now,
+          })
+          .where(
+            and(
+              eq(schema.contentDatabaseSourceExecutions.id, execution.id),
+              eq(
+                schema.contentDatabaseSourceExecutions.payloadJson,
+                execution.payloadJson,
+              ),
+              eq(schema.contentDatabaseSourceExecutions.state, execution.state),
+              execution.attemptToken
+                ? eq(
+                    schema.contentDatabaseSourceExecutions.attemptToken,
+                    execution.attemptToken,
+                  )
+                : isNull(schema.contentDatabaseSourceExecutions.attemptToken),
             ),
-            eq(schema.contentDatabaseSourceExecutions.state, execution.state),
-            execution.attemptToken
-              ? eq(
-                  schema.contentDatabaseSourceExecutions.attemptToken,
-                  execution.attemptToken,
-                )
-              : isNull(schema.contentDatabaseSourceExecutions.attemptToken),
-          ),
-        )
-        .returning({ id: schema.contentDatabaseSourceExecutions.id });
+          )
+          .returning({ id: schema.contentDatabaseSourceExecutions.id });
+        if (
+          updated[0] &&
+          previousReference &&
+          previousReference !== nextReference
+        ) {
+          await enqueueBuilderPrivatePayloadCleanup(
+            tx as unknown as ReturnType<typeof getDb>,
+            previousReference,
+          );
+        }
+        return updated;
+      });
+      const [updated] = updatedRows;
       if (!updated)
         fail("Builder execution changed during validation.", {
           errorCode: "builder_execution_changed",
@@ -212,8 +228,9 @@ export default defineAction({
       }
       if (currentPayloadJson !== payloadJson) {
         if (currentPayloadJson !== undefined && nextReference) {
-          await deleteBuilderPrivatePayload(nextReference).catch(
-            () => undefined,
+          await cleanupBuilderPrivatePayload(
+            nextReference,
+            "uncommitted validated execution",
           );
         }
         throw error;

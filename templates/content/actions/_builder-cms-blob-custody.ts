@@ -204,21 +204,23 @@ export async function putBuilderPrivatePayload<T>(args: {
       label: args.label,
     });
   } catch (error) {
+    let cleanupReason: string | null = null;
     try {
       const cleanup = await deletePrivateBlob(handle);
       if (!cleanup.deleted) {
-        logBuilderPrivatePayloadCleanupFailure(
-          args.label,
-          handle,
-          cleanup.reason ?? "Deletion was declined",
-        );
+        cleanupReason = cleanup.reason ?? "Deletion was declined";
       }
     } catch (cleanupError) {
-      logBuilderPrivatePayloadCleanupFailure(
-        args.label,
-        handle,
-        cleanupError instanceof Error ? cleanupError.name : "Unknown error",
-      );
+      cleanupReason =
+        cleanupError instanceof Error ? cleanupError.name : "Unknown error";
+    }
+    if (cleanupReason) {
+      try {
+        await enqueueBuilderPrivatePayloadCleanup(getDb(), reference);
+      } catch {
+        // Keep the provider failure visible if durable tracking is unavailable.
+      }
+      logBuilderPrivatePayloadCleanupFailure(args.label, handle, cleanupReason);
     }
     throw error;
   }
@@ -232,6 +234,17 @@ export async function deleteBuilderPrivatePayload(reference: unknown) {
   return result.deleted;
 }
 
+export async function enqueueBuilderPrivatePayloadCleanup(
+  db: ReturnType<typeof getDb>,
+  reference: unknown,
+) {
+  if (!isBuilderPrivatePayloadReference(reference)) return;
+  await db
+    .insert(schema.contentDatabaseBuilderBlobCleanup)
+    .values({ blobReference: reference as string })
+    .onConflictDoNothing();
+}
+
 export async function cleanupBuilderPrivatePayload(
   reference: unknown,
   label: string,
@@ -240,18 +253,7 @@ export async function cleanupBuilderPrivatePayload(
   const blobReference = reference as string;
   const db = getDb();
   const cleanupQueue = schema.contentDatabaseBuilderBlobCleanup;
-  try {
-    await db
-      .insert(cleanupQueue)
-      .values({ blobReference })
-      .onConflictDoNothing();
-  } catch (error) {
-    console.error(
-      `[builder-private-payload] ${label} cleanup could not be queued`,
-      error,
-    );
-    return;
-  }
+  await enqueueBuilderPrivatePayloadCleanup(db, blobReference);
 
   let pending: Array<{ blobReference: string }>;
   try {

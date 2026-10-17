@@ -17,7 +17,7 @@ import {
 import {
   builderExecutionPayloadReference,
   cleanupBuilderPrivatePayload,
-  deleteBuilderPrivatePayload,
+  enqueueBuilderPrivatePayloadCleanup,
   readBuilderExecutionPayload,
   storeBuilderExecutionPayload,
 } from "./_builder-cms-blob-custody.js";
@@ -51,6 +51,7 @@ import {
   executeBuilderCmsWrite,
 } from "./_builder-cms-write-client.js";
 import { createBuilderSourceTiming } from "./_builder-source-timings.js";
+import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import {
   getContentDatabaseSourceSnapshotForWrite,
@@ -757,8 +758,9 @@ export function realExecutionDeps(
     nextReference: string | null;
   }) => {
     if (prepared.nextReference) {
-      await deleteBuilderPrivatePayload(prepared.nextReference).catch(
-        () => undefined,
+      await cleanupBuilderPrivatePayload(
+        prepared.nextReference,
+        "uncommitted execution payload",
       );
     }
   };
@@ -776,6 +778,25 @@ export function realExecutionDeps(
       );
     }
   };
+  const updateStoredPayload = async (
+    prepared: Awaited<ReturnType<typeof storedPayloadJson>>,
+    update: (tx: ReturnType<typeof getDb>) => PromiseLike<unknown>,
+  ) =>
+    getDb().transaction(async (tx) => {
+      const transactionDb = tx as unknown as ReturnType<typeof getDb>;
+      const result = await update(transactionDb);
+      if (
+        builderExecutionAffectedRows(result) > 0 &&
+        prepared.previousReference &&
+        prepared.previousReference !== prepared.nextReference
+      ) {
+        await enqueueBuilderPrivatePayloadCleanup(
+          transactionDb,
+          prepared.previousReference,
+        );
+      }
+      return result;
+    });
   const resolveAmbiguousPayloadWrite = async (
     executionId: string,
     prepared: {
@@ -900,40 +921,42 @@ export function realExecutionDeps(
       const prepared = await storedPayloadJson(args.executionId, args.payload);
       let result;
       try {
-        result = await getDb()
-          .update(schema.contentDatabaseSourceExecutions)
-          .set({
-            state: args.state,
-            summary: args.summary,
-            payloadJson: prepared.payloadJson,
-            lastError: args.lastError,
-            updatedAt: args.now,
-          })
-          .where(
-            and(
-              eq(schema.contentDatabaseSourceExecutions.id, args.executionId),
-              eq(
-                schema.contentDatabaseSourceExecutions.payloadJson,
-                prepared.previousPayloadJson,
+        result = await updateStoredPayload(prepared, (tx) =>
+          tx
+            .update(schema.contentDatabaseSourceExecutions)
+            .set({
+              state: args.state,
+              summary: args.summary,
+              payloadJson: prepared.payloadJson,
+              lastError: args.lastError,
+              updatedAt: args.now,
+            })
+            .where(
+              and(
+                eq(schema.contentDatabaseSourceExecutions.id, args.executionId),
+                eq(
+                  schema.contentDatabaseSourceExecutions.payloadJson,
+                  prepared.previousPayloadJson,
+                ),
+                eq(
+                  schema.contentDatabaseSourceExecutions.state,
+                  prepared.previousState,
+                ),
+                previousAttemptFilter(prepared),
+                eq(
+                  schema.contentDatabaseSourceExecutions.state,
+                  args.expected.state,
+                ),
+                eq(
+                  schema.contentDatabaseSourceExecutions.updatedAt,
+                  args.expected.updatedAt,
+                ),
+                previousAttemptFilter({
+                  previousAttemptToken: args.expected.attemptToken ?? null,
+                }),
               ),
-              eq(
-                schema.contentDatabaseSourceExecutions.state,
-                prepared.previousState,
-              ),
-              previousAttemptFilter(prepared),
-              eq(
-                schema.contentDatabaseSourceExecutions.state,
-                args.expected.state,
-              ),
-              eq(
-                schema.contentDatabaseSourceExecutions.updatedAt,
-                args.expected.updatedAt,
-              ),
-              previousAttemptFilter({
-                previousAttemptToken: args.expected.attemptToken ?? null,
-              }),
             ),
-          );
+        );
       } catch (error) {
         if (
           (await resolveAmbiguousPayloadWrite(args.executionId, prepared)) ===
@@ -956,71 +979,101 @@ export function realExecutionDeps(
       const prepared = await storedPayloadJson(args.executionId, args.payload);
       let result;
       try {
-        result = await getDb()
-          .update(schema.contentDatabaseSourceExecutions)
-          .set({
-            state: "running",
-            summary: args.summary,
-            payloadJson: prepared.payloadJson,
-            lastError: null,
-            attemptToken: args.attemptToken,
-            updatedAt: args.now,
-          })
-          .where(
-            and(
+        result = await getDb().transaction(async (tx) => {
+          const transactionDb = tx as unknown as ReturnType<typeof getDb>;
+          const [scope] = await tx
+            .select({ databaseId: schema.contentDatabaseSources.databaseId })
+            .from(schema.contentDatabaseSourceExecutions)
+            .innerJoin(
+              schema.contentDatabaseSources,
+              eq(
+                schema.contentDatabaseSourceExecutions.sourceId,
+                schema.contentDatabaseSources.id,
+              ),
+            )
+            .where(
               eq(schema.contentDatabaseSourceExecutions.id, args.executionId),
-              eq(
-                schema.contentDatabaseSourceExecutions.payloadJson,
-                prepared.previousPayloadJson,
-              ),
-              eq(
-                schema.contentDatabaseSourceExecutions.state,
-                prepared.previousState,
-              ),
-              previousAttemptFilter(prepared),
-              eq(
-                schema.contentDatabaseSourceExecutions.state,
-                args.expected.state,
-              ),
-              eq(
-                schema.contentDatabaseSourceExecutions.updatedAt,
-                args.expected.updatedAt,
-              ),
-              previousAttemptFilter({
-                previousAttemptToken: args.expected.attemptToken ?? null,
-              }),
-              exists(
-                getDb()
-                  .select({ id: schema.contentDatabaseSourceChangeSets.id })
-                  .from(schema.contentDatabaseSourceChangeSets)
-                  .where(
-                    and(
-                      eq(
-                        schema.contentDatabaseSourceChangeSets.id,
-                        args.changeSetId,
-                      ),
-                      eq(
-                        schema.contentDatabaseSourceChangeSets.state,
-                        "approved",
+            )
+            .limit(1);
+          if (!scope) return null;
+          await lockContentDatabaseMutation(transactionDb, scope.databaseId);
+          const updated = await tx
+            .update(schema.contentDatabaseSourceExecutions)
+            .set({
+              state: "running",
+              summary: args.summary,
+              payloadJson: prepared.payloadJson,
+              lastError: null,
+              attemptToken: args.attemptToken,
+              updatedAt: args.now,
+            })
+            .where(
+              and(
+                eq(schema.contentDatabaseSourceExecutions.id, args.executionId),
+                eq(
+                  schema.contentDatabaseSourceExecutions.payloadJson,
+                  prepared.previousPayloadJson,
+                ),
+                eq(
+                  schema.contentDatabaseSourceExecutions.state,
+                  prepared.previousState,
+                ),
+                previousAttemptFilter(prepared),
+                eq(
+                  schema.contentDatabaseSourceExecutions.state,
+                  args.expected.state,
+                ),
+                eq(
+                  schema.contentDatabaseSourceExecutions.updatedAt,
+                  args.expected.updatedAt,
+                ),
+                previousAttemptFilter({
+                  previousAttemptToken: args.expected.attemptToken ?? null,
+                }),
+                exists(
+                  tx
+                    .select({ id: schema.contentDatabaseSourceChangeSets.id })
+                    .from(schema.contentDatabaseSourceChangeSets)
+                    .where(
+                      and(
+                        eq(
+                          schema.contentDatabaseSourceChangeSets.id,
+                          args.changeSetId,
+                        ),
+                        eq(
+                          schema.contentDatabaseSourceChangeSets.state,
+                          "approved",
+                        ),
                       ),
                     ),
-                  ),
-              ),
-              or(
-                notInArray(schema.contentDatabaseSourceExecutions.state, [
-                  "running",
-                  "succeeded",
-                ]),
-                and(
-                  eq(schema.contentDatabaseSourceExecutions.state, "running"),
-                  lt(
-                    schema.contentDatabaseSourceExecutions.updatedAt,
-                    args.staleBefore,
+                ),
+                or(
+                  notInArray(schema.contentDatabaseSourceExecutions.state, [
+                    "running",
+                    "succeeded",
+                  ]),
+                  and(
+                    eq(schema.contentDatabaseSourceExecutions.state, "running"),
+                    lt(
+                      schema.contentDatabaseSourceExecutions.updatedAt,
+                      args.staleBefore,
+                    ),
                   ),
                 ),
               ),
-            ),
-          );
+            );
+          if (
+            builderExecutionAffectedRows(updated) > 0 &&
+            prepared.previousReference &&
+            prepared.previousReference !== prepared.nextReference
+          ) {
+            await enqueueBuilderPrivatePayloadCleanup(
+              transactionDb,
+              prepared.previousReference,
+            );
+          }
+          return updated;
+        });
       } catch (error) {
         if (
           (await resolveAmbiguousPayloadWrite(args.executionId, prepared)) ===
@@ -1058,29 +1111,31 @@ export function realExecutionDeps(
       const prepared = await storedPayloadJson(args.executionId, args.payload);
       let result;
       try {
-        result = await getDb()
-          .update(schema.contentDatabaseSourceExecutions)
-          .set({
-            state: "response_received",
-            summary: "Builder response received; reconciling locally.",
-            payloadJson: prepared.payloadJson,
-            lastError: null,
-            updatedAt: args.now,
-          })
-          .where(
-            and(
-              eq(schema.contentDatabaseSourceExecutions.id, args.executionId),
-              eq(
-                schema.contentDatabaseSourceExecutions.payloadJson,
-                prepared.previousPayloadJson,
-              ),
-              eq(schema.contentDatabaseSourceExecutions.state, "running"),
-              eq(
-                schema.contentDatabaseSourceExecutions.attemptToken,
-                args.attemptToken,
+        result = await updateStoredPayload(prepared, (tx) =>
+          tx
+            .update(schema.contentDatabaseSourceExecutions)
+            .set({
+              state: "response_received",
+              summary: "Builder response received; reconciling locally.",
+              payloadJson: prepared.payloadJson,
+              lastError: null,
+              updatedAt: args.now,
+            })
+            .where(
+              and(
+                eq(schema.contentDatabaseSourceExecutions.id, args.executionId),
+                eq(
+                  schema.contentDatabaseSourceExecutions.payloadJson,
+                  prepared.previousPayloadJson,
+                ),
+                eq(schema.contentDatabaseSourceExecutions.state, "running"),
+                eq(
+                  schema.contentDatabaseSourceExecutions.attemptToken,
+                  args.attemptToken,
+                ),
               ),
             ),
-          );
+        );
       } catch (error) {
         if (
           (await resolveAmbiguousPayloadWrite(args.executionId, prepared)) ===
@@ -1170,11 +1225,19 @@ export function realExecutionDeps(
                   ),
             );
           if (builderExecutionAffectedRows(result) === 0) {
-            await discardUncommittedPayload(prepared);
             fail("Execution lease was reclaimed before completion.", {
               errorCode: "builder_execution_changed",
               statusCode: 409,
             });
+          }
+          if (
+            prepared.previousReference &&
+            prepared.previousReference !== prepared.nextReference
+          ) {
+            await enqueueBuilderPrivatePayloadCleanup(
+              tx as unknown as ReturnType<typeof getDb>,
+              prepared.previousReference,
+            );
           }
           await tx
             .update(schema.contentDatabaseSourceChangeSets)
@@ -1252,51 +1315,53 @@ export function realExecutionDeps(
       }
       let result;
       try {
-        result = await getDb()
-          .update(schema.contentDatabaseSourceExecutions)
-          .set({
-            state: args.state ?? "failed",
-            summary: args.summary,
-            payloadJson: prepared.payloadJson,
-            lastError: args.lastError,
-            updatedAt: args.now,
-          })
-          .where(
-            args.attemptToken
-              ? and(
-                  eq(
-                    schema.contentDatabaseSourceExecutions.id,
-                    args.executionId,
+        result = await updateStoredPayload(prepared, (tx) =>
+          tx
+            .update(schema.contentDatabaseSourceExecutions)
+            .set({
+              state: args.state ?? "failed",
+              summary: args.summary,
+              payloadJson: prepared.payloadJson,
+              lastError: args.lastError,
+              updatedAt: args.now,
+            })
+            .where(
+              args.attemptToken
+                ? and(
+                    eq(
+                      schema.contentDatabaseSourceExecutions.id,
+                      args.executionId,
+                    ),
+                    eq(
+                      schema.contentDatabaseSourceExecutions.attemptToken,
+                      args.attemptToken,
+                    ),
+                    eq(
+                      schema.contentDatabaseSourceExecutions.payloadJson,
+                      prepared.previousPayloadJson,
+                    ),
+                    eq(
+                      schema.contentDatabaseSourceExecutions.state,
+                      prepared.previousState,
+                    ),
+                  )
+                : and(
+                    eq(
+                      schema.contentDatabaseSourceExecutions.id,
+                      args.executionId,
+                    ),
+                    eq(
+                      schema.contentDatabaseSourceExecutions.payloadJson,
+                      prepared.previousPayloadJson,
+                    ),
+                    eq(
+                      schema.contentDatabaseSourceExecutions.state,
+                      prepared.previousState,
+                    ),
+                    previousAttemptFilter(prepared),
                   ),
-                  eq(
-                    schema.contentDatabaseSourceExecutions.attemptToken,
-                    args.attemptToken,
-                  ),
-                  eq(
-                    schema.contentDatabaseSourceExecutions.payloadJson,
-                    prepared.previousPayloadJson,
-                  ),
-                  eq(
-                    schema.contentDatabaseSourceExecutions.state,
-                    prepared.previousState,
-                  ),
-                )
-              : and(
-                  eq(
-                    schema.contentDatabaseSourceExecutions.id,
-                    args.executionId,
-                  ),
-                  eq(
-                    schema.contentDatabaseSourceExecutions.payloadJson,
-                    prepared.previousPayloadJson,
-                  ),
-                  eq(
-                    schema.contentDatabaseSourceExecutions.state,
-                    prepared.previousState,
-                  ),
-                  previousAttemptFilter(prepared),
-                ),
-          );
+            ),
+        );
       } catch (error) {
         if (
           (await resolveAmbiguousPayloadWrite(args.executionId, prepared)) ===
@@ -1319,33 +1384,35 @@ export function realExecutionDeps(
       const prepared = await storedPayloadJson(args.executionId, args.payload);
       let result;
       try {
-        result = await getDb()
-          .update(schema.contentDatabaseSourceExecutions)
-          .set({
-            state: args.restore.state,
-            summary: args.summary,
-            payloadJson: prepared.payloadJson,
-            lastError: args.lastError,
-            attemptToken: args.restore.attemptToken ?? null,
-            updatedAt:
-              args.restore.state === "running"
-                ? args.restore.updatedAt
-                : args.now,
-          })
-          .where(
-            and(
-              eq(schema.contentDatabaseSourceExecutions.id, args.executionId),
-              eq(schema.contentDatabaseSourceExecutions.state, "running"),
-              eq(
-                schema.contentDatabaseSourceExecutions.attemptToken,
-                args.attemptToken,
-              ),
-              eq(
-                schema.contentDatabaseSourceExecutions.payloadJson,
-                prepared.previousPayloadJson,
+        result = await updateStoredPayload(prepared, (tx) =>
+          tx
+            .update(schema.contentDatabaseSourceExecutions)
+            .set({
+              state: args.restore.state,
+              summary: args.summary,
+              payloadJson: prepared.payloadJson,
+              lastError: args.lastError,
+              attemptToken: args.restore.attemptToken ?? null,
+              updatedAt:
+                args.restore.state === "running"
+                  ? args.restore.updatedAt
+                  : args.now,
+            })
+            .where(
+              and(
+                eq(schema.contentDatabaseSourceExecutions.id, args.executionId),
+                eq(schema.contentDatabaseSourceExecutions.state, "running"),
+                eq(
+                  schema.contentDatabaseSourceExecutions.attemptToken,
+                  args.attemptToken,
+                ),
+                eq(
+                  schema.contentDatabaseSourceExecutions.payloadJson,
+                  prepared.previousPayloadJson,
+                ),
               ),
             ),
-          );
+        );
       } catch (error) {
         if (
           (await resolveAmbiguousPayloadWrite(args.executionId, prepared)) ===
@@ -1381,6 +1448,7 @@ export function realExecutionDeps(
         return await Promise.race([
           readBuilderCmsEntryLiveState({
             ...args,
+            requireBoundOAuth: true,
             signal: controller.signal,
           }),
           deadline,

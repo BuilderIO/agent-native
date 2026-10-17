@@ -693,6 +693,7 @@ export default defineAction({
         fieldPaths: [field.sourceFieldKey],
         limit: Math.max(BUILDER_FIELD_REFRESH_MINIMUM_LIMIT, error.rowCount),
         offset: 0,
+        requireBoundOAuth: true,
       });
       if (builderRead.state !== "live") {
         throw new Error(

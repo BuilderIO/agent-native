@@ -82,6 +82,7 @@ let prepareReview: typeof import("./prepare-builder-source-review.js").default;
 let previewReview: typeof import("./preview-builder-source-review.js").default;
 let prepareExecution: typeof import("./prepare-builder-source-execution.js").default;
 let validateExecution: typeof import("./validate-builder-source-execution.js").default;
+let disconnectSource: typeof import("./disconnect-content-database-source.js").default;
 let realExecutionDeps: typeof import("./execute-builder-source-execution.js").realExecutionDeps;
 let cleanupBuilderPrivatePayload: typeof import("./_builder-cms-blob-custody.js").cleanupBuilderPrivatePayload;
 let getContentDatabaseSourceSnapshot: typeof import("./_database-source-utils.js").getContentDatabaseSourceSnapshot;
@@ -100,6 +101,8 @@ beforeAll(async () => {
   prepareExecution = (await import("./prepare-builder-source-execution.js"))
     .default;
   validateExecution = (await import("./validate-builder-source-execution.js"))
+    .default;
+  disconnectSource = (await import("./disconnect-content-database-source.js"))
     .default;
   realExecutionDeps = (await import("./execute-builder-source-execution.js"))
     .realExecutionDeps;
@@ -573,6 +576,67 @@ describe("Builder source review execution gates", () => {
     });
     await expect(storedExecutionPayload(released)).resolves.toEqual({
       request: { method: "PATCH" },
+    });
+  });
+
+  it("keeps a claimed Builder execution available for reconciliation during disconnect", async () => {
+    const seeded = await seedBuilderSource({
+      sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
+      changeSetState: "approved",
+    });
+    const executionId = `active-disconnect-${counter}`;
+    const idempotencyKey = `builder-cms:${seeded.sourceId}:${seeded.changeSetId}:autosave`;
+    const now = "2026-06-29T16:01:00.000Z";
+    await getDb()
+      .insert(schema.contentDatabaseSourceExecutions)
+      .values({
+        id: executionId,
+        ownerEmail: OWNER,
+        sourceId: seeded.sourceId,
+        changeSetId: seeded.changeSetId,
+        adapter: "builder-cms",
+        pushMode: "autosave",
+        state: "running",
+        idempotencyKey,
+        summary: "Running.",
+        payloadJson: JSON.stringify({ request: { method: "PATCH" } }),
+        attemptToken: "active-attempt",
+        lastError: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+    await getDb()
+      .insert(schema.contentDatabaseSourceExecutionClaims)
+      .values({
+        id: `active-disconnect-claim-${counter}`,
+        ownerEmail: OWNER,
+        sourceId: seeded.sourceId,
+        idempotencyKey,
+        executionId,
+        createdAt: now,
+      });
+
+    await expect(
+      asOwner(() =>
+        disconnectSource.run({
+          databaseId: seeded.databaseId,
+          sourceId: seeded.sourceId,
+        } as any),
+      ),
+    ).rejects.toThrow(/while a Builder execution is running/);
+
+    const [source] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSources)
+      .where(eq(schema.contentDatabaseSources.id, seeded.sourceId));
+    const [execution] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceExecutions)
+      .where(eq(schema.contentDatabaseSourceExecutions.id, executionId));
+    expect(source).toBeDefined();
+    expect(execution).toMatchObject({
+      state: "running",
+      attemptToken: "active-attempt",
     });
   });
 

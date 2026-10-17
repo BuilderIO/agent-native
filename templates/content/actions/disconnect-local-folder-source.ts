@@ -4,6 +4,12 @@ import { and, eq, inArray, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  builderExecutionPayloadReference,
+  cleanupBuilderPrivatePayload,
+  enqueueBuilderPrivatePayloadCleanup,
+  isBuilderPrivatePayloadBoundToSource,
+} from "./_builder-cms-blob-custody.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
 import { LOCAL_FOLDER_SOURCE_TYPE } from "./_local-folder-source.js";
 
@@ -38,6 +44,7 @@ export default defineAction({
     const spaceId = target.database.spaceId;
     let disconnectedDocuments = 0;
     const now = new Date().toISOString();
+    const deletedBlobReferences = new Set<string>();
 
     await db.transaction(async (tx: any) => {
       const rows = await tx
@@ -48,9 +55,27 @@ export default defineAction({
         ...new Set<string>(rows.map((row: any) => String(row.documentId))),
       ];
       disconnectedDocuments = documentIds.length;
-      await tx
+      const deletedExecutions = await tx
         .delete(schema.contentDatabaseSourceExecutions)
-        .where(eq(schema.contentDatabaseSourceExecutions.sourceId, sourceId));
+        .where(eq(schema.contentDatabaseSourceExecutions.sourceId, sourceId))
+        .returning({
+          ownerEmail: schema.contentDatabaseSourceExecutions.ownerEmail,
+          payloadJson: schema.contentDatabaseSourceExecutions.payloadJson,
+        });
+      for (const row of deletedExecutions) {
+        const reference = builderExecutionPayloadReference(row.payloadJson);
+        if (
+          reference &&
+          isBuilderPrivatePayloadBoundToSource(
+            reference,
+            row.ownerEmail,
+            sourceId,
+          )
+        ) {
+          deletedBlobReferences.add(reference);
+          await enqueueBuilderPrivatePayloadCleanup(tx, reference);
+        }
+      }
       await tx
         .delete(schema.contentDatabaseSourceExecutionClaims)
         .where(
@@ -164,6 +189,12 @@ export default defineAction({
           );
       }
     });
+    for (const reference of deletedBlobReferences) {
+      await cleanupBuilderPrivatePayload(
+        reference,
+        "disconnected local folder source",
+      );
+    }
     await writeAppState("refresh-signal", { ts: Date.now() });
     return {
       success: true,

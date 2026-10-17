@@ -46,6 +46,22 @@ function isLocalBlockedDryRun(payload: Record<string, unknown>) {
   );
 }
 
+function isLivePreflightBlocked(payload: Record<string, unknown>) {
+  const preflight = payload.livePreflight;
+  if (!preflight || typeof preflight !== "object" || Array.isArray(preflight)) {
+    return false;
+  }
+  const record = preflight as Record<string, unknown>;
+  return (
+    typeof record.checkedAt === "string" &&
+    typeof record.exists === "boolean" &&
+    (record.lastUpdated === null ||
+      typeof record.lastUpdated === "number" ||
+      typeof record.lastUpdated === "string") &&
+    (record.blocksHash === null || typeof record.blocksHash === "string")
+  );
+}
+
 function assertProvablyPreDispatch(execution: {
   state: string;
   summary: string;
@@ -75,7 +91,8 @@ function assertProvablyPreDispatch(execution: {
   if (
     execution.state === "blocked" &&
     execution.summary !== CANCELLED_BUILDER_EXECUTION_SUMMARY &&
-    !isLocalBlockedDryRun(payload)
+    !isLocalBlockedDryRun(payload) &&
+    !isLivePreflightBlocked(payload)
   ) {
     throw new Error(
       "Cannot cancel this blocked Builder update because it is not provably a local pre-dispatch block.",

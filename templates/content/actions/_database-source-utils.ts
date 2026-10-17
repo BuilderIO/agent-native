@@ -72,6 +72,7 @@ import {
   builderExecutionPayloadReference,
   isBuilderPrivatePayloadBoundToSource,
   cleanupBuilderPrivatePayload,
+  enqueueBuilderPrivatePayloadCleanup,
   readBuilderExecutionPayload,
 } from "./_builder-cms-blob-custody.js";
 import {
@@ -1442,6 +1443,7 @@ async function readBuilderEntryWithLiveBodyFromSourceRow(args: {
     strictEntryIdentity: true,
     expectedSourceSpace: args.expectedSourceSpace,
     expectedSourceConnectionId: args.expectedSourceConnectionId,
+    requireBoundOAuth: true,
   });
   if (liveRead.state === "not_found") return liveRead;
   const liveEntry = liveRead.entry;
@@ -3154,6 +3156,7 @@ export async function processBuilderBodyHydrationQueue(args: {
           limit: 10_000,
           expectedSourceSpace: hydrationSourceMetadata.builderSpacePublicKey,
           expectedSourceConnectionId: hydrationSourceMetadata.connectionId,
+          requireBoundOAuth: true,
         }),
       ),
     );
@@ -6319,13 +6322,9 @@ async function deleteSourceChangeSetRecords(args: {
       )
     : eq(schema.contentDatabaseSourceChangeSets.sourceId, args.sourceId);
 
-  let deletedExecutions: Array<{
-    ownerEmail: string;
-    sourceId: string;
-    payloadJson: string;
-  }> = [];
+  const references = new Set<string>();
   await db.transaction(async (tx) => {
-    deletedExecutions = await tx
+    const deletedExecutions = await tx
       .delete(schema.contentDatabaseSourceExecutions)
       .where(executionWhere)
       .returning({
@@ -6333,6 +6332,23 @@ async function deleteSourceChangeSetRecords(args: {
         sourceId: schema.contentDatabaseSourceExecutions.sourceId,
         payloadJson: schema.contentDatabaseSourceExecutions.payloadJson,
       });
+    for (const row of deletedExecutions) {
+      const reference = builderExecutionPayloadReference(row.payloadJson);
+      if (
+        reference &&
+        isBuilderPrivatePayloadBoundToSource(
+          reference,
+          row.ownerEmail,
+          row.sourceId,
+        )
+      ) {
+        references.add(reference);
+        await enqueueBuilderPrivatePayloadCleanup(
+          tx as unknown as ReturnType<typeof getDb>,
+          reference,
+        );
+      }
+    }
     await tx
       .delete(schema.contentDatabaseSourceChangeReviews)
       .where(reviewWhere);
@@ -6340,19 +6356,6 @@ async function deleteSourceChangeSetRecords(args: {
       .delete(schema.contentDatabaseSourceChangeSets)
       .where(changeSetWhere);
   });
-  const references = new Set(
-    deletedExecutions.flatMap((row) => {
-      const reference = builderExecutionPayloadReference(row.payloadJson);
-      return reference &&
-        isBuilderPrivatePayloadBoundToSource(
-          reference,
-          row.ownerEmail,
-          row.sourceId,
-        )
-        ? [reference]
-        : [];
-    }),
-  );
   for (const reference of references) {
     await cleanupBuilderPrivatePayload(
       reference,

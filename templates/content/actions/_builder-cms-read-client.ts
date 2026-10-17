@@ -1607,6 +1607,7 @@ export async function readBuilderCmsEntryLiveState(args: {
   entryId: string;
   expectedSourceSpace?: string | null;
   expectedSourceConnectionId?: string | null;
+  requireBoundOAuth?: boolean;
   fetchImpl?: FetchLike;
   signal?: AbortSignal;
 }): Promise<BuilderCmsEntryLiveState> {
@@ -1622,6 +1623,19 @@ export async function readBuilderCmsEntryLiveState(args: {
     args.expectedSourceSpace,
     args.expectedSourceConnectionId,
   );
+  if (
+    args.requireBoundOAuth === true &&
+    isGeneralBuilderOAuth(generalAuthorization) &&
+    !isBuilderReadSourceBound(
+      args.expectedSourceSpace,
+      args.expectedSourceConnectionId,
+    )
+  ) {
+    fail(
+      "Builder OAuth reads require a saved space and connection binding. Reattach the source with mode replace to bind the current Builder connection before reading.",
+      { errorCode: "builder_source_binding_required", statusCode: 409 },
+    );
+  }
   if (isGeneralBuilderOAuth(generalAuthorization)) {
     const response = await readBuilderCmsGeneralApiEntry({
       model: args.model,
@@ -1694,6 +1708,7 @@ export async function readBuilderCmsContentEntry(args: {
   entryId: string;
   expectedSourceSpace?: string | null;
   expectedSourceConnectionId?: string | null;
+  requireBoundOAuth?: boolean;
   fetchImpl?: FetchLike;
 }): Promise<BuilderCmsSourceEntry | null> {
   const result = await readBuilderCmsContentEntryResult({
@@ -1708,6 +1723,7 @@ export async function readBuilderCmsContentEntryResult(args: {
   entryId: string;
   expectedSourceSpace?: string | null;
   expectedSourceConnectionId?: string | null;
+  requireBoundOAuth?: boolean;
   fetchImpl?: FetchLike;
   strictEntryIdentity?: boolean;
 }): Promise<BuilderCmsContentEntryReadResult> {
@@ -1722,6 +1738,19 @@ export async function readBuilderCmsContentEntryResult(args: {
     args.expectedSourceSpace,
     args.expectedSourceConnectionId,
   );
+  if (
+    args.requireBoundOAuth === true &&
+    isGeneralBuilderOAuth(authorization) &&
+    !isBuilderReadSourceBound(
+      args.expectedSourceSpace,
+      args.expectedSourceConnectionId,
+    )
+  ) {
+    fail(
+      "Builder OAuth reads require a saved space and connection binding. Reattach the source with mode replace to bind the current Builder connection before reading.",
+      { errorCode: "builder_source_binding_required", statusCode: 409 },
+    );
+  }
   const privateKey = authorization?.token ?? null;
   const publicKey = await resolveBuilderCredential("BUILDER_PUBLIC_KEY");
   if (!publicKey && !privateKey) {
@@ -2198,7 +2227,7 @@ export async function readBuilderCmsContentEntries(args: {
         )
       ) {
         fail(
-          "Builder OAuth refresh requires a saved space and connection binding. Reconnect the source before refreshing.",
+          "Builder OAuth refresh requires a saved space and connection binding. Reattach this source with mode replace to bind the current Builder connection before refreshing.",
           { errorCode: "builder_source_binding_required", statusCode: 409 },
         );
       }

@@ -19,7 +19,7 @@ import type {
 import {
   builderExecutionPayloadReference,
   cleanupBuilderPrivatePayload,
-  deleteBuilderPrivatePayload,
+  enqueueBuilderPrivatePayloadCleanup,
   readBuilderExecutionPayload,
   storeBuilderExecutionPayload,
 } from "./_builder-cms-blob-custody.js";
@@ -530,32 +530,46 @@ async function upsertExecutionGate(args: {
       existing.payloadJson,
     );
     try {
-      const [updated] = await db
-        .update(schema.contentDatabaseSourceExecutions)
-        .set({
-          state: plan.state,
-          summary: plan.summary,
-          payloadJson,
-          lastError: plan.lastError,
-          updatedAt: args.now,
-        })
-        .where(
-          and(
-            eq(schema.contentDatabaseSourceExecutions.id, existing.id),
-            eq(
-              schema.contentDatabaseSourceExecutions.payloadJson,
-              existing.payloadJson,
+      const updatedRows = await db.transaction(async (tx) => {
+        const updated = await tx
+          .update(schema.contentDatabaseSourceExecutions)
+          .set({
+            state: plan.state,
+            summary: plan.summary,
+            payloadJson,
+            lastError: plan.lastError,
+            updatedAt: args.now,
+          })
+          .where(
+            and(
+              eq(schema.contentDatabaseSourceExecutions.id, existing.id),
+              eq(
+                schema.contentDatabaseSourceExecutions.payloadJson,
+                existing.payloadJson,
+              ),
+              eq(schema.contentDatabaseSourceExecutions.state, existing.state),
+              existing.attemptToken
+                ? eq(
+                    schema.contentDatabaseSourceExecutions.attemptToken,
+                    existing.attemptToken,
+                  )
+                : isNull(schema.contentDatabaseSourceExecutions.attemptToken),
             ),
-            eq(schema.contentDatabaseSourceExecutions.state, existing.state),
-            existing.attemptToken
-              ? eq(
-                  schema.contentDatabaseSourceExecutions.attemptToken,
-                  existing.attemptToken,
-                )
-              : isNull(schema.contentDatabaseSourceExecutions.attemptToken),
-          ),
-        )
-        .returning({ id: schema.contentDatabaseSourceExecutions.id });
+          )
+          .returning({ id: schema.contentDatabaseSourceExecutions.id });
+        if (
+          updated[0] &&
+          previousReference &&
+          previousReference !== nextReference
+        ) {
+          await enqueueBuilderPrivatePayloadCleanup(
+            tx as unknown as ReturnType<typeof getDb>,
+            previousReference,
+          );
+        }
+        return updated;
+      });
+      const [updated] = updatedRows;
       if (!updated)
         fail("Builder execution changed during prepare.", {
           errorCode: "builder_execution_changed",
@@ -579,8 +593,9 @@ async function upsertExecutionGate(args: {
         // The replacement committed despite an ambiguous acknowledgement.
       } else {
         if (currentPayloadJson !== undefined && nextReference) {
-          await deleteBuilderPrivatePayload(nextReference).catch(
-            () => undefined,
+          await cleanupBuilderPrivatePayload(
+            nextReference,
+            "uncommitted prepared execution",
           );
         }
         throw error;
@@ -641,8 +656,9 @@ async function upsertExecutionGate(args: {
       if (winner.payloadJson === insertedPayloadJson) {
         // The insert committed despite an ambiguous acknowledgement.
       } else if (insertedReference) {
-        await deleteBuilderPrivatePayload(insertedReference).catch(
-          () => undefined,
+        await cleanupBuilderPrivatePayload(
+          insertedReference,
+          "uncommitted prepared execution",
         );
       }
       if (
@@ -703,33 +719,47 @@ async function upsertExecutionGate(args: {
     execution.payloadJson,
   );
   try {
-    const [updated] = await db
-      .update(schema.contentDatabaseSourceExecutions)
-      .set({
-        state: dryRun?.status === "stale" ? "blocked" : plan.state,
-        summary,
-        payloadJson,
-        lastError:
-          dryRun?.status === "stale" ? dryRun.mismatches[0] : plan.lastError,
-        updatedAt: args.now,
-      })
-      .where(
-        and(
-          eq(schema.contentDatabaseSourceExecutions.id, executionId),
-          eq(
-            schema.contentDatabaseSourceExecutions.payloadJson,
-            execution.payloadJson,
+    const updatedRows = await db.transaction(async (tx) => {
+      const updated = await tx
+        .update(schema.contentDatabaseSourceExecutions)
+        .set({
+          state: dryRun?.status === "stale" ? "blocked" : plan.state,
+          summary,
+          payloadJson,
+          lastError:
+            dryRun?.status === "stale" ? dryRun.mismatches[0] : plan.lastError,
+          updatedAt: args.now,
+        })
+        .where(
+          and(
+            eq(schema.contentDatabaseSourceExecutions.id, executionId),
+            eq(
+              schema.contentDatabaseSourceExecutions.payloadJson,
+              execution.payloadJson,
+            ),
+            eq(schema.contentDatabaseSourceExecutions.state, execution.state),
+            execution.attemptToken
+              ? eq(
+                  schema.contentDatabaseSourceExecutions.attemptToken,
+                  execution.attemptToken,
+                )
+              : isNull(schema.contentDatabaseSourceExecutions.attemptToken),
           ),
-          eq(schema.contentDatabaseSourceExecutions.state, execution.state),
-          execution.attemptToken
-            ? eq(
-                schema.contentDatabaseSourceExecutions.attemptToken,
-                execution.attemptToken,
-              )
-            : isNull(schema.contentDatabaseSourceExecutions.attemptToken),
-        ),
-      )
-      .returning({ id: schema.contentDatabaseSourceExecutions.id });
+        )
+        .returning({ id: schema.contentDatabaseSourceExecutions.id });
+      if (
+        updated[0] &&
+        previousReference &&
+        previousReference !== nextReference
+      ) {
+        await enqueueBuilderPrivatePayloadCleanup(
+          tx as unknown as ReturnType<typeof getDb>,
+          previousReference,
+        );
+      }
+      return updated;
+    });
+    const [updated] = updatedRows;
     if (!updated)
       fail("Builder execution changed during validation.", {
         errorCode: "builder_execution_changed",
@@ -751,7 +781,10 @@ async function upsertExecutionGate(args: {
     }
     if (currentPayloadJson !== payloadJson) {
       if (currentPayloadJson !== undefined && nextReference) {
-        await deleteBuilderPrivatePayload(nextReference).catch(() => undefined);
+        await cleanupBuilderPrivatePayload(
+          nextReference,
+          "uncommitted validated execution",
+        );
       }
       throw error;
     }

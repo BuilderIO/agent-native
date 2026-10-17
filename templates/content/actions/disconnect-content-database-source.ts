@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -11,6 +11,7 @@ import type {
 import {
   builderExecutionPayloadReference,
   cleanupBuilderPrivatePayload,
+  enqueueBuilderPrivatePayloadCleanup,
   isBuilderPrivatePayloadBoundToSource,
 } from "./_builder-cms-blob-custody.js";
 import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
@@ -38,6 +39,24 @@ async function deleteSourceRecords(databaseId: string, sourceId: string) {
         ),
       );
     if (!source) return;
+    const activeExecutions = await tx
+      .select({ id: schema.contentDatabaseSourceExecutions.id })
+      .from(schema.contentDatabaseSourceExecutions)
+      .where(
+        and(
+          eq(schema.contentDatabaseSourceExecutions.sourceId, sourceId),
+          inArray(schema.contentDatabaseSourceExecutions.state, [
+            "running",
+            "response_received",
+            "reconciliation_required",
+          ]),
+        ),
+      );
+    if (activeExecutions.length > 0) {
+      throw new Error(
+        "Cannot disconnect this source while a Builder execution is running or awaiting reconciliation.",
+      );
+    }
     await tx
       .delete(schema.contentDatabaseBodyHydrationQueue)
       .where(eq(schema.contentDatabaseBodyHydrationQueue.sourceId, sourceId));
@@ -59,6 +78,10 @@ async function deleteSourceRecords(databaseId: string, sourceId: string) {
         )
       ) {
         deletedBlobReferences.add(reference);
+        await enqueueBuilderPrivatePayloadCleanup(
+          tx as unknown as ReturnType<typeof getDb>,
+          reference,
+        );
       }
     }
     await tx
