@@ -723,6 +723,24 @@ export function __resetOnboardingEventDedupeForTests(): void {
   seenOnboardingEvents.clear();
 }
 
+let onboardingExperiment: {
+  experiment_id: string;
+  experiment_variant: string;
+} | null = null;
+
+/**
+ * Tags every later onboarding event with the experiment arm the user is in, so
+ * funnels split by variant without each emitter (including the settings-side
+ * custom-key outcome) knowing about the experiment.
+ */
+export function setOnboardingExperiment(
+  experiment: { id: string; variant: string } | null,
+): void {
+  onboardingExperiment = experiment
+    ? { experiment_id: experiment.id, experiment_variant: experiment.variant }
+    : null;
+}
+
 export function trackOnboardingEvent(
   name: string,
   properties: Record<string, unknown>,
@@ -779,7 +797,7 @@ export function trackOnboardingEvent(
     if (seenOnboardingEvents.has(key)) return;
     seenOnboardingEvents.add(key);
   }
-  trackEvent(name, properties);
+  trackEvent(name, { ...properties, ...onboardingExperiment });
 }
 
 export interface UseOnboardingResult {

@@ -571,4 +571,97 @@ describe("onboarding funnel metrics", () => {
       expect.objectContaining({ step_id: "choice", users_reached: 1 }),
     );
   }, 20_000);
+
+  it("compares first_run_builder_credits variants per exposed person", async () => {
+    await createEventsTable();
+    const choice = { flow: "first_run", step_id: "choice", step_index: 1 };
+    const experiment = (variant: string) => ({
+      ...choice,
+      experiment_id: "first_run_builder_credits",
+      experiment_variant: variant,
+    });
+    for (const user of ["c1", "c2", "c3"]) {
+      await insertEvent("onboarding_step_viewed", user, experiment("control"));
+    }
+    for (const user of ["v1", "v2", "v3"]) {
+      await insertEvent("onboarding_step_viewed", user, experiment("credits"));
+    }
+    await insertEvent("onboarding_step_viewed", "untagged", choice);
+    await insertEvent("onboarding_method_clicked", "c1", {
+      ...experiment("control"),
+      method_id: "builder_create_account",
+    });
+    await insertEvent("onboarding_method_outcome", "c1", {
+      ...experiment("control"),
+      method_id: "builder_create_account",
+      outcome: "connected",
+    });
+    await insertEvent("onboarding_method_clicked", "c2", {
+      ...experiment("control"),
+      method_id: "custom_keys",
+    });
+    await insertEvent("onboarding_step_skipped", "c3", experiment("control"));
+    await insertEvent("onboarding_method_clicked", "v1", {
+      ...experiment("credits"),
+      method_id: "builder_create_account",
+    });
+    await insertEvent("onboarding_method_outcome", "v1", {
+      ...experiment("credits"),
+      method_id: "builder_create_account",
+      outcome: "already_connected",
+    });
+    for (const user of ["v1", "v2"]) {
+      await insertEvent(
+        "onboarding_more_info_opened",
+        user,
+        experiment("credits"),
+      );
+    }
+    await insertEvent("onboarding_method_clicked", "untagged", {
+      ...choice,
+      method_id: "builder_create_account",
+    });
+
+    const comparison = buildPanel("onboarding-ab-comparison")!;
+    expect(() => validateFirstPartyAnalyticsSql(comparison.sql)).not.toThrow();
+    expect(() =>
+      assertFirstPartyAnalyticsBigQuerySql(comparison.sql),
+    ).not.toThrow();
+    const result = (await client.query(
+      interpolate(comparison.sql, FILTERS),
+    )) as { rows: Array<Record<string, unknown>> };
+    expect(result.rows.map((row) => row.variant)).toEqual([
+      "control",
+      "credits",
+    ]);
+    expect(result.rows[0]).toMatchObject({
+      exposed_users: 3,
+      activated_users: 1,
+      connected_users: 1,
+      custom_keys_users: 1,
+      skipped_users: 1,
+      more_info_users: null,
+    });
+    expect(result.rows[1]).toMatchObject({
+      exposed_users: 3,
+      activated_users: 1,
+      connected_users: 1,
+      custom_keys_users: 0,
+      skipped_users: 0,
+      more_info_users: 2,
+    });
+    expect(Number(result.rows[1]!.more_info_rate)).toBeCloseTo(2 / 3);
+
+    const trend = buildPanel("onboarding-ab-connected-trend")!;
+    expect(() => validateFirstPartyAnalyticsSql(trend.sql)).not.toThrow();
+    expect(() => assertFirstPartyAnalyticsBigQuerySql(trend.sql)).not.toThrow();
+    const trendResult = (await client.query(
+      interpolate(trend.sql, FILTERS),
+    )) as { rows: Array<Record<string, unknown>> };
+    expect(trendResult.rows).toEqual([
+      expect.objectContaining({ date: eventDay, variant: "control" }),
+      expect.objectContaining({ date: eventDay, variant: "credits" }),
+    ]);
+    expect(Number(trendResult.rows[0]!.rate)).toBeCloseTo(1 / 3);
+  }, 20_000);
 });

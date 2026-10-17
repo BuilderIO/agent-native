@@ -174,6 +174,18 @@ const messages = {
   "onboarding.builderPrivacy": "Privacy Policy",
   "onboarding.builderConsentAnd": "and",
   "onboarding.builderExistingAccount": "I have a Builder.io account",
+  "onboarding.creditsTitle": "Try it with 60 free Agent Credits a month",
+  "onboarding.creditsTitleClips":
+    "Try it with free video storage and 60 Agent Credits a month",
+  "onboarding.creditsActivate": "Activate free credits",
+  "onboarding.creditsFinePrint":
+    "This will create a free Builder.io account. By continuing, you agree to our",
+  "onboarding.creditsConnectExisting": "Connect an existing Builder.io account",
+  "onboarding.creditsMoreInfo": "More info",
+  "onboarding.creditsReason":
+    "Free and open source. Builder.io pays for the AI so you don't need to bring a key.",
+  "onboarding.creditsSkipBody":
+    "If you skip, you'll need to connect your own keys to use AI and storage.",
   "onboarding.builderActivating": "Activating Builder.io free credits",
   "onboarding.builderConnecting": "Setting up Builder.io credits",
   "onboarding.builderProvisioningDescription":

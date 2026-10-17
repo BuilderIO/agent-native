@@ -172,6 +172,18 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "개인정보 처리방침",
   "onboarding.builderConsentAnd": "및",
   "onboarding.builderExistingAccount": "Builder.io 계정이 있어요",
+  "onboarding.creditsTitle": "매달 무료 Agent Credits 60개로 사용해 보세요",
+  "onboarding.creditsTitleClips":
+    "무료 비디오 저장소와 매달 Agent Credits 60개로 사용해 보세요",
+  "onboarding.creditsActivate": "무료 크레딧 활성화",
+  "onboarding.creditsFinePrint":
+    "이렇게 하면 무료 Builder.io 계정이 생성됩니다. 계속하면 당사의",
+  "onboarding.creditsConnectExisting": "기존 Builder.io 계정 연결",
+  "onboarding.creditsMoreInfo": "자세한 정보",
+  "onboarding.creditsReason":
+    "무료 오픈소스입니다. AI 비용은 Builder.io가 부담하므로 직접 키를 준비할 필요가 없습니다.",
+  "onboarding.creditsSkipBody":
+    "건너뛰면 AI와 저장소를 사용하기 위해 자신의 키를 연결해야 합니다.",
   "onboarding.builderConnect": "Builder.io 연결",
   "onboarding.builderActivating": "Builder.io 무료 크레딧 활성화 중",
   "onboarding.builderConnecting": "Builder.io 무료 크레딧 설정 중",

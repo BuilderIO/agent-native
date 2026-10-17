@@ -165,6 +165,18 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "隐私政策",
   "onboarding.builderConsentAnd": "和",
   "onboarding.builderExistingAccount": "我有 Builder.io 账户",
+  "onboarding.creditsTitle": "每月免费试用 60 个 Agent Credits",
+  "onboarding.creditsTitleClips":
+    "免费试用视频存储，并每月获得 60 个 Agent Credits",
+  "onboarding.creditsActivate": "激活免费额度",
+  "onboarding.creditsFinePrint":
+    "这将创建一个免费的 Builder.io 账户。继续表示您同意我们的",
+  "onboarding.creditsConnectExisting": "连接现有 Builder.io 账户",
+  "onboarding.creditsMoreInfo": "更多信息",
+  "onboarding.creditsReason":
+    "免费且开源。AI 费用由 Builder.io 承担，您无需自带密钥。",
+  "onboarding.creditsSkipBody":
+    "如果您跳过，您需要连接自己的密钥才能使用 AI 和存储。",
   "onboarding.builderConnect": "连接 Builder.io",
   "onboarding.builderActivating": "正在激活 Builder.io 免费额度",
   "onboarding.builderConnecting": "正在设置 Builder.io 免费额度",
