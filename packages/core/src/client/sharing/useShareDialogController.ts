@@ -195,6 +195,7 @@ export function useShareDialogController({
   // before any effect runs must not see the previous resource's value.
   const [visibilityOverrideState, setVisibilityOverrideState] = useState<{
     resourceKey: string;
+    token: object;
     value: ShareVisibility;
   } | null>(null);
   const visibilityOverride =
@@ -202,9 +203,9 @@ export function useShareDialogController({
       ? visibilityOverrideState.value
       : null;
   const clearVisibilityOverride = useCallback(
-    (key: string) =>
+    (key: string, token: object) =>
       setVisibilityOverrideState((state) =>
-        state?.resourceKey === key ? null : state,
+        state?.resourceKey === key && state.token === token ? null : state,
       ),
     [],
   );
@@ -250,6 +251,7 @@ export function useShareDialogController({
   const applyVisibility = useCallback(
     async (next: ShareVisibility): Promise<void> => {
       const requestId = visibilityGuard.begin();
+      const token = {};
       const mutation =
         optimisticallyUpdateShareVisibility<ResourceSharesResponse>(
           queryClient,
@@ -257,7 +259,7 @@ export function useShareDialogController({
           next,
         );
       setMutationError(null);
-      setVisibilityOverrideState({ resourceKey, value: next });
+      setVisibilityOverrideState({ resourceKey, token, value: next });
       let result: unknown;
       try {
         // Settles for this call alone: per-call mutate callbacks are skipped
@@ -268,10 +270,8 @@ export function useShareDialogController({
           visibility: next,
         } as never);
       } catch (error) {
-        if (mutation.isCurrent()) {
-          mutation.rollback();
-          clearVisibilityOverride(resourceKey);
-        }
+        mutation.rollback();
+        clearVisibilityOverride(resourceKey, token);
         throw error;
       }
       notifyShareChanged(resourceType);
@@ -284,7 +284,7 @@ export function useShareDialogController({
         (resultVisibility as ShareVisibility | undefined) ?? next,
       );
       if (!visibilityGuard.isLatest(requestId)) {
-        if (mutation.isCurrent()) clearVisibilityOverride(resourceKey);
+        clearVisibilityOverride(resourceKey, token);
         return;
       }
       void Promise.resolve(refetch())
@@ -294,9 +294,7 @@ export function useShareDialogController({
           }
         })
         .finally(() => {
-          if (mutation.isCurrent()) {
-            clearVisibilityOverride(resourceKey);
-          }
+          clearVisibilityOverride(resourceKey, token);
         });
     },
     [

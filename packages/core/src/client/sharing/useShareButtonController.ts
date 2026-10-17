@@ -158,6 +158,7 @@ export function useShareButtonController(
   // before any effect runs must not see the previous resource's value.
   const [visibilityOverrideState, setVisibilityOverrideState] = useState<{
     resourceKey: string;
+    token: object;
     value: ShareButtonVisibility;
   } | null>(null);
   const visibilityOverride =
@@ -165,9 +166,9 @@ export function useShareButtonController(
       ? visibilityOverrideState.value
       : null;
   const clearVisibilityOverride = useCallback(
-    (key: string) =>
+    (key: string, token: object) =>
       setVisibilityOverrideState((state) =>
-        state?.resourceKey === key ? null : state,
+        state?.resourceKey === key && state.token === token ? null : state,
       ),
     [],
   );
@@ -232,13 +233,14 @@ export function useShareButtonController(
         return;
       }
       const requestId = visibilityGuard.begin();
+      const token = {};
       const mutation =
         optimisticallyUpdateShareVisibility<ShareButtonSharesResponse>(
           queryClient,
           shareQueryKey,
           next,
         );
-      setVisibilityOverrideState({ resourceKey, value: next });
+      setVisibilityOverrideState({ resourceKey, token, value: next });
       let result: unknown;
       try {
         // Settles for this call alone: per-call mutate callbacks are skipped
@@ -249,10 +251,8 @@ export function useShareButtonController(
           visibility: next,
         } as never);
       } catch (error) {
-        if (mutation.isCurrent()) {
-          mutation.rollback();
-          clearVisibilityOverride(resourceKey);
-        }
+        mutation.rollback();
+        clearVisibilityOverride(resourceKey, token);
         if (visibilityGuard.isLatest(requestId)) {
           void sharesQuery.refetch();
         }
@@ -278,9 +278,7 @@ export function useShareButtonController(
       try {
         if (visibilityGuard.isLatest(requestId)) await sharesQuery.refetch();
       } finally {
-        if (mutation.isCurrent()) {
-          clearVisibilityOverride(resourceKey);
-        }
+        clearVisibilityOverride(resourceKey, token);
       }
     },
     [

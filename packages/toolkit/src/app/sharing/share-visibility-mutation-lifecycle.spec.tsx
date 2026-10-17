@@ -246,6 +246,73 @@ describe.each(surfaces)("%s lifecycle", (_name, createSurface) => {
     await tick();
   };
 
+  it.each([
+    ["removed", "fails"],
+    ["recreated", "fails"],
+    ["removed", "succeeds"],
+    ["recreated", "succeeds"],
+  ] as const)(
+    "clears A's own override when its query is %s and its save %s",
+    async (entry, outcome) => {
+      const initial = cached("doc-1");
+      const heldA = await start(() => surface.request("org"));
+      await start(() => surface.confirm());
+      await until(() => transport.writes.length === 1, "A's confirmed write");
+      await moveTo("doc-2");
+      const oldQuery = queryClient
+        .getQueryCache()
+        .find({ queryKey: cacheKey("doc-1"), exact: true });
+      await drive(() => {
+        queryClient.removeQueries({ queryKey: cacheKey("doc-1"), exact: true });
+        if (entry === "recreated")
+          queryClient.setQueryData(cacheKey("doc-1"), initial);
+      });
+      expect(
+        queryClient
+          .getQueryCache()
+          .find({ queryKey: cacheKey("doc-1"), exact: true }),
+      ).not.toBe(oldQuery);
+      const bSnapshot = cached("doc-2");
+      const readsBeforeSettlement = [...transport.reads];
+      await drive(() => {
+        if (outcome === "fails")
+          transport.writes[0].reject(new Error("A save failed"));
+        else transport.writes[0].resolve();
+      });
+      await tick();
+      expect(heldA.status).toBe(outcome === "fails" ? "rejected" : "resolved");
+      expect(cached("doc-1")).toEqual(
+        entry === "recreated" ? initial : undefined,
+      );
+      expect(cached("doc-2")).toEqual(bSnapshot);
+      expect(surface.value()).toBe("private");
+      expect(surface.error()).toBeNull();
+      expect(transport.shared).not.toHaveBeenCalled();
+      expect(transport.reads).toEqual(readsBeforeSettlement);
+      // The next authoritative read may reflect a later access change too.
+      transport.server.visibility = "private";
+      await moveTo("doc-1");
+      expect(cached("doc-1")?.visibility).toBe("private");
+      expect(surface.value()).toBe("private");
+      const newer = await start(() => surface.request("public"));
+      await until(() => transport.writes.length === 2, "A's newer write");
+      await drive(() =>
+        queryClient.setQueryData<ResourceSharesResponse>(
+          cacheKey("doc-1"),
+          (previous) =>
+            previous ? { ...previous, visibility: "private" } : previous,
+        ),
+      );
+      await tick();
+      expect(surface.value()).toBe("public");
+      expect(newer.status).toBe("pending");
+      await drive(() => transport.writes[1].resolve());
+      await tick();
+      expect(newer.status).toBe("resolved");
+      expect(surface.value()).toBe("public");
+    },
+  );
+
   it("rolls back A without changing pending B or discarding unrelated share updates", async () => {
     const heldA = await start(() => surface.request("org"));
     const confirmedA = await start(() => surface.confirm());
@@ -365,6 +432,35 @@ describe.each(surfaces)("%s lifecycle", (_name, createSurface) => {
   // The dialog releases its physical write lock before its background refetch
   // finishes; the button already waits for that refetch before releasing it.
   if (_name === "ShareDialog visibility.transition.request") {
+    it("does not clear a newer A override when query removal settles the old background refetch", async () => {
+      const initial = cached("doc-1");
+      const first = await start(() => surface.request("public"));
+      await until(() => transport.writes.length === 1, "the first write");
+      transport.pauseReads = true;
+      await drive(() => transport.writes[0].resolve());
+      await until(() => transport.releaseReads.length === 1, "the old refetch");
+      expect(first.status).toBe("resolved");
+      let newer!: Outcome;
+      await act(async () => {
+        queryClient.removeQueries({ queryKey: cacheKey("doc-1"), exact: true });
+        queryClient.setQueryData(cacheKey("doc-1"), initial);
+        newer = track(surface.request("org"));
+        queryClient.setQueryData(cacheKey("doc-1"), initial);
+      });
+      await until(() => transport.writes.length === 2, "the newer write");
+      await tick();
+      expect(cached("doc-1")?.visibility).toBe("private");
+      expect(surface.value()).toBe("org");
+      expect(newer.status).toBe("pending");
+      transport.pauseReads = false;
+      await drive(() => transport.writes[1].resolve());
+      await tick();
+      await drive(() => transport.releaseReads[0]());
+      await tick();
+      expect(newer.status).toBe("resolved");
+      expect(surface.value()).toBe("org");
+    });
+
     it("does not let the preceding refetch overwrite a newer saved visibility", async () => {
       const first = await start(() => surface.request("public"));
       await until(() => transport.writes.length === 1, "the first write");
