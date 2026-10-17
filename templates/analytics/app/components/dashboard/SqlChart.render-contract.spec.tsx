@@ -138,7 +138,7 @@ describe("SqlChart render contract parity", () => {
               {
                 severity: "info",
                 message:
-                  "Read [the docs](https://example.com/guide), [unsafe](javascript:alert(1)), or [extension](/_agent-native/tools/ext/render).",
+                  "Read [the metric docs](https://example.com/metrics), [unsafe](javascript:alert(1)), or [extension](/_agent-native/tools/ext/render).",
               },
             ],
           }}
@@ -148,7 +148,8 @@ describe("SqlChart render contract parity", () => {
 
     const links = container.querySelectorAll("a");
     expect(links).toHaveLength(1);
-    expect(links[0]?.getAttribute("href")).toBe("https://example.com/guide");
+    expect(links[0]?.textContent).toBe("the metric docs");
+    expect(links[0]?.getAttribute("href")).toBe("https://example.com/metrics");
     expect(links[0]?.getAttribute("target")).toBe("_blank");
     expect(links[0]?.getAttribute("rel")).toBe("noopener noreferrer");
     expect(container.textContent).toContain("unsafe");
@@ -232,9 +233,29 @@ describe("SqlChart render contract parity", () => {
       root.render(<SqlChart panel={target} />);
     });
 
-    expect(
-      container.querySelector('a[href="https://example.com/guide"]'),
-    ).not.toBeNull();
+    const link = container.querySelector('a[href="https://example.com/guide"]');
+    expect(link).not.toBeNull();
+    expect(link?.textContent).toBe("the guide");
+    expect(link?.getAttribute("rel")).toBe("noopener noreferrer");
+  });
+
+  it("renders safe Markdown links in generic chart descriptions", async () => {
+    const target = panel({
+      chartType: "table",
+      config: {
+        columns: [{ key: "views" }],
+        description: "Read [the guide](https://example.com/guide).",
+      },
+    });
+    await act(async () => {
+      root.render(
+        <SqlChart panel={target} resultOverride={{ rows: [{ views: 3 }] }} />,
+      );
+    });
+
+    const link = container.querySelector('a[href="https://example.com/guide"]');
+    expect(link?.textContent).toBe("the guide");
+    expect(link?.getAttribute("rel")).toBe("noopener noreferrer");
   });
 
   it.each(["metric", "section"] as const)(

@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   buildExtensionHtml,
+  EXTENSION_LINK_CHANNEL_ACK_MESSAGE_TYPE,
   EXTENSION_LINK_CHANNEL_HOST_PORT_MESSAGE_TYPE,
   EXTENSION_LINK_CHANNEL_HELLO_MESSAGE_TYPE,
   EXTENSION_LINK_CHANNEL_READY_MESSAGE_TYPE,
@@ -298,6 +299,21 @@ function loadShell(
         type: EXTENSION_LINK_CHANNEL_READY_MESSAGE_TYPE,
       });
     },
+    verifyLinkChannel(
+      port: {
+        peer: { postMessage(data: unknown): void };
+      },
+      verifyId: number,
+    ) {
+      port.peer.postMessage({
+        type: EXTENSION_LINK_CHANNEL_READY_MESSAGE_TYPE,
+        verifyId,
+      });
+    },
+    linkChannelAcks: () =>
+      portPosted.filter(
+        (message) => message?.type === EXTENSION_LINK_CHANNEL_ACK_MESSAGE_TYPE,
+      ),
     linkRequests: () =>
       portPosted.filter(
         (message) =>
@@ -622,6 +638,8 @@ const LINKS = `
   <a id="upper" href="https://app.hubspot.com/upper" target="_BLANK">upper</a>
   <a id="plain" href="https://example.com/plain">plain</a>
   <a id="self" href="https://example.com/self" target="_self">self</a>
+  <a id="sameOrigin" href="https://analytics.example/internal">same origin</a>
+  <a id="sameOriginSelf" href="https://analytics.example/internal-self" target="_self">same origin self</a>
   <a id="top" href="https://example.com/top" target="_top">top</a>
   <a id="named" href="https://example.com/named" target="report">named</a>
   <a id="download" href="https://example.com/file.csv" target="_blank" download>file</a>
@@ -1176,6 +1194,12 @@ describe("extension shell link routing", () => {
     expect(retryPort.closed).toBe(true);
     expect(shell.clickTrusted(link)).toBe(true);
     expect(shell.linkRequests()).toHaveLength(2);
+    shell.verifyLinkChannel(acceptedPort, 17);
+    expect(shell.linkChannelAcks()).toContainEqual({
+      type: EXTENSION_LINK_CHANNEL_ACK_MESSAGE_TYPE,
+      verifyId: 17,
+    });
+    expect(shell.linkRequests()).toHaveLength(2);
   });
 
   it("marks only explicit new-context activations in routed host requests", () => {
@@ -1330,25 +1354,31 @@ describe("extension shell link routing", () => {
     expect(shell.opened()).toEqual([]);
   });
 
-  it("leaves same-tab, named, download, non-web and already-handled links native", () => {
+  it("routes external same-tab links and leaves unsupported links native", () => {
     const shell = loadShell(LINKS);
     shell.ready();
     const $ = (id: string) => shell.window.document.getElementById(id);
 
-    expect(shell.click($("plain"))).toBe(false);
-    expect(shell.click($("self"))).toBe(false);
+    expect(shell.clickTrustedLegacy($("plain"))).toBe(true);
+    expect(shell.clickTrustedLegacy($("self"))).toBe(true);
+    expect(shell.click($("sameOrigin"))).toBe(false);
+    expect(shell.click($("sameOriginSelf"))).toBe(false);
     expect(shell.click($("top"))).toBe(false);
     expect(shell.click($("named"))).toBe(false);
     expect(shell.click($("download"))).toBe(false);
     expect(shell.click($("mailto"))).toBe(false);
     expect(shell.click($("js"))).toBe(false);
-    expect(shell.click($("svgSelf"))).toBe(false);
+    expect(shell.clickTrustedLegacy($("svgSelf"))).toBe(true);
     expect(shell.click($("blank"), { altKey: true })).toBe(false);
     expect(shell.click($("plain"), { button: 2 }, "auxclick")).toBe(false);
     // Its own handler prevented the default, so the shell stays out of it.
     expect(shell.click($("prevented"))).toBe(true);
 
-    expect(shell.opened()).toEqual([]);
+    expect(shell.opened().map((message) => message.url)).toEqual([
+      "https://example.com/plain",
+      "https://example.com/self",
+      "https://example.com/svg-self",
+    ]);
   });
 
   it("routes SVG links, resolving href and xlink:href against the base URL", () => {

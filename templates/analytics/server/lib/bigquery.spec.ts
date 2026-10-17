@@ -589,7 +589,53 @@ describe("runQuery cancellation", () => {
     await expect(runQuery("SELECT 'kept' AS value")).resolves.toMatchObject({
       rows: [{ value: "kept" }],
       totalRows: 1,
+      partial: true,
+      warnings: [{ reason: "other", message: "A nonfatal query warning" }],
     });
+  });
+
+  it("does not cache partial results so a retry can fetch complete rows", async () => {
+    useCacheDatabase();
+    const fetchMock = mockQueryJobs(
+      jsonResponse({
+        jobComplete: true,
+        schema: { fields: [{ name: "value", type: "STRING" }] },
+        rows: [{ f: [{ v: "partial" }] }],
+        totalRows: "2",
+        totalBytesProcessed: "8",
+        errors: [{ reason: "other", message: "A nonfatal query warning" }],
+      }),
+      jsonResponse({
+        jobComplete: true,
+        schema: { fields: [{ name: "value", type: "STRING" }] },
+        rows: [{ f: [{ v: "complete" }] }, { f: [{ v: "second" }] }],
+        totalRows: "2",
+        totalBytesProcessed: "8",
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const sql = "SELECT value FROM partial_cache_retry_test";
+
+    await expect(runQuery(sql)).resolves.toMatchObject({
+      rows: [{ value: "partial" }],
+      totalRows: 2,
+      partial: true,
+    });
+
+    const retry = await runQuery(sql);
+    expect(retry).toMatchObject({
+      rows: [{ value: "complete" }, { value: "second" }],
+      totalRows: 2,
+    });
+    expect(retry).not.toHaveProperty("partial");
+    expect(retry).toHaveProperty("cached", false);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+
+    await expect(runQuery(sql)).resolves.toMatchObject({
+      rows: [{ value: "complete" }, { value: "second" }],
+      cached: true,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
   it("keeps fatal completed-job details for schema recovery", async () => {

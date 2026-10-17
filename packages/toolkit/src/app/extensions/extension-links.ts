@@ -98,9 +98,9 @@ function connectExternalExtensionLinks(
   let activeLinkPort: MessagePort | null = null;
   let activeHostBridgePort: MessagePort | null = null;
   let activePortWindow: MessageEventSource | null = null;
-  let initialFrameLoadObserved = false;
-  let handshakeBeforeFrameLoad = false;
   let handshakeAcknowledged = false;
+  let pendingVerificationId: number | null = null;
+  let nextVerificationId = 0;
   let recoveryTimer: ReturnType<typeof setTimeout> | null = null;
   let readyReported = false;
 
@@ -113,12 +113,17 @@ function connectExternalExtensionLinks(
     }
     const message = event.data;
     if (message?.type === EXTENSION_LINK_CHANNEL_ACK_MESSAGE_TYPE) {
-      handshakeAcknowledged = true;
-      if (recoveryTimer) {
+      if (typeof message.verifyId === "number") {
+        if (message.verifyId !== pendingVerificationId) return;
+        pendingVerificationId = null;
+      } else {
+        handshakeAcknowledged = true;
+      }
+      if (!pendingVerificationId && recoveryTimer) {
         clearTimeout(recoveryTimer);
         recoveryTimer = null;
       }
-      if (!readyReported) {
+      if (!readyReported && handshakeAcknowledged) {
         readyReported = true;
         onReady?.();
       }
@@ -139,35 +144,40 @@ function connectExternalExtensionLinks(
     openExternalExtensionLink(message.href, message.openInNewContext === true);
   };
 
+  const recoverOnTimeout = () => {
+    recoveryTimer = setTimeout(() => {
+      recoveryTimer = null;
+      pendingVerificationId = null;
+      recover();
+    }, 2500);
+  };
+
   const onFrameLoad = (event: Event) => {
     const iframe = iframeRef.current;
     if (!iframe || event.target !== iframe) return;
-    const isInitialLoad = !initialFrameLoadObserved;
-    initialFrameLoadObserved = true;
     iframe.removeAttribute("data-link-channel-ready");
-    if (isInitialLoad && handshakeBeforeFrameLoad) {
-      handshakeBeforeFrameLoad = false;
-      if (handshakeAcknowledged) return;
+    if (recoveryTimer) clearTimeout(recoveryTimer);
 
-      if (recoveryTimer) clearTimeout(recoveryTimer);
-      recoveryTimer = setTimeout(() => {
+    if (activeLinkPort) {
+      const verifyId = ++nextVerificationId;
+      pendingVerificationId = verifyId;
+      recoverOnTimeout();
+      try {
+        activeLinkPort.postMessage({
+          type: EXTENSION_LINK_CHANNEL_READY_MESSAGE_TYPE,
+          verifyId,
+        });
+      } catch {
+        if (recoveryTimer) clearTimeout(recoveryTimer);
         recoveryTimer = null;
+        pendingVerificationId = null;
         recover();
-      }, 2500);
+      }
       return;
     }
-    handshakeBeforeFrameLoad = false;
 
-    activeLinkPort?.close();
-    activeHostBridgePort?.close();
-    activeLinkPort = null;
-    activeHostBridgePort = null;
-    activePortWindow = null;
-    if (recoveryTimer) clearTimeout(recoveryTimer);
-    recoveryTimer = setTimeout(() => {
-      recoveryTimer = null;
-      recover();
-    }, 2500);
+    pendingVerificationId = null;
+    recoverOnTimeout();
   };
 
   const onPageHide = (event: PageTransitionEvent) => {
@@ -175,6 +185,7 @@ function connectExternalExtensionLinks(
 
     acceptedNonceRef.current = null;
     handshakeAcknowledged = false;
+    pendingVerificationId = null;
     readyReported = false;
     activeLinkPort?.close();
     activeHostBridgePort?.close();
@@ -215,14 +226,12 @@ function connectExternalExtensionLinks(
     }
 
     acceptedNonceRef.current = nonce;
+    pendingVerificationId = null;
     if (recoveryTimer) clearTimeout(recoveryTimer);
     recoveryTimer = setTimeout(() => {
       recoveryTimer = null;
       if (!handshakeAcknowledged) recover();
     }, 2500);
-    if (!initialFrameLoadObserved) {
-      handshakeBeforeFrameLoad = true;
-    }
     recoveryAttemptedRef.current = false;
     activeLinkPort?.close();
     activeHostBridgePort?.close();
