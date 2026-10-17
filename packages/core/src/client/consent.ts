@@ -274,6 +274,8 @@ function settle(): void {
       if (waiter.revoke) isolate(waiter.revoke);
     }
   }
+  // A choice stored here or in another tab decides before the region does.
+  if (region || getConsentChoice()) releaseHeldForDecision?.(true);
 }
 
 /**
@@ -329,6 +331,7 @@ export function whenConsentAllows(
 }
 
 let heldForDecision: ((decided: boolean) => void)[] | null = null;
+let releaseHeldForDecision: ((decided: boolean) => void) | null = null;
 
 /**
  * Run `send` once the visitor's choice or the server's region is known, so
@@ -346,10 +349,12 @@ export function whenConsentDecided(send: (decided: boolean) => void): void {
     const release = (decided: boolean) => {
       if (heldForDecision !== held) return;
       heldForDecision = null;
+      releaseHeldForDecision = null;
       window.removeEventListener("pagehide", onPageHide);
       for (const run of held) run(decided);
     };
     const onPageHide = () => release(false);
+    releaseHeldForDecision = release;
     window.addEventListener("pagehide", onPageHide);
     void resolveConsentRegion().then(() => release(true));
   }
