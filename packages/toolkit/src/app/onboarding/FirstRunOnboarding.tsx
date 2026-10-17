@@ -261,6 +261,9 @@ export function FirstRunOnboarding({
   )}%`;
   const redesign = useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key);
   const [moreInfoOpen, setMoreInfoOpen] = useState(false);
+  const [setupExperimentDecision, setSetupExperimentDecision] = useState<
+    boolean | null
+  >(null);
   const setupVariant = useMemo(
     () =>
       (previewMode && getPreviewFirstRunSetupVariant(window.location.search)) ||
@@ -576,19 +579,31 @@ export function FirstRunOnboarding({
       !firstRun ||
       screen !== "choice" ||
       !setupVariant ||
-      !setupExperimentEligible
+      !setupStatusSettled ||
+      setupExperimentDecision !== null
     ) {
       return;
     }
-    setOnboardingExperiment({
-      id: FIRST_RUN_SETUP_EXPERIMENT_ID,
-      variant: setupVariant,
-    });
-    trackOnboardingEvent("onboarding_experiment_exposed", {
-      flow: "first_run",
-      step_id: "choice",
-    });
-  }, [firstRun, previewMode, screen, setupExperimentEligible, setupVariant]);
+    if (setupExperimentEligible) {
+      setOnboardingExperiment({
+        id: FIRST_RUN_SETUP_EXPERIMENT_ID,
+        variant: setupVariant,
+      });
+      trackOnboardingEvent("onboarding_experiment_exposed", {
+        flow: "first_run",
+        step_id: "choice",
+      });
+    }
+    setSetupExperimentDecision(setupExperimentEligible);
+  }, [
+    firstRun,
+    previewMode,
+    screen,
+    setupExperimentEligible,
+    setupExperimentDecision,
+    setupStatusSettled,
+    setupVariant,
+  ]);
   const retryOnboardingCompletion = useCallback(() => {
     const attempt = completionAttemptRef.current;
     void finishOnboarding(
@@ -817,10 +832,13 @@ export function FirstRunOnboarding({
     );
 
     const inCreditsArm = setupVariant === "credits";
-    // The credits page only makes sense where activation exists. Hold the
-    // skeleton until that is known so the full page never flashes first.
-    if (inCreditsArm && !setupStatusSettled) return <OnboardingSkeleton />;
-    const creditsEligible = inCreditsArm && setupExperimentEligible;
+    // Both arms must wait: the control setup actions can be used as soon as
+    // they render, so exposure has to be recorded before either arm is usable.
+    if (!previewMode && setupVariant && setupExperimentDecision === null) {
+      return <OnboardingSkeleton />;
+    }
+    const creditsEligible =
+      inCreditsArm && (previewMode || setupExperimentDecision === true);
 
     const builderStatusError =
       connectFlow.error && connectFlow.errorKind === "status-read" ? (

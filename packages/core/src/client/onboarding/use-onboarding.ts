@@ -28,6 +28,7 @@ const lastOnboardingStepViews = new Map<string, string>();
 const seenOnboardingEvents = new Set<string>();
 const CUSTOM_KEY_ATTEMPT_STORAGE_KEY =
   "agent-native.onboarding.custom_keys_attempt";
+const ONBOARDING_EXPERIMENT_STORAGE_KEY = "agent-native.onboarding.experiment";
 const locallyTrackedCustomKeyOutcomes = new Set<string>();
 type CustomKeyOnboardingSaveOutcome =
   | "credential_saved"
@@ -723,10 +724,36 @@ export function __resetOnboardingEventDedupeForTests(): void {
   seenOnboardingEvents.clear();
 }
 
-let onboardingExperiment: {
+type OnboardingExperiment = {
   experiment_id: string;
   experiment_variant: string;
-} | null = null;
+};
+
+let onboardingExperiment: OnboardingExperiment | null = null;
+
+function readStoredOnboardingExperiment(): OnboardingExperiment | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const value: unknown = JSON.parse(
+      window.localStorage.getItem(ONBOARDING_EXPERIMENT_STORAGE_KEY) ?? "null",
+    );
+    if (
+      typeof value !== "object" ||
+      value === null ||
+      typeof (value as OnboardingExperiment).experiment_id !== "string" ||
+      typeof (value as OnboardingExperiment).experiment_variant !== "string"
+    ) {
+      return null;
+    }
+    return value as OnboardingExperiment;
+  } catch {
+    return null;
+  }
+}
+
+export function __resetOnboardingExperimentMemoryForTests(): void {
+  onboardingExperiment = null;
+}
 
 /**
  * Tags later first-run onboarding events with the experiment arm the user was
@@ -741,6 +768,19 @@ export function setOnboardingExperiment(
   onboardingExperiment = experiment
     ? { experiment_id: experiment.id, experiment_variant: experiment.variant }
     : null;
+  if (typeof window === "undefined") return;
+  try {
+    if (onboardingExperiment) {
+      window.localStorage.setItem(
+        ONBOARDING_EXPERIMENT_STORAGE_KEY,
+        JSON.stringify(onboardingExperiment),
+      );
+    } else {
+      window.localStorage.removeItem(ONBOARDING_EXPERIMENT_STORAGE_KEY);
+    }
+  } catch {
+    // In-memory tagging still works when browser storage is unavailable.
+  }
 }
 
 export function trackOnboardingEvent(
@@ -799,12 +839,11 @@ export function trackOnboardingEvent(
     if (seenOnboardingEvents.has(key)) return;
     seenOnboardingEvents.add(key);
   }
-  trackEvent(
-    name,
+  const experiment =
     properties.flow === "first_run"
-      ? { ...properties, ...onboardingExperiment }
-      : properties,
-  );
+      ? (onboardingExperiment ?? readStoredOnboardingExperiment())
+      : null;
+  trackEvent(name, experiment ? { ...properties, ...experiment } : properties);
 }
 
 export interface UseOnboardingResult {

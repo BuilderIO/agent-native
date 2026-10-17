@@ -123,7 +123,7 @@ describe("FirstRunOnboarding", () => {
     mocks.useOnboardingPreviewMode.mockReturnValue(false);
     mocks.useOnboardingPreviewStep.mockReturnValue(null);
     mocks.useBuilderConnectFlow.mockReturnValue({
-      hasFetchedStatus: false,
+      hasFetchedStatus: true,
       statusResolved: true,
       configured: false,
       agentNativeProvisioningEnabled: true,
@@ -2883,6 +2883,22 @@ describe("FirstRunOnboarding", () => {
       );
     });
 
+    it("holds the control setup actions until activation eligibility is known", () => {
+      mocks.setupVariant = "control";
+      mocks.useBuilderConnectFlow.mockReturnValue(
+        flow({ hasFetchedStatus: false }),
+      );
+      openChoice();
+
+      expect(q("first-run-builder-sign-in")).toBeNull();
+      expect(q("first-run-builder-create-account")).toBeNull();
+      expect(mocks.setOnboardingExperiment).not.toHaveBeenCalled();
+      expect(mocks.trackOnboardingEvent).not.toHaveBeenCalledWith(
+        "onboarding_experiment_exposed",
+        expect.anything(),
+      );
+    });
+
     it("keeps already-connected users out of the experiment and on the existing page", () => {
       mocks.useBuilderConnectFlow.mockReturnValue(flow({ configured: true }));
       openChoice();
@@ -2894,11 +2910,15 @@ describe("FirstRunOnboarding", () => {
     it("exposes control users under the same eligibility rule", () => {
       mocks.setupVariant = "control";
       mocks.useBuilderConnectFlow.mockReturnValue(flow());
+      mocks.setOnboardingExperiment.mockImplementation(() => {
+        expect(q("first-run-builder-sign-in")).toBeNull();
+      });
       openChoice();
       expect(mocks.setOnboardingExperiment).toHaveBeenCalledWith({
         id: "first_run_builder_credits",
         variant: "control",
       });
+      expect(q("first-run-builder-sign-in")).not.toBeNull();
       expect(q("first-run-credits-offer")).toBeNull();
     });
 

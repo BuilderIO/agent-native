@@ -22,6 +22,7 @@ vi.mock("../analytics.js", () => ({
 
 import { SessionPreloadContext } from "../use-session.js";
 import {
+  __resetOnboardingExperimentMemoryForTests,
   __resetOnboardingEventDedupeForTests,
   __resetOnboardingSummaryReadsForTests,
   createOnboardingCorrelationId,
@@ -404,6 +405,54 @@ describe("trackOnboardingEvent", () => {
       flow: "checklist",
       step_id: "choice",
     });
+  });
+
+  it("restores the exposed arm from storage after a page reload", () => {
+    const originalStorage = Object.getOwnPropertyDescriptor(
+      window,
+      "localStorage",
+    );
+    const values = new Map<string, string>();
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      value: {
+        getItem: (key: string) => values.get(key) ?? null,
+        setItem: (key: string, value: string) => values.set(key, value),
+        removeItem: (key: string) => values.delete(key),
+      },
+    });
+
+    try {
+      setOnboardingExperiment({
+        id: "first_run_builder_credits",
+        variant: "credits",
+      });
+      __resetOnboardingExperimentMemoryForTests();
+      trackEventMock.mockClear();
+
+      trackOnboardingEvent("onboarding_method_outcome", {
+        flow: "first_run",
+        step_id: "choice",
+        method_id: "custom_keys",
+        outcome: "settings_opened",
+      });
+
+      expect(trackEventMock).toHaveBeenCalledWith(
+        "onboarding_method_outcome",
+        expect.objectContaining({
+          experiment_id: "first_run_builder_credits",
+          experiment_variant: "credits",
+          outcome: "settings_opened",
+        }),
+      );
+    } finally {
+      __resetOnboardingExperimentMemoryForTests();
+      if (originalStorage) {
+        Object.defineProperty(window, "localStorage", originalStorage);
+      } else {
+        Reflect.deleteProperty(window, "localStorage");
+      }
+    }
   });
 
   beforeEach(() => {
