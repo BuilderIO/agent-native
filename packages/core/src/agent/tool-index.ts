@@ -145,30 +145,56 @@ export function formatToolIndex(
   }
   const groups = groupByTopic(unique);
   const largest = Math.max(...groups.map(([, members]) => members.length));
-  for (let perGroup = largest; perGroup >= 1; perGroup -= 1) {
+  let low = 1;
+  let high = largest;
+  let best: string | undefined;
+  while (low <= high) {
+    const perGroup = Math.floor((low + high) / 2);
     const body = renderGroups(groups, perGroup);
     const result = `${header}${body}`;
-    if (result.length <= maxChars) return result;
+    if (result.length <= maxChars) {
+      best = result;
+      low = perGroup + 1;
+    } else {
+      high = perGroup - 1;
+    }
   }
+  if (best) return best;
+
   const counts = groups.map(([topic, members]) => {
     const formattedTopic = topic.startsWith("mcp__") ? `\`${topic}\`` : topic;
     return `- ${formattedTopic} (${members.length})`;
   });
   const countsHeader = `${TOOL_INDEX_HEADER} Topics below show counts only; search a topic to see its tools.\n\n`;
+  const omissionText = (count: number) =>
+    `- ${count} additional topics omitted; search by topic.`;
+  const prefixLengths = [0];
+  let prefixLength = 0;
+  for (const count of counts) {
+    prefixLength += count.length + 1;
+    prefixLengths.push(prefixLength);
+  }
   for (
     let visibleTopicCount = counts.length;
     visibleTopicCount >= 0;
     visibleTopicCount -= 1
   ) {
     const omittedTopicCount = counts.length - visibleTopicCount;
-    const visibleCounts = counts.slice(0, visibleTopicCount);
-    if (omittedTopicCount > 0) {
-      visibleCounts.push(
-        `- ${omittedTopicCount} additional topics omitted; search by topic.`,
-      );
+    const visibleLength = prefixLengths[visibleTopicCount];
+    const bodyLength =
+      visibleLength -
+      (visibleTopicCount > 0 ? 1 : 0) +
+      (omittedTopicCount > 0
+        ? (visibleTopicCount > 0 ? 1 : 0) +
+          omissionText(omittedTopicCount).length
+        : 0);
+    if (countsHeader.length + bodyLength <= maxChars) {
+      const visibleCounts = counts.slice(0, visibleTopicCount);
+      if (omittedTopicCount > 0) {
+        visibleCounts.push(omissionText(omittedTopicCount));
+      }
+      return `${countsHeader}${visibleCounts.join("\n")}`;
     }
-    const result = `${countsHeader}${visibleCounts.join("\n")}`;
-    if (result.length <= maxChars) return result;
   }
   throw new RangeError(
     "maxChars is too small to include topic counts or an omission count",
