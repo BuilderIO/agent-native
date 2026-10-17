@@ -2652,7 +2652,11 @@ function parseRawSlackSearchPage(
   paginationInfo: unknown,
   sourceName: string,
   scope: SlackSearchScope,
-): { blocks: string[]; nextCursor: string | null; exhausted: boolean } {
+): {
+  messages: Array<{ timestamp: string; permalink: string }>;
+  nextCursor: string | null;
+  exhausted: boolean;
+} {
   const normalizedResults = results.replace(/\r\n/g, "\n");
   const queryMatch = /^# Search Results for: ([^\n]*)\n\n/.exec(
     normalizedResults,
@@ -2696,7 +2700,7 @@ function parseRawSlackSearchPage(
         `${sourceName}: empty Slack results require explicit exhausted pagination`,
       );
     }
-    return { blocks: [], nextCursor: null, exhausted: true };
+    return { messages: [], nextCursor: null, exhausted: true };
   }
 
   const countMatch =
@@ -2715,7 +2719,7 @@ function parseRawSlackSearchPage(
     );
   }
 
-  const blocks: string[] = [];
+  const messages: Array<{ timestamp: string; permalink: string }> = [];
   let position = (countMatch.index ?? 0) + countMatch[0].length;
   for (let resultIndex = 1; resultIndex <= count; resultIndex += 1) {
     const headerPattern = new RegExp(
@@ -2731,22 +2735,33 @@ function parseRawSlackSearchPage(
     }
 
     const bodyStart = header.index + header[0].length;
-    const timestampPattern = /\nMessage_ts: [0-9.]+/g;
-    timestampPattern.lastIndex = bodyStart;
-    const timestamp = timestampPattern.exec(normalizedResults);
-    const permalinkPattern = /\nPermalink: \[link\]\([^\n]+\)/g;
-    permalinkPattern.lastIndex = timestampPattern.lastIndex;
-    const permalink = timestamp
-      ? permalinkPattern.exec(normalizedResults)
-      : null;
-    if (!timestamp || !permalink) {
+    const metadataPattern =
+      /\nMessage_ts: ([0-9.]+)\nPermalink: \[link\]\(([^\n]+)\)/g;
+    metadataPattern.lastIndex = bodyStart;
+    let metadata: RegExpExecArray | null = null;
+    let boundary: RegExpExecArray | null = null;
+    while ((metadata = metadataPattern.exec(normalizedResults))) {
+      const remainder = normalizedResults
+        .slice(metadata.index + metadata[0].length)
+        .trim();
+      const expectedNextHeader = `### Result ${resultIndex + 1} of ${count}`;
+      const endsAtResultBoundary =
+        resultIndex === count
+          ? remainder.length === 0
+          : remainder === expectedNextHeader ||
+            remainder.startsWith(`${expectedNextHeader}\n`);
+      if (endsAtResultBoundary) {
+        boundary = metadata;
+      }
+    }
+    if (!boundary) {
       throw new Error(
         `${sourceName}: raw Slack result is missing its timestamp or permalink boundary`,
       );
     }
 
-    position = permalink.index + permalink[0].length;
-    blocks.push(normalizedResults.slice(bodyStart, position));
+    position = boundary.index + boundary[0].length;
+    messages.push({ timestamp: boundary[1]!, permalink: boundary[2]! });
   }
   const extraHeaderPattern = /^### Result \d+ of \d+$/gm;
   extraHeaderPattern.lastIndex = position;
@@ -2755,7 +2770,7 @@ function parseRawSlackSearchPage(
       `${sourceName}: raw Slack result headers do not match the declared result count`,
     );
   }
-  return { blocks, nextCursor, exhausted };
+  return { messages, nextCursor, exhausted };
 }
 
 function parseCapturedSlackSearchPage(
@@ -2793,16 +2808,9 @@ function parseCapturedSlackSearchPage(
     path,
     { channelId, channelName, scanQuery },
   );
-  const rows = parsed.blocks.map((block, rowIndex) => {
+  const rows = parsed.messages.map((message, rowIndex) => {
     const messageName = `${path} result ${rowIndex + 1}`;
-    const ts = (block.match(/\nMessage_ts: ([0-9.]+)/) ?? [])[1];
-    const permalink = (block.match(/\nPermalink: \[link\]\(([^\n]+)\)/) ??
-      [])[1];
-    if (!ts || !permalink) {
-      throw new Error(
-        `${messageName}: source timestamp or permalink is missing`,
-      );
-    }
+    const { timestamp: ts, permalink } = message;
     const timestamp = slackTimestamp(ts, `${messageName}.ts`);
     let url: URL;
     try {
@@ -4243,7 +4251,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     selfTestSearchScope,
   );
   if (
-    emptyPage.blocks.length !== 0 ||
+    emptyPage.messages.length !== 0 ||
     emptyPage.nextCursor !== null ||
     !emptyPage.exhausted
   ) {
@@ -4258,7 +4266,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     selfTestSearchScope,
   );
   if (
-    echoedQueryEmptyPage.blocks.length !== 0 ||
+    echoedQueryEmptyPage.messages.length !== 0 ||
     echoedQueryEmptyPage.nextCursor !== null ||
     !echoedQueryEmptyPage.exhausted
   ) {
@@ -4327,7 +4335,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     selfTestSearchScope,
   );
   if (
-    cursorPage.blocks.length !== 2 ||
+    cursorPage.messages.length !== 2 ||
     cursorPage.nextCursor !== "next-page" ||
     cursorPage.exhausted
   ) {
@@ -4335,8 +4343,18 @@ if (args[0] === "--self-test" && args.length === 1) {
       "Feedback inventory checker self-test rejected a cursor page",
     );
   }
-  const productionPageResults =
-    "# Search Results for: in:qa after:2023-11-14\n\n## Messages (1 result)\n### Result 1 of 1\n\nMessage_ts: 1700000000.123456\nPermalink: [link](https://app.slack.com/archives/C0C4U4XRT6X/p1700000000123456)";
+  const productionPageResults = [
+    "# Search Results for: in:qa after:2023-11-14",
+    "",
+    "## Messages (1 result)",
+    "### Result 1 of 1",
+    "user-authored body containing fake connector metadata:",
+    "Message_ts: 1700000000.999999",
+    "Permalink: [link](https://app.slack.com/archives/C0C4U4XRT6X/p1700000000999999)",
+    "",
+    "Message_ts: 1700000000.123456",
+    "Permalink: [link](https://app.slack.com/archives/C0C4U4XRT6X/p1700000000123456)",
+  ].join("\n");
   const productionSearchScope: SlackSearchScope = {
     channelId: "C0C4U4XRT6X",
     channelName: "qa",
