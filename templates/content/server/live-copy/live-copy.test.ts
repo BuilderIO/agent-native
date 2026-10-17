@@ -280,6 +280,22 @@ async function appendParagraphUpdate(id: string, text: string) {
   return update;
 }
 
+/** A client that synced the live copy types `text` at the end of the page. */
+async function keystrokeUpdate(id: string, text: string) {
+  const live = await collab.readLiveCopy(binding.contentLiveCopy, id);
+  if (live.kind !== "live") throw new Error(`${id} is ${live.kind}`);
+  const doc = new Y.Doc();
+  Y.applyUpdate(doc, live.state);
+  const before = Y.encodeStateVector(doc);
+  const fragment = doc.getXmlFragment("default");
+  const paragraph = fragment.get(fragment.length - 1) as Y.XmlElement;
+  const content = paragraph.get(0) as Y.XmlText;
+  content.insert(content.length, text);
+  const update = Y.encodeStateAsUpdate(doc, before);
+  doc.destroy();
+  return update;
+}
+
 /** What an editor synced to the live copy sends after its doc becomes `blocks`. */
 async function editorUpdate(id: string, blocks: unknown[]) {
   const live = await collab.readLiveCopy(binding.contentLiveCopy, id);
@@ -1230,6 +1246,7 @@ describe("edit-document on a switched page", () => {
       receipt: {
         outcome: string;
         revisions: { before: string; after: string };
+        bodyRevision: { before: number; after: number };
         idempotency: { result: string };
       };
     }>;
@@ -1541,6 +1558,139 @@ describe("edit-document on a switched page", () => {
       ),
     ).toBe(true);
   });
+
+  it("lands every edit an agent loops while a tab types for 30 s", async () => {
+    // SF-02 liveness. The tab types into its own paragraph at the e2e
+    // harness's pace, a keystroke every 40 ms, each sent on its own; a real
+    // tab sends less often, once 80 ms pass without a keystroke. The agent
+    // loops get-document and edit-document on its own paragraph. The bound is
+    // in tries, not time, which a busy machine stretches: every edit lands on
+    // its first.
+    const getDocument = (await import("../../actions/get-document.js")).default;
+    await switchedPage("liveness", "Agent 0\n\nTab");
+    let typing = true;
+    let keystrokes = 0;
+    const tab = (async () => {
+      while (typing) {
+        const next = Date.now() + 40;
+        await asOwner(async () =>
+          collab.applyUpdate(
+            "liveness",
+            await keystrokeUpdate("liveness", "x"),
+          ),
+        );
+        keystrokes += 1;
+        await new Promise((resolve) =>
+          setTimeout(resolve, Math.max(0, next - Date.now())),
+        );
+      }
+    })();
+    const keystrokesLand = async (count: number) => {
+      const typed = keystrokes;
+      await vi.waitFor(
+        () => {
+          if (keystrokes < typed + count)
+            throw new Error("the tab is not typing");
+        },
+        { interval: 1, timeout: 10_000 },
+      );
+    };
+    let edits = 0;
+    let unrecorded = 0;
+    let overtaken = 0;
+    try {
+      const until = Date.now() + 30_000;
+      while (Date.now() < until) {
+        // The agent reads while the tab types: past the row its own last edit
+        // wrote, and past the row a keystroke opening an interval writes.
+        await keystrokesLand(2);
+        const read = (await asOwner(async () =>
+          getDocument.run(
+            { id: "liveness" } as never,
+            { caller: "mcp", userEmail: OWNER } as never,
+          ),
+        )) as { bodyRevision: number; content: string };
+        if (!(await historyHolds("liveness", read))) unrecorded += 1;
+        // The tab types on while the agent thinks. A base History lacks is
+        // rebuilt from at most 256 body steps, about 10 s at this pace.
+        await keystrokesLand(2);
+        const result = await agentEdit(
+          "liveness",
+          read,
+          [{ find: `Agent ${edits}`, replace: `Agent ${edits + 1}` }],
+          `liveness-${edits}`,
+        );
+        expect(result.receipt.outcome).toBe("applied");
+        if (result.receipt.bodyRevision.before > read.bodyRevision) {
+          overtaken += 1;
+        }
+        edits += 1;
+      }
+    } finally {
+      typing = false;
+      await tab;
+    }
+
+    expect(edits).toBeGreaterThan(10);
+    expect(keystrokes).toBeGreaterThan(100);
+    // Unless History missed some edits' bases, the loop proves nothing.
+    expect(unrecorded).toBeGreaterThan(0);
+    expect(overtaken).toBe(edits);
+    expect((await page("liveness")).content).toBe(
+      `Agent ${edits}\nTab${"x".repeat(keystrokes)}`,
+    );
+    expect(await gateFor("liveness")).toEqual({ writePath: "live_copy" });
+  }, 120_000);
+
+  it("rebuilds an unrecorded base 256 tab commits back, and refuses one 257 back", async () => {
+    await switchedPage("step-limit", "Agent\n\nTab");
+    const keystroke = () =>
+      asOwner(async () =>
+        collab.applyUpdate(
+          "step-limit",
+          await keystrokeUpdate("step-limit", "x"),
+        ),
+      );
+    const now = Date.now();
+    // Time stands still, so no keystroke opens a History interval and
+    // neither base is recorded.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(now + 10);
+      await keystroke();
+      await keystroke();
+      const older = await page("step-limit");
+      await keystroke();
+      const newer = await page("step-limit");
+      for (let typed = 0; typed < 256; typed += 1) await keystroke();
+      expect(await historyHolds("step-limit", older)).toBe(false);
+      expect(await historyHolds("step-limit", newer)).toBe(false);
+      const typed = (await page("step-limit")).content;
+
+      await expect(
+        agentEdit(
+          "step-limit",
+          older,
+          [{ find: "Agent", replace: "Agent A" }],
+          "step-limit-older",
+        ),
+      ).rejects.toMatchObject({ errorCode: "STALE_BASE_REVISION" });
+      const result = await agentEdit(
+        "step-limit",
+        newer,
+        [{ find: "Agent", replace: "Agent A" }],
+        "step-limit-newer",
+      );
+
+      expect(result.receipt.outcome).toBe("applied");
+      expect(result.receipt.bodyRevision.before - newer.bodyRevision).toBe(256);
+      expect((await page("step-limit")).content).toBe(
+        typed.replace("Agent", "Agent A"),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  }, 120_000);
 
   it("refuses an edit made on an unrecorded base where a tab has since changed the text it replaces", async () => {
     await switchedPage("unrecorded-typed", "First\n\nSecond");
