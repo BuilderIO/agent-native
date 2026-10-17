@@ -172,6 +172,10 @@ async function restoreThroughLiveCopy(args: {
       persist: async (tx) => {
         const db = drizzleOverExec(tx);
         const committed = persistedContentBodyCommit(tx);
+        // A commit can change the live copy and derive the same body; it
+        // records no History row, so the title records its own.
+        const bodyRecorded =
+          committed !== undefined && committed.before !== committed.after;
         // guard:allow-unscoped — reads the page row this transaction locked.
         const [row] = await db
           .select()
@@ -221,7 +225,7 @@ async function restoreThroughLiveCopy(args: {
             organizationIds,
             databaseId: lockedDatabaseId,
           });
-          if (!committed) {
+          if (!bodyRecorded) {
             await recordDocumentHistoryTransition({
               db,
               ownerEmail,

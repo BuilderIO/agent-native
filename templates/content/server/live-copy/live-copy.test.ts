@@ -2319,6 +2319,60 @@ describe("a version restore on a switched page", () => {
     expect(await lastHistoryTitle("restore-files-title")).toBe("Untitled");
   });
 
+  it("records a title-only restore whose commit changes the live copy but not the body", async () => {
+    const body = "Read [the guide](https://example.com)";
+    await switchedPage("restore-title-relink", body);
+    await serverEdit("restore-title-relink", "Other body");
+    const versionId = await versionHolding("restore-title-relink", body);
+    await serverEdit("restore-title-relink", body);
+    // The Markdown doesn't carry a link's class, so the restore's rebuild
+    // resets the tab's and commits a live copy that derives the same body.
+    const update = await editorUpdate("restore-title-relink", [
+      {
+        type: "paragraph",
+        content: [
+          { type: "text", text: "Read " },
+          {
+            type: "text",
+            text: "the guide",
+            marks: [
+              {
+                type: "link",
+                attrs: { href: "https://example.com", class: "tab-link" },
+              },
+            ],
+          },
+        ],
+      },
+    ]);
+    await asOwner(() => collab.applyUpdate("restore-title-relink", update));
+    expect((await page("restore-title-relink")).content).toBe(body);
+    await rename("restore-title-relink", "Renamed");
+    const before = await metadata("restore-title-relink");
+    const version = await collabVersion("restore-title-relink");
+
+    const restored = await restore(
+      "restore-title-relink",
+      versionId,
+      before.updatedAt,
+    );
+
+    expect(restored).toMatchObject({
+      title: "restore-title-relink",
+      content: body,
+      bodyRevision: before.bodyRevision,
+    });
+    expect(await collabVersion("restore-title-relink")).toBe(version! + 1);
+    const rows = await history("restore-title-relink");
+    expect(rows[rows.length - 1]).toMatchObject({
+      operation: "restore-document-version",
+      content: body,
+    });
+    expect(await lastHistoryTitle("restore-title-relink")).toBe(
+      "restore-title-relink",
+    );
+  });
+
   it("refuses a restore prepared before the page changed, and commits nothing", async () => {
     await switchedPage("restore-stale", "First draft");
     await serverEdit("restore-stale", "Second draft");
