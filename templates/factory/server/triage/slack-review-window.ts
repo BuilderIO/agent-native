@@ -2,7 +2,7 @@ export function isClaimedSlackReactionName(
   name: string | null | undefined,
 ): boolean {
   const normalized = name?.trim().toLowerCase();
-  return normalized === "eyes" || normalized === "robot_face";
+  return normalized === "eyes";
 }
 
 export function dispatchSkipPreservesItemStatus(status: string): boolean {

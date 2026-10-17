@@ -63,12 +63,6 @@ function takePersistedFinalizingResult(): NativeUploadFinished | null {
   }
 }
 
-/**
- * Compact bottom-left feedback window. Rendered the moment the user clicks
- * Stop and kept visible while the desktop finishes its durable backup and
- * first upload/finalize attempt. The browser can open `/r/:id` earlier so the
- * page shows live progress.
- */
 export function Finalizing() {
   const [progress, setProgress] = useState<ProcessingProgress>({
     stage: "finalizing",
@@ -233,9 +227,11 @@ export function Finalizing() {
   };
   const openClip = () => {
     if (!progress.viewUrl) return;
-    void openExternal(progress.viewUrl).catch((err) => {
-      console.error("[clips-finalizing] open clip failed:", err);
-    });
+    void openExternal(progress.viewUrl)
+      .then(() => invoke("hide_finalizing"))
+      .catch((err) => {
+        console.error("[clips-finalizing] open clip failed:", err);
+      });
   };
 
   return (

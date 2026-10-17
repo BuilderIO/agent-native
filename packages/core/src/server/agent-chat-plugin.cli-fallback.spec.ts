@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { normalizeShellArgs } from "../scripts/parse-args.js";
+
 describe("agent-chat-plugin CLI fallback action runner safety", () => {
   it("rejects invalid action names containing path traversal or shell metacharacters", async () => {
     const bashEntry = { run: vi.fn() };
@@ -10,43 +12,12 @@ describe("agent-chat-plugin CLI fallback action runner safety", () => {
         }
         const tokens: string[] = [];
         if (typeof input?.args === "string" && input.args.trim()) {
-          let current = "";
-          let inSingle = false;
-          let inDouble = false;
-          let escape = false;
-          for (let i = 0; i < input.args.length; i++) {
-            const char = input.args[i];
-            if (escape) {
-              current += char;
-              escape = false;
-              continue;
-            }
-            if (char === "\\") {
-              if (inSingle) {
-                current += char;
-              } else {
-                escape = true;
-              }
-              continue;
-            }
-            if (char === "'" && !inDouble) {
-              inSingle = !inSingle;
-              continue;
-            }
-            if (char === '"' && !inSingle) {
-              inDouble = !inDouble;
-              continue;
-            }
-            if (/\s/.test(char) && !inSingle && !inDouble) {
-              if (current.length > 0) {
-                tokens.push(current);
-                current = "";
-              }
-              continue;
-            }
-            current += char;
-          }
-          if (current.length > 0) tokens.push(current);
+          tokens.push(
+            ...normalizeShellArgs(input.args, {
+              backslashEscapes: true,
+              splitAllWhitespace: true,
+            }),
+          );
         }
 
         const BLOCKED_OPERATORS = new Set([
@@ -81,7 +52,6 @@ describe("agent-chat-plugin CLI fallback action runner safety", () => {
 
     const validRunner = buildFallbackRunner("my-action");
 
-    // Rejects shell operators
     expect(await validRunner({ args: "; rm -rf /" })).toBe(
       "Error: shell operators are not permitted in action arguments",
     );
@@ -92,10 +62,20 @@ describe("agent-chat-plugin CLI fallback action runner safety", () => {
     );
     expect(bashEntry.run).not.toHaveBeenCalled();
 
-    // Properly quotes normal and special string args
     await validRunner({ args: "--message=\"hello world\" --user='alice'" });
     expect(bashEntry.run).toHaveBeenCalledWith({
       command: "pnpm action my-action '--message=hello world' '--user=alice'",
+    });
+
+    const content = "---\nname: spell-check\n---\n# Spell check";
+    await validRunner({ args: `--content '${content}' --verbose` });
+    expect(bashEntry.run).toHaveBeenLastCalledWith({
+      command: `pnpm action my-action '--content=${content}' '--verbose'`,
+    });
+
+    await validRunner({ args: "--content --verbose" });
+    expect(bashEntry.run).toHaveBeenLastCalledWith({
+      command: "pnpm action my-action '--content' '--verbose'",
     });
   });
 });

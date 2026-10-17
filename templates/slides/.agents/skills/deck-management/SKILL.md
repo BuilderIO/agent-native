@@ -78,9 +78,13 @@ Never write the `decks` table directly -- no `db-exec` (this app has no such
 action), no raw SQL. Every write goes through an action so ids, access checks,
 `notifyClients` events, and version snapshots stay correct.
 
-- `create-deck` -- create a deck (the agent's only creation path; `add-deck`
-  is the browser editor's optimistic client-id flow and is hidden from the
-  agent)
+- `create-deck` -- create a deck for generation; `add-deck` is the browser
+  editor's optimistic client-id flow and is hidden from the agent
+- `list-deck-templates` / `get-deck-template` -- browse built-in starters or
+  read their complete editable slide HTML (`content`) and speaker notes
+- `create-deck-from-template` -- copy a starter into a new deck without AI,
+  provider setup, or a default design system; optional `newId` retries the
+  same owner/org/template/title request without overwriting subsequent edits
 - `add-slide` -- append one slide
 - `update-slide` -- edit one slide (see `slide-editing`)
 - `patch-deck` -- delete/reorder slides, deck-wide or multi-slide changes
@@ -97,6 +101,35 @@ slides do not clobber each other.
 3. **Slide IDs within a deck are stable** -- used for referencing specific slides
 4. **The `data` column is the full source of truth** -- title is duplicated at the top level for listing queries
 5. **SSE events** (`source: "resources"`) fire when decks change, keeping the UI in sync
+
+## Google Slides Export Availability
+
+Two different things are both called "Google Slides export":
+
+- The `export-google-slides` **action** builds a PPTX and hands back a download
+  URL plus the File → Import dialog URL. It never touches OAuth, so it keeps
+  working no matter what state the Google connection is in.
+- The editor's **"Export to Google Slides" menu item** uploads that PPTX to the
+  user's Drive so Drive converts it into a native deck. That needs Google OAuth,
+  and starting it is a top-level navigation away from the editor.
+
+Because the consent screen lives on Google's domain, a Google-side
+misconfiguration (an unregistered redirect URI, a deleted client) is invisible
+to the app once the user has left. `server/lib/google-oauth-preflight.ts` asks
+Google up front whether it would accept the authorization request, and
+`/_agent-native/google-docs/status` reports the verdict as `googleSlidesExport`.
+When it is `available: false` the menu item is disabled and badged Unavailable
+rather than sending the user to an error page they cannot act on.
+
+The probe has three outcomes, not two. `unknown` means the probe reached no
+verdict, and it must never be reported as a pass: the export stays enabled,
+because hiding a working export on a failed probe is worse than the bug the gate
+prevents. Only an explicit rejection from Google disables the item.
+
+`reason: "oauth-rejected"` is not a user problem and not something the app can
+fix — the redirect URI has to be registered in the Google Cloud Console for the
+deployment's own origin (`https://<host>/_agent-native/google/callback`). Point
+users at the PPTX export and Google Slides' File → Import meanwhile.
 
 ## PDF Round Trip
 

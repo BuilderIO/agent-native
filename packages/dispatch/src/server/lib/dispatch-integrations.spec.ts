@@ -526,6 +526,51 @@ describe("beforeDispatchProcess", () => {
 });
 
 describe("managed Slack execution identity", () => {
+  it("uses an explicit identity link for a manually configured Slack app", async () => {
+    mocks.resolveLinkedOwner.mockResolvedValueOnce("dev@local.test");
+    const incoming = slackIncoming({
+      senderId: "U-LINKED",
+      senderEmail: "Alice@Example.Test",
+      senderVerified: true,
+      actorTrust: { memberType: "member", verified: true },
+      triggerKind: "dm",
+      conversationType: "dm",
+      platformContext: { teamId: "T-MANUAL", channelId: "D-MANUAL" },
+    });
+
+    await expect(resolveDispatchExecutionContext(incoming)).resolves.toEqual({
+      ownerEmail: "dev@local.test",
+      orgId: null,
+      principalType: "user",
+    });
+    expect(mocks.resolveLinkedOwner).toHaveBeenCalledWith(
+      "slack",
+      "T-MANUAL:U-LINKED",
+      { allowAnyOrgFallback: true },
+    );
+    expect(incoming.platformContext.identityLinkRequired).toBeUndefined();
+  });
+
+  it("uses an adapter-verified member when the manually configured Slack app has no managed installation", async () => {
+    mocks.resolveOrgIdForEmail.mockResolvedValueOnce("org-verified");
+    const incoming = slackIncoming({
+      senderId: "U-VERIFIED",
+      senderEmail: "Alice@Example.Test",
+      senderVerified: true,
+      actorTrust: { memberType: "member", verified: true },
+      triggerKind: "dm",
+      conversationType: "dm",
+      platformContext: { teamId: "T-MANUAL", channelId: "D-MANUAL" },
+    });
+
+    await expect(resolveDispatchExecutionContext(incoming)).resolves.toEqual({
+      ownerEmail: "alice@example.test",
+      orgId: "org-verified",
+      principalType: "user",
+    });
+    expect(incoming.platformContext.identityVerificationFailed).toBeUndefined();
+  });
+
   it("fails closed when no managed installation matches a Slack DM", async () => {
     vi.stubEnv("DISPATCH_DEFAULT_OWNER_EMAIL", "deployment-owner@example.test");
     const incoming = slackIncoming({

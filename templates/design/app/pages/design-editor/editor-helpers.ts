@@ -1,5 +1,5 @@
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
-import { buildSignInReturnHref } from "@agent-native/core/client/ui";
+import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
 import { buildCodeLayerProjection } from "@shared/code-layer";
 
 import type { ElementInfo } from "@/components/design/types";
@@ -8,10 +8,12 @@ import type {
   PostAuthDesignIntent,
   RuntimeLayerSnapshot,
 } from "@/pages/design-editor/command-types";
+import {
+  measureAbsoluteSiblingVisualOrigin,
+  measurePositionCoordinateContext,
+  positionCoordinateRenderOffsetForWindow,
+} from "@/pages/design-editor/position-coordinate-context";
 
-// Selection is tab-scoped (like navigation) so a second editor tab cannot
-// overwrite this tab's selection context. The global key is mirrored as a
-// fallback for CLI/external agents that do not send a browser tab id.
 export function designSelectionStateKeys(): string[] {
   return designSelectionStateKeysForTab(getBrowserTabId());
 }
@@ -21,26 +23,76 @@ export function runtimeMultiplicityForElementProvenance(
   info: ElementInfo | null | undefined,
 ): number {
   const provenance = info?.provenance;
-  if (!provenance?.sourceFile || !provenance.line || !provenance.column) {
+  const runtimeComponent = info?.runtimeComponent;
+  const hasInvocationProvenance = Boolean(
+    runtimeComponent?.sourceFile &&
+    runtimeComponent.line &&
+    runtimeComponent.column,
+  );
+  const sourceFile = hasInvocationProvenance
+    ? runtimeComponent?.sourceFile
+    : provenance?.sourceFile;
+  const line = hasInvocationProvenance
+    ? runtimeComponent?.line
+    : provenance?.line;
+  const column = hasInvocationProvenance
+    ? runtimeComponent?.column
+    : provenance?.column;
+  const componentName = hasInvocationProvenance
+    ? runtimeComponent?.name
+    : provenance?.component;
+  if (!sourceFile || !line || !column) {
     return 1;
   }
   let count = 0;
+  const invocationKeys = hasInvocationProvenance
+    ? new Set<string>()
+    : undefined;
   for (const snapshot of Object.values(snapshots)) {
     const projection = buildCodeLayerProjection(snapshot.html);
     for (const node of projection.nodes) {
       const attrs = node.dataAttributes;
       if (
-        attrs["data-source-file"] === provenance.sourceFile &&
-        Number(attrs["data-source-line"]) === provenance.line &&
-        Number(attrs["data-source-column"]) === provenance.column &&
-        (!provenance.component ||
-          attrs["data-component-name"] === provenance.component)
+        hasInvocationProvenance &&
+        runtimeComponent?.componentId &&
+        attrs["data-agent-native-runtime-component-id"] !==
+          runtimeComponent.componentId
       ) {
-        count += 1;
+        continue;
+      }
+      const sourceFileAttribute = hasInvocationProvenance
+        ? "data-source-owner-file"
+        : "data-source-file";
+      const lineAttribute = hasInvocationProvenance
+        ? "data-source-owner-line"
+        : "data-source-line";
+      const columnAttribute = hasInvocationProvenance
+        ? "data-source-owner-column"
+        : "data-source-column";
+      if (
+        attrs[sourceFileAttribute] === sourceFile &&
+        Number(attrs[lineAttribute]) === line &&
+        Number(attrs[columnAttribute]) === column &&
+        (!componentName || attrs["data-component-name"] === componentName)
+      ) {
+        if (invocationKeys) {
+          invocationKeys.add(
+            JSON.stringify([
+              runtimeComponent?.componentId ?? "",
+              attrs[sourceFileAttribute],
+              attrs[lineAttribute],
+              attrs[columnAttribute],
+              attrs["data-source-owner-key"] ?? "",
+              attrs["data-component-name"] ?? "",
+            ]),
+          );
+        } else {
+          count += 1;
+        }
       }
     }
   }
-  return Math.max(1, count);
+  return Math.max(1, invocationKeys?.size ?? count);
 }
 
 export function buildSignInHrefForDesignIntent(
@@ -54,19 +106,16 @@ export function buildSignInHrefForDesignIntent(
 
 export function buildSignInHrefForComment(): string {
   if (typeof window === "undefined") return buildSignInReturnHref();
-  return buildSignInReturnHref({ returnTo: window.location.pathname });
+  return buildSignInReturnHref({
+    returnTo: `${window.location.pathname}${window.location.search}`,
+  });
 }
 
-/**
- * True only when the incoming (intent-less) selection authoritatively refers to
- * a different element than the committed one (sourceId match wins, else CSS
- * selector). Returns false when identity can't be compared, so a real selection
- * is never dropped.
- */
 export function isSupersededSelectionEcho(
   incoming: ElementInfo,
   current: ElementInfo | null,
 ): boolean {
+  if (incoming.runtimeSourceId?.trim()) return false;
   if (!current) return false;
   const incomingId = incoming.sourceId?.trim();
   const currentId = current.sourceId?.trim();
@@ -123,27 +172,25 @@ export function reloadRunningAppPreviewFrames(): void {
   }
 }
 
-/**
- * A code-layer-derived ElementInfo carries authored inline styles and a zero
- * rect, so the inspector shows 0 for anything the source does not state
- * (hug sizing, in-flow position). Measure the live preview node instead.
- */
 export function withMeasuredGeometry(
   info: ElementInfo,
   screenId?: string,
+  options?: {
+    measureAbsoluteSiblingVisualOrigin?: boolean;
+    previewIframe?: HTMLIFrameElement;
+  },
 ): ElementInfo {
-  const rect = info.boundingRect;
-  if (rect && (rect.width > 0 || rect.height > 0)) return info;
   if (typeof document === "undefined") return info;
   const selector = info.runtimeSelector ?? info.selector;
   if (!selector) return info;
-  // Selectors and stamped ids are per-screen, so an unscoped scan can measure
-  // identical markup on a different screen.
-  const owning = screenId
-    ? document.querySelector<HTMLIFrameElement>(
-        `iframe[data-design-preview-iframe][data-screen-iframe-id="${CSS.escape(screenId)}"]`,
-      )
-    : null;
+  const owning =
+    options?.previewIframe ??
+    (screenId
+      ? document.querySelector<HTMLIFrameElement>(
+          `iframe[data-design-preview-iframe][data-screen-iframe-id="${CSS.escape(screenId)}"]`,
+        )
+      : null);
+  if (screenId && !owning) return info;
   const frames = owning
     ? [owning]
     : Array.from(
@@ -159,25 +206,133 @@ export function withMeasuredGeometry(
       node = null;
     }
     if (!node) continue;
-    const box = node.getBoundingClientRect();
-    if (box.width <= 0 && box.height <= 0) continue;
+    const rect = node.getBoundingClientRect();
+    let box = {
+      x: rect.x,
+      y: rect.y,
+      width: rect.width,
+      height: rect.height,
+    };
+    if (node.getAttribute("data-an-primitive") === "boolean-operand") {
+      const geometry = node as SVGGraphicsElement;
+      const bounds = geometry.getBBox?.();
+      const matrix = geometry.getScreenCTM?.();
+      if (bounds && matrix) {
+        const points: [number, number][] = [
+          [bounds.x, bounds.y],
+          [bounds.x + bounds.width, bounds.y],
+          [bounds.x, bounds.y + bounds.height],
+          [bounds.x + bounds.width, bounds.y + bounds.height],
+        ];
+        const xs = points.map(
+          ([x, y]) => matrix.a * x + matrix.c * y + matrix.e,
+        );
+        const ys = points.map(
+          ([x, y]) => matrix.b * x + matrix.d * y + matrix.f,
+        );
+        const left = Math.min(...xs);
+        const top = Math.min(...ys);
+        box = {
+          x: left,
+          y: top,
+          width: Math.max(...xs) - left,
+          height: Math.max(...ys) - top,
+        };
+      }
+    }
+    if (
+      !options?.measureAbsoluteSiblingVisualOrigin &&
+      box.width <= 0 &&
+      box.height <= 0
+    ) {
+      continue;
+    }
+    const parent =
+      node.getAttribute("data-an-primitive") === "boolean-operand"
+        ? (node.closest('svg[data-an-primitive="boolean"]') ??
+          node.parentElement)
+        : node.parentElement;
+    const parentBox = parent?.getBoundingClientRect();
+    const view = frame.contentWindow;
+    const renderOffset = view
+      ? positionCoordinateRenderOffsetForWindow(view)
+      : null;
+    const positionCoordinateContext =
+      view && renderOffset
+        ? measurePositionCoordinateContext(node, view, renderOffset)
+        : undefined;
+    const absoluteSiblingVisualOrigin =
+      options?.measureAbsoluteSiblingVisualOrigin && view && renderOffset
+        ? measureAbsoluteSiblingVisualOrigin(node, view, renderOffset)
+        : undefined;
+    if (!positionCoordinateContext && !absoluteSiblingVisualOrigin) return info;
+    const scrollX = view?.scrollX ?? 0;
+    const scrollY = view?.scrollY ?? 0;
     const computed = frame.contentWindow?.getComputedStyle(node);
     return {
       ...info,
       boundingRect: {
-        x: box.x,
-        y: box.y,
+        x: box.x + scrollX,
+        y: box.y + scrollY,
         width: box.width,
         height: box.height,
       },
+      parentBoundingRect: parentBox
+        ? {
+            x: parentBox.x + scrollX,
+            y: parentBox.y + scrollY,
+            width: parentBox.width,
+            height: parentBox.height,
+          }
+        : undefined,
+      ...(positionCoordinateContext ?? {}),
+      ...(absoluteSiblingVisualOrigin ? { absoluteSiblingVisualOrigin } : {}),
       computedStyles: computed
         ? {
+            color: computed.color,
+            fontFamily: computed.fontFamily,
+            fontSize: computed.fontSize,
+            fontStyle: computed.fontStyle,
+            fontWeight: computed.fontWeight,
+            letterSpacing: computed.letterSpacing,
+            lineHeight: computed.lineHeight,
+            textAlign: computed.textAlign,
+            textDecorationLine: computed.textDecorationLine,
+            textTransform: computed.textTransform,
+            ...info.computedStyles,
             width: computed.width,
             height: computed.height,
-            ...info.computedStyles,
           }
         : info.computedStyles,
     };
   }
   return info;
+}
+
+// For state setters fed by bridge echoes and re-measurements: returning the
+// previous object when nothing changed keeps the whole editor from re-rendering.
+export function samePlainData(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) return true;
+  if (
+    typeof a !== "object" ||
+    typeof b !== "object" ||
+    a === null ||
+    b === null ||
+    Array.isArray(a) !== Array.isArray(b)
+  ) {
+    return false;
+  }
+  // An undefined field and a missing one serialize the same, and merges produce both.
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  for (const key of keys) {
+    if (
+      !samePlainData(
+        (a as Record<string, unknown>)[key],
+        (b as Record<string, unknown>)[key],
+      )
+    ) {
+      return false;
+    }
+  }
+  return true;
 }

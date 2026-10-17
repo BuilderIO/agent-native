@@ -41,6 +41,7 @@ describe("agent chat context policy guard", () => {
 
     assert.deepEqual(policy?.errors, []);
     assert.equal(policy?.starterToolCount, 2);
+    assert.deepEqual(policy?.starterToolNames, ["view-screen", "navigate"]);
   });
 
   it("rejects dynamic or oversized starter catalogs", () => {

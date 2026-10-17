@@ -3,6 +3,36 @@
 All notable user-facing changes to Agent-Native Forms are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-10-05
+
+### Fixed
+
+- Reviewers can review responses while form editing and deletion respect their assigned team role.
+
+## 2026-10-01
+
+### Improved
+
+- Forms opens with its chat layout skeleton while the home route redirects
+
+## 2026-09-27
+
+### Improved
+
+- Forms keeps newly added follow-up questions and actionable response signals visible in chat.
+
+## 2026-09-15
+
+### Fixed
+
+- Asking the agent for a second, unrelated form now creates a separate form instead of overwriting the one already open in the chat.
+
+## 2026-09-12
+
+### Fixed
+
+- Creating a form no longer dead-ends when a field is missing its type; the agent is told exactly which field and which property to correct.
+
 ## 2026-08-25
 
 ### Fixed

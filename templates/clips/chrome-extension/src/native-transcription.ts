@@ -82,9 +82,6 @@ export function createNativeTranscriptionCapture(options?: {
   let paused = false;
   let disposed = false;
   let failureReason = unsupportedReason;
-  // Kept apart from `failureReason`: a failed `start()` attempt loses no
-  // audio once a later attempt succeeds, whereas `failureReason` records
-  // speech that was actually dropped and must survive a recovery.
   let restartStartFailure: string | null = null;
   let restartTimer: ReturnType<typeof setTimeout> | null = null;
   let restartFailures = 0;
@@ -94,9 +91,6 @@ export function createNativeTranscriptionCapture(options?: {
 
   const result = (): NativeTranscriptResult => {
     const text = appendTranscript(finalText, interimText).trim();
-    // Captured text does not clear a failure: a capture that died mid-recording
-    // still has to be re-transcribed in the cloud, and the reason is the only
-    // signal the server has that this transcript is truncated.
     return {
       text,
       failureReason:
@@ -129,22 +123,16 @@ export function createNativeTranscriptionCapture(options?: {
       try {
         recognition.start();
         restartFailures = 0;
-        // The engine recovered, so a failed start attempt is no longer the
-        // transcript's outcome. `failureReason` is deliberately NOT cleared:
-        // it records audio that was actually dropped, which a restart cannot
-        // recover.
         restartStartFailure = null;
       } catch (error) {
         restartStartFailure =
           error instanceof Error
             ? `Chrome Web Speech recognition could not restart: ${error.message}`
             : "Chrome Web Speech recognition could not restart.";
-        // Nothing started, so no `onend` will arrive to schedule the next try.
         restartFailures += 1;
         if (restartFailures < MAX_RESTART_ATTEMPTS) {
           scheduleRestart(RESTART_DELAY_MS * restartFailures);
         } else {
-          // Out of retries: the gap is permanent, so it stops being transient.
           failureReason = failureReason || restartStartFailure;
         }
       }
@@ -258,11 +246,6 @@ export function createNativeTranscriptionCapture(options?: {
     try {
       recognition.start();
     } catch {
-      // Chrome throws a transient InvalidStateError if the previous session has
-      // not finished tearing down. Nothing started, so no `onend` will arrive to
-      // drive the bounded retry loop — schedule it here or transcription stays
-      // dead for the rest of the recording. The gap is recorded durably because
-      // audio is already live: `paused` is false above.
       failureReason =
         failureReason || "Chrome Web Speech recognition could not resume.";
       scheduleRestart();

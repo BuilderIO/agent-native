@@ -23,7 +23,7 @@ export interface ExcalidrawData {
 }
 
 interface ExcalidrawSlideProps {
-  initialData?: string; // JSON string of ExcalidrawData
+  initialData?: string;
   onChange?: (data: string) => void;
   readOnly?: boolean;
 }
@@ -119,10 +119,6 @@ export function ExcalidrawSlide({
   );
 }
 
-/**
- * Static SVG export for thumbnails — much lighter than rendering
- * the full Excalidraw component.
- */
 export function ExcalidrawThumbnail({ data }: { data: string }) {
   const [svg, setSvg] = useState<string>("");
   const [renderState, setRenderState] = useState<"pending" | "ready" | "error">(
@@ -153,11 +149,6 @@ export function ExcalidrawThumbnail({ data }: { data: string }) {
           },
           files: parsed.files || {},
         });
-        // Excalidraw `exportToSvg` is generally safe for canonical elements,
-        // but slide.excalidrawData is raw user/agent input and the deck is
-        // public-shareable. Sanitize SVG output before injecting via
-        // dangerouslySetInnerHTML to neutralise foreignObject scripts,
-        // javascript: hrefs, and event-handler attributes.
         const sanitized = DOMPurify.sanitize(svgEl.outerHTML, {
           USE_PROFILES: { svg: true, svgFilters: true },
         });

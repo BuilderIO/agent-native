@@ -21,6 +21,7 @@ type NavItemConfig = {
   id: string;
   labelKey: keyof typeof enUS.nav;
   slug?: string;
+  anchor?: string;
   draft?: boolean;
   children?: NavItemConfig[];
 };
@@ -40,6 +41,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         id: "getting-started",
         labelKey: "gettingStarted",
         slug: "getting-started",
+      },
+      {
+        id: "create-with-an-agent",
+        labelKey: "createWithAgent",
+        slug: "create-with-an-agent",
       },
       {
         id: "what-is-agent-native",
@@ -98,9 +104,14 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             slug: "cloudflare",
           },
           {
-            id: "aws-lambda",
-            labelKey: "deploymentAwsLambda",
-            slug: "aws-lambda",
+            id: "render",
+            labelKey: "deploymentRender",
+            slug: "render",
+          },
+          {
+            id: "koyeb",
+            labelKey: "deploymentKoyeb",
+            slug: "koyeb",
           },
           {
             id: "deno-deploy",
@@ -113,14 +124,14 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             slug: "azure-static-web-apps",
           },
           {
-            id: "koyeb",
-            labelKey: "deploymentKoyeb",
-            slug: "koyeb",
+            id: "aws-lambda",
+            labelKey: "deploymentAwsLambda",
+            slug: "aws-lambda",
           },
           {
-            id: "render",
-            labelKey: "deploymentRender",
-            slug: "render",
+            id: "aws-amplify",
+            labelKey: "deploymentAwsAmplify",
+            slug: "aws-amplify",
           },
         ],
       },
@@ -182,9 +193,6 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
   {
     id: "apps",
     titleKey: "templatesSection",
-    // Do not add new templates here directly. The public-facing template list
-    // is the strict allow-list in `packages/shared-app-config/templates.ts`
-    // (entries with `hidden: false`). The CI guard enforces this.
     items: [
       {
         id: "cloneable-saas",
@@ -345,19 +353,19 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             slug: "template-slides",
           },
           {
+            id: "template-slides-features",
+            labelKey: "slidesFeatures",
+            slug: "template-slides-features",
+          },
+          {
             id: "template-slides-agent",
             labelKey: "slidesAgent",
             slug: "template-slides-agent",
           },
           {
-            id: "template-slides-editing",
-            labelKey: "slidesEditing",
-            slug: "template-slides-editing",
-          },
-          {
-            id: "template-slides-design-and-media",
-            labelKey: "slidesDesignAndMedia",
-            slug: "template-slides-design-and-media",
+            id: "template-slides-integrations",
+            labelKey: "slidesIntegrations",
+            slug: "template-slides-integrations",
           },
           {
             id: "template-slides-developers",
@@ -438,19 +446,24 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             slug: "template-clips",
           },
           {
-            id: "template-clips-capture-everywhere",
-            labelKey: "clipsCaptureEverywhere",
-            slug: "template-clips-capture-everywhere",
+            id: "template-clips-features",
+            labelKey: "clipsFeatures",
+            slug: "template-clips-features",
           },
           {
-            id: "template-clips-ai-and-editing",
-            labelKey: "clipsAiAndEditing",
-            slug: "template-clips-ai-and-editing",
+            id: "template-clips-embed",
+            labelKey: "clipsEmbed",
+            slug: "template-clips-embed",
           },
           {
-            id: "template-clips-sharing-and-teams",
-            labelKey: "clipsSharingAndTeams",
-            slug: "template-clips-sharing-and-teams",
+            id: "template-clips-agent",
+            labelKey: "clipsAgent",
+            slug: "template-clips-agent",
+          },
+          {
+            id: "template-clips-integrations",
+            labelKey: "clipsIntegrations",
+            slug: "template-clips-integrations",
           },
           {
             id: "template-clips-developers",
@@ -500,19 +513,19 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             slug: "template-design",
           },
           {
-            id: "template-design-quality-and-components",
-            labelKey: "designQualityAndComponents",
-            slug: "template-design-quality-and-components",
+            id: "template-design-features",
+            labelKey: "designFeatures",
+            slug: "template-design-features",
           },
           {
-            id: "template-design-brand-and-figma",
-            labelKey: "designBrandAndFigma",
-            slug: "template-design-brand-and-figma",
+            id: "template-design-agent",
+            labelKey: "designAgent",
+            slug: "template-design-agent",
           },
           {
-            id: "template-design-collaboration-and-full-apps",
-            labelKey: "designCollaborationAndFullApps",
-            slug: "template-design-collaboration-and-full-apps",
+            id: "template-design-integrations",
+            labelKey: "designIntegrations",
+            slug: "template-design-integrations",
           },
           {
             id: "template-design-developers",
@@ -531,24 +544,29 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             slug: "template-dispatch",
           },
           {
-            id: "template-dispatch-messaging-routing",
-            labelKey: "dispatchMessagingRouting",
-            slug: "template-dispatch-messaging-routing",
+            id: "template-dispatch-features",
+            labelKey: "dispatchFeatures",
+            slug: "template-dispatch-features",
           },
           {
-            id: "template-dispatch-operations",
-            labelKey: "dispatchOperations",
-            slug: "template-dispatch-operations",
+            id: "template-dispatch-agent",
+            labelKey: "dispatchAgent",
+            slug: "template-dispatch-agent",
           },
           {
-            id: "template-dispatch-vault-integrations",
-            labelKey: "dispatchVaultIntegrations",
-            slug: "template-dispatch-vault-integrations",
+            id: "template-dispatch-integrations",
+            labelKey: "dispatchIntegrations",
+            slug: "template-dispatch-integrations",
           },
           {
             id: "template-dispatch-developers",
             labelKey: "dispatchDevelopers",
             slug: "template-dispatch-developers",
+          },
+          {
+            id: "template-dispatch-reference",
+            labelKey: "dispatchReference",
+            slug: "template-dispatch-reference",
           },
         ],
       },
@@ -741,6 +759,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         slug: "organizations-teams-permissions",
       },
       {
+        id: "administered-deployments",
+        labelKey: "administeredDeployments",
+        slug: "administered-deployments",
+      },
+      {
         id: "security",
         labelKey: "securityDataScoping",
         slug: "security",
@@ -758,6 +781,7 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         slug: "doctor",
       },
       { id: "observability", labelKey: "observability", slug: "observability" },
+      { id: "recorder", labelKey: "recorder", slug: "recorder" },
       {
         id: "observational-memory",
         labelKey: "observationalMemory",
@@ -794,6 +818,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         slug: "native-chat-ui",
       },
       {
+        id: "agentkit",
+        labelKey: "agentkit",
+        slug: "agentkit",
+      },
+      {
         id: "generative-ui",
         labelKey: "generativeUi",
         slug: "generative-ui",
@@ -825,6 +854,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         slug: "writing-agent-instructions",
       },
       { id: "skills-guide", labelKey: "skills", slug: "skills-guide" },
+      {
+        id: "turn-into-app",
+        labelKey: "turnIntoApp",
+        slug: "turn-into-app",
+      },
       {
         id: "agent-teams",
         labelKey: "customAgentsTeams",
@@ -931,21 +965,6 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         slug: "agent-native-toolkit",
       },
       {
-        id: "toolkit-ui",
-        labelKey: "toolkitUiPrimitives",
-        slug: "toolkit-ui",
-      },
-      {
-        id: "toolkit-editors-canvases",
-        labelKey: "toolkitEditorsCanvases",
-        slug: "toolkit-editors-canvases",
-      },
-      {
-        id: "toolkit-context-knowledge",
-        labelKey: "toolkitContextKnowledge",
-        slug: "toolkit-context-knowledge",
-      },
-      {
         id: "toolkit-feature-kits",
         labelKey: "featureKits",
         children: [
@@ -973,6 +992,12 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             id: "toolkit-observability",
             labelKey: "toolkitObservability",
             slug: "toolkit-observability",
+          },
+          {
+            id: "toolkit-dashboard",
+            labelKey: "toolkitDashboard",
+            slug: "agent-native-toolkit",
+            anchor: "dashboard-kit",
           },
         ],
       },
@@ -1010,6 +1035,23 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             labelKey: "toolkitAgentUx",
             slug: "toolkit-agent-ux",
           },
+          {
+            id: "toolkit-chat-history",
+            labelKey: "toolkitChatHistory",
+            slug: "toolkit-agent-ux",
+            anchor: "chat-history",
+          },
+          {
+            id: "toolkit-agent-page",
+            labelKey: "toolkitAgentPage",
+            slug: "agent-surfaces",
+            anchor: "agent-page",
+          },
+          {
+            id: "toolkit-notifications",
+            labelKey: "toolkitNotifications",
+            slug: "notifications",
+          },
         ],
       },
       {
@@ -1025,6 +1067,32 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             id: "package-lifecycle",
             labelKey: "packageLifecycle",
             slug: "package-lifecycle",
+          },
+          {
+            id: "versioning-and-stability",
+            labelKey: "versioningAndStability",
+            slug: "versioning-and-stability",
+          },
+        ],
+      },
+      {
+        id: "toolkit-foundations",
+        labelKey: "toolkitFoundations",
+        children: [
+          {
+            id: "toolkit-ui",
+            labelKey: "toolkitUiPrimitives",
+            slug: "toolkit-ui",
+          },
+          {
+            id: "toolkit-editors-canvases",
+            labelKey: "toolkitEditorsCanvases",
+            slug: "toolkit-editors-canvases",
+          },
+          {
+            id: "toolkit-context-knowledge",
+            labelKey: "toolkitContextKnowledge",
+            slug: "toolkit-context-knowledge",
           },
         ],
       },
@@ -1089,9 +1157,6 @@ function navLabel(t: Translate, key: keyof typeof enUS.nav): string {
 
 const SHOW_DRAFTS = import.meta.env.VITE_SHOW_DRAFTS === "true";
 
-// Keep Toolkit directly after deployment, and the public template catalog
-// after the framework guidance so readers encounter architecture and reusable
-// primitives before app examples.
 const NAV_SECTION_CONFIG_IN_DISPLAY_ORDER = (() => {
   const appsSection = NAV_SECTION_CONFIG.find(
     (section) => section.id === "apps",
@@ -1125,7 +1190,10 @@ function toNavItem(
   return {
     id: config.id,
     label: navLabel(t, config.labelKey),
-    to: slug ? docsPathForSlug(slug, locale) : undefined,
+    to: slug
+      ? docsPathForSlug(slug, locale) +
+        (config.anchor ? "#" + config.anchor : "")
+      : undefined,
     draft: config.draft || undefined,
     children,
   };
@@ -1145,17 +1213,10 @@ export function getDocsNavSections(
   })).filter((section) => section.items.length > 0);
 }
 
-// Flat list for prev/next navigation and current-item lookups. Nested
-// children (e.g. the plan docs under the Plans group, or the Toolkit
-// "Feature Kits" / "App Chrome" groups) are flattened in place where their
-// parent sits; chevron-only group headers (no `to`) are skipped so reading
-// order stays intuitive and prev/next only lands on real pages.
 function flattenItems(items: NavItem[]): NavItem[] {
   return items.flatMap((item) =>
     item.children
-      ? // A group header has no `to`; keep only real pages in the flat
-        // prev/next list so navigation never targets a non-page.
-        [...(item.to ? [item] : []), ...flattenItems(item.children)]
+      ? [...(item.to ? [item] : []), ...flattenItems(item.children)]
       : [item],
   );
 }

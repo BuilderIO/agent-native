@@ -39,6 +39,12 @@ export function databaseViewSummaries(
 }
 
 export const DATABASE_NAVIGATION_VISIBLE_ITEM_LIMIT = 50;
+export const DATABASE_NAVIGATION_CELL_TEXT_LIMIT = 200;
+/**
+ * Navigation state is rewritten on every table change and read into the
+ * agent's context on every turn.
+ */
+export const DATABASE_NAVIGATION_STATE_MAX_BYTES = 48 * 1024;
 
 export function databaseVisibleItemSummaries(
   items: ContentDatabaseItem[],
@@ -55,15 +61,67 @@ export function databaseVisibleItemSummaries(
         item.properties.find(
           (candidate) => candidate.definition.id === property.definition.id,
         ) ?? property;
+      const text = propertyValueText(itemProperty);
+      const truncated = text.length > DATABASE_NAVIGATION_CELL_TEXT_LIMIT;
+      const value = itemProperty.value;
+      const valueRepeatsText =
+        (value === null || typeof value !== "object") &&
+        String(value ?? "") === text;
       return {
         propertyId: property.definition.id,
         name: property.definition.name,
         type: property.definition.type,
-        value: itemProperty.value,
-        text: propertyValueText(itemProperty),
+        ...(valueRepeatsText ? {} : { value }),
+        text: truncated
+          ? `${text.slice(0, DATABASE_NAVIGATION_CELL_TEXT_LIMIT)}…`
+          : text,
+        ...(truncated ? { textTruncated: true } : {}),
       };
     }),
   }));
+}
+
+function jsonByteLength(value: unknown) {
+  return new TextEncoder().encode(JSON.stringify(value)).length;
+}
+
+export function databaseNavigationStateFitsKeepaliveBudget(value: unknown) {
+  return jsonByteLength(value) <= DATABASE_NAVIGATION_STATE_MAX_BYTES;
+}
+
+/**
+ * Keep the largest row prefix whose state fits the byte budget, and report
+ * the applied cap in `databaseVisibleItemLimit` so a trimmed summary is never
+ * mistaken for the whole visible slice. Rows are the only part that grows
+ * with the collection. The view's own settings stay whole even when they
+ * alone pass the budget: dropping a sort or filter would describe a
+ * different view to the agent.
+ */
+export function fitDatabaseNavigationState<
+  State extends {
+    databaseVisibleItems?: unknown[];
+    databaseSelectedItems?: unknown[];
+    databaseVisibleItemLimit?: number;
+  },
+>(state: State, maxBytes = DATABASE_NAVIGATION_STATE_MAX_BYTES): State {
+  if (jsonByteLength(state) <= maxBytes) return state;
+  const withRowCap = (cap: number): State => ({
+    ...state,
+    databaseVisibleItems: state.databaseVisibleItems?.slice(0, cap),
+    databaseSelectedItems: state.databaseSelectedItems?.slice(0, cap),
+    databaseVisibleItemLimit: cap,
+  });
+  let fits = 0;
+  let tooBig = Math.max(
+    state.databaseVisibleItems?.length ?? 0,
+    state.databaseSelectedItems?.length ?? 0,
+  );
+  while (tooBig - fits > 1) {
+    const cap = Math.floor((fits + tooBig) / 2);
+    if (jsonByteLength(withRowCap(cap)) <= maxBytes) fits = cap;
+    else tooBig = cap;
+  }
+  return withRowCap(fits);
 }
 
 export function databaseNavigationState({
@@ -263,7 +321,10 @@ export function databaseSelectedItems(
 export function databaseBulkEditableProperties(properties: DocumentProperty[]) {
   return properties.filter(
     (property) =>
-      property.editable && !isComputedPropertyType(property.definition.type),
+      property.editable &&
+      !isComputedPropertyType(property.definition.type) &&
+      // Row mutations do not accept relation values yet.
+      property.definition.type !== "relation",
   );
 }
 

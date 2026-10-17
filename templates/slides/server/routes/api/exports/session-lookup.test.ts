@@ -8,6 +8,7 @@ const mockFetch = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/server", () => ({
   getSession: (...args: unknown[]) => mockGetSession(...args),
+  isCredentialMembershipUnavailable: () => false,
   getMcpOAuthBearerSession: vi.fn().mockResolvedValue(null),
   runWithRequestContext: async (_ctx: unknown, fn: () => unknown) => fn(),
   readBody: vi.fn(async () => ({ deckId: "deck-1" })),
@@ -54,11 +55,6 @@ const [
   import("./[filename].get"),
 ]);
 
-// Regression for the same session-lookup bug fixed in
-// request-auth-context.ts: `getSession(event).catch(() => null)` used to
-// collapse a DB blip / cookie race into the same shape a genuine anonymous
-// visitor gets, so every export route returned 401 "Unauthorized" for what
-// was actually a server failure.
 describe.each([
   ["html.post", exportHtml],
   ["pptx.post", exportPptx],

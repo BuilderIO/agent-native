@@ -1,7 +1,16 @@
+// @vitest-environment happy-dom
+
 import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
-import { createElement, type ComponentType } from "react";
+import {
+  act,
+  createElement,
+  type ComponentType,
+  type ReactNode,
+  useState,
+} from "react";
+import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   availableBreakpointPresets,
@@ -13,10 +22,11 @@ import {
   parseBreakpointWidthInput,
 } from "./BreakpointBar";
 
-// Minimal catalog covering only the keys BreakpointDeviceControl reads — see
-// the same convention/rationale note in
-// inspector/BreakpointOverrideIndicator.test.tsx. Full catalog coverage
-// across all 11 locales is verified by `guard:i18n-catalogs`, not here.
+vi.mock("@agent-native/core/client/i18n", () => ({
+  AgentNativeI18nProvider: ({ children }: { children: ReactNode }) => children,
+  useT: () => (key: string) => key.replace("designEditor.breakpointBar.", ""),
+}));
+
 const CATALOG_MESSAGES = {
   designEditor: {
     breakpointBar: {
@@ -58,6 +68,195 @@ function renderControl(
   } as BreakpointDeviceControlProps);
 }
 
+function InteractiveControl({
+  onAdd,
+  onChangeWidth,
+  mutationPending = false,
+  initialBreakpoints = [{ id: "bp-810", label: "Tablet", widthPx: 810 }],
+}: {
+  onAdd: (widthPx: number, label: string) => void;
+  onChangeWidth: (id: string, widthPx: number) => void;
+  mutationPending?: boolean;
+  initialBreakpoints?: Array<{ id: string; label: string; widthPx: number }>;
+}) {
+  const [breakpoints, setBreakpoints] = useState(initialBreakpoints);
+  return (
+    <AgentNativeI18nProvider catalog={{ messages: CATALOG_MESSAGES }}>
+      <BreakpointDeviceControl
+        breakpoints={breakpoints}
+        activeWidthPx={810}
+        canEdit
+        mutationPending={mutationPending}
+        onSelect={() => {}}
+        onAdd={(widthPx, label) => {
+          onAdd(widthPx, label);
+          setBreakpoints((current) => [
+            ...current,
+            { id: `bp-${widthPx}`, label, widthPx },
+          ]);
+        }}
+        onChangeWidth={(id, widthPx) => {
+          onChangeWidth(id, widthPx);
+          setBreakpoints((current) =>
+            current.map((breakpoint) =>
+              breakpoint.id === id ? { ...breakpoint, widthPx } : breakpoint,
+            ),
+          );
+        }}
+      />
+    </AgentNativeI18nProvider>
+  );
+}
+
+function setInputValue(input: HTMLInputElement, value: string) {
+  input.value = value;
+  Object.getOwnPropertyDescriptor(input, "_valueTracker")?.value?.setValue("");
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+  input.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
+function pointerClick(target: HTMLElement) {
+  target.dispatchEvent(
+    new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
+  );
+  target.dispatchEvent(
+    new PointerEvent("pointerup", { bubbles: true, button: 0 }),
+  );
+  target.click();
+}
+
+describe("BreakpointDeviceControl interactions", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    (
+      globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
+    ).IS_REACT_ACT_ENVIRONMENT = true;
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+  });
+
+  afterEach(async () => {
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it("applies a changed width when Enter is pressed in the options menu", async () => {
+    const onAdd = vi.fn();
+    const onChangeWidth = vi.fn();
+    await act(async () =>
+      root.render(
+        <InteractiveControl onAdd={onAdd} onChangeWidth={onChangeWidth} />,
+      ),
+    );
+    await act(async () => {
+      pointerClick(
+        container.querySelector<HTMLButtonElement>('[aria-label="options"]')!,
+      );
+    });
+    const input = document.querySelector<HTMLInputElement>(
+      'input[aria-label="changeWidth"]',
+    )!;
+    await act(async () => {
+      setInputValue(input, "768");
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+
+    expect(onChangeWidth).toHaveBeenCalledWith("bp-810", 768);
+    expect(container.textContent).toContain("768");
+  });
+
+  it("keeps the add popover reachable while a breakpoint is saving", async () => {
+    const onAdd = vi.fn();
+    const onChangeWidth = vi.fn();
+    await act(async () =>
+      root.render(
+        <InteractiveControl
+          initialBreakpoints={[]}
+          mutationPending
+          onAdd={onAdd}
+          onChangeWidth={onChangeWidth}
+        />,
+      ),
+    );
+
+    const addBreakpoint = container.querySelector<HTMLButtonElement>(
+      'button[title="addBreakpoint"]',
+    )!;
+    expect(addBreakpoint.disabled).toBe(false);
+    await act(async () => pointerClick(addBreakpoint));
+
+    expect(
+      document.querySelector<HTMLInputElement>(
+        'input[placeholder="customWidth"]',
+      ),
+    ).not.toBeNull();
+    expect(
+      document.querySelector<HTMLButtonElement>('button[type="submit"]')
+        ?.disabled,
+    ).toBe(true);
+    expect(onAdd).not.toHaveBeenCalled();
+  });
+
+  it("reopens after adding Tablet so another custom breakpoint can be added", async () => {
+    const onAdd = vi.fn();
+    const onChangeWidth = vi.fn();
+    await act(async () =>
+      root.render(
+        <InteractiveControl
+          initialBreakpoints={[]}
+          onAdd={onAdd}
+          onChangeWidth={onChangeWidth}
+        />,
+      ),
+    );
+
+    await act(async () => {
+      pointerClick(
+        container.querySelector<HTMLButtonElement>(
+          'button[title="addBreakpoint"]',
+        )!,
+      );
+    });
+    const tabletPreset = Array.from(
+      document.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((button) => button.textContent?.includes("tablet"));
+    expect(tabletPreset).toBeDefined();
+    await act(async () => tabletPreset!.click());
+
+    await act(async () => {
+      pointerClick(
+        container.querySelector<HTMLButtonElement>(
+          'button[title="addBreakpoint"]',
+        )!,
+      );
+    });
+    const input = document.querySelector<HTMLInputElement>(
+      'input[placeholder="customWidth"]',
+    )!;
+    await act(async () => {
+      setInputValue(input, "700");
+      document
+        .querySelector<HTMLButtonElement>('button[type="submit"]')!
+        .click();
+    });
+
+    expect(onAdd.mock.calls).toEqual([
+      [810, "tablet"],
+      [700, "Tablet"],
+    ]);
+    expect(container.textContent).toContain("700");
+  });
+});
+
 describe("BreakpointDeviceControl — item 8a device icons", () => {
   it("renders a phone icon + width number for a narrow breakpoint segment", () => {
     const markup = renderControl({
@@ -93,14 +292,11 @@ describe("BreakpointDeviceControl — item 8a device icons", () => {
         { id: "bp-810", label: "Tablet", widthPx: 810 },
       ],
     });
-    // Base segment uses IconViewportWide (icon-only, no width shown for it).
     expect(markup).toContain("tabler-icon-viewport-wide");
     const tabletIndex = markup.indexOf("tabler-icon-device-tablet");
     const mobileIndex = markup.indexOf("tabler-icon-device-mobile");
     expect(tabletIndex).toBeGreaterThan(-1);
     expect(mobileIndex).toBeGreaterThan(-1);
-    // Widest-first ordering: the 810 (tablet) segment's icon appears before
-    // the 390 (mobile) segment's icon in source order.
     expect(tabletIndex).toBeLessThan(mobileIndex);
   });
 
@@ -128,8 +324,6 @@ describe("BreakpointDeviceControl — Base segment and selection state", () => {
       breakpoints: [{ id: "bp-1", label: "Tablet", widthPx: 810 }],
       activeWidthPx: 810,
     });
-    // Two aria-pressed="true": none expected on Base (false) and one on the
-    // active breakpoint segment.
     const trueCount = (markup.match(/aria-pressed="true"/g) ?? []).length;
     expect(trueCount).toBe(1);
   });
@@ -138,10 +332,13 @@ describe("BreakpointDeviceControl — Base segment and selection state", () => {
 describe("parseBreakpointWidthInput", () => {
   it("accepts a valid width in range", () => {
     expect(parseBreakpointWidthInput("500", [])).toBe(500);
+    expect(parseBreakpointWidthInput("1e3", [])).toBe(1000);
   });
 
   it("rejects non-numeric input", () => {
     expect(parseBreakpointWidthInput("abc", [])).toBeNull();
+    expect(parseBreakpointWidthInput("500px", [])).toBeNull();
+    expect(parseBreakpointWidthInput("500.5", [])).toBeNull();
   });
 
   it("rejects widths below 320 or above 3840", () => {
@@ -172,8 +369,6 @@ describe("extraBreakpointWidthPresets", () => {
   const allFramerWidths = FRAMER_BREAKPOINT_PRESETS.map((p) => p.widthPx);
 
   it("still offers device widths once every Framer default is used", () => {
-    // The reported gap: with Desktop/Tablet/Phone added, the "+" popover fell
-    // back to a bare number input because the only preset source was empty.
     expect(availableBreakpointPresets(allFramerWidths)).toHaveLength(0);
     expect(extraBreakpointWidthPresets(allFramerWidths).length).toBeGreaterThan(
       0,

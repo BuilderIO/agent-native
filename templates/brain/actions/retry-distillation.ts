@@ -58,8 +58,8 @@ async function writeDistillationRequest(values: {
       `Apply the Brain settings guidance in context. Use ` +
       `get-capture with includeRawContent=true when you need exact quote ` +
       `validation, extract only durable company knowledge with exact ` +
-      `evidence quotes, call write-knowledge for supported entries or ` +
-      `proposals, then call mark-capture-distilled when finished. If the ` +
+      `evidence quotes, call write-knowledge for supported entries, ` +
+      `then call mark-capture-distilled when finished. If the ` +
       `capture is personal or out of scope, call mark-capture-distilled with ` +
       `status ignored.`,
   });

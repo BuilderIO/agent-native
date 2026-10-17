@@ -13,8 +13,12 @@ const rsvpMutate = vi.hoisted(() => vi.fn());
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT:
     () =>
-    (key: string): string =>
-      key,
+    (key: string, values?: { count?: number; name?: string }): string =>
+      values?.count !== undefined
+        ? `${key}:${values.count}`
+        : values?.name
+          ? `${key}:${values.name}`
+          : key,
 }));
 
 vi.mock("@/components/calendar/ApolloPanel", () => ({
@@ -125,6 +129,35 @@ describe("EventAttendeesSection attendee controls", () => {
     expect(document.querySelector("button button")).toBeNull();
   });
 
+  it("shows grouped guests in the attendee row", () => {
+    const event: CalendarEvent = {
+      id: "event-grouped-guests",
+      title: "Planning",
+      description: "",
+      location: "",
+      start: "2026-07-10T16:00:00.000Z",
+      end: "2026-07-10T17:00:00.000Z",
+      allDay: false,
+      source: "google",
+      createdAt: "2026-07-10T15:00:00.000Z",
+      updatedAt: "2026-07-10T15:00:00.000Z",
+      attendees: [
+        {
+          email: "guest@example.com",
+          displayName: "Guest",
+          responseStatus: "accepted",
+          additionalGuests: 2,
+        },
+      ],
+    };
+
+    act(() => {
+      root.render(<EventAttendeesSection event={event} />);
+    });
+
+    expect(document.body.textContent).toContain("deleteEvent.guest_other:2");
+  });
+
   it("shows the matching Google Calendar proposal action with RSVP controls", () => {
     const googleCalendarLink =
       "https://calendar.google.com/calendar/u/0/r/eventedit/abc";
@@ -169,6 +202,44 @@ describe("EventAttendeesSection attendee controls", () => {
     expect(reviewLink).toBeTruthy();
     expect(reviewLink?.getAttribute("href")).toBe(googleCalendarLink);
     expect(reviewLink?.getAttribute("target")).toBe("_blank");
+    expect(document.querySelector('[role="status"]')?.textContent).toContain(
+      "eventForm.newTimeProposedBy:Guest",
+    );
+    expect(document.querySelector('[role="status"]')?.textContent).toContain(
+      "Proposal: Sep 11, 1-1:30pm",
+    );
+
+    act(() => {
+      root.render(
+        <EventAttendeesSection
+          event={{ ...organizerEvent, htmlLink: undefined }}
+        />,
+      );
+    });
+    expect(document.querySelector('[role="status"]')?.textContent).toContain(
+      "eventForm.newTimeProposedBy:Guest",
+    );
+    expect(
+      Array.from(document.querySelectorAll("a")).some(
+        (link) => link.textContent === "eventForm.reviewProposedTime",
+      ),
+    ).toBe(false);
+
+    const organizerWithoutProposal: CalendarEvent = {
+      ...organizerEvent,
+      attendees: organizerEvent.attendees?.map((attendee) => ({
+        ...attendee,
+        comment: undefined,
+      })),
+    };
+    act(() => {
+      root.render(<EventAttendeesSection event={organizerWithoutProposal} />);
+    });
+    expect(
+      Array.from(document.querySelectorAll("a")).some(
+        (link) => link.textContent === "eventForm.reviewTimeProposals",
+      ),
+    ).toBe(true);
 
     const attendeeEvent: CalendarEvent = {
       ...organizerEvent,
@@ -270,7 +341,6 @@ describe("EventAttendeesSection attendee controls", () => {
     const attendeeRows = Array.from(
       document.querySelectorAll('[data-testid="attendee-details"]'),
     );
-    // Rows show the display name and keep the address in the accessible text.
     const organizerRow = attendeeRows.find((row) =>
       row.textContent?.includes("Sami"),
     );
@@ -294,6 +364,9 @@ describe("EventAttendeesSection attendee controls", () => {
       end: "2026-07-10T17:00:00.000Z",
       allDay: false,
       source: "google",
+      accountEmail: "me@example.com",
+      calendarSourceKey: "calendar-two",
+      calendarId: "calendar-two-id",
       recurringEventId: "recurring-1",
       createdAt: "2026-07-10T15:00:00.000Z",
       updatedAt: "2026-07-10T15:00:00.000Z",
@@ -342,13 +415,19 @@ describe("EventAttendeesSection attendee controls", () => {
     });
 
     expect(rsvpMutate).toHaveBeenCalledWith(
-      {
+      expect.objectContaining({
         id: "event-2",
         status: "tentative",
-        accountEmail: undefined,
+        accountEmail: "me@example.com",
         scope: "single",
         note: "Let's catch up async instead",
-      },
+        cacheEventIdentity: expect.objectContaining({
+          source: "google",
+          accountEmail: "me@example.com",
+          calendarSourceKey: "calendar-two",
+          calendarId: "calendar-two-id",
+        }),
+      }),
       expect.objectContaining({ onError: expect.any(Function) }),
     );
     expect(document.querySelector("textarea")).toBeNull();

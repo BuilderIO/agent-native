@@ -8,51 +8,72 @@ function stringifyValue(value: unknown): string {
   return value == null ? "" : (JSON.stringify(value) ?? "");
 }
 
-/**
- * Internal Better Auth instance — lazily created, not exported to templates.
- *
- * Templates interact with auth via the existing `getSession()`, `autoMountAuth()`,
- * `createAuthPlugin()`, and `createGoogleAuthPlugin()` APIs. Better Auth is an
- * implementation detail behind those interfaces.
- */
-
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
-import { betterAuth, type BetterAuthOptions } from "better-auth";
+import { getCurrentAuthEndpointContext } from "@better-auth/core/context";
+import {
+  betterAuth,
+  type BetterAuthOptions,
+  type BetterAuthPlugin,
+} from "better-auth";
+import {
+  createAuthMiddleware,
+  createEmailVerificationToken,
+} from "better-auth/api";
 import { bearer } from "better-auth/plugins/bearer";
 import { jwt } from "better-auth/plugins/jwt";
 import { magicLink } from "better-auth/plugins/magic-link";
+import { twoFactor } from "better-auth/plugins/two-factor";
 import {
   pgTable,
   text as pgText,
   timestamp as pgTimestamp,
   boolean as pgBoolean,
+  bigint as pgBigint,
 } from "drizzle-orm/pg-core";
 import { setCookie } from "h3";
 import type { H3Event } from "h3";
 
-import { getAppConfig } from "../app-config/index.js";
+import {
+  enterpriseAuthAdaptersBuilt,
+  getAppConfig,
+} from "../app-config/index.js";
 import { TEMPLATES } from "../cli/templates-meta.js";
 import { getDbExec } from "../db/client.js";
 import {
+  assertHostedRuntimeDatabase,
   getRuntimeDatabaseUrl,
   getPgliteClient,
   isPgliteUrl,
   loadPgliteDrizzle,
+  pgliteDrizzleClient,
   pgPoolOptions,
   neonPoolOptions,
   guardNeonPool,
   sharedDbPool,
+  resolveSharedDbPool,
   onSharedDbPoolsClosed,
   onSharedDbPoolReplaced,
+  onDbClientsClosing,
 } from "../db/client.js";
+import { ensureTable as ensureEmailLogTable } from "../email-catalog/log.js";
 import {
+  CORE_CHANGE_EMAIL_CONFIRMATION_EMAIL_ID,
+  CORE_CHANGE_EMAIL_VERIFICATION_EMAIL_ID,
   CORE_MAGIC_LINK_EMAIL_ID,
   CORE_RESET_PASSWORD_EMAIL_ID,
   CORE_VERIFY_SIGNUP_EMAIL_ID,
 } from "../email-catalog/system-emails.js";
+import { renderTransactionalEmail } from "../email-catalog/templates.js";
+import {
+  executeIdentityRekey,
+  rekeyIdentity,
+  resumePendingIdentityRekeys,
+  verifiedEmailChangeFromToken,
+  type IdentityRekeyDb,
+} from "../identity/rekey.js";
 import { saveOAuthTokens } from "../oauth-tokens/store.js";
 import { acceptPendingInvitationsForEmail } from "../org/accept-pending.js";
 import {
@@ -60,7 +81,17 @@ import {
   getRequiredAuthProviderForEmail,
 } from "../org/auth-policy.js";
 import { autoJoinDomainMatchingOrgs } from "../org/auto-join-domain.js";
+import {
+  createFrameworkSCIMIdentity,
+  frameworkOrgBridgePlugin,
+} from "../org/scim-provisioning.js";
+import {
+  enforceSignupAdmission,
+  isBootstrapAdmin,
+} from "../org/signup-admission.js";
+import { normalizeAnalyticsSessionId } from "../shared/analytics-session-id.js";
 import { isGoogleProfileImageUrl } from "../shared/google-profile-image.js";
+import { loadOptionalPeer } from "../shared/optional-peer.js";
 import {
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
@@ -79,28 +110,88 @@ import {
   signupAttributionContextFromHeaders,
 } from "./attribution.js";
 import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
-import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 import {
-  renderMagicLinkEmail,
-  renderResetPasswordEmail,
-  renderVerifySignupEmail,
-} from "./email-templates.js";
+  getMissingAuthSecretKey,
+  MissingAuthSecretError,
+} from "./deploy-settings.js";
+import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
+import { emailAuthLinkLandingUrl } from "./email-auth-links.js";
 import {
   getDeploymentEmailReadiness,
   sendEmail,
   type EmailReadiness,
 } from "./email.js";
 import {
+  canonicalFrameworkPathname,
+  publicFrameworkPath,
+} from "./framework-route-prefix.js";
+import {
   recordActiveGoogleSignInCredentials,
   resolveGoogleSignInCredentials,
 } from "./google-oauth-credentials.js";
-import { withJwksRotationRecovery } from "./jwks-secret-rotation.js";
+import { isBuilderPreviewHttpsEnvironment } from "./https-request.js";
+import { IDENTITY_SSO_PROVIDER_ID } from "./identity-sso-provider.js";
+import {
+  readNewestJwks,
+  withJwksRotationRecovery,
+} from "./jwks-secret-rotation.js";
 import { readMagicLinkSignupAttribution } from "./magic-link-attribution.js";
-import { getConfiguredOriginAllowlist } from "./origin-allowlist.js";
+import {
+  getConfiguredOriginAllowlist,
+  requestForwardedOrigin,
+} from "./origin-allowlist.js";
 import {
   getRequestContext,
   hasContinuationLocalRequestContext,
 } from "./request-context.js";
+import { recordActiveSocialSignInProviders } from "./social-sign-in-providers.js";
+import { persistUserFirstTouchAttribution } from "./user-first-touch-attribution.js";
+
+function identityRekeyDbFromExec(
+  exec: Awaited<ReturnType<typeof getDbExec>>,
+): IdentityRekeyDb {
+  const db: IdentityRekeyDb = {
+    async unsafe(sql: string, args: unknown[] = []) {
+      const result = await exec.execute({ sql, args });
+      return Object.assign(result.rows as Array<Record<string, unknown>>, {
+        count: result.rowsAffected,
+      });
+    },
+  };
+  if (exec.transaction) {
+    db.transaction = <T>(fn: (tx: IdentityRekeyDb) => Promise<T>) =>
+      exec.transaction!((tx) => fn(identityRekeyDbFromExec(tx)));
+  }
+  return db;
+}
+
+export async function resumeIdentityRekeysForEmail(
+  email: string,
+): Promise<void> {
+  await resumePendingIdentityRekeys(
+    identityRekeyDbFromExec(getDbExec()),
+    email,
+    {
+      ensureLedger: false,
+      cacheIdle: true,
+    },
+  );
+}
+
+async function preflightEmailIdentityRekey(
+  oldEmail: string,
+  newEmail: string,
+): Promise<void> {
+  await rekeyIdentity(
+    identityRekeyDbFromExec(getDbExec()),
+    oldEmail,
+    newEmail,
+    {
+      dryRun: true,
+      revokeSessions: false,
+    },
+  );
+}
 
 export {
   getAuthLoginMode,
@@ -108,6 +199,10 @@ export {
   resolveAuthLoginModeFromReadiness,
   type AuthLoginMode,
 } from "./auth-login-mode.js";
+
+const EXISTING_ACCOUNT_VERIFICATION_COOLDOWN_MS = 5 * 60_000;
+// Signup delivery holds its transaction, connection, and per-address lock.
+const VERIFICATION_EMAIL_TIMEOUT_MS = 10_000;
 
 async function flushSignupTracking(): Promise<void> {
   try {
@@ -129,21 +224,12 @@ export async function hasBetterAuthUserEmail(email: string): Promise<boolean> {
   return !!existing?.user?.email;
 }
 
-/**
- * The canonical Better Auth user id for an email, or `undefined` when there
- * is no row (or the adapter is unavailable).
- *
- * Signup events must carry this id, not the identity provider's subject id:
- * the virality panels self-join `auth_user_id` against `referrer_user`, and
- * `referrer_user` is always a Better Auth id, so a Google profile id in that
- * column silently joins to nothing.
- */
 export async function getBetterAuthUserIdForEmail(
   email: string,
 ): Promise<string | undefined> {
-  const adapter = await getBetterAuthInternalAdapter();
-  if (!adapter) return undefined;
   try {
+    const adapter = await getBetterAuthInternalAdapter();
+    if (!adapter) return undefined;
     const existing = await adapter.findUserByEmail(email.trim().toLowerCase(), {
       includeAccounts: false,
     });
@@ -160,14 +246,11 @@ export async function getBetterAuthUserIdForEmail(
   }
 }
 
-/**
- * The endpoint context Better Auth (1.6.x) hands to `user.create.after`. It is
- * `null` for any row created through `internalAdapter` outside an endpoint —
- * see `emitSignupEventForCreatedUser`.
- */
 export interface BetterAuthUserCreateContext {
   headers?: Headers | null;
   request?: { headers?: Headers | null; url?: string } | null;
+  /** Better Auth's endpoint context; `session` is the acting user, if any. */
+  context?: { session?: { user?: { id?: string } | null } | null } | null;
 }
 
 function signupMethodFromRequestUrl(
@@ -180,27 +263,6 @@ function signupMethodFromRequestUrl(
     : "password";
 }
 
-/**
- * Emit the `signup` event for a freshly created Better Auth `user` row — but
- * only when that row is an actual person signing up.
- *
- * Better Auth runs its create hook on every `user` insert. Only inserts made
- * through one of its HTTP endpoints carry the originating request; everything
- * that reaches the row through `internalAdapter` directly gets a null context,
- * because `getCurrentAuthContext()` throws outside an endpoint. Two production
- * paths do exactly that, and neither is an acquisition:
- *
- *   - `ensureCanonicalUserForLegacySession` backfills a canonical row for
- *     someone who signed up long ago, on an ordinary authenticated request.
- *   - `ensureGoogleAuthIdentity` provisions the canonical row during the Google
- *     callback, whose own attributed event `createOAuthSession` emits.
- *
- * Emitting for those is what broke campaign reporting: they arrived with no
- * browser context and were recorded as `referral_source: "direct"`, so ~94% of
- * `better-auth` signups were unattributable rows that were never signups, and
- * one person provisioned across sibling apps counted as a dozen. A row insert
- * is not an acquisition, so a context-free insert emits nothing at all.
- */
 export async function emitSignupEventForCreatedUser(
   user: { id?: string; email?: string; name?: string | null },
   context?: BetterAuthUserCreateContext | null,
@@ -210,16 +272,18 @@ export async function emitSignupEventForCreatedUser(
 
   const requestHeaders = context?.headers ?? context?.request?.headers ?? null;
   if (!requestHeaders) return;
+  const requestSessionId = normalizeAnalyticsSessionId(
+    requestHeaders.get("x-agent-native-session-id"),
+  );
 
   const scoped = hasContinuationLocalRequestContext()
     ? getRequestContext()
     : undefined;
   let attribution: Record<string, string> | undefined;
   let anonymousId: string | undefined;
+  let sessionId: string | undefined;
   try {
     const browser =
-      // The signed magic-link token is the only source that survives the link
-      // being opened in a different browser than the one that requested it.
       (context?.request?.url?.includes("newUserCallbackURL")
         ? readMagicLinkSignupAttribution(context.request.url, getAuthSecret())
         : undefined) ??
@@ -228,11 +292,33 @@ export async function emitSignupEventForCreatedUser(
       signupAttributionContextFromCookieHeader(requestHeaders.get("cookie"));
     attribution = browser?.attribution;
     anonymousId = browser?.anonymousId;
+    sessionId =
+      normalizeAnalyticsSessionId(browser?.sessionId) ?? requestSessionId;
   } catch (err) {
-    // Analytics must never block signup, but a parse failure is not "this
-    // visitor came direct" — leave both unset so the event shows the gap
-    // instead of inventing a source for it.
     console.error("[auth] failed to derive signup attribution", err);
+  }
+
+  // The browser's first touch belongs to whoever is signed in on this request,
+  // so an account created by another signed-in user (admin or API creation)
+  // must not inherit it.
+  const actingUserId = context?.context?.session?.user?.id;
+  const ownsSignupAttribution = !actingUserId || actingUserId === user.id;
+  const eventAttribution = ownsSignupAttribution ? attribution : undefined;
+  const eventAnonymousId = ownsSignupAttribution ? anonymousId : undefined;
+  const eventSessionId = ownsSignupAttribution ? sessionId : undefined;
+  if (user.id && eventAttribution) {
+    try {
+      await persistUserFirstTouchAttribution(user.id, eventAttribution);
+    } catch (err) {
+      // The signup itself already succeeded; the event below still carries
+      // the attribution, so only the row copy is missing, and loudly so.
+      console.error("[auth] failed to persist signup attribution", err);
+      const { captureError } = await import("./capture-error.js");
+      captureError(err, {
+        route: "auth.signup",
+        tags: { failureClass: "signup-attribution-persist" },
+      });
+    }
   }
 
   await trackSignupEvent({
@@ -242,12 +328,12 @@ export async function emitSignupEventForCreatedUser(
     authUserId: user.id,
     email,
     name: user.name,
-    attribution,
-    anonymousId,
+    attribution: eventAttribution,
+    anonymousId: eventAnonymousId,
+    sessionId: eventSessionId,
   });
 }
 
-/** Return whether the canonical user has a verified Google account link. */
 export async function hasGoogleAuthIdentity(
   email: string,
 ): Promise<boolean | undefined> {
@@ -271,6 +357,7 @@ export async function trackSignupEvent({
   name,
   attribution,
   anonymousId,
+  sessionId,
 }: {
   authProvider: string;
   origin: SignupOrigin;
@@ -289,6 +376,7 @@ export async function trackSignupEvent({
    */
   attribution?: Record<string, string | undefined>;
   anonymousId?: string;
+  sessionId?: string;
 }): Promise<void> {
   identify(email, {
     email,
@@ -313,16 +401,171 @@ export async function trackSignupEvent({
       ...(authUserId ? { auth_user_id: authUserId } : {}),
       ...cleanAttribution,
     },
-    { userId: email, ...(anonymousId ? { anonymousId } : {}) },
+    {
+      userId: email,
+      authUserId,
+      ...(anonymousId ? { anonymousId } : {}),
+      ...(sessionId ? { sessionId } : {}),
+    },
   );
   await flushSignupTracking();
 }
 
-// ---------------------------------------------------------------------------
-// Persistent auth secret
-// ---------------------------------------------------------------------------
+export const DEV_AUTH_SECRET_PATH = path.join(
+  ".agent-native",
+  "dev-auth-secret",
+);
 
-let inMemoryDevAuthSecret: string | undefined;
+/**
+ * A persisted dev auth secret exists but cannot be used, or cannot be
+ * persisted. Deliberately not caught anywhere: a local dev runtime that
+ * cannot keep a stable session-signing secret fails the boot loudly instead
+ * of silently rotating sessions on every restart.
+ */
+export class DevAuthSecretFileError extends Error {
+  constructor(
+    message: string,
+    readonly reason:
+      | "unreadable"
+      | "empty"
+      | "unsafe"
+      | "create-failed"
+      | "race-unreadable",
+    options?: { cause?: unknown },
+  ) {
+    super(message, options);
+    this.name = "DevAuthSecretFileError";
+  }
+}
+
+type DevAuthSecretFileRead =
+  | { status: "absent" }
+  | { status: "ok"; value: string };
+
+function readDevAuthSecretFile(filePath: string): DevAuthSecretFileRead {
+  let descriptor: number | undefined;
+  let content: string;
+  try {
+    const pathStat = fs.lstatSync(filePath);
+    if (pathStat.isSymbolicLink() || !pathStat.isFile()) {
+      throw new DevAuthSecretFileError(
+        `The persisted local dev auth secret at ${filePath} must be a regular file, not a symlink or special file. Delete it to generate a safe replacement.`,
+        "unsafe",
+      );
+    }
+    if (process.platform !== "win32" && (pathStat.mode & 0o077) !== 0) {
+      throw new DevAuthSecretFileError(
+        `The persisted local dev auth secret at ${filePath} is accessible to other users. Set its permissions to 0600 or delete it.`,
+        "unsafe",
+      );
+    }
+    descriptor = fs.openSync(
+      filePath,
+      fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0),
+    );
+    const openedStat = fs.fstatSync(descriptor);
+    if (
+      !openedStat.isFile() ||
+      openedStat.dev !== pathStat.dev ||
+      openedStat.ino !== pathStat.ino
+    ) {
+      throw new DevAuthSecretFileError(
+        `The persisted local dev auth secret at ${filePath} changed while it was being opened. Delete it to generate a safe replacement.`,
+        "unsafe",
+      );
+    }
+    content = fs.readFileSync(descriptor, "utf8");
+  } catch (error) {
+    if (error instanceof DevAuthSecretFileError) throw error;
+    const code = (error as NodeJS.ErrnoException)?.code;
+    if (code === "ENOENT" || code === "ENOTDIR") {
+      return { status: "absent" };
+    }
+    throw new DevAuthSecretFileError(
+      `The persisted local dev auth secret at ${filePath} exists but could not be read. Fix its permissions or delete it.`,
+      "unreadable",
+      { cause: error },
+    );
+  } finally {
+    if (descriptor !== undefined) fs.closeSync(descriptor);
+  }
+  const value = content.trim();
+  if (!value) {
+    throw new DevAuthSecretFileError(
+      `The persisted local dev auth secret at ${filePath} is empty. Delete the file to generate a fresh one.`,
+      "empty",
+    );
+  }
+  return { status: "ok", value };
+}
+
+/**
+ * Read the persisted local dev secret from
+ * `<appRoot>/.agent-native/dev-auth-secret` (gitignored), creating it
+ * exclusively on first use. Existing files are reused verbatim and never
+ * overwritten, and the secret value is never logged.
+ *
+ * Throws `DevAuthSecretFileError` — never degrades — when the file exists
+ * but is unreadable or empty, when it cannot be created, or when the file a
+ * concurrent creator left behind cannot be read back. Absence is the only
+ * non-throwing "create it" outcome.
+ */
+export function resolvePersistedDevAuthSecret(
+  appRoot: string,
+  generateSecret: () => string,
+): string {
+  const filePath = path.join(appRoot, DEV_AUTH_SECRET_PATH);
+  const existing = readDevAuthSecretFile(filePath);
+  if (existing.status === "ok") return existing.value;
+
+  const secret = generateSecret();
+  const dir = path.dirname(filePath);
+  const tempPath = path.join(
+    dir,
+    `${path.basename(filePath)}.tmp-${process.pid}-${crypto.randomBytes(4).toString("hex")}`,
+  );
+  let createdTemp = false;
+  try {
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(tempPath, `${secret}\n`, { flag: "wx", mode: 0o600 });
+    createdTemp = true;
+    try {
+      fs.linkSync(tempPath, filePath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException)?.code === "EEXIST") {
+        const winner = readDevAuthSecretFile(filePath);
+        if (winner.status === "ok") return winner.value;
+        throw new DevAuthSecretFileError(
+          `Another process created the dev auth secret at ${filePath} but it could not be read back.`,
+          "race-unreadable",
+          { cause: error },
+        );
+      }
+      throw new DevAuthSecretFileError(
+        `Could not persist the local dev auth secret at ${filePath}.`,
+        "create-failed",
+        { cause: error },
+      );
+    }
+  } catch (error) {
+    if (error instanceof DevAuthSecretFileError) throw error;
+    throw new DevAuthSecretFileError(
+      `Could not persist the local dev auth secret at ${filePath}.`,
+      "create-failed",
+      { cause: error },
+    );
+  } finally {
+    if (createdTemp) {
+      try {
+        fs.unlinkSync(tempPath);
+      } catch {
+        // coercion-ok: best-effort cleanup of only the temp file this
+        // invocation created; the persisted secret is already in place.
+      }
+    }
+  }
+  return secret;
+}
 
 /**
  * Resolve the Better Auth signing secret.
@@ -334,7 +577,10 @@ let inMemoryDevAuthSecret: string | undefined;
  *      bootable without reusing the raw A2A key as a cookie-signing key.
  *   3. Existing `.env.local` values in the template cwd — read-only
  *      compatibility for projects that already configured this secret.
- *   4. Generate a per-process in-memory random 32-byte hex in development.
+ *   4. Generate a random 32-byte hex secret in local development and persist
+ *      it at `<cwd>/.agent-native/dev-auth-secret` (mode 0600, created
+ *      exclusively) so sessions survive dev-server restarts. Persistence
+ *      failures throw rather than degrade.
  *
  * Why this matters: before this helper existed, missing `BETTER_AUTH_SECRET`
  * fell through to `GOOGLE_CLIENT_SECRET` / `ACCESS_TOKEN` / a hardcoded
@@ -345,7 +591,14 @@ let inMemoryDevAuthSecret: string | undefined;
  * to sign in again. We still read explicit env configuration, but never
  * auto-write a generated secret into env files.
  */
-function resolveAuthSecret(): string {
+// One refusal per process and missing key: every caller rethrows the same
+// error instead of rebuilding the report, so error capture sees one failure,
+// not one new error per request.
+let missingAuthSecretRefusal:
+  | { key: string; error: MissingAuthSecretError }
+  | undefined;
+
+function resolveAuthSecret(appRoot = process.cwd()): string {
   if (process.env.BETTER_AUTH_SECRET) return process.env.BETTER_AUTH_SECRET;
   const workspaceDerivedSecret = getWorkspaceA2ADerivedSecret("better-auth");
   if (workspaceDerivedSecret) return workspaceDerivedSecret;
@@ -355,8 +608,13 @@ function resolveAuthSecret(): string {
   // signed session cookie on the next cold start (serverless filesystems
   // aren't persistent), and the legacy hardcoded fallback is identical across
   // every deploy that hits it — both are serious enough to fail the boot loudly
-  // so the deployer notices.
-  if (process.env.NODE_ENV === "production") {
+  // so the deployer notices. The setup page that replaces sign-in reports the
+  // same decision through getMissingDeploySettings(), so keep it the only one.
+  const missingKey = getMissingAuthSecretKey();
+  if (missingKey !== null) {
+    if (missingAuthSecretRefusal?.key === missingKey) {
+      throw missingAuthSecretRefusal.error;
+    }
     const report = getRuntimeConfigReport(
       process.env,
       { authEnabled: true, databaseRequired: false },
@@ -366,36 +624,24 @@ function resolveAuthSecret(): string {
         appName: process.env.APP_NAME,
       },
     );
-    throw new Error(formatRuntimeConfigReport(report));
+    const refusal = new MissingAuthSecretError(
+      formatRuntimeConfigReport(report),
+    );
+    missingAuthSecretRefusal = { key: missingKey, error: refusal };
+    throw refusal;
   }
 
-  // SECURITY (audit 09 LOW-2): the previous fallback chain
-  // (`GOOGLE_CLIENT_SECRET || ACCESS_TOKEN || hardcoded`) reused
-  // cross-purpose secrets and a public hardcoded literal as the cookie
-  // HMAC. Dropped entirely — better to mint an ephemeral secret than to
-  // re-use a Google client secret or a known string.
-  const existing = readEnvLocalSecret(
-    path.resolve(process.cwd(), ".env.local"),
-  );
+  const existing = readEnvLocalSecret(path.resolve(appRoot, ".env.local"));
   if (existing) return existing;
 
-  if (!inMemoryDevAuthSecret) {
-    inMemoryDevAuthSecret = crypto.randomBytes(32).toString("hex");
-    console.warn(
-      "[agent-native] BETTER_AUTH_SECRET is not configured. Using an ephemeral " +
-        "in-memory development secret. Sessions will reset every time this " +
-        "process restarts. Set BETTER_AUTH_SECRET in your environment to keep " +
-        "sessions valid across restarts.",
-    );
-  }
-  return inMemoryDevAuthSecret;
+  return resolvePersistedDevAuthSecret(appRoot, () =>
+    crypto.randomBytes(32).toString("hex"),
+  );
 }
 
 function readEnvLocalSecret(envLocalPath: string): string | undefined {
   try {
     const content = fs.readFileSync(envLocalPath, "utf8");
-    // Match `BETTER_AUTH_SECRET=...` on its own line. Tolerate optional
-    // quotes and leading `export `. Stop at the first newline or quote.
     const m = content.match(
       /^(?:export\s+)?BETTER_AUTH_SECRET\s*=\s*"?([^"\r\n]+)"?\s*$/m,
     );
@@ -539,14 +785,8 @@ export function resolveEmailPasswordAuthPolicy(
   const emailProviderMissing = emailReadiness.status === "not-configured";
   const declared = getAppConfig().auth.requireEmailVerification;
   if (declared !== undefined) {
-    // A declared policy is the verification policy — it outranks both the
-    // hosted derivation below and AUTH_SKIP_EMAIL_VERIFICATION. The signup
-    // lock still fails closed for a configured transport that cannot be read.
     return {
       requireEmailVerification: declared && emailConfigured,
-      // Verification that no provider can deliver would strand every new
-      // account on an unverifiable signup, so refuse the signup instead. An
-      // explicitly absent provider is the documented password-only mode.
       disableSignUp: emailProviderMissing ? declared : !emailConfigured,
     };
   }
@@ -554,22 +794,14 @@ export function resolveEmailPasswordAuthPolicy(
   return {
     requireEmailVerification:
       emailConfigured && (hosted || !shouldSkipEmailVerification()),
-    // Only an explicitly absent provider enables unverified password signup.
-    // Misconfigured or unavailable transports fail closed instead.
     disableSignUp: !emailConfigured && !emailProviderMissing,
   };
 }
 
-/** Read-only accessor for the resolved auth secret. */
 export function getAuthSecret(): string {
   return resolveAuthSecret();
 }
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-/** The shape we need from a Better Auth instance (internal — not exported to templates). */
 export interface BetterAuthInstance {
   handler: (request: Request) => Promise<Response>;
   api: {
@@ -588,7 +820,9 @@ export interface BetterAuthInstance {
     } | null>;
     signInEmail: (opts: {
       body: { email: string; password: string };
-    }) => Promise<{ token?: string; user?: any } | null>;
+      headers?: Headers;
+      returnHeaders?: boolean;
+    }) => Promise<any>;
     signInMagicLink: (opts: {
       body: {
         email: string;
@@ -624,44 +858,35 @@ export interface BetterAuthInstance {
       headers: Headers;
       returnHeaders?: boolean;
     }) => Promise<any>;
+    enableTwoFactor: (opts: {
+      body: { method: "totp"; password?: string };
+      headers: Headers;
+      returnHeaders?: boolean;
+    }) => Promise<any>;
+    disableTwoFactor: (opts: {
+      body: { password?: string };
+      headers: Headers;
+      returnHeaders?: boolean;
+    }) => Promise<any>;
+    verifyTOTP: (opts: {
+      body: { code: string; trustDevice?: boolean };
+      headers: Headers;
+      returnHeaders?: boolean;
+    }) => Promise<any>;
   };
 }
 
 export interface BetterAuthConfig {
-  /** Base path for Better Auth routes. Default: "/_agent-native/auth/ba" */
   basePath?: string;
-  /** Session max age in seconds. Defaults to the framework's 30-day lifetime. */
   sessionMaxAge?: number;
-  /** Additional social providers beyond what env vars auto-detect */
   socialProviders?: BetterAuthOptions["socialProviders"];
-  /** Additional Better Auth plugins */
   plugins?: BetterAuthOptions["plugins"];
-  /**
-   * Additional Google OAuth scopes (Gmail, Calendar, etc.) to request
-   * up front during the primary "Sign in with Google" flow, beyond the
-   * default identity scopes (`openid`, `email`, `profile`).
-   *
-   * When set, the Google social provider also opts into:
-   * - `accessType: "offline"` — so a refresh token is issued
-   * - `prompt: "consent"` — so the refresh token is reissued every sign-in
-   *
-   * Tokens are mirrored into `oauth_tokens` via a databaseHooks.account
-   * hook so existing template code that reads from `oauth_tokens` (mail's
-   * Gmail client, calendar's events fetcher) works without any separate
-   * "Connect Google" page.
-   */
   googleScopes?: string[];
 }
 
-// ---------------------------------------------------------------------------
-// Lazy instance
-// ---------------------------------------------------------------------------
-
 let _auth: BetterAuthInstance | undefined;
 let _initPromise: Promise<BetterAuthInstance> | undefined;
-// Track the Neon serverless Pool we open for Better Auth so closeBetterAuth()
-// can release it. The Pool keeps WebSocket connections open; leaking them on
-// hot-reload or process restart exhausts Neon's connection slot budget.
+let _authInitGeneration = 0;
 let _neonAuthPool: any;
 
 const pgAuthSchema = {
@@ -670,10 +895,25 @@ const pgAuthSchema = {
     name: pgText("name").notNull(),
     email: pgText("email").notNull().unique(),
     emailVerified: pgBoolean("email_verified").notNull().default(false),
+    twoFactorEnabled: pgBoolean("two_factor_enabled").notNull().default(false),
     onboardingRole: pgText("onboarding_role"),
     image: pgText("image"),
     createdAt: pgTimestamp("created_at", { withTimezone: true }).notNull(),
     updatedAt: pgTimestamp("updated_at", { withTimezone: true }).notNull(),
+  }),
+  twoFactor: pgTable("twoFactor", {
+    id: pgText("id").primaryKey(),
+    secret: pgText("secret").notNull(),
+    backupCodes: pgText("backup_codes").notNull(),
+    // guard:allow-identity-column — immutable Better Auth user id owned by the auth plugin
+    userId: pgText("user_id").notNull(),
+    verified: pgBoolean("verified").notNull().default(true),
+    failedVerificationCount: pgBigint("failed_verification_count", {
+      mode: "number",
+    })
+      .notNull()
+      .default(0),
+    lockedUntil: pgTimestamp("locked_until", { withTimezone: true }),
   }),
   session: pgTable("session", {
     id: pgText("id").primaryKey(),
@@ -747,25 +987,233 @@ const pgAuthSchema = {
     privateKey: pgText("private_key").notNull(),
     createdAt: pgTimestamp("created_at", { withTimezone: true }).notNull(),
     expiresAt: pgTimestamp("expires_at", { withTimezone: true }),
+    alg: pgText("alg"),
+    crv: pgText("crv"),
+  }),
+  ssoProvider: pgTable("sso_provider", {
+    id: pgText("id").primaryKey(),
+    issuer: pgText("issuer").notNull(),
+    oidcConfig: pgText("oidc_config"),
+    samlConfig: pgText("saml_config"),
+    userId: pgText("user_id"),
+    providerId: pgText("provider_id").notNull().unique(),
+    organizationId: pgText("organization_id"),
+    domain: pgText("domain").notNull(),
+    domainVerified: pgBoolean("domain_verified"),
+  }),
+  scimManagedConnection: pgTable("scim_managed_connection", {
+    id: pgText("id").primaryKey(),
+    creationRequestId: pgText("creation_request_id").notNull().unique(),
+    connectionId: pgText("connection_id").notNull().unique(),
+    provisioningDomainId: pgText("provisioning_domain_id").notNull(),
+    status: pgText("status").notNull(),
+    revision: pgBigint("revision", { mode: "number" }).notNull(),
+    createdAt: pgTimestamp("created_at", { withTimezone: true }).notNull(),
+    createdBy: pgText("created_by").notNull(),
+    decommissionStartedAt: pgTimestamp("decommission_started_at", {
+      withTimezone: true,
+    }),
+    decommissionStartedBy: pgText("decommission_started_by"),
+    decommissionedAt: pgTimestamp("decommissioned_at", {
+      withTimezone: true,
+    }),
+    decommissionedBy: pgText("decommissioned_by"),
+  }),
+  scimManagedCredential: pgTable("scim_managed_credential", {
+    id: pgText("id").primaryKey(),
+    connectionRecordId: pgText("connection_record_id").notNull(),
+    credentialId: pgText("credential_id").notNull().unique(),
+    tokenDigest: pgText("token_digest").notNull(),
+    hashVersion: pgText("hash_version").notNull(),
+    activeSlotKey: pgText("active_slot_key").notNull().unique(),
+    status: pgText("status").notNull(),
+    serializedScopes: pgText("serialized_scopes").notNull(),
+    expiresAt: pgTimestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: pgTimestamp("created_at", { withTimezone: true }).notNull(),
+    createdBy: pgText("created_by").notNull(),
+    lastUsedAt: pgTimestamp("last_used_at", { withTimezone: true }),
+    revokedAt: pgTimestamp("revoked_at", { withTimezone: true }),
+    revokedBy: pgText("revoked_by"),
+    decommissionedAt: pgTimestamp("decommissioned_at", {
+      withTimezone: true,
+    }),
+  }),
+  scimManagedConnectionEvent: pgTable("scim_managed_connection_event", {
+    id: pgText("id").primaryKey(),
+    connectionRecordId: pgText("connection_record_id").notNull(),
+    eventKey: pgText("event_key").notNull().unique(),
+    sequence: pgBigint("sequence", { mode: "number" }).notNull(),
+    type: pgText("type").notNull(),
+    actorId: pgText("actor_id").notNull(),
+    credentialId: pgText("credential_id"),
+    createdAt: pgTimestamp("created_at", { withTimezone: true }).notNull(),
+  }),
+  scimConnectionBinding: pgTable("scim_connection_binding", {
+    id: pgText("id").primaryKey(),
+    connectionId: pgText("connection_id").notNull(),
+    connectionKey: pgText("connection_key").notNull().unique(),
+    provisioningDomainId: pgText("provisioning_domain_id").notNull(),
+    createdAt: pgTimestamp("created_at", { withTimezone: true }).notNull(),
+    decommissionedAt: pgTimestamp("decommissioned_at", {
+      withTimezone: true,
+    }),
+    decommissionStatus: pgText("decommission_status")
+      .notNull()
+      .default("active"),
+    decommissionCursorUserId: pgText("decommission_cursor_user_id"),
+    decommissionReconciledUserCount: pgBigint(
+      "decommission_reconciled_user_count",
+      { mode: "number" },
+    )
+      .notNull()
+      .default(0),
+    decommissionBatchCount: pgBigint("decommission_batch_count", {
+      mode: "number",
+    })
+      .notNull()
+      .default(0),
+    decommissionRevision: pgBigint("decommission_revision", {
+      mode: "number",
+    })
+      .notNull()
+      .default(0),
+    decommissionCompletedAt: pgTimestamp("decommission_completed_at", {
+      withTimezone: true,
+    }),
+    decommissionLeaseId: pgText("decommission_lease_id"),
+    decommissionLeaseExpiresAt: pgTimestamp("decommission_lease_expires_at", {
+      withTimezone: true,
+    }),
+  }),
+  scimIdentityTombstone: pgTable("scim_identity_tombstone", {
+    id: pgText("id").primaryKey(),
+    connectionId: pgText("connection_id").notNull(),
+    provisioningDomainId: pgText("provisioning_domain_id").notNull(),
+    externalId: pgText("external_id").notNull(),
+    externalIdKey: pgText("external_id_key").notNull().unique(),
+    userId: pgText("user_id").notNull(),
+    profile: pgText("profile").notNull(),
+    deletedAt: pgTimestamp("deleted_at", { withTimezone: true }).notNull(),
+  }),
+  scimSubject: pgTable("scim_subject", {
+    id: pgText("id").primaryKey(),
+    userId: pgText("user_id").notNull().unique(),
+    profileSourceId: pgText("profile_source_id"),
+    revision: pgBigint("revision", { mode: "number" }).notNull(),
+    createdAt: pgTimestamp("created_at", { withTimezone: true }).notNull(),
+    updatedAt: pgTimestamp("updated_at", { withTimezone: true }).notNull(),
+  }),
+  scimUser: pgTable("scim_user", {
+    id: pgText("id").primaryKey(),
+    connectionId: pgText("connection_id").notNull(),
+    provisioningDomainId: pgText("provisioning_domain_id").notNull(),
+    userId: pgText("user_id").notNull(),
+    connectionUserKey: pgText("connection_user_key").notNull().unique(),
+    userName: pgText("user_name").notNull(),
+    userNameKey: pgText("user_name_key").notNull().unique(),
+    primaryEmail: pgText("primary_email").notNull(),
+    workEmailValueIndex: pgText("work_email_value_index").notNull(),
+    emailValueIndex: pgText("email_value_index").notNull(),
+    displayName: pgText("display_name").notNull(),
+    formattedName: pgText("formatted_name").notNull(),
+    givenName: pgText("given_name"),
+    familyName: pgText("family_name"),
+    serializedEmails: pgText("serialized_emails").notNull(),
+    serializedAttributes: pgText("serialized_attributes"),
+    externalId: pgText("external_id"),
+    externalIdKey: pgText("external_id_key").unique(),
+    active: pgBoolean("active").notNull(),
+    orderKey: pgText("order_key").notNull().unique(),
+    createdAt: pgTimestamp("created_at", { withTimezone: true }).notNull(),
+    updatedAt: pgTimestamp("updated_at", { withTimezone: true }).notNull(),
+  }),
+  scimProjectionGrant: pgTable("scim_projection_grant", {
+    id: pgText("id").primaryKey(),
+    connectionId: pgText("connection_id").notNull(),
+    provisioningDomainId: pgText("provisioning_domain_id").notNull(),
+    scimUserId: pgText("scim_user_id").notNull(),
+    userId: pgText("user_id").notNull(),
+    sourceKind: pgText("source_kind").notNull(),
+    sourceId: pgText("source_id").notNull(),
+    sourceValue: pgText("source_value"),
+    role: pgText("role").notNull(),
+    grantKey: pgText("grant_key").notNull().unique(),
+    createdAt: pgTimestamp("created_at", { withTimezone: true }).notNull(),
+    updatedAt: pgTimestamp("updated_at", { withTimezone: true }).notNull(),
+  }),
+  scimGroup: pgTable("scim_group", {
+    id: pgText("id").primaryKey(),
+    connectionId: pgText("connection_id").notNull(),
+    provisioningDomainId: pgText("provisioning_domain_id").notNull(),
+    revision: pgBigint("revision", { mode: "number" }).notNull().default(0),
+    displayName: pgText("display_name").notNull(),
+    displayNameKey: pgText("display_name_key").notNull().unique(),
+    externalId: pgText("external_id"),
+    externalIdKey: pgText("external_id_key").unique(),
+    orderKey: pgText("order_key").notNull().unique(),
+    createdAt: pgTimestamp("created_at", { withTimezone: true }).notNull(),
+    updatedAt: pgTimestamp("updated_at", { withTimezone: true }).notNull(),
+  }),
+  scimGroupMember: pgTable("scim_group_member", {
+    id: pgText("id").primaryKey(),
+    connectionId: pgText("connection_id").notNull(),
+    groupId: pgText("group_id").notNull(),
+    scimUserId: pgText("scim_user_id").notNull(),
+    membershipKey: pgText("membership_key").notNull().unique(),
+    createdAt: pgTimestamp("created_at", { withTimezone: true }).notNull(),
+  }),
+  frameworkOrganization: pgTable("organizations", {
+    id: pgText("id").primaryKey(),
+    name: pgText("name").notNull(),
+    createdBy: pgText("created_by").notNull(),
+    createdAt: pgBigint("created_at", { mode: "number" }).notNull(),
+    allowedDomain: pgText("allowed_domain"),
+  }),
+  orgMember: pgTable("org_members", {
+    id: pgText("id").primaryKey(),
+    orgId: pgText("org_id").notNull(),
+    email: pgText("email").notNull(),
+    role: pgText("role").notNull(),
+    joinedAt: pgBigint("joined_at", { mode: "number" }).notNull(),
+    federationRemovalPendingAt: pgBigint("federation_removal_pending_at", {
+      mode: "number",
+    }),
+  }),
+  agentAuditLog: pgTable("agent_audit_log", {
+    id: pgText("id").primaryKey(),
+    createdAt: pgBigint("created_at", { mode: "number" }).notNull(),
+    action: pgText("action").notNull(),
+    caller: pgText("caller").notNull(),
+    actorKind: pgText("actor_kind").notNull(),
+    actorEmail: pgText("actor_email"),
+    orgId: pgText("org_id"),
+    targetType: pgText("target_type"),
+    targetId: pgText("target_id"),
+    status: pgText("status").notNull(),
+    summary: pgText("summary"),
+    input: pgText("input"),
+    ownerEmail: pgText("owner_email"),
+    visibility: pgText("visibility").notNull().default("private"),
+  }),
+  orgScimMembership: pgTable("org_scim_memberships", {
+    id: pgText("id").primaryKey(),
+    orgId: pgText("org_id").notNull(),
+    userId: pgText("user_id").notNull(),
+    memberId: pgText("member_id"),
+    createdMembership: pgBoolean("created_membership").notNull(),
+    createdAt: pgBigint("created_at", { mode: "number" }).notNull(),
+  }),
+  appMemberRole: pgTable("app_member_roles", {
+    id: pgText("id").primaryKey(),
+    orgId: pgText("org_id").notNull(),
+    appId: pgText("app_id").notNull(),
+    email: pgText("email").notNull(),
+    role: pgText("role").notNull(),
+    updatedBy: pgText("updated_by").notNull(),
+    updatedAt: pgBigint("updated_at", { mode: "number" }).notNull(),
   }),
 };
 
-/**
- * Mirror a Better Auth `account` row for Google into the `oauth_tokens`
- * table that template code (mail's Gmail client, calendar's events fetcher)
- * reads from. Called from the `databaseHooks.account.create.after` and
- * `.update.after` hooks so tokens captured during the primary "Sign in
- * with Google" flow flow straight to the apps that need them — no
- * separate "Connect Google" page required.
- *
- * Resolves `account.userId` to the user's email by querying the `user`
- * table (Better Auth always quotes "user" because it's a reserved word
- * in Postgres).
- *
- * The hook is fire-and-forget from the caller's perspective — every
- * failure is caught upstream so a flake in `oauth_tokens` never blocks
- * sign-in. We still no-op on missing fields here as a defense in depth.
- */
 async function mirrorGoogleAccountToOAuthTokens(account: {
   providerId?: string;
   userId?: string;
@@ -781,13 +1229,9 @@ async function mirrorGoogleAccountToOAuthTokens(account: {
 
   const accessToken = account.accessToken ?? undefined;
   if (!accessToken) {
-    // Better Auth sometimes upserts an account row before tokens are
-    // attached (e.g. linking flows). Nothing to mirror yet — the next
-    // update hook will run once the access token lands.
     return;
   }
 
-  // Resolve user email from userId.
   const db = getDbExec();
   let email: string | undefined;
   try {
@@ -805,8 +1249,6 @@ async function mirrorGoogleAccountToOAuthTokens(account: {
   }
   if (!email) return;
 
-  // Normalise expiry to epoch ms (Google's "expiry_date" convention used
-  // throughout the templates).
   let expiryDate: number | undefined;
   const raw = account.accessTokenExpiresAt;
   if (raw instanceof Date) {
@@ -830,30 +1272,32 @@ async function mirrorGoogleAccountToOAuthTokens(account: {
   await saveOAuthTokens("google", email, tokens, email);
 }
 
-/**
- * Get or create the Better Auth instance.
- * Lazily initialized on first call — the database must be reachable by then.
- */
 export async function getBetterAuth(
   config?: BetterAuthConfig,
 ): Promise<BetterAuthInstance> {
   if (_auth) return _auth;
   if (_initPromise) return _initPromise;
 
-  // A failed boot must not be cached: every later request would replay the same
-  // stale error with no way back short of restarting the process.
-  _initPromise = createBetterAuthInstance(config).catch((error) => {
-    _initPromise = undefined;
-    throw error;
-  });
-  _auth = await _initPromise;
-  return _auth;
+  const generation = _authInitGeneration;
+  let initPromise: Promise<BetterAuthInstance>;
+  initPromise = createBetterAuthInstance(config)
+    .then((auth) => {
+      if (generation !== _authInitGeneration) {
+        throw new Error(
+          "Better Auth initialization was invalidated before it completed.",
+        );
+      }
+      _auth = auth;
+      return auth;
+    })
+    .catch((error) => {
+      if (_initPromise === initPromise) _initPromise = undefined;
+      throw error;
+    });
+  _initPromise = initPromise;
+  return initPromise;
 }
 
-/**
- * Synchronous getter — returns the instance if already initialized, else undefined.
- * Use this in hot paths where you know init has already happened.
- */
 export function getBetterAuthSync(): BetterAuthInstance | undefined {
   return _auth;
 }
@@ -865,14 +1309,6 @@ const DESKTOP_MAGIC_LINK_CALLBACK_MARKER =
 const DESKTOP_MAGIC_LINK_LANDING_MARKER =
   "/_agent-native/auth/magic-link/desktop-landing";
 
-/**
- * Email security scanners commonly prefetch ordinary GET links. Better Auth
- * intentionally consumes a magic-link token on that first GET, so a scanner
- * can otherwise spend a desktop flow before the user ever clicks it. Keep the
- * normal web link unchanged and put only desktop flows behind an explicit
- * confirmation page that hands the original verification URL back after the
- * user acts.
- */
 export function desktopMagicLinkLandingUrl(value: string): string | undefined {
   try {
     const verificationUrl = new URL(value);
@@ -880,19 +1316,27 @@ export function desktopMagicLinkLandingUrl(value: string): string | undefined {
     if (!callbackValue) return undefined;
     const callbackUrl = new URL(callbackValue, verificationUrl.origin);
     if (callbackUrl.origin !== verificationUrl.origin) return undefined;
-    if (!callbackUrl.pathname.endsWith(DESKTOP_MAGIC_LINK_CALLBACK_MARKER)) {
+    if (
+      !canonicalFrameworkPathname(callbackUrl.pathname).endsWith(
+        DESKTOP_MAGIC_LINK_CALLBACK_MARKER,
+      )
+    ) {
       return undefined;
     }
 
-    const verifyMarkerIndex = verificationUrl.pathname.lastIndexOf(
+    const verificationPathname = canonicalFrameworkPathname(
+      verificationUrl.pathname,
+    );
+    const verifyMarkerIndex = verificationPathname.lastIndexOf(
       BETTER_AUTH_MAGIC_LINK_VERIFY_MARKER,
     );
     if (verifyMarkerIndex < 0) return undefined;
 
     const landingUrl = new URL(verificationUrl.origin);
-    landingUrl.pathname =
-      verificationUrl.pathname.slice(0, verifyMarkerIndex) +
-      DESKTOP_MAGIC_LINK_LANDING_MARKER;
+    landingUrl.pathname = publicFrameworkPath(
+      verificationPathname.slice(0, verifyMarkerIndex) +
+        DESKTOP_MAGIC_LINK_LANDING_MARKER,
+    );
     for (const key of [
       "token",
       "callbackURL",
@@ -909,14 +1353,6 @@ export function desktopMagicLinkLandingUrl(value: string): string | undefined {
   }
 }
 
-/**
- * The subset of Better Auth's internal adapter we use for federated-SSO
- * JIT account linking. Better Auth owns these writes (id + timestamp +
- * schema handling), so callers never hand-roll SQL against `user`/`account`
- * for ordinary identity writes. The transactional claimant replacement uses
- * the shared database boundary so its delete, promotion, and link commit
- * together.
- */
 export interface BetterAuthInternalAdapter {
   findUserByEmail: (
     email: string,
@@ -1009,6 +1445,45 @@ export interface BetterAuthInternalAdapter {
   ) => Promise<unknown>;
 }
 
+type BetterAuthContextAdapter = Omit<
+  BetterAuthInternalAdapter,
+  "replaceUnverifiedCredentialWithGoogle" | "findAccountByProviderId"
+> & {
+  findAccountByProviderId?: BetterAuthInternalAdapter["findAccountByProviderId"];
+  findAccountByKey?: (accountKey: {
+    accountId: string;
+    providerId: string;
+  }) => Promise<{ id: string; userId: string } | null>;
+};
+
+export function normalizeBetterAuthInternalAdapter(
+  adapter: BetterAuthContextAdapter,
+): BetterAuthInternalAdapter | undefined {
+  const findAccountByProviderId =
+    adapter.findAccountByProviderId ??
+    (typeof adapter.findAccountByKey === "function"
+      ? (accountId: string, providerId: string) =>
+          adapter.findAccountByKey!({ accountId, providerId })
+      : undefined);
+
+  if (
+    typeof adapter.findUserByEmail !== "function" ||
+    typeof adapter.linkAccount !== "function" ||
+    typeof adapter.createUser !== "function" ||
+    typeof adapter.createSession !== "function" ||
+    typeof adapter.deleteSession !== "function" ||
+    typeof findAccountByProviderId !== "function"
+  ) {
+    return undefined;
+  }
+
+  return {
+    ...adapter,
+    findAccountByProviderId,
+    replaceUnverifiedCredentialWithGoogle,
+  } as BetterAuthInternalAdapter;
+}
+
 /**
  * Replace the only unverified credential account and add Google in one
  * database transaction. The read in ensureGoogleAuthIdentityWithAdapter is
@@ -1016,7 +1491,7 @@ export interface BetterAuthInternalAdapter {
  * transaction owns the user row so a stale lookup cannot delete a different
  * identity.
  */
-async function replaceUnverifiedCredentialWithGoogle(input: {
+export async function replaceUnverifiedCredentialWithGoogle(input: {
   userId: string;
   email: string;
   accountId: string;
@@ -1061,14 +1536,19 @@ async function replaceUnverifiedCredentialWithGoogle(input: {
       sql: 'SELECT id, provider_id FROM "account" WHERE user_id = ?',
       args: [input.userId],
     });
-    if (
-      accounts.rows.length !== 1 ||
-      accounts.rows[0]?.provider_id !== "credential"
-    ) {
+    const credentialRows = accounts.rows.filter(
+      (row) => row.provider_id === "credential",
+    );
+    const claimRows = accounts.rows.filter(
+      (row) =>
+        row.provider_id !== "credential" &&
+        row.provider_id !== IDENTITY_SSO_PROVIDER_ID,
+    );
+    if (credentialRows.length !== 1 || claimRows.length > 0) {
       throw new Error("Cannot link Google to an ambiguous unverified identity");
     }
 
-    const credentialId = accounts.rows[0]?.id;
+    const credentialId = credentialRows[0]?.id;
     const deleted = await tx.execute({
       sql: 'DELETE FROM "account" WHERE id = ? AND user_id = ? AND provider_id = ?',
       args: [credentialId, input.userId, "credential"],
@@ -1103,52 +1583,24 @@ async function replaceUnverifiedCredentialWithGoogle(input: {
   });
 }
 
-/**
- * Resolve Better Auth's internal adapter via the live instance's
- * `$context`. The framework's narrowed `BetterAuthInstance` interface omits
- * `$context`, but the underlying object created by `betterAuth(...)` always
- * exposes it (see Better Auth's `Auth` type) — so this is a safe, typed
- * accessor for the federated-SSO client. Returns `undefined` if the context
- * shape is unexpected (older/newer Better Auth) so callers can fall back.
- */
 export async function getBetterAuthInternalAdapter(
   config?: BetterAuthConfig,
 ): Promise<BetterAuthInternalAdapter | undefined> {
   const auth = (await getBetterAuth(config)) as unknown as {
     $context?: Promise<{
-      internalAdapter?: Omit<
-        BetterAuthInternalAdapter,
-        "replaceUnverifiedCredentialWithGoogle"
-      >;
+      internalAdapter?: BetterAuthContextAdapter;
     }>;
   };
   try {
     const ctx = await auth.$context;
     const ia = ctx?.internalAdapter;
-    if (
-      ia &&
-      typeof ia.findUserByEmail === "function" &&
-      typeof ia.linkAccount === "function" &&
-      typeof ia.createUser === "function" &&
-      typeof ia.createSession === "function" &&
-      typeof ia.deleteSession === "function" &&
-      typeof ia.findAccountByProviderId === "function"
-    ) {
-      return {
-        ...ia,
-        replaceUnverifiedCredentialWithGoogle,
-      } as BetterAuthInternalAdapter;
-    }
+    if (ia) return normalizeBetterAuthInternalAdapter(ia);
   } catch {
     // Context resolution failed — caller falls back to the signup path.
   }
   return undefined;
 }
 
-/**
- * Run a password action with a Better Auth session for the framework's legacy
- * session boundary, deleting a session created only for this operation.
- */
 type BetterAuthActionSessionOverrides = {
   auth?: BetterAuthInstance;
   createSession?: typeof createBetterAuthSessionForEmail;
@@ -1263,12 +1715,15 @@ export async function withBetterAuthActionSession<T>(
   return outcome.value;
 }
 
-/** Create a real Better Auth session for an existing user without credentials. */
 export async function createBetterAuthSessionForEmail(
   email: string,
   config?: BetterAuthConfig,
   options?: { expiresAt?: Date },
 ): Promise<{ email: string; token: string; userId: string } | null> {
+  // This helper is used by framework action bridges, but it still creates a
+  // real Better Auth session. Do not let it mint a password-shaped session for
+  // an organization that requires a provider-specific sign-in.
+  if (await getRequiredAuthProviderForEmail(email)) return null;
   const adapter = await getBetterAuthInternalAdapter(config);
   if (!adapter) return null;
   const existing = await adapter.findUserByEmail(email, {
@@ -1285,7 +1740,6 @@ export async function createBetterAuthSessionForEmail(
   };
 }
 
-/** Set a Better Auth session cookie for a session created through the adapter. */
 export async function setBetterAuthSessionCookie(
   event: H3Event,
   token: string,
@@ -1386,12 +1840,6 @@ async function syncGoogleProfile(
   }
 }
 
-/**
- * Ensure a verified Google identity has a canonical Better Auth user/account
- * before the legacy email-keyed session is issued. This prevents a later
- * password signup from becoming the first canonical identity for that email.
- * Returns whether this call created the canonical user.
- */
 export async function ensureGoogleAuthIdentity(
   identity: GoogleAuthIdentity,
 ): Promise<boolean> {
@@ -1414,8 +1862,6 @@ export async function ensureGoogleAuthIdentityWithAdapter(
 
   const reconcilePendingInvitations = async (): Promise<void> => {
     try {
-      // Google verification can bypass Better Auth's user-create hook, so
-      // reconcile invitations only after the verified identity is committed.
       await acceptPendingInvitationsForEmail(email);
     } catch (error) {
       console.error(
@@ -1436,6 +1882,8 @@ export async function ensureGoogleAuthIdentityWithAdapter(
   const findExisting = () =>
     adapter.findUserByEmail(email, { includeAccounts: true });
   let existing = await findExisting();
+
+  if (!existing) await enforceSignupAdmission(user);
 
   let linkedAccount = await adapter.findAccountByProviderId(
     accountId,
@@ -1505,14 +1953,20 @@ export async function ensureGoogleAuthIdentityWithAdapter(
 
   // A password signup reserves the email before verification. If that row is
   // credential-only, remove the unverified credential and promote the same
-  // canonical user to the verified Google identity. Any other linked account
-  // makes the claimant ambiguous, so keep the account-claim protection.
+  // canonical user to the verified Google identity. A third-party account makes
+  // the claimant ambiguous, so keep the account-claim protection. The
+  // framework's own identity-SSO link is not a third party: cross-app JIT
+  // provisioning writes it alongside an unusable password credential, so
+  // counting it as a claim left federated users permanently unable to sign in
+  // with Google against a password account they never knowingly created.
   if (existing.user.emailVerified !== true) {
     const credentialAccounts = existing.accounts.filter(
       (account) => account.providerId === "credential",
     );
     const hasOtherAccounts = existing.accounts.some(
-      (account) => account.providerId !== "credential",
+      (account) =>
+        account.providerId !== "credential" &&
+        account.providerId !== IDENTITY_SSO_PROVIDER_ID,
     );
     if (credentialAccounts.length !== 1 || hasOtherAccounts) {
       throw new Error(
@@ -1538,49 +1992,53 @@ export async function ensureGoogleAuthIdentityWithAdapter(
   return false;
 }
 
-/** Reset for testing */
 export async function resetBetterAuth(): Promise<void> {
+  _authInitGeneration++;
   _auth = undefined;
   _initPromise = undefined;
-  // The Postgres pool belongs to the process (see `sharedDbPool`), not to Better
-  // Auth — ending it here would take the framework's and every store's database
-  // access down with it. `closeDbExec()` owns that.
   _neonAuthPool = undefined;
 }
 
-// A `closeDbExec()` releases the pool this instance's adapter is bound to, so
-// the next `getAuth()` must build a fresh one. Registered from the pooled
-// branches rather than at module load: core's specs widely mock
-// `db/client.js`, and an import-time call into the mock breaks every one of
-// them that doesn't stub this export.
 let _poolCloseHookRegistered = false;
+let _dbExecCloseHookRegistered = false;
+function resetAuthInstanceState(): void {
+  _authInitGeneration++;
+  _auth = undefined;
+  _initPromise = undefined;
+  _neonAuthPool = undefined;
+}
+
 function resetAuthOnPoolClose(driver?: string, url?: string): void {
   if (_poolCloseHookRegistered) return;
   _poolCloseHookRegistered = true;
-  onSharedDbPoolsClosed(() => {
-    _auth = undefined;
-    _initPromise = undefined;
-    _neonAuthPool = undefined;
-  });
+  onSharedDbPoolsClosed(resetAuthInstanceState);
   if (driver && url) {
-    onSharedDbPoolReplaced(driver, url, () => {
-      _auth = undefined;
-      _initPromise = undefined;
-      _neonAuthPool = undefined;
-    });
+    onSharedDbPoolReplaced(driver, url, resetAuthInstanceState);
   }
 }
 
-// ---------------------------------------------------------------------------
-// Instance creation
-// ---------------------------------------------------------------------------
+function resetAuthOnDbExecClose(): void {
+  if (_dbExecCloseHookRegistered) return;
+  _dbExecCloseHookRegistered = true;
+  // Nitro can close this worker's PGlite client before the process exits.
+  onDbClientsClosing(() => {
+    resetAuthInstanceState();
+    _dbExecCloseHookRegistered = false;
+  });
+}
 
 async function createBetterAuthInstance(
   config?: BetterAuthConfig,
 ): Promise<BetterAuthInstance> {
-  const basePath = config?.basePath ?? "/_agent-native/auth/ba";
+  // Better Auth derives every URL it hands out — social-provider callbacks,
+  // magic-link verification, password reset — from this base path, so it
+  // must be the PUBLIC one. The framework still mounts the handler on the
+  // internal path and passes Better Auth a request in public form.
+  const basePath = publicFrameworkPath(
+    `${getConfiguredAppBasePath()}${config?.basePath ?? "/_agent-native/auth/ba"}`,
+  );
+  const access = getAppConfig().access;
 
-  // Build social providers from env vars
   const socialProviders: BetterAuthOptions["socialProviders"] = {
     ...config?.socialProviders,
   };
@@ -1608,8 +2066,6 @@ async function createBetterAuthInstance(
           }
         : configuredGoogleCredentials
       : (resolveGoogleSignInCredentials() ?? configuredGoogleCredentials);
-  // Publish the pair actually wired to the provider so the credential
-  // self-check probes what the callback uses, not what it would prefer.
   recordActiveGoogleSignInCredentials(googleCredentials);
   if (googleCredentials) {
     // When the template requests broader scopes (Gmail, Calendar, etc.)
@@ -1641,13 +2097,18 @@ async function createBetterAuthInstance(
       clientSecret: process.env.GITHUB_CLIENT_SECRET,
     };
   }
+  recordActiveSocialSignInProviders(
+    Object.entries(socialProviders)
+      .filter(([, provider]) => Boolean(provider))
+      .map(([id]) => id),
+  );
 
-  // Build database config
   const database = await buildDatabaseConfig();
 
   const secret = resolveAuthSecret();
 
   const appUrl = getAppProductionUrl();
+  const configuredOrigins = [...getConfiguredOriginAllowlist()];
   const cookieNamespace = resolveAuthCookieNamespace();
   const emailReadiness = getDeploymentEmailReadiness();
   const { requireEmailVerification, disableSignUp } =
@@ -1655,6 +2116,84 @@ async function createBetterAuthInstance(
 
   const shouldMirrorGoogleAccountTokens =
     (config?.googleScopes?.length ?? 0) > 0;
+
+  const configuredPlugins = config?.plugins ?? [];
+  const hasConfiguredTwoFactor = configuredPlugins.some(
+    (plugin) => plugin.id === "two-factor",
+  );
+
+  const enterprisePlugins: BetterAuthPlugin[] = [];
+  if (enterpriseAuthAdaptersBuilt && access.sso.enabled) {
+    const { sso } = await loadOptionalPeer(
+      "@better-auth/sso",
+      () => import("@better-auth/sso"),
+    );
+    enterprisePlugins.push(
+      sso({
+        domainVerification: { enabled: true },
+        resolveUser: async ({ providerUser }, context) => {
+          const existing = await context.database.findOne<{
+            id: string;
+          }>({
+            model: "user",
+            where: [
+              {
+                field: "email",
+                value: providerUser.email.trim().toLowerCase(),
+                mode: "insensitive",
+              },
+            ],
+          });
+          return existing
+            ? { action: "link", userId: existing.id, profile: "preserve" }
+            : { action: "continue" };
+        },
+        provisionUserOnEveryLogin: true,
+        provisionUser: async ({ user }) => {
+          await autoJoinDomainMatchingOrgs(user.email, {
+            activateJoinedOrg: "if-missing",
+          });
+          await acceptPendingInvitationsForEmail(user.email);
+        },
+      }),
+    );
+  }
+  if (!enterpriseAuthAdaptersBuilt && access.sso.enabled) {
+    throw new Error(
+      "Organization SSO is enabled, but this deployment was built without enterprise auth adapters. Rebuild with AUTH_SSO=true.",
+    );
+  }
+  if (enterpriseAuthAdaptersBuilt && access.scim.enabled) {
+    const { scim } = await loadOptionalPeer(
+      "@better-auth/scim",
+      () => import("@better-auth/scim"),
+    );
+    // Better Auth intentionally requires a separate 32-character HMAC secret
+    // for managed SCIM credentials. Falling back to the deployment auth secret
+    // keeps the opt-in feature usable for existing deployments while allowing
+    // operators to rotate the SCIM boundary independently via app-config.
+    const credentialHashSecret = access.scim.credentialHashSecret ?? secret;
+    if (credentialHashSecret.length < 32) {
+      throw new Error(
+        "AUTH_SCIM_CREDENTIAL_HASH_SECRET (or BETTER_AUTH_SECRET) must contain at least 32 characters when SCIM is enabled",
+      );
+    }
+    enterprisePlugins.push(
+      frameworkOrgBridgePlugin as unknown as BetterAuthPlugin,
+    );
+    enterprisePlugins.push(
+      scim({
+        connections: [],
+        managedConnections: { credentialHashSecret },
+        identity: createFrameworkSCIMIdentity(),
+      }),
+    );
+  }
+  if (!enterpriseAuthAdaptersBuilt && access.scim.enabled) {
+    throw new Error(
+      "Organization SCIM is enabled, but this deployment was built without enterprise auth adapters. Rebuild with AUTH_SCIM=true.",
+    );
+  }
 
   const magicLinkPlugin = magicLink({
     expiresIn: 60 * 5,
@@ -1689,16 +2228,15 @@ async function createBetterAuthInstance(
           urlQueryKeys,
         });
       }
-      const appBasePath = getConfiguredAppBasePath();
-      const magicLinkUrl = appBasePath
-        ? url.replace(/(\/\/[^/]+)(\/)/, `$1${appBasePath}$2`)
-        : url;
       const deliveredMagicLinkUrl =
-        desktopMagicLinkLandingUrl(magicLinkUrl) ?? magicLinkUrl;
-      const { subject, html, text, appSender } = renderMagicLinkEmail({
-        email,
-        magicLinkUrl: deliveredMagicLinkUrl,
-      });
+        desktopMagicLinkLandingUrl(url) ?? emailAuthLinkLandingUrl(url) ?? url;
+      const { subject, html, text, appSender } = await renderTransactionalEmail(
+        CORE_MAGIC_LINK_EMAIL_ID,
+        {
+          email,
+          magicLinkUrl: deliveredMagicLinkUrl,
+        },
+      );
       await sendEmail({
         to: email,
         subject,
@@ -1707,19 +2245,50 @@ async function createBetterAuthInstance(
         appSender,
         disableClickTracking: true,
         templateId: CORE_MAGIC_LINK_EMAIL_ID,
+        authCritical: true,
       });
     },
   });
+
+  const sendVerificationEmail: NonNullable<
+    NonNullable<BetterAuthOptions["emailVerification"]>["sendVerificationEmail"]
+  > = async ({ user, url, token }) => {
+    const deliveredVerifyUrl = emailAuthLinkLandingUrl(url) ?? url;
+    const emailChange = await verifiedEmailChangeFromToken(
+      token,
+      secret,
+      user.email,
+    );
+    if (emailChange)
+      await preflightEmailIdentityRekey(
+        emailChange.oldEmail,
+        emailChange.newEmail,
+      );
+    const renderedEmail = await renderTransactionalEmail(
+      emailChange
+        ? CORE_CHANGE_EMAIL_VERIFICATION_EMAIL_ID
+        : CORE_VERIFY_SIGNUP_EMAIL_ID,
+      { email: user.email, verifyUrl: deliveredVerifyUrl },
+    );
+    await sendEmail({
+      to: user.email,
+      ...renderedEmail,
+      disableClickTracking: true,
+      templateId: emailChange
+        ? CORE_CHANGE_EMAIL_VERIFICATION_EMAIL_ID
+        : CORE_VERIFY_SIGNUP_EMAIL_ID,
+      authCritical: true,
+      timeoutMs: VERIFICATION_EMAIL_TIMEOUT_MS,
+    });
+  };
 
   const auth = betterAuth({
     basePath,
     baseURL: appUrl,
     database,
-    trustedOrigins: [...getConfiguredOriginAllowlist()],
-    // Auth schema relations are intentionally not registered here. Keep the
-    // experimental relational-query path off so a bundled Drizzle adapter
-    // cannot recurse while resolving a session or account join.
-    experimental: { joins: false },
+    trustedOrigins: appUrl.startsWith("https://")
+      ? configuredOrigins
+      : (request) => [...configuredOrigins, requestForwardedOrigin(request)],
     secret,
     emailAndPassword: {
       enabled: true,
@@ -1729,19 +2298,54 @@ async function createBetterAuthInstance(
       // Email verification is enabled only when a provider is ready. Without
       // one, hosted deployments keep password signup available.
       requireEmailVerification,
+      onExistingUserSignUp: requireEmailVerification
+        ? async ({ user }) => {
+            // Duplicate signup is unauthenticated, and direct auth.api calls
+            // such as the register route skip Better Auth's IP rate limit.
+            // The lock makes a concurrent signup for this address wait for
+            // this transaction, so it sees the sent row before checking.
+            const db = getDbExec();
+            await db.execute({
+              sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
+              args: [`existing-account-verification:${user.email}`],
+            });
+            const { rows } = await db.execute({
+              sql: `SELECT 1 FROM email_log
+                WHERE template_id = ? AND recipient = ? AND status = 'sent' AND created_at > ?
+                LIMIT 1`,
+              args: [
+                CORE_VERIFY_SIGNUP_EMAIL_ID,
+                user.email,
+                Date.now() - EXISTING_ACCOUNT_VERIFICATION_COOLDOWN_MS,
+              ],
+            });
+            if (rows.length > 0) return;
+            const endpoint = getCurrentAuthEndpointContext();
+            const callbackURL =
+              typeof endpoint.body?.callbackURL === "string" &&
+              endpoint.body.callbackURL
+                ? endpoint.body.callbackURL
+                : "/";
+            const token = await createEmailVerificationToken(
+              secret,
+              user.email,
+            );
+            const url = `${endpoint.context.baseURL}/verify-email?token=${token}&callbackURL=${encodeURIComponent(callbackURL)}`;
+            await sendVerificationEmail({ user, url, token });
+          }
+        : undefined,
       sendResetPassword: async ({ user, token }) => {
-        // APP_BASE_PATH lets this app mount under a prefix (e.g. /mail). The
-        // reset link must include that prefix so the page resolves correctly.
         const appBasePath = (
           process.env.VITE_APP_BASE_PATH ||
           process.env.APP_BASE_PATH ||
           ""
         ).replace(/\/$/, "");
-        const resetUrl = `${appUrl}${appBasePath}/_agent-native/auth/reset?token=${encodeURIComponent(token)}`;
-        const { subject, html, text, appSender } = renderResetPasswordEmail({
-          email: user.email,
-          resetUrl,
-        });
+        const resetUrl = `${appUrl}${appBasePath}${publicFrameworkPath("/_agent-native/auth/reset")}?token=${encodeURIComponent(token)}`;
+        const { subject, html, text, appSender } =
+          await renderTransactionalEmail(CORE_RESET_PASSWORD_EMAIL_ID, {
+            email: user.email,
+            resetUrl,
+          });
         await sendEmail({
           to: user.email,
           subject,
@@ -1750,47 +2354,62 @@ async function createBetterAuthInstance(
           appSender,
           disableClickTracking: true,
           templateId: CORE_RESET_PASSWORD_EMAIL_ID,
+          authCritical: true,
         });
       },
     },
     emailVerification: {
-      // Fire verification email right after signup, before the user has a
-      // session — pairs with requireEmailVerification above.
       sendOnSignUp: requireEmailVerification,
-      // Auto-create a session once the user clicks the link. Without this,
-      // verified users would have to go back and sign in manually, which is
-      // a confusing dead-end on the verify screen.
       autoSignInAfterVerification: true,
-      sendVerificationEmail: async ({ user, url }) => {
-        // APP_BASE_PATH lets this app mount under a prefix (e.g. /mail). The
-        // verification link must include that prefix so the page resolves correctly.
-        const verifyBasePath = (
-          process.env.VITE_APP_BASE_PATH ||
-          process.env.APP_BASE_PATH ||
-          ""
-        ).replace(/\/$/, "");
-        const verifyUrl = verifyBasePath
-          ? url.replace(/(\/\/[^/]+)(\/)/, `$1${verifyBasePath}$2`)
-          : url;
-        const { subject, html, text, appSender } = renderVerifySignupEmail({
-          email: user.email,
-          verifyUrl,
-        });
-        await sendEmail({
-          to: user.email,
-          subject,
-          html,
-          text,
-          appSender,
-          disableClickTracking: true,
-          templateId: CORE_VERIFY_SIGNUP_EMAIL_ID,
-        });
+      sendVerificationEmail,
+      afterEmailVerification: async (user, request) => {
+        if (!request) return;
+        const token = new URL(request.url).searchParams.get("token");
+        if (!token) return;
+        const db = getDbExec();
+        const emailChange = await verifiedEmailChangeFromToken(
+          token,
+          secret,
+          user.email,
+        );
+        if (!emailChange) return;
+        try {
+          await executeIdentityRekey(
+            identityRekeyDbFromExec(db),
+            emailChange.oldEmail,
+            emailChange.newEmail,
+            {
+              accountAlreadyUpdated: true,
+              actorEmail: user.email,
+              caller: "email-verification",
+            },
+          );
+        } catch (error) {
+          console.error("[identity] email rekey deferred for retry", error);
+        }
       },
     },
     user: {
+      changeEmail: {
+        enabled: emailReadiness.status === "ready",
+        updateEmailWithoutVerification: false,
+        sendChangeEmailConfirmation: async ({ user, newEmail, url }) => {
+          await preflightEmailIdentityRekey(user.email, newEmail);
+          const confirmationUrl = emailAuthLinkLandingUrl(url) ?? url;
+          const renderedEmail = await renderTransactionalEmail(
+            CORE_CHANGE_EMAIL_CONFIRMATION_EMAIL_ID,
+            { email: user.email, newEmail, confirmationUrl },
+          );
+          await sendEmail({
+            to: user.email,
+            ...renderedEmail,
+            disableClickTracking: true,
+            templateId: CORE_CHANGE_EMAIL_CONFIRMATION_EMAIL_ID,
+            authCritical: true,
+          });
+        },
+      },
       additionalFields: {
-        // Keep this internal profile field in Better Auth's adapter reads and
-        // writes without exposing it as a client-controlled auth field.
         onboardingRole: {
           type: "string",
           required: false,
@@ -1815,10 +2434,13 @@ async function createBetterAuthInstance(
       session: {
         create: {
           before: async (session, context) => {
-            const email = await getAuthEmailForUserId(session.userId);
-            if ((await getRequiredAuthProviderForEmail(email)) !== "google") {
-              return;
-            }
+            const email = await getAuthEmailForUserId(
+              session.userId,
+              context?.context.adapter,
+            );
+            const requiredProvider =
+              await getRequiredAuthProviderForEmail(email);
+            if (!requiredProvider) return;
 
             const path = stringifyValue(context?.path ?? "").toLowerCase();
             const requestUrl = context?.request?.url ?? "";
@@ -1846,14 +2468,69 @@ async function createBetterAuthInstance(
                   ?.providerId ?? "",
               ),
             ].map((value) => value.toLowerCase());
-            if (!providerValues.some((value) => value.includes("google"))) {
+            if (requiredProvider === "google") {
+              if (!providerValues.some((value) => value.includes("google"))) {
+                return false;
+              }
+              return;
+            }
+
+            const providerId = requiredProvider.slice(4).toLowerCase();
+            const providerParams = context?.params as
+              | Record<string, unknown>
+              | undefined;
+            const explicitProvider = [
+              providerParams?.providerId,
+              providerParams?.provider,
+              providerParams?.id,
+              (context?.body as Record<string, unknown> | undefined)
+                ?.providerId,
+            ]
+              .map((value) => String(value ?? "").toLowerCase())
+              .filter(Boolean);
+            const pathMatchesProvider = providerValues.some((value) => {
+              if (!value.includes("/sso/")) return false;
+              try {
+                const path = value.startsWith("http")
+                  ? new URL(value).pathname
+                  : value.split("?", 1)[0];
+                return path
+                  .split("/")
+                  .some((part) => decodeURIComponent(part) === providerId);
+              } catch (error) {
+                console.warn(
+                  "[auth] could not parse SSO provider callback path",
+                  error,
+                );
+                return false;
+              }
+            });
+            if (
+              !explicitProvider.includes(providerId) &&
+              !pathMatchesProvider
+            ) {
               return false;
             }
+          },
+          after: async (session) => {
+            const email = await getAuthEmailForUserId(session.userId);
+            if (!isBootstrapAdmin(email)) return;
+            const adapter = await getBetterAuthInternalAdapter();
+            const existing = await adapter?.findUserByEmail(email, {
+              includeAccounts: false,
+            });
+            if (existing?.user.emailVerified !== true) return;
+            const { bootstrapAdminOrganization } =
+              await import("../org/context.js");
+            await bootstrapAdminOrganization(email);
           },
         },
       },
       user: {
         create: {
+          before: async (user, context) => {
+            await enforceSignupAdmission(user, context);
+          },
           after: async (
             user: {
               id?: string;
@@ -1861,37 +2538,24 @@ async function createBetterAuthInstance(
               name?: string | null;
               emailVerified?: boolean;
             },
-            // Better Auth (1.6.x) passes the endpoint context as the 2nd arg.
-            // It carries the originating request's headers (and on OAuth
-            // signups the callback request's headers), which is where the
-            // browser's `an_ft` first-touch cookie rides in.
-            context?: {
-              headers?: Headers | null;
-              request?: { headers?: Headers | null; url?: string } | null;
-            } | null,
+            context?: BetterAuthUserCreateContext | null,
           ) => {
             const email = user?.email;
             if (!email) return;
 
             await emitSignupEventForCreatedUser(user, context);
 
-            // Email-based org access requires proof of control of the address.
             if (user.emailVerified !== true) return;
 
             try {
               await acceptPendingInvitationsForEmail(email);
             } catch (err) {
-              // Never block signup on invite bookkeeping — log and continue.
               console.error(
                 "[auth] failed to auto-accept pending invitations",
                 err,
               );
             }
             try {
-              // Auto-join orgs whose `allowed_domain` matches this email
-              // domain. Lets a fresh `@builder.io` (or any org-domain)
-              // signup land inside the company org on first page load
-              // without going through the picker. No-ops when no match.
               await autoJoinDomainMatchingOrgs(email);
             } catch (err) {
               console.error(
@@ -1949,11 +2613,9 @@ async function createBetterAuthInstance(
     },
     advanced: {
       cookiePrefix: cookieNamespace.betterAuthCookiePrefix,
-      // Emit `SameSite=None; Secure` when the app is served over HTTPS so
-      // session cookies are delivered inside third-party iframes (e.g. the
-      // Builder.io editor). Plain-HTTP dev keeps the default (Lax) because
-      // `SameSite=None` requires Secure.
-      ...(appUrl.startsWith("https://")
+      // Keep callback URL validation active in test runs as well as production.
+      disableOriginCheck: false,
+      ...(appUrl.startsWith("https://") || isBuilderPreviewHttpsEnvironment()
         ? {
             defaultCookieAttributes: {
               sameSite: "none" as const,
@@ -1987,11 +2649,69 @@ async function createBetterAuthInstance(
             expirationTime: "15m",
           },
           disableSettingJwtHeader: true,
+          adapter: { getJwks: (ctx) => readNewestJwks(ctx.context.adapter) },
         }),
       ),
-      // Bearer: accept Bearer tokens on API requests
       bearer(),
-      ...(config?.plugins ?? []),
+      ...(hasConfiguredTwoFactor
+        ? []
+        : [
+            twoFactor({
+              issuer: getAppConfig().app.name || "Agent-Native",
+              allowPasswordless: true,
+              accountLockout: { enabled: true },
+            }),
+          ]),
+      ...enterprisePlugins,
+      ...configuredPlugins,
+      {
+        id: "verification-email-delivery",
+        hooks: {
+          before: [
+            {
+              matcher: (ctx) =>
+                ctx.path === "/sign-up/email" && requireEmailVerification,
+              handler: createAuthMiddleware(async () => {
+                // A failed delivery rolls signup back; lazy log DDL must not
+                // leave its readiness cache pointing at a rolled-back table.
+                await ensureEmailLogTable();
+              }),
+            },
+          ],
+        },
+        init(ctx) {
+          const emailVerification = ctx.options.emailVerification;
+          if (!emailVerification?.sendVerificationEmail) return;
+          const sendVerificationEmail = emailVerification.sendVerificationEmail;
+          const deliveries = new WeakSet<Promise<unknown>>();
+          emailVerification.sendVerificationEmail = (...args) => {
+            const delivery = sendVerificationEmail(...args);
+            if (delivery instanceof Promise) deliveries.add(delivery);
+            return delivery;
+          };
+          const passwordOptions = ctx.options.emailAndPassword;
+          const onExistingUserSignUp = passwordOptions?.onExistingUserSignUp;
+          if (passwordOptions && onExistingUserSignUp) {
+            passwordOptions.onExistingUserSignUp = (...args) => {
+              const delivery = onExistingUserSignUp(...args);
+              deliveries.add(delivery);
+              return delivery;
+            };
+          }
+          const runInBackgroundOrAwait = ctx.runInBackgroundOrAwait.bind(ctx);
+          return {
+            context: {
+              runInBackgroundOrAwait(task) {
+                // Better Auth swallows even awaited task errors; verification
+                // must fail the request before the UI can claim mail was sent.
+                if (task instanceof Promise && deliveries.has(task))
+                  return task;
+                return runInBackgroundOrAwait(task);
+              },
+            },
+          };
+        },
+      },
     ],
   });
 
@@ -2001,65 +2721,76 @@ async function createBetterAuthInstance(
 export async function buildDatabaseConfig(): Promise<
   BetterAuthOptions["database"]
 > {
+  assertHostedRuntimeDatabase();
+
   const url = getRuntimeDatabaseUrl("pglite:./data/pglite");
-  const { buildResilientNeonPool, buildResilientPostgresJsClient, isNeonUrl } =
-    await import("../db/create-get-db.js");
+  const {
+    buildResilientNeonPool,
+    buildResilientPostgresJsClient,
+    isNeonUrl,
+    scopeDbToPoolTransactions,
+  } = await import("../db/create-get-db.js");
 
   if (isPgliteUrl(url)) {
+    resetAuthOnDbExecClose();
     const { drizzle } = await loadPgliteDrizzle();
     const client = await getPgliteClient(url);
-    const db = drizzle({ client, schema: pgAuthSchema });
+    const db = drizzle({
+      client: pgliteDrizzleClient(url, client),
+      schema: pgAuthSchema,
+    });
     const { drizzleAdapter } = await import("better-auth/adapters/drizzle");
     return drizzleAdapter(db, {
       provider: "pg",
       schema: pgAuthSchema,
+      transaction: true,
     });
   }
 
-  // Neon via @neondatabase/serverless (WebSockets over HTTPS). postgres-js
-  // opens a raw TCP connection on port 5432 which frequently times out on
-  // Netlify Functions / Vercel / CF Workers when Neon's pooler is cold.
   if (isNeonUrl(url)) {
     const { Pool } = await import("@neondatabase/serverless");
-    // Cap the auth pool the same way as the app pool. Better Auth runs a
-    // session lookup on essentially every authenticated request, so an
-    // un-capped pool here is a primary contributor to "Max client
-    // connections reached" across concurrent serverless instances.
     resetAuthOnPoolClose("neon", url);
     _neonAuthPool = sharedDbPool(
       "neon",
       url,
       () => new Pool({ connectionString: url, ...neonPoolOptions() }),
     );
+    const getActivePool = () => resolveSharedDbPool("neon", url, _neonAuthPool);
     guardNeonPool(_neonAuthPool, url, "db/neon-auth");
     const { drizzle } = await import("drizzle-orm/neon-serverless");
-    const db = drizzle(buildResilientNeonPool(_neonAuthPool), {
-      schema: pgAuthSchema,
-    });
+    const db = scopeDbToPoolTransactions(
+      drizzle(buildResilientNeonPool(_neonAuthPool, getActivePool), {
+        schema: pgAuthSchema,
+      }),
+      _neonAuthPool,
+      getActivePool,
+    );
     const { drizzleAdapter } = await import("better-auth/adapters/drizzle");
     return drizzleAdapter(db, {
       provider: "pg",
       schema: pgAuthSchema,
+      transaction: true,
     });
   }
 
-  // Non-Neon Postgres (Supabase, self-hosted, etc.) → postgres-js.
-  // pgPoolOptions caps this pool to a small size on serverless. Better Auth
-  // runs a session lookup on essentially every authenticated request, so an
-  // un-capped pool here is a primary contributor to "Max client connections
-  // reached" across concurrent serverless instances.
   const { default: postgres } = await import("postgres");
   resetAuthOnPoolClose("postgres-js", url);
   const sql = sharedDbPool("postgres-js", url, () =>
     postgres(url, pgPoolOptions(url)),
   );
+  const getActivePool = () => resolveSharedDbPool("postgres-js", url, sql);
   const { drizzle } = await import("drizzle-orm/postgres-js");
-  const db = drizzle(buildResilientPostgresJsClient(sql), {
-    schema: pgAuthSchema,
-  });
+  const db = scopeDbToPoolTransactions(
+    drizzle(buildResilientPostgresJsClient(sql, getActivePool), {
+      schema: pgAuthSchema,
+    }),
+    sql,
+    getActivePool,
+  );
   const { drizzleAdapter } = await import("better-auth/adapters/drizzle");
   return drizzleAdapter(db, {
     provider: "pg",
     schema: pgAuthSchema,
+    transaction: true,
   });
 }

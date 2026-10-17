@@ -11,7 +11,8 @@ import type {
 import { processBuilderBodyHydrationQueue } from "./_database-source-utils.js";
 
 export default defineAction({
-  description: "Hydrate queued Builder CMS body content for a database source.",
+  description:
+    "Hydrate queued Builder CMS body content for a collection source.",
   schema: z.object({
     sourceId: z.string(),
     documentId: z.string().optional(),

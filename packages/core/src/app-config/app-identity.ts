@@ -18,6 +18,7 @@
  */
 
 import { getTemplate, TEMPLATES } from "../cli/templates-meta.js";
+import { normalizeWorkspaceAppHomePath } from "../shared/workspace-app-audience.js";
 import type { AppConfig } from "./schema.js";
 
 function titlecase(s: string): string {
@@ -42,11 +43,6 @@ export function deriveAppIdentity(app: AppConfig["app"]): AppConfig["app"] {
   };
 }
 
-/**
- * A custom app can be generated from a first-party template, so the package
- * name alone is not enough. When scaffolding records its source template,
- * that server-side provenance must agree with the derived first-party identity.
- */
 export function isFirstPartyApp(app: AppConfig["app"]): boolean {
   const template = app.slug ? getTemplate(app.slug) : undefined;
   if (!template || app.packageName !== template.name) return false;
@@ -56,8 +52,48 @@ export function isFirstPartyApp(app: AppConfig["app"]): boolean {
   );
 }
 
-export function resolveAppHomePath(app: AppConfig["app"]): string {
+let cachedManifestHomePaths:
+  | { appsJson: string; homePaths: Map<string, string> }
+  | undefined;
+
+function workspaceManifestHomePath(
+  workspaceId: string | undefined,
+  appsJson: string | undefined,
+): string | undefined {
+  if (!workspaceId || !appsJson?.trim()) return undefined;
+  if (cachedManifestHomePaths?.appsJson !== appsJson) {
+    const homePaths = new Map<string, string>();
+    try {
+      const parsed: unknown = JSON.parse(appsJson);
+      const entries = Array.isArray(parsed)
+        ? parsed
+        : parsed && typeof parsed === "object" && "apps" in parsed
+          ? (parsed as { apps?: unknown }).apps
+          : null;
+      if (Array.isArray(entries)) {
+        for (const entry of entries) {
+          if (!entry || typeof entry !== "object") continue;
+          const record = entry as Record<string, unknown>;
+          const id = typeof record.id === "string" ? record.id.trim() : "";
+          if (!id || homePaths.has(id)) continue;
+          homePaths.set(id, normalizeWorkspaceAppHomePath(record.homePath));
+        }
+      }
+    } catch {
+      // coercion-ok: a malformed manifest leaves the framework default in place.
+    }
+    cachedManifestHomePaths = { appsJson, homePaths };
+  }
+  return cachedManifestHomePaths.homePaths.get(workspaceId.trim());
+}
+
+export function resolveAppHomePath(
+  app: AppConfig["app"],
+  workspace?: AppConfig["workspace"],
+): string {
   const configured = app.homePath?.trim();
   if (configured) return configured;
-  return "/home";
+  return (
+    workspaceManifestHomePath(app.workspaceId, workspace?.appsJson) ?? "/home"
+  );
 }

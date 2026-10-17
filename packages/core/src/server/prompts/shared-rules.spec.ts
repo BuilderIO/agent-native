@@ -1,8 +1,37 @@
 import { describe, expect, it } from "vitest";
 
-import { sharedRule8 } from "./shared-rules.js";
+import { buildFrameworkCoreCompact } from "./framework-core-compact.js";
+import { buildFrameworkCore } from "./framework-core.js";
+import { RESPONSE_TYPOGRAPHY_GUIDANCE, sharedRule8 } from "./shared-rules.js";
 
 describe("shared framework prompt rules", () => {
+  it("keeps Assets delegation conditional on native generators not already delegating", () => {
+    for (const prompt of [buildFrameworkCore(), buildFrameworkCoreCompact()]) {
+      expect(prompt).toContain(
+        "unless the current app has its own generation action that already delegates there",
+      );
+    }
+  });
+
+  it("keeps generated response emphasis intentional in full and compact prompts", () => {
+    expect(RESPONSE_TYPOGRAPHY_GUIDANCE).toContain(
+      "do not use bold or italics as routine emphasis",
+    );
+    expect(RESPONSE_TYPOGRAPHY_GUIDANCE).toContain(
+      "user explicitly requests styled Markdown",
+    );
+    expect(buildFrameworkCore()).toContain(RESPONSE_TYPOGRAPHY_GUIDANCE);
+    expect(buildFrameworkCoreCompact()).toContain(RESPONSE_TYPOGRAPHY_GUIDANCE);
+  });
+
+  it("keeps action-card narration concise in full and compact prompts", () => {
+    for (const prompt of [buildFrameworkCore(), buildFrameworkCoreCompact()]) {
+      expect(prompt).toContain(
+        "When an action card already summarizes a result, add only context or next steps instead of repeating its fields.",
+      );
+    }
+  });
+
   it("teaches provider API fallback and corpus-first coverage generically", () => {
     const rule = sharedRule8({
       providerActions: ["github-search", "notion-search"],

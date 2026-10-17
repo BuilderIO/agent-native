@@ -7,7 +7,6 @@ import {
 } from "@tabler/icons-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, PanResponder, Pressable, Text, View } from "react-native";
-// RN's Animated is already used for the drag-to-reorder gestures below.
 import Reanimated from "react-native-reanimated";
 
 import AppCard, {

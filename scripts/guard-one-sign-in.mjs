@@ -1,19 +1,4 @@
 #!/usr/bin/env node
-/**
- * guard-one-sign-in.mjs
- *
- * There is exactly one way for a template to send a visitor to sign in and get
- * them back where they started: `buildSignInReturnHref()` on the client and
- * `signInJourney()` on the server, both from `@agent-native/core`.
- *
- * Templates used to hand-roll `/_agent-native/sign-in?return=<encoded path>`
- * (and `/login?next=`) in twelve places. Every anti-loop and return-path fix
- * then landed on whichever copy the ticket named, so the reports never
- * stopped. This guard exists so template #12 cannot reintroduce a fork.
- *
- * It flags PRODUCERS only. The `?return=` CONSUMER in core is permanent API
- * surface — generated apps in the wild hand-write it and cannot be upgraded.
- */
 
 import { readFileSync } from "node:fs";
 import { readdir } from "node:fs/promises";
@@ -37,29 +22,21 @@ const SKIP_DIRS = new Set([
   "e2e",
 ]);
 
-/**
- * End-to-end suites drive the real sign-in URL through a browser; they are
- * consumers of the entry route, not producers of a return path.
- */
 const SKIP_FILE = /\.(spec|test|e2e)\.(ts|tsx)$/;
 
 const RULES = [
   {
-    // Any hand-built sign-in entry href. The helper is the only producer.
     pattern: /_agent-native\/sign-in/,
     reason:
       "hand-rolls the sign-in entry path; call buildSignInReturnHref() (client) or signInJourney() (server) instead",
   },
   {
-    // `/login?next=`, `/signup?return=`, … — a second continuation grammar the
-    // login document does not read, so the visitor lands on the app root.
     pattern: /\/(?:login|signup)\?[^"'`]*\b(?:next|return|returnTo|redirect)=/,
     reason:
       "invents a second continuation param on the login route; call buildSignInReturnHref() instead",
   },
 ];
 
-/** Strip comments and import specifiers so prose and paths do not trip rules. */
 function stripNonCode(source) {
   return source
     .replace(/\/\*[\s\S]*?\*\//g, "")

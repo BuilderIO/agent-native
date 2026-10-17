@@ -1,3 +1,8 @@
+import {
+  readServiceProviderChoice,
+  serviceProviderOrder,
+} from "@agent-native/core/server";
+
 import { GeminiProvider } from "./gemini.js";
 import { OpenAIProvider } from "./openai.js";
 import type { ImageProvider } from "./types.js";
@@ -24,14 +29,18 @@ export async function getProvider(name?: string): Promise<ImageProvider> {
     return p;
   }
 
-  // Auto: prefer gemini (has reference image support), fall back to openai
-  for (const key of ["gemini", "openai"]) {
+  // Auto: the organization's Image generation choice (Settings ›
+  // Infrastructure) first, then gemini (has reference image support), then
+  // openai. Builder.io runs through Assets, never from this local fallback.
+  const choice = await readServiceProviderChoice("images");
+  for (const key of serviceProviderOrder("images", choice)) {
+    if (key === "builder") continue;
     const p = providers[key]!();
     if (await providerIsConfigured(p)) return p;
   }
 
   throw new Error(
-    "No image generation provider configured. Save GEMINI_API_KEY or OPENAI_API_KEY in settings.",
+    "No image generation provider configured. Save GOOGLE_GENERATIVE_AI_API_KEY or OPENAI_API_KEY in settings.",
   );
 }
 

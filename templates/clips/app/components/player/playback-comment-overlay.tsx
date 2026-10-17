@@ -1,5 +1,5 @@
 import { useAvatarUrl } from "@agent-native/core/client/hooks";
-import { InlineMarkdown } from "@agent-native/core/client/markdown";
+import { InlineMarkdown } from "@agent-native/toolkit/app/review";
 import { useEffect, useRef, useState } from "react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -23,7 +23,6 @@ export interface PlaybackComment {
   authorEmail?: string | null;
   authorName?: string | null;
   parentId?: string | null;
-  resolved?: boolean;
 }
 
 export type CommentPreviewData = Pick<
@@ -47,7 +46,6 @@ export function getActivePlaybackComments(
       const timestamp = comment.videoTimestampMs;
       return (
         comment.parentId == null &&
-        comment.resolved !== true &&
         comment.content.trim().length > 0 &&
         Number.isFinite(timestamp) &&
         timestamp >= 0 &&

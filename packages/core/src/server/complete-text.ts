@@ -31,22 +31,15 @@ export interface CompleteTextUsage {
 }
 
 export interface CompleteTextOptions {
-  /** Optional system prompt for the single model call. */
   systemPrompt?: string;
-  /** Convenience final user message. Appended after `messages` when both are set. */
   input?: string;
-  /** Optional prior messages for narrow multi-turn transforms. */
   messages?: CompleteTextMessage[];
-  /** Explicit engine name or instance. Omit to use the normal request/default engine. */
   engine?:
     | string
     | AgentEngine
     | { name: string; config: Record<string, unknown> };
-  /** Explicit model. Omit to honor app/user default, then engine default. */
   model?: string;
-  /** App/template id used for org-scoped model defaults. */
   appId?: string;
-  /** Optional direct API key. Prefer request secrets/env resolution when possible. */
   apiKey?: string;
   maxOutputTokens?: number;
   temperature?: number;
@@ -105,9 +98,14 @@ function contentText(parts: readonly EngineContentPart[]): string {
 function createCompletionAbortSignal(
   signal: AbortSignal | undefined,
   timeoutMs: number | undefined,
-): { signal: AbortSignal; cleanup: () => void } {
+): {
+  signal: AbortSignal;
+  cleanup: () => void;
+  getTimeoutError: () => EngineError | undefined;
+} {
   const controller = new AbortController();
   const cleanupFns: Array<() => void> = [];
+  let timeoutError: EngineError | undefined;
 
   if (signal) {
     if (signal.aborted) {
@@ -121,15 +119,18 @@ function createCompletionAbortSignal(
 
   if (timeoutMs !== undefined) {
     const timeout = setTimeout(() => {
-      controller.abort(
-        new Error(`completeText timed out after ${timeoutMs}ms`),
+      timeoutError = new EngineError(
+        `completeText timed out after ${timeoutMs}ms`,
+        { errorCode: "complete_text_timeout" },
       );
+      controller.abort(timeoutError);
     }, timeoutMs);
     cleanupFns.push(() => clearTimeout(timeout));
   }
 
   return {
     signal: controller.signal,
+    getTimeoutError: () => timeoutError,
     cleanup: () => {
       for (const cleanup of cleanupFns) cleanup();
     },
@@ -139,38 +140,30 @@ function createCompletionAbortSignal(
 async function resolveCompletionApiKey(
   options: CompleteTextOptions,
 ): Promise<ResolvedOwnerApiKey> {
-  // A caller-supplied key is opaque: `CompleteTextOptions.apiKey` names no
-  // provider, so it keeps the caller's contract and is passed through untagged.
   if (options.apiKey) {
     return { apiKey: options.apiKey, apiKeyEnvVar: undefined };
   }
-  try {
-    return await resolveOwnerEngineApiKey({
-      engineOption: options.engine,
-      ownerEmail: getRequestUserEmail(),
-    });
-  } catch {
-    return { apiKey: undefined, apiKeyEnvVar: undefined };
-  }
+  return resolveOwnerEngineApiKey({
+    engineOption: options.engine,
+    ownerEmail: getRequestUserEmail(),
+  });
 }
 
-/**
- * Run a single server-side model completion through the framework engine layer.
- *
- * Prefer `sendToAgentChat()` or actions for product workflows where the user
- * should see, steer, or audit the agent. Use this helper only for narrow text
- * transforms that intentionally do not need tools, chat history, or run state.
- */
 export async function completeText(
   options: CompleteTextOptions,
 ): Promise<CompleteTextResult> {
   registerBuiltinEngines();
 
-  const { apiKey, apiKeyEnvVar } = await resolveCompletionApiKey(options);
+  const {
+    apiKey,
+    apiKeyEnvVar,
+    credentialProvenance: apiKeyProvenance,
+  } = await resolveCompletionApiKey(options);
   const engine = await resolveEngine({
     engineOption: options.engine,
     apiKey,
     apiKeyEnvVar,
+    apiKeyProvenance,
     model: options.model,
     appId: options.appId,
   });
@@ -179,10 +172,11 @@ export async function completeText(
     (await getStoredModelForEngine(engine, { appId: options.appId })) ??
     engine.defaultModel;
   const model = normalizeModelForEngine(engine, modelCandidate);
-  const { signal, cleanup } = createCompletionAbortSignal(
+  const completionAbort = createCompletionAbortSignal(
     options.signal,
     options.timeoutMs,
   );
+  const { signal } = completionAbort;
 
   let streamedText = "";
   let finalContent: EngineContentPart[] | undefined;
@@ -226,9 +220,16 @@ export async function completeText(
         stopReason = event.reason;
       }
     }
+  } catch (error) {
+    const timeoutError = completionAbort.getTimeoutError();
+    if (timeoutError) throw timeoutError;
+    throw error;
   } finally {
-    cleanup();
+    completionAbort.cleanup();
   }
+
+  const timeoutError = completionAbort.getTimeoutError();
+  if (timeoutError) throw timeoutError;
 
   const content = finalContent ?? [{ type: "text", text: streamedText }];
   return {

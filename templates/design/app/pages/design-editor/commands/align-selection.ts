@@ -1,6 +1,6 @@
 import type { CanvasFrameGeometryById } from "@shared/canvas-frames";
 import { getFrameGroupBounds } from "@shared/canvas-math";
-import type { CodeLayerNode } from "@shared/code-layer";
+import type { CodeLayerNode, CodeLayerSource } from "@shared/code-layer";
 import { buildCodeLayerProjection } from "@shared/code-layer";
 import type { RefObject } from "react";
 
@@ -19,12 +19,6 @@ import { computeAlignedPositions } from "@/pages/design-editor/layout-operations
 import { overviewSelectionTargetsElement } from "@/pages/design-editor/selection-state";
 import type { DesignFile } from "@/pages/design-editor/types";
 
-/**
- * Why an alignment click would do nothing. The inspector disables its six
- * buttons on the same verdict `runAlignSelection` refuses on, so the row is
- * never an affordance that silently no-ops (or, when the bounds could not be
- * measured, moves the selection to the wrong edge).
- */
 export type AlignSelectionBlocker =
   | "read-only"
   | "no-selection"
@@ -37,19 +31,12 @@ export interface AlignSelectionAvailabilityArgs {
   fileIds: string[];
   measureAlignParentBox: MeasureAlignParentBox;
   overviewSelectedScreenIds: string[];
-  /** Active-file projection nodes, resolved only when the verdict needs them. */
   resolveNodesById: () => ReadonlyMap<string, CodeLayerNode>;
   selectedElement: ElementInfo | null;
   selectedLayerIds: string[];
   viewMode: "single" | "overview";
 }
 
-/**
- * The box a single selection aligns inside, in the same parent-relative space
- * `rectFromCodeLayerNode` reports the child in. Null means unmeasured, not
- * empty: a zero box puts every edge at the parent's origin, which reads as the
- * buttons moving the selection the wrong way.
- */
 export type MeasureAlignParentBox = (
   node: CodeLayerNode,
   parentNode: CodeLayerNode,
@@ -59,7 +46,6 @@ export type AlignSelectionAvailability =
   | { canAlign: true }
   | { canAlign: false; blocker: AlignSelectionBlocker };
 
-/** A frame at the top of the document has nothing to align against. */
 function isDocumentRootNode(node: CodeLayerNode | undefined): boolean {
   const tag = node?.tag.toLowerCase();
   return tag === "body" || tag === "html";
@@ -90,8 +76,6 @@ export function alignSelectionAvailability(
       nodesById.has(layerId),
   );
   if (nodeIds.length === 0) return { canAlign: false, blocker: "no-selection" };
-  // 2+ objects align to their own combined bounding box, so they never need a
-  // parent — a pair of top-level frames is alignable where one is not.
   if (nodeIds.length >= 2) return { canAlign: true };
   const soleNode = nodesById.get(nodeIds[0]!)!;
   const parentId = soleNode.parentId;
@@ -112,6 +96,7 @@ export interface AlignSelectionArgs {
   commitNodePositions: (
     baseContent: string,
     positions: ReadonlyMap<string, { x: number; y: number }>,
+    source?: CodeLayerSource,
   ) => boolean;
   designDataJsonRef: RefObject<Record<string, unknown>>;
   files: DesignFile[];
@@ -158,17 +143,17 @@ export function runAlignSelection(
   };
   trace("structure", "align", { layers: selectedLayerIdsState.length });
 
-  // One projection for both the verdict below and the layer paths further
-  // down, built on demand so aligning overview screens never pays for it.
   const baseContent = activeFile ? getFreshActiveContent() : "";
+  const activeSource = activeFile
+    ? { kind: "design-file" as const, fileId: activeFile.id }
+    : undefined;
   let projectionNodesById: ReadonlyMap<string, CodeLayerNode> | null = null;
   const resolveNodesById = () => {
     if (!projectionNodesById) {
       projectionNodesById = new Map(
-        buildCodeLayerProjection(baseContent).nodes.map((node) => [
-          node.id,
-          node,
-        ]),
+        buildCodeLayerProjection(baseContent, {
+          ...(activeSource ? { source: activeSource } : {}),
+        }).nodes.map((node) => [node.id, node]),
       );
     }
     return projectionNodesById;
@@ -186,9 +171,6 @@ export function runAlignSelection(
   });
   if (!availability.canAlign) return abandon(availability.blocker);
 
-  // Selected SCREENS go through handleGeometryCommit, so the whole align is
-  // one undo step. A layer selection must fall through to the element path
-  // below instead, as Figma aligns whatever is selected.
   if (
     viewModeRef.current === "overview" &&
     !overviewSelectionTargetsElement({
@@ -255,7 +237,6 @@ export function runAlignSelection(
     return;
   }
 
-  // Single-screen mode: in-screen DOM-node layers.
   if (!activeFile) return abandon("no active file");
   const nodeIds = getActiveFileSelectedNodeIds(baseContent);
   const nodesById = resolveNodesById();
@@ -268,7 +249,6 @@ export function runAlignSelection(
   const selectedRects = selectedNodes.map(rectFromCodeLayerNode);
 
   if (selectedRects.length >= 2) {
-    // Multi-selection: align to the selection's own combined bbox.
     const bounds = getFrameGroupBounds(selectedRects);
     if (!bounds) return abandon("no combined bounds for selection");
     const positions = computeAlignedPositions(
@@ -284,11 +264,10 @@ export function runAlignSelection(
     if (positions.size === 0) {
       return abandon("already aligned; nothing to move", { edge });
     }
-    commitNodePositions(baseContent, positions);
+    commitNodePositions(baseContent, positions, activeSource);
     return;
   }
 
-  // Single selection: align relative to the parent's content box.
   const soleNode = selectedNodes[0]!;
   const parentId = soleNode.parentId;
   const parentNode = parentId ? nodesById.get(parentId) : undefined;
@@ -305,5 +284,5 @@ export function runAlignSelection(
   if (positions.size === 0) {
     return abandon("already aligned; nothing to move", { edge });
   }
-  commitNodePositions(baseContent, positions);
+  commitNodePositions(baseContent, positions, activeSource);
 }

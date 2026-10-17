@@ -1,7 +1,4 @@
 import { describe, it, expect } from "vitest";
-// The poll module uses module-level state (_version, _buffer).
-// We re-import for each test suite to get fresh state via dynamic import.
-// But since module caching means we share state, we test in order.
 
 import { getVersion, recordChange, getChangesSince } from "./poll.js";
 
@@ -94,14 +91,11 @@ describe("poll", () => {
     it("trims old events when buffer exceeds MAX_BUFFER (200)", () => {
       const before = getVersion();
 
-      // Add 250 events to overflow the 200-entry buffer
       for (let i = 0; i < 250; i++) {
         recordChange({ source: "test", type: "change", key: `k${i}` });
       }
 
-      // Requesting from way before should only get the most recent ~200
       const result = getChangesSince(before);
-      // The buffer trims to MAX_BUFFER=200 when it exceeds that
       expect(result.events.length).toBeLessThanOrEqual(200);
       expect(result.version).toBeGreaterThan(before);
     });

@@ -51,8 +51,6 @@ export default defineAction({
       session.createdBy,
       "A generation session",
     );
-    // Own session, still not a licence to attach someone else's draft: session
-    // items are republished through the session read path.
     const draftScope = await draftScopeForLibrary(
       session.libraryId,
       draftAccess,

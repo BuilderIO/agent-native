@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import {
   getRequestUserEmail,
@@ -22,6 +22,7 @@ import {
   type ParsedImage,
   type ParsedPresentation,
 } from "../server/handlers/import/pptx-parser.js";
+import { trackSlides } from "../server/lib/slides-tracking.js";
 import { buildSourceImportMetadata } from "../server/lib/source-import.js";
 import {
   ASPECT_RATIOS,
@@ -32,7 +33,12 @@ import {
   assertHumanReadableDeckTitle,
   resolveImportedDeckTitle,
 } from "../shared/deck-title.js";
+import {
+  InvalidPptxSourceError,
+  SOURCE_IMPORT_NO_WRITE_ERROR_CODE,
+} from "../shared/source-import-errors.js";
 import { getDeckUrl } from "./_app-url.js";
+import { trackDeckCreated } from "./_deck-tracking.js";
 import {
   assertDeckWriteApplied,
   deckRevisionWhere,
@@ -53,7 +59,6 @@ export interface ImportedImageFallback {
   crop?: ParsedImage["crop"];
 }
 
-/** Add source-native image objects that a Google Slides PPTX export omitted. */
 export function applyImageFallbacks(
   presentation: Awaited<ReturnType<typeof parsePptx>>,
   fallbacks: ImportedImageFallback[] = [],
@@ -124,16 +129,14 @@ export async function importPptxBufferToDeck(args: {
     imageFallbacks,
     parsedPresentation,
   } = args;
-  const presentation = parsedPresentation ?? (await parsePptx(fileBuffer));
+  const presentation =
+    parsedPresentation ?? (await parsePptxBeforeDeckWrite(fileBuffer));
   applyImageFallbacks(presentation, imageFallbacks);
   const requestedTitle = title?.trim() || presentation.title || "";
   const ownerEmail = getRequestUserEmail();
   if (!ownerEmail) throw new Error("no authenticated user");
   const themeFont = presentation.theme?.fonts?.[0];
 
-  // Check edit access before uploading any embedded images — uploads are
-  // a side effect with real storage cost, so an unauthorized caller must
-  // be rejected before that side effect happens, not after.
   const db = getDb();
   if (deckId) {
     await assertAccess("deck", deckId, "editor");
@@ -147,9 +150,6 @@ export async function importPptxBufferToDeck(args: {
   }
   assertPptxImagesRenderable(presentation.slides);
 
-  // Convert each parsed slide to its positioned scene graph, uploading every
-  // browser-renderable image so the imported deck keeps the source layering
-  // and media instead of collapsing to a one-image approximation.
   const uploadLimit = pLimit(4);
   const results = await Promise.all(
     presentation.slides.map((parsedSlide, i) =>
@@ -199,8 +199,9 @@ export async function importPptxBufferToDeck(args: {
     0,
   );
   if (imagesSkipped > 0) {
-    throw new Error(
+    fail(
       `Source-faithful PPTX import could not preserve ${imagesSkipped} image(s). No deck was written. Retry with browser-renderable images or use a PDF export for page-faithful preservation.`,
+      { errorCode: SOURCE_IMPORT_NO_WRITE_ERROR_CODE },
     );
   }
   const sourceImport = buildSourceImportMetadata({
@@ -224,9 +225,6 @@ export async function importPptxBufferToDeck(args: {
 
   if (deckId) {
     return withDeckLock(deckId, async () => {
-      // Image uploads happen before this lock because they are independent of
-      // the deck row. Re-read inside the lock so the replacement is based on
-      // the latest deck data rather than the preflight snapshot.
       const [latestDeck] = await db
         .select()
         .from(schema.decks)
@@ -278,7 +276,6 @@ export async function importPptxBufferToDeck(args: {
     });
   }
 
-  // Create new deck
   const id = `deck-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
   const data = {
     title: deckTitle,
@@ -342,17 +339,57 @@ export default defineAction({
       .describe(
         "Deck title — defaults to the title extracted from the presentation",
       ),
+    purpose: z
+      .enum(["direct", "reference"])
+      .optional()
+      .describe("Why the deck is being imported; used only for analytics"),
   }),
-  run: async ({ filePath, deckId, title, designSystemId }) => {
-    const { data: fileBuffer } = await readUserUploadedFile(filePath);
-    return importPptxBufferToDeck({
+  run: async ({ filePath, deckId, title, designSystemId, purpose }, ctx) => {
+    const { data: fileBuffer } = await readUserUploadedFile(filePath, ctx);
+    const result = await importPptxBufferToDeck({
       fileBuffer,
       deckId,
       title,
       designSystemId,
     });
+    trackPptxImport(result, { deckId, purpose }, ctx);
+    return result;
   },
 });
+
+/**
+ * A PPTX imported as a new deck is a creation; imported into an existing deck
+ * it replaces that deck's slides, which is an edit.
+ */
+export function trackPptxImport(
+  result: { id: string; slideCount: number },
+  args: { deckId?: string; purpose?: "direct" | "reference" },
+  source: Parameters<typeof trackSlides>[2],
+): void {
+  if (!args.deckId) {
+    trackDeckCreated(
+      result.id,
+      {
+        creationMethod: "import_pptx",
+        purpose: args.purpose ?? "unknown",
+        slideCount: result.slideCount,
+      },
+      source,
+    );
+    return;
+  }
+  trackSlides(
+    "deck_edited",
+    {
+      output_id: args.deckId,
+      output_type: "deck",
+      edit_mode: "import_pptx",
+      change_kinds: ["content"],
+      slide_count: result.slideCount,
+    },
+    source,
+  );
+}
 
 function nearestAspectRatio(
   width: number | undefined,
@@ -388,4 +425,18 @@ function safeParseDeckData(raw: string): Record<string, unknown> {
     );
   }
   return parsed as Record<string, unknown>;
+}
+
+async function parsePptxBeforeDeckWrite(
+  fileBuffer: Buffer,
+): Promise<ParsedPresentation> {
+  try {
+    return await parsePptx(fileBuffer);
+  } catch (error) {
+    if (!(error instanceof InvalidPptxSourceError)) throw error;
+    fail(
+      "Slides could not read this PowerPoint file. No slides were written to the deck.",
+      { errorCode: SOURCE_IMPORT_NO_WRITE_ERROR_CODE },
+    );
+  }
 }

@@ -1,0 +1,509 @@
+<!--
+  Chat prototype: the shipped Chat template (templates/chat) and the toolkit's AgentKit chat it renders.
+  Build with: node prototypes/kit/build.ts chat
+  Layout of this file:
+    <style>   app shell, sidebar (rail, thread rows, hover card, footer), conversation (header, messages,
+              work rows, action row), composer, queue, workspace panel, command menu
+    markup    review strip, app shell
+    <script>  data (threads, messages), render functions per surface, the simulated agent run, handlers
+  The review strip's switches (Scenario, Theme, Changes) exist only in the prototype.
+-->
+<title>Chat</title>
+__KIT_HEAD__
+<style>
+/* Layout: 276px sidebar (48px collapsed) | conversation, content min(100%, 47rem) | 340px Workspace panel when open. */
+:root {
+  --kit-accent: hsl(var(--primary));
+  /* Tailwind's default --radius-xl; the toolkit's composer radius resolves to it. */
+  --radius-xl: 0.75rem;
+}
+body { font-size: 14px; }
+.app { position: fixed; inset: 36px 0 0 0; display: flex; background: var(--agentkit-canvas); }
+
+/* sidebar (Sidebar.tsx, ChatHistoryList variant="rail") */
+.side { width: var(--chat-sidebar-width); flex: none; display: flex; flex-direction: column; background: hsl(var(--sidebar-background)); color: hsl(var(--sidebar-foreground)); }
+.side-top { height: 56px; display: flex; align-items: center; gap: 4px; padding-inline: 12px; flex: none; }
+.side-top a { display: flex; align-items: center; gap: 8px; color: var(--color-foreground); text-decoration: none; font-size: 14px; font-weight: 600; padding: 4px; border-radius: 6px; }
+.side-top a svg { height: 14px; width: 24px; }
+.new-chat { margin: 0 8px 8px; height: 40px; display: flex; align-items: center; gap: 12px; padding-inline: 12px; border-radius: 8px; font-size: 14px; font-weight: 500; color: var(--color-foreground); }
+.new-chat:hover { background: hsl(var(--sidebar-accent)); }
+.new-chat svg.i { stroke-width: 1.8; }
+.threads { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 8px; }
+.sec-label { padding: 8px calc(var(--chat-sidebar-content-inset) + var(--chat-sidebar-row-padding)) 5px; color: hsl(var(--sidebar-foreground) / 0.66); font-size: 11px; font-weight: 500; }
+.trow { position: relative; margin-inline: var(--chat-sidebar-content-inset); border-radius: calc(var(--radius) + 2px); }
+.trow > button.tb { width: 100%; min-height: 34px; padding: 7px calc(var(--chat-sidebar-row-padding) + 1.5rem) 7px var(--chat-sidebar-row-padding); display: flex; align-items: center; gap: 6px; text-align: left; border-radius: inherit; }
+.trow:hover > button.tb { background: hsl(var(--sidebar-accent) / 0.6); }
+.trow.active > button.tb { background: hsl(var(--sidebar-accent)); }
+.trow .tt { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; color: hsl(var(--sidebar-accent-foreground)); font-size: 13px; mask-image: linear-gradient(to right, #000 0, #000 calc(100% - var(--chat-sidebar-title-fade)), transparent 100%); }
+.trow .spin { color: hsl(var(--sidebar-foreground) / 0.72); animation: spin 1s linear infinite; flex: none; }
+.trow .menu-t { position: absolute; right: 6px; top: 5px; width: 24px; height: 24px; display: grid; place-items: center; border-radius: 6px; color: hsl(var(--sidebar-foreground)); opacity: 0; }
+.trow:hover .menu-t, .trow .menu-t[aria-expanded="true"], .trow:focus-within .menu-t { opacity: 1; }
+.trow .menu-t:hover { background: hsl(var(--sidebar-accent)); color: var(--color-foreground); }
+.trow input { width: 100%; height: 34px; padding-inline: var(--chat-sidebar-row-padding); border: 1px solid var(--color-border); border-radius: inherit; background: var(--color-background); font-size: 13px; outline: none; }
+.side-foot { flex: none; border-top: 1px solid hsl(var(--sidebar-border)); padding: 8px; display: flex; align-items: center; gap: 4px; }
+.org { flex: 1; min-width: 0; height: 44px; display: flex; align-items: center; gap: 8px; padding-inline: 12px; border-radius: 8px; text-align: left; }
+.org:hover, .org[aria-expanded="true"] { background: hsl(var(--sidebar-accent)); }
+.avatar { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; flex: none; background: var(--color-primary); color: var(--color-primary-foreground); font-size: 12px; font-weight: 600; }
+.org .who { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.org .who b { font-size: 13px; font-weight: 500; color: var(--color-foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.org .who span { font-size: 12px; color: var(--color-muted-foreground); }
+.side .sq { width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; flex: none; color: hsl(var(--sidebar-foreground)); }
+.side .sq:hover { background: hsl(var(--sidebar-accent)); color: var(--color-foreground); }
+/* collapsed: a 48px column of icon buttons */
+.side.collapsed { width: 48px; align-items: center; }
+.side.collapsed .side-top { padding: 0; justify-content: center; }
+.side.collapsed .side-top a span, .side.collapsed .threads, .side.collapsed .org .who, .side.collapsed .org .sel { display: none; }
+.side.collapsed .new-chat { width: 40px; padding: 0; justify-content: center; margin: 0 0 8px; }
+.side.collapsed .new-chat span { display: none; }
+.side.collapsed .spacer { flex: 1; }
+.side.collapsed .side-foot { flex-direction: column; border-top: 0; padding: 8px 0; }
+.side.collapsed .org { padding: 0; width: 40px; justify-content: center; }
+.side:not(.collapsed) .spacer { display: none; }
+
+/* thread hover card */
+.hcard { position: fixed; z-index: 45; width: 320px; padding: 12px; border-radius: 12px; background: var(--color-popover); border: 1px solid var(--color-border); box-shadow: var(--agent-kit-overlay-elevation); display: grid; gap: 6px; pointer-events: none; }
+.hcard b { font-size: 14px; font-weight: 500; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.hcard p { margin: 0; font-size: 12px; color: var(--color-muted-foreground); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.hcard .meta { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--color-muted-foreground); padding-top: 6px; border-top: 1px solid hsl(var(--sidebar-border)); }
+.hcard .meta span { display: inline-flex; align-items: center; gap: 4px; }
+
+/* conversation (AgentKitChat) */
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; }
+.chat-h { min-height: 48px; display: flex; align-items: center; gap: 8px; padding-inline: 16px; border-bottom: 1px solid var(--color-border); flex: none; }
+.chat-h .title { flex: 1; min-width: 0; font-size: 13px; font-weight: 560; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ghost-sq { width: 28px; height: 28px; border-radius: 6px; display: grid; place-items: center; color: var(--color-muted-foreground); }
+.ghost-sq:hover, .ghost-sq[aria-pressed="true"] { background: var(--color-accent); color: var(--color-foreground); }
+.scroll { flex: 1; min-height: 0; overflow-y: auto; }
+.transcript { width: min(100%, 47rem); margin: 0 auto; padding: 1.5rem 1rem; display: flex; flex-direction: column; gap: 1.25rem; font-size: 14px; line-height: 1.52; }
+.msg { display: flex; flex-direction: column; gap: 4px; }
+.msg.user { align-items: flex-end; }
+.bubble { max-width: min(88%, 38rem); padding: .625rem .8125rem; border-radius: var(--radius-lg); background: var(--color-muted); white-space: pre-wrap; }
+.prose > :first-child { margin-top: 0; }
+.prose > :last-child { margin-bottom: 0; }
+.prose p, .prose ul, .prose ol { margin: 0 0 .75em; }
+.prose ul, .prose ol { padding-left: 1.25em; }
+.prose li { margin: .2em 0; }
+.prose h2 { font-size: 1.125em; font-weight: 600; margin: 1em 0 .5em; }
+.prose code { font-family: var(--mono); font-size: 13px; background: var(--color-muted); padding: 1px 4px; border-radius: 4px; }
+.prose pre { background: var(--color-muted); padding: .75rem; border-radius: var(--radius-lg); overflow-x: auto; margin: 0 0 .75em; }
+.prose pre code { background: none; padding: 0; }
+.prose table { border-collapse: collapse; margin: 0 0 .75em; font-size: 13px; }
+.prose th, .prose td { border-bottom: 1px solid var(--color-border); padding: 6px 12px 6px 0; text-align: left; font-variant-numeric: tabular-nums; }
+.prose th { font-weight: 500; color: var(--color-muted-foreground); }
+/* message action row: hidden until hover */
+.acts { display: flex; align-items: center; gap: 2px; opacity: 0; transition: opacity .12s; color: var(--color-muted-foreground); }
+.msg:hover .acts, .acts:focus-within, .acts.keep { opacity: 1; }
+.acts .grow { flex: 1; }
+.acts button { width: 28px; height: 28px; border-radius: 6px; display: grid; place-items: center; }
+.acts button:hover, .acts button[aria-pressed="true"] { background: var(--color-accent); color: var(--color-foreground); }
+.acts svg.i { width: 14px; height: 14px; }
+.acts .time { font-size: 11px; padding-inline: 4px; }
+.acts .branch { font-size: 11px; display: inline-flex; align-items: center; font-variant-numeric: tabular-nums; }
+/* work and reasoning rows (a disclosure) */
+.work { font-size: 13px; color: var(--color-muted-foreground); }
+.work summary { list-style: none; display: inline-flex; align-items: center; gap: 4px; cursor: pointer; min-height: 1.75rem; border-radius: 6px; }
+.work summary::-webkit-details-marker { display: none; }
+.work summary:hover { color: var(--color-foreground); }
+.work summary svg.i { width: 14px; height: 14px; transition: transform .15s; }
+.work[open] summary svg.i { transform: rotate(90deg); }
+.work .live { background: linear-gradient(90deg, var(--color-muted-foreground) 0 40%, var(--color-foreground) 50%, var(--color-muted-foreground) 60% 100%); background-size: 300% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: shimmer 1.6s linear infinite; }
+.work .groups { display: grid; gap: 8px; padding: 6px 0 4px 18px; }
+.work .gl { font-size: 11px; font-weight: 500; text-transform: none; margin-bottom: 2px; }
+.work .ar { min-height: 1.75rem; display: flex; align-items: center; gap: 8px; color: var(--color-foreground); }
+.work .ar svg.i { width: 14px; height: 14px; color: var(--color-muted-foreground); }
+.work .ar small { color: var(--color-muted-foreground); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@keyframes shimmer { from { background-position: 100% 0; } to { background-position: 0 0; } }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .work .live, .trow .spin { animation: none; } .work .live { color: var(--color-muted-foreground); } }
+
+/* composer (AgentKitComposer → PromptComposer → AgentComposerFrame + TiptapComposer) */
+.foot { flex: none; padding: 0 1rem 1rem; }
+.stack { width: min(100%, 47rem); margin: 0 auto; display: flex; flex-direction: column; gap: 8px; }
+.composer { border-radius: var(--agentkit-radius); background: var(--agentkit-surface); border: 1px solid var(--agentkit-composer-border); box-shadow: var(--agentkit-elevation); }
+.composer:focus-within { border-color: var(--agentkit-composer-focus-border); }
+.editor { padding: .75rem .875rem .25rem; }
+.editor [contenteditable] { min-height: 3.25rem; max-height: 10rem; overflow-y: auto; font-size: 14px; line-height: 1.5; outline: none; white-space: pre-wrap; }
+.editor [contenteditable]:empty::before { content: attr(data-placeholder); color: var(--color-muted-foreground); pointer-events: none; }
+.ctb { display: flex; align-items: center; gap: var(--agentkit-composer-toolbar-control-gap); padding: .375rem .5rem .5rem; }
+.ctb .grow { flex: 1; }
+.cbtn { height: var(--agentkit-composer-toolbar-control-size); min-width: var(--agentkit-composer-toolbar-control-size); padding-inline: var(--agentkit-composer-toolbar-control-padding-inline); border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; font-size: var(--agentkit-composer-toolbar-control-font-size); line-height: var(--agentkit-composer-toolbar-control-line-height); font-weight: var(--agentkit-composer-toolbar-control-font-weight); color: var(--color-muted-foreground); max-width: 11rem; }
+.cbtn:hover, .cbtn[aria-expanded="true"], .cbtn[aria-pressed="true"] { background: var(--color-accent); color: var(--color-foreground); }
+.cbtn .v { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cbtn.sq { padding: 0; width: var(--agentkit-composer-toolbar-control-size); }
+.cbtn.rec { color: var(--color-destructive); }
+.cbtn.rec svg.i { fill: currentColor; }
+.send { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--color-primary); color: var(--color-primary-foreground); flex: none; }
+.send svg.i { width: 14px; height: 14px; }
+.send[disabled] { opacity: .4; cursor: default; }
+/* message queue drawer above the composer */
+.queue { border: 1px solid var(--agentkit-border); border-radius: var(--agentkit-radius); background: var(--agentkit-subtle); padding: 4px; display: grid; gap: 2px; }
+.qrow { min-height: 32px; display: flex; align-items: center; gap: 4px; padding-left: 10px; border-radius: 8px; font-size: 13px; }
+.qrow:hover { background: var(--color-accent); }
+.qrow .qt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qrow .btn { height: 24px; font-size: 12px; padding-inline: 8px; border-radius: 6px; }
+/* empty state: the heading and composer centered */
+.main.empty .scroll { display: none; }
+.main.empty .foot { flex: 1; display: grid; grid-template-rows: 1fr auto 1rem auto 1fr; padding-bottom: 0; }
+.main.empty .hello { grid-row: 2; text-align: center; margin: 0; font-size: 1.5rem; font-weight: 600; letter-spacing: -0.02em; color: var(--color-foreground); }
+.main.empty .stack { grid-row: 4; }
+.main:not(.empty) .hello { display: none; }
+.to-bottom { position: absolute; left: 50%; transform: translateX(-50%); width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; background: var(--color-popover); border: 1px solid var(--color-border); box-shadow: var(--agent-kit-control-elevation); }
+
+/* Workspace panel (ChatRouteContent's right slot) */
+.ws { width: var(--agent-kit-workspace-panel-width); flex: none; border-left: 1px solid var(--color-border); background: var(--color-background); display: flex; flex-direction: column; }
+.ws-h { height: var(--agent-kit-page-header-height); display: flex; align-items: center; justify-content: space-between; padding-inline: 16px 8px; border-bottom: 1px solid var(--color-border); font-size: 12px; font-weight: 500; }
+.ws-b { flex: 1; }
+
+/* command menu (⌘K) */
+.cmd-wrap { position: fixed; inset: 0; z-index: 60; background: rgb(0 0 0 / 32%); display: flex; justify-content: center; align-items: flex-start; padding-top: 14vh; }
+.cmd { width: min(560px, calc(100% - 32px)); border-radius: 12px; background: var(--color-popover); border: 1px solid var(--color-border); box-shadow: var(--agent-kit-overlay-elevation); overflow: hidden; }
+.cmd-in { height: 48px; display: flex; align-items: center; gap: 10px; padding-inline: 14px; border-bottom: 1px solid var(--color-border); color: var(--color-muted-foreground); }
+.cmd-in input { flex: 1; border: 0; background: none; outline: none; font-size: 14px; color: var(--color-foreground); }
+.cmd-list { max-height: 360px; overflow-y: auto; padding: 6px; }
+.cmd-g { padding: 8px 8px 4px; font-size: 11px; font-weight: 500; color: var(--color-muted-foreground); }
+.cmd-row { width: 100%; height: 36px; display: flex; align-items: center; gap: 10px; padding-inline: 8px; border-radius: 8px; font-size: 13px; text-align: left; }
+.cmd-row[aria-selected="true"] { background: var(--color-accent); }
+.cmd-row svg.i { color: var(--color-muted-foreground); }
+</style>
+
+<div class="review" role="toolbar" aria-label="Prototype controls">
+  <span class="name">Chat</span><span class="ver">Prototype</span>
+  <span class="grow"></span>
+  <label class="chip">Scenario <select id="scenario"><option value="conversation">Conversation</option><option value="empty">New chat</option><option value="running">Agent running</option></select></label>
+  <button class="chip" id="theme-btn">Theme</button>
+  <button class="chip" id="changes-btn" aria-pressed="false">Changes</button>
+</div>
+<div class="app" id="app">
+  <aside class="side" id="side" aria-label="Chat navigation"></aside>
+  <main class="main" id="main"></main>
+</div>
+
+__KIT_SCRIPT__
+<script>
+/* ───────── data ───────── */
+const ME = { name: "Shawn McClelland", email: "shawn@example.com", initials: "SM" };
+const ORGS = ["Agent-Native", "Personal"];
+const ago = m => m < 60 ? `${m}m ago` : m < 1440 ? `${Math.round(m / 60)}h ago` : `${Math.round(m / 1440)}d ago`;
+// A work row: [icon, label, detail]. Groups follow AgentKit's order: Thinking, Research, Actions, Other.
+const SIGNUPS_WORK = { secs: 12, groups: [
+  ["Thinking", [["brain", "Planned the query", "Compare this week's signups against the trailing four weeks"]]],
+  ["Research", [["search", "Searched analytics events", "event = signup, last 35 days"], ["book-2", "Read the signups dashboard", "Weekly signups by source"]]],
+  ["Actions", [["code", "Ran a SQL query", "select date_trunc('day', created_at), source, count(*) …"]]],
+] };
+const THREADS = [
+  { id: "t1", title: "Weekly signups summary", pinned: true, mins: 14, preview: "Signups were up 18% week over week, driven by the docs referral spike on Tuesday.", apps: ["Analytics"], messages: [
+    { role: "user", text: "Summarize this week's signups and flag anything unusual.", time: "9:41 AM" },
+    { role: "assistant", time: "9:42 AM", work: SIGNUPS_WORK, html: `<p>Signups were up <b>18%</b> week over week: 1,284 against a four-week average of 1,088.</p>
+<h2>What stood out</h2>
+<ul><li><b>Docs referrals spiked on Tuesday.</b> 212 signups came from the docs site, about 3× a normal day, after the CLI guide was shared on Hacker News.</li>
+<li><b>Paid search dipped 9%.</b> Cost per signup rose from $14 to $17; the "agent framework" campaign hit its daily cap by noon.</li>
+<li><b>Mobile signups are flat</b> at 21% of the total, the same as last month.</li></ul>
+<table><thead><tr><th>Source</th><th>This week</th><th>4-week avg</th><th>Change</th></tr></thead><tbody>
+<tr><td>Docs</td><td>412</td><td>268</td><td>+54%</td></tr><tr><td>Organic search</td><td>371</td><td>356</td><td>+4%</td></tr>
+<tr><td>Paid search</td><td>228</td><td>251</td><td>−9%</td></tr><tr><td>Direct</td><td>273</td><td>213</td><td>+28%</td></tr></tbody></table>
+<p>Want me to raise the paid campaign's daily cap or draft a note for the team?</p>` },
+  ] },
+  { id: "t2", title: "Draft the launch email for Workspaces", pinned: true, mins: 190, preview: "Here's a first draft with a short subject line and three ways to get started.", apps: ["Mail"], messages: [
+    { role: "user", text: "Draft the launch email for Workspaces. Keep it short and lead with what people can do.", time: "Yesterday" },
+    { role: "assistant", time: "Yesterday", work: { secs: 6, groups: [["Research", [["book-2", "Read the Workspaces announcement doc", "Launch notes, 3 pages"]]]] }, html: `<p><b>Subject:</b> Your apps can now work together</p><p>Workspaces put your Agent-Native apps side by side, so the agent in one can use the others. Ask Mail to schedule from Calendar, or have Analytics drop a chart into Slides.</p><p>Here's how to start:</p><ol><li>Open <b>Settings › Organization</b> and create a workspace.</li><li>Add the apps your team already uses.</li><li>Ask the agent for something that spans two of them.</li></ol><p>Want a shorter version for the in-app banner?</p>` },
+  ] },
+  { id: "t3", title: "Fix the flaky checkout test", mins: 2, running: true, preview: "Looking at the last 20 CI runs to find where the timeout starts.", apps: ["Code"], messages: [
+    { role: "user", text: "The checkout e2e test fails about one run in five. Find out why.", time: "10:02 AM" },
+  ] },
+  { id: "t4", title: "Plan the team offsite agenda", mins: 1500, preview: "A two-day agenda with planning on day one and demos on day two.", apps: ["Calendar", "Docs"], messages: [
+    { role: "user", text: "Plan a two-day offsite agenda for twelve people in Lisbon.", time: "Mon" },
+    { role: "assistant", time: "Mon", html: `<p>Here's a two-day plan with planning on day one and demos on day two. I kept afternoons light for travel.</p><ul><li><b>Day 1:</b> roadmap review, three breakout sessions, team dinner in Alfama.</li><li><b>Day 2:</b> demo morning, retro, free afternoon.</li></ul>` },
+  ] },
+  { id: "t5", title: "Compare Postgres and SQLite for local mode", mins: 2900, preview: "SQLite is simpler to ship; Postgres keeps parity with hosted mode.", apps: [], messages: [
+    { role: "user", text: "Should local mode use SQLite or Postgres?", time: "Sun" },
+    { role: "assistant", time: "Sun", html: `<p>Postgres keeps local and hosted mode on the same schema, so migrations and queries don't fork. SQLite is easier to ship but would need its own dialect in every raw query.</p><p>I'd keep Postgres and run it embedded with <code>pglite</code> for local mode.</p>` },
+  ] },
+  { id: "t6", title: "Turn the Q3 metrics into a deck", mins: 5800, preview: "Eight slides, one chart per slide, with speaker notes.", apps: ["Slides", "Analytics"], messages: [
+    { role: "user", text: "Turn the Q3 metrics into a short deck.", time: "Oct 6" },
+    { role: "assistant", time: "Oct 6", html: `<p>I made an eight-slide deck in Slides, one chart per slide, with speaker notes. Open it from the Slides app to edit.</p>` },
+  ] },
+  { id: "t7", title: "Rename the billing settings labels", mins: 8700, preview: "Updated the labels and the 11 locale files to match.", apps: [], messages: [
+    { role: "user", text: "Rename “Plan & billing” to “Billing” everywhere.", time: "Oct 4" },
+    { role: "assistant", time: "Oct 4", html: `<p>Done. I updated the label in the Settings nav, the page title, and the 11 locale files.</p>` },
+  ] },
+];
+// The agent's reply to a new message, played back as a run: work rows stream in, then the answer.
+const REPLY = { work: { groups: [
+  ["Thinking", [["brain", "Read the request", ""]]],
+  ["Research", [["search", "Searched recent threads", "3 related chats"], ["book-2", "Read the project notes", "notes/launch.md"]]],
+  ["Actions", [["code", "Drafted the answer", ""]]],
+] }, html: `<p>Here's what I found. The three related chats agree on the plan, and the project notes add one constraint: the launch can't move before the docs freeze on Friday.</p><p>I'd keep the current date and share the checklist with the team today. Want me to post it?</p>` };
+
+/* ───────── state ───────── */
+const S = { thread: "t1", collapsed: false, ws: false, mode: "Act", model: "Claude Opus 5.5", effort: "Auto", recording: false, running: null, queue: [], draft: "", renaming: null };
+const thread = () => THREADS.find(t => t.id === S.thread);
+const esc = s => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+/* ───────── sidebar ───────── */
+function threadRow(t) {
+  if (S.renaming === t.id) return `<div class="trow active"><input id="rename-in" value="${esc(t.title)}" maxlength="160" aria-label="Rename Chat"></div>`;
+  return `<div class="trow ${t.id === S.thread ? "active" : ""}" data-thread="${t.id}"><button class="tb" data-open="${t.id}"><span class="tt">${esc(t.title)}</span>${t.running ? ic("loader-2", "s14 spin") : ""}</button><button class="menu-t" data-tmenu="${t.id}" aria-label="More actions" aria-haspopup="menu" aria-expanded="false">${ic(t.pinned ? "pinned" : "dots", "s14")}</button></div>`;
+}
+function renderSide() {
+  const side = $("#side"); side.classList.toggle("collapsed", S.collapsed);
+  const live = THREADS.filter(t => !t.archived), pinned = live.filter(t => t.pinned), recent = live.filter(t => !t.pinned).slice(0, 30);
+  side.innerHTML = `<div class="side-top"><a href="#" data-new title="Chat">__LOGO__<span>Chat</span></a></div>
+    <button class="new-chat" data-new ${S.collapsed ? 'title="New Chat"' : ""}>${ic("edit")}<span>New Chat</span></button>
+    <div class="threads">${pinned.length ? `<div class="sec-label">Pinned</div>${pinned.map(threadRow).join("")}` : ""}${recent.length ? `<div class="sec-label">Recents</div>${recent.map(threadRow).join("")}` : ""}</div>
+    <div class="spacer"></div>
+    <div class="side-foot">
+      <button class="org" id="org-btn" aria-haspopup="menu" aria-expanded="false"><span class="avatar">${ME.initials}</span><span class="who"><b>${ME.name}</b><span>${ORGS[0]}</span></span><span class="sel">${ic("selector", "s14")}</span></button>
+      <button class="sq" id="search-btn" title="Search" aria-label="Search">${ic("search")}</button>
+      <button class="sq" id="collapse-btn" title="${S.collapsed ? "Expand Sidebar" : "Collapse Sidebar"}" aria-label="${S.collapsed ? "Expand Sidebar" : "Collapse Sidebar"}">${ic(S.collapsed ? "layout-sidebar-left-expand" : "layout-sidebar-left-collapse")}</button>
+    </div>`;
+  const r = $("#rename-in"); if (r) { r.focus(); r.select(); }
+}
+
+/* ───────── conversation ───────── */
+function workHTML(w, live) {
+  const label = live ? `<span class="live">Working${w.current ? ` · ${esc(w.current)}` : ""}</span>` : w.secs ? `Worked for ${w.secs}s` : "Worked";
+  return `<details class="work" ${live ? "open" : ""}><summary aria-label="Agent activity">${label}${ic("chevron-right")}</summary><div class="groups">${w.groups.map(([g, rows]) => `<div><div class="gl">${g}</div>${rows.map(([icon, text, detail]) => `<div class="ar">${ic(icon)}<span>${esc(text)}</span>${detail ? `<small>${esc(detail)}</small>` : ""}</div>`).join("")}</div>`).join("")}</div></details>`;
+}
+function messageHTML(m, i, list) {
+  if (m.role === "user") return `<div class="msg user"><div class="bubble">${esc(m.text)}</div><div class="acts"><span class="time">${m.time}</span><button data-copy="${i}" title="Copy message" aria-label="Copy message">${ic("copy")}</button><button data-edit="${i}" title="Edit message" aria-label="Edit message">${ic("pencil")}</button></div></div>`;
+  const last = i === list.length - 1;
+  return `<div class="msg">${m.work ? workHTML(m.work, m.live) : ""}${m.html ? `<div class="prose">${m.html}</div>` : ""}${m.live ? "" : `<div class="acts">
+    <button data-copy="${i}" title="Copy message" aria-label="Copy message">${ic("copy")}</button>
+    <button data-fb="up" data-i="${i}" aria-pressed="${m.fb === "up"}" title="Helpful" aria-label="Helpful">${ic("thumb-up")}</button>
+    <button data-fb="down" data-i="${i}" aria-pressed="${m.fb === "down"}" title="Not helpful" aria-label="Not helpful">${ic("thumb-down")}</button>
+    <span class="grow"></span>
+    ${last ? `<button data-regen="${i}" title="Regenerate response" aria-label="Regenerate response">${ic("refresh")}</button>` : ""}
+    ${m.branches ? `<span class="branch"><button title="Previous branch" aria-label="Previous branch">${ic("chevron-left")}</button>${m.branch}/${m.branches}<button title="Next branch" aria-label="Next branch">${ic("chevron-right")}</button></span>` : ""}
+    <span class="time">${m.time}</span>
+    <button data-mmenu="${i}" title="Message actions" aria-label="Message actions" aria-haspopup="menu" aria-expanded="false">${ic("dots-vertical")}</button>
+  </div>`}</div>`;
+}
+function renderMain() {
+  const t = thread(), msgs = t?.messages || [], empty = !msgs.length;
+  const main = $("#main"); main.classList.toggle("empty", empty);
+  const model = `${S.model} · ${S.effort}`;
+  main.innerHTML = `${empty ? "" : `<div class="chat-h"><span class="title">${esc(t.title || "Chat")}</span><button class="ghost-sq" id="ws-btn" title="Workspace" aria-label="Workspace" aria-pressed="${S.ws}">${ic("layout-sidebar-right")}</button></div>`}
+    <div class="scroll" id="scroll"><div class="transcript">${msgs.map(messageHTML).join("")}</div></div>
+    <div class="foot">
+      <h1 class="hello">How can I help?</h1>
+      <div class="stack">
+        ${S.queue.length ? `<div class="queue" aria-label="Queued messages">${S.queue.map((q, i) => `<div class="qrow"><span class="qt">${esc(q)}</span><button class="btn secondary" data-steer="${i}">Steer</button><button class="ghost-sq" data-unqueue="${i}" title="Remove queued message" aria-label="Remove queued message">${ic("x", "s14")}</button></div>`).join("")}</div>` : ""}
+        <div class="composer">
+          <div class="editor"><div contenteditable="true" id="editor" role="textbox" aria-label="Message agent" aria-multiline="true" data-placeholder="Ask the agent...">${esc(S.draft)}</div></div>
+          <div class="ctb">
+            <button class="cbtn sq" id="plus-btn" title="Add context" aria-label="Add context" aria-haspopup="menu" aria-expanded="false">${ic("plus")}</button>
+            <span class="grow"></span>
+            <button class="cbtn" id="model-btn" aria-haspopup="menu" aria-expanded="false" title="${model}"><span class="v">${model}</span>${ic("chevron-down", "s14")}</button>
+            <button class="cbtn" id="mode-btn" aria-haspopup="menu" aria-expanded="false">${S.mode}${ic("chevron-down", "s14")}</button>
+            <button class="cbtn sq ${S.recording ? "rec" : ""}" id="voice-btn" title="Dictate (⌃D)" aria-label="Dictate" aria-pressed="${S.recording}">${ic(S.recording ? "player-stop" : "microphone")}</button>
+            <button class="send" id="send-btn" title="${S.running ? "Queue message" : "Send message"}" aria-label="${S.running ? "Queue message" : "Send message"}">${ic("arrow-up")}</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  const sc = $("#scroll"); if (sc) sc.scrollTop = sc.scrollHeight;
+  renderWorkspace();
+}
+function renderWorkspace() {
+  $("#ws")?.remove();
+  if (!S.ws || !thread()?.messages.length) return;
+  const ws = document.createElement("aside"); ws.className = "ws"; ws.id = "ws"; ws.setAttribute("aria-label", "Workspace");
+  ws.innerHTML = `<div class="ws-h">Workspace<button class="ghost-sq" id="ws-close" title="Close" aria-label="Close">${ic("x", "s14")}</button></div><div class="ws-b"></div>`;
+  $("#app").append(ws);
+}
+function render() { renderSide(); renderMain(); }
+
+/* ───────── the agent run ───────── */
+function startRun(t) {
+  const m = { role: "assistant", live: true, work: { groups: [], current: "Reading the request" }, time: now() };
+  t.messages.push(m); t.running = true; S.running = t.id; render();
+  const steps = REPLY.work.groups.flatMap(([g, rows]) => rows.map(r => [g, r]));
+  let k = 0, start = Date.now();
+  const tick = () => {
+    if (k < steps.length) {
+      const [g, row] = steps[k++]; let grp = m.work.groups.find(x => x[0] === g); if (!grp) m.work.groups.push(grp = [g, []]);
+      grp[1].push(row); m.work.current = row[1]; if (S.thread === t.id) renderMain(); setTimeout(tick, 700); return;
+    }
+    m.live = false; m.work.secs = Math.max(1, Math.round((Date.now() - start) / 1000)); m.html = REPLY.html; delete m.work.current;
+    t.running = false; S.running = null; t.mins = 0; t.preview = "Here's what I found.";
+    if (S.queue.length && S.thread === t.id) { const next = S.queue.shift(); t.messages.push({ role: "user", text: next, time: now() }); render(); return startRun(t); }
+    render();
+  };
+  setTimeout(tick, 500);
+}
+const now = () => new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+function send() {
+  const ed = $("#editor"), text = ed.innerText.trim(); if (!text) return;
+  S.draft = "";
+  if (S.running) { S.queue.push(text); renderMain(); return; }
+  let t = thread();
+  if (!t) { t = { id: "t" + Date.now(), title: text.length > 48 ? text.slice(0, 48) + "…" : text, mins: 0, preview: text, apps: [], messages: [] }; THREADS.unshift(t); S.thread = t.id; }
+  t.messages.push({ role: "user", text, time: now() });
+  startRun(t);
+}
+function newChat() { S.thread = null; S.ws = false; S.draft = ""; render(); $("#editor")?.focus(); }
+
+/* ───────── menus ───────── */
+function threadMenu(btn, t) {
+  openMenu(btn, [
+    { t: "Rename Chat", icon: "pencil", run: () => { S.renaming = t.id; renderSide(); } },
+    { t: t.pinned ? "Unpin Chat" : "Pin Chat", icon: t.pinned ? "pinned-off" : "pinned", run: () => { t.pinned = !t.pinned; renderSide(); } },
+    { t: "Archive Chat", icon: "trash", danger: true, run: () => { t.archived = true; if (S.thread === t.id) S.thread = THREADS.find(x => !x.archived)?.id ?? null; render(); toast("Chat archived"); } },
+  ], { minWidth: 160 });
+}
+function plusMenu(btn) {
+  openMenu(btn, [
+    { t: "Upload File", icon: "file", toast: "Opens the file picker" },
+    { t: "Add context", icon: "text-recognition", sub: [{ label: "Agents" }, { t: "Analytics" }, { t: "Mail" }, { t: "Slides" }, "-", { label: "Files" }, { t: "notes/launch.md" }, { t: "metrics/q3.csv" }] },
+    { t: "Schedule Task", toast: "Opens Schedule Task" },
+    { t: "Create Automation", toast: "Opens Create Automation" },
+    { t: "Create Extension", toast: "Opens Create Extension" },
+    { t: "Integrations", toast: "Opens Integrations" },
+    { t: "Create Skill", sub: [{ t: "Create new skill", toast: "Starts a new skill" }, { t: "Upload skill file", toast: "Opens the file picker for a skill file" }] },
+  ], { above: true, minWidth: 256 });
+}
+function modelMenu(btn) {
+  const models = ["Auto", "Claude Opus 5.5", "Claude Sonnet 5.5", "Claude Haiku 4.5"], efforts = ["Auto", "None", "Minimal", "Low", "Medium", "High", "Extra high", "Max"];
+  openMenu(btn, [
+    { t: "Model", desc: S.model, sub: [...models.map(m => ({ t: m, radio: true, on: S.model === m, run: () => { S.model = m; renderMain(); } })), "-", { t: "Connect Builder.io", icon: "plug-connected" }, { t: "Add your own keys", icon: "key" }, "-", { t: "Image model", sub: [{ t: "Auto", radio: true, on: true }] }] },
+    { t: "Effort", desc: S.effort, sub: efforts.map(e => ({ t: e, radio: true, on: S.effort === e, run: () => { S.effort = e; renderMain(); } })) },
+  ], { above: true, align: "right", minWidth: 256 });
+}
+function modeMenu(btn) {
+  openMenu(btn, [
+    { t: "Act", icon: "pencil", desc: "Use tools and make approved changes", radio: true, on: S.mode === "Act", run: () => { S.mode = "Act"; renderMain(); } },
+    { t: "Plan", icon: "clipboard-list", desc: "Read-only research and approval first", radio: true, on: S.mode === "Plan", run: () => { S.mode = "Plan"; renderMain(); } },
+  ], { above: true, align: "right", minWidth: 240 });
+}
+function messageMenu(btn) {
+  openMenu(btn, [{ t: "Copy request ID", icon: "id", toast: "Copied" }, { t: "Fork conversation", icon: "git-branch", run: forkThread }], { align: "right", minWidth: 192 });
+}
+function orgMenu(btn) {
+  openMenu(btn, [
+    { label: ME.email },
+    ...ORGS.map((o, i) => ({ t: o, radio: true, on: i === 0 })),
+    { t: "Your workspace", icon: "external-link" },
+    { t: "Create organization", icon: "plus" },
+    "-",
+    { t: "Settings", icon: "settings", k: "⌘,", run: () => openSettings("profile") },
+    { t: "Usage", icon: "chart-bar", run: () => openSettings("usage") },
+    { t: "Get apps and extensions", icon: "download", sub: [{ t: "Agent-Native Desktop" }, { t: "Chrome extension" }, { t: "Slack app" }] },
+    "-",
+    { t: "Log out", icon: "logout" },
+  ], { above: true, minWidth: 248 });
+}
+function forkThread() {
+  const t = thread(); const f = { ...t, id: "t" + Date.now(), title: t.title + " (fork)", pinned: false, mins: 0, messages: t.messages.map(m => ({ ...m })) };
+  THREADS.unshift(f); S.thread = f.id; render(); toast("Conversation forked");
+}
+
+/* ───────── command menu (⌘K) ───────── */
+function commandMenu() {
+  if ($(".cmd-wrap")) return;
+  const rows = () => [
+    ["Actions", [[S.thread ? "New Chat" : "Chat", "edit", newChat], ["Manage agent", "hierarchy-2", () => openSettings("model")]]],
+    ["Appearance", [["Toggle theme", document.documentElement.dataset.theme === "dark" ? "sun" : "moon", toggleTheme]]],
+    ["", [["Settings", "settings", () => openSettings("profile")], ["What's new", "history", () => openSettings("whats-new")], ["About Agent-Native", "info-circle", () => toast("Opens About Agent-Native")], ["Log out", "logout", () => toast("Logs out")]]],
+  ];
+  const wrap = document.createElement("div"); wrap.className = "cmd-wrap";
+  wrap.innerHTML = `<div class="cmd" role="dialog" aria-label="Command menu"><label class="cmd-in">${ic("search")}<input id="cmd-q" placeholder="Type a command or ask AI..." aria-label="Type a command or ask AI..."></label><div class="cmd-list" id="cmd-list"></div></div>`;
+  document.body.append(wrap);
+  let sel = 0, flat = [];
+  const draw = () => {
+    const q = $("#cmd-q").value.trim().toLowerCase();
+    const groups = rows().map(([g, list]) => [g, list.filter(([t]) => t.toLowerCase().includes(q))]).filter(([, l]) => l.length);
+    const ask = q ? `Ask AI: “${$("#cmd-q").value.trim()}”` : "Ask AI anything...";
+    groups.push(["", [[ask, "message", () => { S.draft = $("#cmd-q").value.trim(); newChat(); S.draft && ($("#editor").textContent = S.draft); }]]]);
+    flat = groups.flatMap(([, l]) => l); sel = Math.min(sel, flat.length - 1);
+    let n = 0;
+    $("#cmd-list").innerHTML = groups.map(([g, l]) => `${g ? `<div class="cmd-g">${g}</div>` : `<div style="height:4px"></div>`}${l.map(([t, icon]) => `<button class="cmd-row" data-cmd="${n}" aria-selected="${n++ === sel}">${ic(icon)}<span>${esc(t)}</span></button>`).join("")}`).join("");
+  };
+  const close = () => { wrap.remove(); document.removeEventListener("keydown", key, true); };
+  const run = i => { const r = flat[i]; close(); r?.[2](); };
+  const key = e => {
+    if (e.key === "Escape") { e.preventDefault(); close(); }
+    else if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); sel = (sel + (e.key === "ArrowDown" ? 1 : -1) + flat.length) % flat.length; draw(); }
+    else if (e.key === "Enter") { e.preventDefault(); run(sel); }
+  };
+  wrap.addEventListener("click", e => { const b = e.target.closest("[data-cmd]"); if (b) return run(+b.dataset.cmd); if (e.target === wrap) close(); });
+  $("#cmd-q").addEventListener("input", () => { sel = 0; draw(); });
+  document.addEventListener("keydown", key, true);
+  draw(); $("#cmd-q").focus();
+}
+
+/* ───────── hover card ───────── */
+let hoverTimer = null;
+function showCard(row) {
+  const t = THREADS.find(x => x.id === row.dataset.thread); if (!t || S.collapsed) return;
+  hideCard();
+  const r = row.getBoundingClientRect(), c = document.createElement("div"); c.className = "hcard"; c.setAttribute("role", "tooltip");
+  c.innerHTML = `<b>${esc(t.title)}</b>${t.preview ? `<p>${esc(t.preview)}</p>` : ""}<div class="meta"><span>${ic("clock", "s12")}${ago(t.mins)}</span><span>${ic("messages", "s12")}${t.messages.length}</span>${t.pinned ? `<span>${ic("pin", "s12")}Pinned</span>` : ""}${t.apps.length ? `<span>${ic("apps", "s12")}${t.apps.join(" · ")}</span>` : ""}</div>`;
+  document.body.append(c);
+  c.style.left = r.right + 8 + "px"; c.style.top = Math.min(r.top, innerHeight - c.offsetHeight - 8) + "px";
+}
+const hideCard = () => document.querySelector(".hcard")?.remove();
+
+/* ───────── handlers ───────── */
+function toggleTheme() {
+  const root = document.documentElement, cur = root.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  root.dataset.theme = cur === "dark" ? "light" : "dark";
+}
+function setScenario(v) {
+  S.queue = []; S.ws = false;
+  if (v === "empty") { S.thread = null; }
+  else if (v === "running") { S.thread = "t3"; const t = thread(); if (!t.messages.some(m => m.role === "assistant")) { t.running = false; render(); startRun(t); return; } }
+  else S.thread = "t1";
+  render();
+}
+document.addEventListener("click", e => {
+  const t = e.target;
+  if (t.closest("[data-new]")) { e.preventDefault(); return newChat(); }
+  const open = t.closest("[data-open]"); if (open) { hideCard(); S.thread = open.dataset.open; S.renaming = null; return render(); }
+  const tm = t.closest("[data-tmenu]"); if (tm) { hideCard(); return threadMenu(tm, THREADS.find(x => x.id === tm.dataset.tmenu)); }
+  if (t.closest("#collapse-btn")) { S.collapsed = !S.collapsed; return renderSide(); }
+  if (t.closest("#search-btn")) return commandMenu();
+  const org = t.closest("#org-btn"); if (org) return orgMenu(org);
+  if (t.closest("#ws-btn")) { S.ws = !S.ws; return renderMain(); }
+  if (t.closest("#ws-close")) { S.ws = false; return renderMain(); }
+  const plus = t.closest("#plus-btn"); if (plus) return plusMenu(plus);
+  const mb = t.closest("#model-btn"); if (mb) return modelMenu(mb);
+  const md = t.closest("#mode-btn"); if (md) return modeMenu(md);
+  if (t.closest("#voice-btn")) { S.recording = !S.recording; S.draft = $("#editor").innerText; if (!S.recording) S.draft = (S.draft ? S.draft + " " : "") + "Can you check the launch checklist too?"; return renderMain(); }
+  if (t.closest("#send-btn")) return send();
+  const mm = t.closest("[data-mmenu]"); if (mm) return messageMenu(mm);
+  if (t.closest("[data-copy]")) return toast("Copied");
+  const fb = t.closest("[data-fb]");
+  if (fb) {
+    const m = thread().messages[+fb.dataset.i];
+    m.fb = m.fb === fb.dataset.fb ? null : fb.dataset.fb; renderMain();
+    if (m.fb === "down") toast("What went wrong? Opens the feedback form");
+    return;
+  }
+  const rg = t.closest("[data-regen]"); if (rg) { const tt = thread(); const m = tt.messages[+rg.dataset.regen]; m.branches = (m.branches || 1) + 1; m.branch = m.branches; tt.messages.pop(); return startRun(tt); }
+  const ed = t.closest("[data-edit]"); if (ed) { const m = thread().messages[+ed.dataset.edit]; S.draft = m.text; renderMain(); toast("Editing forks the conversation from this message"); return $("#editor").focus(); }
+  const st = t.closest("[data-steer]"); if (st) { toast("Sent now to steer the current run"); S.queue.splice(+st.dataset.steer, 1); return renderMain(); }
+  const uq = t.closest("[data-unqueue]"); if (uq) { S.queue.splice(+uq.dataset.unqueue, 1); return renderMain(); }
+});
+document.addEventListener("keydown", e => {
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); return commandMenu(); }
+  if (e.target.id === "editor" && e.key === "Enter" && !e.shiftKey) { e.preventDefault(); return send(); }
+  if (e.target.id === "rename-in") {
+    if (e.key === "Enter") { const t = THREADS.find(x => x.id === S.renaming); t.title = e.target.value.trim() || "Untitled chat"; S.renaming = null; render(); }
+    if (e.key === "Escape") { S.renaming = null; renderSide(); }
+  }
+});
+document.addEventListener("focusout", e => { if (e.target.id === "rename-in" && S.renaming) { const t = THREADS.find(x => x.id === S.renaming); t.title = e.target.value.trim() || "Untitled chat"; S.renaming = null; setTimeout(render); } });
+document.addEventListener("input", e => { if (e.target.id === "editor") S.draft = e.target.innerText; });
+let hoverRow = null;
+document.addEventListener("mouseover", e => {
+  const row = e.target.closest?.(".trow[data-thread]") || null;
+  if (row === hoverRow) return;
+  hoverRow = row; clearTimeout(hoverTimer); hideCard();
+  if (row) hoverTimer = setTimeout(() => hoverRow === row && row.isConnected && showCard(row), 500);
+});
+$("#theme-btn").addEventListener("click", toggleTheme);
+$("#scenario").addEventListener("change", e => setScenario(e.target.value));
+kitChangesInit($("#changes-btn"));
+kitSettingsInit({ app: "Chat", mcpName: "chat", mcpUrl: "https://chat.agent-native.com/mcp" });
+render();
+</script>

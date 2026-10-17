@@ -24,6 +24,7 @@ vi.mock("drizzle-orm", () => ({
   and: (...values: unknown[]) => values,
   eq: (...values: unknown[]) => values,
   isNull: (value: unknown) => value,
+  sql: vi.fn(),
 }));
 
 vi.mock("../../actions/export-to-brain.js", () => ({

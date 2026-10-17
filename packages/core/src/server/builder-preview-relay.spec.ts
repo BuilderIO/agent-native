@@ -207,7 +207,6 @@ describe("Builder preview callback relay", () => {
     const PREVIEW = "https://preview-example.builderio.xyz";
 
     beforeEach(() => {
-      // Isolate the suffix allow-list from the exact-origin allow-list.
       process.env[BUILDER_RELAY_TARGET_ORIGINS_ENV] = "";
     });
 
@@ -264,7 +263,6 @@ describe("Builder preview callback relay", () => {
     it("honors only the well-formed entries in a mixed suffix list", () => {
       process.env[BUILDER_RELAY_TARGET_DOMAIN_SUFFIXES_ENV] =
         "builderio.dev,.builderio.xyz";
-      // 'builderio.dev' has no leading dot and is dropped; '.builderio.xyz' is honored.
       expect(isTrustedBuilderRelayTargetOrigin(PREVIEW)).toBe(true);
       expect(
         isTrustedBuilderRelayTargetOrigin("https://app.builderio.dev"),
@@ -273,8 +271,6 @@ describe("Builder preview callback relay", () => {
 
     it("still rejects a mutable Netlify deploy-preview alias even when its suffix is configured", () => {
       process.env[BUILDER_RELAY_TARGET_DOMAIN_SUFFIXES_ENV] = ".netlify.app";
-      // The mutable-alias permalink check runs before suffix matching, so a
-      // configurable suffix can never widen trust to non-immutable previews.
       expect(isTrustedBuilderRelayTargetOrigin(MUTABLE_TARGET)).toBe(false);
 
       const relay = makeRelay(MUTABLE_TARGET);

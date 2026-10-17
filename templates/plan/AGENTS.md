@@ -7,59 +7,45 @@ changes happen.
 
 ## Skills
 
-The plan skills own all planning behavior. Read the matching SKILL.md before
-generating or editing a plan.
+Read relevant guides before deeper work:
+- `.agents/skills/visual-plan/SKILL.md` — for rich plan generation or edits.
+- `.agents/skills/visual-recap/SKILL.md` — for visual PR/code recaps.
+- `.agents/skills/plan-authoring-flow/SKILL.md` — for action routing and fidelity.
+- `.agents/skills/plan-hosted-writes/SKILL.md` — for hosted write safety.
+- `.agents/skills/plan-comments-and-feedback/SKILL.md` — for plan comments and feedback.
+- `.agents/skills/plan-browser-editing/SKILL.md` — for browser edits.
+- `.agents/skills/plan-source-sync/SKILL.md` — for MDX/local plan sync.
+- `.agents/skills/plan-version-history/SKILL.md` — for snapshots and restore.
+- `.agents/skills/plan-local-codebase-chat/SKILL.md` — for linked codebase questions.
+- `.agents/skills/plan-review-recaps/SKILL.md` — for recap blocks and CI.
+- `.agents/skills/plan-events/SKILL.md` — for lifecycle events.
+- `.agents/skills/plan-editions/SKILL.md` — for the scheduled PR recap digest.
 
-- `visual-plan` — `/visual-plan`, the canonical slash command for any rich plan;
-  also governs `create-ui-plan`, `create-prototype-plan`, `create-plan-design`,
-  and `create-visual-questions`.
-- `visual-recap` — `/visual-recap`, visual code-review recaps for PRs, commits,
-  branches, and git diffs.
-- `plan-authoring-flow` — command/action routing and design fidelity.
-- `plan-hosted-writes` — session, revision guard, post-write verify.
-- `plan-comments-and-feedback` — feedback fields, anchors, replies, deletion.
-- `plan-browser-editing` — inline prose, design element, branding edits.
-- `plan-source-sync` — plan MDX export/import/patch and local plan folders.
-- `plan-version-history` — snapshots and restore.
-- `plan-local-codebase-chat` — questions about a linked local codebase.
-- `plan-review-recaps` — recap comparison blocks and PR recap CI.
-- `plan-events` — plan lifecycle events and automations.
+`.agents/skills/actions/SKILL.md`, `.agents/skills/adding-a-feature/SKILL.md`, `.agents/skills/storing-data/SKILL.md`, `.agents/skills/security/SKILL.md`,
+`.agents/skills/secrets/SKILL.md`, `.agents/skills/sharing/SKILL.md`, `.agents/skills/frontend-design/SKILL.md`, `.agents/skills/shadcn-ui/SKILL.md`,
+`.agents/skills/real-time-sync/SKILL.md`, `.agents/skills/context-awareness/SKILL.md`, `.agents/skills/delegate-to-agent/SKILL.md`, `.agents/skills/agent-native-docs/SKILL.md`,
+`.agents/skills/agent-native-toolkit/SKILL.md`, `.agents/skills/customizing-agent-native/SKILL.md`, `.agents/skills/client-side-routing/SKILL.md`, `.agents/skills/reliable-mutations/SKILL.md`,
+`.agents/skills/performance/SKILL.md`, `.agents/skills/external-agents/SKILL.md`, `.agents/skills/portability/SKILL.md`, `.agents/skills/self-modifying-code/SKILL.md`,
+`.agents/skills/turn-into-skill/SKILL.md`, `.agents/skills/workspace-conventions/SKILL.md`.
+
+## Framework Docs
+
+Use local framework docs, not web research: `pnpm action docs-search --query "<topic>"` searches; `pnpm action docs-search --slug "<slug>"` reads a page.
 
 ## Core Rules
 
 - UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
-- Follow the root framework rules: data in SQL, actions first, application
-  state for navigation/selection, and shared agent chat for AI work.
-- Store large file/blob payloads in configured file/blob storage, not SQL: no
-  base64, `data:` URLs, images, video/audio, PDFs, ZIPs, screenshots,
-  thumbnails, or replay chunks in app tables, `application_state`, `settings`,
-  or `resources`; persist URLs, ids, or handles instead.
-- Never hardcode API keys, tokens, webhook URLs, signing secrets, private
-  Builder/internal data, customer data, or credential-looking literals. Use
-  secrets/OAuth/runtime configuration and obvious placeholders in examples.
+- Follow the framework contract: SQL data, action-first writes, application state for selection, and shared agent chat for AI work.
 - For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
-- Use `view-screen` or application state when the active page/selection is
-  unclear.
-- Default to structured visual artifacts over long Markdown. Text is one block
-  type, not the whole plan.
-- Before edits, read pending feedback with `get-plan-feedback`.
-- Read `plan-hosted-writes` before any hosted plan write: writes need a real
-  user session, destructive writes need a fresh `expectedUpdatedAt`, and every
-  write must be verified by a re-read before you claim success.
-- Runtime plan content is normalized JSON in SQL; MDX (`plan.mdx`,
-  `canvas.mdx`, `prototype.mdx`) is the source-control surface — see
-  `plan-source-sync`.
-- New canvas wireframes use `<Screen html={...} />` semantic HTML; nested
-  kit-tree nodes are legacy only — see `plan-authoring-flow`.
+- Use `view-screen` or application state when the active page/selection is unclear. Prefer structured visual artifacts over long Markdown.
+- Read pending feedback with `get-plan-feedback` before editing. For hosted writes, read `plan-hosted-writes`: use a real session, fresh `expectedUpdatedAt` for destructive writes, and verify by re-read.
+- Runtime plans are normalized JSON in SQL; MDX files are source control, via `plan-source-sync`. New canvas wireframes use semantic `<Screen html={...} />`; nested kit trees are legacy. See `plan-authoring-flow`.
 
 ## Application State
 
-- `navigation.view` is `chat`, `plans`, `plan`, `extensions`, or `team`.
-- `navigation.planId` identifies the active visual plan when present.
-- `local-codebase` holds the folder the Ask Plan picker linked plus personal
-  resource paths for its index, file tree, and snapshots — see
-  `plan-local-codebase-chat`.
-- `navigate` moves the UI to the plan list or a specific visual plan.
+- `navigation.view`: `chat`, `plans`, `plan`, `editions`, `edition`, `extensions`, or `team`; `editionId` / `planId` identify the open item.
+- `local-codebase` holds the linked folder and index/tree/snapshot resources; see `plan-local-codebase-chat`.
+- `navigate` opens the plan list or a specific plan.
 
 ## Actions
 
@@ -69,6 +55,7 @@ generating or editing a plan.
 | `list-visual-plans`, `get-visual-plan`, `show-visual-plan` | List, read, render plans |
 | `create-visual-plan`, `create-ui-plan`, `create-prototype-plan`, `create-plan-design`, `create-visual-questions` | Create a plan per mode; one call per plan |
 | `create-visual-recap`, `search-pr-recaps` | Create and find recaps |
+| `list-edition-candidates`, `create-edition`, `get-edition`, `list-editions` | Engineering-newspaper editions: select recaps, publish, read, archive |
 | `visualize-plan`, `convert-visual-plan-to-prototype` | Convert pasted plans; legacy mock→prototype |
 | `update-visual-plan` | Patch blocks, screens, fidelity, comments, status |
 | `get-plan-blocks`, `list-plan-components`, `visual-answer` | Block schemas, components, visual answers |
@@ -82,5 +69,6 @@ generating or editing a plan.
 
 ## Source Changes
 
-Before building common workspace or agent UI, read `agent-native-toolkit`; read
-`customizing-agent-native` before adapting shared UI.
+Before building common workspace or agent UI, read `agent-native-toolkit`; read `customizing-agent-native` before adapting shared UI.
+
+Search with `rg --hidden --follow`; read the exact linked guide before deeper work.

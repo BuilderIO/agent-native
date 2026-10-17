@@ -62,8 +62,8 @@ Pass the same plain URL to `--template` for scripts, or use the shorter
 reproducible starting point. Without a ref, the CLI tries `main`, then `master`:
 
 ```bash
-npx @agent-native/core@latest create my-app --template community:owner/repo#v1.2.0
-npx @agent-native/core@latest create my-app --template https://github.com/owner/repo#v1.2.0
+npx --yes @agent-native/core@latest create my-app --template community:owner/repo#v1.2.0
+npx --yes @agent-native/core@latest create my-app --template https://github.com/owner/repo#v1.2.0
 ```
 
 For a workspace repository, make the source-app choice non-interactive with
@@ -71,8 +71,8 @@ For a workspace repository, make the source-app choice non-interactive with
 whole value quoted because shells such as zsh treat `?` as a glob:
 
 ```bash
-npx @agent-native/core@latest create my-app --template 'community:owner/repo?app=analytics#v1.2.0'
-npx @agent-native/core@latest create my-app --template 'https://github.com/owner/repo?app=analytics#v1.2.0'
+npx --yes @agent-native/core@latest create my-app --template 'community:owner/repo?app=analytics#v1.2.0'
+npx --yes @agent-native/core@latest create my-app --template 'https://github.com/owner/repo?app=analytics#v1.2.0'
 ```
 
 Outside a workspace, `create` makes the selected source app standalone. To add
@@ -293,7 +293,7 @@ You can add Agent-Native capabilities to a coding agent you already use, without
 To scaffold a new app:
 
 ```bash
-npx @agent-native/core@latest create my-platform
+npx --yes @agent-native/core@latest create my-platform
 ```
 
 The CLI first asks **How do you want to start?** — pick **Chat** for a minimal
@@ -302,7 +302,7 @@ multi-select picker. Community and Headless are the standalone on-ramps.
 Workspace apps share auth, brand, agent config, and database; each app is
 scaffolded into `apps/<name>/` with every file you need. For a no-browser
 automation instead of an app UI, use
-`npx @agent-native/core@latest create my-agent --headless`.
+`npx --yes @agent-native/core@latest create my-agent --headless`.
 
 Fill in `.env` (`ANTHROPIC_API_KEY` and `DATABASE_URL`), then run `pnpm install` and `pnpm dev`. There's no login to implement and no placeholder routes.
 

@@ -1,7 +1,11 @@
 export const PLAYBACK_SPEED_OPTIONS = [0.5, 0.8, 1, 1.2, 1.5, 1.7, 2, 2.5];
 
+export const SLOW_PLAYBACK_SPEED_OPTIONS = [0.0625, 0.125, 0.25];
+
+export const SLOW_SPEED_CEILING = 0.25;
+
 const PLAYBACK_SPEED_STORAGE_KEY = "clips.playbackSpeed";
-const MIN_PLAYBACK_SPEED = 0.25;
+const MIN_PLAYBACK_SPEED = 0.0625;
 const MAX_PLAYBACK_SPEED = 4;
 
 export function parsePlaybackSpeed(value: unknown): number | null {
@@ -35,6 +39,7 @@ export function readPlaybackSpeedPreference(fallback: number): number {
 export function savePlaybackSpeedPreference(rate: number): void {
   const speed = parsePlaybackSpeed(rate);
   if (speed === null || typeof window === "undefined") return;
+  if (speed < SLOW_SPEED_CEILING) return;
 
   try {
     window.localStorage.setItem(PLAYBACK_SPEED_STORAGE_KEY, String(speed));

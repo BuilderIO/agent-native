@@ -39,8 +39,8 @@ afterEach(() => {
   fs.rmSync(parentDir, {
     recursive: true,
     force: true,
-    maxRetries: 3,
-    retryDelay: 50,
+    maxRetries: 20,
+    retryDelay: 100,
   });
   vi.clearAllMocks();
 });

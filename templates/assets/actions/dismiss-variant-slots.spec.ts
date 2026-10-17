@@ -42,8 +42,6 @@ vi.mock("../server/lib/library-access.js", () => ({
   assertCanApprove: libraryAccessMock,
   assertCanDraftAuthoredBy: libraryAccessMock,
   assertCanDeleteAsset: libraryAccessMock,
-  // The draft-input guards have their own tests; these specs exercise the
-  // surrounding behavior with an approver's unrestricted scope.
   draftScopeForLibrary: vi.fn(async () => unrestrictedScope),
   resolveDraftReadScope: vi.fn(async () => unrestrictedScope),
   unrestrictedDraftReadScope: vi.fn(() => unrestrictedScope),
@@ -87,7 +85,6 @@ type AssetRow = {
   generationRunId: string | null;
 };
 
-/** An unsaved draft candidate in `lib-1`, the shape dismiss is allowed to delete. */
 function draftAsset(id: string, overrides: Partial<AssetRow> = {}): AssetRow {
   return {
     id,
@@ -99,11 +96,6 @@ function draftAsset(id: string, overrides: Partial<AssetRow> = {}): AssetRow {
   };
 }
 
-/**
- * Serves the authorization reads the action makes per slot. The conditional
- * delete itself is `deleteDraftAssetIfUnchanged`, mocked above and tested
- * against a live table in `server/lib/library-access.spec.ts`.
- */
 function createDb(
   assets: AssetRow[] = [draftAsset("asset-1"), draftAsset("asset-2")],
 ) {
@@ -177,7 +169,6 @@ describe("dismiss-variant-slots", () => {
 
     const result = await action.run({ scope: "all" });
 
-    // Discarding a draft is drafting-class work, not approving.
     expect(libraryAccessMock).toHaveBeenCalledWith("lib-1");
     expect(deleteDraftMock).toHaveBeenCalledTimes(2);
     expect(
@@ -195,7 +186,6 @@ describe("dismiss-variant-slots", () => {
   });
 
   it("retains assets the caller may not discard instead of deleting them", async () => {
-    // Variant state is client-writable, so a slot can point at anything.
     const db = createDb([
       draftAsset("asset-saved", { status: "saved" }),
       draftAsset("asset-other-kit", { libraryId: "lib-2" }),
@@ -216,7 +206,6 @@ describe("dismiss-variant-slots", () => {
 
     const result = await action.run({ scope: "all" });
 
-    // Only the caller's own unsaved draft in this kit reaches the delete.
     expect(deleteDraftMock).toHaveBeenCalledTimes(1);
     expect((deleteDraftMock.mock.calls[0] as any[])[0]).toMatchObject({
       id: "asset-mine",
@@ -233,8 +222,6 @@ describe("dismiss-variant-slots", () => {
     const db = createDb([draftAsset("asset-theirs")]);
     getDbMock.mockReturnValue(db);
     libraryAccessMock.mockImplementation((async (...args: unknown[]) => {
-      // One argument is `assertCanDraft`; the asset-shaped call is the delete
-      // rule, and it refuses another drafter's candidate.
       if (typeof args[0] === "object") {
         throw new forbiddenErrorClass("Requires editor role");
       }
@@ -283,8 +270,6 @@ describe("dismiss-variant-slots", () => {
   });
 
   it("counts a candidate an editor saved mid-dismissal as retained", async () => {
-    // The conditional delete lives in library-access and has its own tests; the
-    // action's job is to report the refusal as retained, never as deleted.
     deleteDraftMock.mockResolvedValueOnce(false);
     const db = createDb([draftAsset("asset-1")]);
     getDbMock.mockReturnValue(db);

@@ -4,8 +4,6 @@ import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// PGlite startup and teardown can exceed Vitest's 5s default on a shared
-// workspace runner; this test exercises real migration DDL.
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
 const originalEnv = {

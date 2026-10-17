@@ -19,10 +19,12 @@ import { useEffect, useRef, useState, type ComponentType } from "react";
 import { useSearchParams } from "react-router";
 
 import {
+  INBOX_CONFIDENCE,
   INBOX_RANGES,
   INBOX_RISKS,
   INBOX_SOURCES,
   INBOX_STATUSES,
+  parseInboxConfidence,
   parseInboxRange,
   parseInboxRisk,
   parseInboxSource,
@@ -35,6 +37,9 @@ import { BUILDER_SLACK_MENTION_LABEL } from "@/components/factory/slack-mrkdwn";
 import { SlackMrkdwn } from "@/components/factory/SlackMrkdwn";
 import { TriageOutcomeMenu } from "@/components/triage/triage-outcome-menu";
 import {
+  InboxPill,
+  type InboxPillData,
+  TriageConfidencePill,
   TriageRiskPill,
   TriageStatusPill,
 } from "@/components/triage/triage-status-pill";
@@ -47,7 +52,7 @@ import { collapseConsecutiveInboxEvents } from "@/lib/collapse-inbox-events";
 const INBOX_PAGE_SIZE = 50;
 
 const inboxListColumns =
-  "w-full gap-3 sm:grid-cols-[minmax(0,1.4fr)_minmax(4.75rem,auto)_minmax(7.5rem,auto)_minmax(4.5rem,auto)_minmax(2rem,auto)] sm:items-start";
+  "w-full gap-3 sm:grid-cols-[minmax(0,1.4fr)_5.5rem_4.5rem_8.5rem_8.5rem_4.5rem_minmax(2rem,auto)] sm:items-start";
 
 type Verdict = "correct" | "incorrect" | "uncertain";
 
@@ -61,12 +66,19 @@ type InboxListItem = {
   sourceName?: string | null;
   sourceUrl?: string | null;
   risk?: string | null;
+  confidence?: string | null;
   status?: string | null;
   createdAt?: string | null;
   updatedAt?: string | null;
   author?: string | null;
   reason?: string | null;
+  pullRequestNumber?: number | null;
   userLabels?: Record<string, string>;
+  inboxPresentation?: {
+    routing: InboxPillData;
+    automation: InboxPillData | null;
+    leavesReviewWindow: boolean;
+  } | null;
 };
 
 type InboxDecision = {
@@ -145,6 +157,7 @@ export function FactoryInboxView({
   const [searchParams, setSearchParams] = useSearchParams();
   const status = parseInboxStatus(searchParams.get("status"));
   const risk = parseInboxRisk(searchParams.get("risk"));
+  const confidence = parseInboxConfidence(searchParams.get("confidence"));
   const range = parseInboxRange(searchParams.get("range"));
   const source = parseInboxSource(searchParams.get("source"));
   const updatedAfter = updatedAfterForRange(range);
@@ -162,6 +175,7 @@ export function FactoryInboxView({
     limit: INBOX_PAGE_SIZE,
     ...(status ? { status } : {}),
     ...(risk ? { risk } : {}),
+    ...(confidence ? { confidence } : {}),
     ...(source ? { source } : {}),
     ...(updatedAfter ? { updatedAfter } : {}),
     ...(cursor ? { cursor } : {}),
@@ -194,6 +208,7 @@ export function FactoryInboxView({
     slackQuery.data?.builderSlackUserId ??
     configQuery.data?.builderSlackUserId ??
     null;
+  const listBuilderSlackUserId = configQuery.data?.builderSlackUserId ?? null;
   const mentionLabels = mergeUserLabels(
     selectedListItem?.userLabels,
     selectedItem?.userLabels,
@@ -207,7 +222,7 @@ export function FactoryInboxView({
   useEffect(() => {
     setCursor(null);
     setCursorStack([]);
-  }, [status, risk, range, source]);
+  }, [status, risk, confidence, range, source]);
 
   useEffect(() => {
     if (!selectedId) return;
@@ -218,7 +233,7 @@ export function FactoryInboxView({
   }, [selectedId, items.length]);
 
   function setInboxFilter(
-    key: "status" | "risk" | "range" | "source",
+    key: "status" | "risk" | "confidence" | "range" | "source",
     value: string,
   ) {
     setCursor(null);
@@ -301,17 +316,6 @@ export function FactoryInboxView({
                   onChange={(value) => setInboxFilter("range", value)}
                 />
                 <InboxFilterSelect
-                  id="factory-status-filter"
-                  label={t("triage.status")}
-                  value={status}
-                  placeholder={t("triage.statusPlaceholder")}
-                  options={INBOX_STATUSES.map((value) => ({
-                    value,
-                    label: t(`triage.statusValues.${value}`),
-                  }))}
-                  onChange={(value) => setInboxFilter("status", value)}
-                />
-                <InboxFilterSelect
                   id="factory-risk-filter"
                   label={t("triage.risk")}
                   value={risk}
@@ -321,6 +325,28 @@ export function FactoryInboxView({
                     label: t(`triage.riskValues.${value}`),
                   }))}
                   onChange={(value) => setInboxFilter("risk", value)}
+                />
+                <InboxFilterSelect
+                  id="factory-confidence-filter"
+                  label={t("triage.confidence")}
+                  value={confidence}
+                  placeholder={t("triage.confidencePlaceholder")}
+                  options={INBOX_CONFIDENCE.map((value) => ({
+                    value,
+                    label: t(`triage.confidenceValues.${value}`),
+                  }))}
+                  onChange={(value) => setInboxFilter("confidence", value)}
+                />
+                <InboxFilterSelect
+                  id="factory-status-filter"
+                  label={t("triage.status")}
+                  value={status}
+                  placeholder={t("triage.statusPlaceholder")}
+                  options={INBOX_STATUSES.map((value) => ({
+                    value,
+                    label: t(`triage.statusValues.${value}`),
+                  }))}
+                  onChange={(value) => setInboxFilter("status", value)}
                 />
                 <InboxFilterSelect
                   id="factory-source-filter"
@@ -364,13 +390,24 @@ export function FactoryInboxView({
                   >
                     <span />
                     <span>{t("triage.risk")}</span>
+                    <span>{t("triage.confidence")}</span>
                     <span>{t("triage.status")}</span>
+                    <span>{t("triage.inboxColumnAutomation")}</span>
                     <span>{t("triage.updatedAt")}</span>
                     <span />
                   </div>
                   {items.map((item) => {
-                    const id = inboxItemId(item);
-                    const snippet = inboxSnippet(item, t("triage.untitled"));
+                    const rowItem = inboxListRowItem(
+                      item,
+                      selectedId,
+                      slackQuery.data?.userLabels,
+                    );
+                    const id = inboxItemId(rowItem);
+                    const snippet = inboxSnippet(rowItem, t("triage.untitled"));
+                    const listIdentityLine = inboxListIdentityLine(
+                      rowItem,
+                      listBuilderSlackUserId,
+                    );
                     const updatedAge = formatInboxAge(
                       item.updatedAt,
                       t("triage.relativeNow"),
@@ -391,18 +428,15 @@ export function FactoryInboxView({
                         }}
                       >
                         <span className="min-w-0">
-                          <span className="block text-[11px] uppercase tracking-wide text-muted-foreground">
-                            {formatInboxSource(item.source ?? item.sourceName)}
-                            {item.author?.trim()
-                              ? ` · ${item.author.trim()}`
-                              : ""}
+                          <span className="block truncate text-[11px] uppercase tracking-wide text-muted-foreground">
+                            {listIdentityLine}
                           </span>
                           <span className="mt-0.5 block truncate text-sm font-medium">
                             <SlackMrkdwn
                               text={snippet}
                               inline
-                              mentionLabels={item.userLabels}
-                              builderSlackUserId={builderSlackUserId}
+                              mentionLabels={rowItem.userLabels}
+                              builderSlackUserId={listBuilderSlackUserId}
                             />
                           </span>
                         </span>
@@ -414,9 +448,33 @@ export function FactoryInboxView({
                         </span>
                         <span>
                           <span className="mb-1 block text-[11px] uppercase tracking-wide text-muted-foreground sm:hidden">
+                            {t("triage.confidence")}
+                          </span>
+                          <TriageConfidencePill confidence={item.confidence} />
+                        </span>
+                        <span>
+                          <span className="mb-1 block text-[11px] uppercase tracking-wide text-muted-foreground sm:hidden">
                             {t("triage.status")}
                           </span>
-                          <TriageStatusPill status={item.status} />
+                          {item.inboxPresentation ? (
+                            <InboxPill pill={item.inboxPresentation.routing} />
+                          ) : (
+                            <TriageStatusPill status={item.status} />
+                          )}
+                        </span>
+                        <span>
+                          <span className="mb-1 block text-[11px] uppercase tracking-wide text-muted-foreground sm:hidden">
+                            {t("triage.inboxColumnAutomation")}
+                          </span>
+                          {item.inboxPresentation?.automation ? (
+                            <InboxPill
+                              pill={item.inboxPresentation.automation}
+                            />
+                          ) : (
+                            <span className="text-sm text-muted-foreground">
+                              —
+                            </span>
+                          )}
                         </span>
                         <span>
                           <span className="mb-1 block text-[11px] uppercase tracking-wide text-muted-foreground sm:hidden">
@@ -576,6 +634,7 @@ function InboxDetailPane({
     null;
   const latestDecision = item.decisions?.[item.decisions.length - 1];
   const events = item.events ?? [];
+  const taskSummary = events[events.length - 1]?.summary.trim() || null;
   const runs = item.runs ?? [];
   const slack = isSlackSource(source);
   const author = (item.author ?? listItem?.author)?.trim() || null;
@@ -590,29 +649,33 @@ function InboxDetailPane({
     ),
   ]
     .filter(Boolean)
-    .join(" · ");
+    // Non-breaking spaces so the wider gap survives HTML whitespace
+    // collapsing instead of rendering as a single space.
+    .join("  ·  ");
+  const inboxPresentation = resolveInboxPresentation(item, listItem);
+  const pullRequestLabel =
+    inboxPullRequestLabel(item) ?? inboxPullRequestLabel(listItem);
+  const slackThreadReady =
+    slack &&
+    !slackQuery.isLoading &&
+    !slackQuery.isError &&
+    (slackQuery.data?.messages?.length ?? 0) > 0;
+  const showDetailTitle = Boolean(title) && !slackThreadReady;
 
   return (
     <>
-      <header className="space-y-1.5">
-        {title ? (
-          <h2
-            className={`text-base font-medium ${slack ? "line-clamp-1" : "break-words"}`}
-          >
-            {slack ? (
-              <SlackMrkdwn
-                text={title}
-                inline
-                mentionLabels={mentionLabels}
-                builderSlackUserId={builderSlackUserId}
-              />
-            ) : (
-              title
-            )}
+      <header className="space-y-3">
+        {showDetailTitle ? (
+          <h2 className="break-words text-base font-medium">
+            {pullRequestLabel ? (
+              <span className="tabular-nums text-muted-foreground">
+                {pullRequestLabel}{" "}
+              </span>
+            ) : null}
+            {title}
           </h2>
         ) : null}
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-          <TriageStatusPill status={item.status ?? listItem?.status} />
+        <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
           <span className="inline-flex min-w-0 items-center gap-1">
             <EvidenceIcon source={source} />
             <span className="truncate">{meta}</span>
@@ -627,14 +690,66 @@ function InboxDetailPane({
               href={sourceUrl}
               target="_blank"
               rel="noreferrer"
-              className="ms-auto inline-flex items-center gap-1 text-primary hover:underline"
+              className="inline-flex shrink-0 items-center gap-1 text-primary hover:underline"
             >
               {t("triage.openSource")}
               <IconExternalLink className="size-3" />
             </a>
           )}
         </div>
+        <div className="flex flex-wrap items-start gap-x-4 gap-y-2 text-xs text-muted-foreground">
+          {inboxPresentation ? (
+            <>
+              <span className="flex flex-col gap-1">
+                <span className="text-[11px] font-medium uppercase tracking-wide">
+                  {t("triage.status")}
+                </span>
+                <InboxPill pill={inboxPresentation.routing} />
+              </span>
+              <span className="flex flex-col gap-1">
+                <span className="text-[11px] font-medium uppercase tracking-wide">
+                  {t("triage.inboxColumnAutomation")}
+                </span>
+                {inboxPresentation.automation ? (
+                  <InboxPill pill={inboxPresentation.automation} />
+                ) : (
+                  <span>—</span>
+                )}
+              </span>
+            </>
+          ) : (
+            <TriageStatusPill status={item.status ?? listItem?.status} />
+          )}
+          <span className="flex flex-col gap-1">
+            <span className="text-[11px] font-medium uppercase tracking-wide">
+              {t("triage.risk")}
+            </span>
+            <TriageRiskPill risk={item.risk ?? listItem?.risk} />
+          </span>
+          <span className="flex flex-col gap-1">
+            <span className="text-[11px] font-medium uppercase tracking-wide">
+              {t("triage.confidence")}
+            </span>
+            <TriageConfidencePill
+              confidence={item.confidence ?? listItem?.confidence}
+            />
+          </span>
+        </div>
       </header>
+
+      {taskSummary ? (
+        <section
+          aria-label={t("triage.summary")}
+          className="border-t border-border pt-4"
+        >
+          <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            {t("triage.summary")}
+          </p>
+          <p className="mt-1 border-s-2 border-primary/40 ps-3 text-sm leading-6">
+            {taskSummary}
+          </p>
+        </section>
+      ) : null}
 
       {reason ? (
         <div className="border-t border-border pt-4">
@@ -929,7 +1044,6 @@ function StoredEvidencePane({
   builderSlackUserId: string | null;
   t: ReturnType<typeof useT>;
 }) {
-  // The title renders as the detail heading, so it is not an evidence fallback.
   const text = item.summary || listItem?.summary;
   if (!text) {
     return (
@@ -1086,6 +1200,13 @@ function inboxItemId(item: InboxListItem | InboxDetail | null): string {
   return item?.itemId || item?.id || "";
 }
 
+function resolveInboxPresentation(
+  item: InboxListItem | InboxDetail | null,
+  listItem: InboxListItem | null,
+): InboxListItem["inboxPresentation"] {
+  return item?.inboxPresentation ?? listItem?.inboxPresentation ?? null;
+}
+
 function mergeUserLabels(
   ...maps: Array<Record<string, string> | undefined>
 ): Record<string, string> {
@@ -1129,8 +1250,6 @@ function looksLikeSlackUserId(value: string): boolean {
 }
 
 function inboxTitle(item: InboxListItem | InboxDetail | null): string | null {
-  // Slack items have no subject line: the poller stores an author label as the
-  // title and the root message as the summary, so the message stands in.
   if (isSlackSource(item?.source ?? item?.sourceName)) {
     return item?.summary?.trim() || null;
   }
@@ -1146,6 +1265,79 @@ function inboxSnippet(
 
 function isSlackSource(source?: string | null): boolean {
   return (source ?? "").toLowerCase().includes("slack");
+}
+
+function isGithubPullRequestSource(source?: string | null): boolean {
+  return (source ?? "").toLowerCase() === "github";
+}
+
+function inboxPullRequestLabel(
+  item: InboxListItem | InboxDetail | null,
+): string | null {
+  if (!isGithubPullRequestSource(item?.source ?? item?.sourceName)) {
+    return null;
+  }
+  const number = item?.pullRequestNumber;
+  if (typeof number !== "number" || !Number.isFinite(number) || number < 1) {
+    return null;
+  }
+  return `#${number}`;
+}
+
+function inboxListAuthorLabel(
+  item: InboxListItem,
+  builderSlackUserId: string | null,
+): string | null {
+  const author = item.author?.trim();
+  if (!author) return null;
+  if (isSlackSource(item.source ?? item.sourceName)) {
+    const resolved = slackAuthorName(
+      { user: author },
+      item.userLabels ?? {},
+      builderSlackUserId,
+    );
+    if (!looksLikeSlackUserId(resolved)) return resolved;
+    const title = item.title?.trim();
+    if (title?.startsWith("Slack user ")) {
+      const fromTitle = title.slice("Slack user ".length).trim();
+      if (fromTitle && !looksLikeSlackUserId(fromTitle)) return fromTitle;
+    }
+    return resolved;
+  }
+  return author;
+}
+
+function inboxListIdentityLine(
+  item: InboxListItem,
+  builderSlackUserId: string | null,
+): string {
+  return [
+    formatInboxSource(item.source ?? item.sourceName),
+    inboxPullRequestLabel(item),
+    inboxListAuthorLabel(item, builderSlackUserId),
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function inboxListRowItem(
+  item: InboxListItem,
+  selectedId: string | null,
+  liveUserLabels?: Record<string, string>,
+): InboxListItem {
+  if (
+    !selectedId ||
+    inboxItemId(item) !== selectedId ||
+    !isSlackSource(item.source ?? item.sourceName) ||
+    !liveUserLabels ||
+    Object.keys(liveUserLabels).length === 0
+  ) {
+    return item;
+  }
+  return {
+    ...item,
+    userLabels: mergeUserLabels(item.userLabels, liveUserLabels),
+  };
 }
 
 function formatInboxSource(source: string | null | undefined) {

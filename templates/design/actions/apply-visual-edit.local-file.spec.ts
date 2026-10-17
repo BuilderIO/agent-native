@@ -35,6 +35,7 @@ const intent = {
     sourceAnchor: {
       line: 3,
       column: 5,
+      positionPrecision: "authored" as const,
       scope: "single-instance" as const,
       runtimeMultiplicity: 1,
     },

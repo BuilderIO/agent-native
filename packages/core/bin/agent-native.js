@@ -27,10 +27,6 @@ const freshnessChecks = [
   ],
 ];
 
-// The tsx source fallback and mtime freshness check are for local monorepo
-// development only. Published installs ship both src and dist, and tarball
-// extraction can leave .ts files newer than .js, which must not trigger tsx
-// (not a runtime dependency). Only consider the fallback in a source checkout.
 const isSourceCheckout = existsSync(join(binDir, "../tsconfig.cli.json"));
 
 function statMtimeMs(path) {
@@ -60,8 +56,6 @@ const useSourceFallback = shouldUseSourceFallback({
 });
 
 if (!useSourceFallback) {
-  // Installed packages (and up-to-date checkouts) always run the shipped build.
-  // tsx is not a runtime dependency, so it must never be invoked here.
   if (!existsSync(distEntry)) {
     console.error(
       "agent-native CLI build output is missing. Run `pnpm --filter @agent-native/core build` and try again.",
@@ -71,9 +65,6 @@ if (!useSourceFallback) {
 
   await import(pathToFileURL(distEntry).href);
 } else {
-  // Resolve tsx from this package instead of trusting PATH: the fallback is
-  // also reached through `node packages/core/bin/agent-native.js`, which runs
-  // without node_modules/.bin on PATH.
   let tsxCli;
   try {
     tsxCli = createRequire(import.meta.url).resolve("tsx/cli");

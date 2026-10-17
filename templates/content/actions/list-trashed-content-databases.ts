@@ -10,7 +10,7 @@ import { configurationRevision } from "./_database-setup-mutation.js";
 
 export default defineAction({
   description:
-    "List soft-deleted content databases the current user can access for the sidebar Trash surface.",
+    "List soft-deleted content collections the current user can access for the sidebar Trash surface.",
   mcpTool: true,
   schema: z.object({
     limit: z.number().int().min(1).max(100).optional(),
@@ -101,7 +101,7 @@ export default defineAction({
         title:
           row.documentTitle?.trim() ||
           row.databaseTitle?.trim() ||
-          "Untitled database",
+          "Untitled collection",
         documentId: row.documentId,
         ownerDocumentId: row.ownerDocumentId,
         deletedAt: row.deletedAt!,

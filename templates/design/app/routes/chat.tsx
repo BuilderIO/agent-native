@@ -1,12 +1,11 @@
-import {
-  AgentChatSurface,
-  markAgentChatHomeHandoff,
-} from "@agent-native/core/client/agent-chat";
+import { markAgentChatHomeHandoff } from "@agent-native/core/client/agent-chat";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { AgentChatSurface } from "@agent-native/toolkit/app/chat";
 import { useEffect } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
 
+import { DesignComposerContextProvider } from "@/components/editor/DesignComposerContextProvider";
 import { DESIGN_CHAT_STORAGE_KEY } from "@/lib/agent-chat";
 
 const SEO_TITLE = "Design - Agent chat";
@@ -59,22 +58,25 @@ export default function ChatRoute() {
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
       <AgentChatSurface
+        composerContextProvider={DesignComposerContextProvider}
         mode="page"
         chatViewTransition
         className="h-full"
         defaultMode="chat"
         storageKey={DESIGN_CHAT_STORAGE_KEY}
         scope={scope}
+        isolateHistoryByScope={true}
         threadUrlSync={threadUrlSync}
         browserTabId={getBrowserTabId()}
-        showHeader={false}
-        showTabBar={false}
+        showHeader
+        showTabBar
         dynamicSuggestions={false}
         suggestions={[
           t("chat.suggestionLandingPage"),
           t("chat.suggestionBrandMatch"),
           t("chat.suggestionMobile"),
         ]}
+        suggestionPlacement="after-composer"
         emptyStateText={t("chat.emptyState")}
         emptyStateDisplay="hidden"
         centerComposerWhenEmpty

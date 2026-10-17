@@ -9,11 +9,13 @@ app-building surfaces: shadcn-style UI primitives, app-shell helpers, shared
 hooks, sharing and collaboration display UI, portable rich editors, Context
 X-Ray presentation, and visual design controls.
 
-Existing `@agent-native/core` imports remain supported during the migration
-window through compatibility re-exports. Those re-exports are temporary
-migration support. Toolkit stays Core-free: controlled Toolkit views receive
-data and callbacks from Core runtime adapters instead of importing runtime
-state, actions, or server contracts.
+`@agent-native/toolkit/ui/*` and the other presentational surfaces stay
+Core-free. Runtime-backed React surfaces live under
+`@agent-native/toolkit/app/*`; those entrypoints use Core's public runtime APIs
+and declare Core as an optional peer dependency. Apps that use an app surface
+install both packages. Core stays a headless runtime and client library; moved
+UI imports are updated by `agent-native upgrade --codemods` rather than kept as
+Core re-export shims.
 
 The Toolkit docs catalog is one discovery shelf for reusable app-building
 capabilities, even when an implementation remains Core-owned. Scheduling,
@@ -21,10 +23,33 @@ Creative Context, and Pinpoint are Toolkit capability modules installed on
 demand. They remain separate npm packages with independent lifecycle manifests
 and docs. Dispatch is a separate product rather than a Toolkit module.
 
+## AgentKit
+
+AgentKit is split at a deliberate seam. AgentKit owns its provider-neutral
+protocol, headless client, and transports. Toolkit owns the React runtime and
+presentation surfaces, including composers, prompt menus, chat surfaces,
+streaming text, activity traces, approvals, tool and widget renderers, threads,
+attachments, and application-state adapters. Core remains the runtime contract
+provider. The provider-neutral event contract lives in
+[`@agent-native/agentkit/protocol`](../agentkit/README.md).
+
+AgentKit is an independent implementation optimized for Agent-Native workflows.
+The protocol README records the shared product goals and clean implementation
+boundary; it is not a runtime dependency or compatibility layer for another
+chat product.
+
 ## Imports
+
+Runtime-backed surfaces are exported from `@agent-native/toolkit/app/*` and
+may call Core runtime APIs. Apps that import them should declare both Core and
+Toolkit directly. Presentation primitives remain under
+`@agent-native/toolkit/ui/*`.
 
 ```tsx
 import { ToolkitProvider } from "@agent-native/toolkit/provider";
+import { AgentAskPopover } from "@agent-native/toolkit/app/chat";
+import { AgentNativeIcon } from "@agent-native/toolkit/app/shared/AgentNativeIcon";
+import { FeedbackButton } from "@agent-native/toolkit/app/feedback";
 import {
   ChatHistoryList,
   ChatHistoryRail,

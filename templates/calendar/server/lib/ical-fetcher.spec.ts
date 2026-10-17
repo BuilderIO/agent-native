@@ -4,11 +4,6 @@ const { ssrfSafeFetchMock, urlSafetyFactory } = vi.hoisted(() => {
   const fetchMock = vi.fn();
   return {
     ssrfSafeFetchMock: fetchMock,
-    // core maps `tools/url-safety` and `extensions/url-safety` to the same
-    // file, so once its dist exists both specifiers resolve to one path and
-    // only one of these registrations survives. Both must return the full
-    // export set, or the surviving factory leaves the other's imports
-    // undefined and the fetcher fails as if the URL were rejected.
     urlSafetyFactory: () => ({
       isBlockedToolUrl: () => false,
       ssrfSafeFetch: fetchMock,

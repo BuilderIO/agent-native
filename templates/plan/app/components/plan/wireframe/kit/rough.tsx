@@ -1,20 +1,6 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import rough from "roughjs";
 
-/*
- * Rough overlay — the kit's (and HTML artboard's) sketch layer.
- *
- * The content is laid out with crisp flex/HTML (real labels, legible). The
- * hand-drawn look comes from rough.js: this overlay MEASURES the laid-out
- * elements (the kit's `[data-rough]` nodes, or — for HTML mockups — controls
- * plus explicit `data-rough` opt-ins) and redraws their outline as a hand-drawn
- * stroke into one SVG per frame. The element's own CSS border is hidden once
- * we're ready (`data-rough-ready`), so there is never a doubled border.
- *
- * Crucially this works on ANY rendered DOM, not just the kit — which is what
- * lets HTML/Tailwind mockups get the same sketch treatment as the kit.
- */
-
 const gen = rough.generator();
 
 export type RoughPath = { d: string; stroke: string; strokeWidth: number };
@@ -24,11 +10,9 @@ const ROUGH_READY_ATTR = "data-rough-ready";
 const ROUGH_FRAME_SELECTOR = ".plan-wf, .plan-html-frame, .plan-diagram-frame";
 const EMPTY_ROUGH_STATE: RoughState = { paths: [], w: 0, h: 0 };
 
-/** The default selector used for HTML mockups: controls plus explicit opt-ins. */
 export const HTML_ROUGH_SELECTOR =
   "[data-rough],button,input,textarea,select,hr";
 
-/** Stable per-element seed so a frame doesn't re-wobble on every measure. */
 function seedFrom(...parts: Array<string | number>): number {
   const value = parts.join(":");
   let hash = 2166136261;
@@ -39,7 +23,6 @@ function seedFrom(...parts: Array<string | number>): number {
   return ((hash >>> 0) % 2147483646) + 1;
 }
 
-/** Map the 0–100 sketch slider to a rough.js roughness (calm + legible). */
 export function sketchRoughness(sketch: number): number {
   const s = Math.max(0, Math.min(100, Number.isFinite(sketch) ? sketch : 0));
   return Number((0.32 + (s / 100) * 1.15).toFixed(2));
@@ -54,7 +37,6 @@ function readVar(el: Element, name: string): string {
   return getComputedStyle(el).getPropertyValue(name).trim();
 }
 
-/** Normalize a CSS color (hex or rgb[a]) to "r,g,b" for equality comparison. */
 function toRgbKey(color: string): string | null {
   const c = color.trim();
   const hex = c.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
@@ -78,15 +60,12 @@ function toRgbKey(color: string): string | null {
   return null;
 }
 
-/** True when two CSS colors resolve to the same RGB (hex vs rgb tolerant). */
 function sameColor(a: string, b: string): boolean {
   const ka = toRgbKey(a);
   const kb = toRgbKey(b);
   return ka !== null && ka === kb;
 }
 
-/** A rounded-rect SVG path (so the frame stroke follows the artboard radius and
- *  isn't clipped at the corners). */
 function roundedRectPath(
   x: number,
   y: number,
@@ -113,7 +92,6 @@ function elementStroke(node: Element, fallback: string): string {
   const explicit = readVar(node, "--rough-stroke");
   if (explicit) return explicit;
   const cs = getComputedStyle(node);
-  // Pick whichever side actually has a visible border.
   for (const side of [
     "borderTopColor",
     "borderLeftColor",
@@ -151,13 +129,7 @@ function build(
       : scope.querySelector(ROUGH_FRAME_SELECTOR)) ?? scope;
   const ink =
     readVar(themed, "--ink") || readVar(themed, "--wf-ink") || "#34322e";
-  // Sketch stroke: prefer the dedicated --wf-sketch token (set a step more
-  // pronounced than the soft line token, since broken rough strokes read lighter
-  // than a solid clean hairline); fall back to ink for the kit path.
   const sketch = readVar(themed, "--wf-sketch") || ink;
-  // Both neutral border colors (text ink + the soft line token) map to the
-  // sketch stroke so EVERY non-accent border gets the same pronounced sketch
-  // weight. Accent / warn / ok borders keep their own color.
   const line = readVar(themed, "--wf-line") || readVar(themed, "--line") || "";
 
   const paths: RoughPath[] = [];
@@ -208,10 +180,6 @@ function build(
     const h = r.height / zoom;
     if (w < 2 || h < 2) return;
     const kind = node.getAttribute("data-rough") || "rect";
-    // Element border color, but soften any ink-colored border (e.g. default
-    // buttons border with `var(--wf-ink)`) to the sketch stroke so dark-mode
-    // controls don't draw harsh near-white outlines. Accent/warn/ok borders
-    // keep their own color.
     const rawStroke = elementStroke(node, sketch);
     const stroke =
       sameColor(rawStroke, ink) || (line !== "" && sameColor(rawStroke, line))
@@ -237,7 +205,6 @@ function build(
     } else if (kind === "line:top" || node.tagName === "HR") {
       drawable = gen.line(x, y + h / 2, x + w, y + h / 2, o);
     } else {
-      // Rounded box matching the element's own radius so pills stay pills.
       const cr = parseFloat(getComputedStyle(node).borderTopLeftRadius) || 0;
       const radius = Math.min(cr / zoom, w / 2, h / 2);
       drawable =
@@ -251,11 +218,6 @@ function build(
   return { paths, w: layoutW, h: layoutH };
 }
 
-/**
- * Renders the rough overlay for a frame. `scopeRef` points at the frame root.
- * When `enabled` is false (skeleton / clean register) it renders nothing and the
- * crisp CSS borders stay visible.
- */
 export function RoughOverlay({
   scopeRef,
   sketch = 52,
@@ -287,9 +249,6 @@ export function RoughOverlay({
     }
     const roughness = sketchRoughness(sketch);
     const bowing = sketchBowing(sketch);
-    // setTimeout, not requestAnimationFrame: rAF is paused in background tabs,
-    // which would leave wireframes un-sketched until focused. Layout is already
-    // committed when the effect runs, so a 0ms timer is enough to debounce.
     const measure = () => {
       clearTimeout(rafRef.current);
       rafRef.current = window.setTimeout(() => {

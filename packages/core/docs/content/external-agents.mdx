@@ -102,9 +102,9 @@ Every Agent-Native app exposes one canonical MCP URL:
 https://<your-app>.agent-native.com/mcp
 ```
 
-In the app, open **Settings → Integrations** and search for the host name you
+In the app, open **Settings → Connections → Integrations** and search for the host name you
 already know: Claude, Claude Cowork, Claude Code, Anthropic, ChatGPT, OpenAI,
-Codex, Grok, or xAI. The one external-host result opens **Settings → MCP** with
+Codex, Grok, or xAI. The one external-host result opens **Settings → MCP server** with
 the closest guide selected. Copy the **MCP server URL** and paste it into the AI
 host. The URL is the deployed app base URL plus `/mcp`.
 
@@ -128,16 +128,51 @@ https://<your-app>.agent-native.com/mcp
 
 Every hosted app also has a helper page at
 `https://&lt;app&gt;/mcp/connect` with the copyable URL and
-host-specific tabs for Claude, ChatGPT, Cursor, Claude Code, Codex, Grok, and
-Other.
+host-specific tabs for Claude, ChatGPT, Cursor, VS Code, Claude Code, Codex,
+Grok, and Other.
+
+## Private Content links {#private-content-links}
+
+A private Content share link can identify the document without exposing its
+contents. Its agent-readable access information names two URLs on the same
+Content instance:
+
+```text
+https://<your-content-instance>/mcp
+https://<your-content-instance>/mcp/connect
+```
+
+Add the `/mcp` URL as a remote MCP server in your agent, authenticate with your
+Agent-Native account, enable the connection or its tools, and retry the original
+document request. The `/mcp/connect` page provides setup choices and copyable
+configuration; opening that page alone does not install a connection in the
+agent.
+
+This flow is host-neutral. Claude, ChatGPT, Claude Code, Codex, Cursor,
+Antigravity, OpenCode, GitHub Copilot / VS Code, and other MCP-capable hosts all
+connect to the same instance URL, while their configuration screens and
+authentication prompts differ. Use the host-specific sections below or the
+host's current MCP documentation when a client is not listed. Antigravity, for
+example, manages remote servers from **Settings → Customizations → Installed
+MCP Servers** or its MCP configuration file; Agent-Native's `connect` command
+does not currently write Antigravity configuration.
+
+Authentication identifies the connected account; it does not broaden document
+permissions. A public document remains readable from its share page without
+MCP. A private document becomes readable through MCP only when that account
+already has access. If `get-document` returns "not found" after connection, that
+response does not distinguish missing permission from a stale, deleted, or
+invalid document ID. Verify the link and connected account's access before
+changing permissions. Reinstalling the connector or changing the public share
+link does not resolve a confirmed account permission denial.
 
 <a id="access-tab"></a>
 
 ### The in-app MCP setting {#mcp-settings}
 
-Standard app Settings includes an **MCP** tab beside **Integrations**. It shows
+Settings includes an **MCP server** page in the app's group. It shows
 the app's canonical MCP URL, an A2A agent card when available, and the same
-client setup instructions used by the full connect page. Use **Settings → MCP**
+client setup instructions used by the full connect page. Use **Settings → MCP server**
 as the in-app starting point, or open `/mcp/connect` directly for the full flow
 and static-token fallback.
 
@@ -167,9 +202,35 @@ Dispatch does not rewrite ChatGPT or Claude's cached Calendar/Mail/etc.
 snapshots. The `mcp:read` / `mcp:write` / `mcp:apps` / `offline_access` scopes are the same ones
 covered in [Standard remote MCP OAuth](#standard-oauth) below.
 
-Cursor, Goose, Postman, MCPJam, and VS Code GitHub Copilot use the same remote
-MCP URL through their own MCP-server UIs when their build supports remote OAuth
-MCP servers.
+### Cursor, VS Code, and Codex {#install-links}
+
+The **Cursor** and **VS Code** tabs in **Settings → MCP server** and on
+`/mcp/connect` have install buttons. **Add to Cursor** opens Cursor's
+**Install MCP server?** prompt. **Add to VS Code** and **Add to VS Code
+Insiders** open a server page with an **Install** button. A link carries only
+the server name, the transport, and the MCP URL; it never carries a token,
+header, or account detail. The client runs its own OAuth sign-in the first time
+it connects. In VS Code, the tools then appear in the Chat view in Agent mode.
+
+For Codex, run `codex mcp add <server-name> --url <mcp-url>`, then
+`codex mcp login <server-name>` to sign in with OAuth. The **Codex** tab fills
+in both values.
+
+Goose, Postman, MCPJam, and other clients use the same remote MCP URL through
+their own MCP-server UIs when their build supports remote OAuth MCP servers.
+
+### Server names {#server-names}
+
+The app names its MCP server, and every surface uses that name: the install
+links, the copyable commands, and `npx @agent-native/core@latest connect`.
+Production uses the bare name, such as `agent-native-mail`. Beta, preview, and
+local deployments put the environment first, such as `beta-agent-native-mail`,
+so one client can keep a production entry and a beta entry side by side. The
+prefixes are reserved: `mcp.serverName` cannot start with `beta-`, `preview-`,
+or `local-`, so a beta name never matches another app's production name.
+Scripts can read the name from `GET /mcp/connect/identity`, which needs no sign-in and
+returns the server name, app name, app URL, MCP URL, and environment, plus a
+`connect` flag that is `false` when `mcp.connect` is off.
 
 ### Quick test prompt {#quick-test}
 
@@ -264,7 +325,9 @@ The connection is **per-user, scoped, and revocable**. In the OAuth path, the ho
 
 ### Re-authenticating after a 401 {#reconnect}
 
-Once connected, auth should persist long-term — access tokens last 30 days by default (override with `MCP_OAUTH_ACCESS_TOKEN_TTL` on the server, e.g. `7d` or `12h`) with a sliding 365-day refresh window, so random 401s should be rare. When one does happen, use the lightweight reconnect command rather than reinstalling:
+The OAuth owner-binding update requires every existing OAuth connection to [reconnect once](/docs/external-agents#reconnect). Old OAuth access tokens are refused after rollout. Unbound legacy refresh tokens return `invalid_grant`, and pending old authorization codes must restart consent. Newly issued access tokens use their configured lifetime and live membership checks. Legacy A2A-format `mcp-connect` credentials and cross-app A2A tokens are unchanged by this cutover. Connections using old OAuth-format Connect tokens must reconnect too.
+
+Once connected, auth should persist long-term. Access tokens last 30 days by default (override with `MCP_OAUTH_ACCESS_TOKEN_TTL` on the server, e.g. `7d` or `12h`), and refresh grants have no fixed expiry, so random 401s should be rare while the user remains authorized. When one does happen, use the lightweight reconnect command rather than reinstalling:
 
 ```bash
 npx @agent-native/core@latest reconnect https://plan.agent-native.com --client codex
@@ -312,7 +375,7 @@ This is the same URL-only entry that `npx @agent-native/core@latest connect http
 https://dispatch.agent-native.com/mcp
 ```
 
-The OAuth flow is authorization-code + PKCE with refresh-token rotation. Access tokens are audience-bound to the exact MCP resource URL and carry the signed user/org identity, so tool calls, `resources/read`, and MCP App iframe-initiated `tools/call` all run through the same `runWithRequestContext` tenant scoping as the existing connect-minted JWT path. The iframe never receives raw OAuth tokens; the host mediates calls through the authenticated MCP connection.
+The OAuth flow is authorization-code + PKCE with refresh tokens, which are not rotated. Access tokens are audience-bound to the exact MCP resource URL and carry the signed user/org identity, so tool calls, `resources/read`, and MCP App iframe-initiated `tools/call` all run through the same `runWithRequestContext` tenant scoping as the existing connect-minted JWT path. The iframe never receives raw OAuth tokens; the host mediates calls through the authenticated MCP connection.
 
 Current scopes are:
 

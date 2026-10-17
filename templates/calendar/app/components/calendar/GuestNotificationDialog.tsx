@@ -1,5 +1,9 @@
 import { useT } from "@agent-native/core/client/i18n";
-import type { CalendarEvent, UpdateEventScope } from "@shared/api";
+import {
+  getCalendarGuestCount,
+  type CalendarEvent,
+  type UpdateEventScope,
+} from "@shared/api";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -46,7 +50,7 @@ export function getGuestAttendeeCount(
   event: CalendarEvent,
   attendees = event.attendees,
 ): number {
-  return (attendees ?? []).filter((attendee) => !attendee.self).length;
+  return getCalendarGuestCount(attendees);
 }
 
 export function shouldPromptGuests(

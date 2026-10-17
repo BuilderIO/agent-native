@@ -1,11 +1,19 @@
-import { defineAction } from "@agent-native/core/action";
+import { isDeepStrictEqual } from "node:util";
+
+import { defineAction, fail } from "@agent-native/core/action";
+import {
+  ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
+  normalizeActionChangeResult,
+} from "@agent-native/core/action-ui";
 import {
   getWorkspaceConnectionProvider,
   type WorkspaceConnectionProvider,
 } from "@agent-native/core/connections";
 import { isOrgMember } from "@agent-native/core/org";
+import { track } from "@agent-native/core/tracking";
 import {
   assertWorkspaceUserGroupIds,
+  getWorkspaceConnection,
   normalizeWorkspaceConnectionAllowedUsers,
   upsertWorkspaceConnection,
   type WorkspaceConnectionStatus,
@@ -62,6 +70,45 @@ function normalizeCredentialRefs(
     });
 }
 
+function connectionChanged(
+  before: Awaited<ReturnType<typeof getWorkspaceConnection>>,
+  after: NonNullable<Awaited<ReturnType<typeof getWorkspaceConnection>>>,
+): boolean {
+  if (!before) return true;
+  return (
+    before.provider !== after.provider ||
+    before.label !== after.label ||
+    before.accountId !== after.accountId ||
+    before.accountLabel !== after.accountLabel ||
+    before.status !== after.status ||
+    !isDeepStrictEqual(before.scopes, after.scopes) ||
+    !isDeepStrictEqual(before.config, after.config) ||
+    !isDeepStrictEqual(before.allowedApps, after.allowedApps) ||
+    !isDeepStrictEqual(before.allowedUsers, after.allowedUsers) ||
+    !isDeepStrictEqual(before.allowedUserGroups, after.allowedUserGroups) ||
+    !isDeepStrictEqual(before.credentialRefs, after.credentialRefs) ||
+    before.lastCheckedAt !== after.lastCheckedAt ||
+    before.lastError !== after.lastError
+  );
+}
+
+function connectionChange(
+  verb: "created" | "updated",
+  connection: NonNullable<Awaited<ReturnType<typeof getWorkspaceConnection>>>,
+) {
+  return {
+    change: {
+      verb,
+      kind: "workspace-connection",
+      title: connection.label.slice(0, 180),
+      ...(connection.accountLabel
+        ? { detail: connection.accountLabel.slice(0, 500) }
+        : {}),
+      url: "/settings/integrations",
+    },
+  };
+}
+
 export async function assertWorkspaceConnectionAllowedUsers(
   allowedUsers: string[] | undefined,
   orgId: string | null | undefined,
@@ -101,6 +148,11 @@ export async function assertWorkspaceConnectionAllowedUserGroups(
 export default defineAction({
   description:
     "Create or update a shared workspace integration connection and its app access list.",
+  chatUI: {
+    renderer: ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
+    when: (_args, result) => normalizeActionChangeResult(result) !== null,
+    projectResult: (_args, result) => normalizeActionChangeResult(result),
+  },
   schema: z.object({
     id: z.string().optional().describe("Existing connection ID to update."),
     provider: z
@@ -120,13 +172,13 @@ export default defineAction({
     status: statusSchema.default("connected"),
     scopes: z
       .array(z.string())
-      .default([])
+      .optional()
       .describe("Provider scopes granted to this connection."),
     config: z
       .record(z.string(), z.unknown())
-      .default({})
+      .optional()
       .describe(
-        "Non-secret provider metadata. Secret-looking fields are redacted.",
+        "Non-secret provider configuration and metadata. Secret-looking fields are redacted. Follow configurationFields from the provider catalog.",
       ),
     allowedApps: z
       .array(z.string())
@@ -170,12 +222,77 @@ export default defineAction({
       ctx?.orgId,
     );
 
-    return upsertWorkspaceConnection({
+    const before = args.id?.trim()
+      ? await getWorkspaceConnection(args.id.trim())
+      : null;
+    const configurationFields = provider.configurationFields ?? [];
+    const allowedConfigurationKeys = new Set(
+      configurationFields.map(({ key }) => key),
+    );
+    const suppliedConfig = args.config ?? {};
+    if (
+      configurationFields.length > 0 &&
+      Object.keys(suppliedConfig).some(
+        (key) => !allowedConfigurationKeys.has(key),
+      )
+    ) {
+      fail(
+        `Configuration fields for ${provider.label} must match its provider catalog.`,
+        {
+          errorCode: "workspace_connection_config_unknown_field",
+          statusCode: 400,
+        },
+      );
+    }
+    const config = {
+      ...Object.fromEntries(
+        configurationFields
+          .filter((field) => field.defaultValue !== undefined)
+          .map((field) => [field.key, field.defaultValue]),
+      ),
+      ...(before?.provider === provider.id ? before.config : {}),
+      ...suppliedConfig,
+    };
+    for (const field of configurationFields) {
+      const value = config[field.key];
+      if (value !== undefined && typeof value !== "string") {
+        fail(`Configuration field ${field.key} must be text.`, {
+          errorCode: "workspace_connection_config_invalid",
+          statusCode: 400,
+        });
+      }
+      if (field.required && (typeof value !== "string" || !value.trim())) {
+        fail(`Required configuration field is missing: ${field.key}.`, {
+          errorCode: "workspace_connection_config_missing",
+          statusCode: 400,
+        });
+      }
+    }
+    const result = await upsertWorkspaceConnection({
       ...args,
+      config,
       status: args.status as WorkspaceConnectionStatus,
       allowedUsers,
       allowedUserGroups,
       credentialRefs: normalizeCredentialRefs(args.credentialRefs, provider),
     });
+    const channel = args.provider.trim().toLowerCase();
+    if (channel === "slack" || channel === "telegram") {
+      track(
+        "messenger_connected",
+        {
+          app_name: "dispatch",
+          template_name: "dispatch",
+          channel,
+          connection_id: result.id,
+        },
+        ctx,
+      );
+    }
+    if (!connectionChanged(before, result)) return result;
+    return {
+      ...result,
+      ...connectionChange(before ? "updated" : "created", result),
+    };
   },
 });

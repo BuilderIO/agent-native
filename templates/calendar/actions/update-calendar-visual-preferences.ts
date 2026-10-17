@@ -10,6 +10,8 @@ import { listGoogleCalendars } from "../server/lib/google-calendar.js";
 import {
   CALENDAR_VIEW_PREFERENCES_KEY,
   isValidCalendarColor,
+  MAX_ALL_DAY_MAX_HEIGHT,
+  MIN_ALL_DAY_MAX_HEIGHT,
   normalizeCalendarViewPreferences,
 } from "../shared/calendar-view-preferences.js";
 
@@ -21,7 +23,7 @@ let updateQueue = Promise.resolve();
 
 export default defineAction({
   description:
-    "Update the Calendar app's local visual preferences. Use this for UI-only display changes such as color-coding meetings by type or choosing a display color for one or more connected Google accounts. This does not call Google Calendar and does not use Google Calendar colorId values.",
+    "Update the Calendar app's local visual preferences, including calendar colors, visible days, and the all-day section height. This changes the app display only; it does not call Google Calendar or use Google Calendar colorId values.",
   schema: z
     .object({
       colorMode: z
@@ -78,6 +80,32 @@ export default defineAction({
         .boolean()
         .optional()
         .describe("Whether the calendar UI hides Saturday and Sunday"),
+      numberOfDays: z
+        .number()
+        .int()
+        .min(1)
+        .max(31)
+        .optional()
+        .describe("Number of days shown by the week-style calendar view"),
+      allDayMaxHeight: z
+        .number()
+        .int()
+        .min(MIN_ALL_DAY_MAX_HEIGHT)
+        .max(MAX_ALL_DAY_MAX_HEIGHT)
+        .optional()
+        .describe(
+          "Maximum pixel height of the week-style calendar's all-day section",
+        ),
+      showDeclinedEvents: z
+        .boolean()
+        .optional()
+        .describe(
+          "Whether events declined by the current account stay visible",
+        ),
+      showWeekNumbers: z
+        .boolean()
+        .optional()
+        .describe("Whether month view shows week numbers"),
     })
     .refine(
       (args) =>
@@ -152,6 +180,11 @@ export default defineAction({
       const next = normalizeCalendarViewPreferences({
         ...current,
         hideWeekends: args.hideWeekends ?? current.hideWeekends,
+        numberOfDays: args.numberOfDays ?? current.numberOfDays,
+        allDayMaxHeight: args.allDayMaxHeight ?? current.allDayMaxHeight,
+        showDeclinedEvents:
+          args.showDeclinedEvents ?? current.showDeclinedEvents,
+        showWeekNumbers: args.showWeekNumbers ?? current.showWeekNumbers,
         ...(colorMode ? { colorMode } : {}),
         ...(isValidCalendarColor(args.singleColor)
           ? { singleColor: args.singleColor }

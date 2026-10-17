@@ -20,10 +20,6 @@ const mocks = vi.hoisted(() => {
 
   const defaultLimitFn = vi.fn(async () => state.defaultRows);
   const titleWhereFn = vi.fn(async () => state.titleRows);
-  // resolveDefaultDesignSystemId chains `.limit(1)` after `.where(...)`;
-  // resolveDesignSystemIdByTitle awaits `.where(...)` directly. Both query
-  // the same designSystems table, so the stub exposes both shapes and each
-  // call site only ever exercises the one it actually chains.
   const whereDesignSystemsFn = vi.fn(() => ({ limit: defaultLimitFn }));
   const fromFn = vi.fn((table: unknown) => ({
     where: (condition: unknown) => {
@@ -71,6 +67,7 @@ vi.mock("../server/db/index.js", () => ({
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestContext: () => undefined,
   getRequestUserEmail: () => mocks.state.userEmail,
   getRequestOrgId: () => mocks.state.orgId,
 }));
@@ -87,6 +84,9 @@ vi.mock("drizzle-orm", () => ({
   sql: vi.fn((strings, ...values) => ({ strings, values })),
 }));
 
+const track = vi.hoisted(() => vi.fn());
+vi.mock("@agent-native/core/tracking", () => ({ track }));
+
 vi.mock("./get-design-system.js", () => ({
   default: {
     run: (...args: [{ id: string }]) => mocks.getDesignSystemRun(...args),
@@ -102,6 +102,7 @@ beforeEach(() => {
   mocks.state.userEmail = "owner@example.com";
   mocks.state.orgId = null;
   mocks.state.insertedRow = undefined;
+  track.mockReset();
 });
 
 describe("create-design — designSystemId defaults", () => {
@@ -122,6 +123,23 @@ describe("create-design — designSystemId defaults", () => {
     expect(mocks.state.insertedRow?.designSystemId).toBeNull();
     expect(result.designSystemId).toBeNull();
     expect(result.designSystem).toBeNull();
+  });
+
+  it("preserves an explicit no-system choice even when the caller has a default", async () => {
+    mocks.state.defaultRows = [{ id: "ds-default" }];
+    const input = action.schema.parse({
+      title: "Independent design",
+      designSystemId: null,
+      designSystem: "Acme",
+    });
+
+    const result = await action.run(input);
+
+    expect(mocks.state.insertedRow?.designSystemId).toBeNull();
+    expect(result.designSystemId).toBeNull();
+    expect(result.designSystem).toBeNull();
+    expect(mocks.mockDb.select).not.toHaveBeenCalled();
+    expect(mocks.assertAccess).not.toHaveBeenCalled();
   });
 
   it("still asserts viewer access when an explicit designSystemId is given", async () => {
@@ -180,5 +198,79 @@ describe("create-design — designSystemId defaults", () => {
       statusCode: 409,
     });
     expect(mocks.state.insertedRow).toBeUndefined();
+  });
+});
+
+describe("create-design — design_created", () => {
+  const createdEvents = () =>
+    track.mock.calls.filter(([name]) => name === "design_created");
+
+  it("fires once after the insert with the creation method the caller passed", async () => {
+    mocks.state.defaultRows = [{ id: "ds-mine" }];
+
+    const result = await action.run({ title: "T", creationMethod: "prompt" }, {
+      caller: "frontend",
+      actionName: "create-design",
+    } as never);
+
+    expect(createdEvents()).toHaveLength(1);
+    expect(createdEvents()[0]![1]).toMatchObject({
+      output_id: result.id,
+      output_type: "design",
+      creation_method: "prompt",
+      project_type: "prototype",
+      design_system_id: "ds-mine",
+      app_name: "design",
+      caller: "frontend",
+    });
+    expect(mocks.state.insertedRow).not.toHaveProperty("creationMethod");
+  });
+
+  it("defaults an unlabelled UI create to blank and any other caller to agent", async () => {
+    await action.run({ title: "T" }, {
+      caller: "frontend",
+      actionName: "create-design",
+    } as never);
+    await action.run({ title: "T" }, {
+      caller: "tool",
+      actionName: "create-design",
+    } as never);
+    await action.run({ title: "T" });
+
+    expect(
+      createdEvents().map(([, properties]) => properties.creation_method),
+    ).toEqual(["blank", "agent", "agent"]);
+  });
+
+  it("does not fire when the insert fails", async () => {
+    mocks.mockDb.insert.mockImplementationOnce(() => ({
+      values: async () => {
+        throw new Error("insert failed");
+      },
+    }));
+
+    await expect(action.run({ title: "T" })).rejects.toThrow("insert failed");
+    expect(createdEvents()).toHaveLength(0);
+  });
+
+  it("does not fire when design-system access is denied", async () => {
+    mocks.assertAccess.mockRejectedValueOnce(new Error("forbidden"));
+
+    await expect(
+      action.run({ title: "T", designSystemId: "ds-private" }),
+    ).rejects.toThrow("forbidden");
+    expect(mocks.state.insertedRow).toBeUndefined();
+    expect(createdEvents()).toHaveLength(0);
+  });
+
+  it("returns the created design when tracking throws", async () => {
+    track.mockImplementation(() => {
+      throw new Error("analytics down");
+    });
+
+    const result = await action.run({ title: "T" });
+
+    expect(result.id).toBe(mocks.state.insertedRow?.id);
+    expect(track).toHaveBeenCalledTimes(1);
   });
 });

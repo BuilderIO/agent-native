@@ -1,17 +1,51 @@
-// Canonical English catalog used by core UI for translation fallbacks.
-// Lives under src/ so tsc emits it to dist/*.js and Node's strict ESM resolver
-// can load it during SSR. Do not import core runtime code from src/templates:
-// templates ship as verbatim copy-only scaffolding (.ts), so their compiled
-// .js never exists in dist.
 import { PASSWORD_MIN_LENGTH_MESSAGE } from "../shared/password-policy.js";
+import { environmentBadgeMessages } from "./core-messages/supplemental/en-US.js";
+import { ICON_PICKER_MESSAGES } from "./icon-picker-messages.js";
 
 const messages = {
+  iconPicker: ICON_PICKER_MESSAGES["en-US"],
+  agentChat: {
+    settingsModel: {
+      chatgptAddAccount: "Add another account",
+      chatgptConnecting: "Connecting…",
+      chatgptContinue: "Continue with ChatGPT",
+      chatgptDescription:
+        "Use eligible OpenAI models through your ChatGPT plan.",
+      chatgptDisconnect: "Disconnect",
+      chatgptDisconnectDescription:
+        "{{account}} will be signed out of this app and the agent will stop using your ChatGPT plan. You can sign in again anytime.",
+      chatgptDisconnectTitle: "Disconnect ChatGPT?",
+      chatgptDisconnecting: "Disconnecting…",
+      chatgptLocalOnly:
+        "Open-source apps are self-serve when run locally with a loopback callback; no partner application is needed. Hosted apps on *.agent-native.com need operator approval and a hosted callback.",
+      chatgptManageAccess: "Manage in ChatGPT",
+      chatgptNoDirectUse:
+        "Reconnect and allow direct model access to use this ChatGPT account.",
+      chatgptReconnect: "Reconnect",
+      chatgptRemoteRevocationUnconfirmed:
+        "Disconnected here. Access may remain active in ChatGPT.",
+      chatgptSelectAccount: "ChatGPT account",
+      chatgptTitle: "ChatGPT plan access",
+      chatgptUsageLimit: "Your ChatGPT plan usage limit has been reached.",
+    },
+    composer: {
+      chatgptManageUsage: "Manage usage",
+      chatgptPlanUsing: "Using ChatGPT plan",
+    },
+    error: {
+      chatgptPlanUsageLimit: "Your ChatGPT plan usage limit has been reached.",
+      chatgptPlanUsageUnavailable:
+        "OpenAI couldn’t check this ChatGPT plan’s usage limit. Check ChatGPT usage or try another model.",
+    },
+  },
+  environmentBadge: environmentBadgeMessages,
   workspaceFile: {
     download: "Download",
   },
   composer: {
     sendMessage: "Send message",
     queueMessage: "Queue message",
+    connectBuilder: "Use Builder.io",
   },
   home: {
     settingsTitle: "Settings",
@@ -31,21 +65,40 @@ const messages = {
     disconnect: "Disconnect",
     disconnecting: "Disconnecting…",
   },
+  routeTitles: {
+    agentObservability: "Agent observability navigation",
+  },
   onboarding: {
     back: "Back",
     chooseRole: "Choose your role",
     customizeRole: "Let’s customize this for you.",
     roleQuestion: "What best describes your role?",
-    roleProduct: "Product",
-    roleDesign: "Design",
+    roleHelperText: "This helps us personalize your experience",
+    roleProduct: "Product Manager",
+    roleDesign: "Designer",
     roleDeveloper: "Developer",
     roleMarketing: "Marketing",
     roleSales: "Sales",
     roleOps: "Ops",
     roleIndividual: "Individual",
     roleOther: "Other",
+    roleOtherInputLabel: "Describe your role",
     skipForNow: "Skip for now",
     saveRoleError: "Could not save your role.",
+    builderReadyWithCodeChanges:
+      "AI credits and cloud code changes are ready to use.",
+    builderReadyCreditsOnly:
+      "AI credits are ready to use. Cloud code edits require a Builder project in Background Agent settings.",
+    openBackgroundAgentSettings: "Open Background Agent settings",
+    fileStorage: {
+      title: "Connect storage to upload files",
+      description:
+        "Use Builder.io's managed storage (free) or configure your own S3-compatible object storage.",
+      reconnectBuilder: "Sign in to Builder.io again",
+      custom: "Use custom keys",
+      customDescription:
+        "Configure an S3-compatible bucket with a stable public URL.",
+    },
   },
   settings: {
     title: "Settings",
@@ -91,6 +144,8 @@ const messages = {
     mcpStaticTokenDescription:
       "Open the full connect page to create a token for clients that cannot complete OAuth.",
     mcpOpenConnectPage: "Open full connect page",
+    mcpIdentityError: "Couldn't load this app's connection details.",
+    mcpRetry: "Try again",
     profileTitle: "Account",
     profileDescription: "Your name, profile photo, and signed-in identity.",
     profileLoading: "Loading...",
@@ -108,6 +163,14 @@ const messages = {
     profileSaving: "Saving...",
     profileSaved: "Profile updated",
     profileSaveError: "Could not update profile",
+    emailTitle: "Email",
+    emailChange: "Change email",
+    emailChanging: "Sending...",
+    emailChangeSent:
+      "Check your email for instructions to confirm this change.",
+    emailChangeError: "Could not send confirmation.",
+    emailNewLabel: "New email",
+    emailNewPlaceholder: "Enter new email",
     passwordTitle: "Password",
     passwordDescription:
       "Add a password for an alternative way to sign in to your account.",
@@ -124,6 +187,43 @@ const messages = {
     passwordSaving: "Saving...",
     passwordSaved: "Password updated",
     passwordSaveError: "Could not update password",
+    twoFactorTitle: "Two-factor authentication",
+    twoFactorDescription:
+      "Use an authenticator app to add a second sign-in step to your account.",
+    twoFactorManage: "Manage",
+    twoFactorEnable: "Set up two-factor",
+    twoFactorEnabled: "Two-factor authentication is enabled.",
+    twoFactorSetupTitle:
+      "Scan this QR code with your authenticator app, then enter the code it gives you.",
+    twoFactorQrLabel: "Two-factor setup QR code",
+    twoFactorCodeLabel: "Authenticator code",
+    twoFactorVerify: "Verify and enable",
+    twoFactorSaved: "Two-factor authentication enabled",
+    twoFactorBackupCodes:
+      "Save these backup codes somewhere safe. Each one can be used once if you lose access to your authenticator.",
+    twoFactorDisable: "Turn off two-factor",
+    twoFactorLoadError: "Could not load two-factor settings",
+    twoFactorSetupError: "Could not update two-factor settings",
+    twoFactorDisableError: "Could not turn off two-factor authentication",
+    twoFactorCodeError: "Enter the six-digit code from your authenticator app.",
+    privacyTitle: "Privacy & data",
+    privacyDescription:
+      "Request a copy of your data or ask for your personal data to be deleted.",
+    privacyManage: "Manage",
+    privacyRightsTitle: "Your data rights",
+    privacyRightsDescription:
+      "Requests are recorded for review by a workspace administrator, who will verify your identity and follow up.",
+    privacyRequestCopy: "Request a copy",
+    privacyRequestDeletion: "Request deletion",
+    privacyRequesting: "Recording request...",
+    privacyRequestRecorded:
+      "Request recorded. An administrator will follow up.",
+    privacyRequestRecordedShort: "Request recorded",
+    privacyRequestError: "Could not record your request. Please try again.",
+    privacyDeletionTitle: "Request deletion of your data?",
+    privacyDeletionDescription:
+      "This records a deletion request; it does not delete data immediately. An administrator will verify your identity and complete the request under the deployment's retention and legal obligations.",
+    privacyDocsLink: "Read privacy and data rights",
     profileMenuItem: "Profile",
     manageAgentMenuItem: "Manage agent",
     timezoneLabel: "Timezone",
@@ -150,6 +250,11 @@ const messages = {
     managedInVault:
       "Managed in the workspace Vault. Every app in this workspace uses this value.",
     openVault: "Open Vault",
+    managedByOwner: "Managed in {{owner}}",
+    removeCredentials: "Remove credentials",
+    confirmRemove: "Remove",
+    sharedKeysKept:
+      "Some shared keys were not removed. Only workspace admins can remove them.",
     setForWorkspace: "Set for everyone in this workspace.",
     fromEnvironment: "Provided by the deployment environment.",
     usePersonalKey: "Use a personal key instead",
@@ -157,13 +262,28 @@ const messages = {
       "This personal key overrides the workspace Vault value. Remove it to use the Vault key.",
     overridesWorkspace:
       "This personal key overrides the workspace value. Remove it to use the shared key.",
+    newKey: "New",
+    searchKeys: "Search keys...",
+    noKeysFound: "No keys found.",
+    chooseKey: "Choose a key",
+    required: "Required",
     customKey: "Custom key",
     customKeyHint: "Add any key by name",
     addCustomKeyNamed: "Add “{{name}}” as a custom key",
+    emptyTitle: "No keys yet.",
+    emptyHint: "Add a key to use your own accounts.",
+    emptyMore: "and {{count}} more under New, or add any custom key",
   },
   agentResources: {
     openDocs: "Open {{section}} documentation",
     backToResources: "Back to agent resources",
+    exportPack: "Export pack",
+    importPack: "Import pack",
+    exportPackSuccess: "Downloaded resource pack",
+    exportPackFailed: "Could not export pack",
+    importPackSuccess: "Imported {{imported}} files, skipped {{skipped}}",
+    importPackFailed: "Could not import pack",
+    importPackInvalid: "That file is not a valid resource pack",
     createFile: {
       nameLabel: "File name",
       namePlaceholder: "notes/ideas",
@@ -568,6 +688,9 @@ const messages = {
       browserConnectFailed: "The browser extension did not connect.",
     },
   },
+  settingsShortcut: {
+    command: "Settings",
+  },
   agentPanel: {
     uiError: {
       title: "Agent panel hit a glitch",
@@ -592,6 +715,7 @@ const messages = {
     newTerminal: "New terminal",
     loadingTerminal: "Loading terminal...",
     panelOptions: "Agent panel options",
+    integrations: "Integrations",
     collapseSidebar: "Collapse sidebar",
     widenChat: "Widen chat",
     returnChatToLayout: "Return chat to layout",
@@ -615,9 +739,9 @@ const messages = {
     askAgentTitle: "Ask the agent",
     askAgentPlaceholder: "Tell the agent what you want to do…",
     connectAi: "Connect AI",
-    builderOrOwnKeys: "Choose Builder.io or custom keys.",
-    connectBuilderIo: "Connect Builder.io",
-    connectingBuilder: "Connecting Builder.io…",
+    builderOrOwnKeys: "Use Builder.io or custom keys.",
+    connectBuilderIo: "Use Builder.io",
+    connectingBuilder: "Setting up Builder.io…",
     builderModelCredits: "Free credits for Claude, OpenAI & Gemini",
     addOwnKeys: "Custom keys",
     configureProviderKeys: "Choose a provider.",
@@ -628,21 +752,50 @@ const messages = {
     configured: "Configured",
     apiKey: "API key",
     localRuntime: "Local",
+    keyScope: "Key scope",
+    personalKeyScope: "Personal",
+    organizationKeyScope: "Organization",
+    personalKeyInEffect: "Your personal key is in effect.",
+    organizationKeyInEffect: "Organization key is in effect.",
+    sharedKeyInEffect: "A shared key is in effect.",
+    useOrganizationKey: "Use organization key",
+    keyStatusUnavailable: "Key status is unavailable.",
+    saveScopeRoleUnavailable:
+      "Couldn't load your organization role, so keys can't be saved yet.",
+    chatgptSubscriptionPopupBlocked:
+      "Allow pop-ups for this site, then try again.",
+    chatgptSubscriptionTitle: "ChatGPT subscription",
+    chatgptSubscriptionDescription:
+      "Experimental Codex access through your ChatGPT subscription.",
+    chatgptSubscriptionInUse: "In use",
+    chatgptSubscriptionConnected: "Connected",
+    chatgptSubscriptionConnecting: "Connecting…",
+    chatgptSubscriptionReconnect: "Reconnect",
+    chatgptSubscriptionConnect: "Connect ChatGPT",
+    chatgptSubscriptionUse: "Use in chat",
+    chatgptSubscriptionDisconnect: "Disconnect",
     enterApiKey: "Enter your {{provider}} API key.",
     providerSetupFailed: "Could not configure this provider.",
     noApiKeyNeeded: "No API key required.",
     modelId: "Model ID",
     endpointUrl: "Endpoint URL",
     optional: "Optional",
-    ollamaEndpointHint: "Defaults to Ollama at http://localhost:11434.",
     compatibleEndpointHint:
       "Use this for LiteLLM or another OpenAI-compatible gateway.",
+    findModels: "Find models",
+    ollamaModelsChecking: "Checking installed models…",
+    ollamaModelsFound_one: "Found {{count}} installed model.",
+    ollamaModelsFound_other: "Found {{count}} installed models.",
+    ollamaModelsNone:
+      "Connected, but no models are pulled yet — run `ollama pull llama3.1`.",
+    ollamaModelsError: "{{error}} Showing example model names below.",
+    ollamaModelsPrompt:
+      'Click "Find models" above to list what your Ollama server actually has installed.',
     savingProvider: "Saving...",
     providerSaved: "Connected",
     useProvider: "Use {{provider}}",
     saveAndUseProvider: "Save and use {{provider}}",
     getApiKey: "Get an API key",
-    checkingAiConnection: "Checking AI connection...",
     delegatedAgent: {
       asking: "Asking {{name}}...",
       asked: "Asked {{name}}",
@@ -656,12 +809,12 @@ const messages = {
         "Voice mode keeps listening while the agent navigates and takes actions.",
       setupTitle: "Set up voice mode",
       setupDescription:
-        "Connect Builder.io to use managed voice with free credits, or add your own keys.",
-      connectBuilder: "Connect Builder.io",
+        "Use Builder.io for managed voice with free credits, or add your own keys.",
+      connectBuilder: "Use Builder.io",
       useOpenAiKey: "Custom keys",
       startWithOpenAiKey: "Start with OpenAI key",
-      start: "Real-time voice",
-      keepDictating: "Dictate",
+      start: "Start voice chat",
+      keepDictating: "Dictate a message",
       rememberPreference: "Remember my preference",
       showChat: "Show chat",
       hideChat: "Hide chat",
@@ -779,6 +932,7 @@ const messages = {
   jobs: {
     timezone: "Timezone",
     pageTitle: "Automations",
+    // guard:allow-unscoped — localized user-facing copy mentions webhooks, not SQL
     pageDescription:
       "Manage agent tasks that run on a schedule, in response to events, or from webhooks.",
     personalDescription:
@@ -844,6 +998,8 @@ const messages = {
     pause: "Pause",
     resume: "Resume",
     delete: "Delete",
+    deleting: "Deleting…",
+    running: "Running…",
     updateError: "Could not update automation.",
     automationsEmptyTitle: "No automations yet",
     automationsEmptyDescription: "Describe what should happen and when.",
@@ -897,15 +1053,19 @@ const messages = {
     scheduleUnavailableTitle: "Schedules won't run in this deploy",
     scheduleUnavailableLocalTitle: "Schedules don't run in local development",
     scheduleUnavailableDisabled:
-      "This app was built with recurring jobs turned off, so no scheduled automation will fire. Event- and webhook-triggered automations and Run now still work.",
+      "This app was built with recurring jobs turned off, so no scheduled automation will fire. Webhook-triggered automations and Run now still work.",
     scheduleUnavailableNoScheduler:
-      "This hosting target has no durable scheduler, so no scheduled automation will fire. Event- and webhook-triggered automations and Run now still work.",
+      "This deploy has no scheduler, so scheduled automations won't fire, event-triggered automations stay queued, and crashed runs aren't recovered. Webhook-triggered automations and Run now still work.",
+    scheduleUnavailableMissingSecret:
+      "This deploy has a scheduler, but {{secret}} isn't set, so every scheduler request is rejected. Scheduled automations won't fire, event-triggered automations stay queued, and crashed runs aren't recovered. Webhook-triggered automations and Run now still work.",
     scheduleUnavailableLocal:
       "Schedules stay off on a dev machine unless you opt in. Event- and webhook-triggered automations and Run now still work.",
     scheduleUnavailableDisabledFix:
       "To enable recurring jobs, set AGENT_NATIVE_DISABLE_RECURRING_JOBS=false in the build environment.",
     scheduleUnavailableLocalFix:
       "Set AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS=true to run schedules on this machine.",
+    scheduleUnavailableMissingSecretFix:
+      "Set {{secret}} in this deployment's environment variables, then redeploy.",
     scheduleUnavailableFixLabel: "Show more",
     scheduleUnavailableFixLabelOpen: "Show less",
   },
@@ -915,6 +1075,8 @@ const messages = {
     owner: "Owner: {{name}}",
     close: "Close",
     shareOptions: "Share options",
+    people: "People",
+    agents: "Agents",
     link: "Link",
     invite: "Invite",
     embed: "Embed",
@@ -1010,9 +1172,9 @@ const messages = {
       "Let our cloud agent make the changes for you. You'll get a link to preview and deploy.",
     codeChangeTitle: "This requires a code change",
     codeChangeBadge: "Code change",
-    connectBuilderTitle: "Connect Builder.io",
+    connectBuilderTitle: "Use Builder.io",
     connectBuilderDescription:
-      "Connect Builder (free tier available) to enable cloud-based code changes from this app.",
+      "Use Builder.io (free tier available) to enable cloud-based code changes from this app.",
     setupRequired: "Setup required",
     branchCreated: "Branch created",
     close: "Close",
@@ -1104,6 +1266,21 @@ const messages = {
     retry: "Retry",
   },
   org: {
+    askAdminTitle: "Ask your administrator",
+    askAdminDescription:
+      "Ask an administrator for an invitation to join this workspace.",
+    appPermissions: "App permissions",
+    applications: "Applications",
+    applicationsEmpty: "No workspace applications are registered yet.",
+    applicationsLoadFailed: "Couldn't load workspace applications.",
+    applicationAccess: "Access for {{name}}",
+    applicationAccessAll: "All members",
+    applicationAccessRestricted: "Restricted",
+    applicationAccessDisabled: "Disabled",
+    appRolesOptional: "App roles",
+    noAppRolesFound: "No roles found.",
+    notAssigned: "Not assigned",
+    resetToDefaults: "Reset to defaults",
     createTitle: "Create your organization",
     createDescription:
       "This app organizes your content by team. Create an organization to continue - you can invite teammates afterward.",
@@ -1117,12 +1294,27 @@ const messages = {
     yourOrganization: "Your organization",
     joinYourTeam: "Join your team",
     openToDomainEmails: "Open to @{{domain}} emails",
+    enableDomainJoin: "Enable for @{{domain}}",
     joinOrg: "Join {{name}}",
     pendingInvitations: "Pending invitations",
     invitedBy: "from {{name}}",
     accept: "Accept",
     createSeparate: "or create a separate organization",
     organizationName: "Organization name",
+    workspaceIcon: "Workspace icon",
+    icons: "Icons",
+    emoji: "Emoji",
+    upload: "Upload",
+    searchIcons: "Search icons",
+    noIconsFound: "No icons found",
+    recentIcons: "Recent icons",
+    iconColors: "Colors",
+    defaultColor: "Default",
+    removeIcon: "Remove icon",
+    uploadIcon: "Upload icon",
+    uploadingIcon: "Uploading…",
+    workspaceIconSyncPending:
+      "Saved here. Other apps may take longer to update.",
     organizationPlaceholder: "Acme Inc.",
     createOrganization: "Create organization",
     create: "Create",
@@ -1191,6 +1383,7 @@ const messages = {
     createGroupForBulk: "Create group",
     changeRole: "Change role",
     removeMember: "Remove member",
+    transferTo: "Transfer ownership to",
     cancel: "Cancel",
     remove: "Remove",
     save: "Save",
@@ -1203,8 +1396,65 @@ const messages = {
     deleteOrgConfirmPlaceholder: "Organization name",
     deleteOrgConfirmCta: "Delete organization",
     deleteOrgPending: "Deleting…",
+    sso: {
+      signIn: "Organization sign-in",
+      signInHelp: "Choose the sign-in provider members must use.",
+      requiredProvider: "Required sign-in provider",
+      optional: "Optional",
+      google: "Google",
+      title: "Single sign-on",
+      description: "Connect an OIDC or SAML identity provider.",
+      verified: "Verified",
+      verifyRequired: "Verification required",
+      verify: "Verify",
+      remove: "Remove",
+      type: "Identity provider type",
+      providerId: "Provider ID",
+      issuer: "Issuer URL",
+      domain: "Organization domain",
+      noDomain: "No domain configured",
+      clientId: "Client ID",
+      clientSecret: "Client secret",
+      discoveryEndpoint: "Discovery endpoint (optional)",
+      entryPoint: "SAML entry point URL",
+      entityId: "IdP entity ID",
+      metadata: "Paste IdP metadata XML",
+      certificate: "Signing certificate (optional)",
+      domainHelp:
+        "The domain must match the organization's verified domain. Submitted secrets and metadata are cleared from this form.",
+      saveProvider: "Save provider",
+      cancel: "Cancel",
+      addProvider: "Add provider",
+    },
+    scim: {
+      title: "Directory provisioning",
+      description: "Manage SCIM connections for this organization.",
+      revoke: "Revoke",
+      copyTokenOnce: "Copy this token now. It will not be shown again.",
+      dismissToken: "Dismiss token",
+      createConnection: "Create SCIM connection",
+    },
+    ssoSetup: {
+      idpSetup: "Identity provider setup",
+      redirectUri: "Redirect URI",
+      spMetadataUrl: "Service provider metadata URL",
+      dnsRecordName: "DNS TXT record name",
+      dnsRecordValue: "DNS TXT record value",
+      dnsPropagation: "Allow DNS changes to propagate before verifying.",
+    },
+    ssoConfirm: {
+      title: "Require this sign-in provider?",
+      description:
+        "Members will need to use this provider the next time they sign in. Current sessions may be revoked.",
+      confirm: "Require provider",
+    },
   },
   integrations: {
+    subtitle: "Connect the tools your agent can use.",
+    recommended: "Recommended",
+    manage: "Manage",
+    connectedSection: "Connected",
+    availableSection: "Available integrations",
     webhookUrl: "Webhook URL",
     copyWebhookUrl: "Copy webhook URL",
     webhookUrlLocalOnly:
@@ -1218,7 +1468,7 @@ const messages = {
     back: "Back",
     agentEngineRequired: "Agent engine required",
     agentEngineDescription:
-      "Connect Builder.io (free tier available) or an LLM key before {{platform}} can answer.",
+      "Use Builder.io (free tier available) or an LLM key before {{platform}} can answer.",
     openLlm: "Open LLM",
     setup: "Setup",
     shareDocumentsWith: "Share documents with",
@@ -1237,6 +1487,10 @@ const messages = {
       "For a central Slack or Telegram entrypoint that can route work across multiple apps, use the",
     sharedMessaging:
       "Need one shared messaging surface for your workspace? Connect Slack or Telegram to a dispatch app and let it delegate to other agents over A2A.",
+    lookingForApiKeys: "Looking for an API key instead?",
+    goToApiKeys: "Go to API keys",
+    lookingForProviders: "Looking for OAuth or MCP providers?",
+    goToIntegrations: "Go to Integrations",
   },
   mcpIntegrations: {
     menuLabel: "Integrations",
@@ -1255,7 +1509,12 @@ const messages = {
     configure: "Configure",
     connect: "Connect",
     connectWithOAuth: "Connect",
+    connecting: "Connecting…",
     useApiToken: "Use API token",
+    customOAuthDefault: "Sign in with OAuth",
+    customHeadersMode: "Use an API key",
+    useApiKeyInstead: "Use an API key instead",
+    useOAuthInstead: "Use OAuth instead",
     connectSuggestion: "Connect {{name}} to use it in chat",
     connectSuggestionWithApiToken:
       "Connect {{name}} with an API token to use it in chat",
@@ -1287,8 +1546,11 @@ const messages = {
     connectForMe: "Connect for me",
     setUpForWorkspace: "Set up for workspace",
     workspaceAdminRequired: "Workspace owner or admin required.",
+    workspaceJoinRequired: "Join a workspace first.",
     personalOnlyDescription:
       "Only personal connections are supported for this integration.",
+    workspaceOnlyDescription:
+      "This integration connects once for the whole workspace, so it cannot be connected to just your account. A workspace owner or admin can set it up.",
     loadingScopeMetadata: "Loading connection scope…",
     retry: "Retry",
     retrying: "Retrying…",
@@ -1309,6 +1571,7 @@ const messages = {
     openSetupDocs: "Open setup docs",
     viewSetup: "Open setup guide",
     test: "Test",
+    testing: "Testing…",
     toolsAvailable_one: "{{count}} tool available",
     toolsAvailable_other: "{{count}} tools available",
     failed: "Failed",
@@ -1362,7 +1625,7 @@ const messages = {
           "Search Gong calls and generate account and deal insights.",
         useCase: "Sales calls, transcripts, deal insights, account summaries",
         setupNote:
-          "Gong requires a tech admin to create an MCP integration and choose personal or shared authorization. The generated client ID and secret must be configured before connecting.",
+          "A Gong tech admin must create an MCP integration with personal or shared authorization. For Manual registration, save the generated client ID and secret as workspace secrets `GONG_MCP_CLIENT_ID` and `GONG_MCP_CLIENT_SECRET`; Automatic registration needs no client credentials.",
       },
       semgrep: {
         description: "Scan code for security findings.",
@@ -1460,7 +1723,7 @@ const messages = {
         useCase:
           "Repositories, issues, pull requests, code, engineering analytics",
         setupNote:
-          "GitHub does not use a Figma-style vendor client allowlist. Its hosted endpoint is tied to GitHub Copilot integrations; clients need a registered OAuth app, and organizations may enforce OAuth App Access Policies.",
+          "GitHub's sign-in provider does not let apps register themselves, so the Connect button cannot complete OAuth. Connect with a GitHub personal access token instead, and note that organizations may enforce OAuth App Access Policies.",
       },
       slack: {
         description:
@@ -1572,6 +1835,26 @@ const messages = {
     time: "Time",
     failedCount: "({{count}} failed)",
     backToList: "Back to list",
+    promoteMustContain: "Reply must contain…",
+    promoteMustContainOptional: "Optional text to check for in the reply…",
+    promoteMustContainLabel: "Text to check for in the promoted eval reply",
+    promoteReviewedPromptLabel:
+      "Manually reviewed prompt (never copied from production)",
+    promoteNeedsContains:
+      "This run has no successful tool call. Enter text the reply must contain before promoting.",
+    input: "Input",
+    output: "Output",
+    error: "Error",
+    metadata: "Metadata",
+    notCaptured: "Not captured",
+    openFullConversation: "Open full conversation",
+    learnAboutTab: "Learn about this tab",
+    promoteToEval: "Promote to eval",
+    promotingToEval: "Promoting…",
+    promotedEval: "Eval dataset {{id}}",
+    promotedEvalHint:
+      "agent-native eval promote {{runId}} --write evals/from-trace.eval.ts",
+    promoteEvalFailed: "Could not promote this run",
     spans: "Spans",
     type: "Type",
     name: "Name",
@@ -1599,6 +1882,54 @@ const messages = {
     frustration: "Frustration",
     thumbsUpRate: "Thumbs up rate",
     categories: "Categories",
+    review: "Human review",
+    reviewDescription:
+      "Review the ask and answer, record feedback, and draft an instruction update.",
+    ask: "What was asked",
+    answer: "What the agent answered",
+    reviewFeedback: "Feedback",
+    reviewOutput: "Review output",
+    reviewPreview: "Preview output",
+    reviewPreviewUnavailable: "Preview unavailable",
+    closePreview: "Hide preview",
+    addFeedback: "Add feedback",
+    draftInstruction: "Draft instruction",
+    closeReview: "Close",
+    notReviewed: "Not reviewed",
+    noteSaved: "Note saved",
+    looksGood: "Looks good",
+    needsChange: "Needs change",
+    feedbackNote: "Feedback note",
+    feedbackPlaceholder: "What should change or stay the same?",
+    saveFeedback: "Save feedback",
+    updateInstructions: "Update instructions",
+    draftNotice: "Draft only - nothing changes automatically.",
+    instructionTarget: "Instruction target",
+    agentTarget: "Agent",
+    developerTarget: "Developer",
+    skillTarget: "Skill",
+    instructionPlaceholder:
+      "Write the instruction change for a human to review.",
+    saveUpdate: "Save draft update",
+    draftSaved: "Draft saved",
+    noReviews: "No agent outputs to review yet",
+    summarizeWithAgent: "Summarize with agent",
+    regenerateSummary: "Regenerate summary",
+    summarizeWithAgentHelp:
+      "Ask the agent to read this thread, summarize the ask and outcome, and link only verified artifacts.",
+    regenerateSummaryHelp:
+      "Ask the agent to refresh this summary from the latest thread and verified artifacts.",
+    searchReviews: "Search prompts, outcomes, people, or artifacts",
+    allArtifactTypes: "All types",
+    summarySending: "Sending request to agent…",
+    summaryQueued:
+      "Request queued. The summary will appear here after the agent saves it.",
+    summaryFailed: "Could not send the request. Try again.",
+    summaryExpired:
+      "No summary has appeared yet. You can retry, but the agent may still be working.",
+    readOnlyTenant: "Cross-organization review is read-only.",
+    showReviewDetails: "Show review details",
+    hideReviewDetails: "Hide review details",
   },
   error: {
     genericTitle: "Something went wrong",

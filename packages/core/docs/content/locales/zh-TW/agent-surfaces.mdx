@@ -93,13 +93,13 @@ search: "代理應用程式 豐富對話 原生對話 UI 完整應用程式 自�
 若要快速建立完整應用程式，請使用 [Chat template](/docs/template-chat)：
 
 ```bash
-npx @agent-native/core@latest create my-chat-app --template chat
+npx --yes @agent-native/core@latest create my-chat-app --template chat
 ```
 
 最簡單的全頁對話：
 
 ```tsx
-import { AgentChatSurface } from "@agent-native/core/client/chat";
+import { AgentChatSurface } from "@agent-native/toolkit/app/chat";
 
 export default function ChatRoute() {
   return <AgentChatSurface mode="page" className="h-screen" />;
@@ -109,12 +109,11 @@ export default function ChatRoute() {
 當應用程式同時有全頁對話分頁和 `AgentSidebar` 時，請在兩個介面上使用相同的 `storageKey`，啟用 `chatViewTransition`，並在佈局中安裝 chat-home 交接輔助程式。如此一來，從對話頁面發出的普通應用內連結，就能在保持當前對話串的情況下，將全頁對話轉變為側邊欄：
 
 ```tsx
+import { AgentChatSurface, AgentSidebar } from "@agent-native/toolkit/app/chat";
 import {
-  AgentChatSurface,
-  AgentSidebar,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
-} from "@agent-native/core/client/chat";
+} from "@agent-native/core/client/agent-chat";
 import { useLocation } from "react-router";
 
 function ChatRoute() {
@@ -147,7 +146,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
 使用你自己的外框嵌入對話的最簡方式：
 
 ```tsx
-import { AssistantChat } from "@agent-native/core/client/chat";
+import { AssistantChat } from "@agent-native/toolkit/app/chat";
 
 export function ProjectChat({ threadId }: { threadId: string }) {
   return <AssistantChat threadId={threadId} />;
@@ -188,6 +187,68 @@ createAgentChatPlugin({
 改變 HTTP、MCP、A2A、工作或觸發器的暴露範圍。預設框架指引和啟動的子
 Agent 會繼承相同操作表面。由於不受限制的 shell 無法強制執行嚴格的操作
 邊界，trusted shell 工具會自動降為依請求過濾的 sandbox。
+
+### 請求層級的附加動作
+
+當呼叫端可用的動作只有在請求時才能確定（例如使用者在伺服器執行期間註冊的工具）時，
+請使用 `resolveAdditionalActions`。此回呼會在每個經過驗證的互動式對話執行（正式
+環境與開發環境）中執行一次，先於 `tool-search` 和 `resolveActionSurface`，因此兩
+者都能看到回傳的項目。這些項目僅在該次執行中加入該呼叫端的登錄表。只有當你在
+`additionalActionSurfaces` 中列出對應的介面時，A2A 任務和 MCP 的 `ask_app` 呼叫
+才會收到它們；`surface` 會告訴回呼是哪個介面在請求。
+
+```ts
+createAgentChatPlugin({
+  actions,
+  additionalActionSurfaces: ["a2a"],
+  resolveAdditionalActions: async ({ surface, ownerEmail, orgId }) =>
+    loadUserTools(ownerEmail, orgId, {
+      includeEditorTools: surface === "chat",
+    }),
+});
+```
+
+請將回傳的項目視為不可信的輸入。當項目名稱不是 1–64 個字母、數字、`_` 或 `-` 時，
+當名稱屬於任何範本、框架、開發或 MCP 動作（包括對代理隱藏的動作）時，當它是呼叫
+端看不到的 `mcp__` 名稱時，或當其工具定義無法使用時，框架會忽略該項目，並只記錄
+一次警告。描述中的隱藏控制字元會被移除並限制長度。`parameters` 必須是根為
+`object`、描述純 JSON 資料的有界 schema，且只能使用常見的驗證與註解關鍵字。未知關鍵
+字、`pattern`、`patternProperties`、`uniqueItems`、`$async`、`$id`、錨點，以及任
+何遞迴的或指向 schema 之外的 `$ref` 都會被拒絕。模型看到的是經過檢查的 schema 副本，
+引數過大而無法據此驗證的呼叫會被拒絕。`readOnly` 和 `access` 等旗標是你的應
+用程式自己的宣告，框架會像信任 `run` 一樣信任它們：請根據你的程式碼實際執行的操作
+來設定它們，切勿依據使用者註冊的中繼資料來設定。
+
+每個項目都綁定到解析它時所針對的呼叫端。無論由哪個調度器發起，每次呼叫都會拒絕為
+不同的使用者或組織執行，強制執行該項目的 `access` 政策，並在不做型別強制轉換的情
+況下依其 schema 驗證引數。
+
+只有當託管的對話輪次作為持久背景執行繼續時，名稱才會被固定。回呼會再次執行，該輪
+次對這些項目和呼叫端的 MCP 工具都保留原有名稱：新項目不會加入，已消失的名稱在被呼
+叫時會回傳錯誤，仍然存在的名稱會執行其目前的定義。其他所有請求都會重新解析，包括
+本機側邊欄上的每次繼續；中斷的串流重新連接到其執行時不會解析任何內容。
+
+請把綁定的身分放進名稱裡，例如視窗 id 或範圍（`notes_window_42_insert`），這樣重
+新綁定讀起來就是一個工具離開、另一個工具出現。「一律允許」的核准跟隨工具名稱，因
+此當同一個名稱之後代表新的內容時，核准仍會沿用。
+
+在項目上設定 `revision` 即可避免這種情況：一次性核准和「一律允許」會記錄其所針對
+的修訂版本，修訂版本不同則會再次詢問使用者。
+自訂的「一律允許」處理常式應將核准的 `askId` 作為 `approvalId` 傳給
+`set-tool-approval-policy`；否則，該授權僅涵蓋沒有修訂版本的項目。
+
+對對話先前使用或載入過、但本次執行已不再擁有的工具發起呼叫，會以
+`Error: Tool no longer available` 而不是 `Unknown tool` 失敗；在已載入的工具消失
+之後才開始的執行，會告訴模型是哪些工具。如果使用者已核准該呼叫，執行會停止，而
+不是讓模型在沒有它的情況下繼續。對於對話，回呼還會收到 `threadId`、
+`requestedTurnId` 和 `internalContinuation`，因此希望整個輪次使用同一套工具的應
+用程式可以保留自己的快照。
+
+這些項目僅是代理迴圈使用的原生工具。與呼叫端的 MCP 工具一樣，無法從 `run-code`
+或 `tool-orchestration` 存取它們。
+
+`event` 在 `chat` 和 `a2a` 中設定；`ask_app` 呼叫沒有該欄位。對於匿名請求、排程
+工作、自動化或代理團隊的子代理，不會呼叫該回呼。回呼擲出的錯誤會使請求失敗。
 
 ## 原生內嵌 UI {#native-inline-ui}
 
@@ -245,10 +306,10 @@ Action 結果可以直接開啟正確的應用程式檢視：圖表連結至儀�
 
 每個 Agent-Native 應用程式最終都需要一個讓使用者設定代理的地方：設定常駐指令、檢視已完成的工作、連接 MCP 伺服器、管理自動化，以及控制存取權限。從頭建立這個 UI 需要大量工作。Agent-Native 附帶一個預建的全頁元件 `AgentTabsPage`，涵蓋十二個分頁的所有功能。
 
-在你的應用程式中將其掛載於 `/settings/agent`。目前的範本將此作為標準路由，並將 `agentPageHref="/settings/agent"` 傳遞給 `AgentSidebar`。`/agent` 會保留為舊版重新導向。
+官方範本不會掛載它：Settings 涵蓋相同的內容（Agent › Model、Instructions、Memory、Skills、Files 和 Sub-agents，以及應用程式的 Automations 和 MCP server 頁面），`/agent` 會重新導向到 Settings，`AgentSidebar` 上的 `agentPageHref="/settings/agent"` 會開啟 Settings › Agent › Model。當應用程式希望在一個頁面上呈現完整的代理介面時，請將 `AgentTabsPage` 掛載到它自己的路由。
 
-```tsx filename="app/routes/settings.agent.tsx"
-import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
+```tsx filename="app/routes/agent.tsx"
+import { AgentTabsPage } from "@agent-native/toolkit/app/agent-page";
 export default function AgentRoute() {
   return <AgentTabsPage />;
 }
@@ -256,20 +317,20 @@ export default function AgentRoute() {
 
 共享頁面目前提供兩個群組共十二個分頁：
 
-| 群組      | 分頁              | 顯示內容                                                                                                                                                                                                  |
-| --------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Resources | **Files**         | 用於個人或組織檔案的現有 `ResourcesPanel`                                                                                                                                                                 |
-| Resources | **Instructions**  | 常駐的 AGENTS.md 樣式規則                                                                                                                                                                                 |
-| Resources | **Agents**        | 自訂子代理設定檔                                                                                                                                                                                          |
-| Resources | **Memory**        | 長期記憶筆記                                                                                                                                                                                              |
-| Resources | **Skills**        | 可重複使用的工作流程                                                                                                                                                                                      |
-| Resources | **Learnings**     | 隨時間累積的修正和模式                                                                                                                                                                                    |
-| Resources | **Remote agents** | 連接至其他 agent-native 應用程式的 A2A 連線（取代先前 Connections 分頁的顯示內容）                                                                                                                        |
-| Agent     | **Snapshots**     | 範圍預覽、token 預算、依來源/治理/來源分組的有序系統區塊，以及最新的即時對話串快照。從「Context」更名；舊的 `#context` 連結會重新導向至此。                                                               |
-| Agent     | **Connections**   | 僅限 MCP 伺服器管理                                                                                                                                                                                       |
-| Agent     | **Automations**   | 個人和組織的排程/事件自動化，含暫停/恢復、詳細資訊和刪除流程。穩定的相容性 URL 仍為 `/agent#jobs`。                                                                                                       |
-| Agent     | **Settings**      | 代理模型、API 金鑰、限制、語音和自動化設定                                                                                                                                                                |
-| Agent     | **MCP**           | 應用程式 MCP URL、可用時的 A2A 代理卡，以及 Claude、ChatGPT、Cursor、Claude Code、Codex 和其他用戶端的共用設定指南。可在 **Settings → MCP** 中找到，或使用 `/mcp/connect` 進行完整連線流程和 token 備援。 |
+| 群組      | 分頁              | 顯示內容                                                                                                                                                                                                         |
+| --------- | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Resources | **Files**         | 用於個人或組織檔案的現有 `ResourcesPanel`                                                                                                                                                                        |
+| Resources | **Instructions**  | 常駐的 AGENTS.md 樣式規則                                                                                                                                                                                        |
+| Resources | **Agents**        | 自訂子代理設定檔                                                                                                                                                                                                 |
+| Resources | **Memory**        | 長期記憶筆記                                                                                                                                                                                                     |
+| Resources | **Skills**        | 可重複使用的工作流程                                                                                                                                                                                             |
+| Resources | **Learnings**     | 隨時間累積的修正和模式                                                                                                                                                                                           |
+| Resources | **Remote agents** | 連接至其他 agent-native 應用程式的 A2A 連線（取代先前 Connections 分頁的顯示內容）                                                                                                                               |
+| Agent     | **Snapshots**     | 範圍預覽、token 預算、依來源/治理/來源分組的有序系統區塊，以及最新的即時對話串快照。從「Context」更名；舊的 `#context` 連結會重新導向至此。                                                                      |
+| Agent     | **Connections**   | 僅限 MCP 伺服器管理                                                                                                                                                                                              |
+| Agent     | **Automations**   | 個人和組織的排程/事件自動化，含暫停/恢復、詳細資訊和刪除流程。穩定的相容性 URL 仍為 `/agent#jobs`。                                                                                                              |
+| Agent     | **Settings**      | 代理模型、API 金鑰、限制、語音和自動化設定                                                                                                                                                                       |
+| Agent     | **MCP**           | 應用程式 MCP URL、可用時的 A2A 代理卡，以及 Claude、ChatGPT、Cursor、Claude Code、Codex 和其他用戶端的共用設定指南。可在 **Settings → MCP server** 中找到，或使用 `/mcp/connect` 進行完整連線流程和 token 備援。 |
 
 該頁面僅顯示個人（`user` 範圍）資料。目前沒有組織層級的切換。它是現有元件和存取控制的薄殼，而非新的管理主控台：Connections 描述應用程式可以呼叫的內容；MCP 描述外部用戶端如何連接至它。
 
@@ -407,7 +468,7 @@ export function AppShell({ children }) {
 最小的無瀏覽器本地路徑是一個鷹架加上一個 action：
 
 ```bash
-npx @agent-native/core@latest create my-agent --headless
+npx --yes @agent-native/core@latest create my-agent --headless
 cd my-agent
 pnpm install
 ```
@@ -418,6 +479,7 @@ pnpm install
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
+// One action powers every app surface: UI, agent, HTTP, MCP, A2A, and CLI.
 export default defineAction({
   description: "Summarize this week's submissions.",
   readOnly: true,
@@ -511,10 +573,8 @@ GITHUB_REPOSITORY=owner/repo pnpm agent "Read README.md and suggest the next act
 當你的代理已使用另一個框架或執行時環境建立，且你想用 Agent-Native 的對話 UI 包裝它時，請使用此路徑。`AgentChatRuntime` 是邊界：你的執行時環境串流標準化事件，Agent-Native 渲染撰寫器、對話紀錄、工具呼叫、審核、原生 widget 和應用程式佈局。
 
 ```tsx
-import {
-  AssistantChat,
-  createHttpAgentChatRuntime,
-} from "@agent-native/core/client/chat";
+import { AssistantChat } from "@agent-native/toolkit/app/chat";
+import { createHttpAgentChatRuntime } from "@agent-native/core/client/agent-chat";
 
 const runtime = createHttpAgentChatRuntime({
   endpoint: "/api/support-agent/chat",

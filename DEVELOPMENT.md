@@ -66,7 +66,7 @@ This is a pnpm monorepo. Workspaces are defined in `pnpm-workspace.yaml`.
 
 Production-ready template apps that demonstrate the framework. Each template is a standalone app with its own `package.json`, Drizzle schema, actions, and UI.
 
-Templates: `analytics`, `assets`, `brain`, `calendar`, `chat`, `clips`, `content`, `design`, `dispatch`, `forms`, `macros`, `mail`, `plan`, `slides`
+Templates: `analytics`, `assets`, `brain`, `calendar`, `chat`, `clips`, `content`, `design`, `dispatch`, `forms`, `mail`, `plan`, `slides`
 
 Each template uses the same scripts:
 
@@ -167,6 +167,20 @@ Enforcement:
   the required-status-checks ruleset for `main`.
 - There is intentionally **no pre-commit hook** (see project conventions); run
   `pnpm run prep` before pushing.
+
+On Windows, the guards need a checkout with LF line endings and real symlinks
+(several read the symlinked skill folders in `.agents/skills/`):
+
+1. Turn on Windows Developer Mode, which lets Git create symlinks, and run
+   `git config core.symlinks true`.
+2. If the clone predates the `eol=lf` rule in `.gitattributes` or was made
+   without symlinks, commit or stash your changes, then rewrite the tracked
+   files once:
+
+   ```bash
+   git rm --cached -r -q .
+   git reset --hard
+   ```
 
 ## Building
 

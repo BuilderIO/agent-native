@@ -5,6 +5,11 @@ const mocks = vi.hoisted(() => ({
   insertValues: vi.fn(),
   getRequestUserEmail: vi.fn(() => "owner@example.com"),
   getRequestOrgId: vi.fn(() => null),
+  track: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/tracking", () => ({
+  track: (...args: unknown[]) => mocks.track(...args),
 }));
 
 vi.mock("@agent-native/core/action", () => ({
@@ -54,7 +59,7 @@ describe("duplicate-deck", () => {
     });
   });
 
-  it("makes a source-preserving deck copy editable without losing provenance", async () => {
+  it("preserves source provenance on a copied deck", async () => {
     await action.run({
       deckId: "deck-source",
       newId: "deck-copy",
@@ -65,12 +70,30 @@ describe("duplicate-deck", () => {
       mocks.insertValues.mock.calls[0]?.[0].data as string,
     );
     expect(insertedData.sourceImport).toMatchObject({
-      editableSnapshot: true,
       slideIds: ["slide-copy"],
       slides: [{ id: "slide-copy" }],
     });
     expect(insertedData.slides).toEqual([
       { id: "slide-copy", content: "<div />" },
     ]);
+  });
+
+  it("reports the copy as a duplicated deck", async () => {
+    await action.run({ deckId: "deck-source", newId: "deck-copy" }, {
+      caller: "frontend",
+    } as never);
+
+    expect(mocks.track).toHaveBeenCalledWith(
+      "deck_created",
+      expect.objectContaining({
+        output_id: "deck-copy",
+        output_type: "deck",
+        creation_method: "duplicate",
+        purpose: "direct",
+        slide_count: 1,
+        caller: "frontend",
+      }),
+      { caller: "frontend" },
+    );
   });
 });

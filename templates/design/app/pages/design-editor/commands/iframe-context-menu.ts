@@ -1,3 +1,7 @@
+import {
+  buildCodeLayerTree,
+  type CodeLayerProjection,
+} from "@shared/code-layer";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { flushSync } from "react-dom";
 
@@ -10,6 +14,10 @@ import type {
   ElementSelectionIntent,
 } from "@/components/design/types";
 import {
+  resolveCodeLayerNodeFromElementInfo,
+  resolvedLayerName,
+} from "@/pages/design-editor/code-layer-state";
+import {
   computeIframeLocalCanvasPoint,
   readOverviewZoomPercentFromTransform,
 } from "@/pages/design-editor/overview-camera";
@@ -21,7 +29,9 @@ export interface IframeContextMenuArgs {
   boardFileId: string | undefined;
   canvasContainerRef: RefObject<HTMLDivElement | null>;
   canvasContextMenuRef: RefObject<CanvasContextMenuHandle | null>;
-  focusDesignInspectorForSelection: () => void;
+  getCodeLayerProjectionForScreen: (
+    screenId: string,
+  ) => CodeLayerProjection | null;
   handleScreenElementSelect: (
     screenId: string,
     info: ElementInfo,
@@ -43,7 +53,7 @@ export function runIframeContextMenu(
     boardFileId,
     canvasContainerRef,
     canvasContextMenuRef,
-    focusDesignInspectorForSelection,
+    getCodeLayerProjectionForScreen,
     handleScreenElementSelect,
     overviewCanvasZoom,
     setCanvasLayerHitCandidates,
@@ -57,10 +67,34 @@ export function runIframeContextMenu(
   if (!container || !menu) return;
   const contextScreenId =
     payload.screenId ?? activeFile?.id ?? activeFileId ?? null;
-  const layerCandidates = (payload.layerCandidates ?? []).map((candidate) => ({
-    ...candidate,
-    breakpointWidthPx: payload.breakpointWidthPx,
-  }));
+  const projection =
+    contextScreenId && payload.layerCandidates?.length
+      ? getCodeLayerProjectionForScreen(contextScreenId)
+      : null;
+  const layerNamesByNodeId = new Map<string, string>();
+  if (projection) {
+    const collectLayerNames = (
+      nodes: ReturnType<typeof buildCodeLayerTree>,
+    ) => {
+      for (const node of nodes) {
+        layerNamesByNodeId.set(node.id, resolvedLayerName(node));
+        collectLayerNames(node.children);
+      }
+    };
+    collectLayerNames(buildCodeLayerTree(projection));
+  }
+  const layerCandidates = (payload.layerCandidates ?? []).map((candidate) => {
+    const node = projection
+      ? resolveCodeLayerNodeFromElementInfo(projection, candidate.info)
+      : null;
+    return {
+      ...candidate,
+      label: node
+        ? (layerNamesByNodeId.get(node.id) ?? candidate.label)
+        : candidate.label,
+      breakpointWidthPx: payload.breakpointWidthPx,
+    };
+  });
   flushSync(() => {
     setCanvasLayerHitCandidates(layerCandidates);
   });
@@ -71,7 +105,6 @@ export function runIframeContextMenu(
         breakpointWidthPx: payload.breakpointWidthPx,
       });
     });
-    focusDesignInspectorForSelection();
   }
   const clientX =
     typeof payload.viewportClientX === "number"
@@ -81,20 +114,6 @@ export function runIframeContextMenu(
     typeof payload.viewportClientY === "number"
       ? payload.viewportClientY
       : payload.clientY;
-  // PASTE-HERE-IN-CONTENT: this imperative openAt() call bypasses
-  // CanvasContextMenu's own onContextMenuCapture handler entirely — the
-  // ONLY place that normally calls getCanvasPoint to attach canvasX/
-  // canvasY to the menu's point. Without computing it here too, a
-  // right-click that lands ON rendered screen content (an element, or
-  // empty in-screen space — as opposed to the shared canvas background,
-  // which still goes through onContextMenuCapture) never got a
-  // canvasX/canvasY at all, so "Paste here" from it silently degraded to
-  // the position-less cascade/offset paste instead of landing under the
-  // cursor. Overview screens each carry their own screenId through the
-  // context-menu bridge, including non-active screens, so target that
-  // exact iframe rather than the currently-active screen. Otherwise
-  // Paste here would translate the pointer through the wrong frame just
-  // before Select layer activates the right-clicked screen.
   const iframeForPoint =
     viewMode === "single"
       ? container.querySelector<HTMLElement>("[data-design-preview-iframe]")
@@ -118,9 +137,17 @@ export function runIframeContextMenu(
     iframeRect: iframeForPoint?.getBoundingClientRect() ?? null,
     zoomPercent: viewMode === "single" ? zoom : liveOverviewZoom,
   });
+  const scroll = (iframeForPoint as HTMLIFrameElement | null)?.contentWindow;
   menu.openAt({
     clientX,
     clientY,
-    ...(canvasPoint ? { canvasX: canvasPoint.x, canvasY: canvasPoint.y } : {}),
+    ...(payload.info ? {} : { emptyCanvas: true }),
+    ...(canvasPoint
+      ? {
+          canvasX: canvasPoint.x + (scroll?.scrollX ?? 0),
+          canvasY: canvasPoint.y + (scroll?.scrollY ?? 0),
+          ...(contextScreenId ? { screenId: contextScreenId } : {}),
+        }
+      : {}),
   });
 }

@@ -3,8 +3,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  isGoogleSlidesCommentShortcut,
   isSlidesItalicEditableTarget,
   shouldActivateSlidesCommentShortcut,
+  shouldCreateSlideWithShortcut,
   shouldSuppressSlidesItalicShortcut,
   shouldStopSlidesItalicShortcut,
 } from "./editor-shortcuts";
@@ -12,6 +14,7 @@ import {
 function shortcutEvent(
   overrides: Partial<{
     key: string;
+    code?: string;
     altKey: boolean;
     ctrlKey: boolean;
     metaKey: boolean;
@@ -19,10 +22,12 @@ function shortcutEvent(
     repeat: boolean;
     isComposing: boolean;
     target: EventTarget | null;
+    defaultPrevented: boolean;
   }> = {},
 ) {
   return {
     key: overrides.key ?? "i",
+    code: overrides.code,
     altKey: overrides.altKey ?? false,
     ctrlKey: overrides.ctrlKey ?? false,
     metaKey: overrides.metaKey ?? false,
@@ -30,7 +35,23 @@ function shortcutEvent(
     repeat: overrides.repeat ?? false,
     isComposing: overrides.isComposing ?? false,
     target: overrides.target ?? document.body,
+    defaultPrevented: overrides.defaultPrevented ?? false,
   };
+}
+
+function shouldCreateSlide(
+  event = shortcutEvent({ key: "m", ctrlKey: true }),
+  overrides: Partial<{
+    canEdit: boolean;
+    activeElement: Element | null;
+    blockingSurfaceOpen: boolean;
+  }> = {},
+) {
+  return shouldCreateSlideWithShortcut(event, {
+    canEdit: overrides.canEdit ?? true,
+    activeElement: overrides.activeElement ?? document.body,
+    blockingSurfaceOpen: overrides.blockingSurfaceOpen ?? false,
+  });
 }
 
 function shouldActivateComment(
@@ -104,14 +125,62 @@ describe("slides italic shortcut helper", () => {
 });
 
 describe("slides comment shortcut helper", () => {
-  it("activates C on the focused canvas and Google's modifier shortcut", () => {
+  it("activates C on the focused canvas and Google's shortcut within the canvas", () => {
     expect(shouldActivateComment()).toBe(true);
     expect(
       shouldActivateComment(
         shortcutEvent({ key: "m", ctrlKey: true, altKey: true }),
         { focusedCanvas: false },
       ),
+    ).toBe(false);
+  });
+
+  it("recognizes the Google shortcut from the physical M key even when another canvas handler prevented it", () => {
+    const event = shortcutEvent({
+      code: "KeyM",
+      key: "Unidentified",
+      ctrlKey: true,
+      altKey: true,
+      defaultPrevented: true,
+    });
+
+    expect(isGoogleSlidesCommentShortcut(event)).toBe(true);
+    expect(shouldActivateComment(event)).toBe(true);
+  });
+
+  it("allows the Google shortcut in slide text editors but not form controls", () => {
+    const editor = document.createElement("div");
+    editor.contentEditable = "true";
+    const event = shortcutEvent({
+      key: "m",
+      ctrlKey: true,
+      altKey: true,
+      target: editor,
+    });
+
+    expect(isGoogleSlidesCommentShortcut(event)).toBe(true);
+    expect(
+      shouldActivateComment(event, {
+        activeElement: editor,
+        focusedCanvas: true,
+      }),
     ).toBe(true);
+    expect(
+      shouldActivateComment(event, {
+        activeElement: editor,
+        focusedCanvas: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldActivateComment(
+        shortcutEvent({
+          key: "m",
+          ctrlKey: true,
+          altKey: true,
+          target: document.createElement("textarea"),
+        }),
+      ),
+    ).toBe(false);
   });
 
   it("accepts C when an Excalidraw descendant is in the canvas focus scope", () => {
@@ -149,6 +218,57 @@ describe("slides comment shortcut helper", () => {
       shouldActivateComment(shortcutEvent({ key: "m", ctrlKey: true }), {
         focusedCanvas: false,
       }),
+    ).toBe(false);
+  });
+});
+
+describe("new slide shortcut helper", () => {
+  it("accepts the documented Control+M chord", () => {
+    expect(shouldCreateSlide()).toBe(true);
+  });
+
+  it("ignores other modifiers, repeated keys, and composition", () => {
+    expect(shouldCreateSlide(shortcutEvent({ key: "m", metaKey: true }))).toBe(
+      false,
+    );
+    expect(
+      shouldCreateSlide(
+        shortcutEvent({ key: "m", ctrlKey: true, altKey: true }),
+      ),
+    ).toBe(false);
+    expect(
+      shouldCreateSlide(
+        shortcutEvent({ key: "m", ctrlKey: true, shiftKey: true }),
+      ),
+    ).toBe(false);
+    expect(
+      shouldCreateSlide(
+        shortcutEvent({ key: "m", ctrlKey: true, repeat: true }),
+      ),
+    ).toBe(false);
+    expect(
+      shouldCreateSlide(
+        shortcutEvent({ key: "m", ctrlKey: true, isComposing: true }),
+      ),
+    ).toBe(false);
+  });
+
+  it("leaves editing, blocked surfaces, prevented events, and read-only decks alone", () => {
+    const input = document.createElement("input");
+    const dialog = document.createElement("div");
+    dialog.setAttribute("role", "dialog");
+
+    expect(shouldCreateSlide(shortcutEvent({ target: input }))).toBe(false);
+    expect(shouldCreateSlide(undefined, { activeElement: input })).toBe(false);
+    expect(shouldCreateSlide(undefined, { activeElement: dialog })).toBe(false);
+    expect(shouldCreateSlide(undefined, { blockingSurfaceOpen: true })).toBe(
+      false,
+    );
+    expect(shouldCreateSlide(undefined, { canEdit: false })).toBe(false);
+    expect(
+      shouldCreateSlide(
+        shortcutEvent({ key: "m", ctrlKey: true, defaultPrevented: true }),
+      ),
     ).toBe(false);
   });
 });

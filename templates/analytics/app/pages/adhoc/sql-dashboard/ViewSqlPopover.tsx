@@ -42,8 +42,6 @@ const SOURCE_LABELS: Record<DataSourceType, string> = {
 interface ViewSqlPopoverProps {
   panel: SqlPanel;
   resolvedSql?: string;
-  /** Persist a SQL-only edit. Should throw on validation failure so the
-   *  popover can keep open and surface the error inline. */
   onSaveSql?: (sql: string) => Promise<void>;
   editable?: boolean;
   children: ReactNode;
@@ -63,11 +61,6 @@ export function ViewSqlPopover({
   const [error, setError] = useState<string | null>(null);
   const [showResolved, setShowResolved] = useState(false);
 
-  // Track whether the user has diverged from the server SQL ("dirty"). While
-  // dirty we hold the draft so we don't clobber in-progress edits; otherwise we
-  // re-adopt `panel.sql` so an agent edit shows up live even with the popover
-  // open. We can't reference `dirty` before `draft` exists, so derive the
-  // active flag from a ref that mirrors the dirty comparison below.
   const dirtyRef = useRef(false);
   const [draft, setDraft] = useReconciledState(panel.sql, {
     active: dirtyRef.current,

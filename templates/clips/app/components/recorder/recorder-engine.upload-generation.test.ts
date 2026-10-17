@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { RecorderEngine } from "./recorder-engine";
 
 describe("RecorderEngine recovery backup cleanup", () => {
-  it("retains local recovery data until the server confirms ready", () => {
+  it("retains local recovery data until the server proves it holds every byte", () => {
     const engine = new RecorderEngine({
       recordingId: "rec-1",
       mode: "screen",
@@ -17,6 +17,7 @@ describe("RecorderEngine recovery backup cleanup", () => {
     };
     const clearRecordingBackup = vi.fn();
     const internals = engine as unknown as {
+      totalRecordedBytes: number;
       localChunks: Blob[];
       lastFinalizeMeta: typeof finalizeMeta | null;
       clearRecordingBackup: () => void;
@@ -25,6 +26,7 @@ describe("RecorderEngine recovery backup cleanup", () => {
       ) => void;
     };
     internals.localChunks = [localChunk];
+    internals.totalRecordedBytes = localChunk.size;
     internals.lastFinalizeMeta = finalizeMeta;
     internals.clearRecordingBackup = clearRecordingBackup;
 
@@ -34,7 +36,21 @@ describe("RecorderEngine recovery backup cleanup", () => {
     expect(internals.lastFinalizeMeta).toBe(finalizeMeta);
     expect(clearRecordingBackup).not.toHaveBeenCalled();
 
+    // "ready" with no proof, or a short assembly, keeps everything.
     internals.clearRecordingDataIfReady({ status: "ready" });
+    internals.clearRecordingDataIfReady({
+      status: "ready",
+      sourceSizeBytes: localChunk.size - 1,
+      durationMs: 1_000,
+    });
+    expect(internals.localChunks).toEqual([localChunk]);
+    expect(clearRecordingBackup).not.toHaveBeenCalled();
+
+    internals.clearRecordingDataIfReady({
+      status: "ready",
+      sourceSizeBytes: localChunk.size,
+      durationMs: 1_000,
+    });
 
     expect(internals.localChunks).toEqual([]);
     expect(internals.lastFinalizeMeta).toBeNull();
@@ -91,7 +107,9 @@ describe("RecorderEngine upload generation fencing", () => {
     const internals = engine as unknown as {
       resetUploadedChunks: (compression: null) => Promise<"buffered">;
       uploadChunk: (blob: Blob, index: number) => Promise<unknown>;
+      uploadAttemptId: string | null;
     };
+    internals.uploadAttemptId = "attempt-1";
 
     await internals.resetUploadedChunks(null);
     await internals.uploadChunk(new Blob(["first"]), 0);
@@ -109,7 +127,12 @@ describe("RecorderEngine upload generation fencing", () => {
     expect(requests[3]?.url).toContain("uploadGenerationId=generation-2");
     expect(requests[4]).toMatchObject({
       url: "/api/uploads/rec-1/abort",
-      body: JSON.stringify({ uploadGenerationId: "generation-2" }),
+      body: JSON.stringify({
+        reason: "Recording interruption has unknown cause",
+        failureCode: "recording_interrupted",
+        attemptId: "attempt-1",
+        uploadGenerationId: "generation-2",
+      }),
     });
   });
 });

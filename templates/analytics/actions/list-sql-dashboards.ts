@@ -42,6 +42,7 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   mcpApp: {
     compactCatalog: true,
@@ -69,12 +70,14 @@ export default defineAction({
       kind: "sql",
       archived,
       hidden,
+      includeCatalogMetadata: true,
     });
     return rows.map((d) => ({
       id: d.id,
       name: d.name,
       ...(d.parentId ? { parentId: d.parentId } : {}),
       ...(d.folderId ? { folderId: d.folderId } : {}),
+      ...(d.demoId ? { demo: true } : {}),
       ownerEmail: d.ownerEmail,
       orgId: d.orgId,
       visibility: d.visibility,

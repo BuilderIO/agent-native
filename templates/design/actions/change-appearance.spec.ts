@@ -1,11 +1,3 @@
-/**
- * Design overrides the core `change-appearance` action (same name, template
- * `actions/` wins on collision — see action-discovery.ts) with a narrowed
- * description: this preset is the Design EDITOR's own chrome, not the
- * generated prototype's colors. See index-design-tokens.ts /
- * apply-design-token-edit.ts for the actual prototype-restyling path.
- */
-
 import { describe, expect, it, vi } from "vitest";
 
 const mockWriteAppState = vi.fn();

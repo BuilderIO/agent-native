@@ -1,38 +1,106 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  getOAuthTokens: vi.fn(),
   listOAuthAccountsByOwner: vi.fn(),
-  saveOAuthTokens: vi.fn(),
-  createOAuth2Client: vi.fn(),
-  getOAuth2Credentials: vi.fn(),
+  getClientForConnectedAccount: vi.fn(),
+  gmailGetAttachment: vi.fn(),
   gmailGetMessage: vi.fn(),
   googleFetch: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/oauth-tokens", () => ({
-  getOAuthTokens: mocks.getOAuthTokens,
   listOAuthAccountsByOwner: mocks.listOAuthAccountsByOwner,
-  saveOAuthTokens: mocks.saveOAuthTokens,
 }));
 
 vi.mock("./google-api.js", () => ({
-  createOAuth2Client: mocks.createOAuth2Client,
+  gmailGetAttachment: mocks.gmailGetAttachment,
   gmailGetMessage: mocks.gmailGetMessage,
   googleFetch: mocks.googleFetch,
 }));
 
 vi.mock("./google-auth.js", () => ({
-  getOAuth2Credentials: mocks.getOAuth2Credentials,
+  getClientForConnectedAccount: mocks.getClientForConnectedAccount,
 }));
 
-import { saveGmailDraft } from "./gmail-drafts.js";
+import { findGmailDraftAccount, saveGmailDraft } from "./gmail-drafts.js";
+
+describe("findGmailDraftAccount", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.listOAuthAccountsByOwner.mockResolvedValue([]);
+    mocks.getClientForConnectedAccount.mockImplementation(
+      async (_owner: string, account: string) => ({
+        email: account,
+        accessToken: `token:${account}`,
+      }),
+    );
+    mocks.googleFetch.mockResolvedValue({ id: "legacy-draft" });
+  });
+
+  it("checks connected mailboxes for an exact legacy draft ID", async () => {
+    mocks.listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: "owner@example.com",
+        displayName: null,
+        tokens: { scope: "https://mail.google.com/" },
+      },
+      {
+        accountId: "secondary@example.com",
+        displayName: null,
+        tokens: { scope: "https://www.googleapis.com/auth/gmail.modify" },
+      },
+    ]);
+    mocks.googleFetch.mockImplementation(
+      async (_url: string, token: string) => {
+        if (token === "token:owner@example.com") {
+          throw new Error("Google API error (404): Not Found");
+        }
+        return { id: "legacy-draft" };
+      },
+    );
+
+    await expect(
+      findGmailDraftAccount({
+        ownerEmail: "owner@example.com",
+        draftId: "legacy-draft",
+      }),
+    ).resolves.toBe("secondary@example.com");
+    expect(mocks.googleFetch).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining("/drafts/legacy-draft"),
+      "token:secondary@example.com",
+    );
+  });
+
+  it("does not turn unreadable Gmail ownership into an absent draft", async () => {
+    mocks.listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: "owner@example.com",
+        displayName: null,
+        tokens: { scope: "https://mail.google.com/" },
+      },
+    ]);
+    mocks.googleFetch.mockRejectedValue(
+      new Error("Google API error (403): Insufficient permissions"),
+    );
+
+    await expect(
+      findGmailDraftAccount({
+        ownerEmail: "owner@example.com",
+        draftId: "legacy-draft",
+      }),
+    ).rejects.toThrow("Google API error (403)");
+  });
+});
 
 describe("saveGmailDraft", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.listOAuthAccountsByOwner.mockResolvedValue([]);
-    mocks.getOAuthTokens.mockResolvedValue({ access_token: "token" });
+    mocks.getClientForConnectedAccount.mockResolvedValue({
+      email: "owner@example.com",
+      accessToken: "token",
+    });
     mocks.gmailGetMessage.mockResolvedValue({
       threadId: "gmail-thread-1",
       payload: {
@@ -106,9 +174,113 @@ describe("saveGmailDraft", () => {
     });
 
     expect(result?.accountEmail).toBe("gmail@example.com");
-    expect(mocks.getOAuthTokens).toHaveBeenCalledWith(
-      "google",
+    expect(mocks.getClientForConnectedAccount).toHaveBeenCalledWith(
+      "owner@example.com",
       "gmail@example.com",
+    );
+  });
+
+  it("keeps Gmail attachments when updating an existing draft", async () => {
+    mocks.listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: "owner@example.com",
+        displayName: null,
+        tokens: {
+          access_token: "token",
+          scope: "https://mail.google.com/",
+        },
+      },
+    ]);
+    mocks.gmailGetAttachment.mockResolvedValue({
+      data: Buffer.from("attachment body").toString("base64url"),
+    });
+
+    await saveGmailDraft({
+      ownerEmail: "owner@example.com",
+      accountEmail: "owner@example.com",
+      draftId: "gmail-draft-1",
+      to: "recipient@example.com",
+      subject: "Updated",
+      body: "Revised body",
+      attachments: [
+        {
+          id: "attachment-1",
+          filename: "brief.pdf",
+          originalName: "brief.pdf",
+          mimeType: "application/pdf",
+          size: 16,
+          url: "/api/attachments/brief.pdf",
+          source: "gmail",
+          gmailMessageId: "source-message-1",
+          gmailAttachmentId: "source-attachment-1",
+          accountEmail: "owner@example.com",
+        },
+      ],
+    });
+
+    expect(mocks.gmailGetAttachment).toHaveBeenCalledWith(
+      "token",
+      "source-message-1",
+      "source-attachment-1",
+    );
+    const [, , options] = mocks.googleFetch.mock.calls[0] ?? [];
+    const raw = Buffer.from(
+      JSON.parse(options.body).message.raw,
+      "base64url",
+    ).toString("utf8");
+    expect(raw).toContain(
+      'Content-Disposition: attachment; filename="brief.pdf"',
+    );
+    expect(raw).toContain(Buffer.from("attachment body").toString("base64"));
+  });
+
+  it("reads an attachment from a read-only Gmail account", async () => {
+    mocks.listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: "draft@example.com",
+        displayName: null,
+        tokens: { scope: "https://www.googleapis.com/auth/gmail.compose" },
+      },
+      {
+        accountId: "source@example.com",
+        displayName: null,
+        tokens: { scope: "https://www.googleapis.com/auth/gmail.readonly" },
+      },
+    ]);
+    mocks.gmailGetAttachment.mockResolvedValue({
+      data: Buffer.from("source attachment").toString("base64url"),
+    });
+
+    await saveGmailDraft({
+      ownerEmail: "owner@example.com",
+      accountEmail: "draft@example.com",
+      to: "recipient@example.com",
+      subject: "Forwarded file",
+      body: "See attached",
+      attachments: [
+        {
+          id: "attachment-1",
+          filename: "brief.pdf",
+          originalName: "brief.pdf",
+          mimeType: "application/pdf",
+          size: 17,
+          url: "/api/attachments/brief.pdf",
+          source: "gmail",
+          gmailMessageId: "source-message-1",
+          gmailAttachmentId: "source-attachment-1",
+          accountEmail: "source@example.com",
+        },
+      ],
+    });
+
+    expect(mocks.getClientForConnectedAccount).toHaveBeenCalledWith(
+      "owner@example.com",
+      "source@example.com",
+    );
+    expect(mocks.gmailGetAttachment).toHaveBeenCalledWith(
+      "token",
+      "source-message-1",
+      "source-attachment-1",
     );
   });
 
@@ -133,7 +305,7 @@ describe("saveGmailDraft", () => {
     });
 
     expect(result).toBeNull();
-    expect(mocks.getOAuthTokens).not.toHaveBeenCalled();
+    expect(mocks.getClientForConnectedAccount).not.toHaveBeenCalled();
     expect(mocks.gmailGetMessage).not.toHaveBeenCalled();
   });
 
@@ -165,8 +337,8 @@ describe("saveGmailDraft", () => {
     });
 
     expect(result?.accountEmail).toBe("gmail@example.com");
-    expect(mocks.getOAuthTokens).toHaveBeenCalledWith(
-      "google",
+    expect(mocks.getClientForConnectedAccount).toHaveBeenCalledWith(
+      "owner@example.com",
       "gmail@example.com",
     );
   });
@@ -200,7 +372,7 @@ describe("saveGmailDraft", () => {
         body: "Draft",
       }),
     ).rejects.toThrow("Account not owned by current user");
-    expect(mocks.getOAuthTokens).not.toHaveBeenCalled();
+    expect(mocks.getClientForConnectedAccount).not.toHaveBeenCalled();
   });
 
   it("keeps the local draft path when no Gmail account is connected", async () => {
@@ -223,14 +395,10 @@ describe("saveGmailDraft", () => {
     });
 
     expect(result).toBeNull();
-    expect(mocks.getOAuthTokens).not.toHaveBeenCalled();
+    expect(mocks.getClientForConnectedAccount).not.toHaveBeenCalled();
   });
 
-  it("refreshes a secondary account with the authenticated owner credentials", async () => {
-    const refreshToken = vi.fn().mockResolvedValue({
-      access_token: "refreshed-token",
-      expires_in: 3600,
-    });
+  it("uses the shared owner-scoped client for a secondary account", async () => {
     mocks.listOAuthAccountsByOwner.mockResolvedValue([
       {
         accountId: "gmail@example.com",
@@ -243,16 +411,10 @@ describe("saveGmailDraft", () => {
         },
       },
     ]);
-    mocks.getOAuthTokens.mockResolvedValue({
-      access_token: "expiring-token",
-      refresh_token: "refresh-token",
-      expiry_date: Date.now() + 1000,
+    mocks.getClientForConnectedAccount.mockResolvedValue({
+      email: "gmail@example.com",
+      accessToken: "refreshed-token",
     });
-    mocks.getOAuth2Credentials.mockResolvedValue({
-      clientId: "client-id",
-      clientSecret: "client-secret",
-    });
-    mocks.createOAuth2Client.mockReturnValue({ refreshToken });
 
     const result = await saveGmailDraft({
       ownerEmail: "owner@example.com",
@@ -262,9 +424,14 @@ describe("saveGmailDraft", () => {
     });
 
     expect(result?.accountEmail).toBe("gmail@example.com");
-    expect(mocks.getOAuth2Credentials).toHaveBeenCalledWith(
+    expect(mocks.getClientForConnectedAccount).toHaveBeenCalledWith(
       "owner@example.com",
+      "gmail@example.com",
     );
-    expect(refreshToken).toHaveBeenCalledWith("refresh-token");
+    expect(mocks.googleFetch).toHaveBeenCalledWith(
+      "https://gmail.googleapis.com/gmail/v1/users/me/drafts",
+      "refreshed-token",
+      expect.any(Object),
+    );
   });
 });

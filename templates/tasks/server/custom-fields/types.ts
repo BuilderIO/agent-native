@@ -7,8 +7,6 @@ export type FieldDefinitionBase = {
   updatedAt: string;
 };
 
-/* Configs: */
-
 export type NumericFieldConfig = {
   precision?: number;
   positiveOnly?: boolean;
@@ -77,8 +75,6 @@ export type FieldConfigInputMap = {
 
 export type FieldConfigInput<T extends FieldType = FieldType> =
   FieldConfigInputMap[T];
-
-/* Field Definition: */
 
 export type FieldDefinition = FieldDefinitionBase &
   (

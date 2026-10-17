@@ -1,123 +1,71 @@
 ---
 name: shadcn-ui
 description: >-
-  The shadcn CLI, component composition, theming, and registry workflow. Use
-  when adding, replacing, upgrading, or debugging a shadcn/ui primitive itself,
-  or when changing a theme or registry. Do not load it for ordinary edits to a
-  file that happens to import a shadcn component.
+  Using the app's local UI adapter and Toolkit or shadcn primitives. Use when
+  choosing or composing standard controls, implementing dialogs, menus, or
+  forms, or changing component variants and theme tokens.
 scope: dev
-source: https://ui.shadcn.com/docs/skills
-local-changes: >-
-  Description narrowed deliberately; an upstream sync must not restore the
-  "any project with a components.json file" trigger.
-metadata:
-  internal: true
 ---
 
-# shadcn/ui
+# shadcn/ui and Local UI Adapters
 
-This skill keeps shadcn/ui work project-aware. Components are source files in the app, so always inspect the local project before adding, importing, or rewriting them.
+Use the components already provided by the app. Read the app's design-system
+configuration, Toolkit provider, and local UI components before adding or
+changing a control. Their exports, variants, and props are the contract; do
+not guess from upstream examples.
 
-## First Steps
+## Keep imports behind the local adapter
 
-1. Work from the app root that owns `components.json`.
-2. In an Agent-Native app, inspect `app/design-system.ts` and
-   `ToolkitProvider` before choosing a primitive. A registered company design
-   system takes precedence over the default shadcn adapter.
-3. Run `pnpm dlx shadcn@latest info --json` when you need current project context: framework, Tailwind version, aliases, icon library, installed components, and resolved paths.
-4. Use the actual aliases from `components.json` or `shadcn info`; do not assume `@/components/ui` if the project says otherwise.
-5. Check `app/components/ui/` or the resolved `ui` path before importing a component.
-6. For unfamiliar components, run `pnpm dlx shadcn@latest docs <component>` and read the returned docs or examples before coding.
+Product pages and domain components should import standard controls through the
+app's configured local UI alias. In the Chat starter, that is
+`@/components/ui/*`; its `app/components/ui/button.tsx` is a one-line
+re-export of `@agent-native/toolkit/ui/button`. Follow an adjacent local shim
+when the app needs another Toolkit primitive that is already exported there.
 
-## Agent-Native Adapter Rule
+Use the app's configured design system and provider mapping for controls passed
+to shared Toolkit surfaces. For shared Toolkit feature presentation, use the
+semantic components exposed by `@agent-native/toolkit/design-system`; keep the
+feature behavior in its existing controller and customize only its supported
+presentation seam.
 
-Pages, routes, and domain components import controls through the app's local UI
-adapter layer. Never import `@agent-native/toolkit/ui/*` directly in app product
-code. Direct imports bypass `app/design-system.ts` and make Toolkit/Core
-surfaces use different controls from the app.
+## Compose existing controls
 
-When shadcn is the app's adapter, add or update the local primitive and keep
-product code on that local import. When a company design system is registered,
-adapt its components to the semantic contracts from
-`@agent-native/toolkit/design-system`; do not recreate a parallel shadcn
-surface. The semantic API is styling-runtime agnostic, so do not require
-Tailwind, CVA, or `className` in customer adapters.
+- Prefer a primitive's built-in variant and size. Put page layout on a parent
+  instead of overriding shared component appearance for one screen.
+- Use the app's semantic theme tokens for reusable UI, such as
+  `bg-background`, `text-muted-foreground`, `border-border`, and `bg-primary`.
+  Keep theme values in the app's existing CSS theme file.
+- Use the control that matches the choice: `Switch` for a binary setting,
+  `Checkbox` for independent multi-select, `RadioGroup` for one choice from a
+  short set, and `Select` or the app's combobox for a longer predefined list.
+- Compose cards and form fields from the primitives already available. Avoid
+  adding explanatory copy that repeats a visible title or label; see
+  `frontend-design` for the app's surface-density rules.
+- Put selectable items inside their menu or list group primitives. Keep tab
+  triggers inside the tab list. Supply an accessible title to dialog, sheet,
+  drawer, and alert-dialog content.
+- Match the trigger API to the actual local component. Toolkit wrappers may
+  expose a different API from the upstream primitive; inspect its props before
+  using options such as `asChild` or `render`.
 
-For shared Toolkit features, customize presentation through semantic
-components, a feature-level controller, and product-level render slots. Keep
-the same controller for default and custom views. Use the conformance kit for
-behavior components whose focus, portal, keyboard, dismissal, or stacking
-behavior comes from the company design system.
+## Keep controls operable
 
-## Adding Or Updating Components
+Use the app's existing field components and validation pattern. Associate
+errors with their inputs and expose invalid state to assistive technology.
+Icon-only actions need an accessible name and a usable focus target. Use the
+icon package already installed by the app.
 
-- Add missing primitives with `pnpm dlx shadcn@latest add <component>` from the app root.
-- Before overwriting an existing component, use `pnpm dlx shadcn@latest add <component> --dry-run` and `--diff` to inspect the change.
-- After adding registry code, read the generated files. Fix import aliases, icon imports, missing subcomponents, and composition issues before using the component.
-- Do not fetch raw component files manually from GitHub when the shadcn CLI can resolve the registry item.
-- If a user asks to add a third-party block but does not name a registry, ask which registry to use instead of guessing.
+Do not recreate menus, popovers, dialogs, or confirmations with absolute
+positioning and custom click-outside handlers. Never use browser `alert`,
+`confirm`, or `prompt`; use the app's dialog primitives. Keep overlay focus,
+keyboard, dismissal, and stacking behavior from the existing primitive.
 
-## Component Composition
+For small visual refinements, use layout classes and semantic tokens. Avoid raw
+palette overrides, arbitrary one-off values, and manual overlay `z-index` unless
+you are fixing a reproduced bug. Use `gap-*` for layout spacing and the app's
+class-merging helper when it has one.
 
-- Use existing primitives before custom markup: `Alert` for callouts, `Badge` for small status labels, `Separator` for dividers, `Skeleton` for placeholders, `Table` for tabular data, and `Card` for framed content.
-- Compose cards from `CardHeader`, `CardTitle`, `CardContent`, and `CardFooter`. Leave `CardDescription` out: a card gets a title or a description, never both. See `frontend-design` → Default Surface Density.
-- Dialog, Sheet, Drawer, and AlertDialog content must include an accessible title. Use visually hidden titles only when the visible UI already communicates the title.
-- Put items inside their group components: `SelectItem` in `SelectGroup`, `DropdownMenuItem` in `DropdownMenuGroup`, `CommandItem` in `CommandGroup`, and equivalent menu groups.
-- `TabsTrigger` belongs inside `TabsList`.
-- `Avatar` always needs `AvatarFallback`.
-- Buttons do not have magic loading props. Compose loading with `disabled`, `Spinner`, and clear text.
+## Related skill
 
-## Forms And Inputs
-
-- Use the app's shadcn form primitives instead of raw div stacks.
-- If `Field`, `FieldGroup`, `FieldSet`, or `InputGroup` are installed or worth adding, use them for form layout, grouped fields, and input add-ons.
-- Do not place buttons inside inputs with absolute positioning. Use `InputGroup` and `InputGroupAddon` when available.
-- Use `ToggleGroup` for small option sets, `RadioGroup` for one-of-many choices, `Checkbox` for multi-select, `Switch` for settings toggles, `Select` or `Combobox` for predefined choices, and `Slider` or numeric input for numeric values.
-- Validation must be accessible: pair visual invalid states with `aria-invalid`, and connect descriptions/errors to controls.
-
-## Styling And Theming
-
-- Use semantic tokens (`bg-background`, `text-foreground`, `text-muted-foreground`, `bg-primary`, `border-border`, `text-destructive`) instead of raw colors for reusable app UI.
-- Prefer built-in variants and sizes before custom classes.
-- Use `className` mostly for layout and spacing; avoid overriding component colors and typography unless the component is intentionally being extended.
-- Use `gap-*` instead of `space-x-*` / `space-y-*`.
-- Use `size-*` when width and height are equal.
-- Use `truncate` for single-line clipping.
-- Use `cn()` for conditional classes.
-- Do not add manual `z-index` to overlay primitives unless you are fixing a verified stacking bug.
-- Add custom colors as CSS variables in the existing Tailwind CSS file reported by shadcn info. For Tailwind v4, register variables with `@theme inline`.
-
-## Transitions And Motion
-
-shadcn's built-in component animations are the right level of polish — keep them. The goal is a snappy, clean UI, not a motionless one. Match shadcn's motion vocabulary; don't strip it and don't pile on decorative custom animation.
-
-- **Never remove or override a shadcn component's default animation.** `data-[state=open]:animate-in`, `data-[state=closed]:animate-out`, `fade-in/out`, `zoom-in/out`, `slide-in-from-*`, accordion height, the `tailwindcss-animate` utilities — these ship for a reason. Leave them as-is.
-- **Custom transitions are fine when they communicate a state change and match shadcn's feel.** Reuse the same vocabulary: short durations (~120–200ms), `ease-out`, opacity/transform only, gated on `data-[state=...]`. Examples that are good and welcome:
-  - A portaled custom popover/tooltip/sheet that fades + scales/slides in on `data-[state=delayed-open]` / `data-[state=closed]`, mirroring Radix's own content animation.
-  - A list row or toast that fades/slides in on mount and out on dismiss.
-  - A chevron/caret `rotate` on expand, a subtle `opacity`/`color` hover on an icon button, skeleton shimmer, a progress/height transition on a collapsible.
-  - Continuous, product-defining motion where it _is_ the experience (e.g. a multi-stage booking flow's stage transitions) — fine, and framer-motion is acceptable there.
-- **Avoid decorative, attention-seeking, or slow motion:** hand-rolled `duration-700` hero fade-ins, parallax, bouncing/spring entrances on ordinary content, animated gradients, staggered cascades on long lists, anything that delays the user seeing or acting on content. If an animation makes the UI feel slower, cut it.
-- Rule of thumb: if the motion clarifies what just changed and is over in well under a quarter-second, it's polish; if it's there to look impressive, it's bloat.
-
-## Icons
-
-- Agent-Native apps use `@tabler/icons-react`. Do not add `lucide-react` because a registry example used it.
-- If registry code imports a different icon package, replace those imports with Tabler equivalents before finishing.
-- Let shadcn components size icons through their CSS. Avoid manual icon sizing inside buttons, menus, alerts, and sidebars unless the local component API requires it.
-
-## Base-Specific APIs
-
-Check the project context before using trigger composition APIs:
-
-- Radix-based components use `asChild` for custom triggers.
-- Base UI components may use `render` and sometimes `nativeButton={false}`.
-
-Do not wrap triggers in extra divs just to place a Button or Link inside them.
-
-## Related Skills
-
-- **frontend-design** — Product UX, visual direction, responsive polish, and verification
-- **customizing-agent-native** — Registered design systems, controllers, slots, conformance, and ejection
-- **actions** — Data fetching and mutation patterns for agent-native apps
-- **security** — User data, forms, external input, and action safety
+- **frontend-design** — Product UX, density, visual direction, and responsive
+  behavior.

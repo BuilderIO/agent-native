@@ -48,7 +48,6 @@ export function ChaptersEditor({
   const mutation = useActionMutation("set-chapters");
 
   useEffect(() => {
-    // Sync from server while we're not actively dragging.
     if (dragIndex == null) setLocal(chapters);
   }, [chapters, dragIndex]);
 
@@ -102,7 +101,6 @@ export function ChaptersEditor({
     setLocal(next);
   };
   const handleDragEnd = () => {
-    // Re-sort by startMs after drag so ordering always matches timeline.
     setDragIndex(null);
     commit([...local].sort((a, b) => a.startMs - b.startMs));
   };

@@ -1,14 +1,11 @@
 import type { ElementInfo } from "../types";
+import {
+  findCanvasIframeForScreen,
+  getBreakpointIframeId,
+} from "./iframe-targeting";
 
-/**
- * Ask a screen's bridge to re-measure one element. An inspector commit never
- * reaches the bridge, so nothing else refreshes the geometry it just changed.
- */
 export async function requestSelectionMeasurement(args: {
-  /** A thunk, not a list: a frame that mounts between attempts must be seen. */
   targetWindows: () => (Window | null | undefined)[];
-  /** The screen that owns the element. Breakpoint screens share node ids, so
-   *  without this a positive match from the wrong screen wins the race. */
   screenId: string;
   selector?: string;
   attempts?: number;
@@ -19,8 +16,6 @@ export async function requestSelectionMeasurement(args: {
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const measured = await measureOnce(args);
     if (measured) return measured;
-    // An iframe can expose contentWindow before its bridge installs a message
-    // listener, so the first post is silently dropped and nothing retries it.
     if (attempt < attempts - 1) {
       await new Promise((resolve) =>
         window.setTimeout(resolve, args.retryDelayMs ?? 150),
@@ -52,14 +47,11 @@ function measureOnce(args: {
         event.data.type !== "agent-native:selection-measured" ||
         event.data.correlationId !== correlationId ||
         event.data.screenId !== args.screenId ||
-        // Only a frame that was asked may answer.
         !targets.includes(event.source as Window)
       ) {
         return;
       }
       const payload: unknown = event.data.payload;
-      // Frames that do not contain the element answer null; keep waiting for
-      // the one that does rather than settling on the first reply.
       if (
         payload &&
         typeof payload === "object" &&
@@ -84,7 +76,6 @@ function measureOnce(args: {
   });
 }
 
-/** Every live screen/board preview frame, in either canvas mode. */
 export function designPreviewWindows(): Window[] {
   return [
     ...document.querySelectorAll<HTMLIFrameElement>(
@@ -93,4 +84,24 @@ export function designPreviewWindows(): Window[] {
   ]
     .map((iframe) => iframe.contentWindow)
     .filter((w): w is Window => Boolean(w));
+}
+
+export function designPreviewWindowsForScreen(
+  screenId: string,
+  breakpointWidth?: number,
+  boardFileId?: string,
+): Window[] {
+  if (typeof document === "undefined") return [];
+  const iframeId =
+    boardFileId && screenId === boardFileId
+      ? boardFileId
+      : breakpointWidth === undefined
+        ? screenId
+        : getBreakpointIframeId(screenId, breakpointWidth);
+  const iframe = findCanvasIframeForScreen(
+    document.body,
+    iframeId,
+    boardFileId,
+  );
+  return iframe?.contentWindow ? [iframe.contentWindow] : [];
 }

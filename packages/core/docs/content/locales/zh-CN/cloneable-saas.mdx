@@ -58,8 +58,8 @@ package 也依赖 `@agent-native/core`；格式错误的标记会被拒绝。
 未提供 ref，CLI 会先尝试 `main`，再尝试 `master`：
 
 ```bash
-npx @agent-native/core@latest create my-app --template community:owner/repo#v1.2.0
-npx @agent-native/core@latest create my-app --template https://github.com/owner/repo#v1.2.0
+npx --yes @agent-native/core@latest create my-app --template community:owner/repo#v1.2.0
+npx --yes @agent-native/core@latest create my-app --template https://github.com/owner/repo#v1.2.0
 ```
 
 要以非交互方式选择工作区仓库中的源应用，请使用 `?app=<app-name>`。
@@ -67,8 +67,8 @@ npx @agent-native/core@latest create my-app --template https://github.com/owner/
 `?` 视为 glob：
 
 ```bash
-npx @agent-native/core@latest create my-app --template 'community:owner/repo?app=analytics#v1.2.0'
-npx @agent-native/core@latest create my-app --template 'https://github.com/owner/repo?app=analytics#v1.2.0'
+npx --yes @agent-native/core@latest create my-app --template 'community:owner/repo?app=analytics#v1.2.0'
+npx --yes @agent-native/core@latest create my-app --template 'https://github.com/owner/repo?app=analytics#v1.2.0'
 ```
 
 在工作区外，`create` 会将所选源应用创建为独立应用。要将其添加到现有
@@ -273,10 +273,10 @@ demo 负责。
 要搭建一个新应用：
 
 ```bash
-npx @agent-native/core@latest create my-platform
+npx --yes @agent-native/core@latest create my-platform
 ```
 
-CLI 会先询问 **如何开始？**。选择 **Chat** 可创建包含 Chat 和 Dispatch 的最小工作区，选择 **First-party template(s)** 可打开多选选择器。Community 和 Headless 是独立应用的入口。工作区应用共享身份验证、品牌、代理配置和数据库；每个应用都会连同所需的全部文件构建到 `apps/<name>/` 中。对于没有浏览器 UI 的自动化应用，而不是应用 UI，请使用 `npx @agent-native/core@latest create my-agent --headless`。
+CLI 会先询问 **如何开始？**。选择 **Chat** 可创建包含 Chat 和 Dispatch 的最小工作区，选择 **First-party template(s)** 可打开多选选择器。Community 和 Headless 是独立应用的入口。工作区应用共享身份验证、品牌、代理配置和数据库；每个应用都会连同所需的全部文件构建到 `apps/<name>/` 中。对于没有浏览器 UI 的自动化应用，而不是应用 UI，请使用 `npx --yes @agent-native/core@latest create my-agent --headless`。
 
 填写 `.env`（`ANTHROPIC_API_KEY` 和 `DATABASE_URL`），然后运行 `pnpm install` 和 `pnpm dev`。没有需要实现的登录功能，也没有占位符路由。
 

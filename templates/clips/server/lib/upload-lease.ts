@@ -1,22 +1,20 @@
-/**
- * The upload lease.
- *
- * One authoritative expiry, `recordings.upload_lease_expires_at`, renewed by
- * the client's own chunk POSTs. Liveness is a fact the writer asserts, not
- * something a GC infers by joining `recordings` against `application_state`
- * and comparing timestamps stored in two different encodings.
- *
- * Everything below reads from `recordings`, so the reaper sees every
- * in-progress upload — including buffered uploads that never opened a
- * resumable session, which the old session-keyed sweep could not select.
- */
-
 import { getDbExec } from "@agent-native/core/db";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 
+import { WAITING_STORAGE_EXPIRED_REASON } from "../../shared/upload-interruption.js";
 import { getDb, schema } from "../db/index.js";
+import {
+  releaseHostedClipAllowanceAfterCleanup,
+  writeHostedCleanupConfirmedMarker,
+} from "./hosted-clip-allowance.js";
+import {
+  normalizeRecordingPlatform,
+  trackRecordingFailure,
+} from "./recording-failures.js";
+import { ownerEmailMatches } from "./recordings.js";
 import type { StoredResumableSession } from "./resumable-session.js";
 import { abortResumableUploadSession } from "./resumable-upload-cleanup.js";
+import { deleteS3ObjectByUrl } from "./s3-upload-provider.js";
 
 /**
  * ponytail: one horizon for both in-progress statuses. A paused recorder emits
@@ -35,6 +33,28 @@ export function uploadLeaseExpiry(nowMs: number = Date.now()): string {
   return new Date(nowMs + UPLOAD_LEASE_MS).toISOString();
 }
 
+/**
+ * A row parked until storage is connected (dev scratch chunks, a Loom or
+ * video-link import) is not a live upload: it waits this long for setup, then
+ * the reaper fails it as `storage_setup_required` and its scratch is
+ * collected. Resuming it claims a normal lease.
+ */
+export const WAITING_STORAGE_LEASE_MS = 7 * 24 * 60 * 60 * 1000;
+
+export { WAITING_STORAGE_EXPIRED_REASON };
+
+export function waitingStorageLeaseExpiry(nowMs: number = Date.now()): string {
+  return new Date(nowMs + WAITING_STORAGE_LEASE_MS).toISOString();
+}
+
+/** Parked rows are the only `uploading` rows that carry a failure reason. */
+export function isParkedForStorage(row: {
+  status: string | null;
+  failureReason?: string | null;
+}): boolean {
+  return row.status === "uploading" && Boolean(row.failureReason);
+}
+
 export type UploadLeaseResult =
   | { held: true }
   | {
@@ -47,13 +67,6 @@ export type UploadLeaseResult =
       durationMs: number | null;
     };
 
-/**
- * Take or renew the lease for one recording.
- *
- * This is a compare-and-set: `WHERE status IN (...)` is what makes racing a
- * concurrent abort or finalize structurally impossible. A terminal row updates
- * zero rows, so a caller never needs to re-check after each write.
- */
 export async function renewUploadLease(
   recordingId: string,
   options: {
@@ -61,15 +74,24 @@ export async function renewUploadLease(
     uploadProgress?: number;
     attemptId?: string | null;
     generationId?: string | null;
+    ownerEmail?: string;
+    loomImportClaimId?: string;
+    preserveParked?: boolean;
   } = {},
 ): Promise<UploadLeaseResult> {
   const now = options.now ?? Date.now();
+  const claimScoped = options.loomImportClaimId !== undefined;
   const held = await getDb()
     .update(schema.recordings)
     .set({
       uploadLeaseExpiresAt: uploadLeaseExpiry(now),
+      // A live upload is not parked: a reason left from an earlier pause
+      // would make the reaper call a later lapse storage_setup_required.
+      failureReason: sql`CASE WHEN ${schema.recordings.status} = 'uploading' THEN NULL ELSE ${schema.recordings.failureReason} END`,
       updatedAt: new Date(now).toISOString(),
-      // Chunks can land out of order, so progress only ever moves forward.
+      ...(claimScoped
+        ? { loomImportClaimedAt: new Date(now).toISOString() }
+        : {}),
       ...(options.uploadProgress === undefined
         ? {}
         : {
@@ -79,7 +101,30 @@ export async function renewUploadLease(
     .where(
       and(
         eq(schema.recordings.id, recordingId),
-        inArray(schema.recordings.status, [...IN_PROGRESS_STATUSES]),
+        claimScoped
+          ? eq(schema.recordings.status, "processing")
+          : inArray(schema.recordings.status, [...IN_PROGRESS_STATUSES]),
+        ...(options.preserveParked
+          ? [
+              sql`NOT (${schema.recordings.status} = 'uploading' AND ${schema.recordings.failureReason} IS NOT NULL AND ${schema.recordings.failureReason} <> '')`,
+            ]
+          : []),
+        ...(options.ownerEmail === undefined
+          ? []
+          : [
+              ownerEmailMatches(
+                schema.recordings.ownerEmail,
+                options.ownerEmail,
+              ),
+            ]),
+        ...(options.loomImportClaimId === undefined
+          ? []
+          : [
+              eq(
+                schema.recordings.loomImportClaimId,
+                options.loomImportClaimId,
+              ),
+            ]),
         ...(options.attemptId === undefined
           ? []
           : [
@@ -116,7 +161,19 @@ export async function renewUploadLease(
       uploadGenerationId: schema.recordings.uploadGenerationId,
     })
     .from(schema.recordings)
-    .where(eq(schema.recordings.id, recordingId));
+    .where(
+      and(
+        eq(schema.recordings.id, recordingId),
+        ...(options.ownerEmail === undefined
+          ? []
+          : [
+              ownerEmailMatches(
+                schema.recordings.ownerEmail,
+                options.ownerEmail,
+              ),
+            ]),
+      ),
+    );
 
   return {
     held: false,
@@ -143,6 +200,8 @@ export interface ReapedUpload {
   status: string;
   leaseExpiresAt: string;
   uploadGenerationId: string | null;
+  storageMode: "own" | "hosted" | null;
+  videoUrl: string | null;
 }
 
 export interface ReapResult {
@@ -152,6 +211,15 @@ export interface ReapResult {
   scratchKeysDeleted: number;
   resumableSessionsAborted: number;
   resumableCleanupFailed: number;
+  hostedReservationsReleased: number;
+  hostedCleanupFailed: number;
+}
+
+export async function markHostedCleanupConfirmed(
+  recordingId: string,
+  videoUrl: string | null = null,
+): Promise<string> {
+  return writeHostedCleanupConfirmedMarker({ recordingId, videoUrl });
 }
 
 function resumableSessionKey(
@@ -207,16 +275,33 @@ async function readResumableSessionState(
   };
 }
 
-/**
- * Terminate uploads whose lease expired, then reclaim chunk scratch that no
- * live upload claims.
- *
- * The only liveness input is the lease the writer last wrote, and the only
- * thing protecting scratch is the existence of an in-progress `recordings`
- * row. There is no "the recording row was not visible to this probe" branch:
- * in-progress rows are selected from `recordings` itself, and the scratch
- * anti-join runs inside the database rather than across two round trips.
- */
+async function readUploadStateStatus(
+  exec: ReturnType<typeof getDbExec>,
+  recordingId: string,
+): Promise<string | null> {
+  const result = await exec.execute({
+    sql: `SELECT value FROM application_state WHERE key = $1`,
+    args: [`recording-upload-${recordingId}`],
+  });
+  const value = (result.rows as Array<{ value?: unknown }> | undefined)?.[0]
+    ?.value;
+  let parsed: unknown = value;
+  if (typeof parsed === "string") {
+    try {
+      parsed = JSON.parse(parsed);
+    } catch {
+      // coercion-ok: malformed state returns null so the caller keeps the reservation.
+      return null;
+    }
+  }
+  if (!parsed || typeof parsed !== "object") return null;
+  const state = parsed as Record<string, unknown>;
+  // An explicit abort wrote this state itself; it is not a processing upload
+  // that may have finished remotely.
+  if (state.aborted === true) return "aborted";
+  return typeof state.status === "string" ? state.status : null;
+}
+
 export async function reapExpiredUploads(
   options: { now?: number; limit?: number; dryRun?: boolean } = {},
 ): Promise<ReapResult> {
@@ -225,9 +310,42 @@ export async function reapExpiredUploads(
   const limit = Math.max(1, Math.min(options.limit ?? 200, 1000));
   const dryRun = options.dryRun === true;
 
+  const pendingHostedReleases = await exec.execute({
+    sql: `SELECT r.id, r.owner_email, r.video_url, r.upload_generation_id,
+                 a.updated_at AS allowance_updated_at,
+                 s.key AS cleanup_confirmed_key,
+                 s.value AS cleanup_confirmed_value
+          FROM recordings r
+          JOIN clips_hosted_clip_allowances a ON a.recording_id = r.id
+          LEFT JOIN application_state s ON s.key = $1 || r.id
+          WHERE r.storage_mode = 'hosted'
+            AND r.status = 'failed'
+            AND a.status = 'reserved'
+            AND (
+              s.key IS NOT NULL
+              OR r.video_url IS NOT NULL
+              OR EXISTS (
+                SELECT 1 FROM application_state session_state
+                WHERE session_state.key = CASE
+                  WHEN r.upload_generation_id IS NULL
+                  THEN 'resumable-session-' || r.id
+                  ELSE 'resumable-session-' || r.id || '-' || r.upload_generation_id
+                END
+              )
+              OR EXISTS (
+                SELECT 1 FROM application_state upload_state
+                WHERE upload_state.key = 'recording-upload-' || r.id
+              )
+            )
+          ORDER BY r.updated_at ASC
+          LIMIT ${limit}`,
+    args: ["hosted-cleanup-confirmed-"],
+  });
+
   // guard:allow-unscoped — system upload reaper, owner-agnostic by design.
   const probe = await exec.execute({
-    sql: `SELECT id, owner_email, status, upload_lease_expires_at, upload_generation_id
+    sql: `SELECT id, owner_email, status, upload_lease_expires_at, upload_generation_id,
+                 storage_mode, video_url
           FROM recordings
           WHERE status IN ('uploading', 'processing')
             AND upload_lease_expires_at IS NOT NULL
@@ -251,40 +369,224 @@ export async function reapExpiredUploads(
       typeof row.upload_generation_id === "string"
         ? row.upload_generation_id
         : null,
+    storageMode:
+      row.storage_mode === "hosted" || row.storage_mode === "own"
+        ? row.storage_mode
+        : null,
+    videoUrl: typeof row.video_url === "string" ? row.video_url : null,
   }));
 
   let failed = 0;
   let resumableSessionsAborted = 0;
   let resumableCleanupFailed = 0;
+  let hostedReservationsReleased = 0;
+  let hostedCleanupFailed = 0;
+  if (!dryRun) {
+    for (const row of (pendingHostedReleases.rows as Array<
+      Record<string, unknown>
+    >) ?? []) {
+      const id = String(row.id);
+      const generationId =
+        typeof row.upload_generation_id === "string"
+          ? row.upload_generation_id
+          : null;
+      const sessionKey = resumableSessionKey(id, generationId);
+      const ownerEmail =
+        typeof row.owner_email === "string" ? row.owner_email : null;
+      const cleanupConfirmed = typeof row.cleanup_confirmed_key === "string";
+      const videoUrl = typeof row.video_url === "string" ? row.video_url : null;
+      const expectedUpdatedAt =
+        typeof row.allowance_updated_at === "string"
+          ? row.allowance_updated_at
+          : null;
+      let confirmedVideoUrl: string | null = null;
+      let markerValue =
+        typeof row.cleanup_confirmed_value === "string"
+          ? row.cleanup_confirmed_value
+          : null;
+      if (typeof row.cleanup_confirmed_value === "string") {
+        try {
+          const marker = JSON.parse(row.cleanup_confirmed_value) as {
+            videoUrl?: unknown;
+          };
+          confirmedVideoUrl =
+            typeof marker.videoUrl === "string" ? marker.videoUrl : null;
+        } catch {
+          // coercion-ok: marker key confirms cleanup when no video URL remains.
+          // Older markers establish cleanup only when no media URL remains.
+        }
+      }
+      const cleanupNeeded =
+        !cleanupConfirmed ||
+        (videoUrl !== null && confirmedVideoUrl !== videoUrl);
+      if (cleanupNeeded) {
+        const sessionState = await readResumableSessionState(
+          exec,
+          "$1",
+          sessionKey,
+        );
+        if (sessionState.present && !sessionState.session) {
+          hostedCleanupFailed += 1;
+          continue;
+        }
+        const uploadStatus = !videoUrl
+          ? await readUploadStateStatus(exec, id)
+          : null;
+        if (
+          !videoUrl &&
+          uploadStatus !== "uploading" &&
+          uploadStatus !== "aborted"
+        ) {
+          // A processing upload without a persisted URL may already have
+          // completed remotely, so aborting its old multipart handle is not
+          // enough evidence to release the reservation.
+          hostedCleanupFailed += 1;
+          continue;
+        }
+        if (sessionState.session) {
+          const cleaned = await abortResumableUploadSession(
+            sessionState.session,
+            { label: `upload-reaper-${id}` },
+          );
+          if (!cleaned) {
+            hostedCleanupFailed += 1;
+            continue;
+          }
+          resumableSessionsAborted += 1;
+        }
+        if (videoUrl) {
+          let deleted = cleanupConfirmed && confirmedVideoUrl === videoUrl;
+          if (!deleted) {
+            try {
+              deleted = await deleteS3ObjectByUrl(videoUrl, {
+                storageMode: "hosted",
+                recordingId: id,
+              });
+            } catch (error) {
+              console.warn(
+                `[upload-reaper-${id}] hosted media cleanup failed`,
+                {
+                  error: error instanceof Error ? error.message : String(error),
+                },
+              );
+            }
+            if (!deleted) {
+              hostedCleanupFailed += 1;
+              continue;
+            }
+            markerValue = await markHostedCleanupConfirmed(id, videoUrl);
+          }
+          const cleared = await exec.execute({
+            sql: `UPDATE recordings
+                  SET video_url = NULL, video_size_bytes = 0, updated_at = $1
+                  WHERE id = $2 AND status = 'failed' AND video_url = $3
+                  RETURNING id`,
+            args: [nowIso, id, videoUrl],
+          });
+          if (!(cleared.rows as Array<unknown> | undefined)?.length) {
+            hostedCleanupFailed += 1;
+            continue;
+          }
+        }
+        if (!videoUrl && !markerValue) {
+          markerValue = await markHostedCleanupConfirmed(id);
+        }
+      } else if (videoUrl) {
+        const cleared = await exec.execute({
+          sql: `UPDATE recordings
+                SET video_url = NULL, video_size_bytes = 0, updated_at = $1
+                WHERE id = $2 AND status = 'failed' AND video_url = $3
+                RETURNING id`,
+          args: [nowIso, id, videoUrl],
+        });
+        if (!(cleared.rows as Array<unknown> | undefined)?.length) {
+          hostedCleanupFailed += 1;
+          continue;
+        }
+      }
+      if (!expectedUpdatedAt || !markerValue || !ownerEmail) {
+        hostedCleanupFailed += 1;
+        continue;
+      }
+      try {
+        const released = await releaseHostedClipAllowanceAfterCleanup({
+          recordingId: id,
+          ownerEmail,
+          expectedUpdatedAt,
+          cleanupMarkerValue: markerValue,
+          sessionKey,
+        });
+        if (released) hostedReservationsReleased += 1;
+        else hostedCleanupFailed += 1;
+      } catch (error) {
+        hostedCleanupFailed += 1;
+        console.warn(
+          `[upload-reaper-${id}] hosted reservation release failed`,
+          {
+            error: error instanceof Error ? error.message : String(error),
+          },
+        );
+        continue;
+      }
+    }
+  }
   if (expired.length > 0 && !dryRun) {
     const ids = expired.map((row) => row.id);
     const result = await exec.execute({
+      // A parked row (uploading with a reason) expired waiting for storage;
+      // everything else stopped sending data.
       sql: `UPDATE recordings
             SET status = 'failed',
-                failure_reason = $1,
+                failure_code = CASE
+                  WHEN status = 'uploading' AND failure_reason IS NOT NULL
+                  THEN 'storage_setup_required' ELSE 'upload_timed_out' END,
+                failure_reason = CASE
+                  WHEN status = 'uploading' AND failure_reason IS NOT NULL
+                  THEN $4 ELSE $1 END,
                 updated_at = $2
             WHERE status IN ('uploading', 'processing')
               AND upload_lease_expires_at < $3
-              AND id IN (${ids.map((_, i) => `$${i + 4}`).join(", ")})
-            RETURNING id`,
-      args: [UPLOAD_LEASE_EXPIRED_REASON, nowIso, nowIso, ...ids],
+              AND id IN (${ids.map((_, i) => `$${i + 5}`).join(", ")})
+            RETURNING id, owner_email, upload_attempt_id, recording_platform,
+                      failure_code, storage_mode, video_url`,
+      args: [
+        UPLOAD_LEASE_EXPIRED_REASON,
+        nowIso,
+        nowIso,
+        WAITING_STORAGE_EXPIRED_REASON,
+        ...ids,
+      ],
     });
 
-    // The probe is a snapshot. A lease renewed between it and this
-    // compare-and-set keeps its row, so only what the UPDATE actually claimed
-    // may be reported or have its session state swept — reading the probe
-    // list here would tear down a live streaming upload's session.
-    const terminated = new Set(
-      ((result.rows as Array<{ id?: unknown }>) ?? []).map((row) =>
-        String(row.id),
-      ),
-    );
+    const terminatedRows =
+      (result.rows as Array<Record<string, unknown>>) ?? [];
+    const terminated = new Set(terminatedRows.map((row) => String(row.id)));
     expired = expired.filter((row) => terminated.has(row.id));
     failed = terminated.size;
+
+    for (const row of terminatedRows) {
+      if (typeof row.owner_email !== "string") {
+        throw new Error("Upload timeout row is missing owner email");
+      }
+      trackRecordingFailure({
+        recordingId: String(row.id),
+        userId: row.owner_email,
+        uploadAttemptId:
+          typeof row.upload_attempt_id === "string"
+            ? row.upload_attempt_id
+            : null,
+        platform: normalizeRecordingPlatform(row.recording_platform),
+        failureCode:
+          row.failure_code === "storage_setup_required"
+            ? "storage_setup_required"
+            : "upload_timed_out",
+      });
+    }
 
     for (const id of terminated) {
       const generationId =
         expired.find((row) => row.id === id)?.uploadGenerationId ?? null;
+      const reapedUpload = expired.find((row) => row.id === id);
       const sessionKey = resumableSessionKey(id, generationId);
       const sessionState = await readResumableSessionState(
         exec,
@@ -293,6 +595,7 @@ export async function reapExpiredUploads(
       );
       if (sessionState.present && !sessionState.session) {
         resumableCleanupFailed += 1;
+        if (reapedUpload?.storageMode === "hosted") hostedCleanupFailed += 1;
         console.warn(
           `[upload-reaper-${id}] resumable session state is unreadable; keeping it for manual cleanup`,
         );
@@ -305,14 +608,101 @@ export async function reapExpiredUploads(
         );
         if (!cleaned) {
           resumableCleanupFailed += 1;
+          if (reapedUpload?.storageMode === "hosted") hostedCleanupFailed += 1;
           continue;
         }
         resumableSessionsAborted += 1;
       }
-      await exec.execute({
-        sql: `DELETE FROM application_state WHERE key = $1`,
-        args: [sessionKey],
-      });
+
+      if (reapedUpload?.storageMode !== "hosted") {
+        await exec.execute({
+          sql: `DELETE FROM application_state WHERE key = $1`,
+          args: [sessionKey],
+        });
+        continue;
+      }
+
+      // A processing row with a session but no persisted URL may have completed
+      // its multipart request before the process stopped. Aborting that old
+      // upload ID does not prove the completed object is gone.
+      if (reapedUpload.videoUrl) {
+        let deleted = false;
+        try {
+          deleted = await deleteS3ObjectByUrl(reapedUpload.videoUrl, {
+            storageMode: "hosted",
+            recordingId: id,
+          });
+        } catch (error) {
+          console.warn(`[upload-reaper-${id}] hosted media cleanup failed`, {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+        if (!deleted) {
+          hostedCleanupFailed += 1;
+          continue;
+        }
+      }
+
+      if (reapedUpload.status === "processing" && !reapedUpload.videoUrl) {
+        hostedCleanupFailed += 1;
+        console.warn(
+          `[upload-reaper-${id}] hosted processing row has no persisted media URL; keeping its reservation`,
+        );
+        continue;
+      }
+
+      if (reapedUpload.videoUrl) {
+        const cleared = await exec.execute({
+          sql: `UPDATE recordings
+                SET video_url = NULL, video_size_bytes = 0, updated_at = $1
+                WHERE id = $2 AND status = 'failed' AND video_url = $3
+                RETURNING id`,
+          args: [nowIso, id, reapedUpload.videoUrl],
+        });
+        if (!(cleared.rows as Array<unknown> | undefined)?.length) {
+          hostedCleanupFailed += 1;
+          continue;
+        }
+      }
+      const markerValue = await markHostedCleanupConfirmed(
+        id,
+        reapedUpload.videoUrl,
+      );
+
+      try {
+        if (!reapedUpload?.ownerEmail) {
+          hostedCleanupFailed += 1;
+          continue;
+        }
+        const allowanceVersion = await exec.execute({
+          sql: `SELECT updated_at FROM clips_hosted_clip_allowances
+                WHERE recording_id = $1 AND status = 'reserved'`,
+          args: [id],
+        });
+        const expectedUpdatedAt = (
+          allowanceVersion.rows as Array<Record<string, unknown>> | undefined
+        )?.[0]?.updated_at;
+        const released =
+          typeof expectedUpdatedAt === "string" &&
+          (await releaseHostedClipAllowanceAfterCleanup({
+            recordingId: id,
+            ownerEmail: reapedUpload.ownerEmail,
+            expectedUpdatedAt,
+            cleanupMarkerValue: markerValue,
+            sessionKey,
+          }));
+        if (released) hostedReservationsReleased += 1;
+        else hostedCleanupFailed += 1;
+      } catch (error) {
+        hostedCleanupFailed += 1;
+        console.warn(
+          `[upload-reaper-${id}] hosted reservation release failed`,
+          {
+            error: error instanceof Error ? error.message : String(error),
+          },
+        );
+        continue;
+      }
     }
   }
 
@@ -327,15 +717,11 @@ export async function reapExpiredUploads(
     scratchKeysDeleted,
     resumableSessionsAborted,
     resumableCleanupFailed,
+    hostedReservationsReleased,
+    hostedCleanupFailed,
   };
 }
 
-/**
- * Chunk scratch is claimed by exactly one thing: an in-progress `recordings`
- * row. Anything else — finalized, failed, or hard-deleted recordings — is
- * reclaimable, with no age grace needed, because a stuck upload can only leave
- * the in-progress set through the reaper above.
- */
 async function selectUnclaimedChunkKeys(limit: number): Promise<string[]> {
   // guard:allow-unscoped — system scratch GC, owner-agnostic by design.
   const { rows } = await getDbExec().execute({

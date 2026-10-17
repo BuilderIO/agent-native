@@ -11,19 +11,26 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { designChangeResource } from "../server/lib/design-change-resource.js";
 import {
   mutateDesignData,
   type DesignDataRecord,
 } from "../server/lib/design-data-mutation.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import { resolveLocalhostConnectionScope } from "../server/lib/localhost-connection.js";
+import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
 import {
   mergeCanvasFramePlacements,
+  nextCanvasFramePosition,
+  nextFreeCanvasRowY,
   parseCanvasFrameGeometryById,
   type CanvasFrameGeometry,
   type CanvasFramePlacement,
 } from "../shared/canvas-frames.js";
+import { getRotatedFrameCorners } from "../shared/canvas-math.js";
 import { isUniqueConstraintViolation } from "../shared/db-conflict.js";
+import { getOverviewScreenFileIds } from "../shared/design-files.js";
+import { getResponsiveBreakpointWidths } from "../shared/responsive-frame-layout.js";
 import {
   makeLocalhostRouteId,
   titleFromRoutePath,
@@ -127,10 +134,50 @@ function placementAgainstLatest(
     width: choose("width"),
     height: choose("height"),
     z: choose("z"),
-    // add-localhost-screens never owns rotation. A concurrent/local canvas
-    // rotation therefore survives even when this action refreshes the route.
     rotation: latest?.rotation,
   };
+}
+
+function screenFrameBounds(
+  frame: CanvasFrameGeometry,
+  fileId: string,
+  metadataByFileId: Record<string, unknown>,
+) {
+  const rawMetadata = metadataByFileId[fileId];
+  const metadata = isRecord(rawMetadata) ? rawMetadata : {};
+  const width = frame.width ?? metadataNumber(metadata, "width") ?? 0;
+  const height = frame.height ?? metadataNumber(metadata, "height") ?? 0;
+  if (width <= 0 || height <= 0) return null;
+  const corners = getRotatedFrameCorners({
+    x: frame.x ?? 0,
+    y: frame.y ?? 0,
+    width,
+    height,
+    rotation: frame.rotation ?? 0,
+  });
+  const xs = corners.map((point) => point.x);
+  const ys = corners.map((point) => point.y);
+  const left = Math.min(...xs);
+  const right = Math.max(...xs);
+  const top = Math.min(...ys);
+  const bottom = Math.max(...ys);
+  return { x: left, y: top, width: right - left, height: bottom - top };
+}
+
+function frameBoundsOverlap(
+  left: NonNullable<ReturnType<typeof screenFrameBounds>>,
+  right: NonNullable<ReturnType<typeof screenFrameBounds>>,
+) {
+  return (
+    left.width > 0 &&
+    left.height > 0 &&
+    right.width > 0 &&
+    right.height > 0 &&
+    left.x < right.x + right.width &&
+    left.x + left.width > right.x &&
+    left.y < right.y + right.height &&
+    left.y + left.height > right.y
+  );
 }
 
 function normalizeBaseUrl(value: string): string {
@@ -217,10 +264,6 @@ export function routeUrl(
       );
     }
     if (equivalentLoopbackOrigin) {
-      // localhost / 127.0.0.1 / ::1 aliases can point at the same loopback
-      // server, but the bridge enforces exact same-origin fetches. Canonicalize
-      // the alias to the registered dev-server origin so live edit does not fail
-      // later with an opaque bridge 400.
       parsed.protocol = base.protocol;
       parsed.host = base.host;
     }
@@ -377,8 +420,12 @@ function metadataMatchesRoute(
     (value) => typeof value === "string" && routeUrlsMatch(value, args.url),
   );
   const storedContentMatches =
-    typeof args.content === "string" &&
-    routeUrlsMatch(args.content, args.url, { includeSearch: false });
+    typeof args.content === "string" && routeUrlsMatch(args.content, args.url);
+  const hasStoredRouteHint =
+    typeof metadata.url === "string" || typeof metadata.previewUrl === "string";
+  if (hasStoredRouteHint && !storedUrlMatches && !storedContentMatches) {
+    return false;
+  }
   const hasRouteIdentity =
     storedConnectionId === args.connectionId ||
     storedUrlMatches ||
@@ -418,6 +465,12 @@ export default defineAction({
         z.array(z.string()).optional(),
       )
       .describe("Shortcut for routes when only paths/URLs are needed."),
+    preserveExistingFramePositions: z
+      .boolean()
+      .optional()
+      .describe(
+        "Set when route x/y values come from an automatic grid so existing screens stay in place.",
+      ),
     defaultWidth: z
       .number()
       .positive()
@@ -428,8 +481,18 @@ export default defineAction({
       .positive()
       .optional()
       .describe("Default iframe viewport height. Defaults to 900."),
-    startX: z.number().optional().default(0),
-    startY: z.number().optional().default(0),
+    startX: z
+      .number()
+      .optional()
+      .describe(
+        "Left edge for new screens. Defaults to the right of existing frames.",
+      ),
+    startY: z
+      .number()
+      .optional()
+      .describe(
+        "Top edge for new screens. Defaults to the topmost existing frame.",
+      ),
     gap: z.number().optional().default(160),
   }),
   mcpApp: {
@@ -442,12 +505,14 @@ export default defineAction({
       height: 680,
     }),
   },
+  capabilityScopes: ["visual-edit"],
   run: async (
     {
       designId,
       connectionId,
       routes,
       paths,
+      preserveExistingFramePositions,
       defaultWidth,
       defaultHeight,
       startX,
@@ -458,7 +523,9 @@ export default defineAction({
   ) => {
     await assertAccess("design", designId, "editor");
     await snapshotDesignBeforeAgentEdit(designId, context);
-    const { ownerEmail, orgId } = await resolveLocalhostConnectionScope();
+    const { ownerEmail, orgId } = await resolveLocalhostConnectionScope({
+      designId,
+    });
     const db = getDb();
 
     const scopeClauses = [
@@ -646,8 +713,6 @@ export default defineAction({
       .where(eq(schema.designs.id, designId))
       .limit(1);
     if (!design) throw new Error(`Design "${designId}" not found.`);
-    // Fail before touching files/collab when a legacy row contains malformed
-    // data. SQL NULL is the one supported legacy empty-data sentinel.
     const prevData = parseDesignDataSnapshot(designId, design.data);
     const existingCanvasFrames = parseCanvasFrameGeometryById(
       prevData.canvasFrames,
@@ -667,9 +732,24 @@ export default defineAction({
     );
     const usedFilenames = new Set(existingFiles.map((file) => file.filename));
     const now = new Date().toISOString();
-    const layoutStartX = startX ?? 0;
-    const layoutStartY = startY ?? 0;
     const layoutGap = gap ?? 160;
+    const responsiveBreakpointWidths = getResponsiveBreakpointWidths(
+      prevData.breakpointSet,
+    );
+    const defaultPosition = nextCanvasFramePosition(
+      existingCanvasFrames,
+      layoutGap,
+      {
+        responsiveLayout: {
+          screenFileIds: getOverviewScreenFileIds(existingFiles),
+          screenMetadataByFileId: existingMetadata,
+          breakpointWidths: responsiveBreakpointWidths,
+        },
+      },
+    );
+    const layoutStartX = startX ?? defaultPosition.x;
+    const layoutStartY = startY ?? defaultPosition.y;
+    let layoutCursorX = layoutStartX;
     const savedScreens: Array<{
       id: string;
       filename: string;
@@ -689,16 +769,6 @@ export default defineAction({
       height: number;
     }> = [];
     const placementIntents: PlacementIntent[] = [];
-    // Duplicate-route guard: `existingFiles`/`existingByFilename`/the
-    // route-candidate lookups below are all snapshotted ONCE above the loop
-    // and never refreshed as new files are inserted mid-loop, so two entries
-    // in the SAME `requestedRoutes` call that resolve to the same route
-    // (repeated `paths`, or a `routeId` and a `path` naming the same route)
-    // each independently see "no existing match" and each insert a fresh
-    // `design_files` row — two overlapping screens for one route. Track
-    // routeIds already processed THIS call (keyed with width/height so an
-    // intentional multi-viewport request for the same route still creates
-    // its distinct variants) and skip later duplicates outright.
     const seenRouteRequestKeys = new Set<string>();
     let placementIndex = 0;
 
@@ -931,7 +1001,7 @@ export default defineAction({
         )
           ? preferredExisting
           : undefined;
-      const existing =
+      let existing =
         matchingPreferredExisting ??
         routeCandidates.find((candidate) => {
           const frame = existingCanvasFrames[candidate.id];
@@ -958,8 +1028,6 @@ export default defineAction({
           preferredFilename,
           includeOriginInFilename,
         );
-      // Reassigned below if a concurrent request wins the insert race for
-      // this exact (designId, filename) pair — see the `else` branch.
       let fileId = existing?.id ?? nanoid();
       const existingScreenMetadata = existing
         ? metadataForFile(
@@ -985,32 +1053,56 @@ export default defineAction({
         metadataNumber(existingScreenMetadata, "height") ??
         metadataNumber(routeMetadata, "height") ??
         900;
-      const routeRequestKey = `${routeConnection.id}::${routeId}::${width}x${height}`;
+      const routeRequestKey = `${routeConnection.id}::${url}::${width}x${height}`;
       if (seenRouteRequestKeys.has(routeRequestKey)) continue;
       seenRouteRequestKeys.add(routeRequestKey);
 
       if (existing) {
-        await db
-          .update(schema.designFiles)
-          .set({ content: url, fileType: "html", updatedAt: now })
-          .where(eq(schema.designFiles.id, existing.id));
-        if (await hasCollabState(existing.id)) {
-          await applyText(existing.id, url, "content", "agent");
+        const updated = await withDesignSourceMutationTransaction(
+          designId,
+          async (tx) => {
+            const [current] = await tx
+              .select({ id: schema.designFiles.id })
+              .from(schema.designFiles)
+              .where(
+                and(
+                  eq(schema.designFiles.id, existing!.id),
+                  eq(schema.designFiles.designId, designId),
+                ),
+              )
+              .limit(1);
+            if (!current) return false;
+            await tx
+              .update(schema.designFiles)
+              .set({ content: url, fileType: "html", updatedAt: now })
+              .where(eq(schema.designFiles.id, existing!.id));
+            return true;
+          },
+        );
+        if (updated) {
+          if (await hasCollabState(existing.id)) {
+            await applyText(existing.id, url, "content", "agent");
+          } else {
+            await seedFromText(existing.id, url);
+          }
         } else {
-          await seedFromText(existing.id, url);
+          existing = undefined;
         }
-      } else {
+      }
+      if (!existing) {
         for (let attempt = 0; ; attempt += 1) {
           try {
-            await db.insert(schema.designFiles).values({
-              id: fileId,
-              designId,
-              filename,
-              fileType: "html",
-              content: url,
-              createdAt: now,
-              updatedAt: now,
-            });
+            await withDesignSourceMutationTransaction(designId, (tx) =>
+              tx.insert(schema.designFiles).values({
+                id: fileId,
+                designId,
+                filename,
+                fileType: "html",
+                content: url,
+                createdAt: now,
+                updatedAt: now,
+              }),
+            );
             await seedFromText(fileId, url);
             break;
           } catch (err) {
@@ -1038,13 +1130,20 @@ export default defineAction({
             if (!winner) throw err;
             if (
               typeof winner.content === "string" &&
-              routeUrlsMatch(winner.content, url, { includeSearch: false })
+              routeUrlsMatch(winner.content, url)
             ) {
               fileId = winner.id;
-              await db
-                .update(schema.designFiles)
-                .set({ content: url, fileType: "html", updatedAt: now })
-                .where(eq(schema.designFiles.id, winner.id));
+              await withDesignSourceMutationTransaction(designId, (tx) =>
+                tx
+                  .update(schema.designFiles)
+                  .set({ content: url, fileType: "html", updatedAt: now })
+                  .where(
+                    and(
+                      eq(schema.designFiles.id, winner.id),
+                      eq(schema.designFiles.designId, designId),
+                    ),
+                  ),
+              );
               if (await hasCollabState(winner.id)) {
                 await applyText(winner.id, url, "content", "agent");
               } else {
@@ -1081,18 +1180,42 @@ export default defineAction({
         width,
         height,
       });
+      const frameX = preserveExistingFramePositions
+        ? (existingFrame?.x ?? input.x ?? layoutCursorX)
+        : (input.x ?? existingFrame?.x ?? layoutCursorX);
       const fallbackPlacement: CanvasFramePlacement = {
         fileId,
         filename,
-        x:
-          input.x ??
-          existingFrame?.x ??
-          layoutStartX + placementIndex * (width + layoutGap),
-        y: input.y ?? existingFrame?.y ?? layoutStartY,
+        x: frameX,
+        y: preserveExistingFramePositions
+          ? (existingFrame?.y ?? input.y ?? layoutStartY)
+          : (input.y ?? existingFrame?.y ?? layoutStartY),
         width,
         height,
         z: input.z ?? existingFrame?.z ?? placementIndex,
       };
+      const nextFramePosition = nextCanvasFramePosition(
+        {
+          [fileId]: {
+            x: fallbackPlacement.x,
+            y: fallbackPlacement.y,
+            width,
+            height,
+            rotation: existingFrame?.rotation,
+          },
+        },
+        layoutGap,
+        {
+          responsiveLayout: {
+            screenFileIds: [fileId],
+            screenMetadataByFileId: {
+              [fileId]: { ...routeMetadata, width, height },
+            },
+            breakpointWidths: responsiveBreakpointWidths,
+          },
+        },
+      );
+      layoutCursorX = Math.max(layoutCursorX, nextFramePosition.x);
       placementIndex += 1;
       placementIntents.push({
         fileId,
@@ -1100,8 +1223,12 @@ export default defineAction({
         fallback: fallbackPlacement,
         existedAtStart: Boolean(existingFrame),
         owns: {
-          x: input.x !== undefined,
-          y: input.y !== undefined,
+          x:
+            input.x !== undefined &&
+            (!preserveExistingFramePositions || !existingFrame),
+          y:
+            input.y !== undefined &&
+            (!preserveExistingFramePositions || !existingFrame),
           width: input.width !== undefined || defaultWidth !== undefined,
           height: input.height !== undefined || defaultHeight !== undefined,
           z: input.z !== undefined,
@@ -1118,17 +1245,103 @@ export default defineAction({
         const latestFrames = parseCanvasFrameGeometryById(
           currentData.canvasFrames,
         );
-        const placements = placementIntents.map((intent) =>
+        const previousMetadata = isRecord(currentData.screenMetadata)
+          ? { ...currentData.screenMetadata }
+          : {};
+        const placementCandidates = placementIntents.map((intent) =>
           placementAgainstLatest(intent, latestFrames[intent.fileId]),
         );
+        const newPlacementIndexes = placementCandidates.flatMap(
+          (placement, index) => {
+            if (
+              !placement.fileId ||
+              placementIntents[index]?.existedAtStart ||
+              placementIntents[index]?.owns.y ||
+              latestFrames[placement.fileId]
+            ) {
+              return [];
+            }
+            return [index];
+          },
+        );
+        const defaultYPlacementIndexes = newPlacementIndexes.filter(
+          (index) => !placementIntents[index]?.owns.y,
+        );
+        const overlapsExistingFrame = defaultYPlacementIndexes.some((index) => {
+          const placement = placementCandidates[index];
+          if (!placement?.fileId) return false;
+          const bounds = screenFrameBounds(
+            placement,
+            placement.fileId,
+            previousMetadata,
+          );
+          if (!bounds) return false;
+          return Object.entries(latestFrames).some(([fileId, frame]) => {
+            const existingBounds = screenFrameBounds(
+              frame,
+              fileId,
+              previousMetadata,
+            );
+            return Boolean(
+              existingBounds && frameBoundsOverlap(bounds, existingBounds),
+            );
+          });
+        });
+        let placements = placementCandidates;
+        if (overlapsExistingFrame && defaultYPlacementIndexes.length > 0) {
+          const placementMetadata = {
+            ...previousMetadata,
+            ...Object.fromEntries(
+              savedScreens.map((screen) => {
+                const previousScreenMetadata = previousMetadata[screen.id];
+                return [
+                  screen.id,
+                  {
+                    ...(isRecord(previousScreenMetadata)
+                      ? previousScreenMetadata
+                      : {}),
+                    width: screen.width,
+                    height: screen.height,
+                  },
+                ];
+              }),
+            ),
+          };
+          const screenFileIds = new Set([
+            ...Object.keys(latestFrames),
+            ...getOverviewScreenFileIds(existingFiles),
+            ...savedScreens.map((screen) => screen.id),
+          ]);
+          const nextRowY = nextFreeCanvasRowY(
+            currentData.canvasFrames,
+            layoutGap,
+            {
+              responsiveLayout: {
+                screenFileIds: Array.from(screenFileIds),
+                screenMetadataByFileId: placementMetadata,
+                breakpointWidths: getResponsiveBreakpointWidths(
+                  currentData.breakpointSet,
+                ),
+              },
+            },
+          );
+          const firstNewRowY = Math.min(
+            ...defaultYPlacementIndexes.map(
+              (index) => placementCandidates[index]?.y ?? 0,
+            ),
+          );
+          const rowOffset = Math.max(0, nextRowY - firstNewRowY);
+          placements = placementCandidates.map((placement, index) =>
+            defaultYPlacementIndexes.includes(index)
+              ? { ...placement, y: (placement.y ?? 0) + rowOffset }
+              : placement,
+          );
+        }
         const mergedFrames = mergeCanvasFramePlacements({
           existing: currentData.canvasFrames,
           placements,
           resolveFileId: (placement) => placement.fileId,
         });
-        const previousMetadata = isRecord(currentData.screenMetadata)
-          ? { ...currentData.screenMetadata }
-          : {};
         const previousLocalhostScreens = isRecord(currentData.localhostScreens)
           ? { ...currentData.localhostScreens }
           : {};
@@ -1183,9 +1396,6 @@ export default defineAction({
             ...(screen.routeMetadata ?? {}),
           });
 
-          // Preserve independently written legacy and canonical metadata keys.
-          // Each map keeps its own value on an unrelated same-key conflict,
-          // while localhost-owned fields above intentionally converge.
           previousMetadata[screen.id] = {
             ...currentLocalhostMetadata,
             ...currentMetadata,
@@ -1215,9 +1425,6 @@ export default defineAction({
           const ownedFrameFields: Partial<CanvasFrameGeometry> = {};
           if (placementIntent) {
             for (const key of ["x", "y", "width", "height", "z"] as const) {
-              // A newly created screen owns its initial geometry. A refresh of
-              // an existing screen only owns fields explicitly supplied by the
-              // caller; current canvas movement/resizing wins for the rest.
               if (
                 !placementIntent.existedAtStart ||
                 placementIntent.owns[key]
@@ -1346,4 +1553,5 @@ export default defineAction({
       view: "editor",
     };
   },
+  changeResource: (p, result) => designChangeResource(p.designId, result),
 });

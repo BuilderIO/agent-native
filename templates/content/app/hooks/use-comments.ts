@@ -2,12 +2,15 @@ import {
   useActionQuery,
   useActionMutation,
 } from "@agent-native/core/client/hooks";
+import {
+  parseCommentMentions,
+  type CommentMention,
+} from "@shared/comment-mentions";
 import { useQueryClient } from "@tanstack/react-query";
 
-export interface CommentMention {
-  email: string;
-  name: string;
-}
+import { useContentActionMutation } from "./use-content-action-mutation";
+
+export type { CommentMention };
 
 export interface CommentMutationState {
   operationId: string;
@@ -15,6 +18,12 @@ export interface CommentMutationState {
   status: "pending" | "error";
   error?: Error;
   ambiguous?: boolean;
+}
+
+export interface CommentReaction {
+  reaction: string;
+  count: number;
+  reactedByMe: boolean;
 }
 
 export interface Comment {
@@ -30,19 +39,26 @@ export interface Comment {
   mentions: CommentMention[];
   author_email: string;
   author_name: string | null;
+  actorKind?: "human" | "agent" | null;
   resolved: number;
   created_at: string;
   updated_at: string;
   notion_comment_id: string | null;
-  submission_source: string | null;
+  submission_source?: string | null;
   submission_run_id?: string | null;
+  /** The agent conversation whose run wrote this comment. */
+  submission_thread_id?: string | null;
+  /** Emoji reactions in first-reacted order. */
+  reactions?: CommentReaction[];
+  author_model?: string | null;
+  /** The thinking effort the writing run resolved, when one was recorded. */
+  author_effort?: string | null;
   mutation?: CommentMutationState;
 }
 
 export interface CommentThread {
   threadId: string;
   quotedText: string | null;
-  /** Robust anchor context, captured from the root comment. */
   prefix: string | null;
   suffix: string | null;
   startOffset: number | null;
@@ -291,32 +307,6 @@ function updateComments(
   return withComments(response, update(commentsFrom(response)));
 }
 
-function parsedMentions(value: string): CommentMention[] {
-  if (!value.trim()) return [];
-  try {
-    const parsed: unknown = JSON.parse(value);
-    if (!Array.isArray(parsed)) {
-      throw new Error("Comment mentions metadata must be an array");
-    }
-    return parsed.map((entry) => {
-      if (!entry || typeof entry !== "object") {
-        throw new Error("Comment mentions metadata contains an invalid entry");
-      }
-      const email = (entry as Record<string, unknown>).email;
-      const name = (entry as Record<string, unknown>).name;
-      if (typeof email !== "string" || !email) {
-        throw new Error("Comment mention email is required");
-      }
-      return { email, name: typeof name === "string" ? name : "" };
-    });
-  } catch (error) {
-    if (error instanceof Error && error.message.startsWith("Comment mention")) {
-      throw error;
-    }
-    throw new Error("Comment mentions metadata is not valid JSON");
-  }
-}
-
 function authorName(author: CommentAuthor): string | null {
   const explicit = author.name?.trim();
   if (explicit) return explicit;
@@ -356,7 +346,15 @@ function groupCommentThreads(data: unknown): CommentThread[] {
     data && typeof data === "object" && "comments" in data
       ? (data as { comments?: unknown }).comments
       : data;
-  const comments: Comment[] = Array.isArray(raw) ? raw : [];
+  const comments: Comment[] = Array.isArray(raw)
+    ? raw.map((value) => {
+        const comment = value as Comment & { actor_kind?: unknown };
+        const actorKind = comment.actorKind ?? comment.actor_kind;
+        return actorKind === "human" || actorKind === "agent"
+          ? { ...comment, actorKind }
+          : comment;
+      })
+    : [];
   const threadMap = new Map<string, CommentThread>();
   for (const comment of comments) {
     if (!threadMap.has(comment.thread_id)) {
@@ -427,9 +425,10 @@ export function useCreateComment(author: CommentAuthor = {}) {
         mentions:
           variables.mentions === undefined
             ? []
-            : parsedMentions(variables.mentions),
+            : parseCommentMentions(variables.mentions),
         author_email: author.email?.trim() ?? "",
         author_name: authorName(author),
+        actorKind: "human",
         resolved: 0,
         created_at: now,
         updated_at: now,
@@ -446,7 +445,10 @@ export function useCreateComment(author: CommentAuthor = {}) {
         comment: optimistic,
       });
       queryClient.setQueryData<CommentListResponse>(queryKey, (response) =>
-        updateComments(response, (comments) => [...comments, optimistic]),
+        updateComments(response, (comments) => [
+          ...comments.filter(({ id }) => id !== temporaryId),
+          optimistic,
+        ]),
       );
       return {
         operationId,
@@ -641,7 +643,7 @@ function useOptimisticCommentUpdate<
             mentions:
               editVariables.mentions === undefined
                 ? undefined
-                : parsedMentions(editVariables.mentions),
+                : parseCommentMentions(editVariables.mentions),
           });
         } else {
           const resolveVariables = variables as ResolveCommentVariables;
@@ -795,7 +797,7 @@ export function useEditComment() {
       mentions:
         variables.mentions === undefined
           ? comment.mentions
-          : parsedMentions(variables.mentions),
+          : parseCommentMentions(variables.mentions),
       updated_at: new Date().toISOString(),
     }),
   );
@@ -816,7 +818,95 @@ export function useResolveComment() {
 }
 
 export function useDeleteComment() {
-  return useActionMutation<{ ok: boolean }, { id: string; documentId: string }>(
-    "delete-comment",
-  );
+  return useContentActionMutation<
+    { ok: boolean },
+    { id: string; documentId: string }
+  >("delete-comment", {
+    invalidates: (_data, { documentId }) => [
+      commentQueryKey(documentId),
+      ["action", "list-comment-ai-requests", { documentId }],
+    ],
+  });
+}
+
+export interface ReactToCommentVariables {
+  documentId: string;
+  commentId: string;
+  reaction: string;
+  active: boolean;
+}
+
+/** Apply one person's reaction toggle to a comment's reaction summary. */
+export function toggleCommentReaction(
+  reactions: CommentReaction[] | undefined,
+  reaction: string,
+  active: boolean,
+): CommentReaction[] {
+  const current = reactions ?? [];
+  const existing = current.find((entry) => entry.reaction === reaction);
+  if (active) {
+    if (existing?.reactedByMe) return current;
+    return existing
+      ? current.map((entry) =>
+          entry.reaction === reaction
+            ? { ...entry, count: entry.count + 1, reactedByMe: true }
+            : entry,
+        )
+      : [...current, { reaction, count: 1, reactedByMe: true }];
+  }
+  if (!existing?.reactedByMe) return current;
+  return current
+    .map((entry) =>
+      entry.reaction === reaction
+        ? { ...entry, count: entry.count - 1, reactedByMe: false }
+        : entry,
+    )
+    .filter((entry) => entry.count > 0);
+}
+
+export function useReactToComment() {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    { commentId: string; reaction: string; active: boolean },
+    ReactToCommentVariables
+  >("react-to-comment", {
+    skipActionQueryInvalidation: true,
+    onMutate: async (variables) => {
+      const queryKey = commentQueryKey(variables.documentId);
+      await queryClient.cancelQueries({ queryKey, exact: true });
+      const previous = queryClient.getQueryData<CommentListResponse>(queryKey);
+      queryClient.setQueryData<CommentListResponse>(queryKey, (response) =>
+        updateComments(response, (comments) =>
+          comments.map((comment) =>
+            comment.id === variables.commentId
+              ? {
+                  ...comment,
+                  reactions: toggleCommentReaction(
+                    comment.reactions,
+                    variables.reaction,
+                    variables.active,
+                  ),
+                }
+              : comment,
+          ),
+        ),
+      );
+      return { previous };
+    },
+    onError: (_error, variables, context) => {
+      const previous = (
+        context as { previous?: CommentListResponse } | undefined
+      )?.previous;
+      if (previous !== undefined)
+        queryClient.setQueryData(
+          commentQueryKey(variables.documentId),
+          previous,
+        );
+    },
+    onSettled: (_data, _error, variables) =>
+      queryClient.invalidateQueries({
+        queryKey: commentQueryKey(variables.documentId),
+        exact: true,
+      }),
+  });
 }

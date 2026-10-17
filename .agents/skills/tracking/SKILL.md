@@ -13,7 +13,11 @@ metadata:
 
 ## Rule
 
-The tracking system provides a single `track()` call that fans out to all registered providers. Built-in providers auto-register from env vars -- set the var and tracking starts. Custom providers can be registered for any analytics backend. Tracking is server-side only, best-effort, and never blocks request handling.
+The tracking system provides a single server-side `track()` call that fans out
+to all registered providers, plus the browser-side `trackEvent()` counterpart.
+Built-in providers auto-register from env vars - set the var and tracking
+starts. Custom providers can be registered for any analytics backend. Both
+surfaces are best-effort and never block request handling.
 
 ## How It Works
 
@@ -106,12 +110,25 @@ Multiple providers can be active simultaneously. All receive every event.
 
 Browser-side `trackEvent()` also forwards to Agent-Native Analytics when `VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY` is present. Use `VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT` to override the default browser endpoint. The built-in Agent-Native Analytics sender is quiet on localhost/local dev by default; set `AGENT_NATIVE_ANALYTICS_ALLOW_LOCALHOST=true` only for an intentional local ingestion test.
 
+An app served from a hosted beta host (`beta.*.agent-native.com`) reports to beta Analytics: `resolveLaneEndpoint` moves an endpoint on a production lane host to its beta lane for browser events, auth-page events, replay uploads, and server events. A new sender that reads the analytics endpoint must pass it through `resolveLaneEndpoint` too, or beta traffic splits. Beta and production Analytics share one database, so an ingest change runs on beta traffic first, and checking it on beta proves the merged code rather than production's. An endpoint on any other host is left as configured.
+
 ## Error Capture
 
 Exceptions fan out through `server/capture-error.ts` to every registered
-backend — Sentry, PostHog, and the tracking providers — from one `captureError()`
-call. Backends are additive: configuring a second one does not displace the
-first, and no backend is required for the others to work.
+backend - Sentry, PostHog, and the tracking providers - from one
+`captureError()` call. Backends are additive: configuring a second one does not
+displace the first, and no backend is required for the others to work.
+
+When first-party Agent-Native Analytics is configured, browser
+`configureTracking()` captures uncaught errors, unhandled rejections, and
+manual `captureException()` calls as `$exception` events through `/track`.
+On the server, the core route plugin registers the tracking capture provider:
+`captureError()` calls `captureException()`, and the Agent-Native provider sends
+the same event when the server public key is configured. Analytics groups both
+into owner-scoped `error_issues` and `error_events`, shown in Monitoring ->
+Errors and exposed to authenticated agents through `list-error-issues` and
+`get-error-issue`. This remains available even when external Sentry is
+unavailable or rate-limited.
 
 Emit through `captureError()` / `captureException()`. Never hand-roll a
 `track("$exception", …)`: each backend needs its own payload shape and the
@@ -121,10 +138,26 @@ providers build it.
   `error` hook is in `core-routes-plugin.ts`, not `sentry-plugin.ts`, because
   that plugin returns early when no `SENTRY_DSN` is set — hooking route errors
   there meant an app on any other backend silently reported none.
-- **Every backend applies `server/error-noise-filter.ts`.** It holds
-  production-tuned drop rules (expected 4xx, access-control rejections, Lambda
-  freeze/thaw `socket hang up`). A backend that skips it receives a firehose;
-  the `socket hang up` rule alone is ~10k events/day.
+- **`captureError()` is the one noise and flood boundary.** The drop rules live
+  in `shared/error-noise.ts` (expected 4xx, access-control rejections, Lambda
+  `socket hang up`, third-party/extension/GTM stacks, stale chunks, opaque
+  `Script error.`); the Nitro hook, every explicit `captureError()` call, the
+  browser capture, Sentry `beforeSend`, and the analytics ingest all call
+  `classifyErrorNoise()`. After the filter, `server/capture-error.ts` folds
+  transient-database, database-credential, and configuration failures into one
+  aggregate per (class, route): the first event immediately, then one summary
+  per window carrying `suppressedCount`. Every drop is counted
+  (`getCaptureErrorStats()`); an error that matches no rule is reported every
+  time. A backend must hang off `registerErrorCaptureProvider`, never call a
+  provider SDK from a catch block, or it skips both. Two escape hatches keep a
+  rule from hiding a real failure: tag a capture
+  `reportExpected: "true"` (`REPORT_EXPECTED_FAILURE_TAG`) when your code raises
+  an access-control or 4xx failure as a failure (a runner whose grant was
+  lost), and give an explicit browser capture a `context` or `area` tag so a
+  stackless Safari/Firefox network error from it is not dropped as
+  unattributable. Stale-chunk failures are dropped because route-chunk-recovery
+  reloads on them; when it cannot (cooldown, desktop) it reports one
+  `RouteChunkRecoveryExhausted` per page session instead.
 - **A backend can accept a malformed payload and still show a count.** PostHog
   ingested the framework's camelCase `$exception` for a long time and rendered
   empty, ungroupable issues — which reads as coverage, not as breakage. When
@@ -134,6 +167,73 @@ providers build it.
   `anonymous` and split one person in two against their browser events. Pass
   `aiTraceId` for anything inside an agent run so the issue and the LLM trace
   resolve to each other.
+- **Every server capture carries a failure packet** at
+  `extra.failureContext` (`observability/failure-context.ts`): app, route,
+  action or automation name, `threadId`, `runId`, `requestId`, `userScope`
+  (`org` or `personal`, never an email), `threadUrl`
+  (`https://<app host>/?thread=<chat_threads.id>`), build, environment,
+  `errorCode`, `failureClass`. The boundary derives it from what the call site
+  already passes (`tags.action`, `extra.runId` / `threadId` / `request_id`,
+  `aiTraceId`) and from the ambient chat run, so a capture inside a run names
+  its thread with no change at the call site. Work that runs outside any
+  request (a scheduled automation) passes `failure: { threadId, automationName,
+  userScope }` on the capture. A run id also becomes `aiTraceId`. The Analytics
+  issue page links `threadUrl`; hand any agent the packet and it can run
+  `get-agent-thread-debug` with the `runId`. Never put an email, a token or a
+  prompt in it.
+- **Rates are events, not log lines.** `tracking/failure-counters.ts` counts a
+  failure class per (event, bounded dimensions) and ships `count` per window
+  (first occurrence at once, the rest once a minute, `SUM(count)` is exact):
+  `action_error_counts` (`action_name`, `error_code`, `status_class`,
+  `action_source`) and `credential_state_counts` (`credential_state`,
+  `credential_subject`, `source`). Automation pauses and automatic resumes are
+  `automation_paused` / `automation_resumed` (`automation_hash`, never the
+  name), the client's open circuits are `action_circuit_tripped`, and a chat run
+  that ended on a credential problem is a `$ai_trace` with `credential_state`.
+  Attachment mint/resolve/delete outcomes (ok included) are
+  `attachment_outcome_counts` (`operation`, `status`, `reason`, `who_can_fix`),
+  and a template counts its own classes with `countOutcome("<thing>_counts",
+  { ...tokens })` from `@agent-native/core/tracking` (Mail's Gmail cooldowns are
+  `gmail_cooldown_counts`, by `site`). Never one event per failure; a name that
+  is not `<thing>_counts` is dropped with one console error.
+- **Browser outcomes are bounded, too.** `agent_run_outcome` is one event per
+  run (`outcome`, legacy `code`, `terminal_source`,
+  `verified_after_pipe_closed`, `resume_attempts`, `run_id`, `thread_id`):
+  every `interrupted` / `failed` / `unverified` run up to 30 per page, every
+  `stopped` run up to its own 30 (so stops never crowd out failures), and
+  `succeeded` sampled at 10% with `sample_weight`. A turn the server refuses
+  at its start (no model connected, a 5xx) is a `failed` run too, with
+  `terminal_source: local` and the refused turn's id. A failed or
+  interrupted run adds its `cause` from `AGENT_TROUBLE_CAUSES` when one fits
+  its `code`, and Analytics groups the rest by `code`. A code that is not
+  an identifier is sent as `unrecognized_code` (`agentErrorCodeForTelemetry`),
+  because a thrower's `data.code` can be a sentence. It never carries the
+  run's message, not even redacted: no pattern can tell an unquoted document
+  or person's name from the words around it, so a message stays out of every
+  event. A provider error is `provider_error` only when its code
+  came from a structured HTTP status (`http_5xx`, including a status on a
+  wrapped cause); a status that appears only in message text is not read. `agent_feedback_submitted` (`sentiment`,
+  `run_id`, `thread_id`) is the browser's copy of a thumbs rating, because
+  `$ai_feedback` has no browser session. Every `pageview` carries
+  `agent_signals: 1` (`AGENT_SIGNALS_PAGEVIEW_PROPERTY`): clients before it
+  sampled stops at 10% and sent no ratings or `page_load_id`, so Analytics
+  reads a session's cancelled runs, thumbs-down, and quick backs as measured
+  only after seeing the marker and while no unmarked pageview or sampled stop
+  shares the session (tabs share one session id), and counts only stops sent
+  unsampled. Keep all three guarantees while the marker ships. Every
+  `pageview` also carries `page_load_id` (`PAGE_LOAD_PAGEVIEW_PROPERTY`),
+  the same until the page reloads, because quick backs compare pages only
+  within one page load.
+  `session_navigation` is one event per document that left because of the
+  session (`reason`, and for `signed_out` the `evidence`: `signed_out_body` or
+  `http_401`), never the destination. Both are emitted from the single place
+  that decides (`agentkit-protocol.ts`, `navigateForSession`; a refused
+  start from the transport's start-run catch), not the callers.
+  `agent_chat_stuck_detected` fires once per run and only while the stuck
+  banner shows, so Analytics' stuck chats are ones the person saw. It carries
+  `reason`, `dispatchMode`, `hasInFlightWork` and `heartbeatSinceSec`, so a run
+  the server still holds (a live background worker) reads differently from a
+  dead one.
 
 Symbolication is per-backend and not automatic: the framework uploads no source
 maps to PostHog, so minified browser stacks stay minified there. Known gap, not
@@ -141,7 +241,8 @@ a bug to re-diagnose.
 
 ### Browser keys and the SSR shell
 
-Public keys (`POSTHOG_PUBLIC_KEY`, the Sentry client DSN) ship inside the
+Public keys (`POSTHOG_PUBLIC_KEY`, the Sentry client DSN, and the first-party
+Analytics public key) ship inside the
 CDN-cached SSR shell — publishable and identical for every visitor. Server keys
 never do, and are never a fallback for a public one: `POSTHOG_API_KEY` may be a
 private key and this value lands in public HTML.
@@ -210,7 +311,7 @@ Template roots call `configureTracking()` once during app startup. That installs
 - Event: `pageview`
 - Fires on initial load, `history.pushState`, `history.replaceState`, and `popstate`
 - De-dupes repeated events for the same URL
-- Includes `url`, `path`, `hostname`, `referrer`, `title`, `navigation_type`, `app`, and inferred `template`
+- Includes `url`, `path`, `hostname`, `referrer`, `title`, `navigation_type`, `agent_signals`, `page_load_id`, `app`, and inferred `template`
 - Includes LLM connection context on browser events when known: `llm_connection` (`builder`, `anthropic`, `openai`, etc.), `llm_engine`, `llm_model`, `llm_connection_source`, and `llm_connection_configured`
 - Does not send first-party events from localhost/local dev
 
@@ -228,13 +329,15 @@ These fields land in the `analytics_events.anonymous_id`, `analytics_events.sess
 
 `configureTracking()` also captures an anonymous visitor's **first-touch** referral context once, on first page load, and persists it across the signup boundary so the server-side `signup` event records where the user came from. This powers virality metrics for every template (Clips share links, Plans public pages, etc.).
 
+There is one capture implementation, `captureAttribution()` from `@agent-native/core/client/analytics`. Every page that can be someone's first visit calls it, including the server-rendered sign-in page, which never runs `configureTracking()` and passes `{ landingPath }` so `landing_path` names the app path behind the sign-in page. Never copy the capture into a page: the sign-in page's private copy silently dropped ad click ids, site handoff fields, and last touch for every visitor who landed on it.
+
 **Share-link params** (set by whatever generates the link; read client-side only):
 
 - `ref` — referral source bucket, e.g. `clip_share`, `plan_share`
 - `via` — the referrer's stable user id (the clip/plan owner)
 - `utm_source`, `utm_medium`, `utm_campaign`, `utm_content`, `utm_term`
 
-**Client persistence** (first-write-wins — an existing value is never overwritten):
+**Client persistence** (first-write-wins, except that the first visit with a source replaces one without; last touch lives in `an_last_touch` / `an_lt`):
 
 - `localStorage` key `an_attribution` and first-party cookie `an_ft` (`path=/; max-age=2592000; SameSite=Lax`, not HttpOnly — non-sensitive, written by client JS).
 - Both store the same URL-encoded compact JSON (empty fields omitted, each value capped at 120 chars): `{ ref, via, utm_source, utm_medium, utm_campaign, utm_content, utm_term, landing_path, landing_referrer, landed_at }`. `landing_referrer` is the **host only** of `document.referrer` (scrubbed; same-origin referrers are dropped).
@@ -253,28 +356,50 @@ Other framework-level baseline events:
 
 - `session status` from `useSession()`, with `signed_in`
 - `action.response` from the browser action transport, with action name,
+  the `route` template of the page that made the request (omitted when no
+  manifest route matches),
   browser-perceived duration and TTFB, response status/outcome, response size
   when known, and parsed `Server-Timing` phases for framework readiness and
   database work. Its `request_id` joins the exact browser and server events.
-  This separates server time from CDN/network/body overhead.
-- `http.response` from Nitro request/response hooks, with normalized path,
-  status, request duration, first-request-in-isolate cold marker, process age,
-  framework readiness wait, deploy/runtime fingerprint, database
-  connection/query counts and timings, retries, timeouts, and failures. It also
-  emits `Server-Timing` for `app`, `startup`, `db`, `db-connect`, and
-  `db-slowest` plus an `X-Agent-Native-Request-Id` correlation header where
-  applicable. Query text and parameters are never captured.
-  Database activity that begins during the first two minutes of process/plugin
-  initialization is reported separately as `startup_db_*` on the first
-  framework request that passes the readiness gate.
-  Slow, cold-isolate, server failures, and 4xx action routes are always
-  retained; fast successful requests default to 10% sampling. Override with
-  `AGENT_NATIVE_HTTP_TELEMETRY_SAMPLE_RATE` on the server and
-  `VITE_AGENT_NATIVE_ACTION_TELEMETRY_SAMPLE_RATE` in the browser.
+  This separates server time from CDN/network/body overhead. One at or over
+  `SLOW_ACTION_RESPONSE_MS` (1 s) is never sampled. When someone waited for
+  it (`isWaitedActionResponse`: the page stayed visible and the request was
+  not cancelled), it is also marked on the session replay
+  (`agent-native.slow_request`) with its action, method, duration, status,
+  outcome, and `page_hidden`.
+- `web_vitals` once per page view, with the React Router `route` template
+  (`/sessions/:id`, never the ids; omitted when no manifest route matches,
+  because a normalized raw path still carries slugs and emails. It is the one
+  tracked event with no `url` or `path`, even from `getDefaultProps`:
+  `ROUTE_ONLY_EVENT_NAMES` in `client/analytics.ts` strips them),
+  `navigation_type` (`load`, `client`, or `resume` after the tab was
+  hidden, sent only when it saw an interaction or layout shift), and
+  `ttfb_ms`, `lcp_ms`, `inp_ms`, and `cls`. TTFB and LCP exist only for
+  document loads, a load in a background tab is not reported, and a metric the browser cannot measure (including CLS when
+  the layout-shift observer fails) is omitted rather than sent as 0. A page
+  view ends on `pushState`/`popstate` to another path or when the tab is
+  hidden; `replaceState` keeps it, so redirects land on the final route.
+  Measured with native `PerformanceObserver`s; `configureTracking({
+  webVitals: false })` turns it off. Each page view also marks the replay.
+- Request timing is an OpenTelemetry `http.server` span, not a product event. Each
+  framework HTTP request records method, bounded route template, status code,
+  first-request-in-isolate cold marker, framework readiness wait, and database
+  operation count and wall time. The span goes only to the registered
+  OpenTelemetry provider and never reaches analytics providers, so it cannot
+  fire product alerts. Its status is `error` for 5xx responses only. Ingest
+  endpoints, `/api/analytics/replay`, and `AGENT_NATIVE_HTTP_TELEMETRY_DISABLED`
+  record no span. Cold or 1 s-plus requests also write an
+  `agent-native.slow_request` log line with process age, readiness wait, and
+  database timings. Responses carry `Server-Timing` for `app`, `startup`, `db`,
+  `db-connect`, and `db-slowest` (plus `startup-db-*` for initialization
+  database work) and an `X-Agent-Native-Request-Id` header where applicable.
+  Query text and parameters are never captured. There is no sampling knob for
+  this span; export volume is governed by the OpenTelemetry sampler.
 - `signup` from Better Auth user creation, with `auth_provider`, `auth_user_id`, and first-touch referral attribution (`referral_source`, `referrer_user`, `referral_medium`, `referral_campaign`, `utm_*`, `first_touch_path`, `landing_referrer` — see "Referral / viral attribution" above)
-- `builder connect clicked` and `builder connect popup blocked` from browser Connect Builder CTAs
+- `builder connect clicked` and `builder connect popup blocked` from browser Use Builder.io CTAs
 - `builder connect started`, `builder connect succeeded`, `builder connect failed`, `builder disconnect succeeded`, and `builder disconnect failed` from the Builder connection routes, with LLM connection context when resolvable
-- `$ai_generation` from instrumented agent loops, with PostHog AI Observability fields such as `$ai_trace_id`, `$ai_session_id`, `$ai_model`, `$ai_provider`, `$ai_input_tokens`, `$ai_output_tokens`, `$ai_latency`, `$ai_total_cost_usd`, and mirrored Agent-Native query fields such as `run_id`, `thread_id`, `cost_cents_x100`, `duration_ms`, `tool_calls`, and `status`. A bounded `tools` array contains names, start offsets, durations, statuses, and coarse error classes only; interrupted tools and failed runs remain visible, and delegated runs include protocol/task/parent-run/parent-turn correlation. Prompt, tool argument, result, and output content is excluded unless `captureToolResults` is opted in (see the `observability` skill), in which case each failed tool call also carries a `error_message` string truncated to 500 characters and already scrubbed of bearer tokens, API keys, and key/value secret patterns.
+- `$ai_generation` from instrumented agent loops, with PostHog AI Observability fields such as `$ai_trace_id`, `$ai_session_id`, `$ai_model`, `$ai_provider`, `$ai_input_tokens`, `$ai_output_tokens`, `$ai_latency`, `$ai_total_cost_usd`, and mirrored Agent-Native query fields such as `run_id`, `thread_id`, `cost_cents_x100`, `duration_ms`, `tool_calls`, and `status`. A bounded `tools` array contains names, start offsets, durations, statuses, and coarse error classes only; interrupted tools and failed runs remain visible, and delegated runs include protocol/task/parent-run/parent-turn correlation. Run failure messages are omitted from every tracking provider even with content capture enabled. `$ai_error` carries a fixed message derived from `terminal_code`, a named `cause`, terminal state, and retryability. The `error_message` field and tool error output text are absent. Local trace SQL retains debugging detail under the observability capture settings.
+- `agent_run_terminal` carries `error_code` and `error_cause`, never `error_detail`. Run and completion captures, and Builder gateway failures, use `captureError(..., { errorMessagePolicy: "omit" })`: providers receive the original exception type, stack frames without the original message header or nested causes, and a fixed `Internal Server Error` message. Noise filtering still sees the original failure; flood summaries use the fixed label. Monitoring groups by app, type, frame, error code, and failure class instead of user-specific message wording.
 
 For new lifecycle events, call `track()` server-side when the server is the source of truth, and `trackEvent()` client-side only for browser interactions.
 
@@ -301,6 +426,17 @@ only: it does not install mouse, pointer, scroll, keypress, or DOM autocapture.
 Existing legacy events remain available and emit their canonical lifecycle
 counterpart where the meaning is unambiguous, so downstream dashboards can
 migrate without losing historical names.
+
+### Event name migration
+
+All new event names and properties use lowercase `snake_case`. The shared
+`track()` and browser `trackEvent()` emitters preserve a legacy event exactly
+and, for names in `LEGACY_TRACKING_EVENT_NAME_ALIASES`, emit a canonical alias
+with `legacy_event_name` and `canonical_event_name` provenance properties. Use
+the canonical alias for new dashboards and new call sites; do not normalize
+historical warehouse rows or add new legacy names. Provider/framework names
+such as `$ai_*`, `$mcp_*`, `$exception`, `action.response`, and
+`app.first_action` are intentional exceptions.
 
 ## Provider Interface
 
@@ -339,6 +475,7 @@ interface TrackingEvent {
 | `packages/core/src/tracking/types.ts`     | `TrackingEvent` and `TrackingProvider` interfaces                                                                   |
 | `packages/core/src/tracking/posthog-exception.ts` | `$exception_list` builder + stack-frame parser (isomorphic: server and browser)                             |
 | `packages/core/src/tracking/redaction.ts` | Shared bounding/redaction helpers used by every exception emitter                                                   |
+| `packages/core/src/shared/error-noise.ts` | The one noise rule set (`classifyErrorNoise`) plus frame-origin and PII scrubbers; browser, server, Sentry, and ingest all call it |
 | `packages/core/src/server/error-noise-filter.ts` | Provider-agnostic drop rules, applied by both Sentry `beforeSend` and the route error hook                   |
 | `packages/core/src/server/posthog-config.ts` | Public browser PostHog config (mirrored in `deploy/build.ts`)                                                    |
 

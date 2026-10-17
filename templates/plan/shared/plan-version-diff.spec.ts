@@ -7,10 +7,6 @@ import {
   type PlanVersionDiff,
 } from "./plan-version-diff.js";
 
-/* -------------------------------------------------------------------------- */
-/* Helpers                                                                     */
-/* -------------------------------------------------------------------------- */
-
 function makeContent(blocks: PlanContent["blocks"]): PlanContent {
   return { version: 2, blocks };
 }
@@ -38,10 +34,6 @@ function diagram(id: string, caption: string) {
     data: { caption, nodes: [{ id: "n1", label: "A" }], edges: [] },
   };
 }
-
-/* -------------------------------------------------------------------------- */
-/* Core block-level diffs                                                     */
-/* -------------------------------------------------------------------------- */
 
 describe("diffPlanVersions — block diffs", () => {
   it("detects added blocks", () => {
@@ -107,16 +99,48 @@ describe("diffPlanVersions — block diffs", () => {
     expect(diff.changedBlocks).toHaveLength(0);
   });
 
+  it("labels a legacy data-model block without entities", () => {
+    const block = {
+      id: "model-1",
+      type: "data-model",
+      data: {},
+    } as unknown as PlanContent["blocks"][number];
+
+    const result = diffPlanVersions(
+      { content: makeContent([block]) },
+      { content: makeContent([]) },
+    );
+
+    expect(result.kind).toBe("diff");
+    if (result.kind !== "diff") throw new Error("unreachable");
+    expect(result.diff.addedBlocks).toEqual([
+      { id: "model-1", label: "Data model" },
+    ]);
+  });
+
+  it("labels a legacy tabs block without tabs", () => {
+    const block = {
+      id: "tabs-1",
+      type: "tabs",
+      data: {},
+    } as unknown as PlanContent["blocks"][number];
+
+    const result = diffPlanVersions(
+      { content: makeContent([block]) },
+      { content: makeContent([]) },
+    );
+
+    expect(result.kind).toBe("diff");
+    if (result.kind !== "diff") throw new Error("unreachable");
+    expect(result.diff.addedBlocks).toEqual([{ id: "tabs-1", label: "Tabs" }]);
+  });
+
   it("returns initial for oldest version (older = null)", () => {
     const content = makeContent([richText("a", "Hello")]);
     const result = diffPlanVersions({ content }, null);
     expect(result.kind).toBe("initial");
   });
 });
-
-/* -------------------------------------------------------------------------- */
-/* Nested container blocks (tabs/columns)                                     */
-/* -------------------------------------------------------------------------- */
 
 describe("diffPlanVersions — nested containers", () => {
   it("finds added leaf blocks inside a tabs container", () => {
@@ -159,7 +183,6 @@ describe("diffPlanVersions — nested containers", () => {
     if (result.kind !== "diff") throw new Error("unreachable");
 
     expect(result.diff.addedBlocks.map((b) => b.id)).toContain("inner-b");
-    // The outer tabs block changed (its children changed), so it shows up as changed
     expect(result.diff.changedBlocks.map((b) => b.id)).toContain("tabs1");
   });
 
@@ -209,10 +232,6 @@ describe("diffPlanVersions — nested containers", () => {
   });
 });
 
-/* -------------------------------------------------------------------------- */
-/* Legacy section plans                                                       */
-/* -------------------------------------------------------------------------- */
-
 describe("diffPlanVersions — legacy sections", () => {
   it("detects added and removed sections", () => {
     const olderSections = [
@@ -248,10 +267,6 @@ describe("diffPlanVersions — legacy sections", () => {
   });
 });
 
-/* -------------------------------------------------------------------------- */
-/* HTML-only legacy plans                                                     */
-/* -------------------------------------------------------------------------- */
-
 describe("diffPlanVersions — html-only plans", () => {
   it("returns html-only for plans with no content or sections", () => {
     const result = diffPlanVersions(
@@ -269,10 +284,6 @@ describe("diffPlanVersions — html-only plans", () => {
     expect(result.kind).toBe("html-only");
   });
 });
-
-/* -------------------------------------------------------------------------- */
-/* formatVersionDiffSummary                                                   */
-/* -------------------------------------------------------------------------- */
 
 describe("formatVersionDiffSummary", () => {
   it("returns 'Initial version' for initial kind", () => {
@@ -310,7 +321,6 @@ describe("formatVersionDiffSummary", () => {
     expect(summary).toContain("+3 blocks");
     expect(summary).toContain("Architecture");
     expect(summary).toContain("Wireframe");
-    // Third label should be truncated to "+1 more"
     expect(summary).toContain("+1 more");
     expect(summary).not.toContain("Data model");
   });
@@ -356,10 +366,6 @@ describe("formatVersionDiffSummary", () => {
     expect(summary).toContain("+2 more");
   });
 });
-
-/* -------------------------------------------------------------------------- */
-/* Block label extraction                                                     */
-/* -------------------------------------------------------------------------- */
 
 describe("block label extraction", () => {
   it("uses block.title when present", () => {

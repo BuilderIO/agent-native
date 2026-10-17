@@ -1,22 +1,3 @@
-/**
- * Zod shape for a form field, shared by every action that accepts field
- * objects (create-form, update-form, patch-form-fields). This is the
- * documented, per-type property surface an agent needs — `FIELD_TYPES` and
- * `FIELD_ID_PATTERN` come from `server/lib/validate-fields.ts`, which stays
- * the runtime source of truth for cross-field rules (duplicate ids,
- * conditional ordering, file-metadata limits) this schema can't express on
- * a single field in isolation. Update both together.
- *
- * `FormField` (./types.ts) is a flat interface, not a discriminated union —
- * most properties are meaningful for more than one type (e.g. `options` for
- * select/multiselect/radio, `validation.min/max` for number/rating/scale/
- * text length), so this mirrors that shape instead of forcing a union. Zod
- * strips unrecognized keys by default (no `.catchall`/`.passthrough`) so the
- * inferred type has no index signature and stays assignable to/from
- * `FormField` at every call site — the same shape the app's local `FormField`
- * state already uses, so there is nothing legitimate a passthrough key would
- * carry that this schema doesn't already name.
- */
 import { z } from "zod";
 
 import {

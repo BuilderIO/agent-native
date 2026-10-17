@@ -173,8 +173,14 @@ async function cleanupDatabaseFixture(page: Page, fixture: DatabaseFixture) {
     databaseId: fixture.databaseId,
   });
   expect(trashed.documentId).toBe(fixture.databaseDocumentId);
+  const plan = await runAction(page, "plan-content-trash-purge", {
+    mode: "selection",
+    documentIds: [fixture.databaseDocumentId],
+  });
   await runAction(page, "permanently-delete-document", {
     id: fixture.databaseDocumentId,
+    planId: plan.planId,
+    scopeToken: plan.scopeToken,
   });
 }
 
@@ -315,10 +321,10 @@ test("database Page preview preserves controls, row identity, and dirty handoff"
         preview.getByRole("button", { name: "Open page" }),
       ).toBeVisible();
       await expect(
-        preview.getByRole("button", { name: "Previous database page" }),
+        preview.getByRole("button", { name: "Previous collection page" }),
       ).toBeDisabled();
       await expect(
-        preview.getByRole("button", { name: "Next database page" }),
+        preview.getByRole("button", { name: "Next collection page" }),
       ).toBeEnabled();
       await expectCanonicalPageControls(preview);
       if (viewport.width === 390) {
@@ -397,7 +403,7 @@ test("database Page preview preserves controls, row identity, and dirty handoff"
     const dirtyBody = `${rowA.body}\n\nImmediate preview edit`;
     await preview.getByLabel("Document title").fill(dirtyTitle);
     await preview.locator(".ProseMirror").fill(dirtyBody);
-    await preview.getByRole("button", { name: "Next database page" }).click();
+    await preview.getByRole("button", { name: "Next collection page" }).click();
 
     preview = previewDialog(page);
     await expect(preview.getByLabel("Document title")).toHaveValue(rowB.title);
@@ -406,10 +412,10 @@ test("database Page preview preserves controls, row identity, and dirty handoff"
       "Immediate preview edit",
     );
     await expect(
-      preview.getByRole("button", { name: "Next database page" }),
+      preview.getByRole("button", { name: "Next collection page" }),
     ).toBeDisabled();
     await preview
-      .getByRole("button", { name: "Previous database page" })
+      .getByRole("button", { name: "Previous collection page" })
       .click();
     await expect(preview.getByLabel("Document title")).toHaveValue(dirtyTitle);
     await expect(preview.locator(".ProseMirror")).toContainText(
@@ -506,9 +512,6 @@ test("database Page preview reflects mocked Page role capabilities and unavailab
     const row = fixture.rows[0]!;
     const databasePageUrl = `/page/${fixture.databaseDocumentId}`;
 
-    // Authentication, fixture ownership, and this baseline read are real local
-    // server evidence. The role projections below mock only get-document so the
-    // shared Page host can be checked deterministically for every capability.
     const ownedDocument = await readAction(page, "get-document", {
       id: row.documentId,
       databaseId: fixture.databaseId,

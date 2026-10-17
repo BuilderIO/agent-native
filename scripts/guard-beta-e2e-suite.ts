@@ -1,24 +1,16 @@
 import { readFileSync } from "node:fs";
 
+import ts from "typescript";
 import { parse } from "yaml";
-
-/**
- * Keep the beta E2E suite honest about the two things it cannot check itself.
- *
- * 1. It must only ever point at beta hosts. Pointed at production it would
- *    sign in as a real identity, spend tokens, and write to live data — and the
- *    run would still report green, which is the worst possible outcome.
- * 2. It must stay budgeted on luna. The model id lives in one helper; a change
- *    there silently multiplies the cost of every run, and nothing else in CI
- *    would notice.
- *
- * Also checks the fleet list is not duplicated: the suite reads
- * `scripts/netlify-beta-sites.json`, so a newly deployed beta site is covered
- * automatically. A second hardcoded host list would quietly stop being updated.
- */
 
 const workflowPath = ".github/workflows/beta-e2e.yml";
 const scheduledWorkflowPath = ".github/workflows/beta-e2e-scheduled.yml";
+const signupScheduledWorkflowPath =
+  ".github/workflows/signup-e2e-scheduled.yml";
+const signupAgentScheduledWorkflowPath =
+  ".github/workflows/signup-agent-scheduled.yml";
+const reportWorkflowPath = ".github/workflows/beta-e2e-report.yml";
+const scheduledDigestPath = "scripts/beta-e2e-digest.ts";
 const fleetPath = "e2e/beta/lib/fleet.ts";
 const chatPath = "e2e/beta/lib/chat.ts";
 const sitesPath = "scripts/netlify-beta-sites.json";
@@ -26,6 +18,7 @@ const configPath = "e2e/beta/playwright.config.ts";
 const globalSetupPath = "e2e/beta/global-setup.ts";
 
 const issues: string[] = [];
+const forbiddenIssueFragments = ["issues: write", "gh issue ", "ISSUE_TITLE"];
 
 function read(path: string): string {
   try {
@@ -38,29 +31,52 @@ function read(path: string): string {
   }
 }
 
+function findExportedConstDeclaration(
+  source: ts.SourceFile,
+  name: string,
+): ts.VariableDeclaration | undefined {
+  const declarations = source.statements
+    .filter(
+      (statement): statement is ts.VariableStatement =>
+        ts.isVariableStatement(statement) &&
+        (statement.declarationList.flags & ts.NodeFlags.Const) !== 0 &&
+        statement.modifiers?.some(
+          (modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword,
+        ) === true,
+    )
+    .flatMap((statement) => statement.declarationList.declarations)
+    .filter(
+      (declaration) =>
+        ts.isIdentifier(declaration.name) && declaration.name.text === name,
+    );
+
+  return declarations.length === 1 ? declarations[0] : undefined;
+}
+
 const workflow = read(workflowPath);
 const scheduledWorkflow = read(scheduledWorkflowPath);
+const signupScheduledWorkflow = read(signupScheduledWorkflowPath);
+const signupAgentScheduledWorkflow = read(signupAgentScheduledWorkflowPath);
+const reportWorkflow = read(reportWorkflowPath);
+const scheduledDigest = read(scheduledDigestPath);
 const fleet = read(fleetPath);
 const chat = read(chatPath);
 const config = read(configPath);
 const globalSetup = read(globalSetupPath);
 const sitesRaw = read(sitesPath);
 
-// 1. The fleet is derived, not duplicated.
 if (fleet && !fleet.includes("netlify-beta-sites.json")) {
   issues.push(
     `${fleetPath} no longer reads ${sitesPath}. The suite must derive its host list from the deploy list so a new beta site is covered without a second edit.`,
   );
 }
 
-// 2. Non-beta hosts are refused at the boundary.
 if (fleet && !fleet.includes('startsWith("beta.")')) {
   issues.push(
     `${fleetPath} dropped its beta-host check. Without it this suite can be pointed at production, where it would sign in as a real user and write to live data.`,
   );
 }
 
-// 3. Every host in the deploy list really is a beta host.
 if (sitesRaw) {
   try {
     const sites = JSON.parse(sitesRaw) as { id?: string; host?: string }[];
@@ -77,12 +93,44 @@ if (sitesRaw) {
   }
 }
 
-// 4. The budget model stays luna.
 if (chat) {
-  const lunaIds = [...chat.matchAll(/gpt-5[.-]6-luna/g)];
-  if (lunaIds.length === 0) {
+  const chatSource = ts.createSourceFile(
+    chatPath,
+    chat,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
+  for (const name of ["LUNA_OPENAI_MODEL", "LUNA_BUILDER_MODEL"] as const) {
+    const initializer = findExportedConstDeclaration(
+      chatSource,
+      name,
+    )?.initializer;
+    const configured =
+      initializer &&
+      (ts.isStringLiteral(initializer) ||
+        ts.isNoSubstitutionTemplateLiteral(initializer))
+        ? initializer.text
+        : undefined;
+    if (configured !== "gpt-6-luna") {
+      issues.push(
+        `${chatPath} ${name} must be set to gpt-6-luna; found ${JSON.stringify(configured ?? (initializer ? "non-string initializer" : "missing"))}. This suite is budgeted for the current low-cost model.`,
+      );
+    }
+  }
+  const modelPatternDeclaration = findExportedConstDeclaration(
+    chatSource,
+    "LUNA_MODEL_PATTERN",
+  );
+  const modelPatternInitializer = modelPatternDeclaration?.initializer;
+  if (
+    !modelPatternInitializer ||
+    !ts.isRegularExpressionLiteral(modelPatternInitializer) ||
+    modelPatternInitializer.getText(chatSource) !==
+      String.raw`/^(?:openai\/)?gpt-(?:5[.-]6|6)-luna$/i`
+  ) {
     issues.push(
-      `${chatPath} no longer names a luna model id. This suite is budgeted for luna; changing the model changes what every run costs.`,
+      `${chatPath} LUNA_MODEL_PATTERN must accept only the current low-cost model aliases. Loosening the pattern can make the budget guard accept a more expensive model.`,
     );
   }
   if (!chat.includes("assertOnlyLuna")) {
@@ -92,7 +140,6 @@ if (chat) {
   }
 }
 
-// 5. The shared OpenAI key stays opt-in.
 if (workflow && !workflow.includes("inputs.key_source == 'shared'")) {
   issues.push(
     `${workflowPath} no longer gates BETA_E2E_ALLOW_SHARED_KEY on an explicit dispatch choice. Billing the repository's shared OPENAI_API_KEY implicitly is precisely what a dedicated, separately-limited key exists to prevent.`,
@@ -125,28 +172,42 @@ if (
   );
 }
 
-// 6. Missing credentials must fail, never skip.
 if (globalSetup && !/throw new Error/.test(globalSetup)) {
   issues.push(
     `${globalSetupPath} no longer throws. An authenticated run that degrades to an anonymous one reports green while testing nothing.`,
   );
 }
+if (globalSetup && !globalSetup.includes("withHostDeadline")) {
+  issues.push(
+    `${globalSetupPath} no longer runs each host's setup under a deadline. One host that accepts a request and goes silent stalls the whole job until its timeout kills it, which GitHub reports as "cancelled" with no test results.`,
+  );
+}
+if (providerKey && !providerKey.includes("AbortSignal.timeout")) {
+  issues.push(
+    `${providerKeyPath} no longer bounds the in-page OpenAI key install with an abort signal. Playwright's page.evaluate has no timeout of its own, so an unbounded fetch inside it can hang global setup indefinitely.`,
+  );
+}
 
-/** Drop comments so prose explaining a rule cannot trip the rule. */
 function stripComments(source: string): string {
   return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 }
 
-// 7. Certificate errors stay observable.
 if (config && /ignoreHTTPSErrors/.test(stripComments(config))) {
   issues.push(
     `${configPath} sets ignoreHTTPSErrors. "The connection isn't private" was a real beta report; only a browser that still validates certificates can catch it.`,
   );
 }
+if (config && !/globalTimeout\s*:/.test(stripComments(config))) {
+  issues.push(
+    `${configPath} sets no globalTimeout. Without one a hung global setup runs until the job's timeout kills it, and a killed job leaves no results file for the failure digest.`,
+  );
+}
+if (config && !/maxFailures\s*:/.test(stripComments(config))) {
+  issues.push(
+    `${configPath} sets no maxFailures. A broad regression should stop the run in minutes rather than run every remaining test to its own timeout.`,
+  );
+}
 
-// 8. The promotion workflow stays a manual gate and keeps the lanes
-// separated. workflow_call is the narrow reusable entrypoint used by the
-// scheduled wrapper; it is not a push or pull-request trigger.
 if (workflow) {
   try {
     const parsed = parse(workflow) as Record<string, unknown>;
@@ -156,8 +217,6 @@ if (workflow) {
         `${workflowPath} must offer workflow_dispatch — it is the manual promotion gate.`,
       );
     }
-    // `workflow_call` is allowed: a caller still has to be started by a
-    // person. What must never appear is a trigger that fires on its own.
     const automaticTriggers = Object.keys(on ?? {}).filter(
       (key) => key !== "workflow_dispatch" && key !== "workflow_call",
     );
@@ -200,38 +259,11 @@ if (workflow) {
       `${workflowPath} no longer passes BETA_E2E_GREP through the advisory lane without failing when no advisory test matches.`,
     );
   }
-  const hasAuthSelectionCommandWithStatus =
-    /set \+e[\s\\]+BETA_E2E_AUTHED=0 pnpm e2e:beta[\s\\]+--project=\$\{\{\s*matrix\.project\s*\}\}[\s\\]+--grep "\$BETA_E2E_GREP" --list >"\$selection_file" 2>&1\s+selection_status="\$\?"\s+set -e/.test(
-      workflow,
-    );
-  const selectionStatusCapture = workflow.indexOf('selection_status="$?"');
-  const selectionStatusCheck = workflow.indexOf(
-    'if [ "$selection_status" -ne 0 ]',
-  );
-  const noTestsMarker = workflow.indexOf('grep -q "Error: No tests found"');
-  const emptySelectionMarker = workflow.indexOf(
-    'grep -q "Total: 0 tests in 0 files"',
-  );
-  const selectionStatusExit = workflow.indexOf('exit "$selection_status"');
-  if (
-    !hasAuthSelectionCommandWithStatus ||
-    selectionStatusCapture < 0 ||
-    selectionStatusCheck < selectionStatusCapture ||
-    noTestsMarker < selectionStatusCheck ||
-    emptySelectionMarker < selectionStatusCheck ||
-    selectionStatusExit < selectionStatusCheck
-  ) {
-    issues.push(
-      `${workflowPath} must capture and propagate failed authenticated discovery, while skipping only an explicit no-tests result. A public-only grep must not require session credentials.`,
-    );
-  }
   if (!/continue-on-error:\s*true/.test(workflow)) {
     issues.push(
       `${workflowPath} no longer marks the advisory lane non-gating. Gating on advisory findings trains people to ignore a red run.`,
     );
   }
-  // The preamble lives in a composite action shared by every lane, so look
-  // there as well as in the workflow itself.
   const setupPath = ".github/actions/beta-e2e-setup/action.yml";
   const setup = read(setupPath);
   if (
@@ -243,8 +275,6 @@ if (workflow) {
     );
   }
 
-  // Sharding is what makes this gate usable; losing it silently returns the
-  // sweep to ~28 minutes on one runner.
   if (!workflow.includes("fromJSON(needs.discover.outputs.matrix)")) {
     issues.push(
       `${workflowPath} no longer shards the public lane across runners. A page load against a beta host costs 20-40s from a GitHub runner, so one runner for the whole fleet is a ~28 minute gate nobody waits for.`,
@@ -270,22 +300,32 @@ if (workflow) {
   }
 }
 
-// The lanes share a database in production. Keep them ordered so a full
-// promotion run cannot turn its own anonymous and authenticated checks into a
-// connection-pool burst.
 if (workflow) {
   try {
+    type ShardEntry = {
+      slot?: unknown;
+      project?: unknown;
+      app?: unknown;
+      cluster?: unknown;
+      shard?: unknown;
+      timeout?: unknown;
+      global_timeout?: unknown;
+    };
     type WorkflowJob = {
       needs?: string | string[];
       if?: string;
+      "timeout-minutes"?: unknown;
+      env?: Record<string, unknown>;
+      steps?: Array<{ name?: unknown; run?: unknown }>;
       strategy?: {
         "max-parallel"?: unknown;
         matrix?: {
-          include?: Array<{ project?: unknown }>;
+          include?: ShardEntry[];
         };
       };
     };
     const parsed = parse(workflow) as {
+      concurrency?: { group?: unknown };
       jobs?: Record<string, WorkflowJob>;
     };
     const jobs = parsed.jobs ?? {};
@@ -296,57 +336,293 @@ if (workflow) {
         : needs === dependency;
     };
 
-    for (const [job, dependency] of [
-      ["public", "discover"],
-      ["fleet", "public"],
-      ["advisory", "fleet"],
-      ["authed", "advisory"],
-    ] as const) {
-      if (!hasNeed(job, dependency)) {
+    // The lanes are independent, so they overlap. What keeps that safe for the
+    // shared CDN and databases is the matrix caps and per-job timeouts below,
+    // not an ordering.
+    for (const job of ["public", "fleet", "advisory", "authed"] as const) {
+      if (!hasNeed(job, "discover")) {
         issues.push(
-          `${workflowPath} must run ${job} after ${dependency}; the beta lanes share database capacity and must not fan out concurrently.`,
+          `${workflowPath} must run ${job} after discover; it supplies the canonical app selection.`,
         );
       }
     }
-
-    if (jobs.public?.strategy?.["max-parallel"] !== 4) {
+    if (!hasNeed("authed", "gate")) {
       issues.push(
-        `${workflowPath} must cap the public matrix at four runners so the sharded sweep cannot burst shared backend capacity.`,
+        `${workflowPath} must run authed after the gate job, so a type error stops the authenticated shards before any token is spent.`,
+      );
+    }
+    const gateRuns = (jobs.gate?.steps ?? [])
+      .map((step) => String(step.run ?? ""))
+      .join("\n");
+    if (!gateRuns.includes("pnpm typecheck:e2e")) {
+      issues.push(
+        `${workflowPath} gate no longer runs typecheck:e2e. e2e/ is outside the workspace typecheck sweep.`,
       );
     }
 
-    const authenticatedProjects =
-      jobs.authed?.strategy?.matrix?.include?.map((entry) => entry.project) ??
-      [];
+    const concurrencyGroup = String(parsed.concurrency?.group ?? "");
+    if (!concurrencyGroup.includes("inputs.lane")) {
+      issues.push(
+        `${workflowPath} concurrency group must depend on inputs.lane. A single group makes the production pre-flight and the signup canary queue behind a scheduled authenticated run.`,
+      );
+    }
+
+    const publicParallel = jobs.public?.strategy?.["max-parallel"];
+    if (
+      typeof publicParallel !== "number" ||
+      publicParallel < 1 ||
+      publicParallel > 8
+    ) {
+      issues.push(
+        `${workflowPath} must cap the public matrix at eight runners or fewer so the sharded sweep cannot burst the CDN that throttles datacenter traffic.`,
+      );
+    }
+    const authedParallel = jobs.authed?.strategy?.["max-parallel"];
+    if (
+      typeof authedParallel !== "number" ||
+      authedParallel < 1 ||
+      authedParallel > 5
+    ) {
+      issues.push(
+        `${workflowPath} must cap the authenticated matrix at five runners or fewer so concurrent sessions cannot exhaust shared beta databases.`,
+      );
+    }
+
+    // A hung run must end inside its job's timeout so it is reported rather
+    // than cancelled with no results.
+    const jobTimeout = (job: string): number | null => {
+      const value = jobs[job]?.["timeout-minutes"];
+      return typeof value === "number" ? value : null;
+    };
+    for (const job of ["discover", "gate", "public", "fleet", "advisory"]) {
+      const timeout = jobTimeout(job);
+      if (timeout === null || timeout > 15) {
+        issues.push(
+          `${workflowPath} ${job} must set a numeric timeout-minutes of 15 or less; an unbounded or generous timeout is how a hung run cost 45 minutes.`,
+        );
+      }
+    }
+    for (const job of ["public", "fleet", "advisory"] as const) {
+      const globalTimeout = Number(
+        jobs[job]?.env?.BETA_E2E_GLOBAL_TIMEOUT_MINUTES,
+      );
+      const timeout = jobTimeout(job);
+      if (
+        !Number.isInteger(globalTimeout) ||
+        timeout === null ||
+        globalTimeout >= timeout
+      ) {
+        issues.push(
+          `${workflowPath} ${job} must set BETA_E2E_GLOBAL_TIMEOUT_MINUTES below its timeout-minutes, so Playwright ends the run and writes results before the job is killed.`,
+        );
+      }
+    }
+    if (
+      String(jobs.authed?.["timeout-minutes"] ?? "").replace(/\s/g, "") !==
+      "${{matrix.timeout}}"
+    ) {
+      issues.push(
+        `${workflowPath} authed must take timeout-minutes from its matrix entries, so each slot's limit is sized to that slot.`,
+      );
+    }
+    if (
+      String(jobs.authed?.env?.BETA_E2E_GLOBAL_TIMEOUT_MINUTES ?? "").replace(
+        /\s/g,
+        "",
+      ) !== "${{matrix.global_timeout}}"
+    ) {
+      issues.push(
+        `${workflowPath} authed must pass each slot's global_timeout as BETA_E2E_GLOBAL_TIMEOUT_MINUTES.`,
+      );
+    }
+
+    const authedShards = jobs.authed?.strategy?.matrix?.include ?? [];
     const configuredProjects = new Set(
       [...config.matchAll(/\bname:\s*["']([^"']+)["']/g)].map(
         (match) => match[1],
       ),
     );
-    if (authenticatedProjects.length === 0) {
+    if (authedShards.length === 0) {
       issues.push(
-        `${workflowPath} authed must declare authenticated matrix projects so registry, chat, and journey failures remain independently visible.`,
+        `${workflowPath} authed must declare authenticated matrix shards so registry, chat, journey, and design failures remain independently visible.`,
       );
     }
-    const seenAuthenticatedProjects = new Set<string>();
-    for (const project of authenticatedProjects) {
+    const seenSlots = new Set<string>();
+    const seenChatApps = new Set<string>();
+    for (const shard of authedShards) {
+      const { slot, project, app, timeout, global_timeout } = shard;
       if (typeof project !== "string" || !project) {
         issues.push(
           `${workflowPath} authed contains an authenticated matrix entry without a project name.`,
         );
         continue;
       }
-      if (seenAuthenticatedProjects.has(project)) {
+      if (typeof slot !== "string" || !slot) {
         issues.push(
-          `${workflowPath} authed lists authenticated project ${project} more than once.`,
+          `${workflowPath} authed ${project} entry has no slot. The slot names its artifact and report folder.`,
         );
+      } else {
+        if (seenSlots.has(slot)) {
+          issues.push(
+            `${workflowPath} authed lists slot ${slot} more than once; artifact names would collide.`,
+          );
+        }
+        seenSlots.add(slot);
       }
-      seenAuthenticatedProjects.add(project);
       if (!configuredProjects.has(project)) {
         issues.push(
           `${workflowPath} authed matrix project ${project} is not configured in ${configPath}.`,
         );
       }
+      if (
+        typeof timeout !== "number" ||
+        typeof global_timeout !== "number" ||
+        timeout > 30 ||
+        global_timeout < 1 ||
+        global_timeout >= timeout
+      ) {
+        issues.push(
+          `${workflowPath} authed slot ${String(slot)} needs a numeric timeout of 30 minutes or less and a smaller global_timeout.`,
+        );
+      }
+      if (project === "chat") {
+        if (typeof app !== "string" || !app) {
+          issues.push(
+            `${workflowPath} authed chat slot ${String(slot)} must name one app. Chat is sharded per app so a hang on one host is isolated and named.`,
+          );
+        } else if (seenChatApps.has(app)) {
+          issues.push(
+            `${workflowPath} authed runs the chat project for ${app} more than once.`,
+          );
+        } else {
+          seenChatApps.add(app);
+        }
+      }
+      // Global setup writes the e2e account's user-scoped OpenAI key on every
+      // host of a `chat` cluster slot. Keeping that to the chat project, one
+      // slot per host, is what stops two jobs writing one host's key at once.
+      if ((project === "chat") !== (shard.cluster === "chat")) {
+        issues.push(
+          `${workflowPath} authed slot ${String(slot)} must use cluster chat exactly when it runs the chat project (cluster ${JSON.stringify(shard.cluster)}, project ${project}). Only chat slots install the OpenAI key, one per host.`,
+        );
+      }
+    }
+
+    // A project the config defines but no slot runs is a lane that silently
+    // never executes; one selection in two slots runs twice; a shard set that
+    // is not exactly 1/m..m/m drops or repeats part of a project.
+    const slotProjects = new Set(authedShards.map((entry) => entry.project));
+    for (const project of configuredProjects) {
+      if (["public", "fleet", "advisory"].includes(project ?? "")) continue;
+      if (!slotProjects.has(project)) {
+        issues.push(
+          `${configPath} defines project ${project}, but no authed slot in ${workflowPath} runs it, so its tests would never execute.`,
+        );
+      }
+    }
+    const slotsByProject = new Map<string, ShardEntry[]>();
+    for (const entry of authedShards) {
+      if (typeof entry.project !== "string") continue;
+      slotsByProject.set(entry.project, [
+        ...(slotsByProject.get(entry.project) ?? []),
+        entry,
+      ]);
+    }
+    for (const [project, entries] of slotsByProject) {
+      const selections = new Set<string>();
+      for (const entry of entries) {
+        const selection = `${String(entry.app ?? "")}|${String(entry.shard ?? "")}`;
+        if (selections.has(selection)) {
+          issues.push(
+            `${workflowPath} authed runs project ${project} (app "${String(entry.app ?? "")}", shard "${String(entry.shard ?? "")}") in more than one slot, so those tests would run twice.`,
+          );
+        }
+        selections.add(selection);
+      }
+      const sharded = entries.filter((entry) => entry.shard !== undefined);
+      if (sharded.length === 0) continue;
+      if (sharded.length !== entries.length) {
+        issues.push(
+          `${workflowPath} authed mixes sharded and unsharded slots for project ${project}; the unsharded slot would repeat every sharded test.`,
+        );
+      }
+      const indexes: number[] = [];
+      const counts = new Set<number>();
+      for (const entry of sharded) {
+        const match =
+          typeof entry.shard === "string"
+            ? entry.shard.match(/^(\d+)\/(\d+)$/)
+            : null;
+        if (!match) {
+          issues.push(
+            `${workflowPath} authed slot ${String(entry.slot)} has shard ${JSON.stringify(entry.shard)}; use "<n>/<m>".`,
+          );
+          continue;
+        }
+        indexes.push(Number(match[1]));
+        counts.add(Number(match[2]));
+      }
+      const [count] = [...counts];
+      const expected = Array.from({ length: count ?? 0 }, (_, i) => i + 1);
+      if (
+        counts.size !== 1 ||
+        indexes.sort((a, b) => a - b).join(",") !== expected.join(",")
+      ) {
+        issues.push(
+          `${workflowPath} authed shards for project ${project} must be exactly 1/m through m/m, once each, or part of the project's tests are dropped or repeated.`,
+        );
+      }
+    }
+    if (
+      String(jobs.authed?.env?.BETA_E2E_PROJECT ?? "").replace(/\s/g, "") !==
+        "${{matrix.project}}" ||
+      String(jobs.authed?.env?.BETA_E2E_SHARD ?? "").replace(/\s/g, "") !==
+        "${{matrix.shard||''}}"
+    ) {
+      issues.push(
+        `${workflowPath} authed must pass each slot's project and shard as BETA_E2E_PROJECT and BETA_E2E_SHARD, or a shard would silently run the whole project.`,
+      );
+    }
+
+    // The authed step lists its selection with auth disabled before any
+    // credentialed setup. Only an explicit empty result may skip, and only
+    // for a narrowed run; every other failure must propagate.
+    const authedRun = String(
+      (jobs.authed?.steps ?? []).find((step) =>
+        String(step.name ?? "").startsWith("Authenticated"),
+      )?.run ?? "",
+    );
+    const listCommand = authedRun.search(
+      /set \+e\s+BETA_E2E_AUTHED=0 pnpm e2e:beta "\$\{select_args\[@\]\}" --list >"\$selection_file" 2>&1\s+selection_status="\$\?"\s+set -e/,
+    );
+    const emptyCheck = authedRun.indexOf('grep -q "Total: 0 tests in 0 files"');
+    const narrowedSkip = authedRun.indexOf('"$BETA_E2E_NARROWED" = "true"');
+    const skipMessage = authedRun.indexOf(
+      "No authenticated tests in this slot match the app or title selection; skipping authenticated setup.",
+    );
+    const skipReportCleanup = authedRun.indexOf(
+      'rm -rf "e2e/beta/playwright-report/$BETA_E2E_REPORT_SLOT" "e2e/beta/test-results/$BETA_E2E_REPORT_SLOT"',
+    );
+    const skipExit = authedRun.indexOf("exit 0", skipMessage);
+    const propagate = authedRun.indexOf('exit "$selection_status"');
+    const finalRun = authedRun.lastIndexOf('pnpm e2e:beta "${select_args[@]}"');
+    if (
+      !authedRun.includes('select_args=("--project=$BETA_E2E_PROJECT")') ||
+      !authedRun.includes('select_args+=("--shard=$BETA_E2E_SHARD")') ||
+      !authedRun.includes('select_args+=(--grep "$BETA_E2E_GREP")') ||
+      listCommand < 0 ||
+      emptyCheck < listCommand ||
+      !authedRun.includes('grep -q "Error: No tests found"') ||
+      narrowedSkip < emptyCheck ||
+      skipMessage < narrowedSkip ||
+      skipReportCleanup < skipMessage ||
+      skipExit < skipReportCleanup ||
+      propagate < emptyCheck ||
+      finalRun < propagate
+    ) {
+      issues.push(
+        `${workflowPath} authed step must capture and propagate failed authenticated discovery, skip only an explicit no-tests result for a narrowed run, remove that empty slot's report and test artifacts before upload, and run the same project, shard and grep selection it listed. A public-only grep must not require session credentials.`,
+      );
     }
 
     if (
@@ -405,7 +681,82 @@ if (workflow) {
   }
 }
 
-// 9. An unrequested pre-flight must never hold up a deploy.
+if (workflow) {
+  try {
+    type DirectWorkflow = {
+      on?: {
+        workflow_dispatch?: {
+          inputs?: Record<string, { options?: unknown }>;
+        };
+      };
+      jobs?: Record<
+        string,
+        {
+          if?: unknown;
+          needs?: unknown;
+          uses?: unknown;
+          with?: Record<string, unknown>;
+        }
+      >;
+    };
+    const parsed = parse(workflow) as DirectWorkflow;
+    const report = parsed.jobs?.report;
+    const condition = String(report?.if ?? "");
+    const expectedNeeds = [
+      "discover",
+      "gate",
+      "public",
+      "fleet",
+      "authed",
+      "advisory",
+      "signup",
+    ];
+    const needs = Array.isArray(report?.needs) ? report.needs : [];
+    const laneOptions = parsed.on?.workflow_dispatch?.inputs?.lane?.options;
+    if (
+      !condition.includes("github.event_name == 'workflow_dispatch'") ||
+      !condition.includes("github.workflow == 'Beta E2E (browser)'") ||
+      !condition.includes("always()") ||
+      condition.includes("!cancelled()")
+    ) {
+      issues.push(
+        workflowPath +
+          " must report direct manual runs, including canceled lanes, while reusable scheduled, signup, and deploy callers cannot double-post.",
+      );
+    }
+    if (
+      report?.uses !== "./.github/workflows/beta-e2e-report.yml" ||
+      !expectedNeeds.every((job) => needs.includes(job)) ||
+      !String(report.with?.run_result ?? "").includes("needs.*.result")
+    ) {
+      issues.push(
+        workflowPath +
+          " direct report must wait for every lane and pass the aggregate result to " +
+          reportWorkflowPath +
+          ".",
+      );
+    }
+    if (
+      !Array.isArray(laneOptions) ||
+      laneOptions.includes("signup") ||
+      !["public", "authed", "public+authed"].every((lane) =>
+        laneOptions.includes(lane),
+      )
+    ) {
+      issues.push(
+        workflowPath +
+          " manual signup runs must use the dedicated Signup E2E workflow reporter; the browser dispatch options should be public, authed, and public+authed only.",
+      );
+    }
+  } catch (error) {
+    issues.push(
+      workflowPath +
+        " direct reporting could not be checked: " +
+        (error instanceof Error ? error.message : String(error)),
+    );
+  }
+}
+
 const prodDeployPath = ".github/workflows/deploy-production-sites-prebuilt.yml";
 const prodDeploy = read(prodDeployPath);
 if (prodDeploy && prodDeploy.includes("beta-e2e")) {
@@ -415,15 +766,23 @@ if (prodDeploy && prodDeploy.includes("beta-e2e")) {
         inputs?: Record<string, { default?: unknown }>;
       };
     };
-    jobs?: Record<string, { needs?: unknown; if?: unknown }>;
+    jobs?: Record<
+      string,
+      {
+        if?: unknown;
+        needs?: unknown;
+        permissions?: Record<string, unknown>;
+        secrets?: Record<string, unknown>;
+        uses?: unknown;
+        with?: Record<string, unknown>;
+      }
+    >;
   };
 
   let parsedDeploy: ProdDeploy | null = null;
   try {
     parsedDeploy = parse(prodDeploy) as ProdDeploy;
   } catch (error) {
-    // Not skipped quietly: a workflow this guard cannot read is one it cannot
-    // vouch for, and "unreadable" must not look like "fine".
     issues.push(
       `${prodDeployPath} is not valid YAML, so the deploy gate could not be checked: ${error instanceof Error ? error.message : String(error)}`,
     );
@@ -446,10 +805,43 @@ if (prodDeploy && prodDeploy.includes("beta-e2e")) {
       `${prodDeployPath}'s deploy job must proceed when the beta E2E pre-flight was SKIPPED, which is its state whenever the deploy did not ask for it. Depend on \`needs.beta-e2e.result != 'failure'\`; requiring 'success' would block every deploy that opted out.`,
     );
   }
+
+  const report = parsedDeploy?.jobs?.["report-beta-e2e"];
+  const reportIf = String(report?.if ?? "");
+  const reportNeeds = Array.isArray(report?.needs)
+    ? report.needs
+    : typeof report?.needs === "string"
+      ? [report.needs]
+      : [];
+  const reportPermissions = report?.permissions ?? {};
+  if (
+    !reportIf.includes("always()") ||
+    !reportIf.includes("inputs.beta_e2e") ||
+    !reportIf.includes("needs.beta-e2e.result != 'skipped'") ||
+    !reportNeeds.includes("beta-e2e") ||
+    report?.uses !== `./${reportWorkflowPath}` ||
+    !String(report.with?.run_result ?? "").includes("needs.beta-e2e.result") ||
+    reportPermissions.actions !== "read" ||
+    reportPermissions.contents !== "read" ||
+    !String(report.secrets?.QA_SLACK_BOT_TOKEN ?? "").includes(
+      "secrets.QA_SLACK_BOT_TOKEN",
+    )
+  ) {
+    issues.push(
+      `${prodDeployPath} must send the opted-in production Beta E2E result, including failed or cancelled runs, through the shared Slack reporter with read-only run/artifact access.`,
+    );
+  }
+
+  const deployNeeds = Array.isArray(parsedDeploy?.jobs?.deploy?.needs)
+    ? parsedDeploy.jobs.deploy.needs
+    : [];
+  if (deployNeeds.includes("report-beta-e2e")) {
+    issues.push(
+      `${prodDeployPath} must not make production deploys wait for the informational Slack report job.`,
+    );
+  }
 }
 
-// 8. The scheduled wrapper runs the same reusable job every six hours and
-// deduplicates failures into one open issue.
 if (scheduledWorkflow) {
   try {
     const parsed = parse(scheduledWorkflow) as Record<string, unknown>;
@@ -468,6 +860,42 @@ if (scheduledWorkflow) {
         `${scheduledWorkflowPath} must run the beta E2E check on the 0 */6 * * * schedule.`,
       );
     }
+
+    const jobs = parsed.jobs as
+      | Record<string, { with?: Record<string, unknown>; secrets?: unknown }>
+      | undefined;
+    const scheduledBetaE2E = jobs?.["beta-e2e"];
+    if (scheduledBetaE2E?.with?.lane !== "public") {
+      issues.push(
+        `${scheduledWorkflowPath} must run only the public lane until Beta databases are isolated; authenticated tests can write to production.`,
+      );
+    }
+    const scheduledSecrets = scheduledBetaE2E?.secrets;
+    const scheduledSlackSecret =
+      typeof scheduledSecrets === "object" &&
+      scheduledSecrets !== null &&
+      !Array.isArray(scheduledSecrets)
+        ? (scheduledSecrets as Record<string, unknown>).QA_SLACK_BOT_TOKEN
+        : undefined;
+    if (
+      typeof scheduledSecrets !== "object" ||
+      scheduledSecrets === null ||
+      Array.isArray(scheduledSecrets) ||
+      Object.keys(scheduledSecrets).some(
+        (name) => name !== "QA_SLACK_BOT_TOKEN",
+      ) ||
+      scheduledSlackSecret !== "${{ secrets.QA_SLACK_BOT_TOKEN }}"
+    ) {
+      issues.push(
+        `${scheduledWorkflowPath} must pass only QA_SLACK_BOT_TOKEN from its matching secret to the public scheduled suite.`,
+      );
+    }
+    const report = jobs?.report;
+    if (report?.with?.update_baseline !== false) {
+      issues.push(
+        `${scheduledWorkflowPath} must preserve the shared full-suite notification baseline because its public lane does not cover authenticated failures.`,
+      );
+    }
   } catch (error) {
     issues.push(
       `${scheduledWorkflowPath} is not valid YAML: ${error instanceof Error ? error.message : String(error)}`,
@@ -476,21 +904,288 @@ if (scheduledWorkflow) {
 
   const requiredFragments = [
     "uses: ./.github/workflows/beta-e2e.yml",
-    "lane: public+authed",
-    "issues: write",
-    "[beta-e2e] Scheduled beta health check failing",
-    "gh issue list",
-    "--state open",
-    "gh issue comment",
-    "gh issue create",
-    "gh issue close",
+    "uses: ./.github/workflows/beta-e2e-report.yml",
+    "run_result: " + "$" + "{{ needs.beta-e2e.result }}",
   ];
   for (const fragment of requiredFragments) {
     if (!scheduledWorkflow.includes(fragment)) {
       issues.push(
-        `${scheduledWorkflowPath} is missing ${JSON.stringify(fragment)}. The scheduled check must reuse the full authenticated suite and deduplicate its GitHub issue lifecycle.`,
+        `${scheduledWorkflowPath} is missing ${JSON.stringify(fragment)}. The scheduled check must reuse the public suite and shared report workflow.`,
       );
     }
+  }
+
+  const forbiddenDigestFragments = [
+    "issueNumber",
+    "issueUrl",
+    "ISSUE_TITLE",
+    "ISSUE_LABELS",
+    "issue.md",
+    "beta-e2e-state:v1",
+    "STATE_MARKER_PREFIX",
+    "renderIssueBody",
+  ];
+  for (const fragment of forbiddenDigestFragments) {
+    if (scheduledDigest.includes(fragment)) {
+      issues.push(
+        scheduledDigestPath +
+          " must use artifact-backed state and reports; found the removed issue fallback " +
+          JSON.stringify(fragment) +
+          ".",
+      );
+    }
+  }
+  for (const fragment of forbiddenIssueFragments) {
+    if (scheduledWorkflow.includes(fragment)) {
+      issues.push(
+        scheduledWorkflowPath +
+          " must not use GitHub Issues for beta E2E findings; found " +
+          JSON.stringify(fragment) +
+          ".",
+      );
+    }
+  }
+  const scheduledReportFragments = [
+    "uses: ./.github/workflows/beta-e2e-report.yml",
+    "run_result: " + "$" + "{{ needs.beta-e2e.result }}",
+    "update_baseline: false",
+    "actions: read",
+    "contents: read",
+  ];
+  for (const fragment of scheduledReportFragments) {
+    if (!scheduledWorkflow.includes(fragment)) {
+      issues.push(
+        scheduledWorkflowPath +
+          " is missing " +
+          JSON.stringify(fragment) +
+          "; its single report job must call the shared report workflow.",
+      );
+    }
+  }
+}
+
+if (signupScheduledWorkflow) {
+  try {
+    const parsed = parse(signupScheduledWorkflow) as {
+      on?: Record<string, unknown>;
+      jobs?: Record<
+        string,
+        {
+          if?: unknown;
+          steps?: Array<{ if?: unknown; name?: unknown; run?: unknown }>;
+        }
+      >;
+    };
+    const condition = parsed.jobs?.["signup-e2e"]?.if;
+    const normalizedCondition =
+      typeof condition === "string"
+        ? condition
+            .replace(/^\$\{\{|\}\}$/g, "")
+            .replace(/\s+/g, " ")
+            .trim()
+        : "";
+    if (
+      normalizedCondition !==
+        "github.event_name != 'schedule' || vars.BETA_DATABASES_ISOLATED == 'true'" ||
+      !Object.hasOwn(parsed.on ?? {}, "workflow_dispatch")
+    ) {
+      issues.push(
+        `${signupScheduledWorkflowPath} must gate scheduled signup writes on BETA_DATABASES_ISOLATED == 'true' while preserving manual dispatch.`,
+      );
+    }
+
+    const reportSteps = parsed.jobs?.report?.steps ?? [];
+    const skippedSummary = reportSteps.find(
+      (step) => step.name === "Explain skipped Beta signup schedule",
+    );
+    const degradedReport = reportSteps.find(
+      (step) =>
+        step.name === "Build a degraded report when collection itself failed",
+    );
+    const continuityPlan = reportSteps.find(
+      (step) => step.name === "Plan the Signup E2E recovery rollup",
+    );
+    const slackConfig = reportSteps.find(
+      (step) => step.name === "Check Slack configuration",
+    );
+    if (
+      typeof skippedSummary?.if !== "string" ||
+      !skippedSummary.if.includes("needs.signup-e2e.result == 'skipped'") ||
+      typeof skippedSummary.run !== "string" ||
+      !skippedSummary.run.includes("BETA_DATABASES_ISOLATED")
+    ) {
+      issues.push(
+        `${signupScheduledWorkflowPath} must explain an isolation-gated schedule skip in the run summary.`,
+      );
+    }
+    if (
+      typeof degradedReport?.if !== "string" ||
+      !degradedReport.if.includes("needs.signup-e2e.result == 'failure'") ||
+      !degradedReport.if.includes("needs.signup-e2e.result == 'cancelled'") ||
+      degradedReport.if.includes("needs.signup-e2e.result != 'success'")
+    ) {
+      issues.push(
+        `${signupScheduledWorkflowPath} must not report an intentional skipped signup run as a collection failure.`,
+      );
+    }
+    if (
+      typeof continuityPlan?.run !== "string" ||
+      !continuityPlan.run.includes("outcome=inconclusive")
+    ) {
+      issues.push(
+        `${signupScheduledWorkflowPath} must preserve the prior report state when signup is skipped or inconclusive.`,
+      );
+    }
+    if (
+      typeof slackConfig?.if !== "string" ||
+      !slackConfig.if.includes(
+        "steps.previous-state.outputs.continuity_unknown == 'true' && needs.signup-e2e.result == 'success'",
+      )
+    ) {
+      issues.push(
+        `${signupScheduledWorkflowPath} must not attempt Slack delivery for unknown continuity when the signup job was intentionally skipped.`,
+      );
+    }
+  } catch (error) {
+    issues.push(
+      `${signupScheduledWorkflowPath} is not valid YAML: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+if (signupAgentScheduledWorkflow) {
+  try {
+    const parsed = parse(signupAgentScheduledWorkflow) as {
+      on?: Record<string, unknown>;
+    };
+    if (
+      Object.hasOwn(parsed.on ?? {}, "schedule") ||
+      !Object.hasOwn(parsed.on ?? {}, "workflow_dispatch")
+    ) {
+      issues.push(
+        `${signupAgentScheduledWorkflowPath} must keep its unattended schedule disabled until Beta database isolation is verified and preserve manual dispatch.`,
+      );
+    }
+  } catch (error) {
+    issues.push(
+      `${signupAgentScheduledWorkflowPath} is not valid YAML: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+if (reportWorkflow) {
+  const reportingFragments = [
+    "scripts/beta-e2e-digest.ts",
+    "beta-e2e-digest-",
+    "$" + "{{ github.run_attempt }}",
+    "state.json",
+    "current-attempt",
+    "branch=$GITHUB_REF_NAME",
+    "for workflow_file in beta-e2e-scheduled.yml beta-e2e.yml deploy-production-sites-prebuilt.yml",
+    "Report production Beta E2E pre-flight status",
+    "Report directly dispatched beta E2E status",
+    "report_job_result",
+    "workflow_source=direct",
+    "workflow_source=production",
+    "actions/upload-artifact@",
+    "retention-days: 90",
+    "COLLECT_OUTCOME: " + "$" + "{{ steps.collect.outcome }}",
+    "metadata_incomplete=$metadata_incomplete",
+    "Fail after posting an incomplete metadata report",
+    "Findings: 1 total; showing 1; 0 omitted from this Slack message.",
+    "QA_SLACK_BOT_TOKEN",
+    "method: chat.postMessage",
+    "C0C4U4XRT6X",
+    "Slack notification not configured",
+    "Verify the Slack report was posted",
+    "::error::$message",
+  ];
+  for (const fragment of reportingFragments) {
+    if (!reportWorkflow.includes(fragment)) {
+      issues.push(
+        reportWorkflowPath +
+          " is missing " +
+          JSON.stringify(fragment) +
+          ". A failed run must preserve the full artifact-backed report and send one rolled-up #qa-agent-native Slack message when its notification is due.",
+      );
+    }
+  }
+  if (!scheduledDigest.includes("Full report and Playwright artifacts")) {
+    issues.push(
+      scheduledDigestPath +
+        " must link the full per-run report from its single Slack summary.",
+    );
+  }
+  for (const fragment of forbiddenIssueFragments) {
+    if (reportWorkflow.includes(fragment)) {
+      issues.push(
+        reportWorkflowPath +
+          " must not use GitHub Issues for beta E2E findings; found " +
+          JSON.stringify(fragment) +
+          ".",
+      );
+    }
+  }
+  if (
+    (reportWorkflow.match(/method:\s*chat\.postMessage/g) ?? []).length !== 1
+  ) {
+    issues.push(
+      reportWorkflowPath +
+        " must post one batched Slack message per run, not one message per finding.",
+    );
+  }
+  if (
+    !/uses:\s*slackapi\/slack-github-action@[0-9a-f]{40}\s+#\s*v\d/.test(
+      reportWorkflow,
+    )
+  ) {
+    issues.push(
+      reportWorkflowPath +
+        " must pin slackapi/slack-github-action by full commit SHA with a version comment, like every other action in this repository.",
+    );
+  }
+  if (
+    !/uses:\s*actions\/upload-artifact@[0-9a-f]{40}\s+#\s*v\d/.test(
+      reportWorkflow,
+    )
+  ) {
+    issues.push(
+      reportWorkflowPath +
+        " must pin actions/upload-artifact by full commit SHA with a version comment.",
+    );
+  }
+  try {
+    const parsed = parse(reportWorkflow) as {
+      on?: { workflow_call?: { inputs?: Record<string, unknown> } };
+      jobs?: Record<string, { permissions?: Record<string, string> }>;
+    };
+    if (!parsed.on?.workflow_call?.inputs?.run_result) {
+      issues.push(
+        reportWorkflowPath +
+          " must accept the caller run result as a required workflow_call input.",
+      );
+    }
+    const permissions = Object.entries(parsed.jobs?.report?.permissions ?? {})
+      .map(([scope, level]) => scope + ": " + level)
+      .sort()
+      .join(", ");
+    const expected = "actions: read, contents: read";
+    if (permissions !== expected) {
+      issues.push(
+        reportWorkflowPath +
+          ' report job permissions must be exactly "' +
+          expected +
+          '" (read run data and artifacts only) and nothing broader; found "' +
+          permissions +
+          '".',
+      );
+    }
+  } catch (error) {
+    issues.push(
+      reportWorkflowPath +
+        " report job permissions could not be checked: " +
+        (error instanceof Error ? error.message : String(error)),
+    );
   }
 }
 

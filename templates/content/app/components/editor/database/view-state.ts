@@ -1,5 +1,3 @@
-// Per-view property visibility, column calculations, grouping, collapsing, and ordering.
-// Pure logic — no React, no icons.
 import type {
   ContentDatabaseView,
   ContentDatabaseItem,

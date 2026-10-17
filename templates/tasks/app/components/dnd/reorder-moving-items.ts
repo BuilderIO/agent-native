@@ -1,27 +1,5 @@
 import { arrayMove } from "@dnd-kit/sortable";
 
-/**
- * Multi-item drag reorder for sortable lists.
- *
- * Single-item drag delegates to dnd-kit `arrayMove`.
- *
- * Multi-item drag (active id is in `movingIds` and size > 1):
- * 1. Split the visible list into `moving` (moving ids, in list order) and
- *    `withoutMoving` (everything else).
- * 2. Compute where to splice `moving` into `withoutMoving` from the drop target
- *    (`overId`) and drag direction (compare active vs over index).
- * 3. Drop on another moving row → no reorder (insert at current block start).
- * 4. Drag down onto a row below the block → insert after that row.
- * 5. Drag up onto a row above the block → insert before that row, except when
- *    the target is more than one row above the block (then insert after it so
- *    "drop below row X" lands under X). Drop on the top row with a large gap
- *    before the block → insert at list start (move block to top).
- *
- * The branching looks worse than it is because dnd-kit reports the hovered row,
- * not an explicit before/after slot; these rules mirror what users expect when
- * moving a contiguous block.
- */
-
 function countItemsBeforeIndex<T extends { id: string }>(
   items: T[],
   endIndex: number,
@@ -102,7 +80,6 @@ function computeBlockInsertIndex<T extends { id: string }>(
   return countItemsBeforeIndex(items, overIndex, movingIds);
 }
 
-/** Reorder a list, moving one item or a contiguous block identified by `movingIds`. */
 export function reorderMovingItems<T extends { id: string }>(
   items: T[],
   activeId: string,
@@ -144,7 +121,6 @@ export function isBlockDragActive(
   return Boolean(activeId && movingIds.has(activeId) && movingIds.size > 1);
 }
 
-/** Overlay content item: topmost moving row during block drag, else the grabbed row. */
 export function getDragOverlayItem<T extends { id: string }>(
   items: T[],
   activeId: string | null,

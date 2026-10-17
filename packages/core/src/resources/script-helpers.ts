@@ -1,11 +1,3 @@
-/**
- * Resource helpers for use in scripts.
- *
- * Scripts run inside an authenticated request context (set by the agent
- * runtime) or — in CLI-only contexts — read AGENT_USER_EMAIL. Both paths
- * require a real identity; there is no dev-mode fallback.
- */
-
 import { getOrgRoleForEmail } from "../mcp/actions/service-token-access.js";
 import { canManageOrg } from "../org/permissions.js";
 import {
@@ -53,7 +45,7 @@ function resolveScope(options?: {
   return options?.scope ?? (options?.shared ? "shared" : "personal");
 }
 
-async function assertCanManageSharedResource(): Promise<void> {
+export async function assertCanManageSharedResource(): Promise<void> {
   const orgId = getRequestOrgId();
   if (!orgId) return;
 
@@ -96,7 +88,7 @@ export async function readResource(
 ): Promise<string | null> {
   const scope = resolveScope(options);
   const owner = getOwnerForScope(scope);
-  const orgId = scope === "shared" ? getRequestOrgId() : undefined;
+  const orgId = scope === "personal" ? undefined : getRequestOrgId();
   const resourceOptions = orgId ? { orgId } : undefined;
   const resource = resourceOptions
     ? await resourceGetByPath(owner, path, resourceOptions)
@@ -172,9 +164,9 @@ export async function listResources(
 ): Promise<ResourceMeta[]> {
   const scope = resolveScope(options);
   const owner = getOwnerForScope(scope);
-  const orgId = scope === "shared" ? getRequestOrgId() : undefined;
+  const orgId = scope === "personal" ? undefined : getRequestOrgId();
   const resourceOptions =
-    scope === "shared"
+    scope !== "personal"
       ? orgId
         ? {
             ...(options?.includeAgentScratch

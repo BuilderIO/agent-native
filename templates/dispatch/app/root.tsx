@@ -1,21 +1,22 @@
-import { configureTracking } from "@agent-native/core/client/analytics";
+import {
+  configureTracking,
+  trackEvent,
+} from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import {
-  AppProviders,
   createAgentNativeQueryClient,
   getBrowserTabId,
   useDbSync,
 } from "@agent-native/core/client/hooks";
 import { getLocaleInitScript, useT } from "@agent-native/core/client/i18n";
-import {
-  CommandMenu,
-  useCommandMenuShortcut,
-} from "@agent-native/core/client/navigation";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
 import {
   Layout as AppLayout,
   RequireDispatchAccess,
 } from "@agent-native/dispatch/components";
+import { AppProviders } from "@agent-native/toolkit/app/providers";
+import { useCommandMenuShortcut } from "@agent-native/toolkit/app/shared";
+import { CommandMenu } from "@agent-native/toolkit/app/shared";
 import { IconHierarchy2, IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
@@ -131,10 +132,6 @@ function DbSyncSetup() {
   return null;
 }
 
-/**
- * Reads ?thread=<id> from the URL on mount and opens that thread in the
- * full-page chat route.
- */
 function useThreadDeepLink() {
   const navigate = useNavigate();
   const handled = useRef(false);
@@ -180,12 +177,6 @@ function ThemeToggleItem() {
   );
 }
 
-function AppContent() {
-  const location = useLocation();
-  if (location.pathname === "/") return <Outlet />;
-  return <PrivateAppContent />;
-}
-
 function PrivateAppContent() {
   return (
     <RequireDispatchAccess>
@@ -199,13 +190,32 @@ function PrivateAppShell() {
   const t = useT();
   const navigate = useNavigate();
   const location = useLocation();
-  useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
+  const commandMenuOpenRef = useRef(false);
+  const openCommandMenu = useCallback(() => {
+    if (!commandMenuOpenRef.current) {
+      trackEvent("dispatch_command_menu_opened", {
+        app_name: "dispatch",
+        template_name: "dispatch",
+      });
+      commandMenuOpenRef.current = true;
+    }
+    setCmdkOpen(true);
+  }, []);
+  useCommandMenuShortcut(openCommandMenu);
+  const handleCommandMenuOpenChange = useCallback(
+    (open: boolean) => {
+      if (open) openCommandMenu();
+      else commandMenuOpenRef.current = false;
+      setCmdkOpen(open);
+    },
+    [openCommandMenu],
+  );
   return (
     <>
       <DbSyncSetup />
       <CommandMenu
         open={cmdkOpen}
-        onOpenChange={setCmdkOpen}
+        onOpenChange={handleCommandMenuOpenChange}
         changelog={changelog}
         changelogKey="dispatch"
       >
@@ -247,13 +257,11 @@ function PrivateAppShell() {
 
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
-  const location = useLocation();
-  const isMarketingHome = location.pathname === "/";
   return (
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
-        isPublicPath={isMarketingHome}
+        skeletonLayout="launchpad"
         toaster={
           <Toaster
             richColors
@@ -263,12 +271,12 @@ export default function Root() {
             mobileOffset={{ bottom: 44, left: 16 }}
           />
         }
-        i18n={{ catalog: i18nCatalog, persistPreference: !isMarketingHome }}
+        i18n={{ catalog: i18nCatalog }}
       >
-        <AppContent />
+        <PrivateAppContent />
       </AppProviders>
     </AppToolkitProvider>
   );
 }
 
-export { ErrorBoundary } from "@agent-native/core/client/ui";
+export { ErrorBoundary } from "@agent-native/toolkit/app/shared";

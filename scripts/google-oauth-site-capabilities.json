@@ -1,8 +1,3 @@
 {
-  "notApplicable": [
-    "beta.macros.agent-native.com",
-    "beta.agent-native.com",
-    "macros.agent-native.com",
-    "www.agent-native.com"
-  ]
+  "notApplicable": ["beta.agent-native.com", "www.agent-native.com"]
 }

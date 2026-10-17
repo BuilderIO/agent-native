@@ -322,6 +322,65 @@ describe("trusted acceptance reaper boundary", () => {
     assert.equal(result.ok, false);
     assert(result.issues.some((issue) => issue.includes("serialize")));
   });
+
+  it("ties enabled selection and empty-matrix skipping to active workflow wiring", () => {
+    const mutations = [
+      reaper.replace(
+        'fs.readFileSync("scripts/trusted-acceptance-workspaces.json", "utf8")',
+        'fs.readFileSync("untrusted-workspaces.json", "utf8")',
+      ),
+      reaper.replace("workspace.enabled === true && ", ""),
+      reaper.replace(
+        "let selected = configured;",
+        "let selected = config.workspaces;",
+      ),
+      reaper.replace(
+        "selected = configured.filter(workspace => workspace.id === process.env.REQUESTED_WORKSPACE);",
+        "selected = config.workspaces.filter(workspace => workspace.id === process.env.REQUESTED_WORKSPACE);",
+      ),
+      reaper.replace(
+        "selected.map(({id}) => ({workspace: id}))",
+        "config.workspaces.map(({id}) => ({workspace: id}))",
+      ),
+      reaper.replace(
+        "let selected = configured;",
+        "let selected = configured;\n          selected.push(...config.workspaces);",
+      ),
+      reaper.replace(
+        "let selected = configured;",
+        'configured.push({ id: "calendar-content" });\n          let selected = configured;',
+      ),
+      reaper.replace(
+        "let selected = configured;",
+        'Array.prototype.filter = () => [{ id: "calendar-content" }];\n          let selected = configured;',
+      ),
+      reaper.replace("selected.length > 0", "selected.length >= 0"),
+      reaper.replace(
+        "matrix: ${{ steps.workspaces.outputs.matrix }}",
+        "matrix: 'static'",
+      ),
+      reaper.replace(
+        "matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}",
+        "matrix: 'static'",
+      ),
+      reaper.replace(
+        "has_workspaces: ${{ steps.workspaces.outputs.has_workspaces }}",
+        "has_workspaces: 'true'",
+      ),
+      reaper.replace(
+        "if: needs.plan.outputs.has_workspaces == 'true'",
+        "if: always()",
+      ),
+      reaper.replace(
+        "fs.appendFileSync(process.env.GITHUB_OUTPUT, `has_workspaces=${selected.length > 0}\\n`);",
+        "fs.appendFileSync(process.env.GITHUB_OUTPUT, `has_workspaces=${selected.length > 0}\\n`);\n          fs.appendFileSync(process.env.GITHUB_OUTPUT, `has_workspaces=true\\n`);",
+      ),
+    ];
+
+    for (const unsafe of mutations) {
+      assert.equal(validateTrustedAcceptanceReaper(unsafe).ok, false);
+    }
+  });
 });
 
 describe("trusted acceptance runtime authority boundary", () => {

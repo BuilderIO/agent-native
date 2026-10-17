@@ -92,8 +92,6 @@ export function UptimePanel() {
     { staleTime: 10_000 },
   );
 
-  // Aggregate stats for the whole list (status/uptime windows + 90-day timeline)
-  // power the list's per-row uptime bars and the "current status" overview.
   const { data: statsList } = useActionQuery<MonitorStats[]>(
     "get-monitor-stats",
     { timelineDays: 90 },
@@ -119,8 +117,6 @@ export function UptimePanel() {
     return map;
   }, [statsList]);
 
-  // Refresh list + detail when a background sweep or agent edit records a
-  // "monitors" change (useDbSync bumps the version this hook reads).
   useEffect(() => {
     void queryClient.invalidateQueries({
       queryKey: ["action", "list-monitors"],
@@ -137,7 +133,6 @@ export function UptimePanel() {
     [monitors, selectedId],
   );
 
-  // Mirror the current selection / form mode into application_state.
   useEffect(() => {
     if (statusPageParam !== null) {
       const spMode =
@@ -217,7 +212,6 @@ export function UptimePanel() {
     });
 
   const handleSaved = (saved: MonitorSummary) => {
-    // Replace the form entry with the monitor's detail so Back skips the form.
     showDetail(saved.id, { replace: true });
   };
 
@@ -313,12 +307,10 @@ export function UptimePanel() {
     });
   };
 
-  // Status pages — config sub-view (list / create / edit)
   if (statusPageParam !== null) {
     return <StatusPagesView />;
   }
 
-  // Create / edit — full-page form
   if (isCreate || isEditing) {
     return (
       <>
@@ -338,7 +330,6 @@ export function UptimePanel() {
     );
   }
 
-  // Detail view
   if (selectedId) {
     return (
       <>

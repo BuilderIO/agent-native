@@ -7,6 +7,8 @@ import {
 } from "@tabler/icons-react";
 import {
   type CSSProperties,
+  forwardRef,
+  useImperativeHandle,
   useCallback,
   useEffect,
   useRef,
@@ -29,9 +31,7 @@ export interface CameraVisualizerProps {
   deviceId: string | null;
   disabled?: boolean;
   className?: string;
-  /** Mirror the recording's background-blur setting in the live test preview. */
   blur?: boolean;
-  /** Background blur radius (px) reflected live in the test preview. */
   blurRadius?: number;
   size?: CameraBubbleSize;
   onStatusChange?: (
@@ -39,6 +39,10 @@ export interface CameraVisualizerProps {
     detail?: { error?: string | null },
   ) => void;
   onPreviewChange?: (hasPreview: boolean) => void;
+}
+
+export interface CameraVisualizerHandle {
+  startTest: () => void;
 }
 
 const CAMERA_BUBBLE_SIZE_PX: Record<CameraBubbleSize, number> = {
@@ -175,22 +179,26 @@ async function friendlyCameraError(
   return cameraErrorMessage(t, "startFailed");
 }
 
-export function CameraVisualizer({
-  deviceId,
-  disabled,
-  className,
-  blur = false,
-  blurRadius = DEFAULT_BLUR_PX,
-  size = "md",
-  onStatusChange,
-  onPreviewChange,
-}: CameraVisualizerProps) {
+export const CameraVisualizer = forwardRef<
+  CameraVisualizerHandle,
+  CameraVisualizerProps
+>(function CameraVisualizer(
+  {
+    deviceId,
+    disabled,
+    className,
+    blur = false,
+    blurRadius = DEFAULT_BLUR_PX,
+    size = "md",
+    onStatusChange,
+    onPreviewChange,
+  },
+  ref,
+) {
   const t = useT();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const blurHandleRef = useRef<CameraBlurHandle | null>(null);
-  // Bumped per attachPreview() so a stale segmenter build (blur toggled mid-load)
-  // bails instead of clobbering the preview.
   const attachGenRef = useRef(0);
   const blurRadiusRef = useRef(blurRadius);
   const runIdRef = useRef(0);
@@ -253,9 +261,6 @@ export function CameraVisualizer({
     [clearFrameTimeout, failPreview],
   );
 
-  // Bind the raw camera or its blurred derivative to the <video> per the current
-  // `blur` setting, so the preview matches what recording bakes in. Each call
-  // claims a generation and bails if a newer attach superseded it during an await.
   const attachPreview = useCallback(async (): Promise<PreviewAttachResult> => {
     const gen = ++attachGenRef.current;
     const raw = streamRef.current;
@@ -353,18 +358,13 @@ export function CameraVisualizer({
       }
 
       streamRef.current = stream;
-      // Webcam unplugged mid-test: tear down so the preview + blur pipeline
-      // don't keep running frozen. runId guard skips our own stop().
       for (const track of stream.getVideoTracks()) {
         track.addEventListener("ended", () => {
           failPreview(runId, "disconnected");
         });
       }
-      // Arm the no-frame deadline before play(): some browsers leave its
-      // promise pending when media cannot start.
       armFrameTimeout(runId);
       const attachResult = await attachPreview();
-      // Re-check after the async attach so a newer startTest can't be clobbered.
       if (runIdRef.current !== runId) {
         stopCurrent();
         return;
@@ -379,7 +379,6 @@ export function CameraVisualizer({
       stopStream(stream);
       if (runIdRef.current !== runId) return;
       const message = await friendlyCameraError(err, t);
-      // friendlyCameraError awaits the Permissions API, so re-check after.
       if (runIdRef.current !== runId) return;
       setError(message);
       setStatus("error");
@@ -445,8 +444,6 @@ export function CameraVisualizer({
     };
   }, [failPreview, status]);
 
-  // Toggle blur while live: swap the preview source in place (startTest already
-  // binds the initial value, so skip mount).
   useEffect(() => {
     if (previousBlurRef.current === blur) return;
     previousBlurRef.current = blur;
@@ -458,15 +455,19 @@ export function CameraVisualizer({
     });
   }, [attachPreview, blur, failPreview, status]);
 
-  // Slider drags adjust the live pipeline without rebuilding the segmenter.
   useEffect(() => {
     blurRadiusRef.current = blurRadius;
     blurHandleRef.current?.setBlurPx(blurRadius);
   }, [blurRadius]);
 
+  useImperativeHandle(ref, () => ({ startTest: () => void startTest() }), [
+    startTest,
+  ]);
+
   const live = status === "live";
   const starting = status === "starting";
   const showBubble = live || starting;
+  if (status === "idle" && !error && !hasFrame) return null;
   const sizePx = CAMERA_BUBBLE_SIZE_PX[size];
   const statusLabel = disabled
     ? t("preRecord.cameraOff")
@@ -478,7 +479,7 @@ export function CameraVisualizer({
           ? hasFrame
             ? t("cameraVisualizer.live")
             : t("cameraVisualizer.waiting")
-          : t("cameraVisualizer.bubble");
+          : t("cameraVisualizer.preview");
   return (
     <div className={cn("grid gap-2", className)}>
       <div className="flex items-center justify-between gap-2">
@@ -590,4 +591,4 @@ export function CameraVisualizer({
       ) : null}
     </div>
   );
-}
+});

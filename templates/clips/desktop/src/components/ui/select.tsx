@@ -1,5 +1,4 @@
 import * as SelectPrimitive from "@radix-ui/react-select";
-// Tabler is this repo's icon set; the registry component ships Lucide.
 import {
   IconCheck as Check,
   IconChevronDown as ChevronDown,

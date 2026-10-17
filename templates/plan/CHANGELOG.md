@@ -3,6 +3,56 @@
 All notable user-facing changes to Agent-Native Plan are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-10-13
+
+### Fixed
+
+- Malformed question blocks no longer crash a plan when opened
+
+## 2026-10-12
+
+### Improved
+
+- Plan preserves block references when source blocks move and loads long notes faster.
+
+### Fixed
+
+- Editing a plan keeps older blocks intact.
+- Empty vertical tabs can be repaired from the editor
+- Fresh Plan imports reject blocks missing required fields
+- Invalid full-content updates return validation errors instead of server errors.
+- Invalid structured blocks no longer crash the plan editor
+- Older blocks with missing fields remain visible and editable
+- Older plans now save successfully without dropping existing content.
+- Plan edits keep existing checklist and code content when updates omit those fields.
+- Plan imports reject invalid checklist and code fields instead of silently defaulting them
+- Plan validation errors now point to the invalid field.
+- Recap imports preserve valid blocks when broken blocks need recovery
+- Recap imports preserve valid sections and flag blocks with incomplete data
+
+## 2026-10-09
+
+### Fixed
+
+- Embedded Plan pages keep their content scrollable
+
+## 2026-10-01
+
+### Improved
+
+- Plan routes show page-shaped skeletons while content loads
+
+### Fixed
+
+- Two people editing one plan at the same time, or one of them offline, now keep both sets of edits, and opening a plan together no longer duplicates its content.
+- Consecutive Plan edits now use the latest saved revision.
+
+## 2026-09-25
+
+### Improved
+
+- Plan shows how to connect file storage before uploading images.
+
 ## 2026-09-09
 
 ### Improved

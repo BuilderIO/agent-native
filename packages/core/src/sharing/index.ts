@@ -1,11 +1,3 @@
-/**
- * Framework-level sharing / privacy primitive.
- *
- * Templates make their resource tables ownable and register them here so the
- * shared share actions and UI work end-to-end. See
- * `.agents/skills/sharing/SKILL.md` for the full pattern.
- */
-
 export {
   ownableColumns,
   createSharesTable,
@@ -31,9 +23,30 @@ export {
   assertAccess,
   currentAccess,
   ForbiddenError,
+  isResourceAvailable,
+  resolveAccessStatus,
   type AccessContext,
   type ResolvedAccess,
+  type ResourceAccessState,
+  type ResourceAccessStatus,
 } from "./access.js";
+
+export {
+  ACCESS_REQUEST_NOTE_MAX_LENGTH,
+  accessRequestReviewPath,
+  approveAccessRequest,
+  declineAccessRequest,
+  getAccessRequestReview,
+  listResourceAccessRequests,
+  requestResourceAccess,
+  resolveLinkStatus,
+  type AccessGrantedEmail,
+  type AccessRequestReview,
+  type RequestResourceAccessResult,
+  type ResourceAccessRequestList,
+  type ResourceLinkStatus,
+  type ViewerAccessRequest,
+} from "./access-requests.js";
 
 export {
   filterRecipientsByResourceAccess,

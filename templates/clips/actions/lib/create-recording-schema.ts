@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { RECORDING_TITLE_SOURCES } from "./title-source.js";
+import { RECORDING_TITLE_SOURCES } from "../../shared/title-source.js";
 
 const cliBoolean = z
   .union([z.boolean(), z.enum(["true", "false"])])
@@ -25,6 +25,28 @@ export const createRecordingSchema = z.object({
     .max(200)
     .nullish()
     .describe("Captured application name, when known"),
+  recordingPlatform: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .pipe(z.enum(["web", "desktop", "extension", "mobile"]))
+    .optional()
+    .describe("Recorder platform"),
+  recordingSource: z
+    .enum(["recorder", "file_upload", "local_copy_upload", "agent_upload"])
+    .optional()
+    .describe(
+      "How the clip reached Clips: a live recording, an uploaded file, a local copy recorded without storage, or a file an agent uploaded. Analytics only.",
+    ),
+  recordingAttemptId: z
+    .string()
+    .trim()
+    .min(1)
+    .max(128)
+    .optional()
+    .describe(
+      "The take this row belongs to, when it differs from the row id (a local copy's upload retries). Analytics only.",
+    ),
   sourceWindowTitle: z
     .string()
     .trim()
@@ -77,6 +99,14 @@ export const createRecordingSchema = z.object({
     .optional()
     .describe(
       "Request the resumable streaming upload path. Hosted deployments use it automatically because SQL chunk buffering is unavailable; local deployments can opt in with CLIPS_ENABLE_STREAMING_UPLOAD.",
+    ),
+  expectedOwnerEmail: z
+    .string()
+    .trim()
+    .min(1)
+    .optional()
+    .describe(
+      "Refuse to create the recording unless the signed-in account is this one. Recorders pass the account a local copy was recorded under, so it never uploads into another account.",
     ),
   streamingUploadClient: z
     .enum(["desktop-native"])

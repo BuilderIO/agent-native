@@ -11,13 +11,15 @@ The analytics app connects to multiple data sources. This skill covers general p
 
 ## Approach
 
-0. **Orient catalog-first** — before querying, consult what already exists: the injected `<data-dictionary>` and data-source status tell you which sources are configured and which table/columns/join paths to use. Use them to pick the one source that owns the fact instead of fanning out blind queries.
+0. **Use retrieved references first** — data questions may start with a small set of relevant data-dictionary entries and saved dashboard panels in `<resource scope="analytics-catalog">`. Treat them as definitions and query examples, never live results. If they do not fit, call `find-data` before querying; use data-source status when provider availability matters.
 1. **Route named account health deliberately** — for a customer/org health, QBR, renewal, contract-utilization, risk, or adoption request, read `account-health` before writing SQL. It adds identity-lock and metric-definition checks that an ordinary lookup does not need.
 2. **Read the relevant provider skill first** — check `.agents/skills/<provider>/SKILL.md` for table names, column mappings, auth, and gotchas. For BigQuery, read `.agents/skills/bigquery/SKILL.md` and use `search-bigquery-schema` before guessing table or column names.
 3. **Clarify if ambiguous** — if the metric definition, date range, or grain is unclear and a wrong guess would change the numbers, use the `ask-question` clarifying tool (multiple-choice) before querying. Ask at most once per turn; skip it when the dictionary or the user already answered.
 4. **Use existing actions or connected provider MCP tools** — call the provider action/tool with structured arguments, then filter or aggregate the returned records in your answer
 5. **Write ad-hoc scripts** — if no existing script covers the question, create one in `actions/`
 6. **Present data in chat** — don't just say "check the dashboard" — actually query, get the data, and present it. Only present numbers you actually retrieved; never report a value you did not query.
+
+For a question naming a dbt metric, call `query-dbt-semantic-metric` with its exact dbt name. Use dbt as the metric-definition and grain source; Sigma and Amplitude are examples or cross-checks. If the metric is not defined or its deployment is not ready, report that state and use a verified warehouse path only when it answers the same definition.
 
 For events recorded by the analytics template itself via its `/track` endpoint, use `pnpm action query-agent-native-analytics --sql "SELECT ... FROM analytics_events ..."`. This includes pageviews, site/app traffic, template usage, app usage, and event counts collected by this analytics app. Pageviews and traffic can also live in GA4, BigQuery/warehouse tables, Mixpanel, PostHog, Amplitude, or another configured provider, so choose the source from the user's wording, connected-source status, existing dashboards, data dictionary, and user/org resources. Ask one concise clarification if multiple configured sources are plausible. Do not use `db-query` for data-source analysis; `db-query` is only for internal app tables and will confuse analytics questions. The shipped `agent-native-templates-first-party` SQL dashboard is the template engagement dashboard for the first-party collector source.
 
@@ -27,6 +29,16 @@ bounded recent drill-down with an explicit date/time range. For the Builder.io
 production organization after the BigQuery cutover, these logical tables are
 served by partitioned BigQuery data and views; the source still does not require
 an end user's separate warehouse connection.
+
+First-party reads exclude test identities (QA/E2E accounts): ingest never
+stores their events or replays, and the read scope filters `user_id` (events,
+replays) and `user_key` (user-days). Pass `includeTestIdentities: true` to
+`query-agent-native-analytics` only to debug those accounts. Daily event
+rollups and BigQuery-source panels that query the raw warehouse table directly
+are clean from ingest onward but are not filtered at read time. The one
+exception is the legacy `@app_events` table, which keeps a test identity's
+`$exception` rows marked `JSON_VALUE(data, '$.test_identity') = 'true'`;
+exclude those from any metric over it.
 
 Before a large or historical first-party query, call
 `get-first-party-analytics-health`. Keep Neon as the default while its status is
@@ -63,6 +75,19 @@ WHERE event_name = 'pageview'
 Convert the user's requested local date/timezone to UTC before querying. For
 example, May 1, 2026 in America/New_York is `2026-05-01T04:00:00Z`
 through `2026-05-02T04:00:00Z`.
+
+### LLM observability events
+
+Agent runs are `analytics_events` rows with `event_name = '$ai_generation'`.
+Useful `properties`:
+
+- Identity: `$ai_trace_id`/`run_id`, `$ai_session_id`/`thread_id`, `$ai_model`/`model`, `$ai_provider`/`provider`.
+- Usage: `$ai_input_tokens`/`input_tokens`, `$ai_output_tokens`/`output_tokens`, `cache_read_tokens`, `cache_write_tokens`.
+- Cost: `$ai_total_cost_usd`/`cost_usd`, `cost_cents_x100`.
+- Time: `duration_ms` is the full run in milliseconds; `$ai_latency` is model time in seconds (run minus tool time).
+- Tools: `tool_calls`, `successful_tools`, `failed_tools`, `tools`, `tools_truncated`. The bounded `tools` array holds names, relative start times, durations, statuses, and coarse error classes, never args or results; failed runs and interrupted tools stay queryable.
+- Delegation: `delegated`, `delegation_protocol`, `caller_app`, `delegation_task_id`, `a2a_task_id`, `parent_run_id`, `parent_turn_id`. Agent Teams child runs use `delegation_protocol = 'agent-team'`, keep their own `run_id`, and link to the launching run through `parent_run_id`.
+- Errors: `status`, `$ai_error` (terminal code, cause, retryable, and a fixed code-derived message), `$ai_error_type`. Run failure messages are omitted from telemetry.
 
 ## Inline Charts In Chat
 
@@ -124,7 +149,7 @@ pnpm action account-deep-dive --query="The Knot" --days=180 --gongLimit=10 --tra
 # HubSpot contacts or companies
 pnpm action hubspot-records --objectType=companies --query=builder.io --properties=name,domain,lifecyclestage
 
-# Gong call content for a customer deep dive
+# Gong call evidence (quotes, counts); ask run-gong-native-insight first for "what did they say"
 pnpm action gong-calls --company="The Knot" --days=180 --includeTranscripts=true --transcriptLimit=5
 ```
 
@@ -135,10 +160,13 @@ endpoint/filter a shortcut can't express) have **no bespoke action** — reach
 them through the shared provider API escape-hatch pattern:
 `provider-api-catalog` / `provider-api-docs` to learn the endpoint, then
 `provider-api-request` (or `providerFetch` inside `run-code`) against the
-provider's real HTTP API. For broad/corpus-wide questions ("how many", "which",
-"any/none across all …") prefer this raw-API + `run-code` path from the first
-step — fetch the full cohort with `fetchAllPages`/`saveToFile` and
-grep/aggregate locally — rather than stretching a capped shortcut action.
+provider's real HTTP API. Ask the provider to do the work first: use its own
+search or semantic tool, or a server-side filter on a bounded window (for
+Gong, `run-gong-native-insight`). Only for exhaustive coverage, exact counts, or
+an absence claim ("how many", "any/none across all …") stage the raw API
+response with `stageAs`/`saveToFile` and reduce it with `query-staged-dataset`
+or `run-code`, rather than stretching a capped shortcut action or paging by
+hand to filter locally.
 
 ### Writing Ad-Hoc Scripts
 
@@ -169,10 +197,13 @@ For complete answers, combine data from multiple sources:
 - **BigQuery** for analytics events, signups, pageviews
 - **First-party Analytics** (`query-agent-native-analytics`) for events collected through `/track`
 - **HubSpot** for CRM data — `hubspot-records` for contacts/companies/tickets/general lookup; `hubspot-deals` and `hubspot-metrics` for pipeline and revenue analysis
-- **Gong** for sales-call evidence — use `gong-calls` with `includeTranscripts=true` for deep dives, objections, risks, or next steps
+- **Gong** for sales-call evidence — ask `run-gong-native-insight` first for what was said, risks, objections, or next steps; use `gong-calls` with `includeTranscripts=true` for quotes, counts, or when native operations are not connected
 - **Jira** for engineering metrics — tickets, sprints
 - **GitHub** for code metrics — PRs, reviews
-- **Sentry** for error rates and trends
+- **Agent-Native Analytics Monitoring -> Errors** for first-party captured
+  client/server issues; use `list-error-issues` and `get-error-issue` for
+  grouped details
+- **Sentry** for external error rates and trends when connected
 - **Grafana** for infrastructure metrics
 
 ## After Completing an Analysis — Capture New Knowledge
@@ -184,8 +215,28 @@ When you complete an analysis and discover:
 - A schema discovery (table exists but wasn't in the dictionary, a column name differs)
 - An identity-stitching rule (how to match users across two specific sources)
 
-Capture it immediately using `save-memory` or by writing to `LEARNINGS.md` via
-the `resources` tool:
+Analytics automatically captures explicit user corrections and metric
+definitions the user confirms after the thread has been idle. State corrections
+plainly. Before asking for confirmation, restate the complete proposed metric
+definition in plain language, including its key conditions and time window or
+grain when applicable; a bare “yes” to a metric-name-only question is not
+confirmation. These automatic captures stay private to the user. Do not call
+`save-memory` again for those same items. Before writing anything to shared
+`LEARNINGS.md` or organization memory, check its audience and ask the user for
+approval of that shared write. Keep setup-specific findings in personal memory
+or the current analysis.
+
+Use `save-memory` for other verified, durable personal Analytics knowledge,
+with a short actionable description; read the existing entry first when
+updating it. Do not save guesses, one-off result values, raw queries,
+credentials, or personal or customer-identifying details such as names, contact
+information, street/billing/mailing addresses, or personal identifiers. If the
+finding is uncertain or only applies to the current analysis, leave it in the
+answer instead of creating a memory.
+
+For entries not suitable for personal memory, use the project `LEARNINGS.md`
+only after the user approves that shared write and when it contains genuinely
+reusable, non-sensitive guidance:
 
 ```
 resources(action: "read", path: "LEARNINGS.md")  -- read first to merge
@@ -199,11 +250,9 @@ future analyses.
 ## Important Notes
 
 - Always query real data — never guess or approximate. Only present numbers you actually retrieved; do not claim a figure you did not query.
-- State confidence explicitly instead of refusing. Cite the dashboard or saved query you used when a query ran; say so when you're answering from an existing dashboard, especially a certified one. When no live query ran this turn, label every figure "Unverified" instead of asserting it or falling back to a connect-a-source dead end. Never refuse a question just because no certified source exists — try the catalog, then a bounded query, before declining.
+- State confidence explicitly instead of refusing. Answer shape and citing the dashboard are owned by AGENTS.md "Data questions". When no live query ran this turn, label every figure "Unverified" instead of asserting it or falling back to a connect-a-source dead end. Never refuse a question just because no certified source exists — try the catalog, then a bounded query, before declining.
 - Answer questions directly in chat with tables, inline charts, and findings. Never deflect to "check the dashboard" — actually run the query and present the answer.
-- Before finalizing an analytics answer, make the evidence trail explicit enough
-  to audit: source(s), time window, filters, sample size or row count, join or
-  match method, caveats/gaps, and what action to take next when useful.
+- Evidence fields (source, window, filters, sample size, join method, caveats) go in the optional "How it's computed" note defined in AGENTS.md, not the opening line.
 - Data-source status, data-dictionary reads, dashboard dry-runs, `update-dashboard`, and `generate-chart` are not data queries. For dashboard artifacts, run at least one provider query action and preserve the result evidence in the final answer or dashboard config/description.
 - Use action arguments such as `query`, `objectType`, `properties`, `owner`, `limit`, or provider-specific filters to narrow output; if an action returns a broad batch, filter it in your analysis and cite the records used.
 - Update the relevant `.agents/skills/<provider>/SKILL.md` when you discover new patterns.

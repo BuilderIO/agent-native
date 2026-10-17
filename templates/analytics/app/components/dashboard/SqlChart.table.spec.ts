@@ -9,14 +9,55 @@ import {
   buildTableClipboardText,
   formatCell,
   formatSeriesLabelForPanel,
+  reorderColumnConfigs,
   sortTableRows,
 } from "./SqlChart";
 
 describe("SqlChart table helpers", () => {
+  it("reorders visible columns and leaves hidden entries in their slots", () => {
+    const configs: TableColumnConfig[] = [
+      { key: "a" },
+      { key: "secret", hidden: true },
+      { key: "b" },
+      { key: "c" },
+    ];
+
+    expect(
+      reorderColumnConfigs(configs, ["a", "b", "c"], "c", "a").map((c) => [
+        c.key,
+        c.hidden ?? false,
+      ]),
+    ).toEqual([
+      ["c", false],
+      ["secret", true],
+      ["a", false],
+      ["b", false],
+    ]);
+  });
+
+  it("returns the same list when the move is a no-op", () => {
+    const configs: TableColumnConfig[] = [{ key: "a" }, { key: "b" }];
+    expect(reorderColumnConfigs(configs, ["a", "b"], "a", "a")).toBe(configs);
+  });
+
   it("formats numeric strings from SQL providers like numeric values", () => {
     expect(formatCell("1234", "number")).toBe("1,234");
     expect(formatCell("0.125", "percent")).toBe("12.50%");
     expect(formatCell("-2.5", "delta")).toBe("-2.5%");
+  });
+
+  it("puts the sign before the dollar sign for currency cells", () => {
+    expect(formatCell(-7505, "currency")).toBe("-$7,505");
+    expect(formatCell(111090, "currency")).toBe("$111,090");
+  });
+
+  it("sorts negative formatted currency strings numerically", () => {
+    const rows = [{ r: "$9" }, { r: "-$7,505" }, { r: "$1,000" }];
+    expect(sortTableRows(rows, [{ key: "r", direction: "asc" }])).toEqual([
+      { r: "-$7,505" },
+      { r: "$9" },
+      { r: "$1,000" },
+    ]);
   });
 
   it("sorts by multiple columns while treating numeric strings as numbers", () => {
@@ -81,9 +122,6 @@ describe("SqlChart table helpers", () => {
       { revenue: "" },
     ];
 
-    // Unparseable/empty values are a defined, documented position: always
-    // after every value that parsed as a number, independent of asc/desc —
-    // never coerced into the numeric ordering (e.g. as 0).
     expect(sortTableRows(rows, [{ key: "revenue", direction: "asc" }])).toEqual(
       [
         { revenue: "2" },

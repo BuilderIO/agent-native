@@ -1,16 +1,16 @@
 import { getDbExec } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
 
-let initPromise: Promise<void> | undefined;
-
-/** Channel-thread clarification windows are deliberately short-lived. */
 export const INTEGRATION_AWAITING_INPUT_TTL_MS = 24 * 60 * 60 * 1000;
 
-export async function ensureTable(): Promise<void> {
-  if (!initPromise) {
-    initPromise = (async () => {
-      const client = getDbExec();
-      const createSql = `
+export const awaitingInputsStore = defineStore({
+  id: "awaiting_inputs",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createSql = `
         CREATE TABLE IF NOT EXISTS integration_awaiting_inputs (
           platform TEXT NOT NULL,
           external_thread_id TEXT NOT NULL,
@@ -21,24 +21,16 @@ export async function ensureTable(): Promise<void> {
           PRIMARY KEY (platform, external_thread_id)
         )
       `;
-      {
         await ensureTableExists("integration_awaiting_inputs", createSql);
-        return;
-      }
-      await client.execute(createSql);
-    })().catch((error) => {
-      initPromise = undefined;
-      throw error;
-    });
-  }
-  return initPromise;
+      },
+    },
+  ],
+});
+
+export function ensureTable(): Promise<void> {
+  return awaitingInputsStore.ready();
 }
 
-/**
- * Open (or refresh) the bounded reply window after an integration explicitly
- * asks the originating Slack user a question. The workspace-qualified external
- * thread id and requester id prevent unrelated channel messages from opting in.
- */
 export async function setIntegrationAwaitingInput(input: {
   platform: string;
   externalThreadId: string;
@@ -69,11 +61,6 @@ export async function setIntegrationAwaitingInput(input: {
   });
 }
 
-/**
- * Atomically consume the one reply window for this exact requester. Competing
- * Slack deliveries cannot both claim it, and expired rows never authorize a
- * later unmentioned reply.
- */
 export async function consumeIntegrationAwaitingInput(input: {
   platform: string;
   externalThreadId: string;
@@ -104,7 +91,6 @@ export async function consumeIntegrationAwaitingInput(input: {
   return affected > 0;
 }
 
-/** Clear any outstanding clarification window once the thread resolves. */
 export async function clearIntegrationAwaitingInput(
   platform: string,
   externalThreadId: string,
@@ -117,5 +103,5 @@ export async function clearIntegrationAwaitingInput(
 }
 
 export function _resetIntegrationAwaitingInputStoreForTests(): void {
-  initPromise = undefined;
+  awaitingInputsStore.reset();
 }

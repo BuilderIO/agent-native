@@ -26,10 +26,6 @@ const mocks = vi.hoisted(() => {
     userEmail: "alice@example.com" as string | null,
     orgId: null as string | null,
   };
-  // Both the main list query and resolveDefaultDesignSystemId's query select
-  // from the same designSystems table, distinguished only by which method
-  // they chain after `.where(...)` — orderBy for the list, limit for the
-  // single-row default lookup — so this stub exposes both.
   const orderByFn = vi.fn(async () => state.listRows);
   const defaultLimitFn = vi.fn(async () => state.defaultRows);
   const whereDesignSystemsFn = vi.fn(() => ({
@@ -120,7 +116,6 @@ describe("list-design-systems — effective isDefault", () => {
         updatedAt: "2026-01-01T00:00:00.000Z",
       },
     ];
-    // resolveDefaultDesignSystemId resolves to the caller's own isDefault row.
     mocks.state.defaultRows = [{ id: "ds-mine" }];
 
     const result = await action.run({});

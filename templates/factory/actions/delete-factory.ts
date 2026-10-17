@@ -5,6 +5,7 @@ import { z } from "zod";
 import { getDb } from "../server/db/index.js";
 import {
   factoryAuditEvents,
+  factoryAutomationVersions,
   factoryComments,
   factoryDefinitions,
   factoryGraphVersions,
@@ -64,8 +65,6 @@ export default defineAction({
 
     const db = getDb();
     try {
-      // Remove schedules before SQL so no new run can start; restore both if
-      // either step fails so a partial cleanup cannot disable a surviving Factory.
       await removeFactoryAutomationResources(
         orgId,
         factoryId,
@@ -106,6 +105,7 @@ export default defineAction({
         const scopedTables = [
           factoryComments,
           factoryGraphVersions,
+          factoryAutomationVersions,
           factoryAuditEvents,
           factoryPollCursors,
           triageFeedback,

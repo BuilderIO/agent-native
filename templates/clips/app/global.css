@@ -1,8 +1,6 @@
-/* Self-hosted via @fontsource-variable/inter — no render-blocking Google Fonts request */
 @import "@fontsource-variable/inter";
 
 @import "tailwindcss";
-@import "@agent-native/core/styles/agent-native.css";
 @import "@agent-native/toolkit/styles.css";
 
 @source "./**/*.{ts,tsx}";
@@ -25,10 +23,15 @@
   --destructive: 0 91% 71%;
   --destructive-foreground: 0 0% 98%;
   --success: 142 72% 38%;
+  --link: 217 91% 52%;
   --border: 0 0% 90%;
   --input: 0 0% 90%;
   --ring: 0 0% 40%;
   --radius: 0.5rem;
+  --comment-input-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --comment-input-border: 0 0% 83.14%;
+  --comment-toolbar-divider: 210 11% 90%;
+  --comment-widget-shadow: 0 -2px 3px rgb(0 0 0 / 0.04);
   --recorder-mode-option-radius: 1.125rem;
   --recorder-mode-toggle-inset: 0.3125rem;
   --recorder-mode-toggle-radius: calc(
@@ -48,8 +51,12 @@
   --player-control-foreground: 0 0% 100%;
 }
 
+.comment-widget-shadow {
+  filter: drop-shadow(var(--comment-widget-shadow));
+}
+
 .dark {
-  --background: 0 0% 10%;
+  --background: 0 0% 13.33%;
   --foreground: 0 0% 90%;
   --card: 0 0% 14%;
   --card-foreground: 0 0% 90%;
@@ -66,11 +73,12 @@
   --destructive: 0 84% 60%;
   --destructive-foreground: 0 0% 98%;
   --success: 142 62% 56%;
+  --link: 213 94% 68%;
   --border: 0 0% 24%;
   --input: 0 0% 24%;
   --ring: 0 0% 60%;
   --radius: 0.5rem;
-  --sidebar-background: 0 0% 14%;
+  --sidebar-background: 0 0% 10%;
   --sidebar-foreground: 0 0% 60%;
   --sidebar-primary: 0 0% 75%;
   --sidebar-primary-foreground: 0 0% 10%;
@@ -82,12 +90,14 @@
   --highlight-foreground: 0 0% 10%;
 }
 
+.dark .clips-share-control,
 .dark .clips-share-trigger {
   --primary: 0 0% 100%;
 }
 
 @theme inline {
   --color-success: hsl(var(--success));
+  --color-link: hsl(var(--link));
   --color-highlight: hsl(var(--highlight));
   --color-highlight-foreground: hsl(var(--highlight-foreground));
   --color-player-control: hsl(var(--player-control));
@@ -100,6 +110,41 @@
     font-family: "Inter Variable", "Inter", sans-serif;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
+}
+
+[data-sonner-toaster] [data-sonner-toast]:has([data-button]) {
+  display: grid;
+  grid-template-columns: 20px max-content max-content minmax(0, 1fr);
+  align-items: center;
+  column-gap: 8px;
+  row-gap: 12px;
+}
+
+[data-sonner-toaster] [data-sonner-toast]:has([data-button]) [data-icon] {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+[data-sonner-toaster] [data-sonner-toast]:has([data-button]) [data-content] {
+  grid-column: 2 / -1;
+  grid-row: 1;
+  min-width: 0;
+}
+
+[data-sonner-toaster] [data-sonner-toast]:has([data-button]) [data-button] {
+  grid-row: 2;
+  justify-self: start;
+  margin-inline: 0 !important;
+}
+
+[data-sonner-toaster] [data-sonner-toast]:has([data-button]) [data-button] {
+  grid-column: 2;
+}
+
+[data-sonner-toaster]
+  [data-sonner-toast]:has([data-cancel])
+  [data-button]:not([data-cancel]) {
+  grid-column: 3;
 }
 
 @keyframes clips-import-progress {
@@ -196,4 +241,26 @@
 }
 ::-webkit-scrollbar-thumb:hover {
   background: hsl(var(--muted-foreground) / 0.34);
+}
+
+.clips-toolbar-strip {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--muted-foreground) / 0.35) transparent;
+}
+.clips-toolbar-strip::-webkit-scrollbar {
+  -webkit-appearance: none;
+  height: 6px;
+}
+.clips-toolbar-strip::-webkit-scrollbar-track {
+  background: transparent;
+}
+.clips-toolbar-strip::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.32);
+  border-radius: 9999px;
+}
+.clips-toolbar-strip:hover {
+  scrollbar-color: hsl(var(--muted-foreground) / 0.6) transparent;
+}
+.clips-toolbar-strip:hover::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.6);
 }

@@ -7,7 +7,10 @@ import {
   DESIGN_SAVE_OUTBOX_RETENTION_MS,
   discardDesignSaveOutboxEntry,
   drainDesignSaveOutbox,
+  isRejectedRestoreClaimError,
   journalDesignSaveOutboxEntry,
+  reconcileRejectedRestoreClaimOutboxEntry,
+  reconcileRejectedRestoreClaimOutboxEntryResult,
   type DesignSaveOutboxEntry,
   type DesignSaveOutboxStorage,
 } from "./design-save-outbox";
@@ -74,6 +77,8 @@ function fileEntry(revision: number, content = `revision-${revision}`) {
     payload: {
       id: "file-1",
       content,
+      expectedVersionHash: sourceContentHash("saved base content"),
+      syncCollab: true,
       operationSource: "editor-session-1",
       operationRevision: revision,
     },
@@ -81,7 +86,227 @@ function fileEntry(revision: number, content = `revision-${revision}`) {
   });
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
 describe("design save outbox", () => {
+  it("recognizes deterministic restore authorization failures", () => {
+    expect(
+      isRejectedRestoreClaimError({
+        statusCode: 403,
+        errorCode: "localhost_connection_scope_mismatch",
+      }),
+    ).toBe(true);
+    expect(
+      isRejectedRestoreClaimError({
+        status: 503,
+        errorCode: "temporary_failure",
+      }),
+    ).toBe(false);
+  });
+
+  it.each(["localhost_connection_scope_mismatch", "screen_restore_claim_used"])(
+    "removes only the rejected restore assignment and preserves other writes (%s)",
+    async (errorCode) => {
+      const storage = new MemoryOutboxStorage();
+      const entry = createDesignSaveOutboxEntry({
+        designId: "design-1",
+        actorScope: "user-1",
+        actionName: "update-design",
+        resourceId: "design-1",
+        operationSource: "editor-session-1",
+        operationRevision: 1,
+        payload: {
+          id: "design-1",
+          operationSource: "editor-session-1",
+          operationRevision: 1,
+          restoreClaims: [
+            {
+              claimId: "claim-1",
+              sourceFileId: "deleted-screen",
+              targetFileId: "restored-screen",
+            },
+            {
+              claimId: "claim-2",
+              sourceFileId: "deleted-screen-2",
+              targetFileId: "restored-screen-2",
+            },
+          ],
+          dataOperations: [
+            {
+              op: "set",
+              path: ["screenMetadata", "restored-screen"],
+              value: { connectionId: "foreign-connection", title: "Restored" },
+            },
+            {
+              op: "set",
+              path: ["screenMetadata", "restored-screen-2"],
+              value: { connectionId: "valid-connection", title: "Restored 2" },
+            },
+            {
+              op: "set",
+              path: ["canvasFrames", "restored-screen"],
+              value: { x: 20, y: 30, width: 300, height: 500 },
+            },
+          ],
+        },
+      });
+      const error = Object.assign(new Error("connection scope mismatch"), {
+        statusCode: 403,
+        errorCode,
+        details: { restoreTargetFileIds: ["restored-screen"] },
+      });
+      await journalDesignSaveOutboxEntry(entry, storage);
+
+      const firstDrain = await drainDesignSaveOutbox({
+        designId: "design-1",
+        actorScope: "user-1",
+        invokeAction: vi.fn().mockRejectedValue(error),
+        storage,
+      });
+
+      expect(firstDrain.rebased).toEqual([{ entry, error }]);
+      expect(firstDrain.failed).toEqual([]);
+      const [reconciled] = await storage.list("design-1", "user-1");
+      expect(reconciled?.payload.restoreClaims).toEqual([
+        {
+          claimId: "claim-2",
+          sourceFileId: "deleted-screen-2",
+          targetFileId: "restored-screen-2",
+        },
+      ]);
+      expect(reconciled?.payload.dataOperations).toEqual([
+        {
+          op: "set",
+          path: ["screenMetadata", "restored-screen"],
+          value: { title: "Restored" },
+        },
+        {
+          op: "set",
+          path: ["screenMetadata", "restored-screen-2"],
+          value: { connectionId: "valid-connection", title: "Restored 2" },
+        },
+        {
+          op: "set",
+          path: ["canvasFrames", "restored-screen"],
+          value: { x: 20, y: 30, width: 300, height: 500 },
+        },
+      ]);
+      expect(
+        reconcileRejectedRestoreClaimOutboxEntryResult(entry, [
+          "restored-screen",
+        ]),
+      ).toMatchObject({
+        kind: "updated",
+        entry: { payload: reconciled?.payload },
+      });
+      expect(
+        reconcileRejectedRestoreClaimOutboxEntry(entry, ["restored-screen"])
+          ?.payload,
+      ).toEqual(reconciled?.payload);
+
+      const retry = await drainDesignSaveOutbox({
+        designId: "design-1",
+        actorScope: "user-1",
+        invokeAction: vi.fn().mockResolvedValue({ updated: true }),
+        storage,
+      });
+      expect(retry.saved).toEqual([reconciled]);
+      expect(await storage.list("design-1", "user-1")).toEqual([]);
+    },
+  );
+
+  it("acknowledges a rejected restore when reconciliation removes the last operation", async () => {
+    const storage = new MemoryOutboxStorage();
+    const entry = createDesignSaveOutboxEntry({
+      designId: "design-1",
+      actorScope: "user-1",
+      actionName: "update-design",
+      resourceId: "design-1",
+      operationSource: "editor-session-1",
+      operationRevision: 1,
+      payload: {
+        id: "design-1",
+        operationSource: "editor-session-1",
+        operationRevision: 1,
+        restoreClaims: [
+          {
+            claimId: "claim-1",
+            sourceFileId: "deleted-screen",
+            targetFileId: "restored-screen",
+          },
+        ],
+        dataOperations: [
+          {
+            op: "set",
+            path: ["screenMetadata", "restored-screen"],
+            value: { connectionId: "foreign-connection" },
+          },
+        ],
+      },
+    });
+    const error = Object.assign(new Error("connection scope mismatch"), {
+      statusCode: 403,
+      errorCode: "localhost_connection_scope_mismatch",
+      details: { restoreTargetFileIds: ["restored-screen"] },
+    });
+    await journalDesignSaveOutboxEntry(entry, storage);
+
+    expect(
+      reconcileRejectedRestoreClaimOutboxEntryResult(entry, [
+        "restored-screen",
+      ]),
+    ).toEqual({ kind: "empty" });
+    expect(
+      reconcileRejectedRestoreClaimOutboxEntry(entry, ["restored-screen"]),
+    ).toBeNull();
+
+    const invokeAction = vi.fn().mockRejectedValue(error);
+    const result = await drainDesignSaveOutbox({
+      designId: "design-1",
+      actorScope: "user-1",
+      invokeAction,
+      storage,
+    });
+
+    expect(result.rebased).toEqual([{ entry, error }]);
+    expect(result.failed).toEqual([]);
+    expect(await storage.list("design-1", "user-1")).toEqual([]);
+    expect(invokeAction).toHaveBeenCalledTimes(1);
+
+    const retryAction = vi.fn();
+    await drainDesignSaveOutbox({
+      designId: "design-1",
+      actorScope: "user-1",
+      invokeAction: retryAction,
+      storage,
+    });
+    expect(retryAction).not.toHaveBeenCalled();
+  });
+
+  it.each([undefined, null, false, {}, { ok: true }, { updated: false }])(
+    "retains the queued edit when a save has no persistence acknowledgement: %j",
+    async (actionResult) => {
+      const storage = new MemoryOutboxStorage();
+      const entry = fileEntry(1);
+      await journalDesignSaveOutboxEntry(entry, storage);
+      const result = await drainDesignSaveOutbox({
+        designId: "design-1",
+        actorScope: "user-1",
+        invokeAction: vi.fn().mockResolvedValue(actionResult),
+        storage,
+      });
+      expect(result.saved).toEqual([]);
+      expect(result.failed).toHaveLength(1);
+      expect(await storage.list("design-1", "user-1")).toEqual([entry]);
+    },
+  );
+
   it("keeps the newest revision when an older journal write finishes later", async () => {
     const storage = new MemoryOutboxStorage();
     await journalDesignSaveOutboxEntry(fileEntry(3), storage);
@@ -107,6 +332,18 @@ describe("design save outbox", () => {
     ).toBe(2);
   });
 
+  it("clears an older journal entry after a newer operation persisted", async () => {
+    const storage = new MemoryOutboxStorage();
+    const older = fileEntry(1);
+    const persisted = fileEntry(2);
+    await journalDesignSaveOutboxEntry(older, storage);
+
+    await expect(
+      acknowledgeDesignSaveOutboxEntry(persisted, storage),
+    ).resolves.toBe(true);
+    expect(await storage.list("design-1", "user-1")).toEqual([]);
+  });
+
   it("does not let a stale cancellation discard a newer queued edit", async () => {
     const storage = new MemoryOutboxStorage();
     const cancelled = fileEntry(4);
@@ -122,11 +359,45 @@ describe("design save outbox", () => {
     ).toBe(5);
   });
 
+  it("waits for a delayed journal before discarding a cancelled entry", async () => {
+    const backingStorage = new MemoryOutboxStorage();
+    const journalStarted = deferred<void>();
+    const releaseJournal = deferred<void>();
+    const storage: DesignSaveOutboxStorage = {
+      putLatest: async (entry) => {
+        journalStarted.resolve();
+        await releaseJournal.promise;
+        await backingStorage.putLatest(entry);
+      },
+      deleteIfRevision: (entry) => backingStorage.deleteIfRevision(entry),
+      list: (designId, actorScope) => backingStorage.list(designId, actorScope),
+      pruneOlderThan: (updatedAt) => backingStorage.pruneOlderThan(updatedAt),
+    };
+    const entry = fileEntry(6);
+    const journal = journalDesignSaveOutboxEntry(entry, storage);
+    await journalStarted.promise;
+    let discarded = false;
+    const discard = discardDesignSaveOutboxEntry(entry, storage).then(() => {
+      discarded = true;
+    });
+
+    await Promise.resolve();
+    expect(discarded).toBe(false);
+    releaseJournal.resolve();
+    await Promise.all([journal, discard]);
+
+    expect(discarded).toBe(true);
+    expect(await backingStorage.list("design-1", "user-1")).toEqual([]);
+  });
+
   it("replays an HTML payload larger than keepalive limits after reload", async () => {
     const storage = new MemoryOutboxStorage();
     const content = `<main>${"x".repeat(70_000)}</main>`;
     await journalDesignSaveOutboxEntry(fileEntry(1, content), storage);
-    const invokeAction = vi.fn().mockResolvedValue({ ok: true });
+    const invokeAction = vi.fn().mockResolvedValue({
+      updated: true,
+      versionHash: sourceContentHash(content),
+    });
 
     const result = await drainDesignSaveOutbox({
       designId: "design-1",
@@ -162,26 +433,29 @@ describe("design save outbox", () => {
     expect(await storage.list("design-1", "user-1")).toHaveLength(1);
   });
 
-  it("retains a skipped stale file operation when the persisted hash belongs to newer content", async () => {
-    const storage = new MemoryOutboxStorage();
-    const entry = fileEntry(1, "requested content");
-    await journalDesignSaveOutboxEntry(entry, storage);
+  it.each([true, false])(
+    "retains a file save when the persisted hash belongs to newer content (skipped: %s)",
+    async (skippedStaleOperation) => {
+      const storage = new MemoryOutboxStorage();
+      const entry = fileEntry(1, "requested content");
+      await journalDesignSaveOutboxEntry(entry, storage);
 
-    const result = await drainDesignSaveOutbox({
-      designId: "design-1",
-      actorScope: "user-1",
-      invokeAction: vi.fn().mockResolvedValue({
-        updated: true,
-        skippedStaleOperation: true,
-        versionHash: sourceContentHash("newer persisted content"),
-      }),
-      storage,
-    });
+      const result = await drainDesignSaveOutbox({
+        designId: "design-1",
+        actorScope: "user-1",
+        invokeAction: vi.fn().mockResolvedValue({
+          updated: true,
+          skippedStaleOperation,
+          versionHash: sourceContentHash("newer persisted content"),
+        }),
+        storage,
+      });
 
-    expect(result.saved).toEqual([]);
-    expect(result.failed).toHaveLength(1);
-    expect(await storage.list("design-1", "user-1")).toHaveLength(1);
-  });
+      expect(result.saved).toEqual([]);
+      expect(result.failed).toHaveLength(1);
+      expect(await storage.list("design-1", "user-1")).toHaveLength(1);
+    },
+  );
 
   it("acknowledges an exact idempotent file replay when its content hash is proven", async () => {
     const storage = new MemoryOutboxStorage();
@@ -205,12 +479,51 @@ describe("design save outbox", () => {
     expect(await storage.list("design-1", "user-1")).toEqual([]);
   });
 
-  it("never replays an unguarded live-collaboration mirror", async () => {
+  it.each([
+    ["syncCollab true", true, undefined],
+    ["syncCollab default", undefined, undefined],
+    ["syncCollab false", false, undefined],
+    ["empty base hash", true, ""],
+  ] as const)(
+    "rebases a legacy content snapshot without a usable base hash (%s)",
+    async (_label, syncCollab, expectedVersionHash) => {
+      const storage = new MemoryOutboxStorage();
+      const unsafe = fileEntry(1);
+      delete unsafe.payload.expectedVersionHash;
+      if (expectedVersionHash !== undefined) {
+        unsafe.payload.expectedVersionHash = expectedVersionHash;
+      }
+      if (syncCollab === undefined) {
+        delete unsafe.payload.syncCollab;
+      } else {
+        unsafe.payload.syncCollab = syncCollab;
+      }
+      await journalDesignSaveOutboxEntry(unsafe, storage);
+      const invokeAction = vi.fn();
+
+      const result = await drainDesignSaveOutbox({
+        designId: "design-1",
+        actorScope: "user-1",
+        invokeAction,
+        storage,
+      });
+
+      expect(result.rebased).toHaveLength(1);
+      expect(result.failed).toEqual([]);
+      expect(result.rebased[0]?.error).toMatchObject({ status: 409 });
+      expect(invokeAction).not.toHaveBeenCalled();
+      expect(await storage.list("design-1", "user-1")).toEqual([]);
+    },
+  );
+
+  it("replays a metadata-only update-file entry without a content hash", async () => {
     const storage = new MemoryOutboxStorage();
-    const unsafe = fileEntry(1);
-    unsafe.payload.syncCollab = false;
-    await journalDesignSaveOutboxEntry(unsafe, storage);
-    const invokeAction = vi.fn();
+    const metadataOnly = fileEntry(1);
+    delete metadataOnly.payload.content;
+    delete metadataOnly.payload.expectedVersionHash;
+    metadataOnly.payload.filename = "renamed.html";
+    await journalDesignSaveOutboxEntry(metadataOnly, storage);
+    const invokeAction = vi.fn().mockResolvedValue({ updated: true });
 
     const result = await drainDesignSaveOutbox({
       designId: "design-1",
@@ -219,9 +532,12 @@ describe("design save outbox", () => {
       storage,
     });
 
-    expect(result.failed).toHaveLength(1);
-    expect(invokeAction).not.toHaveBeenCalled();
-    expect(await storage.list("design-1", "user-1")).toHaveLength(1);
+    expect(result.saved).toEqual([metadataOnly]);
+    expect(result.rebased).toEqual([]);
+    expect(invokeAction).toHaveBeenCalledWith(
+      "update-file",
+      expect.objectContaining({ filename: "renamed.html" }),
+    );
   });
 
   it("never replays a full tweak snapshot without its base hash", async () => {
@@ -308,8 +624,6 @@ describe("design save outbox", () => {
       storage,
     });
 
-    // A permanent failure is dropped (never retried), unlike a 409 conflict
-    // which stays queued — otherwise an orphaned screen loops 500s forever.
     expect(result.dropped).toHaveLength(1);
     expect(result.failed).toEqual([]);
     expect(await storage.list("design-1", "user-1")).toEqual([]);
@@ -330,8 +644,6 @@ describe("design save outbox", () => {
       storage,
     });
 
-    // Superseded base: removed from the queue, but into `rebased` — the editor
-    // refetches; it must NOT land in `dropped` (which warns "changes discarded").
     expect(result.rebased).toHaveLength(1);
     expect(result.dropped).toEqual([]);
     expect(result.failed).toEqual([]);
@@ -341,8 +653,6 @@ describe("design save outbox", () => {
   it("retries (never drops) a bare 404 that does not name a missing file", async () => {
     const storage = new MemoryOutboxStorage();
     await journalDesignSaveOutboxEntry(fileEntry(1), storage);
-    // A cold-start action route can 404 transiently; the message does not name
-    // a missing file, so the edit must stay queued for retry, never discarded.
     const routeMiss = Object.assign(new Error("Not Found"), { status: 404 });
 
     const result = await drainDesignSaveOutbox({

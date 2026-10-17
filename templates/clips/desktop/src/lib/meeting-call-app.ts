@@ -16,17 +16,6 @@ function isHost(hostname: string, host: string): boolean {
   return hostname === host || hostname.endsWith(`.${host}`);
 }
 
-/**
- * Bundle ids for the call-ended watcher to monitor for this meeting's join
- * URL. Adding a browser's bundle ids alongside a native app's can never end
- * that native recording early — the watcher only stops once every watched
- * app has released the mic, so a browser is just one more app that also has
- * to let go. Zoom's web client runs in a browser and was never watched, so
- * Zoom join URLs watch both, covering a session whichever client it opens
- * in. The cost is an unrelated browser tab still holding the mic keeps a
- * native Zoom recording alive until that tab releases it — failing safe
- * over stopping early.
- */
 export function callAppBundleIdsForJoinUrl(joinUrl?: string | null): string[] {
   if (!joinUrl) return [...NATIVE_CALL_APP_BUNDLE_IDS];
 

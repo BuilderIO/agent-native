@@ -4,9 +4,11 @@ import { getUserSetting } from "@agent-native/core/settings";
 import { emailMessageMatchesSearch } from "@shared/search.js";
 import { z } from "zod";
 
+import { assertGmailNotCoolingDown } from "../server/lib/gmail-quota.js";
+import { GmailQuotaCooldownError } from "../server/lib/google-api.js";
 import {
   getClients,
-  getConnectedAccounts,
+  getConnectedAccountsWithErrors,
   fetchGmailLabelMap,
   isConnected,
 } from "../server/lib/google-auth.js";
@@ -81,7 +83,10 @@ function toInventoryItem(
   };
 }
 
-function inventoryError(message: unknown): MailInventoryError {
+function inventoryError(
+  message: unknown,
+  opts?: { rateLimited?: boolean },
+): MailInventoryError {
   const bounded = (
     typeof message === "string" ? message : "Provider request failed"
   )
@@ -91,7 +96,9 @@ function inventoryError(message: unknown): MailInventoryError {
       "$1=[redacted]",
     )
     .slice(0, 240);
-  const rateLimited = /\b(?:429|quota|rate.?limit)\b/i.test(bounded);
+  const rateLimited =
+    opts?.rateLimited === true ||
+    /\b(?:429|quota|rate.?limit)\b/i.test(bounded);
   const auth = /\b(?:401|403|auth|token|credential|permission)\b/i.test(
     bounded,
   );
@@ -352,9 +359,6 @@ export default defineAction({
       throw new Error("Inventory limit must be an integer from 1 through 100.");
     }
 
-    // Inventory is deliberately resolved before any refresh/list call. Apart
-    // from preventing a cross-account data leak, this keeps a selected read
-    // from touching token state for accounts the caller did not choose.
     const requestedAccounts =
       args.accountEmails ?? (args.account ? [args.account] : undefined);
 
@@ -427,9 +431,18 @@ export default defineAction({
       );
     }
 
-    const connectedAccounts = inventory
-      ? await getConnectedAccounts(ownerEmail)
-      : [];
+    const accountResult = inventory
+      ? await getConnectedAccountsWithErrors(ownerEmail)
+      : { accounts: [], errors: [] };
+    const connectedAccounts = accountResult.accounts;
+    const requestedAccountsAreKnown =
+      requestedAccounts !== undefined &&
+      requestedAccounts.every((requested) =>
+        connectedAccounts.some(
+          (account) => account.toLowerCase() === requested.toLowerCase(),
+        ),
+      );
+    const accountErrors = requestedAccountsAreKnown ? [] : accountResult.errors;
     const connectedByLower = new Map(
       connectedAccounts.map((email) => [email.toLowerCase(), email]),
     );
@@ -443,6 +456,11 @@ export default defineAction({
             ),
           ).map((email) => {
             const owned = connectedByLower.get(email);
+            if (!owned && accountErrors.length > 0) {
+              throw new Error(
+                accountErrors.map(({ error }) => error).join("; "),
+              );
+            }
             if (!owned)
               throw new Error(
                 `Account ${email} is not connected for this user.`,
@@ -450,6 +468,26 @@ export default defineAction({
             return owned;
           })
         : undefined;
+
+    if (
+      inventory &&
+      connectedAccounts.length === 0 &&
+      accountErrors.length > 0
+    ) {
+      return JSON.stringify(
+        {
+          error: accountErrors.map(({ error }) => error).join("; "),
+          accountErrors: accountErrors.map(({ email, error }) => ({
+            accountEmail: email,
+            error: inventoryError(error),
+          })),
+          coverageComplete: false,
+          complete: false,
+        },
+        null,
+        2,
+      );
+    }
 
     if (
       (inventory && selectedAccounts && selectedAccounts.length > 0) ||
@@ -536,7 +574,9 @@ export default defineAction({
               errors: Object.fromEntries(
                 accountEmails.map((email) => [
                   email.toLowerCase(),
-                  inventoryError(listResult.message),
+                  inventoryError(listResult.message, {
+                    rateLimited: listResult.isQuotaError,
+                  }),
                 ]),
               ),
               nextPageTokens: {},
@@ -549,7 +589,9 @@ export default defineAction({
             errors: Object.fromEntries(
               listResult.errors.map((error) => [
                 error.email.toLowerCase(),
-                inventoryError(error.error),
+                inventoryError(error.error, {
+                  rateLimited: error.isQuotaError,
+                }),
               ]),
             ),
             nextPageTokens: Object.fromEntries(
@@ -575,9 +617,9 @@ export default defineAction({
             : hasMore
               ? await createInventoryCursor(ownerEmail, cursorState)
               : undefined;
-          const coverageComplete = cursorState.accounts.every(
-            (account) => account.status === "ok",
-          );
+          const coverageComplete =
+            accountErrors.length === 0 &&
+            cursorState.accounts.every((account) => account.status === "ok");
           return {
             version: 1,
             query: { view, ...(query ? { q: query } : {}) },
@@ -588,17 +630,27 @@ export default defineAction({
             queriedAccounts: cursorState.accounts.map(
               (account) => account.accountEmail,
             ),
-            accounts: cursorState.accounts.map((account) => ({
-              accountEmail: account.accountEmail,
-              status: account.status,
-              count: account.knownCount ?? account.emittedCount,
-              emittedCount: account.emittedCount,
-              exhausted:
-                account.status === "ok" &&
-                account.exhausted &&
-                account.pending.length === 0,
-              ...(account.error ? { error: account.error } : {}),
-            })),
+            accounts: [
+              ...cursorState.accounts.map((account) => ({
+                accountEmail: account.accountEmail,
+                status: account.status,
+                count: account.knownCount ?? account.emittedCount,
+                emittedCount: account.emittedCount,
+                exhausted:
+                  account.status === "ok" &&
+                  account.exhausted &&
+                  account.pending.length === 0,
+                ...(account.error ? { error: account.error } : {}),
+              })),
+              ...accountErrors.map(({ email, error }) => ({
+                accountEmail: email,
+                status: "error" as const,
+                count: 0,
+                emittedCount: 0,
+                exhausted: false,
+                error: inventoryError(error),
+              })),
+            ],
             coverageComplete,
             complete: coverageComplete && !hasMore,
             items,
@@ -613,6 +665,7 @@ export default defineAction({
           throw error;
         }
       }
+      await assertGmailNotCoolingDown(clients.map((client) => client.email));
       const labelMap = new Map<string, string>();
       await Promise.all(
         clients.map(async ({ accessToken }) => {
@@ -635,16 +688,12 @@ export default defineAction({
       });
 
       if (!listResult.ok) {
-        return JSON.stringify(
-          {
-            error: listResult.message,
-            ...(listResult.isQuotaError && {
-              retryAfterSeconds: listResult.retryAfterSeconds,
-            }),
-          },
-          null,
-          2,
-        );
+        if (listResult.isQuotaError) {
+          throw new GmailQuotaCooldownError(
+            (listResult.retryAfterSeconds ?? 60) * 1000,
+          );
+        }
+        return JSON.stringify({ error: listResult.message }, null, 2);
       }
 
       let emails: any[] = listResult.emails;
@@ -678,7 +727,6 @@ export default defineAction({
       return JSON.stringify(payload, null, 2);
     }
 
-    // Fallback: local store
     let emails = await readLocalEmails(ownerEmail);
     const localAccountsByLower = new Map<string, string>();
     for (const email of emails) {
@@ -749,8 +797,6 @@ export default defineAction({
       emails = emails.filter((e) => emailMessageMatchesSearch(e, query));
     }
 
-    // Filter out snoozed emails, matching the REST handler's demo-mode
-    // behavior. Skip when searching so snoozed hits surface too.
     if (!query && (view === "inbox" || view === "unread")) {
       const snoozedIds = await getSnoozedThreadIds(ownerEmail);
       if (snoozedIds.size > 0) {

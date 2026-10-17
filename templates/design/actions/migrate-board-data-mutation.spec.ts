@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { BOARD_FILENAME } from "../shared/board-file.js";
+
 const state = vi.hoisted(() => {
   const selectChain = {
     from: vi.fn(),
@@ -24,12 +26,23 @@ const state = vi.hoisted(() => {
     mutateDesignData: vi.fn(),
     assertAccess: vi.fn(),
     seedFromText: vi.fn(),
+    readLiveSourceFile: vi.fn(),
+    writeInlineSourceFile: vi.fn(),
     nanoid: vi.fn(),
   };
 });
 
 vi.mock("@agent-native/core/collab", () => ({
   seedFromText: state.seedFromText,
+}));
+
+vi.mock("../server/source-workspace.js", () => ({
+  readLiveSourceFile: state.readLiveSourceFile,
+  withDesignSourceMutationTransaction: async (
+    _designId: string,
+    callback: (tx: typeof state.db) => Promise<unknown>,
+  ) => callback(state.db),
+  writeInlineSourceFile: state.writeInlineSourceFile,
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
@@ -52,7 +65,10 @@ vi.mock("../server/db/index.js", () => ({
       id: "designFiles.id",
       designId: "designFiles.designId",
       filename: "designFiles.filename",
+      fileType: "designFiles.fileType",
       content: "designFiles.content",
+      createdAt: "designFiles.createdAt",
+      updatedAt: "designFiles.updatedAt",
     },
   },
 }));
@@ -79,6 +95,8 @@ beforeEach(() => {
   state.selectChain.limit.mockResolvedValue([]);
   state.insertChain.values.mockResolvedValue(undefined);
   state.seedFromText.mockResolvedValue(undefined);
+  state.readLiveSourceFile.mockReset();
+  state.writeInlineSourceFile.mockReset();
   state.nanoid.mockReturnValue("board-file-1");
   state.mutateDesignData.mockImplementation(
     async (options: {
@@ -118,5 +136,106 @@ describe("migrate-board-objects designs.data mutation", () => {
       boardObjects: null,
     });
     expect(state.data).not.toHaveProperty("boardFileMigrationId");
+  });
+
+  it("backfills an existing live board through the shared source writer", async () => {
+    const existingBoardFile = {
+      id: "board-file-1",
+      designId: "design-1",
+      filename: BOARD_FILENAME,
+      fileType: "html",
+      content: "<html><body>sql fallback</body></html>",
+      createdAt: "2026-07-09T00:00:00.000Z",
+      updatedAt: "2026-07-09T00:00:00.000Z",
+    };
+    const liveContent =
+      '<!doctype html><html><body><div data-agent-native-node-id="live-node" style="background:#fff"></div></body></html>';
+    state.data = {
+      concurrentCanvasWrite: { keep: true },
+      boardFileId: existingBoardFile.id,
+      boardObjects: null,
+    };
+    state.selectChain.limit
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([existingBoardFile]);
+    state.readLiveSourceFile.mockResolvedValue({
+      content: liveContent,
+      versionHash: "live-version",
+      language: "html",
+    });
+    state.writeInlineSourceFile.mockResolvedValue({
+      versionHash: "patched-version",
+      changed: true,
+      updatedAt: "2026-07-09T12:00:00.000Z",
+    });
+
+    const result = await action.run({ designId: "design-1" });
+
+    expect(result).toMatchObject({
+      migrated: false,
+      boardFileId: existingBoardFile.id,
+    });
+    expect(state.readLiveSourceFile).toHaveBeenCalledWith(existingBoardFile);
+    expect(state.writeInlineSourceFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        designId: "design-1",
+        file: existingBoardFile,
+        expectedVersionHash: "live-version",
+        content: expect.stringContaining('data-an-primitive="rectangle"'),
+      }),
+    );
+    expect(state.db.update).not.toHaveBeenCalled();
+    expect(state.seedFromText).not.toHaveBeenCalled();
+  });
+
+  it("leaves migration finalization pending when reused-board publication fails", async () => {
+    const existingBoardFile = {
+      id: "board-file-1",
+      designId: "design-1",
+      filename: BOARD_FILENAME,
+      fileType: "html",
+      content: "<html><body>existing</body></html>",
+      createdAt: "2026-07-09T00:00:00.000Z",
+      updatedAt: "2026-07-09T00:00:00.000Z",
+    };
+    state.selectChain.limit
+      .mockResolvedValueOnce([existingBoardFile])
+      .mockResolvedValueOnce([existingBoardFile]);
+    state.readLiveSourceFile.mockResolvedValue({
+      content: existingBoardFile.content,
+      versionHash: "live-version",
+      language: "html",
+    });
+    state.writeInlineSourceFile.mockRejectedValue(
+      new Error("live board publication failed"),
+    );
+
+    await expect(action.run({ designId: "design-1" })).rejects.toThrow(
+      "live board publication failed",
+    );
+
+    expect(state.mutateDesignData).toHaveBeenCalledTimes(1);
+    expect(state.data).toMatchObject({
+      boardFileMigrationId: existingBoardFile.id,
+      boardObjects: expect.anything(),
+    });
+    expect(state.data).not.toHaveProperty("boardFileId");
+    expect(state.seedFromText).not.toHaveBeenCalled();
+  });
+
+  it("leaves the reservation pending when a new board cannot be seeded", async () => {
+    state.seedFromText.mockRejectedValue(new Error("board seed failed"));
+
+    await expect(action.run({ designId: "design-1" })).rejects.toThrow(
+      "board seed failed",
+    );
+
+    expect(state.mutateDesignData).toHaveBeenCalledTimes(1);
+    expect(state.data).toMatchObject({
+      boardFileMigrationId: "board-file-1",
+      boardObjects: expect.anything(),
+    });
+    expect(state.data).not.toHaveProperty("boardFileId");
+    expect(state.insertChain.values).toHaveBeenCalledOnce();
   });
 });

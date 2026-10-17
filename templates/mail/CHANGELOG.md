@@ -3,6 +3,381 @@
 All notable user-facing changes to Agent-Native Mail are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-14
+
+### Fixed
+
+- Inbox previews show apostrophes, quotes and ampersands as text instead of HTML codes.
+- Allowing automations to send no longer lets them delete mail or change Gmail settings without approval.
+- Automations that add a Gmail label no longer wait for send approval that never arrives.
+
+## 2026-10-09
+
+### Improved
+
+- Chats open on their own shareable URL at /chat/<id>, and /chat always starts a blank chat.
+
+## 2026-10-06
+
+### Fixed
+
+- Sign-in pages show the ocean wave without a fallback flash and keep it clear of the marketing copy.
+
+## 2026-10-05
+
+### Fixed
+
+- Sign-in and signup pages now share the animated Agent-Native wave.
+
+## 2026-10-02
+
+### Improved
+
+- Builder.io setup copy now clarifies the account action and available credits.
+
+### Fixed
+
+- Pressing R on a message in the list opens the reply window even right after Mail updates, and the error screen now offers Reload.
+
+## 2026-10-01
+
+### Improved
+
+- Mail keeps its inbox or app shell visible while routing and recovering
+
+### Fixed
+
+- Mail stops repeating actions when Gmail remains in a cooldown.
+- When Gmail rate-limits Mail it keeps showing your saved inbox with a small notice and retries on its own, and an account Google rejected now asks you to reconnect instead of retrying forever
+
+## 2026-09-30
+
+### Improved
+
+- Builder credit connections now use the Builder.io name.
+- The Mail navigation stays readable over the inbox and uses locale-formatted label counts
+
+### Fixed
+
+- Mail refreshes chat readiness after a successful Builder connection.
+- Mail scopes cached message bodies to the signed-in account and mailbox.
+- Opening an agent-focused draft restores its composer when minimized.
+- Restored emails return to Inbox and cached messages are cleared at sign-out.
+
+### Security
+
+- Switching accounts or mailboxes no longer shows cached messages from the previous mailbox.
+
+## 2026-09-29
+
+### Improved
+
+- Pin the Mail sidebar to keep folder navigation visible.
+- Mail triage settings separate status-fetch errors from rule failures and offer safe retries.
+- Mail loading screens match the current inbox layout.
+- Mail shows the first messages sooner and keeps them visible while background sync finishes.
+
+### Fixed
+
+- Chat prompts clear immediately while the assistant thinks.
+- Chat stays ready for your next draft while a message is being sent.
+- Failed Mail rule runs now show their status once and keep Undo available after an interrupted update.
+- The open chat panel is separated from your inbox by a visible divider.
+- Sent chat prompts clear immediately, while reply progress appears in the conversation.
+- Existing compose drafts keep their attachments when revised
+- Scheduled email changes refresh the inbox and schedule list
+
+## 2026-09-28
+
+### Improved
+
+- AI triage now appears before Automations in Mail settings.
+- The app canvas now meets the right chat sidebar without a dark seam or rounded corner.
+- Google sign-in shows progress while authentication finishes.
+- General and AI triage settings now share a consistent full-width layout.
+- Mail background work stays within its time budget and checks fewer connected accounts per sweep.
+- Mail onboarding saves inbox rules before provider setup and sorts recent mail after connection.
+- Mail syncs large inboxes progressively with shared Gmail quota control and resumable bulk archiving.
+- Settings now opens in the new layout, with Account, Connections, Agent, Organization, and app sections.
+- Builder credit notices appear above sidebar actions in a full-width layout.
+- Mail automation rules use a consistent neutral color treatment.
+- Open the current agent conversation in a full-page view
+
+### Fixed
+
+- Your inbox now loads without getting stuck on loading placeholders.
+- Inbox category tabs stay in the inbox view
+- Inbox rule sorting now offers a retry when starting fails and reports undo errors.
+- Large archives finish without manual retries
+- Mail actions follow the active inbox tab and ignore rows retained from previous filters
+- Mail automations start from the current inbox point after setup or a sync gap.
+- Mail preserves sorting progress and undo access when a retry is needed
+- Mail retries Gmail status errors and avoids repeating Google sign-in in manual setup.
+- Mail setup keeps saved rules available when browser storage or onboarding completion fails.
+- Mail setup stays recoverable when model settings or sorting status checks fail.
+- Mail updates an existing compose draft in place when you ask for a revision.
+- Rule backfills show why recent mail could not be processed
+- Scheduled Mail jobs recover after interrupted sweeps without duplicating sends
+- Search results no longer trigger a duplicate mailbox fetch
+- Avoid automatic retries after Gmail quota cooldowns
+
+## 2026-09-27
+
+### Added
+
+- Mail can mark prompt-matched messages Important and show browser notifications while Mail is open; mobile app notifications are coming soon.
+
+### Improved
+
+- AI triage links open the relevant rule group.
+- Inbox Priority shows each email's score with quick feedback and rule settings.
+- Mail rule changes in chat now link to the matching Settings section
+- Updated drafts now include a review link in chat
+- Add AI inbox triage to Mail's first-run onboarding.
+- Scheduled-send cards show the subject and local send time
+- Successful draft, filter, and inbox rule changes now appear as concise action cards in chat.
+
+### Fixed
+
+- Emails show as soon as their text arrives instead of waiting for every image, and no longer go blank when an open email refreshes.
+- Failed queued draft sends now report an error instead of appearing successful.
+- Gmail cooldown messages now show when to try again.
+- Inbox sorting recovers automatically when background processing is interrupted
+- Mail resumes inbox organization after temporary Gmail limits
+- Mail retries inbox rules after temporary Google token refresh failures
+- Mail setup stays visible while triage availability loads
+- Mail setup waits for first-run onboarding, and empty importance prompts require an explicit skip.
+- Inbox tabs are visible on mobile, and the full toolbar scrolls together horizontally.
+- Triage examples stay placeholders until you choose them
+- Undo resumes safely after an interrupted mail restore
+- Fixed the inbox crash when the sidebar is pinned
+- Inbox navigation stays in a hamburger drawer, and filter tabs use available toolbar space before scrolling.
+- Inbox sorting finishes reliably across larger mailboxes
+- Scheduled email cards keep subjects that match the default label
+- Scheduled sends reject timestamps outside the supported date range before saving.
+
+## 2026-09-26
+
+### Improved
+
+- AI triage explains how prompts handle matching mail, including how filtered mail is labeled and archived.
+- Drafts and Gmail filter rules appear as compact cards in chat
+- Loading screens now reflect the app's home layout.
+- Mail chat suggestions start with examples for filtering, priority, and auto-archive.
+- See how many conversations Mail filtered or kept in chat
+- AI inbox rules now apply to recent mail, appear as inbox tabs, and can be refined in chat.
+
+### Fixed
+
+- Removing a member from your organization now completes instead of failing with a pending cleanup error
+- Chat-created inbox rules appear immediately while recent mail is processed in the background.
+- Chat-created Mail rules save and queue recent-mail processing before background model checks run.
+- Fixed AI rule setup progress and chat updates
+- Fixed an inbox crash when the sidebar is pinned
+- Mail AI rules now use the configured OpenRouter provider and rank new mail by its score.
+- Setup examples no longer become archive or spam rules unless you edit them.
+- The Filtered inbox view stays available when Gmail labels are migrated.
+- Fixed importance actions, label display, and triage loading feedback.
+- Inbox setup now keeps result counts and undo available while rules refresh.
+- Mail cancels stale thread-read cooldown retries after a newer unread action
+
+### Changed
+
+- The app entry now opens the shared sign-in and sign-up screen instead of a separate marketing page.
+
+## 2026-09-25
+
+### Improved
+
+- Mail settings now live in tabs on Mail > General (Drafting, Snippets, Rules, AI filter, Gmail filters, Aliases, Tracking), and Slack draft requests sit on Channels > Slack.
+- Settings now opens from your name at the bottom of the sidebar, or with ⌘,.
+- Mail now guides users to connect Jev before setting up triage and lets them remove existing rules if Jev becomes unavailable.
+- Tune inbox priorities with Jev, label messages clearly, and teach importance with feedback.
+
+### Fixed
+
+- Fix Google sign-in and connect popups that stayed blank and asked you to allow pop-ups
+- Slack conversations can now use all available Mail actions
+- Editing importance rules preserves disabled instructions and recovers from duplicate-rule deletion failures
+- Handle astral Unicode letters in autocomplete word boundaries
+- Keep existing AI filter rules intact when saving a prompt
+- Keep inbox tab counts consistent when switching tabs
+
+## 2026-09-24
+
+### Improved
+
+- Add an All inbox tab that shows every inbox thread and can be hidden in tab settings.
+- Priority sort keeps results when switching inbox tabs, and loading tabs show a skeleton
+- The composer keeps its taller layout in a narrower window.
+- The compose window opens larger, leaving more room to write with quieter toolbar icons.
+
+### Fixed
+
+- Gmail inboxes refresh reliably when push notifications are delayed.
+- Priority sorting stays in place when you return to the inbox
+
+### Security
+
+- Mail session replays mask email text in the mailbox while keeping agent requests and replies readable, including email quotes
+- Mail automations no longer fall back to shared deployment LLM keys; connect a provider in Settings to enable them.
+
+## 2026-09-23
+
+### Improved
+
+- Jev email matches now show match probability instead of calling it confidence.
+
+### Fixed
+
+- Mail keeps Priority sort selected when Jev availability is temporarily unavailable.
+
+## 2026-09-22
+
+### Improved
+
+- Jev-powered Mail rules and Priority sort work with an enabled Builder space or your personal Jev key.
+- Apps start with an app-shaped skeleton while session data loads immediately.
+
+### Fixed
+
+- Signed-out desktop tabs now show sign-in instead of retrying the inbox every 20 seconds.
+- Mail keeps cached messages visible when an account refresh fails
+
+## 2026-09-19
+
+### Fixed
+
+- New Mail drafts stay pinned to the bottom of the viewport.
+- OpenAI automation settings load without a missing engine package error
+
+## 2026-09-18
+
+### Added
+
+- Mail rules can tag messages or move spam out of Inbox with Jev-powered previews and feedback
+
+## 2026-09-17
+
+### Fixed
+
+- Mail undo keeps newer thread actions intact
+
+## 2026-09-16
+
+### Fixed
+
+- Light and dark mode choices now persist while navigating in the desktop app.
+- Moving a conversation to a label now shows it in that label's list immediately, and when two quick actions touch the same conversation, undoing or failing one no longer makes the other one reappear in the inbox.
+- Reporting spam, blocking a sender, or muting a conversation now updates the inbox immediately, and if the action fails only that conversation comes back instead of other recent changes being undone.
+
+## 2026-09-15
+
+### Improved
+
+- Account menus are now shorter, with workspace apps and agent management available in Settings.
+- Mail labels recipient and account controls for keyboard and assistive-technology parity.
+- Match Superhuman's compact compose card geometry on desktop
+
+### Fixed
+
+- Google connections now open reliably in embedded browsers
+- Inbox archive and read-state changes stay consistent during rapid actions
+- Mail keeps rapid archive and read actions in sync
+- Mail recovers cleanly when an email view or navigation takes too long to load.
+- New drafts focus the To field immediately for keyboard-first composing
+
+## 2026-09-14
+
+### Added
+
+- Find implemented keyboard shortcuts by context from the Command menu.
+
+### Improved
+
+- Choose a send time by typing a date or time in natural language.
+- Keyboard navigation keeps recipient suggestions visible
+- Mail Trash shortcuts now also support #
+- Make Mail search clear buttons keyboard-activatable while preserving input focus
+- New and reopened drafts open in a compact compose card, with fullscreen opt-in.
+- Replies can be sent and marked Done with a shortcut or preference
+- Screen readers can identify Mail's Search and clear controls.
+- Send Later and Send + Mark Done are available in the compose command palette
+
+### Fixed
+
+- Canceled inbox swipes no longer suppress the next tap on a message.
+- Expired multi-key shortcuts no longer fire after a layout refresh.
+- Mail move actions stay on the selected mailbox account
+- Mail now prompts you to finish or clear recipient text before sending or scheduling.
+- Mail triage actions stay on the selected mailbox account
+- Recipient autocomplete resets its highlighted suggestion when the search query changes.
+- Search works on keyboard layouts that require Shift to type the slash key.
+- Starting another draft brings it into view even when an existing draft is minimized.
+- The message-list A shortcut now opens a Reply All draft
+- Forward drafts now retain the original message attachments
+- Undo for archive and trash actions now targets only the latest operation and expires after 10 seconds.
+
+## 2026-09-13
+
+### Added
+
+- Compose can suggest common phrases on desktop when autocomplete is enabled
+
+### Improved
+
+- Escape clears the command search before closing the palette and returns focus to the control that opened it.
+- Tab stays in compose fields, and a shortcut opens Bcc directly.
+
+### Fixed
+
+- All Mail and Archive now show their correct keyboard shortcuts in the command palette.
+- Drafts and sent messages now use the selected Gmail account.
+- Fixed Mail to keep scheduled sends bound to the selected account, validate recipients, and report incomplete account and move operations.
+- G+A now opens All Mail instead of Archive.
+- Gmail drafts report account refresh failures clearly, and multi-account inbox sync avoids repeated lookups.
+- Harden scheduled sends and mixed-account moves; localize move confirmations.
+- Mail chooses a usable connected account when the default mailbox cannot refresh
+- Mail fetches labels from a managed Gmail account when its cache is empty alongside OAuth accounts
+- Mail no longer shows a failed OAuth account as connected through a same-address workspace grant.
+- Mail reports Gmail account read failures instead of showing incomplete results as empty.
+- Search and recipient autocomplete keep keyboard selection aligned with current suggestions
+- Search opens and focuses from the command menu
+
+## 2026-09-12
+
+### Improved
+
+- Inbox tabs are easier to distinguish
+- New-message compose opens in the main workspace by default
+
+### Fixed
+
+- Closing a draft preserves its saved account and backend so recovery actions affect the correct mailbox.
+- Harden draft close recovery and keyboard interaction states
+- Keep mail autocomplete accessibility references valid while suggestions close or filter
+- Mail keeps saved drafts on their owning backend and preserves them through Send Undo and close-all.
+- Saved drafts stay in their original mailbox when reopened, autosaved, or discarded.
+- Send status now follows provider results, undo stays available only before dispatch, and draft-save failures are visible. Closing drafts no longer claims a save is complete before persistence, and deleting a draft targets the draft endpoint.
+
+## 2026-09-11
+
+### Fixed
+
+- Inbox tabs now load from a synced local index: counts match the rows shown, custom label and filter tabs only show unarchived mail, and the inbox stays fast under Gmail rate limits.
+- Inline images in Gmail emails display reliably, including embedded image data
+- Nested Gmail labels now render under their parent labels in the label list.
+- On mobile the sidebar shows a close button instead of a pin control that did nothing.
+- Opening a label no longer fails with a 502 while Gmail is rate limiting; the app now reports the brief pause with a retry time.
+- The inbox tab bar stays on one line and scrolls instead of wrapping.
+
+## 2026-09-10
+
+### Fixed
+
+- Attachments use your connected Builder.io storage in hosted Mail
+- Fixed Google sign-in being blocked with an 'unverified password account' error for workspace users provisioned through cross-app SSO.
+
 ## 2026-09-09
 
 ### Improved

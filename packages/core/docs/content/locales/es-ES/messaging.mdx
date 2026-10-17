@@ -11,7 +11,7 @@ Conecta tu agente a Slack, Microsoft Teams, interacciones de Discord, correo ele
 >
 > Teams requiere `MICROSOFT_TEAMS_APP_ID`, `MICROSOFT_TEAMS_APP_PASSWORD` y `MICROSOFT_TEAMS_ALLOWED_TENANT_IDS`. Discord requiere `DISCORD_APPLICATION_ID` y `DISCORD_PUBLIC_KEY`. Telegram requiere `TELEGRAM_WEBHOOK_SECRET`, y WhatsApp requiere `WHATSAPP_APP_SECRET`, además de sus credenciales existentes.
 
-> **¿Estás usando la plantilla de Despacho?** Todo esto está conectado para ti en **Configuración → Mensajería**. Haga clic para conectar cada plataforma; no necesita leer el resto de esta página a menos que esté personalizando o creando su propia plantilla. Ver [Dispatch](/docs/dispatch) o [Dispatch template reference](/docs/template-dispatch).
+> **¿Estás usando la plantilla de Despacho?** Todo esto está conectado para ti en **Administración → Mensajería**. Haga clic para conectar cada plataforma; no necesita leer el resto de esta página a menos que esté personalizando o creando su propia plantilla. Ver [Dispatch](/docs/dispatch) o [Dispatch template reference](/docs/template-dispatch).
 
 ## Qué puedes hacer {#what-you-can-do}
 
@@ -135,7 +135,7 @@ y `link_shared` al controlador de despliegue de clips.
 
 ### Add to Slack administrado
 
-OAuth administrado es la configuración recomendada. En **Configuración →
+OAuth administrado es la configuración recomendada. En **Administración →
 Mensajería**, seleccione **Agent manifest** para descargar el archivo específico
 del host `agent-native-slack-manifest.json` e impórtelo en **App Manifest** de
 Slack. El manifiesto activa la experiencia actual `agent_view` y una pestaña
@@ -175,7 +175,7 @@ Interactivity Request URL como
 Suscríbase a `app_home_opened`, `app_context_changed`, `app_mention`,
 `message.im`.
 Configure `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` y
-`SLACK_SIGNING_SECRET`; después, en **Configuración → Mensajería**, pulse
+`SLACK_SIGNING_SECRET`; después, en **Administración → Mensajería**, pulse
 **Add to Slack**. Cada instalación guarda su token cifrado y usa claves de
 conversación separadas por espacio, aplicación, canal e hilo.
 
@@ -499,7 +499,7 @@ Por qué esto es bueno:
 
 - **Un agente, una bandeja de entrada.** Todos sus canales (Slack, correo electrónico, Telegram, WhatsApp) fluyen hacia Dispatch. Las integraciones solo se configuran una vez.
 - **Delegados de Dispatch.** Pregunte "resumir los registros de la semana pasada": Dispatch llama al agente de análisis. Pregunte "redactar una respuesta a Alice": el centro de distribución llama al agente de correo.
-- **Clics, no configuración.** La página **Configuración → Mensajería** de Dispatch tiene botones de conexión para cada plataforma con los campos env-var integrados.
+- **Clics, no configuración.** La página **Administración → Mensajería** de Dispatch tiene botones de conexión para cada plataforma con los campos env-var integrados.
 
 Si no necesita un orquestador, cualquier plantilla puede conectar la mensajería directamente usando las variables de entorno en esta página.
 
@@ -656,6 +656,20 @@ export default createIntegrationsPlugin({
   systemPrompt: "You are a helpful assistant...",
 });
 ```
+
+`createIntegrationsPlugin()` acepta un objeto `IntegrationsPluginOptions` opcional. Su opción `initialToolNames?: readonly string[]` selecciona los esquemas de las acciones locales enviados en la primera solicitud al modelo. Si se omite, todas las acciones locales permanecen en el conjunto inicial. El array proporcionado se copia sin modificar el del llamante.
+
+Una lista vacía explícita difiere las acciones locales hasta que `tool-search` las descubre. Las herramientas obligatorias del framework siguen disponibles desde el inicio. Esta configuración también desactiva la delegación entre aplicaciones cuando el despliegue no tiene un par A2A:
+
+```ts
+export default createIntegrationsPlugin({
+  actions: scriptRegistry,
+  initialToolNames: [] as const,
+  callAgent: false,
+});
+```
+
+El mismo conjunto inicial de herramientas se aplica al procesamiento de webhooks, las tareas en cola y el sondeo de Google Docs. El registro completo de acciones sigue siendo consultable mediante búsqueda. `callAgent: false` desactiva de forma independiente el registro de la acción integrada `call-agent`, aunque aparezca en `initialToolNames`.
 
 Las plataformas que están activas dependen de las variables de entorno configuradas. El complemento registra rutas de webhook para cada uno en `/_agent-native/integrations/`.
 

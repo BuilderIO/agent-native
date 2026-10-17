@@ -19,6 +19,22 @@ Events tracked by application instrumentation and stored in the configured appli
 - `onboarding: cli auth` — User visits CLI auth page
 - `authorize cli` — User authorizes CLI/plugin access
 
+### Organization & Invitations
+
+- `invite_sent` — An owner/admin sends an org invitation. Properties: `app`,
+  `template` (the app slug), `org_id`, `role` (`admin` or `member`). Tracked
+  under the inviter's `userId` (their email).
+- `invite_accepted` — A pending invitation is accepted — via the
+  accept-invitation route, or reconciled automatically on signup, SSO, or email
+  verification. Domain auto-join adds members directly and emits no invite
+  event. Properties: `app`, `template`, `org_id`,
+  `role` (`admin` or `member`), `federated` (boolean), and `referrer_user` —
+  the inviter's Better Auth user id, resolved from the invitation's
+  `invited_by` email and included only when that lookup succeeds; omitted
+  entirely when it can't be resolved. The invitee has no identity property of
+  their own on this event — it flows only through the event's `userId` (the
+  invitee's email), not through a `data` field.
+
 ### Agent Chat / AI
 
 - `agent chat message submitted` — User sends an agent chat message
@@ -43,9 +59,20 @@ Events tracked by application instrumentation and stored in the configured appli
 
 ### Content Editing
 
-- `content saved` — Content entry saved
-- `content published` — Content entry published
-- `content created` — New content entry created
+- `document_created` — New content document created
+- `ai_refine_used` — AI-assisted content refinement applied
+
+There is no general-purpose publish event for the normal editor flow. A
+`"published"` event exists only for the narrow Builder-CMS push-back
+integration, gated on `result.executed`.
+
+### Knowledge Base (Brain)
+
+- `knowledge_created` — A new knowledge entry is saved; not emitted on an
+  update to an existing entry. Properties: `app_name`, `template_name` (both
+  `"brain"`), `output_id` (the knowledge row id), `output_type` (always
+  `"knowledge"`), `kind` (defaults to `"fact"`), `publish_tier`. Tracked
+  under the author's `userId` (their email).
 
 ### Traffic
 

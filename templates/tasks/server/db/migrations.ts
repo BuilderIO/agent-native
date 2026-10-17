@@ -81,9 +81,6 @@ const legacyTasksMigrations = [
       CREATE INDEX IF NOT EXISTS idx_custom_field_values_owner_field
         ON custom_field_values (owner_email, field_id)`,
   },
-  // v8: the boolean helpers map to BOOLEAN on Postgres, while the historical
-  // INTEGER columns above were adapted to BIGINT. Preserve 0/1 values while
-  // aligning the live Postgres schema with Drizzle's baseline.
   {
     version: 8,
     sql: {

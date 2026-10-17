@@ -1,18 +1,28 @@
 import { describe, expect, it } from "vitest";
 
+import { managedReviewSkillAlignmentMarkers } from "../triage/review-skill-alignment.js";
 import {
   applyAutomationConfigFrontmatter,
   assertAuthorFilter,
   authorMatchesFilter,
   buildGuardrailsText,
+  composeFactoryAutomationBody,
+  countSkillAlignmentBlocks,
   cronForDaily,
   cronForInterval,
   defaultAutomationConfig,
   inferAutomationSource,
+  needsAutomationBodyRepair,
+  normalizeUserPrompt,
   parseAuthorIdsField,
   parseScheduleFromCron,
+  previewAutomationInstructions,
   readFactoryAutomationConfig,
+  replaceAutomationContentWithUserPrompt,
   replaceUserPrompt,
+  restoreFactoryAutomationIdentityFields,
+  splitAutomationFrontmatter,
+  stampAutomationTriggerType,
   templateIdForSeedName,
 } from "./factory-automation-config.js";
 
@@ -126,6 +136,22 @@ Classify Slack items.
     expect(next).toContain("Classify Slack items.");
   });
 
+  it("routes GitHub and Sentry finding batches to Slack guardrails", () => {
+    for (const [source, template] of [
+      ["github", "github-issues"],
+      ["sentry", "sentry-errors"],
+    ] as const) {
+      const guardrails = buildGuardrailsText(
+        "support-triage",
+        defaultAutomationConfig(source, template),
+      );
+      expect(guardrails).toContain("report-factory-findings");
+      expect(guardrails).toContain("#qa-agent-native");
+      expect(guardrails).toContain("never writes to GitHub issues");
+      expect(guardrails).not.toContain("Builder is only tagged");
+    }
+  });
+
   it("does not delete a stored Slack channel when the config omits one", () => {
     const content = `---
 source: slack
@@ -142,6 +168,162 @@ Observe Slack.
     );
     expect(next).toContain("slackChannelId: C0BUK2293SA");
     expect(next).toContain("slackChannelName: feedback");
+  });
+
+  it("restores editor-owned identity fields dropped during metadata repair", () => {
+    const original = `---
+source: slack
+template: slack-feedback
+displayName: Product feedback
+slackChannelId: C0ATH3CCZT4
+slackChannelName: product-feedback
+authorMode: exclude
+authorIds: U096KN3EL2Y
+---
+
+Observe Slack.
+`;
+    const repaired = `---
+source: slack
+template: slack-feedback
+authorMode: exclude
+---
+
+Observe Slack.
+`;
+    const next = restoreFactoryAutomationIdentityFields(
+      original,
+      repaired,
+      "factory-slack-feedback",
+    );
+    expect(next).toContain("displayName: Product feedback");
+    expect(next).toContain("slackChannelId: C0ATH3CCZT4");
+    expect(next).toContain("authorIds: U096KN3EL2Y");
+  });
+
+  it("strips duplicate injected blocks from pasted prompt text", () => {
+    const { start, end } = managedReviewSkillAlignmentMarkers();
+    const pasted = `${start}
+first alignment
+${end}
+
+${start}
+second alignment
+${end}
+
+User instructions stay.
+`;
+    const normalized = normalizeUserPrompt(pasted);
+    expect(normalized).toBe("User instructions stay.");
+    expect(countSkillAlignmentBlocks(pasted)).toBe(2);
+  });
+
+  it("composes body without changing frontmatter identity fields", () => {
+    const content = `---
+source: slack
+template: slack-feedback
+displayName: Product feedback
+slackChannelId: C0ATH3CCZT4
+factoryId: product-an-feedback
+inboxLimit: 10
+workLimit: 2
+---
+
+Stale body.
+`;
+    const config = readFactoryAutomationConfig(
+      content,
+      "factory-slack-feedback",
+    );
+    const { frontmatter: originalFrontmatter } =
+      splitAutomationFrontmatter(content);
+    const next = replaceAutomationContentWithUserPrompt(
+      content,
+      "Only triage paying customers.",
+      "factory-slack-feedback",
+    );
+    const { frontmatter: nextFrontmatter, body } =
+      splitAutomationFrontmatter(next);
+    expect(nextFrontmatter).toBe(originalFrontmatter);
+    expect(body).toContain("Only triage paying customers.");
+    expect(body).toContain("dispatch-factory-item");
+    expect(countSkillAlignmentBlocks(next)).toBeLessThanOrEqual(1);
+    expect(
+      composeFactoryAutomationBody({
+        userPrompt: "Only triage paying customers.",
+        automationName: "factory-slack-feedback",
+        factoryId: "product-an-feedback",
+        config,
+      }),
+    ).toContain("Only triage paying customers.");
+  });
+
+  it("matches preview guardrails and alignment to composed body sections", () => {
+    const config = defaultAutomationConfig("slack", "slack-feedback");
+    const preview = previewAutomationInstructions({
+      factoryId: "product-an-feedback",
+      config,
+      automationName: "factory-slack-feedback",
+    });
+    const body = composeFactoryAutomationBody({
+      userPrompt: "Classify Slack feedback.",
+      automationName: "factory-slack-feedback",
+      factoryId: "product-an-feedback",
+      config,
+    });
+    expect(body).toContain(preview.guardrails);
+    if (preview.skillAlignment) {
+      expect(body).toContain(preview.skillAlignment);
+    }
+  });
+
+  it("recomposing refreshes guardrails/alignment but intentionally preserves an old (revision-1) user prompt verbatim", () => {
+    const config = defaultAutomationConfig("slack", "slack-feedback");
+    const retiredUserPrompt = `# Factory Slack feedback triage
+
+For each item, call dispatch-factory-item with clearBug true or false,
+productUxImplications false unless it is a pure product or design decision
+with no single correct fix, a short reason, and reaction robot_face 🤖.`;
+    const body = composeFactoryAutomationBody({
+      userPrompt: retiredUserPrompt,
+      automationName: "factory-slack-feedback",
+      factoryId: "product-an-feedback",
+      config,
+    });
+    expect(body).toContain(
+      "Builder is only tagged when clearBug is true, risk is low, and confidence is high",
+    );
+    expect(body).toContain(retiredUserPrompt);
+  });
+
+  it("does not require body repair for prompt-only automations missing alignmentRevision", () => {
+    const content = `---
+template: slack-feedback
+source: slack
+---
+Only triage paying customers.
+`;
+    expect(needsAutomationBodyRepair(content)).toBe(false);
+  });
+
+  it("requires body repair when duplicate alignment blocks are present", () => {
+    const { start, end } = managedReviewSkillAlignmentMarkers();
+    const content = `---
+template: slack-feedback
+source: slack
+alignmentRevision: 1
+---
+${start}
+one
+${end}
+
+${start}
+two
+${end}
+
+User text.
+`;
+    expect(needsAutomationBodyRepair(content)).toBe(true);
   });
 
   it("deletes a stored Slack channel when the config clears it", () => {
@@ -161,5 +343,105 @@ Observe Slack.
     });
     expect(next).not.toContain("slackChannelId:");
     expect(next).not.toContain("slackChannelName:");
+  });
+});
+
+describe("stampAutomationTriggerType", () => {
+  const job = (frontmatter: string[]) =>
+    ["---", 'schedule: "*/5 * * * *"', ...frontmatter, "---", "", "Body."].join(
+      "\n",
+    );
+  const identified = job([
+    "createdBy: alice@example.com",
+    "runAs: creator",
+    "orgId: org-1",
+  ]);
+
+  it("tags a file that can pass the strict identity check, leaving its identity alone", () => {
+    const { content, skipped } = stampAutomationTriggerType(identified, {
+      orgId: "org-1",
+    });
+
+    expect(skipped).toBeUndefined();
+    expect(content).toContain("triggerType: schedule");
+    expect(content).toContain("createdBy: alice@example.com");
+    expect(content.match(/^runAs:/gm)).toHaveLength(1);
+    expect(content.match(/^orgId:/gm)).toHaveLength(1);
+  });
+
+  it("writes down the runAs and orgId the legacy path already assumes", () => {
+    const { content, skipped } = stampAutomationTriggerType(
+      job(["createdBy: alice@example.com"]),
+      { orgId: "org-1" },
+    );
+
+    expect(skipped).toBeUndefined();
+    expect(content).toContain("runAs: creator");
+    expect(content).toContain("orgId: org-1");
+    expect(content).toContain("triggerType: schedule");
+  });
+
+  it("reads quoted identity values", () => {
+    const { skipped } = stampAutomationTriggerType(
+      job([
+        'createdBy: "alice@example.com"',
+        "runAs: creator",
+        'orgId: "org-1"',
+      ]),
+      { orgId: "org-1" },
+    );
+
+    expect(skipped).toBeUndefined();
+  });
+
+  it("never invents a creator", () => {
+    const legacy = job(["runAs: creator", "orgId: org-1"]);
+    const { content, skipped } = stampAutomationTriggerType(legacy, {
+      orgId: "org-1",
+    });
+
+    expect(content).toBe(legacy);
+    expect(skipped).toBe("it has no createdBy");
+  });
+
+  it("leaves a file that runs as a shared identity untagged", () => {
+    const shared = job(["createdBy: alice@example.com", "runAs: shared"]);
+    const { content, skipped } = stampAutomationTriggerType(shared, {
+      orgId: "org-1",
+    });
+
+    expect(content).toBe(shared);
+    expect(skipped).toBe('it runs as "shared"');
+  });
+
+  it("leaves a file owned by another org untagged", () => {
+    const other = job(["createdBy: alice@example.com", "orgId: org-2"]);
+    const { content, skipped } = stampAutomationTriggerType(other, {
+      orgId: "org-1",
+    });
+
+    expect(content).toBe(other);
+    expect(skipped).toBe('its orgId is "org-2", not "org-1"');
+  });
+
+  it("keeps whatever trigger type a file already has", () => {
+    for (const existing of ["schedule", "event", "webhook", "custom"]) {
+      const tagged = job([`triggerType: ${existing}`]);
+      expect(stampAutomationTriggerType(tagged, { orgId: "org-1" })).toEqual({
+        content: tagged,
+      });
+    }
+  });
+
+  it("takes missing identity from the file it replaces and the trigger type it was given", () => {
+    const { content, skipped } = stampAutomationTriggerType(job([]), {
+      orgId: "org-1",
+      triggerType: "webhook",
+      identityFrom: identified,
+    });
+
+    expect(skipped).toBeUndefined();
+    expect(content).toContain("createdBy: alice@example.com");
+    expect(content).toContain("triggerType: webhook");
   });
 });

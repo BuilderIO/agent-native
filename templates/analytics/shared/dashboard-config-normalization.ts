@@ -4,6 +4,7 @@ const PANEL_FIELDS = [
   "source",
   "chartType",
   "width",
+  "height",
   "tab",
 ] as const;
 
@@ -11,10 +12,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
-/**
- * Repairs the legacy shape where panel fields were accidentally saved inside
- * `panel.config`. Renderer options such as `config.columns` stay nested.
- */
 export function normalizeDashboardConfig<T>(config: T): T {
   if (!isRecord(config)) return config;
   if (!Array.isArray(config.panels)) return config;

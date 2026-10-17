@@ -6,6 +6,10 @@ import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+import { NPM_PUBLISH_PACKAGE_NAMES } from "./public-package-names.ts";
+
+export { NPM_PUBLISH_PACKAGE_NAMES } from "./public-package-names.ts";
+
 type PackageJson = {
   name?: string;
   version?: string;
@@ -40,21 +44,11 @@ const rootDir = path.resolve(
 const registry = "https://registry.npmjs.org";
 const npmDistTag = process.env.AGENT_NATIVE_NPM_DIST_TAG ?? "latest";
 const availabilityPollIntervalMs = 10_000;
-export const DEFAULT_NPM_AVAILABILITY_TIMEOUT_MS = 15 * 60_000;
+export const DEFAULT_NPM_AVAILABILITY_TIMEOUT_MS = 30 * 60_000;
 const availabilityTimeoutMs = Number(
   process.env.AGENT_NATIVE_NPM_AVAILABILITY_TIMEOUT_MS ??
     DEFAULT_NPM_AVAILABILITY_TIMEOUT_MS,
 );
-export const NPM_PUBLISH_PACKAGE_NAMES = [
-  "@agent-native/core",
-  "@agent-native/creative-context",
-  "@agent-native/dispatch",
-  "@agent-native/pinpoint",
-  "@agent-native/recap-cli",
-  "@agent-native/scheduling",
-  "@agent-native/skills",
-  "@agent-native/toolkit",
-] as const;
 const npmPublishAllowlist = new Set(NPM_PUBLISH_PACKAGE_NAMES);
 
 async function readJson<T>(filePath: string): Promise<T> {
@@ -330,6 +324,13 @@ function isAlreadyPublished(output: string): boolean {
   );
 }
 
+export function isAlreadyStaged(output: string): boolean {
+  return (
+    output.includes("E409") &&
+    output.includes("Cannot publish over previously staged version")
+  );
+}
+
 // A 404 on the PUT for a package that isn't on npm yet means the registry
 // would not let us CREATE the package. With OIDC trusted publishing this is
 // expected: a brand-new package's first version cannot be created over OIDC
@@ -548,6 +549,14 @@ async function publishPackage(pkg: PublishPackage): Promise<boolean> {
   }
 
   const output = `${result.stdout}\n${result.stderr}`;
+  if (isAlreadyStaged(output)) {
+    console.warn(
+      tagName(pkg) +
+        " was already staged on npm; verifying availability before tagging.",
+    );
+    return true;
+  }
+
   if (isAlreadyPublished(output)) {
     console.warn(
       `${pkg.name}@${pkg.version} was already published by the time npm responded; skipping tag creation.`,
@@ -561,10 +570,6 @@ async function publishPackage(pkg: PublishPackage): Promise<boolean> {
   );
 }
 
-// Written from `getPublishPackages()`'s already-filtered list (excludes
-// private and non-allowlisted packages), not reconstructed from
-// `packages/*` directory names, so a reader of this output can't be handed a
-// package that was never actually eligible to publish.
 async function writePublishedPackagesOutput(
   packages: PublishPackage[],
 ): Promise<void> {
@@ -594,7 +599,6 @@ async function main() {
         console.log(
           `${pkg.name} is already published on npm, but ${tagName(pkg)} is missing on origin`,
         );
-        await waitForPackageAvailability(pkg);
         packagesNeedingTags.push(pkg);
       }
       continue;
@@ -620,12 +624,8 @@ async function main() {
     console.log(
       `${pkg.name} is being published because local version ${pkg.version} has not been published on npm`,
     );
-    // Don't let one package's failure abort the whole release: keep going so
-    // packages that DID publish still get their git tags, then fail the run
-    // at the end with a summary of what broke.
     try {
       if (await publishPackage(pkg)) {
-        await waitForPackageAvailability(pkg);
         packagesNeedingTags.push(pkg);
       }
     } catch (error) {
@@ -648,6 +648,10 @@ async function main() {
       }
     }
   }
+
+  await Promise.all(
+    packagesNeedingTags.map((pkg) => waitForPackageAvailability(pkg)),
+  );
 
   if (packagesNeedingTags.length === 0) {
     console.log("No unpublished packages found");

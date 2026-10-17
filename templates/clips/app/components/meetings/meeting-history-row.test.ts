@@ -40,9 +40,6 @@ describe("formatParticipantNames", () => {
     ).toBe("Jason, Elaine & 2 others");
   });
 
-  // The attendee subtitle must go empty rather than telling the reader they
-  // were in a meeting with themselves; `formatOwnerHint` is what still
-  // surfaces the owner's avatar/name on a solo note.
   it("returns nothing when the viewer is the only attendee", () => {
     expect(
       formatParticipantNames([{ email: viewer, name: "Dev" }], viewer),

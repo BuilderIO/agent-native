@@ -7,6 +7,7 @@ import {
   serializeBreakpointMediaModel,
   type BreakpointMediaModel,
 } from "@shared/breakpoint-media";
+import { ensureGroupRuntime } from "@shared/group-runtime";
 import {
   extractManagedInteractionStateCss,
   extractManagedResponsiveInteractionStateCss,
@@ -117,11 +118,6 @@ function selectedSubtreeNodeIds(layerHtml: string): Set<string> {
   return nodeIds;
 }
 
-/**
- * Capture only managed declarations owned by the selected subtree. Responsive
- * utility classes need no parallel payload: they already live on the cloned
- * elements' `class` attributes and are copied with the subtree HTML.
- */
 export function extractDesignClipboardManagedStyles(
   sourceHtml: string,
   layerHtml: string,
@@ -183,17 +179,15 @@ export function extractDesignClipboardManagedStyles(
   return { version: 1, breakpoints, interactionStates };
 }
 
-/**
- * Merge remapped declarations into the target document in the same content
- * value as the cloned DOM insertion. Model serialization preserves the
- * desktop-down cascade and makes repeated application with the same id map
- * byte-idempotent rather than appending duplicate raw rules.
- */
 export function applyDesignClipboardManagedStyles(
   targetHtml: string,
   snapshots: Array<DesignClipboardManagedStyleSnapshot | null | undefined>,
   nodeIdMap: ReadonlyMap<string, string>,
+  options: { ensureGroupRuntime?: boolean } = {},
 ): string {
+  if (options.ensureGroupRuntime !== false) {
+    targetHtml = ensureGroupRuntime(targetHtml);
+  }
   if (snapshots.length === 0 || nodeIdMap.size === 0) return targetHtml;
 
   const breakpoints: BreakpointMediaModel = parseBreakpointMediaCss(

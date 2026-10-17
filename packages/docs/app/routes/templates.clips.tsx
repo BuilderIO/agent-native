@@ -1,15 +1,18 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { IconArrowUpRight } from "@tabler/icons-react";
-import type { MouseEvent } from "react";
 
 import { firstPartyAppUrl } from "../components/deployment-links";
-import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { TemplateHero } from "../components/template-landing";
+import { ClipsActOnFeedbackMock } from "../components/template-landing/ClipsActOnFeedbackMock";
+import { ClipsBriefOutputsMock } from "../components/template-landing/ClipsBriefOutputsMock";
+import { ClipsInvestigateBugMock } from "../components/template-landing/ClipsInvestigateBugMock";
 import { ClipsLibraryMock } from "../components/template-landing/ClipsLibraryMock";
 import { templates, trackEvent } from "../components/TemplateCard";
+import { AppStatusBadge } from "../components/website-redesign/ds/app-status-badge";
 import { Button } from "../components/website-redesign/ds/button";
 import { ContentCard } from "../components/website-redesign/ds/content-card";
 import { FaqAccordion } from "../components/website-redesign/ds/faq-accordion";
+import { LogoMark } from "../components/website-redesign/ds/logo-mark";
 import {
   GridInner,
   PageSection,
@@ -47,27 +50,24 @@ export const meta = () =>
 
 const template = templates.find((t) => t.slug === "clips")!;
 
-// Each id/label pair below is a literal instruction from the copy doc for
-// what the placeholder art should eventually show — kept here so whoever
-// drops in the real asset knows which one without re-reading the doc.
 const USE_CASES = [
   {
     id: "act-on-feedback",
     titleKey: "useCase1Title",
     bodyKey: "useCase1Body",
-    imageLabel: "ASSET U1",
+    textLeft: true,
   },
   {
     id: "investigate-bug",
     titleKey: "useCase2Title",
     bodyKey: "useCase2Body",
-    imageLabel: "ASSET U2",
+    textLeft: false,
   },
   {
     id: "create-from-brief",
     titleKey: "useCase3Title",
     bodyKey: "useCase3Body",
-    imageLabel: "ASSET U3",
+    textLeft: true,
   },
 ] as const;
 
@@ -136,11 +136,6 @@ const FAQ_ITEMS = [
   { id: "who-can-access", question: "question5", answer: "answer5" },
 ] as const;
 
-// TemplateHero assumes an ancestor centers it at max-w-site with zero extra
-// gutter — TemplateLandingShell used to be that ancestor. Every PageSection
-// below draws its grid lines flush to that same max-w-site edge, so this
-// wrapper must match exactly (no px-* here) or the hero's border-x box ends
-// up narrower than the rest of the page.
 const HERO_WRAPPER_CLASS =
   "template-detail-page mx-auto w-full max-w-site overflow-x-clip";
 
@@ -154,8 +149,12 @@ export default function ClipsTemplate() {
         <TemplateHero
           title={t("templateLanding.clips.heroTitle")}
           eyebrow={
-            <span className="text-[var(--fg-secondary)]">
-              {t("templateLanding.clips.heroEyebrow")}
+            <span className="inline-flex items-center gap-2 text-[var(--fg)]">
+              <LogoMark className="size-6" />
+              <span className="font-sans text-[20px] font-bold tracking-tight">
+                {t("templateLanding.clips.heroEyebrow")}
+              </span>
+              <AppStatusBadge appId="clips" />
             </span>
           }
           customizeTemplate={template}
@@ -165,13 +164,8 @@ export default function ClipsTemplate() {
               target="_blank"
               rel="noopener noreferrer"
               className="primary-button"
-              // The diagonal arrow's ink sits toward its own top-right corner,
-              // so the button's symmetric 8px gap still reads as extra space
-              // after the icon. Tightening just the gap (not the padding)
-              // corrects that without touching the shared .primary-button rule.
               style={{ gap: "4px" }}
-              onClick={(event) => {
-                applyFirstTouchAttributionToLink(event.currentTarget);
+              onClick={() => {
                 trackEvent("try live demo", {
                   template: template.slug,
                   location: "landing_page_hero",
@@ -206,19 +200,79 @@ export default function ClipsTemplate() {
         </GridInner>
 
         <GridInner>
-          <div className="grid grid-cols-3 gap-px border border-solid border-[var(--b-border-subtle)] bg-[var(--b-border-subtle)] mobile:grid-cols-1">
-            {USE_CASES.map((useCase) => (
-              <ContentCard
-                key={useCase.id}
-                title={t(`templateLanding.clips.${useCase.titleKey}`)}
-                body={t(`templateLanding.clips.${useCase.bodyKey}`)}
-              />
-            ))}
+          <div className="flex flex-col border-t border-x border-solid border-[var(--b-border-subtle)]">
+            {USE_CASES.map((useCase) => {
+              const textLeft = useCase.textLeft;
+
+              const textBlock = (
+                <div
+                  key="text"
+                  className="order-1 flex flex-col justify-center gap-[var(--spacing-3)] p-[var(--spacing-8)] lg:order-none lg:p-[var(--spacing-12)]"
+                >
+                  <h3 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-4)] font-medium leading-[1.15] tracking-[-0.02em] text-[var(--b-text-primary)]">
+                    {t(`templateLanding.clips.${useCase.titleKey}`)}
+                  </h3>
+                  <p className="m-0 max-w-[420px] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-[var(--b-text-secondary)]">
+                    {t(`templateLanding.clips.${useCase.bodyKey}`)}
+                  </p>
+                </div>
+              );
+
+              const mediaBlock = (
+                <div
+                  key="media"
+                  className={`order-2 flex items-center justify-center p-[var(--spacing-8)] lg:order-none lg:p-[var(--spacing-12)] ${
+                    useCase.id === "act-on-feedback" ? "ps-0 lg:ps-0" : ""
+                  }`}
+                >
+                  {useCase.id === "investigate-bug" ? (
+                    <ClipsInvestigateBugMock
+                      className="w-full max-w-[480px] lg:max-w-none"
+                      label={t(`templateLanding.clips.${useCase.titleKey}`)}
+                    />
+                  ) : useCase.id === "act-on-feedback" ? (
+                    <ClipsActOnFeedbackMock
+                      className="w-full"
+                      label={t(`templateLanding.clips.${useCase.titleKey}`)}
+                    />
+                  ) : (
+                    <ClipsBriefOutputsMock
+                      className="w-full max-w-[480px] lg:max-w-none"
+                      label={t(`templateLanding.clips.${useCase.titleKey}`)}
+                    />
+                  )}
+                </div>
+              );
+
+              return (
+                <div
+                  key={useCase.id}
+                  className={`grid border-t border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] first:border-t-0 ${
+                    useCase.id === "investigate-bug"
+                      ? "lg:grid-cols-[1.25fr_1fr]"
+                      : "lg:grid-cols-[1fr_1.25fr]"
+                  }`}
+                >
+                  {textLeft ? (
+                    <>
+                      {textBlock}
+                      {mediaBlock}
+                    </>
+                  ) : (
+                    <>
+                      {mediaBlock}
+                      {textBlock}
+                    </>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </GridInner>
       </PageSection>
 
-      {/* Key features — six cards, same layout as builder.io/platform/code */}
+      {/* Key features eyebrow/title — its own section so the decorative
+          three-col page gridlines show behind it. */}
       <PageSection>
         <GridInner className="flex flex-col gap-[var(--spacing-6)] border-t border-solid border-[var(--b-border-default)] px-[var(--spacing-8)] pt-[var(--spacing-20)] pb-[var(--spacing-20)]">
           <p className="m-0 font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-1)] font-semibold uppercase tracking-[0.08em] text-[var(--b-text-secondary)]">
@@ -228,7 +282,14 @@ export default function ClipsTemplate() {
             {t("templateLanding.clips.keyFeaturesHeading")}
           </h2>
         </GridInner>
+      </PageSection>
 
+      {/* Key features — six cards, same layout as builder.io/platform/code.
+          showGrid is off here because this grid already draws its own
+          dividers, including on mobile/narrow breakpoints where the
+          decorative three-col overlay wouldn't match; keeping the decor on
+          the section above and off here avoids doubling the center lines. */}
+      <PageSection showGrid={false}>
         <GridInner>
           <div className="grid grid-cols-3 gap-px border border-solid border-[var(--b-border-subtle)] bg-[var(--b-border-subtle)] mobile:grid-cols-2 narrow:grid-cols-1">
             {KEY_FEATURES.map((feature) => (
@@ -242,9 +303,11 @@ export default function ClipsTemplate() {
         </GridInner>
       </PageSection>
 
-      {/* See Clips in action — three video cards, same card component */}
+      {/* See Clips in action — three video cards, same card component.
+          No border-t here: the key-features grid above already ends in its
+          own bottom border, so another one right below it just doubles up. */}
       <PageSection>
-        <GridInner className="flex flex-col gap-[var(--spacing-6)] border-t border-solid border-[var(--b-border-default)] px-[var(--spacing-8)] pt-[var(--spacing-20)] pb-[var(--spacing-20)]">
+        <GridInner className="flex flex-col gap-[var(--spacing-6)] px-[var(--spacing-8)] pt-[var(--spacing-20)] pb-[var(--spacing-20)]">
           <h2 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-2)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)]">
             {t("templateLanding.clips.seeInActionHeading")}
           </h2>
@@ -262,7 +325,7 @@ export default function ClipsTemplate() {
                 body={t("templateLanding.clips.watchClipLabel")}
                 image={{ src: clip.thumbnail, alt: clip.title }}
                 imageAspect="16 / 9"
-                imageObjectPosition="bottom"
+                imageObjectPosition="top"
                 imagePosition="top"
                 href={clip.href}
                 onClick={() =>
@@ -311,12 +374,8 @@ export default function ClipsTemplate() {
             href={firstPartyAppUrl("https://clips.agent-native.com")}
             target="_blank"
             rel="noopener noreferrer"
-            // Same optical fix as the hero CTA: the trailing arrow's ink
-            // sits top-right in its box, so the default 6px gap still reads
-            // as extra space after the icon.
-            style={{ gap: "3px" }}
-            onClick={(event: MouseEvent<HTMLAnchorElement>) => {
-              applyFirstTouchAttributionToLink(event.currentTarget);
+            style={{ gap: "3px", fontSize: "12px", textTransform: "uppercase" }}
+            onClick={() => {
               trackEvent("try live demo", {
                 template: template.slug,
                 location: "landing_page_final_cta",

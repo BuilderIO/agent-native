@@ -1,20 +1,233 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  getNewDeckGenerationRecoveryState,
+  nextNewDeckGenerationPhase,
+  shouldClearPartialGenerationFailure,
+  partialGenerationFailureSlidesFingerprint,
   shouldClearNewDeckGeneratingState,
+  shouldClearNewDeckGenerationRun,
   shouldShowNewDeckGeneratingOverlay,
   shouldShowNewDeckGeneratingProgress,
+  shouldShowPartialGenerationFailure,
   slideBeingFilledInPlace,
 } from "./generation-state";
 
+describe("partial generation failure state", () => {
+  const slides = [
+    {
+      id: "slide-1",
+      content: "<h1>First</h1>",
+      notes: "Opening",
+      layout: "title",
+    },
+  ];
+  const fingerprint = partialGenerationFailureSlidesFingerprint(slides);
+  const base = {
+    slideCount: 1,
+    failureCode: "agent_error",
+    failureAttemptId: "attempt-1",
+    attemptId: "attempt-1",
+    failureSlidesFingerprint: fingerprint,
+    currentSlidesFingerprint: fingerprint,
+    generating: false,
+    waitingOnQuestions: false,
+    retryPending: false,
+  };
+
+  it("shows the failure only while the saved slide snapshot still matches", () => {
+    expect(shouldShowPartialGenerationFailure(base)).toBe(true);
+    expect(
+      partialGenerationFailureSlidesFingerprint([
+        { ...slides[0], content: "<h1>Repaired</h1>" },
+      ]),
+    ).not.toBe(fingerprint);
+    expect(
+      shouldShowPartialGenerationFailure({
+        ...base,
+        currentSlidesFingerprint: partialGenerationFailureSlidesFingerprint([
+          { ...slides[0], content: "<h1>Repaired</h1>" },
+        ]),
+      }),
+    ).toBe(false);
+  });
+
+  it("hides failures without a snapshot or for a different attempt", () => {
+    expect(
+      shouldShowPartialGenerationFailure({
+        ...base,
+        failureSlidesFingerprint: undefined,
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowPartialGenerationFailure({
+        ...base,
+        failureAttemptId: "attempt-2",
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps an unresolved warning visible until the slide snapshot is refreshed", () => {
+    const unknownSnapshot = {
+      ...base,
+      failureCode: "outcome_unresolved",
+      failureSlidesFingerprint: null,
+      currentSlidesFingerprint: null,
+    };
+    expect(shouldShowPartialGenerationFailure(unknownSnapshot)).toBe(true);
+    expect(shouldClearPartialGenerationFailure(unknownSnapshot)).toBe(false);
+  });
+
+  it("clears an unknown snapshot marker from an older generation attempt", () => {
+    expect(
+      shouldClearPartialGenerationFailure({
+        ...base,
+        failureCode: "outcome_unresolved",
+        failureAttemptId: "attempt-2",
+        failureSlidesFingerprint: null,
+        currentSlidesFingerprint: null,
+      }),
+    ).toBe(true);
+  });
+
+  it("clears stale and legacy failure markers but keeps a matching marker", () => {
+    expect(shouldClearPartialGenerationFailure(base)).toBe(false);
+    expect(
+      shouldClearPartialGenerationFailure({
+        ...base,
+        failureSlidesFingerprint: undefined,
+      }),
+    ).toBe(true);
+    expect(
+      shouldClearPartialGenerationFailure({
+        ...base,
+        currentSlidesFingerprint: "changed",
+      }),
+    ).toBe(true);
+    expect(
+      shouldClearPartialGenerationFailure({
+        ...base,
+        failureAttemptId: "attempt-2",
+      }),
+    ).toBe(true);
+    expect(
+      shouldClearPartialGenerationFailure({
+        ...base,
+        failureAttemptId: "attempt-2",
+        retryPending: true,
+      }),
+    ).toBe(false);
+  });
+});
+
 describe("new deck generation state", () => {
+  const base = {
+    slideCount: 0,
+    hasGenerationContext: true,
+    failureCode: undefined,
+    isNewDeckCreation: true,
+    phase: "started" as const,
+    generating: false,
+    waitingOnQuestions: false,
+  };
+
+  it("offers recovery when a started generation ends without a slide", () => {
+    expect(getNewDeckGenerationRecoveryState(base)).toBe("outcome_unresolved");
+  });
+
+  it("keeps unresolved terminal output distinct from a confirmed failure", () => {
+    expect(
+      getNewDeckGenerationRecoveryState({
+        ...base,
+        failureCode: "outcome_unresolved",
+      }),
+    ).toBe("outcome_unresolved");
+    expect(
+      getNewDeckGenerationRecoveryState({
+        ...base,
+        failureCode: "no_output",
+      }),
+    ).toBe("failed");
+  });
+
+  it("does not call a completed deck intentionally emptied later a failure", () => {
+    expect(
+      getNewDeckGenerationRecoveryState({ ...base, isNewDeckCreation: false }),
+    ).toBeNull();
+  });
+
+  it("fails a generation that never started", () => {
+    expect(
+      getNewDeckGenerationRecoveryState({
+        ...base,
+        isNewDeckCreation: true,
+        phase: "abandoned",
+      }),
+    ).toBe("failed");
+  });
+
+  it("keeps waiting while the run is live, questions are open, or slides exist", () => {
+    expect(
+      getNewDeckGenerationRecoveryState({ ...base, generating: true }),
+    ).toBeNull();
+    expect(
+      getNewDeckGenerationRecoveryState({ ...base, waitingOnQuestions: true }),
+    ).toBeNull();
+    expect(
+      getNewDeckGenerationRecoveryState({ ...base, slideCount: 2 }),
+    ).toBeNull();
+    expect(
+      getNewDeckGenerationRecoveryState({
+        ...base,
+        isNewDeckCreation: true,
+        phase: "pending",
+      }),
+    ).toBeNull();
+  });
+
+  it("keeps stale failure metadata from hiding active or question-waiting progress", () => {
+    expect(
+      getNewDeckGenerationRecoveryState({
+        ...base,
+        failureCode: "agent_error",
+        generating: true,
+      }),
+    ).toBeNull();
+    expect(
+      getNewDeckGenerationRecoveryState({
+        ...base,
+        failureCode: "agent_error",
+        waitingOnQuestions: true,
+      }),
+    ).toBeNull();
+  });
+
+  it("does not call a reopened, unprompted empty deck a failure", () => {
+    expect(
+      getNewDeckGenerationRecoveryState({ ...base, phase: "pending" }),
+    ).toBeNull();
+    expect(
+      getNewDeckGenerationRecoveryState({
+        ...base,
+        hasGenerationContext: false,
+      }),
+    ).toBeNull();
+    expect(
+      getNewDeckGenerationRecoveryState({
+        ...base,
+        phase: "pending",
+        failureCode: "agent_error",
+      }),
+    ).toBe("failed");
+  });
+
   it("shows the blocking overlay before and during the first slide", () => {
     expect(
       shouldShowNewDeckGeneratingOverlay({
         generating: true,
         isNewDeckCreation: true,
         slideCount: 0,
-        generationStarted: true,
+        phase: "started",
       }),
     ).toBe(true);
 
@@ -23,7 +236,7 @@ describe("new deck generation state", () => {
         generating: true,
         isNewDeckCreation: true,
         slideCount: 1,
-        generationStarted: true,
+        phase: "started",
       }),
     ).toBe(false);
 
@@ -32,7 +245,7 @@ describe("new deck generation state", () => {
         generating: false,
         isNewDeckCreation: true,
         slideCount: 0,
-        generationStarted: true,
+        phase: "started",
       }),
     ).toBe(false);
 
@@ -41,7 +254,7 @@ describe("new deck generation state", () => {
         generating: false,
         isNewDeckCreation: true,
         slideCount: 0,
-        generationStarted: false,
+        phase: "pending",
       }),
     ).toBe(true);
   });
@@ -50,7 +263,8 @@ describe("new deck generation state", () => {
     expect(
       shouldClearNewDeckGeneratingState({
         generating: false,
-        generationStarted: false,
+        waitingOnQuestions: false,
+        phase: "pending",
       }),
     ).toBe(false);
   });
@@ -66,7 +280,8 @@ describe("new deck generation state", () => {
     expect(
       shouldClearNewDeckGeneratingState({
         generating: true,
-        generationStarted: true,
+        waitingOnQuestions: false,
+        phase: "started",
       }),
     ).toBe(false);
   });
@@ -97,7 +312,6 @@ describe("new deck generation state", () => {
       }),
     ).toBeNull();
 
-    // Agent appends a net-new slide: no placeholder to light up.
     expect(
       slideBeingFilledInPlace({
         addSlideGenerating: true,
@@ -107,7 +321,6 @@ describe("new deck generation state", () => {
       }),
     ).toBeNull();
 
-    // Placeholder deleted mid-run.
     expect(
       slideBeingFilledInPlace({
         addSlideGenerating: true,
@@ -120,9 +333,6 @@ describe("new deck generation state", () => {
       }),
     ).toBeNull();
 
-    // The agent has already written real content: the fill is done, so a
-    // follow-up `add-slide` for the rest of a multi-slide request gets the
-    // trailing generating row again instead of staying suppressed.
     expect(
       slideBeingFilledInPlace({
         addSlideGenerating: true,
@@ -133,19 +343,171 @@ describe("new deck generation state", () => {
     ).toBeNull();
   });
 
-  it("clears new-deck generating state only when observed work finishes", () => {
+  it("clears new-deck generating state once a run that started stops", () => {
     expect(
       shouldClearNewDeckGeneratingState({
         generating: false,
-        generationStarted: true,
+        waitingOnQuestions: false,
+        phase: "started",
       }),
     ).toBe(true);
 
     expect(
       shouldClearNewDeckGeneratingState({
         generating: false,
-        generationStarted: false,
+        waitingOnQuestions: false,
+        phase: "pending",
       }),
     ).toBe(false);
+  });
+
+  it("keeps run correlation after timeout until generation actually finishes", () => {
+    const abandoned = {
+      generating: false,
+      waitingOnQuestions: false,
+      phase: "abandoned" as const,
+    };
+    expect(shouldClearNewDeckGeneratingState(abandoned)).toBe(true);
+    expect(shouldClearNewDeckGenerationRun(abandoned)).toBe(false);
+    expect(
+      shouldClearNewDeckGenerationRun({
+        ...abandoned,
+        phase: "started" as const,
+      }),
+    ).toBe(true);
+  });
+
+  describe("nextNewDeckGenerationPhase", () => {
+    it("reloading a dead ?generating=1 deck (no run, no questions) abandons after the wait lapses, and that clears the stuck state", () => {
+      const phase = nextNewDeckGenerationPhase({
+        phase: "pending",
+        generating: false,
+        waitingOnQuestions: false,
+        waitExpired: true,
+      });
+      expect(phase).toBe("abandoned");
+      expect(
+        shouldShowNewDeckGeneratingOverlay({
+          generating: false,
+          isNewDeckCreation: true,
+          slideCount: 0,
+          phase,
+        }),
+      ).toBe(false);
+      expect(
+        shouldClearNewDeckGeneratingState({
+          generating: false,
+          waitingOnQuestions: false,
+          phase,
+        }),
+      ).toBe(true);
+    });
+
+    it("does not abandon while the wait window hasn't lapsed yet", () => {
+      expect(
+        nextNewDeckGenerationPhase({
+          phase: "pending",
+          generating: false,
+          waitingOnQuestions: false,
+          waitExpired: false,
+        }),
+      ).toBe("pending");
+    });
+
+    it("survives an expired wait while pre-generation questions are pending", () => {
+      const phase = nextNewDeckGenerationPhase({
+        phase: "pending",
+        generating: false,
+        waitingOnQuestions: true,
+        waitExpired: true,
+      });
+      expect(phase).toBe("pending");
+      expect(
+        shouldShowNewDeckGeneratingOverlay({
+          generating: false,
+          isNewDeckCreation: true,
+          slideCount: 0,
+          phase,
+        }),
+      ).toBe(true);
+      expect(
+        shouldClearNewDeckGeneratingState({
+          generating: false,
+          waitingOnQuestions: true,
+          phase,
+        }),
+      ).toBe(false);
+    });
+
+    it("moves to started as soon as a run is observed, even mid-wait", () => {
+      expect(
+        nextNewDeckGenerationPhase({
+          phase: "pending",
+          generating: true,
+          waitingOnQuestions: false,
+          waitExpired: false,
+        }),
+      ).toBe("started");
+    });
+
+    it("normal path: once started, later expiry inputs are ignored, and clearing waits for generating to stop", () => {
+      const started = nextNewDeckGenerationPhase({
+        phase: "pending",
+        generating: true,
+        waitingOnQuestions: false,
+        waitExpired: false,
+      });
+      expect(started).toBe("started");
+
+      expect(
+        nextNewDeckGenerationPhase({
+          phase: started,
+          generating: false,
+          waitingOnQuestions: false,
+          waitExpired: true,
+        }),
+      ).toBe("started");
+
+      expect(
+        shouldClearNewDeckGeneratingState({
+          generating: true,
+          waitingOnQuestions: false,
+          phase: started,
+        }),
+      ).toBe(false);
+      expect(
+        shouldClearNewDeckGeneratingState({
+          generating: false,
+          waitingOnQuestions: false,
+          phase: started,
+        }),
+      ).toBe(true);
+    });
+
+    it("revives an abandoned route when a run starts late", () => {
+      expect(
+        nextNewDeckGenerationPhase({
+          phase: "abandoned",
+          generating: true,
+          waitingOnQuestions: false,
+          waitExpired: false,
+        }),
+      ).toBe("started");
+      expect(
+        shouldClearNewDeckGeneratingState({
+          generating: true,
+          waitingOnQuestions: false,
+          phase: "abandoned",
+        }),
+      ).toBe(false);
+      expect(
+        nextNewDeckGenerationPhase({
+          phase: "abandoned",
+          generating: false,
+          waitingOnQuestions: false,
+          waitExpired: false,
+        }),
+      ).toBe("abandoned");
+    });
   });
 });

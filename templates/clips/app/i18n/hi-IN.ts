@@ -1,10 +1,156 @@
 const messages = {
+  meetingAsk: { resizeOrDismissAnswers: "जवाबों का आकार बदलें या बंद करें" },
+  lookbackContext: {
+    includeLast: "पिछले शामिल करें",
+    whatIsThis: "यह क्या है?",
+    off: "बंद",
+    none: "कोई नहीं",
+    noneExplanation:
+      "“कोई नहीं” का मतलब है कि नए Clip में पहले का स्क्रीन समय शामिल नहीं होगा। Rewind चालू रहने तक आपकी स्क्रीन रिकॉर्ड होती रहेगी। इसे रोकने के लिए नीचे “बंद करें” चुनें।",
+    custom: "कस्टम…",
+    customLabel: "कस्टम अवधि",
+    customAmount: "अवधि",
+    customUnit: "इकाई",
+    unitSeconds: "सेकंड",
+    unitMinutes: "मिनट",
+    customSave: "यह अवधि उपयोग करें",
+    customErrorEmpty: "अवधि दर्ज करें।",
+    customErrorInvalid: "सेकंड या मिनट में पूरी संख्या दर्ज करें।",
+    customErrorTooLong: "5 मिनट या उससे कम रखें।",
+    turnOnRewind: "Rewind चालू करें",
+    turnOffRewind: "बंद करें",
+    turnOffRewindFailed:
+      "Rewind बंद नहीं किया जा सका। रिकॉर्डिंग रोकें और फिर से प्रयास करें।",
+    turnOnRewindFailed: "Rewind चालू नहीं हो सका। फिर से प्रयास करें।",
+    turnOnRewindPermissionFailed:
+      "System Settings > Privacy & Security > Screen & System Audio Recording में Clips के लिए स्क्रीन रिकॉर्डिंग की अनुमति दें, फिर Clips को पुनः प्रारंभ करके दोबारा प्रयास करें।",
+    turnOnRewindUnsupported: "Rewind स्क्रीन रिकॉर्डिंग केवल macOS पर उपलब्ध है।",
+    turnOnRewindNoSpace:
+      "Rewind शुरू करने के लिए डिस्क में पर्याप्त जगह नहीं है। जगह खाली करके फिर से प्रयास करें।",
+    turnOnRewindStopClip: "Rewind चालू करने से पहले मौजूदा Clip रोकें।",
+    turnOnRewindStorageFailed:
+      "Rewind स्टोरेज तक पहुँचा नहीं जा सका। डिस्क की जगह और फ़ोल्डर की अनुमतियाँ जाँचकर फिर से प्रयास करें।",
+    rewindConsentTitle: "Rewind चालू करें?",
+    rewindConsentBody:
+      "Rewind चालू रहने पर Clips आपकी स्क्रीन लगातार रिकॉर्ड करता है और इस डिवाइस पर हाल का इतिहास आपकी समय या स्टोरेज सीमा पूरी होने तक रखता है। माइक्रोफ़ोन और सिस्टम ऑडियो भी रिकॉर्ड करने के लिए “Screen + audio” चुनें। जुड़े हुए एजेंट Clips की मंज़ूरी के बिना सीधे स्क्रीन की तस्वीरें देख सकते हैं; आगे इन तस्वीरों का इस्तेमाल कैसे होता है, यह एजेंट पर निर्भर करता है। पहले की स्क्रीन के लिए चुनी अवधि Clips हर नए Clip में अपने आप जोड़ता है और उस Clip की शेयरिंग सेटिंग लागू होती हैं। चुनी हुई अवधि को Clip के रूप में साझा करने के अनुरोध डिफ़ॉल्ट रूप से भेजने से पहले जाँचे जाते हैं। Rewind सेटिंग में भेजने से पहले समीक्षा बंद करें, ताकि ऐसे अनुरोध अपने आप भेजे जाएँ। Clip में रिकॉर्ड किया गया माइक्रोफ़ोन और सिस्टम ऑडियो शामिल हो सकता है। Rewind बंद करने से नई रिकॉर्डिंग रुकती है, लेकिन सहेजा हुआ इतिहास बना रहता है। Rewind बंद रहने पर इतिहास समय या स्टोरेज सीमा से आगे भी रह सकता है, जब तक रिकॉर्डिंग फिर शुरू न हो। अभी मिटाने के लिए “Delete all” चुनें।",
+    rewindConsentCancel: "अभी नहीं",
+    rewindConsentConfirm: "Rewind चालू करें",
+    rewindConsentBusy: "Rewind चालू हो रहा है…",
+    rewindOffTitle: "Rewind चालू करें",
+    rewindOffBody:
+      "पहले का स्क्रीन समय शामिल करने के लिए पहले Rewind चालू करें। Rewind चालू रहने पर यह इस डिवाइस पर हाल का स्क्रीन इतिहास समय और स्टोरेज सीमाओं के भीतर रखता है। Rewind बंद रहने पर सहेजा हुआ इतिहास इन सीमाओं से आगे भी रह सकता है, जब तक रिकॉर्डिंग फिर शुरू न हो। इसे अभी मिटाने के लिए Settings > Rewind > Storage > On this device खोलें और Delete all चुनें। Clip साझा करने के अनुरोध डिफ़ॉल्ट रूप से भेजने से पहले जाँचे जाते हैं, जब तक कि आप Rewind सेटिंग में भेजने से पहले समीक्षा बंद न करें।",
+    requestFailed:
+      "पहले का स्क्रीन समय शामिल नहीं किया जा सका। रिकॉर्डिंग इसके बिना जारी रहती है।",
+    localOnlyUnavailable:
+      "केवल स्थानीय रिकॉर्डिंग के लिए पहले का स्क्रीन समय सहेजा नहीं जाता।",
+    saving: "रिकॉर्डिंग से पहले का {{window}} सहेजा जा रहा है…",
+    ready: "रिकॉर्डिंग से पहले के {{window}} के साथ",
+    failed: "पहले का स्क्रीन समय सहेजा नहीं जा सका",
+    unreadable: "पहले के स्क्रीन समय की जाँच नहीं हो सकी",
+    edit: "संपादित करें",
+    editTitle: "पहले का स्क्रीन समय",
+    editSave: "सहेजें",
+    editFailed: "विंडो सहेजी नहीं जा सकी। फिर से कोशिश करें।",
+    previewPreparing: "पूर्वावलोकन तैयार किया जा रहा है…",
+    previewFailed: "पूर्वावलोकन तैयार नहीं किया जा सका।",
+    previewLabel: "पहले के स्क्रीन समय का पूर्वावलोकन",
+    retry: "फिर से प्रयास करें",
+    playSelection: "चुना हुआ हिस्सा चलाएँ",
+    removeFailed: "हटाई गई रिकॉर्डिंग का पहले का स्क्रीन समय नहीं हटाया जा सका।",
+    removeFailedAction: "पहले का स्क्रीन समय नहीं हटाया जा सका। फिर से प्रयास करें।",
+    removeAction: "पहले का स्क्रीन समय हटाएँ",
+    removeConfirmTitle: "पहले का स्क्रीन समय हटाएँ?",
+    removeConfirmBody: "फ़ुटेज ट्रैश में ले जाया जाएगा और क्लिप में वह शामिल नहीं रहेगा।",
+    removeConfirm: "हटाएँ",
+    removed: "पहले का स्क्रीन समय हटाया गया",
+    scrubberFromBefore: "{{offset}} पहले से",
+    scrubberFromStart: "रिकॉर्डिंग की शुरुआत से",
+    scrubberToBefore: "{{offset}} पहले तक",
+    scrubberToStart: "रिकॉर्डिंग की शुरुआत तक",
+    scrubberLength: "अवधि",
+    scrubberStartHandle: "विंडो की शुरुआत",
+    scrubberEndHandle: "विंडो का अंत",
+    tab: "संदर्भ",
+    label: "रिकॉर्डिंग से पहले की स्क्रीन",
+    window: "रिकॉर्डिंग से पहले {{start}}–{{end}}",
+    savingEarlierTime: "पहले का स्क्रीन समय सहेजा जा रहा है…",
+    loadFailed: "पहले का स्क्रीन समय लोड नहीं हो सका।",
+    empty: "इस क्लिप के साथ पहले का स्क्रीन समय नहीं जुड़ा है।",
+    larger: "बड़ा करें",
+    editHint: "Clips Desktop में विंडो संपादित करें।",
+    waitingOtherDevice: "इस क्लिप को रिकॉर्ड करने वाले डिवाइस की प्रतीक्षा है",
+  },
+  agentChat: {
+    setup: {
+      connectBuilder: "Builder.io इस्तेमाल करें",
+      providerStatusUnavailable: "यह पुष्टि नहीं हो सकी कि AI तैयार है।",
+    },
+    common: { retry: "फिर से प्रयास करें" },
+    onboarding: { skipForNow: "अभी छोड़ें" },
+  },
+  timelineTrack: {
+    helpOtherSide: "पहले उस हिस्से पर क्लिक करें, फिर लाल रेखा को दाईं ओर खींचें।",
+    helpOtherSideTerm: "इसके बजाय दाईं ओर वाले हिस्से से फ़ुटेज हटाएँ",
+    helpRemove: "उस पर क्लिक करें और Delete दबाएँ।",
+    helpRemoveTerm: "पूरा हिस्सा हटाएँ",
+    helpRestore: "उस पर क्लिक करें और फिर से Delete दबाएँ, या उसका तीर इस्तेमाल करें।",
+    helpRestoreTerm: "हटाया गया हिस्सा वापस लाएँ",
+    helpShorten:
+      "लाल रेखा को बाईं ओर खींचें। जितना आप पार करेंगे, उतना उसके बाईं ओर वाले हिस्से के अंत से कट जाएगा।",
+    helpShortenTerm: "हिस्सा छोटा करें",
+    helpSplit: "S दबाएँ। यह प्लेहेड पर काटता है।",
+    helpSplitTerm: "जहाँ आप हैं वहाँ क्लिप बाँटें",
+    helpTitle: "टाइमलाइन का उपयोग",
+    putBack: "यह हिस्सा वापस लाएँ",
+    removedSection: "हटाया गया हिस्सा, {{duration}}",
+    section: "{{start}} से {{end}} तक का हिस्सा",
+    sectionEndsAt: "हिस्से का अंत {{at}} पर — हिलाने के लिए खींचें",
+    sectionStartsAt: "हिस्से की शुरुआत {{at}} पर — हिलाने के लिए खींचें",
+  },
+  redaction: {
+    box: "रिडैक्शन बॉक्स",
+    chip: "{{number}}. {{start}}–{{end}}",
+    endsAt: "रिडैक्शन {{at}} पर समाप्त होता है",
+    goTo: "इस रिडैक्शन पर जाएँ",
+    helpDraw: "तस्वीर पर खींचें।",
+    helpDrawTerm: "कुछ ढकें",
+    helpFollow:
+      "वीडियो को आगे बढ़ाएँ, फिर बॉक्स को वहाँ खींचें जहाँ वह चीज़ पहुँची है। बॉक्स आपके तय किए बिंदुओं के बीच सरकता है। जिसे ढकना है उससे थोड़ा बड़ा बनाएँ।",
+    helpFollowTerm: "चलती हुई चीज़ का पीछा करें",
+    helpLead:
+      "जब तक आप “लागू करें” नहीं दबाते, कुछ भी छिपता नहीं। तब तक बॉक्स केवल ऊपर खिंचा होता है, और नीचे का वीडियो सब कुछ दिखाता रहता है।",
+    helpMove: "बॉक्स को, या उसके किसी कोने को खींचें।",
+    helpMoveTerm: "बॉक्स हिलाएँ या आकार बदलें",
+    helpRemove: "उस पर क्लिक करें और Delete दबाएँ। Cmd+Z उसे वापस ले आता है।",
+    helpRemoveTerm: "बॉक्स हटाएँ",
+    helpStylesTerm: "धुंधला या ठोस",
+    helpTiming: "टाइमलाइन के नीचे वाली लेन में, उसकी पट्टी का कोई भी सिरा खींचें।",
+    helpTimingTerm: "बॉक्स कब दिखे, यह बदलें",
+    helpTitle: "रिडैक्शन का उपयोग",
+    helpWaypoint:
+      "हर एक आपका तय किया हुआ बिंदु है। समय बदलने के लिए उसे खींचें, या हटाने के लिए दो बार दबाएँ।",
+    helpWaypointTerm: "उस पट्टी पर बने हीरे",
+    helpWhenInDoubt: "दोनों शैलियाँ उस हिस्से को पूरी तरह छिपा देती हैं।",
+    notYetBurned:
+      "{{count}} रिडैक्शन खींचे गए हैं पर लागू नहीं हुए — जब तक आप उन्हें लागू नहीं करते, वीडियो में उनके नीचे का सब कुछ दिखता रहता है।",
+    range: "{{start}} से {{end}} तक रिडैक्शन",
+    remove: "रिडैक्शन {{number}} हटाएँ",
+    resize: "इस रिडैक्शन का आकार बदलें",
+    resizeTopLeft: "इस रिडैक्शन का आकार ऊपर-बाएँ से बदलें",
+    startsAt: "रिडैक्शन {{at}} पर शुरू होता है",
+    styleBlur: "धुंधला",
+    styleBlurHint:
+      "धुंधला: उस हिस्से पर बनाया गया रंग का धब्बा। नीचे जो था उसमें से कुछ भी इसे बनाने में उपयोग नहीं होता, इसलिए इसमें से कुछ भी वापस नहीं निकाला जा सकता।",
+    styleSolid: "ठोस",
+    styleSolidHint:
+      "ठोस: उस हिस्से को एक रंग से भर देता है। धुंधले जितना ही सुरक्षित — दोनों में से कोई भी ढकी गई सामग्री से नहीं बनता — इसलिए जो क्लिप पर बेहतर लगे वही चुनें।",
+    waypoint: "{{at}} पर बिंदु",
+  },
   common: {
     cancel: "रद्द करें",
     create: "बनाएँ",
     save: "सहेजें",
     saving: "सहेजा जा रहा है…",
-    saveChanges: "बदलाव सहेजें",
     connected: "कनेक्टेड",
     notConnected: "कनेक्टेड नहीं",
     disconnect: "डिस्कनेक्ट करें",
@@ -49,6 +195,7 @@ const messages = {
   navigation: {
     brand: "क्लिप",
     library: "लाइब्रेरी",
+    screenshots: "स्क्रीनशॉट",
     sharedWithMe: "मेरे साथ साझा",
     spaces: "स्पेस",
     meetings: "मीटिंग्स",
@@ -66,51 +213,55 @@ const messages = {
     folders: "फ़ोल्डर",
     recordings: "रिकॉर्डिंग",
     newFolder: "नया फ़ोल्डर",
-    noSpaces: "अभी कोई स्पेस नहीं",
+    noSpaces: "अपनी टीम के Clips को एक जगह लाएँ",
+    noSpacesAdminCta: "पहला स्पेस बनाने के लिए संगठन के एडमिन से कहें।",
     desktopCta: "डेस्कटॉप ऐप पाएँ",
     desktopTitle: "Clips डेस्कटॉप ऐप पाएँ।",
     desktopBody: "मेनू बार, ग्लोबल शॉर्टकट और ऑटो-अपडेट से रिकॉर्ड करें।",
     expandSidebar: "साइडबार फैलाएँ",
     collapseSidebar: "साइडबार समेटें",
     agentEmptyState: "आपकी रिकॉर्डिंग में मैं कैसे मदद कर सकता हूँ?",
-    agentSuggestionSummary: "मेरी पिछली रिकॉर्डिंग का सारांश दें",
-    agentSuggestionPricing: "जहाँ मैंने कीमतों का ज़िक्र किया है वह ढूँढें",
-    agentSuggestionFiller: "इस क्लिप से फिलर शब्द हटाएँ",
+    agentSuggestionSummary: "रिकॉर्डिंग का सारांश दें",
+    agentSuggestionPricing: "कीमत के उल्लेख खोजें",
+    agentSuggestionFiller: "फ़िलर शब्द हटाएँ",
+    agentScreenshotSuggestionSummary: "स्क्रीनशॉट का सारांश दें",
+    agentScreenshotSuggestionText: "स्क्रीनशॉट में टेक्स्ट खोजें",
+    agentScreenshotSuggestionCompare: "स्क्रीनशॉट की तुलना करें",
     createFolderError: "बनाने में विफल",
     folderCreated: "फ़ोल्डर बन गया",
     folderNamePlaceholder: "फ़ोल्डर का नाम",
   },
   empty: {
     library: {
-      title: "आपकी लाइब्रेरी खाली है",
-      body: "अपनी पहली स्क्रीन रिकॉर्डिंग कैप्चर करें और वह यहाँ शेयर करने के लिए तैयार मिलेगी।",
-      cta: "अपना पहला Clip रिकॉर्ड करें",
+      title: "आपके Clips यहाँ से शुरू होते हैं",
+      body: "अपनी स्क्रीन, कैमरा या दोनों रिकॉर्ड करें। आपका Clip यहाँ समीक्षा और शेयर करने के लिए तैयार मिलेगा।",
+      cta: "एक Clip रिकॉर्ड करें",
     },
     shared: {
-      title: "अभी आपके साथ कोई क्लिप साझा नहीं की गई",
-      body: "टीम के सदस्य जो क्लिप आपके साथ साझा करेंगे, वे यहाँ दिखाई देंगी।",
+      title: "आपके साथ शेयर की गई रिकॉर्डिंग देखें",
+      body: "टीम के सदस्यों के Clips देखें और टिप्पणियों के ज़रिए बातचीत में शामिल हों।",
     },
     folder: {
-      title: "यह फ़ोल्डर खाली है",
-      body: "रिकॉर्डिंग खींचकर लाएँ या इस फ़ोल्डर में कुछ नया शुरू करने के लिए रिकॉर्ड दबाएँ।",
-      cta: "यहाँ रिकॉर्ड करें",
+      title: "इस काम को एक साथ रखें",
+      body: "संबंधित रिकॉर्डिंग इस फ़ोल्डर में लाएँ या इस प्रोजेक्ट के लिए नया Clip रिकॉर्ड करें।",
+      cta: "एक Clip रिकॉर्ड करें",
     },
     space: {
-      title: "इस स्पेस में अभी कोई रिकॉर्डिंग नहीं",
-      body: "स्पेस के साथ रिकॉर्डिंग शेयर करें या कुछ नया रिकॉर्ड करें; आपकी टीम इसे यहाँ देखेगी।",
-      cta: "इस स्पेस के लिए रिकॉर्ड करें",
+      title: "इस स्पेस को उसका पहला Clip दें",
+      body: "यहाँ Clip रिकॉर्ड करें या ले आएँ ताकि आपकी टीम उसे एक ही जगह पा सके।",
+      cta: "एक Clip रिकॉर्ड करें",
     },
     archive: {
-      title: "कुछ भी आर्काइव नहीं",
-      body: "आर्काइव की गई रिकॉर्डिंग लाइब्रेरी से छिपी रहती हैं लेकिन सुरक्षित रहती हैं। आप उन्हें बाद में कभी भी पुनर्स्थापित कर सकते हैं।",
+      title: "कोई आर्काइव की गई रिकॉर्डिंग नहीं",
+      body: "आर्काइव किए गए Clips यहाँ तब तक रहते हैं जब तक आप उन्हें वापस लाना न चाहें।",
     },
     trash: {
       title: "ट्रैश खाली है",
-      body: "मिटाई गई रिकॉर्डिंग स्थायी रूप से हटने से पहले 30 दिनों तक यहाँ दिखाई देती हैं।",
+      body: "हटाए गए Clips स्थायी रूप से हटने से पहले 30 दिनों तक यहाँ रहते हैं।",
     },
     search: {
-      title: "कोई परिणाम नहीं",
-      body: "कोई दूसरा खोज शब्द आज़माएँ या अपने फ़िल्टर जाँचें।",
+      title: "इस खोज से कुछ मेल नहीं खाता",
+      body: "दूसरा शब्द आज़माएँ या फ़िल्टर हटाकर अपना Clip ढूँढें।",
     },
   },
   trashRoute: {
@@ -143,6 +294,7 @@ const messages = {
   recordingPage: {
     back: "पीछे",
     done: "हो गया",
+    backToClip: "क्लिप पर वापस जाएँ",
     untitledClip: "शीर्षक रहित क्लिप",
     recordingNotFound: "रिकॉर्डिंग नहीं मिली",
     noAccess: "हो सकता है कि आपके पास इस क्लिप तक पहुंच न हो.",
@@ -150,7 +302,7 @@ const messages = {
     sharedWithYou: "आपके साथ साझा किया गया",
     storageStillDisconnected: "संग्रहण अभी भी कनेक्ट नहीं है",
     finishBuilderOrS3:
-      "Builder.io पॉपअप समाप्त करें या S3 स्टोरेज कॉन्फ़िगर करें, फिर पुनः प्रयास करें।",
+      "Builder.io स्टोरेज इस्तेमाल करें या S3-संगत स्टोरेज कॉन्फ़िगर करें, फिर दोबारा कोशिश करें।",
     loomImportResumed: "Loom आयात फिर से शुरू हुआ",
     clipUploadResumed: "क्लिप अपलोड फिर से शुरू हुआ",
     couldNotRetryLoom: "Loom आयात का पुनः प्रयास नहीं किया जा सका",
@@ -159,6 +311,10 @@ const messages = {
     aiRequestFailed: "एआई अनुरोध विफल रहा",
     titleUpdated: "शीर्षक अद्यतन किया गया",
     descriptionUpdated: "विवरण अपडेट किया गया",
+    tags: "टैग",
+    addTag: "टैग जोड़ें…",
+    tagsUpdateFailed: "टैग अपडेट नहीं हो सके",
+    tagTooLong: "टैग अधिकतम {{max}} वर्णों के हो सकते हैं",
     chaptersGenerated: "अध्याय बनाए गए",
     fillerCompleted: "भराव शब्द हटाना पूरा हुआ",
     workflowReady: "वर्कफ़्लो तैयार है",
@@ -166,6 +322,10 @@ const messages = {
     transcriptionCompleted: "प्रतिलेखन पूरा हुआ",
     transcriptNotReady: "प्रतिलेख अभी तैयार नहीं है",
     tryAfterTranscription: "प्रतिलेखन समाप्त होने के बाद पुनः प्रयास करें।",
+    silenceTranscriptUnavailableTitle:
+      "इस ट्रांसक्रिप्ट का उपयोग खामोशी हटाने के लिए नहीं किया जा सकता",
+    silenceTranscriptUnavailableDescription:
+      "नई ट्रांसक्रिप्ट बनाने की कोशिश करें, फिर खामोशी हटाने के लिए दोबारा प्रयास करें।",
     titleGenerationQueued: "शीर्षक बनाया जा रहा है…",
     descriptionQueued: "विवरण बनाया जा रहा है…",
     chapterQueued: "अध्याय बनाए जा रहे हैं…",
@@ -190,9 +350,9 @@ const messages = {
     savingWentWrong: "इस क्लिप को सहेजते समय कुछ गलत हो गया.",
     finishingClip: "आपकी क्लिप समाप्त हो रही है...",
     loomSourcePreserved:
-      "Loom स्रोत लिंक संरक्षित है। Builder.io या S3 स्टोरेज कनेक्ट करें और Clips अपनी कॉपी को सहेजने का पुनः प्रयास करेगा।",
+      "Loom स्रोत लिंक सुरक्षित है। Builder.io स्टोरेज (मुफ्त स्टोरेज और AI) या S3-संगत स्टोरेज इस्तेमाल करें; Clips अपनी कॉपी सहेजने की फिर कोशिश करेगा।",
     clipDataPreserved:
-      "आपका क्लिप डेटा अभी भी संरक्षित है. Builder.io या S3 स्टोरेज कनेक्ट करें और Clips इसे स्वचालित रूप से अपलोड कर देगा।",
+      "आपकी क्लिप का डेटा सुरक्षित है। Builder.io स्टोरेज (मुफ्त स्टोरेज और AI) या S3-संगत स्टोरेज इस्तेमाल करें; Clips इसे अपने-आप अपलोड करेगा।",
     details: "विवरण",
     importingLoom: "Loom आयात किया जा रहा है...",
     uploadingSavedClip: "सहेजी गई क्लिप अपलोड हो रही है...",
@@ -228,6 +388,8 @@ const messages = {
     silenceWorking: "मौन हटाए जा रहे हैं…",
     silenceCompleted: "मौन हटाना पूरा हुआ",
     silenceFailed: "मौन हटाना विफल रहा",
+    silenceEditsUnreadable:
+      "सहेजे गए संपादन पढ़े नहीं जा सके, इसलिए मौन भाग नहीं हटाए गए।",
     generatePrSummary: "पीआर सारांश तैयार करें",
     generateSop: "SOP उत्पन्न करें",
     generateSopTooltip:
@@ -259,7 +421,7 @@ const messages = {
   sharePage: {
     agentReadableContext: "एजेंट-पठनीय क्लिप संदर्भ",
     agentInstructions:
-      "प्रतिलेख और JPEG फ्रेम URLs के लिए एजेंटकॉन्टेक्स्टयूआरएल प्राप्त करें। स्क्रीन देखने के लिए फ़्रेम URLs प्राप्त करें, न कि केवल प्रतिलेख पढ़ने के लिए।",
+      "पहले agentContextUrl खोलें। apis.transcript से पूरा ट्रांसक्रिप्ट पढ़ें और recommendedFrames[].url (या atMs के साथ apis.frame.urlTemplate) को इमेज के रूप में प्राप्त करें। id और agent_access को जैसा दिया गया है वैसा ही रखें। हर त्रुटि पर JSON उत्तर में failureKind, error और nextStep देखें। यदि failureKind=access है, बताएं कि लिंक से पहुंच नहीं मिलती; निजी क्लिप के लिए मालिक से Clips Share मेनू में {{shareWithAgents}} चुनकर बनाया गया लिंक भेजने को कहें। यदि failureKind=media है और ट्रांसक्रिप्ट काम कर रहा है, बताएं कि सहेजा गया मीडिया प्राप्त नहीं हो सका; नया लिंक इसे ठीक नहीं करेगा। यदि failureKind=processing है, तो nextStep का पालन करें; इसका अर्थ यह नहीं कि क्लिप गायब है या लिंक अमान्य है। यदि failureKind=expired है, मालिक से Share मेनू में क्लिप की expiry बढ़ाने या हटाने, बदलाव सहेजने, फिर {{shareWithAgents}} चुनकर नया लिंक भेजने को कहें।",
     untitledClip: "शीर्षक रहित क्लिप",
     incorrectPassword: "गलत पासवर्ड",
     passwordProtected: "यह क्लिप पासवर्ड से सुरक्षित है",
@@ -311,13 +473,13 @@ const messages = {
     savingWentWrong: "इस क्लिप को सहेजते समय कुछ गलत हो गया.",
     finishingClip: "इस क्लिप को समाप्त कर रहा हूँ...",
     loomPreservedManage:
-      "Loom स्रोत लिंक संरक्षित है। Builder.io या S3 स्टोरेज कनेक्ट करें, फिर आयात का पुनः प्रयास करें।",
+      "Loom स्रोत लिंक सुरक्षित है। Builder.io स्टोरेज (मुफ्त स्टोरेज और AI) या S3-संगत स्टोरेज इस्तेमाल करें, फिर इंपोर्ट की कोशिश करें।",
     videoPreservedManage:
-      "वीडियो सुरक्षित रखा गया है. Builder.io या S3 स्टोरेज कनेक्ट करें और Clips इसे अपलोड करना समाप्त कर देगा।",
+      "वीडियो सुरक्षित है। Builder.io स्टोरेज (मुफ्त स्टोरेज और AI) या S3-संगत स्टोरेज इस्तेमाल करें; Clips अपलोड पूरा करेगा।",
     creatorNeedsStorage:
-      "इस क्लिप के समाप्त होने से पहले निर्माता को Builder.io या S3 स्टोरेज कनेक्ट करना होगा।",
+      "इस क्लिप को पूरा करने के लिए निर्माता को Builder.io स्टोरेज (मुफ्त स्टोरेज और AI) या S3-संगत स्टोरेज इस्तेमाल करना होगा।",
     signInStorage:
-      "यदि यह आपकी क्लिप है, तो Builder.io या S3 स्टोरेज को कनेक्ट करने और अपलोड समाप्त करने के लिए यहां साइन इन करें।",
+      "अगर यह आपकी क्लिप है, तो अपलोड पूरा करने के लिए यहाँ साइन इन करें और Builder.io स्टोरेज (मुफ्त स्टोरेज और AI) या S3-संगत स्टोरेज इस्तेमाल करें।",
     uploadNotCompleteSession:
       "अपलोड अभी तक पूरा नहीं हुआ है. इस क्लिप के लिए डैशबोर्ड खोलें या निर्माता से भंडारण की जांच करने के लिए कहें।",
     uploadNotCompleteSignIn:
@@ -352,11 +514,17 @@ const messages = {
     agentEmptyTitle: "बातचीत में शामिल हों",
     agentEmptyDescription:
       "इस क्लिप पर टिप्पणी करने, प्रतिक्रिया देने और सवाल पूछने के लिए मुफ़्त Clips खाता बनाएं।",
+    commentSignupTitle: "आपका AI एजेंट जिन स्क्रीन रिकॉर्डिंग को देख और सुन सकता है",
+    commentSignupDescription:
+      "Clips एक मुफ़्त और ओपन-सोर्स स्क्रीन रिकॉर्डर है, जिससे आप AI एजेंटों के साथ बग, फ़ीडबैक और चरण-दर-चरण निर्देश साझा कर सकते हैं।",
     agentEmptySignInPrompt: "क्या आपके पास पहले से खाता है?",
     signUp: "साइन अप करें",
     ownerInsights: "स्वामी इनसाइट्स",
     ownerInsightsDescription:
       "व्यू, पूर्णता और दर्शक विवरण इस क्लिप के संपादकों को दिखाई देते हैं।",
+    beingEdited: "संपादन जारी है",
+    beingEditedMessage:
+      "मालिक इस क्लिप में बदलाव कर रहे हैं। उनके पूरा करते ही लिंक फिर से काम करने लगेगा।",
   },
   meetingDetail: {
     untitledMeeting: "शीर्षकहीन बैठक",
@@ -448,15 +616,41 @@ const messages = {
     cleanupBuilderFailed:
       "Builder.io कनेक्ट होने के बावजूद सफाई समाप्त नहीं हो सकी। मूल प्रतिलेख रखा गया था.",
     cleanupPaused:
-      "क्लीनअप रुका है। सेटिंग्स में AI कनेक्ट करें: Builder.io (मुफ्त क्रेडिट) या अपनी LLM key.",
-    builderNoResponse:
-      "बिल्डर से कोई जवाब नहीं मिला. पॉपअप की अनुमति दें और पुनः प्रयास करें।",
+      "क्लीनअप रुका है। सेटिंग्स में AI के लिए Builder.io इस्तेमाल करें (मुफ्त क्रेडिट), या अपनी LLM key जोड़ें।",
+    builderNoResponse: "Builder से जवाब नहीं मिला। फिर कोशिश करें।",
     saveFailed: "सहेजना विफल ({{status}})",
     savedRetrying: "सहेजा गया. प्रतिलेखन पुनः प्रयास कर रहा है...",
     getGroqKey: "Groq कुंजी प्राप्त करें",
     groqKeysStart: "Groq कुंजियाँ प्रारंभ होती हैं",
     waiting: "इंतज़ार में…",
     nativeSpeechPrimary: "नेटिव स्पीच मुख्य प्रतिलेखन स्रोत बनी रहती है।",
+  },
+  transcriptImport: {
+    addFile: "प्रतिलेख फ़ाइल जोड़ें",
+    imported: "आयातित",
+    replaceTitle: "प्रतिलेख बदलें?",
+    replaceDescription: "{{fileName}} मौजूदा प्रतिलेख की जगह ले लेगी।",
+    replace: "बदलें",
+    regenerateOverImportTitle: "आयात किया गया प्रतिलेख बदलें?",
+    regenerateOverImportDescription:
+      "रिकॉर्डिंग के ऑडियो से बना नया प्रतिलेख फ़ाइल से आयात किए गए प्रतिलेख की जगह ले लेगा।",
+    added: "प्रतिलेख जोड़ा गया",
+    replaced: "प्रतिलेख बदला गया",
+    failed: "प्रतिलेख नहीं जोड़ा जा सका",
+    invalidFile: "{{fileName}} को पढ़ा नहीं जा सका",
+    errorEmpty: "फ़ाइल में कोई प्रतिलेख टेक्स्ट नहीं है।",
+    errorTooLarge: "फ़ाइल आयात करने के लिए बहुत बड़ी है।",
+    errorNotUtf8:
+      "फ़ाइल UTF-8 टेक्स्ट नहीं है। इसे UTF-8 के रूप में सेव करें और फिर से कोशिश करें।",
+    errorMissingTiming:
+      "पंक्ति {{line}}: 00:00:01.000 --> 00:00:04.000 जैसी उपशीर्षक समय-पंक्ति अपेक्षित थी।",
+    errorBadTiming: "पंक्ति {{line}}: उपशीर्षक का समय पढ़ा नहीं जा सका।",
+    errorBadRange:
+      "पंक्ति {{line}}: उपशीर्षक अपने शुरू होने से पहले ही समाप्त हो जाता है।",
+    errorMissingTimestamp:
+      "पंक्ति {{line}}: 0:21 या [0:21] जैसा शुरुआती समय अपेक्षित था।",
+    errorOutOfOrder: "पंक्ति {{line}}: यह समय पिछले समय से पहले का है।",
+    errorPastEnd: "पंक्ति {{line}}: यह समय वीडियो के समाप्त होने के बाद का है।",
   },
   thumbnailPicker: {
     failedCapture: "फ़्रेम कैप्चर करने में विफल",
@@ -485,6 +679,9 @@ const messages = {
     saveThumbnail: "थंबनेल सेव करें",
   },
   shareDialog: {
+    redactionsPendingTitle: "शेयर करने से पहले छिपाए गए हिस्सों को लागू करें",
+    redactionsPendingBody:
+      "लंबित छिपाए गए हिस्से: {{count}}. शेयर करने से पहले इन्हें एडिटर में लागू करें; वीडियो में अभी भी मूल सामग्री मौजूद है।",
     publicDescription:
       "लिंक वाला कोई भी व्यक्ति देख सकता है - टिप्पणी करने या प्रतिक्रिया देने के लिए साइन इन करें",
     shareRecording: "रिकॉर्डिंग साझा करें",
@@ -507,7 +704,7 @@ const messages = {
     openInCodex: "Codex में खोलें",
     copyAgentPrompt: "एजेंट प्रॉम्प्ट कॉपी करें",
     agentPrompt:
-      "यह Clips एजेंट संदर्भ URL प्राप्त करें: {{agentContextUrl}}। बोले गए संदर्भ के लिए transcript.segments का उपयोग करें, स्क्रीन देखने के लिए recommendedFrames या फ्रेम API URL प्राप्त करें, और यदि browserDiagnostics मौजूद हो तो संशोधित कंसोल लॉग और fetch/XHR अनुरोध मेटाडेटा जांचें।",
+      "यह Clips एजेंट संदर्भ URL पढ़ें: {{agentContextUrl}}। apis.transcript से पूरा ट्रांसक्रिप्ट पढ़ें और recommendedFrames[].url (या atMs के साथ apis.frame.urlTemplate) को इमेज के रूप में प्राप्त करें। id और agent_access को जैसा दिया गया है वैसा ही रखें। हर त्रुटि पर JSON उत्तर में failureKind, error और nextStep देखें। यदि failureKind=access है, बताएं कि लिंक से पहुंच नहीं मिलती; निजी क्लिप के लिए मालिक से Clips Share मेनू में {{shareWithAgents}} चुनकर बनाया गया लिंक भेजने को कहें। यदि failureKind=media है और ट्रांसक्रिप्ट काम कर रहा है, बताएं कि सहेजा गया मीडिया प्राप्त नहीं हो सका; नया लिंक इसे ठीक नहीं करेगा। यदि failureKind=processing है, तो nextStep का पालन करें; इसका अर्थ यह नहीं कि क्लिप गायब है या लिंक अमान्य है। यदि failureKind=expired है, मालिक से Share मेनू में क्लिप की expiry बढ़ाने या हटाने, बदलाव सहेजने, फिर {{shareWithAgents}} चुनकर नया लिंक भेजने को कहें। बग रिपोर्ट में उपलब्ध होने पर browserDiagnostics भी देखें।",
     agentTokenDescription:
       "यह क्लिप सार्वजनिक नहीं है, इसलिए एजेंटों के लिए अस्थायी रीड-ओनली लिंक। 2 घंटे में समाप्त।",
     agentPublicDescription:
@@ -640,6 +837,7 @@ const messages = {
     organizationFallback: "संगठन",
     saving: "सहेजा जा रहा है…",
     save: "सहेजें",
+    saved: "सहेजा गया",
   },
   downloadRoute: {
     pageTitle: "Clips Desktop डाउनलोड करें",
@@ -652,12 +850,16 @@ const messages = {
     downloadAgain: "काम नहीं किया? फिर से डाउनलोड करें",
     alsoFor: "{{platform}} के लिए भी उपलब्ध है",
     backToLibrary: "लाइब्रेरी पर वापस जाएँ",
-    clipsDesktop: "Clips Desktop",
+    clipsDesktop: "Clips डाउनलोड करें",
     stable: "स्थिर",
     nightly: "Nightly",
+    allPlatforms: "सभी प्लेटफ़ॉर्म",
+    releaseChannel: "रिलीज़ चैनल",
     switchToNightly: "Nightly बिल्ड पर जाएँ",
     switchToStable: "स्थिर बिल्ड पर जाएँ",
     retry: "फिर कोशिश करें",
+    mountError:
+      "Clips को इस वर्कस्पेस में अपना पाथ नहीं मिला। वर्कस्पेस एडमिन से ऐप के माउंट कॉन्फ़िगरेशन की जाँच करने को कहें।",
     heroDescription:
       "स्क्रीन, कैमरा और स्क्रीन + कैमरा के लिए एक मेनू-बार रिकॉर्डर। एक-क्लिक प्रारंभ, खींचने योग्य कैमरा बबल, रुकने पर तत्काल-शेयर लिंक।",
     versionReleased: "संस्करण {{version}} - {{date}} जारी किया गया",
@@ -703,23 +905,24 @@ const messages = {
     agentDescription:
       "एजेंट के मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य नियंत्रणों को प्रबंधित करें।",
     agentTitle: "एजेंट प्रबंधित करें",
-    title: "सेटिंग्स",
     pageTitle: "सेटिंग्स · Clips",
-    experiments: "प्रयोग",
-    experimentsIntro:
+    labs: "Labs",
+    labResilientRecording: "भरोसेमंद रिकॉर्डिंग",
+    labResilientRecordingDescription:
+      "रिकॉर्डिंग तेज़ी से अपलोड करने और रुकावट के बाद बेहतर रिकवरी का अनुभव करें।",
+    labResilientRecordingMixedDescription:
+      "पिछली रिकॉर्डिंग सेटिंग अब भी लागू हैं। एक सेटिंग चुनने के लिए चालू या बंद चुनें।",
+    labsIntro:
       "ये नई, अस्थिर सुविधाएँ हैं और इनमें बग हो सकते हैं। हम आपकी प्रतिक्रिया को महत्व देते हैं।",
-    experimentVideoEditing: "वीडियो संपादन",
-    experimentVideoEditingDescription: "नया वीडियो संपादक आज़माएँ।",
-    experimentMeetings: "मीटिंग और ट्रांसक्रिप्शन",
-    experimentMeetingsDescription: "स्वचालित मीटिंग कैप्चर और ट्रांसक्रिप्शन आज़माएँ।",
-    experimentWisprFlow: "वॉइस डिक्टेशन",
-    experimentWisprFlowDescription: "नया वॉइस डिक्टेशन फीचर आज़माएँ।",
-    intro: "इस Clips वर्कस्पेस के लिए प्राथमिकताएँ और कनेक्टेड सेवाएँ।",
-    preferencesTitle: "प्राथमिकताएँ",
-    languageTitle: "भाषा",
-    languageDescription:
-      "इस खाते के लिए इंटरफ़ेस भाषा चुनें। Clips इसे आपके डिवाइसों पर याद रखेगा।",
-    languageLabel: "इंटरफ़ेस भाषा",
+    labVideoEditing: "वीडियो संपादन",
+    labVideoEditingDescription: "नया वीडियो संपादक आज़माएँ।",
+    labMeetings: "मीटिंग और ट्रांसक्रिप्शन",
+    labMeetingsDescription: "स्वचालित मीटिंग कैप्चर और ट्रांसक्रिप्शन आज़माएँ।",
+    labWisprFlow: "वॉइस डिक्टेशन",
+    labWisprFlowDescription: "Clips Desktop में वॉइस डिक्टेशन दिखाएँ या छिपाएँ।",
+    labLookbackContext: "पहले का स्क्रीन समय शामिल करें",
+    labLookbackContextDescription:
+      "रिकॉर्डिंग से पहले के पाँच मिनट तक का स्क्रीन समय स्वचालित संदर्भ के रूप में जोड़ें।",
     uploadWorkspaceTitle: "सक्रिय वर्कस्पेस",
     uploadWorkspaceDescription:
       "वह वर्कस्पेस चुनें जिसका उपयोग Clips डेस्कटॉप अपलोड सहित नई रिकॉर्डिंग के लिए करेगा।",
@@ -731,12 +934,15 @@ const messages = {
     uploadWorkspaceSaveFailed: "सक्रिय वर्कस्पेस अपडेट नहीं किया जा सका",
     whatsNew: "नया क्या है",
     changelogEmpty: "अभी कोई अपडेट नहीं है।",
+    changelogCommentSignup:
+      "खाली टिप्पणियों वाला साइडबार Clips आज़माने की वजह संक्षेप में बताता है और साइन अप करने का स्पष्ट रास्ता देता है।",
+    changelogCommentsEmptyState:
+      "टिप्पणियाँ न होने पर अब बताया जाता है कि स्क्रीन रिकॉर्डिंग AI एजेंटों की कैसे मदद करती हैं।",
+    changelogShareLink:
+      "साइन इन किए हुए दर्शक अनुपलब्ध, समाप्त या निजी शेयर लिंक पर “होम जाएं” चुनने पर अब सार्वजनिक मार्केटिंग पेज के बजाय अपनी लाइब्रेरी पर पहुंचेंगे।",
     viewAllUpdates: "सभी अपडेट देखें",
     expand: "फैलाएं",
     collapse: "समेटें",
-    playback: "प्लेबैक",
-    defaultPlaybackSpeed: "डिफ़ॉल्ट प्लेबैक गति",
-    playbackDescription: "रिकॉर्डिंग खोलने पर अपने आप लागू होती है।",
     transcript: "ट्रांसक्रिप्ट",
     transcriptCleanup: "बैकग्राउंड सफ़ाई",
     transcriptCleanupDescription:
@@ -744,27 +950,17 @@ const messages = {
     notifications: "सूचनाएँ",
     monthlyRecap: "मासिक सारांश",
     sharing: "साझा करना",
-    defaultVisibility: "नई रिकॉर्डिंग की डिफ़ॉल्ट दृश्यता",
-    defaultVisibilityDescription:
-      "आपकी बनाई हर रिकॉर्डिंग पर लागू होती है। आप हर रिकॉर्डिंग की दृश्यता बदल सकते हैं।",
     visibilityPrivate: "निजी - केवल आप",
     visibilityOrg: "संगठन - आपके वर्कस्पेस में कोई भी",
     visibilityPublic: "सार्वजनिक - लिंक वाला कोई भी",
     emailNotifications: "ईमेल सूचनाएँ",
     emailNotificationsDescription:
       "चुनें कि आप Clips की कौन-सी वैकल्पिक ईमेल सूचनाएं पाना चाहते हैं।",
-    saved: "सेटिंग्स सहेजी गईं",
     saveFailed: "सहेजने में विफल",
-    builderConnectedToast: "Builder.io कनेक्टेड",
-    videoStorage: "वीडियो स्टोरेज",
     videoStorageDescription:
       "Builder.io Clips अपलोड के लिए मुख्य स्टोरेज पथ है। अपना bucket लाने की ज़रूरत हो तो S3 उपलब्ध है।",
-    checkingBuilder: "Builder.io जाँचा जा रहा है",
     builderConnected: "Builder.io कनेक्टेड",
     connectBuilder: "Builder.io इस्तेमाल करें",
-    builderConnectedFor: "{{orgName}} के लिए Builder.io इस्तेमाल हो रहा है।",
-    builderConnectedGeneric:
-      "नई क्लिप्स कनेक्टेड Builder.io प्रोवाइडर का उपयोग करती हैं।",
     builderIncludes:
       "Builder.io के मुफ्त स्तर में नई क्लिप्स के लिए ऑब्जेक्ट स्टोरेज, अपलोड और मैनेज्ड ट्रांसक्रिप्शन शामिल हैं।",
     s3Title: "S3-संगत स्टोरेज",
@@ -772,11 +968,8 @@ const messages = {
     active: "सक्रिय",
     s3BuilderConnectedDescription:
       "इसे केवल तब इस्तेमाल करें जब यह वर्कस्पेस Builder.io के बजाय आपके अपने bucket में अपलोड करे।",
-    s3CurrentProvider: "अभी {{providerName}} इस्तेमाल हो रहा है।",
     s3OwnBucketDescription:
       "यदि आप Builder.io स्टोरेज नहीं चाहते हैं तो अपना bucket इस्तेमाल करें।",
-    configureS3: "S3 कॉन्फ़िगर करें",
-    hideS3: "S3 छिपाएँ",
     saveStorage: "स्टोरेज सहेजें",
     storageSaved: "स्टोरेज सेटिंग्स सहेजी गईं",
     storageRequired: "Endpoint, bucket, access key और secret आवश्यक हैं।",
@@ -790,7 +983,6 @@ const messages = {
       "एक मान्य URL होना चाहिए (उदा. https://s3.us-east-1.amazonaws.com)",
     s3BucketInvalid: "बकेट नाम 3–63 लोअरकेस अक्षर, अंक या हाइफ़न होने चाहिए",
     s3RegionInvalid: 'एक मान्य क्षेत्र (उदा. us-east-1) या "auto" होना चाहिए',
-    apiSetup: "AI सेटअप",
     apiSetupDescription: "चुनें कि Clips AI से कैसे कनेक्ट हो।",
     builderEasySetup: "Builder.io मुफ्त क्रेडिट",
     builderAiAvailable:
@@ -801,18 +993,11 @@ const messages = {
     providerKeyDescription:
       "प्रोवाइडर-बिल्ड उपयोग के लिए Anthropic, OpenAI, OpenRouter, Gemini, Groq, Mistral, Cohere या Ollama चुनें।",
     providerKeysSet: "{{count}} सेट",
-    providerActionTitle: "AI प्रदाता",
-    providerActionDescription:
-      "Builder.io में मुफ्त स्तर शामिल है, या कस्टम कुंजियां इस्तेमाल करें।",
-    providerManage: "प्रबंधित करें",
-    providerCustomKeys: "कस्टम कुंजियां",
-    checkingProviderKeys: "प्रोवाइडर कीज़ जाँची जा रही हैं…",
     keySet: "सेट",
     keyCleared: "स्टोरेज क्रेडेंशियल साफ़ किए गए",
     clearAllS3: "क्रेडेंशियल साफ़ करें",
     replaceKey: "की बदलें…",
     pasteProviderKey: "पहले प्रोवाइडर की पेस्ट करें।",
-    apiKeySaved: "API की सहेजी गई",
     apiKeyFailed: "की सहेजने में विफल",
     slackTitle: "Slack के लिए Agent-Native Clips",
     slackDescription:
@@ -840,6 +1025,50 @@ const messages = {
       "Clips {{team}} के लिए संग्रहीत bot token हटा देगा और चलने योग्य Slack previews भेजना बंद कर देगा।",
     thisWorkspace: "यह वर्कस्पेस",
     slackConnected: "Slack कनेक्टेड",
+  },
+  clipsSettings: {
+    popupBlocked:
+      "ब्राउज़र ने पॉप-अप ब्लॉक कर दिया। इस साइट के लिए पॉप-अप की अनुमति दें और फिर से कोशिश करें।",
+    recordingsTab: "रिकॉर्डिंग",
+    meetingsTab: "मीटिंग",
+    yourDefaults: "आपके डिफ़ॉल्ट",
+    orgDefault: "{{org}} डिफ़ॉल्ट",
+    playbackSpeed: "प्लेबैक स्पीड",
+    playbackSpeedDescription: "रिकॉर्डिंग खोलने पर लागू होती है।",
+    visibility: "दृश्यता",
+    visibilityDescription:
+      "आपकी बनाई रिकॉर्डिंग पर लागू होती है। आप इसे किसी भी रिकॉर्डिंग पर बदल सकते हैं।",
+    useOrgDefault: "{{org}} का डिफ़ॉल्ट इस्तेमाल करें ({{visibility}})",
+    useDefault: "डिफ़ॉल्ट इस्तेमाल करें ({{visibility}})",
+    transcriptExport: "ट्रांसक्रिप्ट एक्सपोर्ट",
+    logoDescription: "शेयर ईमेल और सार्वजनिक क्लिप पेजों पर दिखता है।",
+    change: "बदलें",
+    adminsOnly: "केवल मालिक और एडमिन इसे बदल सकते हैं।",
+    brandColorInvalid: "हेक्स रंग कोड दर्ज करें।",
+    loadFailed: "ये सेटिंग्स लोड नहीं हो सकीं।",
+    emailGroup: "ईमेल",
+    calendarGroup: "कैलेंडर",
+    googleCalendar: "Google Calendar",
+    connect: "कनेक्ट करें",
+    reconnect: "फिर से कनेक्ट करें",
+    connectedAs: "{{account}} के रूप में कनेक्टेड",
+    needsReconnect: "{{account}} को फिर से कनेक्ट करना होगा।",
+    disconnectFailed: "कैलेंडर डिस्कनेक्ट नहीं हो सका।",
+    disconnectCalendarDescription:
+      "Clips {{account}} से आने वाली मीटिंग सिंक करना बंद कर देगा।",
+    calendarApp: "Google Calendar ऐप",
+    desktopGroup: "डेस्कटॉप",
+    meetingCapture: "मीटिंग कैप्चर",
+    meetingCaptureDescription:
+      "नोट्स, ऑटो-स्टार्ट और सूचनाएं हर डिवाइस पर Clips Desktop में सेट होती हैं।",
+    openClipsDesktop: "Clips Desktop खोलें",
+    keySaved: "सहेजा गया",
+    keyNotSaved: "सहेजा नहीं गया",
+    manage: "प्रबंधित करें",
+    add: "जोड़ें",
+    linkPreviews: "लिंक प्रीव्यू",
+    addWorkspace: "वर्कस्पेस जोड़ें",
+    storageAskAdmin: "स्टोरेज सेट अप करने के लिए किसी मालिक या एडमिन से कहें।",
   },
   insightsHub: {
     title: "इनसाइट्स",
@@ -882,8 +1111,6 @@ const messages = {
     namedTitle: "{{name}} · सेटिंग्स",
     noOrganization: "अभी कोई संगठन नहीं है। शुरू करने के लिए संगठन स्विचर से एक बनाएं।",
     description: "संगठन व्यवस्थापन: ब्रांडिंग, सदस्य, आमंत्रण।",
-    adminsOnlyBranding: "केवल व्यवस्थापक ब्रांडिंग संपादित कर सकते हैं।",
-    brandingLoadFailed: "संगठन ब्रांडिंग लोड नहीं हो सकी।",
     members: "सदस्य",
     pendingInvites: "लंबित आमंत्रण",
     noPendingInvites: "कोई लंबित आमंत्रण नहीं।",
@@ -940,6 +1167,8 @@ const messages = {
     renameFailed: "क्लिप का नाम बदलने में विफल",
     renameClip: "क्लिप का नाम बदलें",
     clipTitle: "क्लिप शीर्षक",
+    archiveAction: "आर्काइव करें",
+    moveToTrashAction: "ट्रैश में ले जाएं",
     movedToTrash: "ट्रैश में ले जाया गया",
     restoredFromArchive: "आर्काइव से पुनर्स्थापित",
     archived: "आर्काइव किया गया",
@@ -978,7 +1207,7 @@ const messages = {
     pickAtLeastTwo: "जोड़ने के लिए कम से कम 2 रिकॉर्डिंग चुनें",
     videoUrlMissing: "एक या अधिक रिकॉर्डिंग के पास अभी तैयार वीडियो URL नहीं है",
     connectStorage:
-      "रिकॉर्डिंग जोड़ने से पहले स्टोरेज कनेक्ट करें: Builder.io (free tier storage + AI) या S3-संगत स्टोरेज.",
+      "रिकॉर्डिंग जोड़ने से पहले Builder.io स्टोरेज (मुफ्त स्टोरेज और AI) या S3-संगत स्टोरेज इस्तेमाल करें।",
     created: "सिली हुई रिकॉर्डिंग बनाई गई",
     failed: "रिकॉर्डिंग जोड़ने में विफल",
     noOtherRecordings: "कोई अन्य रिकॉर्डिंग उपलब्ध नहीं।",
@@ -1089,14 +1318,14 @@ const messages = {
     elapsed: "बीता समय",
     cancel: "रिकॉर्डिंग हटाएं",
     cancelShortcut: "हटाएं (⌥⇧C)",
-    discardConfirmTitle: "क्या इस रिकॉर्डिंग को हटाना है?",
+    discardConfirmTitle: "यह रिकॉर्डिंग मिटाएँ?",
     discardConfirmDescription:
       "इसे पूर्ववत नहीं किया जा सकता। अब तक की आपकी रिकॉर्डिंग स्थायी रूप से हटा दी जाएगी।",
     resume: "फिर शुरू करें",
     discardRecording: "रिकॉर्डिंग हटाएं",
     restart: "रिकॉर्डिंग फिर से शुरू करें",
     restartShortcut: "फिर से शुरू करें (⌥⇧R)",
-    restartQuestion: "क्या नई रिकॉर्डिंग शुरू करें?",
+    restartQuestion: "यह रिकॉर्डिंग मिटाकर फिर से शुरू करें?",
     restartConfirm: "फिर से शुरू करें",
   },
   countdownOverlay: {
@@ -1123,6 +1352,7 @@ const messages = {
     transcript: "प्रतिलेख",
     comment: "टिप्पणी",
     titleOrDescription: "शीर्षक या विवरण",
+    matchAt: "वीडियो में {{time}} पर मिलान",
   },
   organizationSwitcher: {
     noOrganization: "कोई संगठन नहीं",
@@ -1200,6 +1430,20 @@ const messages = {
     loadingRecording: "रिकॉर्डिंग लोड हो रही है…",
     recordingNotFound: "रिकॉर्डिंग नहीं मिली",
     noVideoYet: "अभी कोई वीडियो उपलब्ध नहीं है।",
+    burnFailed: "रिडैक्शन को वीडियो में लागू नहीं किया जा सका",
+    burnProgressUnreadable:
+      "रिडैक्शन की प्रगति का पता नहीं चल पा रहा। सबसे संभव है कि यह अब भी रेंडर हो रहा है — थोड़ी देर में पेज रीफ़्रेश करें।",
+    burnedRedactionsDone:
+      "रिडैक्ट कर दिया गया। वे हिस्से अब फ़ाइल से हट चुके हैं और मूल फ़ाइल हटा दी गई है।",
+    burningRedactions: "रिडैक्शन को वीडियो में रेंडर किया जा रहा है…",
+    burningRedactionsPercent:
+      "रिडैक्शन को वीडियो में रेंडर किया जा रहा है… {{percent}}%",
+    editFailed: "यह बदलाव सहेजा नहीं जा सका",
+    refreshFailed: "नवीनतम बदलाव लोड नहीं हो पाए। संपादन से पहले फिर से कोशिश करें।",
+    autoSaveHint: "बदलाव इस क्लिप में अपने आप सहेजे जाते हैं",
+    savingChanges: "बदलाव सहेजे जा रहे हैं…",
+    changesSaved: "बदलाव इस क्लिप में सहेज दिए गए",
+    nothingToRedo: "दोहराने के लिए कुछ नहीं है",
   },
   transcriptEditor: {
     transcript: "ट्रांसक्रिप्ट",
@@ -1210,7 +1454,8 @@ const messages = {
   },
   createSpaceDialog: {
     newSpace: "नई स्पेस",
-    description: "वर्तमान संगठन में एक स्पेस बनाएं।",
+    description:
+      "रिकॉर्डिंग को प्रोजेक्ट या टीम के अनुसार व्यवस्थित करें ताकि सभी को ज़रूरी काम आसानी से मिल सके।",
     name: "नाम",
     color: "रंग",
     useColor: "रंग {{color}} उपयोग करें",
@@ -1235,6 +1480,14 @@ const messages = {
     agentTitle: "बातचीत में शामिल होने के लिए मुफ़्त Clips खाता बनाएं",
     genericTitle: "जारी रखने के लिए मुफ़्त Clips खाता बनाएं",
     description: "पूरा होते ही आप इसी क्लिप पर लौट आएंगे।",
+    verificationPendingTitle: "अपना ईमेल सत्यापित करें",
+    verificationPendingCopy:
+      "हमने {{email}} पर सत्यापन ईमेल भेजा है। खाता बनाने और इस क्लिप पर लौटने के लिए उसे खोलें।",
+    resendVerification: "सत्यापन ईमेल फिर से भेजें",
+    resendingVerification: "सत्यापन ईमेल भेजा जा रहा है...",
+    verificationEmailResent: "नया सत्यापन ईमेल भेज दिया गया है।",
+    verificationEmailFailed:
+      "सत्यापन ईमेल फिर से नहीं भेज पाए। दोबारा कोशिश करें या ईमेल लिंक से साइन इन करें।",
     passwordsMismatch: "पासवर्ड मेल नहीं खाते।",
     commentIntent: "टिप्पणी करने",
     reactIntent: "प्रतिक्रिया जोड़ने",
@@ -1305,29 +1558,46 @@ const messages = {
     disconnected: "माइक्रोफ़ोन डिस्कनेक्ट हो गया।",
   },
   storageSetup: {
-    builderTimeout:
-      "5 मिनट में Builder से जवाब नहीं मिला। पॉपअप जांचें और फिर कोशिश करें।",
+    builderStorageOffer:
+      "Builder.io के मुफ़्त प्लान में वीडियो स्टोरेज शामिल है, जिसे एक क्लिक में सेट अप किया जा सकता है।",
+    customKeys: "कस्टम कुंजियाँ",
+    builderConnectPopupError:
+      "Builder.io नहीं खुल सका। अगर यह ऐप किसी चैट में एम्बेड है, तो इसे ब्राउज़र टैब में खोलें; अन्यथा फिर कोशिश करें।",
+    builderConnectError:
+      "Builder.io सेटअप पूरा नहीं हो सका। फिर से कोशिश करें या S3-संगत स्टोरेज चुनें।",
+    builderConnectErrorAskAdmin:
+      "Builder.io सेटअप पूरा नहीं हो सका। फिर से कोशिश करें या किसी मालिक या एडमिन से स्टोरेज सेट अप करने को कहें।",
+    builderStatusReadError:
+      "कनेक्शन की स्थिति उपलब्ध नहीं है। दोबारा जांचने के लिए फिर से कोशिश करें।",
+    builderUploadGrantMissing:
+      "Builder.io AI के लिए कनेक्ट है, लेकिन यह कनेक्शन क्लिप अपलोड नहीं कर सकता। अपलोड की अनुमति के साथ Builder.io को फिर से कनेक्ट करें, या किसी मालिक या एडमिन से मदद लें।",
+    builderGrantAskAdmin:
+      "किसी मालिक या एडमिन से क्लिप अपलोड की अनुमति के साथ Builder.io कनेक्ट करने को कहें।",
+    statusUnavailable: "वीडियो स्टोरेज की स्थिति जाँची नहीं जा सकी।",
+    hostedStorageUnavailable:
+      "Clips का होस्टेड स्टोरेज अभी उपलब्ध नहीं है। आपके मुफ़्त क्लिप की सीमा नहीं बदली है; बाद में अपलोड फिर से करें।",
+    checkingBuilderConnection: "Builder कनेक्शन जांच रहे हैं…",
+    builderTimeout: "पुष्टि नहीं हो सकी कि Builder.io स्टोरेज तैयार है। फिर कोशिश करें।",
     builderConnected: "Builder.io कनेक्ट है",
     waitingForBuilder: "Builder की प्रतीक्षा...",
-    connectBuilder: "Builder.io इस्तेमाल करें",
+    description: "चुनें कि रिकॉर्ड किए गए वीडियो कहाँ सहेजने हैं।",
+    createBuilderAccount: "Builder.io इस्तेमाल करें",
+    signInWithBuilderAccount: "Builder.io खाते से साइन इन करें",
     free: "मुफ्त",
-    configureS3: "S3-संगत स्टोरेज कॉन्फ़िगर करें",
     whyPrompt: "मैं यह क्यों देख रहा हूं?",
     whyDescription:
-      "Clips 100% मुफ्त और ओपन सोर्स ऐप है, इसलिए आपको क्लिप स्टोर करने का तरीका जोड़ना होगा। Builder.io से free-tier storage और AI वाला स्टोरेज कनेक्ट करें, या S3-संगत ऑब्जेक्ट स्टोरेज और अपनी LLM keys इस्तेमाल करें.",
+      "Clips 100% मुफ्त और ओपन सोर्स ऐप है, इसलिए क्लिप स्टोर करने का तरीका चाहिए। मुफ्त स्टोरेज और AI के लिए Builder.io इस्तेमाल करें, या S3-संगत ऑब्जेक्ट स्टोरेज और अपनी LLM keys इस्तेमाल करें।",
   },
   captureInstall: {
     title: "Choose your recorder (स्थानीयकृत)",
     description:
       "Use Chrome when you need browser logs, or desktop for the smoothest everyday capture. (स्थानीयकृत)",
     chromeTitle: "Chrome extension (स्थानीयकृत)",
-    chromeDescription:
-      "Best when you want redacted console and network diagnostics from the browser tab. (स्थानीयकृत)",
+    chromeDescription: "Chrome एक्सटेंशन से ब्राउज़र टैब कैप्चर करें।",
     chromePendingDescription:
       "Browser logs option is ready, pending the Chrome Web Store URL. (स्थानीयकृत)",
     desktopTitle: "Desktop app (स्थानीयकृत)",
-    desktopDescription:
-      "Most seamless for global shortcuts, menu-bar recording, meetings, and repeat captures. (स्थानीयकृत)",
+    desktopDescription: "ग्लोबल शॉर्टकट और सिस्टम ऑडियो के साथ रिकॉर्ड करें।",
     openDesktopApp: "Open desktop app (स्थानीयकृत)",
   },
   editableTitle: {
@@ -1402,6 +1672,25 @@ const messages = {
     exportedMp4: "Exported MP4 (स्थानीयकृत)",
     exportFailed:
       "Export failed — ffmpeg.wasm can't always handle long videos. Try shorter edits or use the original file. (स्थानीयकृत)",
+    backToEditing: "संपादन पर वापस जाएँ",
+    burnIn: "{{count}} लागू करें",
+    burnInConfirm: "लागू करें और मूल फ़ाइल हटाएँ",
+    burnInHint: "रिडैक्शन को वीडियो में स्थायी रूप से रेंडर करें और मूल फ़ाइल हटाएँ",
+    burnInTitle: "इस वीडियो में {{count}} रिडैक्शन लागू करें?",
+    burnInWarning:
+      "ढके गए हिस्से वीडियो की नई प्रति में नष्ट कर दिए जाएँगे, और मूल फ़ाइल हटा दी जाएगी। इसे पूर्ववत नहीं किया जा सकता।",
+    burning: "लागू किया जा रहा है…",
+    burningPercent: "लागू किया जा रहा है… {{percent}}%",
+    deleteKey: "Delete",
+    exportUnredactedTitle: "पहले रिडैक्शन लागू करें",
+    exportUnredactedWarning:
+      "इस रिकॉर्डिंग पर {{count}} छिपाव बनाए गए हैं, लेकिन अभी लागू नहीं किए गए हैं, इसलिए फ़ाइल में उनके नीचे का सब कुछ अब भी दिखता है — और यह कॉपी भी वही दिखाएगी। उन्हें लागू करें, फिर यह वापस उपलब्ध होगा।",
+    redact: "रिडैक्ट",
+    redactHint: "तस्वीर में कुछ ढकें। जब तक आप इसे लागू नहीं करते, कुछ भी छिपता नहीं।",
+    redactOn: "रिडैक्ट कर रहे हैं",
+    redoTooltip: "दोहराएँ (Cmd/Ctrl+Shift+Z)",
+    scrollBack: "बाईं ओर के नियंत्रण दिखाएँ",
+    scrollOn: "दाईं ओर के नियंत्रण दिखाएँ",
   },
   preRecord: {
     modeScreenCamera: "Screen + cam (स्थानीयकृत)",
@@ -1411,7 +1700,7 @@ const messages = {
     surfaceWindowDescription: "Best for slides or one app (स्थानीयकृत)",
     surfaceBrowser: "Browser tab (स्थानीयकृत)",
     surfaceBrowserDescription: "Choose an open tab (स्थानीयकृत)",
-    surfaceScreen: "Screen (स्थानीयकृत)",
+    surfaceScreen: "पूरी स्क्रीन",
     surfaceScreenDescription: "Capture everything (स्थानीयकृत)",
     microphoneSelectionUnsupported:
       "This browser does not support microphone device selection. (स्थानीयकृत)",
@@ -1454,10 +1743,95 @@ const messages = {
     startWithoutMic: "ऑडियो के बिना रिकॉर्ड करें",
     unmuteMicrophone: "माइक चालू करें",
     uploadVideo: "Upload video (स्थानीयकृत)",
+    takeScreenshot: "स्क्रीनशॉट लें",
     importLoom: "Import Loom (स्थानीयकृत)",
     importing: "Importing... (स्थानीयकृत)",
     import: "Import (स्थानीयकृत)",
     recordNew: "नई रिकॉर्डिंग",
+  },
+  screenshot: {
+    capturing: "कैप्चर हो रहा है...",
+    saving: "स्क्रीनशॉट सहेजा जा रहा है...",
+    saved: "स्क्रीनशॉट सहेजा गया",
+    failed: "स्क्रीनशॉट नहीं लिया जा सका",
+    dragToSelect: "कोई हिस्सा चुनने के लिए खींचें",
+    blur: "छिपाएँ",
+    box: "बॉक्स",
+    arrow: "तीर",
+    text: "टेक्स्ट",
+    edit: "संपादित करें",
+    deleteMark: "हटाएँ",
+    textFont: "फ़ॉन्ट",
+    textSize: "फ़ॉन्ट आकार",
+    textSizeHint: "फ़ॉन्ट आकार, स्क्रीनशॉट के अपने पिक्सेल में",
+    textSmaller: "छोटा टेक्स्ट",
+    textLarger: "बड़ा टेक्स्ट",
+    alignLeft: "बाएँ संरेखित करें",
+    alignCenter: "बीच में संरेखित करें",
+    alignRight: "दाएँ संरेखित करें",
+    editSave: "सहेजें",
+    editSaved: "स्क्रीनशॉट अपडेट किया गया",
+    editConfirm:
+      "सहेजने से शेयर की गई इमेज बदल जाएगी, ताकि सभी को ये निशान दिखें। आप इन्हें बाद में भी खिसका या हटा सकते हैं। सहेजें?",
+    textPlaceholder: "यहाँ लिखें। पूरा करने के लिए बाहर क्लिक करें",
+    undo: "पूर्ववत करें",
+    redo: "फिर से करें",
+    redactSaving: "सहेजा जा रहा है...",
+    redactFailed: "स्क्रीनशॉट सहेजा नहीं जा सका",
+    captureInsecure:
+      "स्क्रीन कैप्चर के लिए HTTPS या localhost ज़रूरी है। Clips को किसी सुरक्षित URL पर खोलें, फिर दोबारा कोशिश करें।",
+    captureUnavailable: "इस ब्राउज़र में स्क्रीन कैप्चर उपलब्ध नहीं है।",
+    captureUnsupported:
+      "आपका ब्राउज़र स्क्रीन कैप्चर का समर्थन नहीं करता। Brave, Chrome, Edge, Safari या Firefox का नया संस्करण आज़माएँ।",
+    captureNoScreen: "कोई स्क्रीन शेयर नहीं की गई।",
+    captureNoCanvas: "यह ब्राउज़र इमेज तैयार नहीं कर सका।",
+    captureNoPicture:
+      "शेयर की गई स्क्रीन ने कोई तस्वीर नहीं भेजी। दोबारा कोशिश करें, या इसके बजाय पूरी स्क्रीन शेयर करें।",
+    redactLoadFailed: "स्क्रीनशॉट को संपादन के लिए खोला नहीं जा सका",
+    saveSelection: "चयन सहेजें",
+    saveWholeScreen: "पूरी स्क्रीन सहेजें",
+    fullscreen: "पूर्ण स्क्रीन",
+    exitFullscreen: "पूर्ण स्क्रीन से बाहर निकलें",
+    resizeHandle: "आकार बदलने के लिए खींचें",
+    textWidthHandle: "चौड़ाई तय करने के लिए खींचें",
+    crop: "क्रॉप करें",
+    cropApply: "क्रॉप लागू करें",
+    cropApplyHint:
+      "सिर्फ़ यह हिस्सा दिखाएँ। बाकी हिस्सा रखा जाता है, ताकि आप बाद में फिर से चौड़ा क्रॉप कर सकें",
+    cropReset: "पूरी तस्वीर दिखाएँ",
+    kind: {
+      box: "बॉक्स",
+      arrow: "तीर",
+      text: "टेक्स्ट",
+      redact: "छिपाव",
+    },
+    markToolbar: "यह {{kind}} बदलें",
+    duplicate: "{{kind}} की कॉपी बनाएँ",
+    addText: "नया टेक्स्ट जोड़ें",
+    addArrow: "नया तीर जोड़ें",
+    addBox: "नया बॉक्स जोड़ें",
+    addRedaction: "नया छिपाव जोड़ें",
+    colour: "रंग",
+    fillBox: "बॉक्स भरें",
+    shadow: "छाया",
+    thickness: "रेखा की मोटाई",
+    thin: "पतली",
+    thick: "मोटी",
+    align: "संरेखण",
+    redactionStyle: "छिपाव की शैली",
+    background: "बैकग्राउंड",
+    backgroundTitle: "बैकग्राउंड जोड़ें",
+    backgroundNone: "कोई नहीं",
+    notYetBurned:
+      "{{count}} छिपाव रखे गए हैं, लेकिन लागू नहीं किए गए हैं। अभी कुछ भी छिपा नहीं है, और जब तक आप उन्हें लागू नहीं करते, कोई और यह स्क्रीनशॉट नहीं देख सकता।",
+    editsUnreadable: "Clips सेव किए गए स्क्रीनशॉट संपादन नहीं पढ़ सका।",
+    burnInHint: "छिपाव के नीचे की सामग्री को हमेशा के लिए मिटाएँ और मूल को हटाएँ",
+    burnInTitle: "इस स्क्रीनशॉट में {{count}} छिपाव लागू करें?",
+    burnInWarning:
+      "ढके हुए हिस्से स्क्रीनशॉट की नई कॉपी में मिटा दिए जाएँगे, और मूल फ़ाइल हटा दी जाएगी। इसे पूर्ववत नहीं किया जा सकता। आपके बॉक्स, तीर और टेक्स्ट खिसकाए जा सकेंगे। जो पहले ही डाउनलोड हो चुका है, उसमें वही रहेगा जो उसमें है।",
+    burning: "लागू किया जा रहा है…",
+    burned: "छिपाव लागू किए गए",
+    burnFailed: "छिपाव लागू नहीं किए जा सके",
   },
   playerSettings: {
     title: "Settings (स्थानीयकृत)",
@@ -1492,6 +1866,16 @@ const messages = {
     validWebUrl: "मान्य http:// या https:// पता दर्ज करें।",
   },
   recordRoute: {
+    freeClipsLeft_one: "{{count}} मुफ़्त क्लिप बाकी",
+    freeClipsLeft_other: "{{count}} मुफ़्त क्लिप बाकी",
+    hostedClipsExhaustedTitle:
+      "रिकॉर्डिंग जारी रखने के लिए Builder.io को मुफ़्त में कनेक्ट करें",
+    hostedClipsExhaustedDescription:
+      "आपके मुफ़्त होस्ट किए गए क्लिप इस्तेमाल हो चुके हैं। अपनी लाइब्रेरी में क्लिप सेव करते रहने के लिए Builder.io स्टोरेज कनेक्ट करें।",
+    clipExceedsSizeLimit: "यह क्लिप मौजूदा अपलोड आकार सीमा से बड़ी है।",
+    clipExceedsMaxDuration: "यह क्लिप मौजूदा रिकॉर्डिंग अवधि सीमा से लंबी है।",
+    maxClipDurationReached:
+      "क्लिप की अधिकतम अवधि पूरी हो गई है। रिकॉर्डिंग सेव हो रही है।",
     pageTitle: "New recording — Clips (स्थानीयकृत)",
     uploadFailed: "Upload failed (स्थानीयकृत)",
     uploadFailedAtChunk:
@@ -1506,7 +1890,7 @@ const messages = {
     storageNeededToFinishLoomImport:
       "Storage needed to finish Loom import (स्थानीयकृत)",
     loomImported: "Loom imported (स्थानीयकृत)",
-    couldNotImportLoom: "Could not import that Loom. (स्थानीयकृत)",
+    couldNotImportLoom: "उस Loom को आयात नहीं किया जा सका।",
     recordingReadyToUpload: "Recording is ready to upload (स्थानीयकृत)",
     recordingSaved: "Recording saved (स्थानीयकृत)",
     linkCopied: "लिंक कॉपी हो गया",
@@ -1514,6 +1898,8 @@ const messages = {
     noLocalRecordingData:
       "No local recording data is available to download. (स्थानीयकृत)",
     recordingDownloadStarted: "Recording download started (स्थानीयकृत)",
+    partialLocalCopyDownloadStarted:
+      "स्थानीय कॉपी अधूरी हो सकती है। उपलब्ध रिकॉर्डिंग डेटा डाउनलोड हो रहा है।",
     backToLibrary: "Back to library (स्थानीयकृत)",
     clipsRecorder: "Clips recorder (स्थानीयकृत)",
     preparingSources: "Preparing sources… (स्थानीयकृत)",
@@ -1530,7 +1916,9 @@ const messages = {
     betterInDesktop: "Better in the desktop app (स्थानीयकृत)",
     desktopAppDescription:
       "Menu-bar launch, global shortcuts, auto-updates, and smoother repeat recordings. (स्थानीयकृत)",
+    recordOnDesktop: "डेस्कटॉप पर रिकॉर्ड",
     downloadDesktopApp: "Download desktop app (स्थानीयकृत)",
+    getChromeExtension: "Chrome एक्सटेंशन प्राप्त करें",
     technicalDetails: "Technical details (स्थानीयकृत)",
     whatToCheck: "What to check (स्थानीयकृत)",
     downloadRecording: "Download (स्थानीयकृत)",
@@ -1540,13 +1928,67 @@ const messages = {
     storageConnectedReopeningRecorder:
       "स्टोरेज कनेक्ट हो गया। रिकॉर्डर फिर से खोला जा रहा है...",
     connectStorageToFinish:
-      "अगली स्क्रीन पर स्टोरेज कनेक्ट करें: Builder.io (free tier storage + AI) या S3-संगत स्टोरेज. Clips सेव पूरा करेगा.",
+      "अगली स्क्रीन पर Builder.io स्टोरेज (मुफ्त स्टोरेज और AI) इस्तेमाल करें या S3-संगत स्टोरेज कॉन्फ़िगर करें। Clips सेव पूरा करेगा।",
     connectStorageToRetryLoom:
-      "अगली स्क्रीन पर स्टोरेज कनेक्ट करें: Builder.io (free tier storage + AI) या S3-संगत स्टोरेज. Clips इंपोर्ट फिर से करेगा.",
-    leaveConfirmTitle: "इस रिकॉर्डिंग को छोड़कर हटाएं?",
+      "अगली स्क्रीन पर Builder.io स्टोरेज (मुफ्त स्टोरेज और AI) इस्तेमाल करें या S3-संगत स्टोरेज कॉन्फ़िगर करें। Clips इंपोर्ट फिर से करेगा।",
+    leaveConfirmTitle: "इस रिकॉर्डिंग से बाहर जाएँ?",
     leaveConfirmDescription:
-      "आपकी चल रही रिकॉर्डिंग अभी पूरी तरह सेव नहीं हुई है. अभी इस पेज से बाहर जाने पर यह हट जाएगी.",
+      "यह रिकॉर्डिंग सिर्फ़ इस टैब में है। पहले कॉपी डाउनलोड न करने पर बाहर जाते ही यह मिट जाएगी।",
     leaveAndDiscard: "बाहर जाएं और हटाएं",
+    recordingWithoutSound:
+      "बिना आवाज़ के रिकॉर्ड हो रहा है। ट्रांसक्रिप्ट पाने के लिए माइक्रोफ़ोन चालू करें।",
+    pendingStorageTitle: "अपनी रिकॉर्डिंग सहेजने के लिए स्टोरेज कनेक्ट करें",
+    pendingStorageDescription: "स्टोरेज कनेक्ट करें, Clips इसे तुरंत अपलोड कर देगा।",
+    storageConnectedUploading:
+      "स्टोरेज कनेक्ट हो गया। आपकी रिकॉर्डिंग अपलोड हो रही है…",
+    downloadCopy: "एक कॉपी डाउनलोड करें",
+    localRecordingPreview: "स्थानीय रिकॉर्डिंग का प्रीव्यू",
+    localPreviewUnavailable:
+      "यह स्थानीय प्रीव्यू उपलब्ध नहीं है। फिर भी आप एक कॉपी डाउनलोड कर सकते हैं।",
+    localRecordingOpenElsewhere:
+      "वह रिकॉर्डिंग अभी भी किसी दूसरे Clips टैब में खुली है।",
+    uploadWaitingForConnection:
+      "अपलोड रुका हुआ है। Clips अपने-आप फिर से कोशिश करता है।",
+    uploadDidNotFinish: "अपलोड पूरा नहीं हुआ।",
+    unfinishedRecording: "एक रिकॉर्डिंग का अपलोड अभी पूरा नहीं हुआ है",
+    finishUpload: "अपलोड पूरा करें",
+    leaveKeepDescription:
+      'Clips इसे इस ब्राउज़र में रखता है और आपके लौटने पर अपलोड पूरा करने का विकल्प देगा। "बाहर जाएं और हटाएं" इसे हमेशा के लिए मिटा देता है।',
+    leaveAndKeep: "रखकर बाहर जाएँ",
+    copySafeInBrowser: "आपकी रिकॉर्डिंग इस ब्राउज़र में सुरक्षित है।",
+    copyOnlyInThisTab:
+      "यह रिकॉर्डिंग सिर्फ़ इस टैब में है। इसे खुला रखें या एक कॉपी डाउनलोड करें।",
+    localCopyFull:
+      "इस ब्राउज़र में जगह नहीं बची है, इसलिए Clips सुरक्षा कॉपी नहीं रख सकता। अपलोड पूरा होने तक यह टैब खुला रखें या एक कॉपी डाउनलोड करें।",
+    localCopyFailed:
+      "Clips इस ब्राउज़र में सुरक्षा कॉपी नहीं रख सका। अपलोड पूरा होने तक यह टैब खुला रखें या एक कॉपी डाउनलोड करें।",
+    localCopyUnreadable: "इस ब्राउज़र में रिकॉर्डिंग की कॉपी पढ़ी नहीं जा सकी।",
+    recordingOwnedByAnotherAccount:
+      "यह रिकॉर्डिंग किसी दूसरे खाते की है। इसे अपलोड करने के लिए इस ब्राउज़र में उस खाते से साइन इन करें।",
+    unclaimedRecording: "इस ब्राउज़र में एक रिकॉर्डिंग किसी खाते से जुड़ी नहीं है",
+    reviewRecording: "देखें",
+    claimRecordingPrompt:
+      "यह रिकॉर्डिंग अभी किसी खाते से जुड़ी नहीं है। इसे {{email}} में अपलोड करें?",
+    claimRecording: "मेरे खाते में अपलोड करें",
+    lowBrowserStorage:
+      "इस ब्राउज़र में जगह कम है, इसलिए लंबी रिकॉर्डिंग शायद सुरक्षा कॉपी में न समाए। अपलोड होने तक यह टैब खुला रखें।",
+    recordingEndMissing:
+      "इस रिकॉर्डिंग का आख़िरी हिस्सा सेव नहीं हुआ। Clips जितना है उतना अपलोड करता है और आपकी कॉपी रखता है।",
+    uploadedPartialCopyKept:
+      "इस ब्राउज़र में सेव हुआ हिस्सा अपलोड हो गया। आख़िरी हिस्सा छूट सकता है, इसलिए Clips ने आपकी कॉपी यहाँ रखी है।",
+    uploadUnverifiedCopyKept:
+      "Clips पुष्टि नहीं कर सका कि पूरी रिकॉर्डिंग अपलोड हुई, इसलिए उसने आपकी कॉपी यहाँ रखी है।",
+    copyKeptAfterUpload:
+      "यह रिकॉर्डिंग अपलोड हो गई, लेकिन Clips पुष्टि नहीं कर सका कि यह पूरी है, इसलिए उसने आपकी कॉपी यहाँ रखी है।",
+    localCopyLockUnavailable:
+      "Clips पुष्टि नहीं कर सकता कि कोई दूसरा टैब यह रिकॉर्डिंग इस्तेमाल नहीं कर रहा, इसलिए वह इसे यहाँ से न अपलोड करेगा न मिटाएगा। इसके बजाय एक कॉपी डाउनलोड करें।",
+    uploadAgain: "फिर से अपलोड करें",
+    keptCopyWaiting: "Clips ने इस ब्राउज़र में एक रिकॉर्डिंग की कॉपी रखी है",
+    savedRecordingsUnreadable:
+      "Clips इस ब्राउज़र में सेव की गई रिकॉर्डिंग नहीं पढ़ सका।",
+    remindTomorrow: "कल याद दिलाएँ",
+    stillProcessingCopyKept:
+      "यह रिकॉर्डिंग अभी प्रोसेस हो रही है, इसलिए Clips ने आपकी कॉपी यहाँ रखी है। इंतज़ार करें या इसे फिर से अपलोड करें।",
   },
   importRoute: {
     pageTitle: "Loom आयात करें — Clips",
@@ -1572,7 +2014,7 @@ const messages = {
     howToUse: "How to use Dictate (स्थानीयकृत)",
     browserDictation: "Browser dictation (स्थानीयकृत)",
     browserDictationDescription:
-      "Use the button on this page, or press the shortcut while this tab is focused. Browser dictation saves here for copy and cleanup. (स्थानीयकृत)",
+      "बोलते समय अपने विचार लिखें। ट्रांसक्रिप्ट कॉपी करें या AI से सुधारें।",
     browserDictationDescriptionDesktop:
       "Use the button below to capture a note right here on this page. It does not paste into other apps — for that, use the desktop shortcut on the right. (स्थानीयकृत)",
     quickNoteTitle: "Quick dictation note (स्थानीयकृत)",
@@ -1581,19 +2023,49 @@ const messages = {
     desktopShortcuts: "Desktop shortcuts (स्थानीयकृत)",
     desktopShortcutsDescriptionSuffix: ", in the desktop app. (स्थानीयकृत)",
     holdFn: "Hold Fn (स्थानीयकृत)",
+    mobileDictation: "मोबाइल डिक्टेशन",
+    fnShortcut: "Fn शॉर्टकट",
+    customShortcut: "कस्टम शॉर्टकट",
+    otherSource: "अन्य स्रोत",
+    voiceSource: "आवाज़",
     browserUnavailable:
       "Browser speech recognition is unavailable here. Use Chrome or the desktop app for global dictation. (स्थानीयकृत)",
     browserUnavailableShort:
       "Browser speech recognition is unavailable here (स्थानीयकृत)",
     startSpeaking: "Start speaking... (स्थानीयकृत)",
-    replacedOriginal: "Replaced original with cleaned text (स्थानीयकृत)",
+    newDictation: "नया डिक्टेशन",
+    startDictation: "डिक्टेशन शुरू करें",
+    stop: "रोकें",
+    saving: "सेव हो रहा है",
+    listening: "सुन रहा है",
+    lastCapture: "आखिरी कैप्चर",
+    copy: "कॉपी करें",
+    copied: "कॉपी हो गया",
+    copyFailed: "कॉपी नहीं हो सका",
+    aiProcessed: "AI द्वारा प्रोसेस किया गया",
+    aiCleaned: "AI से साफ़ किया गया",
+    original: "मूल",
+    cleaned: "साफ़ किया हुआ",
+    delete: "हटाएँ",
+    deleteDictationTitle: "यह डिक्टेशन हटाएँ?",
+    deleteDictationDescription: "डिक्टेशन आपके इतिहास से हमेशा के लिए हट जाएगा।",
+    deleted: "डिक्टेशन हटा दिया गया",
+    deleteFailed: "डिक्टेशन हटाया नहीं जा सका",
+    showDetails: "विवरण",
+    info: "श्रुतलेख की जानकारी",
+    time: "समय",
+    duration: "अवधि",
+    hideDetails: "विवरण छिपाएँ",
     noText: "No text (स्थानीयकृत)",
-    emptyTranscript: "Empty transcript (स्थानीयकृत)",
-    replaceOriginal: "Replace original with cleaned (स्थानीयकृत)",
     cleanupWithAi: "Cleanup with AI (स्थानीयकृत)",
-    cleanupHint:
-      'Click "Cleanup with AI" to fix punctuation, casing, and filler words. (स्थानीयकृत)',
-    startFirst: "Start your first dictation (स्थानीयकृत)",
+    cleanupComplete: "डिक्टेशन साफ़ किया गया",
+    cleanupFailed: "डिक्टेशन साफ़ नहीं किया जा सका",
+    undoCleanup: "पूर्ववत करें",
+    restoreOriginal: "मूल वापस लाएँ",
+    cleanupRestored: "मूल डिक्टेशन बहाल किया गया",
+    cleanupRestoreFailed: "मूल डिक्टेशन बहाल नहीं किया जा सका",
+    startFirst: "अपने विचारों को टेक्स्ट में बदलें",
+    recordOnDesktop: "डेस्कटॉप पर रिकॉर्ड करें",
     emptyDesktopDescription:
       "Hold {{fnKey}} anywhere on your Mac, or press {{modifierKey}} ⇧ Space. Your history will live here. (स्थानीयकृत)",
     emptyWebDescription:
@@ -1621,22 +2093,26 @@ const messages = {
     dictionaryTermsPlaceholder: "Agent-Native\nएजेंट नेटिव → Agent-Native",
     dictionaryTermsRequired: "कम से कम एक शब्द दर्ज करें।",
     dictionarySearch: "शब्दकोश खोजें",
-    dictionaryNoMatches: "कोई मिलता-जुलता शब्द नहीं मिला।",
+    dictionaryNoMatches: "इस खोज से कोई शब्द मेल नहीं खाता",
     dictionaryRemoveTitle: "“{{term}}” हटाएँ?",
     dictionaryRemoveDescription: "आगे के डिक्टेशन में इस सुधार का उपयोग नहीं होगा।",
     dictionaryDescription:
-      "ये शब्द वॉइस पहचान को आपकी पसंदीदा वर्तनी इस्तेमाल करने में मदद करते हैं।",
+      "अपनी पसंदीदा वर्तनी जोड़ें ताकि Clips आपके इस्तेमाल किए शब्दों को पहचान सके।",
     dictionaryTermPlaceholder: "Term (स्थानीयकृत)",
     dictionaryReplacementPlaceholder: "Replacement (optional) (स्थानीयकृत)",
     dictionaryAdd: "Add (स्थानीयकृत)",
     dictionaryLoading: "Loading dictionary... (स्थानीयकृत)",
-    dictionaryEmpty: "अभी तक कोई शब्द नहीं सीखा गया है।",
+    dictionaryEmpty: "Clips को अपना शब्द-भंडार सिखाएँ",
     dictionaryUsesCount: "{{count}} बार इस्तेमाल हुआ",
     dictionaryRemove: "हटाएँ",
     vocabularyAddFailed: "शब्द नहीं जोड़ा जा सका",
     vocabularyRemoveFailed: "शब्द नहीं हटाया जा सका",
   },
   clipsFinalRaw: {
+    hostedStorageFull:
+      "Clips का होस्ट किया गया स्टोरेज भर गया है। क्लिप सेव करते रहने के लिए Builder.io स्टोरेज कनेक्ट करें।",
+    hostedRecordingTakenDown:
+      "यह रिकॉर्डिंग Clips के होस्ट किए गए स्टोरेज से हटा दी गई।",
     splitAtPlayhead: "प्लेहेड पर विभाजित करें (S)",
     selectedCount: "{{count}} चुने गए",
     selectAll: "सभी चुनें",
@@ -1660,11 +2136,14 @@ const messages = {
     retry: "पुनः प्रयास करें",
     retrying: "पुनः प्रयास हो रहा है…",
     retryFailed: "इस अपलोड को पुनः प्रयास नहीं किया जा सका।",
+    retryCheckFailed:
+      "यह जाँच नहीं हो सकी कि इस अपलोड को फिर से आज़माया जा सकता है या नहीं। फिर से कोशिश करने के लिए पेज रीफ़्रेश करें।",
     retryUnavailableHere:
       "पुनः प्रयास केवल उसी डिवाइस या ब्राउज़र पर उपलब्ध है जहां इसे रिकॉर्ड किया गया था।",
     viewsCount: "{{count}} बार देखा गया",
     recordingMenu: "रिकॉर्डिंग मेनू",
     moveToFolder: "फ़ोल्डर में ले जाएं",
+    moveHere: "यहाँ ले जाएँ",
     unarchive: "आर्काइव से हटाएं",
     shareNamedMeeting: '"{{title}}" साझा करें',
     shareMeeting: "मीटिंग साझा करें",
@@ -1741,9 +2220,9 @@ const messages = {
     pastRecordings: "Past recordings (स्थानीयकृत)",
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (स्थानीयकृत)",
-    connectGoogleCalendar: "Connect Google Calendar (स्थानीयकृत)",
+    connectGoogleCalendar: "हर मीटिंग को यादगार बनाएँ",
     desktopReminder:
-      "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins. (स्थानीयकृत)",
+      "आने वाली मीटिंग्स देखने और Clips Desktop से नोट्स लेने के लिए Google Calendar कनेक्ट करें।",
     getDesktopApp: "Get desktop app (स्थानीयकृत)",
     requiredForReminders:
       "Desktop captures mic + system audio for meeting transcription. (स्थानीयकृत)",
@@ -1765,19 +2244,19 @@ const messages = {
     disconnectGoogleCalendarTitle: "Disconnect Google Calendar? (स्थानीयकृत)",
     title: "Meetings (स्थानीयकृत)",
     intro:
-      "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time. (स्थानीयकृत)",
+      "मीटिंग के दौरान Clips Desktop में नोट्स शुरू करें। ट्रांसक्रिप्ट और नोट्स यहाँ सेव होंगे।",
     searchPlaceholder:
       "Search meetings, attendees, and transcripts... (स्थानीयकृत)",
     agendaTab: "Agenda (स्थानीयकृत)",
     pastTab: "Past (स्थानीयकृत)",
     now: "Now (स्थानीयकृत)",
-    noPastMeetings: "No past meetings yet (स्थानीयकृत)",
+    noPastMeetings: "आपका मीटिंग इतिहास यहाँ से शुरू होता है",
     loadOlder: "Load older (स्थानीयकृत)",
     searchFailed: "Couldn't search meetings. Try again in a moment. (स्थानीयकृत)",
     clearSearch: "Clear search (स्थानीयकृत)",
-    noMeetingsYet: "No meetings yet (स्थानीयकृत)",
+    noMeetingsYet: "आपका एजेंडा खाली है",
     noMeetingsDescription:
-      "Connect your calendar and keep Clips Desktop open. When a meeting starts, use Start notes from the reminder or menu bar. (स्थानीयकृत)",
+      "आपके कनेक्ट किए कैलेंडर के आने वाले इवेंट शेड्यूल होने पर यहाँ दिखाई देंगे।",
     noMeetingsMatch: 'No meetings match "{{query}}" (स्थानीयकृत)',
     refreshing: "Refreshing… (स्थानीयकृत)",
     howToTriggerTitle: "How to trigger meeting notes (स्थानीयकृत)",
@@ -1793,20 +2272,6 @@ const messages = {
     guideStartDescription:
       "Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins. (स्थानीयकृत)",
   },
-  rewindExtension: {
-    title: "पहले हुई गतिविधि जोड़ें",
-    description:
-      "स्थानीय Rewind से कोई निश्चित समय चुनकर इस क्लिप की शुरुआत में जोड़ें। कुछ भी अपने-आप नहीं जोड़ा जाता।",
-    progressLabel: "Rewind इतिहास प्रोसेस होने की प्रगति",
-    privateFirstTitle: "पहले इस क्लिप को निजी बनाएँ",
-    privateFirstDescription:
-      "स्थानीय Rewind इतिहास में रिकॉर्डिंग शुरू करने से पहले का संदर्भ हो सकता है। इससे क्लिप निजी हो जाएगी। अगर किसी के पास अब भी सीधी पहुँच है, तो Clips रुक जाएगा ताकि आप पहले शेयर में उनकी पहुँच हटा सकें।",
-    makePrivateContinue: "निजी बनाएँ और जारी रखें",
-    add30Seconds: "पिछले 30 सेकंड जोड़ें",
-    add5Minutes: "पिछले 5 मिनट जोड़ें",
-    add5MinutesDescription: "लंबी व्याख्या की शुरुआत वापस पाने के लिए उपयोगी।",
-    privateReady: "यह क्लिप निजी है। अब आप स्थानीय Rewind इतिहास जोड़ सकते हैं।",
-  },
   browserDiagnostics: {
     debug: "डीबग",
     title: "ब्राउज़र डायग्नोस्टिक्स",
@@ -1814,16 +2279,30 @@ const messages = {
       "{{consoleCount}} कंसोल समस्याएँ · {{networkCount}} विफल अनुरोध",
     noFailures: "कोई विफलता नहीं मिली",
     failuresPresent: "ब्राउज़र विफलताएँ मिलीं",
+    unviewedCount: "{{count}} अनदेखे",
     captureSuccessful: "डायग्नोस्टिक्स सफलतापूर्वक कैप्चर हुए",
     capturedFrom: "{{source}} से कैप्चर किया गया",
     browserCapture: "ब्राउज़र कैप्चर",
     views: "डायग्नोस्टिक दृश्य",
+    timeline: "टाइमलाइन",
+    navigation: "नेविगेशन",
+    click: "क्लिक",
+    input: "इनपुट",
+    scroll: "स्क्रॉल",
+    requestStarted: "अनुरोध शुरू हुआ",
+    responseReceived: "प्रतिक्रिया मिली",
     issues: "समस्याएँ",
     consoleSource: "कंसोल",
     networkSource: "नेटवर्क",
+    appSource: "ऐप गतिविधि",
+    appEvent: "इवेंट",
+    appData: "डेटा",
+    appFailureSummary: "{{count}} ऐप विफलताएँ",
+    appUnavailable: "ऐप गतिविधि लोड नहीं हो सकी।",
     consoleCount: "कंसोल {{count}}",
     networkCount: "नेटवर्क {{count}}",
     afterRecording: "रिकॉर्डिंग के बाद",
+    beforeRecording: "रिकॉर्डिंग से पहले",
     seekToTime: "{{time}} पर जाएँ",
     occurrences: "घटनाएँ",
     message: "संदेश",
@@ -1835,6 +2314,7 @@ const messages = {
     noIssuesTitle: "ब्राउज़र की कोई समस्या नहीं मिली",
     noConsoleTitle: "कोई कंसोल इवेंट नहीं",
     noNetworkTitle: "कोई नेटवर्क अनुरोध नहीं",
+    noAppTitle: "कोई ऐप गतिविधि नहीं",
     capturedDescription: "इस रिकॉर्डिंग के लिए डायग्नोस्टिक्स कैप्चर किए गए।",
   },
   timeline: { clipStartedHere: "क्लिप यहाँ शुरू हुई" },

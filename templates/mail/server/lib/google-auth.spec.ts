@@ -1,27 +1,63 @@
 import {
   deleteOAuthTokens,
+  listOAuthAccounts,
   listOAuthAccountsByOwner,
+  saveOAuthTokens,
 } from "@agent-native/core/oauth-tokens";
-import { getOAuthAccounts } from "@agent-native/core/server";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  getCredentialContext,
+  getOAuthAccounts,
+  getRequestContext,
+  runWithRequestContext,
+} from "@agent-native/core/server";
+import { resolveWorkspaceConnectionForApp } from "@agent-native/core/workspace-connections";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const archiveCacheMocks = vi.hoisted(() => ({
+  rows: [] as Array<{ threadId: string; messageIdsJson: string }>,
+  select: vi.fn(),
+  from: vi.fn(),
+  where: vi.fn(),
+}));
 
 import {
   createOAuth2Client,
+  gmailBatchGetMessages,
   gmailBatchGetThreads,
+  gmailGetMessage,
+  gmailGetProfile,
   gmailGetThread,
   gmailListMessages as gmailListMessagesApi,
+  gmailListLabels,
+  gmailModifyThread,
+  gmailListHistory,
   gmailListThreads,
+  GmailQuotaCooldownError,
+  gmailWatch,
   googleFetch,
+  registerGmailAccountToken,
 } from "./google-api.js";
 import {
+  gmailBatchArchiveByAccount,
   gmailBatchModifyByAccount,
+  gmailBatchModifyThreadsByAccount,
   exchangeCode,
   gmailToEmailMessage,
   getAuthUrl,
+  getClient,
+  getClientForConnectedAccount,
+  getConnectedAccounts,
+  getConnectedAccountsWithErrors,
   getClientsWithErrors,
+  invalidateHistoryCacheForAccount,
+  invalidateListCacheForOwner,
+  isConnected,
   listGmailMessages,
   markAllUnreadReadForAccount,
+  startWatch,
 } from "./google-auth.js";
+import { clearSyncAccountReauth } from "./inbox-store.js";
+import { getMailProviderApiRuntime } from "./provider-api.js";
 
 vi.mock("@agent-native/core/oauth-tokens", () => ({
   deleteOAuthTokens: vi.fn(),
@@ -39,6 +75,7 @@ vi.mock("@agent-native/core/server", () => ({
   },
   getOAuthAccounts: vi.fn(),
   getCredentialContext: vi.fn(() => null),
+  getRequestContext: vi.fn(() => undefined),
   isOAuthConnected: vi.fn(),
   resolveGoogleProviderCredentialCandidatesWithReader: vi.fn(
     async ({ readCredential, credentialKeyPairs }) => {
@@ -60,10 +97,6 @@ vi.mock("@agent-native/core/server", () => ({
   runWithRequestContext: vi.fn(async (_context, fn) => fn()),
 }));
 
-// listGmailMessages persists its thread candidate window through user
-// settings. Without a mocked store these tests reach the real settings table,
-// where an unreachable or busy database aborts the thread path mid-hydrate and
-// fails the ranking and refill assertions for reasons unrelated to them.
 const threadCandidatePages = vi.hoisted(
   () => new Map<string, Record<string, unknown>>(),
 );
@@ -82,20 +115,84 @@ vi.mock("@agent-native/core/settings", () => ({
 
 vi.mock("./google-api.js", () => ({
   createOAuth2Client: vi.fn(),
+  GmailQuotaCooldownError: class GmailQuotaCooldownError extends Error {
+    retryAfterMs: number;
+    statusCode = 429;
+    errorCode = "gmail_quota_cooldown";
+    details: { retryAfterSeconds: number };
+    constructor(message: string, retryAfterMs: number) {
+      super(message);
+      this.retryAfterMs = retryAfterMs;
+      this.details = {
+        retryAfterSeconds: Math.max(1, Math.ceil(retryAfterMs / 1000)),
+      };
+    }
+  },
   gmailBatchGetMessages: vi.fn(),
   gmailBatchGetThreads: vi.fn(),
   gmailGetMessage: vi.fn(),
   gmailGetProfile: vi.fn(),
   gmailGetThread: vi.fn(),
+  gmailModifyThread: vi.fn(),
   gmailListHistory: vi.fn(),
   gmailListLabels: vi.fn(),
   gmailListMessages: vi.fn(),
   gmailListThreads: vi.fn(),
+  registerGmailAccountToken: vi.fn(),
   gmailStopWatch: vi.fn(),
   gmailWatch: vi.fn(),
   googleFetch: vi.fn(),
   peopleGetProfile: vi.fn(),
 }));
+
+vi.mock("./inbox-store.js", () => ({
+  readInboxThreads: vi.fn(),
+  clearSyncAccountReauth: vi.fn(),
+}));
+
+vi.mock("../db/index.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../db/index.js")>();
+  return {
+    ...actual,
+    getDb: vi.fn(() => ({
+      select: (selection: unknown) => {
+        archiveCacheMocks.select(selection);
+        return {
+          from: (table: unknown) => {
+            archiveCacheMocks.from(table);
+            return {
+              where: (conditions: unknown) => {
+                archiveCacheMocks.where(conditions);
+                return Promise.resolve(archiveCacheMocks.rows);
+              },
+            };
+          },
+        };
+      },
+    })),
+  };
+});
+
+vi.mock("@agent-native/core/workspace-connections", () => ({
+  resolveWorkspaceConnectionForApp: vi.fn(),
+}));
+
+vi.mock("./provider-api.js", () => ({
+  getMailProviderApiRuntime: vi.fn(),
+}));
+
+function mockManagedGrant(email: string, accessToken = "managed-token") {
+  vi.mocked(getCredentialContext).mockReturnValue({ userEmail: email } as any);
+  vi.mocked(resolveWorkspaceConnectionForApp).mockResolvedValue({
+    available: true,
+  } as any);
+  vi.mocked(getMailProviderApiRuntime).mockReturnValue({
+    resolveOAuthAccessToken: vi.fn().mockResolvedValue({
+      accountId: email,
+      accessToken,
+    }),
+  } as any);
+}
 
 function mockAccount() {
   vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([
@@ -585,6 +682,130 @@ describe("listGmailMessages", () => {
       pageToken: undefined,
     });
   });
+
+  it("does not reuse or cache an in-flight response invalidated by a mutation", async () => {
+    let releaseFirst!: (value: unknown) => void;
+    const firstProviderResponse = new Promise((resolve) => {
+      releaseFirst = resolve;
+    });
+    vi.mocked(gmailListThreads)
+      .mockImplementationOnce(() => firstProviderResponse as any)
+      .mockResolvedValueOnce({ threads: [{ id: "new-thread" }] } as any);
+    vi.mocked(gmailBatchGetThreads).mockImplementation(
+      async (_token: string, ids: string[]) =>
+        ids.map((id) => ({
+          id,
+          data: { messages: [{ id: `${id}-message`, threadId: id }] },
+        })) as any,
+    );
+
+    const first = listGmailMessages(
+      "in:inbox",
+      3,
+      "inflight-owner@example.com",
+      undefined,
+      { mode: "threads" },
+    );
+    await vi.waitFor(() => expect(gmailListThreads).toHaveBeenCalledTimes(1));
+
+    invalidateListCacheForOwner("inflight-owner@example.com");
+    const second = listGmailMessages(
+      "in:inbox",
+      3,
+      "inflight-owner@example.com",
+      undefined,
+      { mode: "threads" },
+    );
+    await vi.waitFor(() => expect(gmailListThreads).toHaveBeenCalledTimes(2));
+
+    await expect(second).resolves.toMatchObject({
+      messages: [{ threadId: "new-thread" }],
+    });
+    releaseFirst({ threads: [{ id: "old-thread" }] });
+    await expect(first).resolves.toMatchObject({
+      messages: [{ threadId: "old-thread" }],
+    });
+
+    const third = await listGmailMessages(
+      "in:inbox",
+      3,
+      "inflight-owner@example.com",
+      undefined,
+      { mode: "threads" },
+    );
+    expect(third.messages).toEqual([
+      expect.objectContaining({ threadId: "new-thread" }),
+    ]);
+    expect(gmailListThreads).toHaveBeenCalledTimes(2);
+  });
+
+  it("drops a stale history window and its in-flight completion after a mutation", async () => {
+    const owner = "history-owner@example.com";
+    const account = "connected@example.com";
+    const makeMessage = (id: string) => ({
+      id,
+      threadId: id,
+      internalDate: id === "old-message" ? "1" : "2",
+      labelIds: ["INBOX"],
+    });
+    invalidateHistoryCacheForAccount(account);
+    vi.mocked(gmailGetProfile).mockResolvedValue({ historyId: "10" } as any);
+    vi.mocked(gmailBatchGetMessages).mockImplementation(
+      async (_token: string, ids: string[]) =>
+        ids.map((id) => ({ id, data: makeMessage(id) })) as any,
+    );
+    vi.mocked(gmailListMessagesApi)
+      .mockResolvedValueOnce({ messages: [{ id: "old-message" }] } as any)
+      .mockResolvedValueOnce({ messages: [{ id: "new-message" }] } as any);
+
+    await listGmailMessages(undefined, 3, owner, undefined, {
+      mode: "messages",
+    });
+
+    let releaseHistory!: (value: unknown) => void;
+    vi.mocked(gmailListHistory)
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            releaseHistory = resolve;
+          }) as any,
+      )
+      .mockResolvedValue({ history: [], historyId: "11" } as any);
+    invalidateListCacheForOwner(owner);
+    const stale = listGmailMessages(undefined, 3, owner, undefined, {
+      mode: "messages",
+    });
+    await vi.waitFor(() => expect(gmailListHistory).toHaveBeenCalledTimes(1));
+
+    invalidateHistoryCacheForAccount(account);
+    invalidateListCacheForOwner(owner);
+    const fresh = listGmailMessages(undefined, 3, owner, undefined, {
+      mode: "messages",
+    });
+    await expect(fresh).resolves.toMatchObject({
+      messages: [{ id: "new-message" }],
+    });
+
+    releaseHistory({
+      history: [],
+      historyId: "11",
+      nextPageToken: "too-many-changes",
+    });
+    await expect(stale).resolves.toMatchObject({ messages: [] });
+
+    invalidateListCacheForOwner(owner);
+    const afterLateCompletion = await listGmailMessages(
+      undefined,
+      3,
+      owner,
+      undefined,
+      { mode: "messages" },
+    );
+    expect(afterLateCompletion.messages).toEqual([
+      expect.objectContaining({ id: "new-message" }),
+    ]);
+    expect(gmailListMessagesApi).toHaveBeenCalledTimes(3);
+  });
 });
 
 describe("gmailToEmailMessage", () => {
@@ -611,6 +832,41 @@ describe("gmailToEmailMessage", () => {
       email: "cuevas@example.com",
     });
   });
+
+  it("embeds inline image data when Gmail omits an attachment id", () => {
+    const imageData = Buffer.from("inline-image").toString("base64url");
+    const html = Buffer.from(
+      '<img alt="logo" src="cid:image001%40example.com">',
+    ).toString("base64url");
+    const message = gmailToEmailMessage({
+      id: "message-inline-image",
+      threadId: "thread-inline-image",
+      internalDate: "1750000000000",
+      labelIds: ["INBOX"],
+      payload: {
+        mimeType: "multipart/related",
+        headers: [
+          { name: "From", value: "sender@example.com" },
+          { name: "Date", value: "2025-06-15T12:00:00.000Z" },
+        ],
+        parts: [
+          { mimeType: "text/html", body: { data: html } },
+          {
+            mimeType: "image/png",
+            headers: [
+              { name: "Content-ID", value: " <image001@example.com> " },
+            ],
+            body: { data: imageData },
+          },
+        ],
+      },
+      snippet: "",
+    });
+
+    expect(message.bodyHtml).toBe(
+      '<img alt="logo" src="data:image/png;base64,aW5saW5lLWltYWdl">',
+    );
+  });
 });
 
 describe("getClientsWithErrors with unusable token records", () => {
@@ -619,11 +875,6 @@ describe("getClientsWithErrors with unusable token records", () => {
   });
 
   it("surfaces a reconnect error without deleting the row when a record parses to an empty object", async () => {
-    // A stored oauth_tokens row that fails to decrypt (key rotation / wrong
-    // key) parses to `{}` in core's parseStoredTokens. The account must fail
-    // with a reconnect-style error — but the row must NOT be deleted, because
-    // this process may simply hold the wrong key while the row is still
-    // decryptable by a correctly configured deployment.
     vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([
       {
         accountId: "connected@example.com",
@@ -680,9 +931,669 @@ describe("getClientsWithErrors with unusable token records", () => {
   });
 });
 
+describe("getValidAccessToken single-flight refresh", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  function mockExpiredAccount() {
+    vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([
+      {
+        accountId: "connected@example.com",
+        owner: "connected@example.com",
+        tokens: {
+          access_token: "stale-access-token",
+          refresh_token: "refresh-token",
+          expiry_date: Date.now() - 1000,
+        },
+      },
+    ] as any);
+  }
+
+  it("coalesces 5 concurrent callers into 1 refreshToken call, all resolving the same token", async () => {
+    mockExpiredAccount();
+    const refreshToken = vi.fn().mockResolvedValue({
+      access_token: "refreshed-token",
+      expires_in: 3600,
+    });
+    vi.mocked(createOAuth2Client).mockReturnValue({ refreshToken } as any);
+
+    const results = await Promise.all(
+      Array.from({ length: 5 }, () => getClient("connected@example.com")),
+    );
+
+    expect(refreshToken).toHaveBeenCalledTimes(1);
+    for (const result of results) {
+      expect(result?.accessToken).toBe("refreshed-token");
+    }
+  });
+
+  it("rejects every waiter on a failed refresh, then retries on the next call", async () => {
+    mockExpiredAccount();
+    const refreshToken = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError("network error"))
+      .mockResolvedValueOnce({
+        access_token: "refreshed-token",
+        expires_in: 3600,
+      });
+    vi.mocked(createOAuth2Client).mockReturnValue({ refreshToken } as any);
+
+    const settled = await Promise.allSettled(
+      Array.from({ length: 3 }, () => getClient("connected@example.com")),
+    );
+    for (const outcome of settled) {
+      expect(outcome.status).toBe("rejected");
+      expect((outcome as PromiseRejectedResult).reason?.message).toBe(
+        "network error",
+      );
+    }
+    expect(refreshToken).toHaveBeenCalledTimes(1);
+
+    const retried = await getClient("connected@example.com");
+    expect(retried?.accessToken).toBe("refreshed-token");
+    expect(refreshToken).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("getClientsWithErrors parallel refresh", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns the good client plus one error when one of two accounts fails to refresh", async () => {
+    vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([
+      {
+        accountId: "bad@example.com",
+        owner: "owner@example.com",
+        tokens: {
+          access_token: "stale-bad",
+          refresh_token: "bad-refresh",
+          expiry_date: Date.now() - 1000,
+        },
+      },
+      {
+        accountId: "good@example.com",
+        owner: "owner@example.com",
+        tokens: {
+          access_token: "stale-good",
+          refresh_token: "good-refresh",
+          expiry_date: Date.now() - 1000,
+        },
+      },
+    ] as any);
+    const refreshToken = vi.fn(async (token: string) => {
+      if (token === "bad-refresh") throw new Error("invalid_grant");
+      return { access_token: "refreshed-good-token", expires_in: 3600 };
+    });
+    vi.mocked(createOAuth2Client).mockReturnValue({ refreshToken } as any);
+
+    const { clients, errors } = await getClientsWithErrors("owner@example.com");
+
+    expect(clients).toEqual([
+      {
+        email: "good@example.com",
+        accessToken: "refreshed-good-token",
+        refreshToken: "good-refresh",
+      },
+    ]);
+    expect(errors).toEqual([
+      {
+        email: "bad@example.com",
+        error: expect.stringContaining("invalid_grant"),
+      },
+    ]);
+    expect(refreshToken).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("getClientForConnectedAccount ownership", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("resolves a secondary OAuth account only from the requested owner's rows", async () => {
+    vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([
+      {
+        accountId: "shared@example.com",
+        owner: "owner@example.com",
+        tokens: {
+          access_token: "owner-token",
+          refresh_token: "owner-refresh",
+          expiry_date: Date.now() + 60 * 60 * 1000,
+        },
+      },
+    ] as any);
+    vi.mocked(listOAuthAccounts).mockResolvedValue([
+      {
+        accountId: "shared@example.com",
+        owner: "another-owner@example.com",
+        tokens: {
+          access_token: "another-owner-token",
+          refresh_token: "another-owner-refresh",
+          expiry_date: Date.now() + 60 * 60 * 1000,
+        },
+      },
+    ] as any);
+
+    await expect(
+      getClientForConnectedAccount("owner@example.com", "SHARED@example.com"),
+    ).resolves.toEqual({
+      accessToken: "owner-token",
+      email: "shared@example.com",
+    });
+    expect(listOAuthAccountsByOwner).toHaveBeenCalledWith(
+      "google",
+      "owner@example.com",
+    );
+    expect(listOAuthAccounts).not.toHaveBeenCalled();
+  });
+
+  it("force-refreshes a token Google rejected even though it looks unexpired", async () => {
+    vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([
+      {
+        accountId: "shared@example.com",
+        owner: "owner@example.com",
+        tokens: {
+          access_token: "rejected-token",
+          refresh_token: "owner-refresh",
+          expiry_date: Date.now() + 60 * 60 * 1000,
+        },
+      },
+    ] as any);
+    const refreshToken = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError("network error"))
+      .mockResolvedValueOnce({ access_token: "fresh-token", expires_in: 3600 });
+    vi.mocked(createOAuth2Client).mockReturnValue({ refreshToken } as any);
+
+    // A transient refresh failure must not hand back the rejected token.
+    await expect(
+      getClientForConnectedAccount("owner@example.com", "shared@example.com", {
+        forceRefresh: true,
+      }),
+    ).rejects.toThrow("network error");
+    await expect(
+      getClientForConnectedAccount("owner@example.com", "shared@example.com", {
+        forceRefresh: true,
+      }),
+    ).resolves.toEqual({
+      accessToken: "fresh-token",
+      email: "shared@example.com",
+    });
+    expect(refreshToken).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not borrow a matching OAuth row owned by another user", async () => {
+    vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([] as any);
+    vi.mocked(listOAuthAccounts).mockResolvedValue([
+      {
+        accountId: "shared@example.com",
+        owner: "another-owner@example.com",
+        tokens: {
+          access_token: "another-owner-token",
+          refresh_token: "another-owner-refresh",
+          expiry_date: Date.now() + 60 * 60 * 1000,
+        },
+      },
+    ] as any);
+
+    await expect(
+      getClientForConnectedAccount("owner@example.com", "shared@example.com"),
+    ).resolves.toBeNull();
+    expect(listOAuthAccounts).not.toHaveBeenCalled();
+  });
+});
+
+describe("mixed OAuth and managed Gmail accounts", () => {
+  const OWNER = "owner@example.com";
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([
+      {
+        accountId: "oauth@example.com",
+        owner: OWNER,
+        tokens: {
+          access_token: "oauth-token",
+          refresh_token: "oauth-refresh",
+          expiry_date: Date.now() + 60 * 60 * 1000,
+        },
+      },
+    ] as any);
+    vi.mocked(getOAuthAccounts).mockResolvedValue([
+      {
+        accountId: "oauth@example.com",
+        displayName: "OAuth User",
+        tokens: {
+          access_token: "oauth-token",
+          refresh_token: "oauth-refresh",
+          expiry_date: Date.now() + 60 * 60 * 1000,
+        },
+      },
+    ] as any);
+  });
+
+  afterEach(() => {
+    vi.mocked(getCredentialContext).mockReturnValue(null);
+  });
+
+  it("lists OAuth accounts first and appends the managed account", async () => {
+    mockManagedGrant("managed@example.com", "managed-token");
+
+    await expect(getConnectedAccounts(OWNER)).resolves.toEqual([
+      "oauth@example.com",
+      "managed@example.com",
+    ]);
+  });
+
+  it("returns both clients and filters the requested account before OAuth refresh", async () => {
+    mockManagedGrant("managed@example.com", "managed-token");
+
+    await expect(getClientsWithErrors(OWNER)).resolves.toEqual({
+      clients: [
+        {
+          email: "oauth@example.com",
+          accessToken: "oauth-token",
+          refreshToken: "oauth-refresh",
+        },
+        {
+          email: "managed@example.com",
+          accessToken: "managed-token",
+          refreshToken: "",
+        },
+      ],
+      errors: [],
+    });
+
+    await expect(
+      getClientsWithErrors(OWNER, ["MANAGED@example.com"]),
+    ).resolves.toEqual({
+      clients: [
+        {
+          email: "managed@example.com",
+          accessToken: "managed-token",
+          refreshToken: "",
+        },
+      ],
+      errors: [],
+    });
+    expect(createOAuth2Client).not.toHaveBeenCalled();
+  });
+
+  it("skips managed lookup when the requested OAuth account is already usable", async () => {
+    mockManagedGrant("managed@example.com", "managed-token");
+
+    await expect(
+      getClientsWithErrors(OWNER, ["oauth@example.com"]),
+    ).resolves.toMatchObject({
+      clients: [{ email: "oauth@example.com", accessToken: "oauth-token" }],
+      errors: [],
+    });
+    expect(resolveWorkspaceConnectionForApp).not.toHaveBeenCalled();
+  });
+
+  it("resolves the managed grant while OAuth token refresh is still pending", async () => {
+    vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([
+      {
+        accountId: "oauth@example.com",
+        owner: OWNER,
+        tokens: {
+          access_token: "expired-access-token",
+          refresh_token: "oauth-refresh",
+          expiry_date: Date.now() - 1000,
+        },
+      },
+    ] as any);
+    let finishRefresh!: (value: {
+      access_token: string;
+      expires_in: number;
+    }) => void;
+    const refreshToken = vi.fn(
+      () =>
+        new Promise<{ access_token: string; expires_in: number }>((resolve) => {
+          finishRefresh = resolve;
+        }),
+    );
+    vi.mocked(createOAuth2Client).mockReturnValue({ refreshToken } as any);
+    mockManagedGrant("managed@example.com", "managed-token");
+
+    const pending = getClientsWithErrors(OWNER);
+    await vi.waitFor(() =>
+      expect(getMailProviderApiRuntime).toHaveBeenCalled(),
+    );
+    expect(refreshToken).toHaveBeenCalledTimes(1);
+
+    finishRefresh({ access_token: "refreshed-oauth-token", expires_in: 3600 });
+    await expect(pending).resolves.toMatchObject({
+      clients: [
+        { email: "oauth@example.com", accessToken: "refreshed-oauth-token" },
+        { email: "managed@example.com", accessToken: "managed-token" },
+      ],
+      errors: [],
+    });
+  });
+
+  it("keeps OAuth precedence and avoids a duplicate for a case-insensitive identity match", async () => {
+    mockManagedGrant("OAUTH@example.com", "managed-shadow-token");
+
+    await expect(getConnectedAccounts(OWNER)).resolves.toEqual([
+      "oauth@example.com",
+    ]);
+    await expect(getClientsWithErrors(OWNER)).resolves.toMatchObject({
+      clients: [
+        {
+          email: "oauth@example.com",
+          accessToken: "oauth-token",
+          refreshToken: "oauth-refresh",
+        },
+      ],
+      errors: [],
+    });
+  });
+
+  it("shows the managed account alongside OAuth in auth status", async () => {
+    mockManagedGrant("managed@example.com", "managed-token");
+
+    const { getAuthStatus } = await import("./google-auth.js");
+    await expect(getAuthStatus(OWNER)).resolves.toMatchObject({
+      connected: true,
+      accounts: [
+        { email: "oauth@example.com", displayName: "OAuth User" },
+        { email: "managed@example.com", shared: true },
+      ],
+    });
+  });
+
+  it("keeps managed lookup failures distinguishable when OAuth is also connected", async () => {
+    vi.mocked(getCredentialContext).mockReturnValue({
+      userEmail: OWNER,
+    } as any);
+    vi.mocked(resolveWorkspaceConnectionForApp).mockRejectedValue(
+      new Error("workspace lookup unavailable"),
+    );
+
+    await expect(getConnectedAccountsWithErrors(OWNER)).resolves.toEqual({
+      accounts: ["oauth@example.com"],
+      errors: [
+        {
+          email: "workspace",
+          error: "workspace lookup unavailable",
+        },
+      ],
+    });
+    await expect(getConnectedAccounts(OWNER)).rejects.toThrow(
+      "workspace lookup unavailable",
+    );
+    await expect(getClientsWithErrors(OWNER)).resolves.toMatchObject({
+      clients: [{ email: "oauth@example.com" }],
+      errors: [
+        {
+          email: "workspace",
+          error: "workspace lookup unavailable",
+        },
+      ],
+    });
+    const { getAuthStatus } = await import("./google-auth.js");
+    await expect(getAuthStatus(OWNER)).resolves.toMatchObject({
+      connected: true,
+      accounts: [{ email: "oauth@example.com" }],
+      errors: [
+        {
+          email: "workspace",
+          error: "workspace lookup unavailable",
+        },
+      ],
+    });
+  });
+
+  it("does not fall back to a managed grant when a requested OAuth refresh fails", async () => {
+    vi.mocked(getCredentialContext).mockReturnValue({
+      userEmail: OWNER,
+    } as any);
+    vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([
+      {
+        accountId: "oauth@example.com",
+        owner: OWNER,
+        tokens: {
+          access_token: "expired-token",
+          refresh_token: "oauth-refresh",
+          expiry_date: Date.now() - 1000,
+        },
+      },
+    ] as any);
+    const refreshToken = vi
+      .fn()
+      .mockRejectedValue(new TypeError("temporary refresh failure"));
+    vi.mocked(createOAuth2Client).mockReturnValue({ refreshToken } as any);
+
+    await expect(
+      getClientsWithErrors(OWNER, ["oauth@example.com"]),
+    ).resolves.toEqual({
+      clients: [],
+      errors: [
+        {
+          email: "oauth@example.com",
+          error: "temporary refresh failure",
+          retryable: true,
+        },
+      ],
+    });
+    expect(resolveWorkspaceConnectionForApp).not.toHaveBeenCalled();
+  });
+
+  it("does not let a mixed-request managed grant mask a failed OAuth identity", async () => {
+    vi.mocked(getCredentialContext).mockReturnValue({
+      userEmail: OWNER,
+    } as any);
+    vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([
+      {
+        accountId: "oauth@example.com",
+        owner: OWNER,
+        tokens: {
+          access_token: "expired-token",
+          refresh_token: "oauth-refresh",
+          expiry_date: Date.now() - 1000,
+        },
+      },
+    ] as any);
+    const refreshToken = vi
+      .fn()
+      .mockRejectedValue(new TypeError("temporary refresh failure"));
+    vi.mocked(createOAuth2Client).mockReturnValue({ refreshToken } as any);
+    vi.mocked(resolveWorkspaceConnectionForApp).mockResolvedValue({
+      available: true,
+    } as any);
+    vi.mocked(getMailProviderApiRuntime).mockReturnValue({
+      resolveOAuthAccessToken: vi.fn().mockResolvedValue({
+        accountId: "oauth@example.com",
+        accessToken: "managed-shadow-token",
+      }),
+    } as any);
+
+    await expect(
+      getClientsWithErrors(OWNER, ["oauth@example.com", "managed@example.com"]),
+    ).resolves.toEqual({
+      clients: [],
+      errors: [
+        {
+          email: "oauth@example.com",
+          error: "temporary refresh failure",
+          retryable: true,
+        },
+      ],
+    });
+  });
+
+  it("does not retry or use an unexpired token after a permanent HTTP refresh failure", async () => {
+    vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([
+      {
+        accountId: "oauth@example.com",
+        owner: OWNER,
+        tokens: {
+          access_token: "still-valid-token",
+          refresh_token: "oauth-refresh",
+          expiry_date: Date.now() + 2 * 60 * 1000,
+        },
+      },
+    ] as any);
+    const refreshError = Object.assign(new Error("invalid_scope"), {
+      response: { status: 400 },
+      status: 400,
+    });
+    const refreshToken = vi.fn().mockRejectedValue(refreshError);
+    vi.mocked(createOAuth2Client).mockReturnValue({ refreshToken } as any);
+
+    await expect(
+      getClientsWithErrors(OWNER, ["oauth@example.com"]),
+    ).resolves.toEqual({
+      clients: [],
+      errors: [{ email: "oauth@example.com", error: "invalid_scope" }],
+    });
+    expect(refreshToken).toHaveBeenCalledTimes(1);
+    expect(deleteOAuthTokens).not.toHaveBeenCalled();
+  });
+
+  it.each([408, 429, 503])(
+    "marks HTTP %i Google refresh failures retryable",
+    async (status) => {
+      vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([
+        {
+          accountId: "connected@example.com",
+          owner: "connected@example.com",
+          tokens: {
+            access_token: "stale-access-token",
+            refresh_token: "refresh-token",
+            expiry_date: Date.now() - 1000,
+          },
+        },
+      ] as any);
+      const refreshError = Object.assign(
+        new Error("temporary refresh failure"),
+        {
+          response: { status },
+          status,
+        },
+      );
+      vi.mocked(createOAuth2Client).mockReturnValue({
+        refreshToken: vi.fn().mockRejectedValue(refreshError),
+      } as any);
+
+      await expect(
+        getClientsWithErrors("connected@example.com"),
+      ).resolves.toMatchObject({
+        clients: [],
+        errors: [{ email: "connected@example.com", retryable: true }],
+      });
+    },
+  );
+});
+
+describe("managed Gmail request context", () => {
+  const ownerEmail = "owner@example.com";
+  const ambientContext = {
+    userEmail: "ambient@example.com",
+    orgId: "ambient-org",
+    mcpRequestId: "ambient-request",
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(getCredentialContext).mockReturnValue(null);
+    vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([] as any);
+    vi.mocked(getRequestContext).mockReturnValue(ambientContext as any);
+    vi.mocked(runWithRequestContext).mockImplementation(async (context, fn) => {
+      vi.mocked(getCredentialContext).mockReturnValueOnce({
+        userEmail: context.userEmail,
+        orgId: context.orgId ?? null,
+      } as any);
+      return await fn();
+    });
+    vi.mocked(resolveWorkspaceConnectionForApp).mockResolvedValue({
+      available: true,
+    } as any);
+    vi.mocked(getMailProviderApiRuntime).mockReturnValue({
+      resolveOAuthAccessToken: vi.fn().mockResolvedValue({
+        accountId: "managed@example.com",
+        accessToken: "managed-token",
+      }),
+    } as any);
+  });
+
+  afterEach(() => {
+    vi.mocked(getCredentialContext).mockReturnValue(null);
+    vi.mocked(getRequestContext).mockReturnValue(undefined);
+    vi.mocked(runWithRequestContext).mockImplementation(async (_context, fn) =>
+      fn(),
+    );
+    vi.mocked(resolveWorkspaceConnectionForApp).mockResolvedValue({
+      available: false,
+    } as any);
+    vi.mocked(getMailProviderApiRuntime).mockReset();
+  });
+
+  it("resolves managed mailboxes in the owner's context while retaining ambient fields", async () => {
+    await expect(getClientsWithErrors(ownerEmail)).resolves.toMatchObject({
+      clients: [{ email: "managed@example.com", accessToken: "managed-token" }],
+      errors: [],
+    });
+    await expect(getConnectedAccountsWithErrors(ownerEmail)).resolves.toEqual({
+      accounts: ["managed@example.com"],
+      errors: [],
+    });
+    await expect(isConnected(ownerEmail)).resolves.toBe(true);
+
+    const expectedContext = { ...ambientContext, userEmail: ownerEmail };
+    expect(runWithRequestContext).toHaveBeenCalledTimes(3);
+    for (const [context] of vi.mocked(runWithRequestContext).mock.calls) {
+      expect(context).toEqual(expectedContext);
+    }
+  });
+
+  it.each([
+    [
+      "provider hint",
+      Object.assign(new Error("temporary refresh failure"), {
+        retryable: true,
+      }),
+    ],
+    ["network failure", new TypeError("fetch failed")],
+    [
+      "aborted refresh",
+      Object.assign(new Error("The operation was aborted"), {
+        name: "AbortError",
+      }),
+    ],
+  ])("preserves retryability on managed Gmail %s", async (_kind, failure) => {
+    vi.mocked(getMailProviderApiRuntime).mockReturnValue({
+      resolveOAuthAccessToken: vi.fn().mockRejectedValue(failure),
+    } as any);
+
+    await expect(getClientsWithErrors(ownerEmail)).resolves.toEqual({
+      clients: [],
+      errors: [
+        {
+          email: "workspace",
+          error: failure.message,
+          retryable: true,
+        },
+      ],
+    });
+  });
+});
+
 describe("getAuthStatus with unusable token records", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(getCredentialContext).mockReturnValue(null);
+    vi.mocked(getRequestContext).mockReturnValue(undefined);
+    vi.mocked(runWithRequestContext).mockImplementation(async (_context, fn) =>
+      fn(),
+    );
+    vi.mocked(resolveWorkspaceConnectionForApp).mockResolvedValue({
+      available: false,
+    } as any);
+    vi.mocked(getMailProviderApiRuntime).mockReset();
   });
 
   it("does not report decrypt-failed OAuth rows as connected", async () => {
@@ -697,8 +1608,58 @@ describe("getAuthStatus with unusable token records", () => {
     await expect(getAuthStatus("owner@example.com")).resolves.toEqual({
       connected: false,
       accounts: [],
+      errors: [
+        {
+          email: "broken@example.com",
+          error: expect.stringContaining("please reconnect"),
+        },
+      ],
     });
     expect(deleteOAuthTokens).not.toHaveBeenCalled();
+  });
+
+  it("does not replace a failed OAuth identity with a same-address managed account", async () => {
+    const ownerEmail = "owner@example.com";
+    const accountEmail = "same@example.com";
+    const { getAuthStatus } = await import("./google-auth.js");
+    vi.mocked(getOAuthAccounts).mockResolvedValue([
+      {
+        accountId: accountEmail,
+        tokens: {
+          access_token: "expired-token",
+          refresh_token: "refresh-token",
+          expiry_date: Date.now() - 1000,
+        },
+      },
+    ] as any);
+    vi.mocked(getCredentialContext).mockReturnValue({
+      userEmail: ownerEmail,
+    } as any);
+    vi.mocked(resolveWorkspaceConnectionForApp).mockResolvedValue({
+      available: true,
+    } as any);
+    vi.mocked(createOAuth2Client).mockReturnValue({
+      refreshToken: vi
+        .fn()
+        .mockRejectedValue(new Error("temporary refresh failure")),
+    } as any);
+    vi.mocked(getMailProviderApiRuntime).mockReturnValue({
+      resolveOAuthAccessToken: vi.fn().mockResolvedValue({
+        accountId: accountEmail,
+        accessToken: "managed-token",
+      }),
+    } as any);
+
+    await expect(getAuthStatus(ownerEmail)).resolves.toEqual({
+      connected: false,
+      accounts: [],
+      errors: [
+        {
+          email: accountEmail,
+          error: "temporary refresh failure",
+        },
+      ],
+    });
   });
 
   it("keeps valid accounts connected when another row is unreadable", async () => {
@@ -950,7 +1911,11 @@ describe("gmailBatchModifyByAccount", () => {
       ["UNREAD"],
     );
 
-    expect(result).toEqual({ succeeded: ["message-secondary"], failed: [] });
+    expect(result).toEqual({
+      succeeded: ["message-secondary"],
+      failed: [],
+      remaining: [],
+    });
     expect(googleFetch).toHaveBeenCalledWith(
       expect.stringContaining("messages/batchModify"),
       "secondary-token",
@@ -968,12 +1933,41 @@ describe("gmailBatchModifyByAccount", () => {
       ["UNREAD"],
     );
 
-    expect(result).toEqual({ succeeded: ["message-default"], failed: [] });
+    expect(result).toEqual({
+      succeeded: ["message-default"],
+      failed: [],
+      remaining: [],
+    });
     expect(googleFetch).toHaveBeenCalledWith(
       expect.stringContaining("messages/batchModify"),
       "access-token",
       expect.any(Object),
     );
+  });
+
+  it("returns the unattempted batch after a later chunk hits quota cooldown", async () => {
+    mockAccount();
+    vi.mocked(googleFetch)
+      .mockResolvedValueOnce({} as any)
+      .mockRejectedValueOnce(
+        new GmailQuotaCooldownError("quota cooldown", 2_000),
+      );
+    const ids = Array.from({ length: 1_001 }, (_, index) => `message-${index}`);
+
+    const result = await gmailBatchModifyByAccount(
+      "owner@example.com",
+      ids.map((id) => ({ id })),
+      ["STARRED"],
+      undefined,
+    );
+
+    expect(result).toEqual({
+      succeeded: ids.slice(0, 1_000),
+      failed: [],
+      remaining: [ids[1_000]],
+      retryAfterSeconds: 2,
+    });
+    expect(googleFetch).toHaveBeenCalledTimes(2);
   });
 
   it.each([
@@ -1003,7 +1997,11 @@ describe("gmailBatchModifyByAccount", () => {
         ["UNREAD"],
       );
 
-      expect(result).toEqual({ succeeded: ["message-refresh"], failed: [] });
+      expect(result).toEqual({
+        succeeded: ["message-refresh"],
+        failed: [],
+        remaining: [],
+      });
       expect(createOAuth2Client).toHaveBeenCalledWith(
         "client-id",
         "client-secret",
@@ -1018,6 +2016,695 @@ describe("gmailBatchModifyByAccount", () => {
   );
 });
 
+describe("gmailBatchArchiveByAccount", () => {
+  const OWNER = "owner@example.com";
+  const ACCOUNT = "inbox@example.com";
+
+  function setCachedThreads(
+    threads: Array<{ threadId: string; messageIds: string[] }>,
+  ) {
+    archiveCacheMocks.rows = threads.map(({ threadId, messageIds }) => ({
+      threadId,
+      messageIdsJson: JSON.stringify(messageIds),
+    }));
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    archiveCacheMocks.rows = [];
+    vi.mocked(googleFetch).mockResolvedValue({} as any);
+    vi.mocked(gmailModifyThread).mockResolvedValue({} as any);
+    vi.mocked(gmailListLabels).mockResolvedValue({ labels: [] } as any);
+    vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([
+      {
+        accountId: ACCOUNT,
+        owner: OWNER,
+        tokens: {
+          access_token: "archive-token",
+          expiry_date: Date.now() + 60 * 60 * 1000,
+        },
+      },
+    ] as any);
+  });
+
+  it("refreshes live thread message IDs before batching larger selections", async () => {
+    const otherTargets = Array.from({ length: 25 }, (_, index) => ({
+      id: `other-message-${index}`,
+      threadId: `other-thread-${index}`,
+      accountEmail: ACCOUNT,
+    }));
+    setCachedThreads([
+      {
+        threadId: "thread-1",
+        messageIds: ["message-1", "message-2", "message-3"],
+      },
+      ...otherTargets.map(({ id, threadId }) => ({
+        threadId,
+        messageIds: [id],
+      })),
+    ]);
+    vi.mocked(gmailBatchGetThreads).mockImplementation(
+      async (_accessToken, threadIds) =>
+        threadIds.map((threadId) => ({
+          id: threadId,
+          data: {
+            messages: (threadId === "thread-1"
+              ? ["message-1", "message-2", "message-3", "message-4"]
+              : [
+                  otherTargets.find((target) => target.threadId === threadId)!
+                    .id,
+                ]
+            ).map((id) => ({ id })),
+          },
+        })),
+    );
+
+    const result = await gmailBatchArchiveByAccount(OWNER, [
+      {
+        id: "message-3",
+        threadId: "thread-1",
+        accountEmail: ACCOUNT,
+      },
+      ...otherTargets,
+    ]);
+
+    expect(result).toMatchObject({
+      failed: [],
+      remaining: [],
+      threadIdsByTarget: { "message-3": "thread-1" },
+      removeLabelIdsByAccount: { [ACCOUNT]: ["INBOX"] },
+    });
+    expect(result.succeeded).toHaveLength(26);
+    expect(googleFetch).toHaveBeenCalledTimes(1);
+    const body = vi.mocked(googleFetch).mock.calls[0][2]!.body as string;
+    expect(JSON.parse(body)).toEqual({
+      ids: [
+        "message-1",
+        "message-2",
+        "message-3",
+        "message-4",
+        ...otherTargets.map(({ id }) => id),
+      ],
+      removeLabelIds: ["INBOX"],
+    });
+    expect(gmailModifyThread).not.toHaveBeenCalled();
+    expect(gmailBatchGetThreads).toHaveBeenCalledWith(
+      "archive-token",
+      ["thread-1", ...otherTargets.map(({ threadId }) => threadId)],
+      "minimal",
+    );
+    expect(archiveCacheMocks.select).not.toHaveBeenCalled();
+  });
+
+  it("archives Gmail-only newer messages through threads.modify for small selections", async () => {
+    setCachedThreads([
+      {
+        threadId: "thread-1",
+        messageIds: ["message-1", "message-2", "message-3"],
+      },
+    ]);
+    const liveThreadMessages = new Map(
+      ["message-1", "message-2", "message-3", "message-4"].map((id) => [
+        id,
+        new Set(["INBOX"]),
+      ]),
+    );
+    vi.mocked(gmailModifyThread).mockImplementation(
+      async (_accessToken, threadId, _addLabelIds, removeLabelIds) => {
+        expect(threadId).toBe("thread-1");
+        for (const labels of liveThreadMessages.values()) {
+          for (const labelId of removeLabelIds ?? []) labels.delete(labelId);
+        }
+        return {} as any;
+      },
+    );
+
+    const result = await gmailBatchArchiveByAccount(OWNER, [
+      {
+        id: "message-3",
+        threadId: "thread-1",
+        accountEmail: ACCOUNT,
+      },
+    ]);
+
+    expect(result.succeeded).toEqual(["message-3"]);
+    expect(result.failed).toEqual([]);
+    expect(result.remaining).toEqual([]);
+    expect(
+      [...liveThreadMessages.values()].every((labels) => !labels.has("INBOX")),
+    ).toBe(true);
+    expect(gmailModifyThread).toHaveBeenCalledOnce();
+    expect(gmailModifyThread).toHaveBeenCalledWith(
+      "archive-token",
+      "thread-1",
+      undefined,
+      ["INBOX"],
+    );
+    expect(googleFetch).not.toHaveBeenCalled();
+  });
+
+  it("uses threads.modify when a selected thread has no cached message IDs", async () => {
+    const result = await gmailBatchArchiveByAccount(OWNER, [
+      {
+        id: "latest-message",
+        threadId: "thread-unknown",
+        accountEmail: ACCOUNT,
+      },
+    ]);
+
+    expect(result.succeeded).toEqual(["latest-message"]);
+    expect(result.remaining).toEqual([]);
+    expect(googleFetch).not.toHaveBeenCalled();
+    expect(gmailModifyThread).toHaveBeenCalledWith(
+      "archive-token",
+      "thread-unknown",
+      undefined,
+      ["INBOX"],
+    );
+  });
+
+  it("batches live thread messages with INBOX and a resolved removeLabel ID", async () => {
+    const otherTargets = Array.from({ length: 25 }, (_, index) => ({
+      id: `other-message-${index}`,
+      threadId: `other-thread-${index}`,
+      accountEmail: ACCOUNT,
+    }));
+    setCachedThreads([
+      { threadId: "thread-1", messageIds: ["message-1", "message-2"] },
+      ...otherTargets.map(({ id, threadId }) => ({
+        threadId,
+        messageIds: [id],
+      })),
+    ]);
+    vi.mocked(gmailListLabels).mockResolvedValue({
+      labels: [{ id: "Label_projects", name: "Projects" }],
+    } as any);
+    vi.mocked(gmailBatchGetThreads).mockImplementation(
+      async (_accessToken, threadIds) =>
+        threadIds.map((threadId) => ({
+          id: threadId,
+          data: {
+            messages:
+              threadId === "thread-1"
+                ? [{ id: "message-1" }, { id: "message-2" }]
+                : [
+                    {
+                      id: otherTargets.find(
+                        (target) => target.threadId === threadId,
+                      )!.id,
+                    },
+                  ],
+          },
+        })),
+    );
+
+    const result = await gmailBatchArchiveByAccount(
+      OWNER,
+      [
+        {
+          id: "message-2",
+          threadId: "thread-1",
+          accountEmail: ACCOUNT,
+        },
+        ...otherTargets,
+      ],
+      "Projects",
+    );
+
+    expect(result.removeLabelIdsByAccount[ACCOUNT]).toEqual([
+      "INBOX",
+      "Label_projects",
+    ]);
+    const body = vi.mocked(googleFetch).mock.calls[0][2]!.body as string;
+    expect(JSON.parse(body)).toEqual({
+      ids: ["message-1", "message-2", ...otherTargets.map(({ id }) => id)],
+      removeLabelIds: ["INBOX", "Label_projects"],
+    });
+    expect(gmailModifyThread).not.toHaveBeenCalled();
+  });
+
+  it("fails targets when the requested archive label no longer exists", async () => {
+    const result = await gmailBatchArchiveByAccount(
+      OWNER,
+      [{ id: "message-1", threadId: "thread-1", accountEmail: ACCOUNT }],
+      "Removed label",
+    );
+
+    expect(result.succeeded).toEqual([]);
+    expect(result.failed).toEqual([
+      { id: "message-1", error: 'Gmail label "Removed label" was not found' },
+    ]);
+    expect(result.remaining).toEqual([]);
+    expect(googleFetch).not.toHaveBeenCalled();
+    expect(gmailModifyThread).not.toHaveBeenCalled();
+  });
+
+  it("returns selected targets when resolving removeLabel hits a quota cooldown", async () => {
+    const targets = [
+      {
+        id: "message-1",
+        threadId: "thread-1",
+        accountEmail: ACCOUNT,
+      },
+      {
+        id: "message-2",
+        threadId: "thread-2",
+        accountEmail: ACCOUNT,
+      },
+    ];
+    vi.mocked(gmailListLabels).mockRejectedValueOnce(
+      new GmailQuotaCooldownError("label lookup cooldown", 2_000),
+    );
+
+    const result = await gmailBatchArchiveByAccount(OWNER, targets, "Projects");
+
+    expect(result.succeeded).toEqual([]);
+    expect(result.failed).toEqual([]);
+    expect(result.remaining).toEqual(["message-1", "message-2"]);
+    expect(result.retryAfterSeconds).toBe(2);
+    expect(googleFetch).not.toHaveBeenCalled();
+    expect(gmailModifyThread).not.toHaveBeenCalled();
+  });
+
+  it("clears UNREAD from every current message in selected threads", async () => {
+    setCachedThreads([
+      {
+        threadId: "thread-read",
+        messageIds: ["message-old", "message-middle", "message-new"],
+      },
+    ]);
+    vi.mocked(gmailBatchGetThreads).mockResolvedValue([
+      {
+        id: "thread-read",
+        data: {
+          messages: [
+            { id: "message-old" },
+            { id: "message-middle" },
+            { id: "message-new" },
+            { id: "message-arrived-after-cache" },
+          ],
+        },
+      },
+    ] as any);
+
+    const result = await gmailBatchModifyThreadsByAccount(
+      OWNER,
+      [
+        {
+          id: "message-new",
+          threadId: "thread-read",
+          accountEmail: ACCOUNT,
+        },
+      ],
+      undefined,
+      ["UNREAD"],
+    );
+
+    expect(result.succeeded).toEqual(["message-new"]);
+    expect(result.failed).toEqual([]);
+    expect(result.remaining).toEqual([]);
+    const body = vi.mocked(googleFetch).mock.calls[0][2]!.body as string;
+    expect(JSON.parse(body)).toEqual({
+      ids: [
+        "message-old",
+        "message-middle",
+        "message-new",
+        "message-arrived-after-cache",
+      ],
+      removeLabelIds: ["UNREAD"],
+    });
+    expect(gmailModifyThread).not.toHaveBeenCalled();
+  });
+
+  it("refreshes Gmail messages when the cache lacks the selected thread", async () => {
+    vi.mocked(gmailBatchGetThreads).mockResolvedValue([
+      {
+        id: "thread-missing-cache",
+        data: { messages: [{ id: "message-new" }, { id: "message-late" }] },
+      },
+    ] as any);
+
+    const result = await gmailBatchModifyThreadsByAccount(
+      OWNER,
+      [
+        {
+          id: "message-new",
+          threadId: "thread-missing-cache",
+          accountEmail: ACCOUNT,
+        },
+      ],
+      undefined,
+      ["UNREAD"],
+    );
+
+    expect(result.succeeded).toEqual(["message-new"]);
+    expect(result.remaining).toEqual([]);
+    expect(gmailBatchGetThreads).toHaveBeenCalledWith(
+      "archive-token",
+      ["thread-missing-cache"],
+      "minimal",
+    );
+    expect(googleFetch).toHaveBeenCalledOnce();
+    expect(gmailModifyThread).not.toHaveBeenCalled();
+  });
+
+  it("does not report success when a live thread refresh is missing", async () => {
+    vi.mocked(gmailBatchGetThreads).mockResolvedValue([
+      {
+        id: "thread-unavailable",
+        data: null,
+        error: "No response part",
+      },
+    ] as any);
+
+    const result = await gmailBatchModifyThreadsByAccount(
+      OWNER,
+      [
+        {
+          id: "message-new",
+          threadId: "thread-unavailable",
+          accountEmail: ACCOUNT,
+        },
+      ],
+      undefined,
+      ["UNREAD"],
+    );
+
+    expect(result.succeeded).toEqual([]);
+    expect(result.failed).toEqual([
+      { id: "message-new", error: "No response part" },
+    ]);
+    expect(result.remaining).toEqual([]);
+    expect(googleFetch).not.toHaveBeenCalled();
+  });
+
+  it("limits live thread refreshes and returns untouched targets", async () => {
+    const targets = Array.from({ length: 130 }, (_, index) => ({
+      id: `message-${index}`,
+      threadId: `thread-${index}`,
+      accountEmail: ACCOUNT,
+    }));
+    vi.mocked(gmailBatchGetThreads).mockImplementation(
+      async (_accessToken, threadIds) =>
+        threadIds.map((threadId) => ({
+          id: threadId,
+          data: { messages: [{ id: threadId.replace("thread-", "message-") }] },
+        })),
+    );
+
+    const result = await gmailBatchArchiveByAccount(OWNER, targets);
+
+    expect(gmailBatchGetThreads).toHaveBeenCalledWith(
+      "archive-token",
+      targets.slice(0, 100).map(({ threadId }) => threadId),
+      "minimal",
+    );
+    expect(result.succeeded).toHaveLength(100);
+    expect(result.failed).toEqual([]);
+    expect(result.remaining).toEqual(targets.slice(100).map(({ id }) => id));
+    expect(googleFetch).toHaveBeenCalledOnce();
+    expect(gmailModifyThread).not.toHaveBeenCalled();
+  });
+
+  it("archives a threadless prefix and advances retries past completed targets", async () => {
+    const targets = Array.from({ length: 101 }, (_, index) => ({
+      id: `message-${index}`,
+      accountEmail: ACCOUNT,
+    }));
+    vi.mocked(gmailGetMessage).mockImplementation(
+      async (_accessToken, messageId) =>
+        ({ threadId: `thread-${messageId}` }) as any,
+    );
+    vi.mocked(gmailBatchGetThreads).mockImplementation(
+      async (_accessToken, threadIds) =>
+        threadIds.map((threadId) => ({
+          id: threadId,
+          data: {
+            messages: [{ id: threadId.replace("thread-", "") }],
+          },
+        })),
+    );
+
+    const first = await gmailBatchArchiveByAccount(OWNER, targets);
+
+    expect(first.succeeded).toEqual(targets.slice(0, 50).map(({ id }) => id));
+    expect(first.remaining).toEqual(targets.slice(50).map(({ id }) => id));
+    expect(gmailGetMessage).toHaveBeenCalledTimes(50);
+    expect(vi.mocked(gmailGetMessage).mock.calls.map(([, id]) => id)).toEqual(
+      targets.slice(0, 50).map(({ id }) => id),
+    );
+
+    const retryTargets = targets.filter(({ id }) =>
+      first.remaining.includes(id),
+    );
+    const second = await gmailBatchArchiveByAccount(OWNER, retryTargets);
+
+    expect(second.succeeded).toEqual(
+      targets.slice(50, 100).map(({ id }) => id),
+    );
+    expect(second.remaining).toEqual([targets[100].id]);
+    expect(
+      vi
+        .mocked(gmailGetMessage)
+        .mock.calls.slice(50)
+        .map(([, id]) => id),
+    ).toEqual(targets.slice(50, 100).map(({ id }) => id));
+
+    const final = await gmailBatchArchiveByAccount(OWNER, [targets[100]]);
+
+    expect(final.succeeded).toEqual([targets[100].id]);
+    expect(final.remaining).toEqual([]);
+    expect(
+      vi
+        .mocked(gmailGetMessage)
+        .mock.calls.slice(100)
+        .map(([, id]) => id),
+    ).toEqual([targets[100].id]);
+    expect(gmailModifyThread).toHaveBeenCalledOnce();
+  });
+
+  it("processes resolved threadless targets before deferring a quota-limited suffix", async () => {
+    const targets = Array.from({ length: 101 }, (_, index) => ({
+      id: `message-${index}`,
+      accountEmail: ACCOUNT,
+    }));
+    let quotaDeferred = false;
+    vi.mocked(gmailGetMessage).mockImplementation(async (_token, id) => {
+      if (id === targets[49].id && !quotaDeferred) {
+        quotaDeferred = true;
+        throw new GmailQuotaCooldownError("message lookup cooldown", 2_000);
+      }
+      return { threadId: `thread-${id}` } as any;
+    });
+    vi.mocked(gmailBatchGetThreads).mockImplementation(
+      async (_accessToken, threadIds) =>
+        threadIds.map((threadId) => ({
+          id: threadId,
+          data: { messages: [{ id: threadId.replace("thread-", "") }] },
+        })),
+    );
+
+    const first = await gmailBatchArchiveByAccount(OWNER, targets);
+
+    expect(first.succeeded).toEqual(targets.slice(0, 49).map(({ id }) => id));
+    expect(first.remaining).toEqual(targets.slice(49).map(({ id }) => id));
+    expect(first.retryAfterSeconds).toBe(2);
+
+    const retryTargets = targets.filter(({ id }) =>
+      first.remaining.includes(id),
+    );
+    const second = await gmailBatchArchiveByAccount(OWNER, retryTargets);
+
+    expect(second.succeeded).toEqual(targets.slice(49, 99).map(({ id }) => id));
+    expect(second.remaining).toEqual(targets.slice(99).map(({ id }) => id));
+  });
+
+  it("returns every selected target when refreshing threads hits a quota cooldown", async () => {
+    const targets = Array.from({ length: 3 }, (_, index) => ({
+      id: `message-${index}`,
+      threadId: `thread-${index}`,
+      accountEmail: ACCOUNT,
+    }));
+    vi.mocked(gmailBatchGetThreads).mockRejectedValueOnce(
+      new GmailQuotaCooldownError("thread refresh cooldown", 15_000),
+    );
+
+    const result = await gmailBatchModifyThreadsByAccount(
+      OWNER,
+      targets,
+      undefined,
+      ["UNREAD"],
+    );
+
+    expect(result.succeeded).toEqual([]);
+    expect(result.failed).toEqual([]);
+    expect(result.remaining).toEqual(targets.map(({ id }) => id));
+    expect(result.retryAfterSeconds).toBe(15);
+    expect(googleFetch).not.toHaveBeenCalled();
+  });
+
+  it("returns the interrupted unknown-thread range after a threads.modify cooldown", async () => {
+    const targets = Array.from({ length: 3 }, (_, index) => ({
+      id: `latest-${index}`,
+      threadId: `unknown-${index}`,
+      accountEmail: ACCOUNT,
+    }));
+    vi.mocked(gmailModifyThread)
+      .mockResolvedValueOnce({} as any)
+      .mockRejectedValueOnce(new GmailQuotaCooldownError("cooldown", 2));
+
+    const result = await gmailBatchArchiveByAccount(OWNER, targets);
+
+    expect(gmailModifyThread).toHaveBeenCalledTimes(2);
+    expect(result.succeeded).toEqual(["latest-0"]);
+    expect(result.failed).toEqual([]);
+    expect(result.remaining).toEqual(["latest-1", "latest-2"]);
+    expect(result.retryAfterSeconds).toBe(1);
+  });
+});
+
+describe("gmailBatchModifyByAccount — managed workspace grant", () => {
+  const OWNER = "owner@example.com";
+  const MANAGED = "managed@example.com";
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(googleFetch).mockResolvedValue({} as any);
+    vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([]);
+  });
+
+  afterEach(() => {
+    vi.mocked(getCredentialContext).mockReturnValue(null);
+  });
+
+  it("resolves an explicit accountEmail through the managed grant when the owner has no OAuth rows", async () => {
+    mockManagedGrant(MANAGED, "managed-token");
+
+    const result = await gmailBatchModifyByAccount(
+      OWNER,
+      [{ id: "message-managed", accountEmail: MANAGED }],
+      undefined,
+      ["UNREAD"],
+    );
+
+    expect(result).toEqual({
+      succeeded: ["message-managed"],
+      failed: [],
+      remaining: [],
+    });
+    expect(googleFetch).toHaveBeenCalledWith(
+      expect.stringContaining("messages/batchModify"),
+      "managed-token",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("resolves the managed grant as the default account when none is supplied", async () => {
+    mockManagedGrant(MANAGED, "managed-token");
+
+    const result = await gmailBatchModifyByAccount(
+      OWNER,
+      [{ id: "message-default" }],
+      undefined,
+      ["UNREAD"],
+    );
+
+    expect(result).toEqual({
+      succeeded: ["message-default"],
+      failed: [],
+      remaining: [],
+    });
+    expect(googleFetch).toHaveBeenCalledWith(
+      expect.stringContaining("messages/batchModify"),
+      "managed-token",
+      expect.any(Object),
+    );
+  });
+
+  it("fails the target when neither an OAuth row nor the managed grant matches", async () => {
+    vi.mocked(getCredentialContext).mockReturnValue(null);
+
+    const result = await gmailBatchModifyByAccount(
+      OWNER,
+      [{ id: "message-orphan", accountEmail: MANAGED }],
+      undefined,
+      ["UNREAD"],
+    );
+
+    expect(result.succeeded).toEqual([]);
+    expect(result.failed).toEqual([
+      {
+        id: "message-orphan",
+        error: expect.stringContaining("is not connected for this user"),
+      },
+    ]);
+  });
+});
+
+describe("getClientForConnectedAccount", () => {
+  const OWNER = "owner@example.com";
+  const MANAGED = "managed@example.com";
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.mocked(getCredentialContext).mockReturnValue(null);
+  });
+
+  it("returns the OAuth-backed client when a row exists for accountEmail", async () => {
+    vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([
+      {
+        accountId: "connected@example.com",
+        owner: "owner@example.com",
+        tokens: {
+          access_token: "access-token",
+          refresh_token: "refresh-token",
+          expiry_date: Date.now() + 60 * 60 * 1000,
+        },
+      },
+    ] as any);
+
+    const result = await getClientForConnectedAccount(
+      "owner@example.com",
+      "connected@example.com",
+    );
+
+    expect(result).toEqual({
+      accessToken: "access-token",
+      email: "connected@example.com",
+    });
+    expect(registerGmailAccountToken).toHaveBeenCalledWith(
+      "access-token",
+      "owner@example.com",
+      "connected@example.com",
+      expect.any(Number),
+    );
+  });
+
+  it("falls back to the managed client when no OAuth row exists but it matches the managed grant", async () => {
+    vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([] as any);
+    mockManagedGrant(MANAGED, "managed-token");
+
+    const result = await getClientForConnectedAccount(OWNER, MANAGED);
+
+    expect(result).toEqual({ accessToken: "managed-token", email: MANAGED });
+  });
+
+  it("returns null when neither an OAuth row nor the managed grant matches", async () => {
+    vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([] as any);
+    vi.mocked(getCredentialContext).mockReturnValue(null);
+
+    const result = await getClientForConnectedAccount(
+      OWNER,
+      "nobody@example.com",
+    );
+
+    expect(result).toBeNull();
+  });
+});
+
 describe("Google OAuth URL construction", () => {
   it("fails closed when no Google OAuth redirect URI is available", async () => {
     await expect(getAuthUrl()).rejects.toThrow(
@@ -1026,5 +2713,99 @@ describe("Google OAuth URL construction", () => {
     await expect(exchangeCode("oauth-code")).rejects.toThrow(
       "Google OAuth redirect URI is required.",
     );
+  });
+
+  it("requests Gmail scopes and persists the first preview sign-in account", async () => {
+    vi.clearAllMocks();
+    const callbackUri =
+      "https://beta.dispatch.agent-native.com/_agent-native/google/callback";
+    const generateAuthUrl = vi
+      .fn()
+      .mockReturnValue("https://accounts.google.com/oauth");
+    vi.mocked(createOAuth2Client).mockReturnValue({
+      generateAuthUrl,
+      getToken: vi.fn().mockResolvedValue({
+        access_token: "gmail-access-token",
+        refresh_token: "gmail-refresh-token",
+        expires_in: 3600,
+        token_type: "Bearer",
+        scope: "https://www.googleapis.com/auth/gmail.readonly",
+      }),
+    } as any);
+    vi.mocked(gmailGetProfile).mockResolvedValue({
+      emailAddress: "owner@example.com",
+    } as any);
+
+    await expect(
+      getAuthUrl(
+        undefined,
+        callbackUri,
+        "preview-relay-state",
+        "owner@example.com",
+      ),
+    ).resolves.toBe("https://accounts.google.com/oauth");
+    expect(generateAuthUrl).toHaveBeenCalledWith(
+      expect.objectContaining({
+        access_type: "offline",
+        prompt: "consent",
+        state: "preview-relay-state",
+        scope: expect.arrayContaining([
+          "https://www.googleapis.com/auth/gmail.readonly",
+          "https://www.googleapis.com/auth/gmail.send",
+          "https://www.googleapis.com/auth/calendar.events",
+        ]),
+      }),
+    );
+
+    await expect(
+      exchangeCode(
+        "preview-google-code",
+        undefined,
+        callbackUri,
+        "owner@example.com",
+      ),
+    ).resolves.toBe("owner@example.com");
+    expect(saveOAuthTokens).toHaveBeenCalledWith(
+      "google",
+      "owner@example.com",
+      expect.objectContaining({
+        access_token: "gmail-access-token",
+        refresh_token: "gmail-refresh-token",
+        scope: "https://www.googleapis.com/auth/gmail.readonly",
+      }),
+      "owner@example.com",
+    );
+    // A fresh credential lets sync retry an account marked needs_reauth.
+    expect(clearSyncAccountReauth).toHaveBeenCalledWith(
+      "owner@example.com",
+      "owner@example.com",
+    );
+  });
+});
+
+describe("Gmail watch cancellation", () => {
+  it("passes the sweep signal through and preserves provider aborts", async () => {
+    const previousTopic = process.env.GMAIL_WATCH_TOPIC;
+    process.env.GMAIL_WATCH_TOPIC = "projects/example/topics/mail";
+    const controller = new AbortController();
+    const abortError = new DOMException(
+      "The operation was aborted.",
+      "AbortError",
+    );
+    vi.mocked(gmailWatch).mockRejectedValueOnce(abortError);
+
+    try {
+      await expect(startWatch("access-token", controller.signal)).rejects.toBe(
+        abortError,
+      );
+      expect(gmailWatch).toHaveBeenCalledWith(
+        "access-token",
+        "projects/example/topics/mail",
+        expect.objectContaining({ signal: controller.signal }),
+      );
+    } finally {
+      if (previousTopic === undefined) delete process.env.GMAIL_WATCH_TOPIC;
+      else process.env.GMAIL_WATCH_TOPIC = previousTopic;
+    }
   });
 });

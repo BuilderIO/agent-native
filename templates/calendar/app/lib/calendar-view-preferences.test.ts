@@ -2,11 +2,16 @@ import type { CalendarEvent } from "@shared/api";
 import {
   CALENDAR_COLORS,
   DEFAULT_CALENDAR_VIEW_PREFERENCES,
+  normalizeAllDayMaxHeight,
   normalizeCalendarViewPreferences,
 } from "@shared/calendar-view-preferences";
 import { describe, expect, it } from "vitest";
 
-import { EVENT_CATEGORY_COLORS, getEventDisplayColor } from "./event-colors";
+import {
+  applyOverlayOwnerMarkers,
+  EVENT_CATEGORY_COLORS,
+  getEventDisplayColor,
+} from "./event-colors";
 
 const googleEvent: CalendarEvent = {
   id: "google-1",
@@ -27,6 +32,13 @@ const googleEvent: CalendarEvent = {
 };
 
 describe("calendar view preferences", () => {
+  it("bounds the all-day section height preference", () => {
+    expect(normalizeAllDayMaxHeight(144)).toBe(144);
+    expect(normalizeAllDayMaxHeight(1)).toBe(48);
+    expect(normalizeAllDayMaxHeight(500)).toBe(320);
+    expect(normalizeAllDayMaxHeight("144")).toBe(88);
+  });
+
   it("normalizes invalid values back to defaults", () => {
     expect(
       normalizeCalendarViewPreferences({
@@ -99,6 +111,36 @@ describe("calendar view preferences", () => {
         ownerColor: "#4ECDC4",
       }),
     ).toBe("#4ECDC4");
+  });
+
+  it("applies a colleague's saved color to overlay and directly shared events", () => {
+    const color = CALENDAR_COLORS[2];
+    const [overlayEvent, sharedEvent] = applyOverlayOwnerMarkers(
+      [
+        { ...googleEvent, overlayEmail: "teammate@example.com" },
+        {
+          ...googleEvent,
+          calendarId: "TEAMMATE@EXAMPLE.COM",
+          calendarPrimary: false,
+        },
+      ],
+      [{ email: "Teammate@Example.com", name: "Teammate", color }],
+    );
+
+    expect(overlayEvent).toMatchObject({
+      ownerColor: color,
+      ownerName: "Teammate",
+    });
+    expect(sharedEvent).toMatchObject({
+      ownerColor: color,
+      ownerName: "Teammate",
+    });
+    expect(
+      getEventDisplayColor({
+        ...sharedEvent!,
+        calendarColor: CALENDAR_COLORS[0],
+      }),
+    ).toBe(color);
   });
 
   it("falls back to the event color for overlay events without a person color", () => {

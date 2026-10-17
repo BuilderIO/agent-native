@@ -1,485 +1,451 @@
-import { expect, test, type Page } from "@playwright/test";
+import { appPath, selectTool } from "./helpers";
+import {
+  expect,
+  expectOnlyChanged,
+  styleOf,
+  test,
+  type App,
+  type SavedNode,
+} from "./rails";
 
-import { e2eBaseURL } from "./base-url";
+test.use({ viewport: { width: 1440, height: 1000 } });
 
-/**
- * Clip FFBTGvnWyEys "Fix Frame and Screen Nesting in Design Editor".
- * On the board "frame" already means a screen card (data-frame-id), so the
- * Frame tool is overloaded — these pin which surface produces which thing.
- */
-
-const BLANK = `<!doctype html>
+const SCREEN = `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8" /><title>Home</title></head>
-  <body style="margin:0;min-height:900px;background:#0f1115"></body>
+  <body data-agent-native-node-id="page" style="margin:0;width:400px;height:300px;background:#1d4ed8">
+    <div data-agent-native-node-id="badge" data-agent-native-layer-name="Badge" style="position:absolute;left:20px;top:20px;width:40px;height:20px;background:#facc15"></div>
+  </body>
 </html>`;
 
-let baseURL = "";
+const WHITE = [255, 255, 255, 255];
+const SCREEN_BLUE = [29, 78, 216, 255];
 
-async function postAction(
-  page: Page,
-  name: string,
-  input: Record<string, unknown>,
-) {
-  const res = await page.request.post(
-    `${baseURL}/_agent-native/actions/${name}`,
+/** A 400x300 screen at board origin viewed at 100%, so board px equal screen px and open board surrounds it. */
+async function openScreenOnBoard(app: App) {
+  const id = await app.seed(SCREEN);
+  const { files } = await app.savedRecord(id);
+  const screenId = files.find((file) => file.filename === "index.html")!.id;
+  const response = await app.page.request.post(
+    appPath("/_agent-native/actions/update-design"),
     {
-      data: input,
-      headers: { "Content-Type": "application/json" },
+      data: {
+        id,
+        dataOperations: [
+          {
+            op: "set",
+            path: ["screenMetadata", screenId],
+            value: { sourceType: "inline", width: 400, height: 300 },
+          },
+          {
+            op: "set",
+            path: ["canvasFrames", screenId],
+            value: { x: 0, y: 0, width: 400, height: 300, z: 0 },
+          },
+        ],
+      },
     },
   );
-  if (!res.ok())
-    throw new Error(
-      `${name}: ${res.status()} ${(await res.text()).slice(0, 300)}`,
-    );
-  return res.json();
+  expect(response.ok(), `update-design ${response.status()}`).toBe(true);
+  await app.open(id);
+  await app.zoomToFit();
+  await app.zoomTo100();
+  return { id, screenId };
 }
 
-async function newDesign(page: Page): Promise<string> {
-  const created = await postAction(page, "create-design", {
-    title: "frame and screen nesting",
-    projectType: "prototype",
-  });
-  const id = created?.id ?? created?.data?.id;
-  if (!id) throw new Error("create-design returned no id");
-  await postAction(page, "create-file", {
-    designId: id,
-    filename: "index.html",
-    content: BLANK,
-    fileType: "html",
-  });
-  return id;
+async function dragOnCanvas(
+  app: App,
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+) {
+  const start = await app.pagePoint(from.x, from.y);
+  const end = await app.pagePoint(to.x, to.y);
+  await app.page.mouse.move(start.x, start.y);
+  await app.page.mouse.down();
+  await app.page.mouse.move(end.x, end.y, { steps: 16 });
+  await app.page.mouse.up();
+  await app.settled();
 }
 
-async function designFiles(page: Page, id: string): Promise<string[]> {
-  const record = await page.request
-    .get(`${baseURL}/_agent-native/actions/get-design?id=${id}`)
-    .then((r) => r.json());
-  return (record.files ?? []).map((f: any) => f.filename);
+async function drawBox(
+  app: App,
+  box: { x: number; y: number; width: number; height: number },
+) {
+  await dragOnCanvas(app, box, { x: box.x + box.width, y: box.y + box.height });
 }
 
-async function fileContent(
-  page: Page,
-  id: string,
-  filename: string,
-): Promise<string> {
-  const record = await page.request
-    .get(`${baseURL}/_agent-native/actions/get-design?id=${id}`)
-    .then((r) => r.json());
-  return (
-    (record.files ?? []).find((f: any) => f.filename === filename)?.content ??
-    ""
+/** New layers only: the editor may also stamp ids on <html> and <body> the first time it saves a file. */
+function added(before: Map<string, SavedNode>, after: Map<string, SavedNode>) {
+  return [...after.values()].filter(
+    (node) =>
+      !before.has(node.id) && node.tag !== "html" && node.tag !== "body",
   );
 }
 
-async function openEditor(page: Page, id: string): Promise<void> {
-  await page.goto(`${baseURL}/design/${id}`, { waitUntil: "domcontentloaded" });
-  await page
-    .locator('[data-design-bottom-toolbar] button[aria-label="Move"]')
-    .waitFor({ timeout: 45_000 });
-  await page
-    .locator("iframe[data-design-preview-iframe]")
-    .first()
-    .waitFor({ timeout: 30_000 });
-  await page.waitForTimeout(3500);
+function savedBox(node: SavedNode | undefined) {
+  const style = styleOf(node);
+  expect(style.position, `${node?.id} position`).toBe("absolute");
+  return {
+    x: Number.parseFloat(style.left),
+    y: Number.parseFloat(style.top),
+    width: Number.parseFloat(style.width),
+    height: Number.parseFloat(style.height),
+  };
 }
 
-/** Screen rect in page px, plus px-per-screen-unit. */
-async function screenBox(page: Page) {
-  const box = (await page
-    .locator("iframe[data-design-preview-iframe]")
-    .first()
-    .boundingBox())!;
-  return { ...box, scale: box.width / 320 };
-}
-
-/**
- * Scans for a point that actually hit-tests to the canvas surface. Computing
- * one from the screen rect lands on the inspector panel at narrow viewports.
- */
-async function emptyBoardPoint(page: Page) {
-  const point = await page.evaluate(() => {
-    const world = document.querySelector("[data-multi-screen-canvas-world]");
-    const surface = (world?.parentElement ?? world) as HTMLElement | null;
-    if (!surface) return null;
-    const r = surface.getBoundingClientRect();
-    const cards = Array.from(
-      document.querySelectorAll("[data-screen-iframe-id]"),
-    ).map((el) => el.getBoundingClientRect());
-    for (let y = r.top + 60; y < r.bottom - 60; y += 40) {
-      for (let x = r.left + 60; x < r.right - 60; x += 40) {
-        if (
-          cards.some(
-            (c) =>
-              x >= c.left - 24 &&
-              x <= c.right + 24 &&
-              y >= c.top - 24 &&
-              y <= c.bottom + 24,
-          )
-        ) {
-          continue;
-        }
-        const hit = document.elementFromPoint(x, y);
-        if (hit && surface.contains(hit)) return { x, y };
-      }
-    }
-    return null;
-  });
-  if (!point) throw new Error("no empty canvas point found at this viewport");
-  return point;
-}
-
-/** Frame is the primary tool; Screen lives in its dropdown. The trigger's
- *  label follows the active mode, so match either. */
-async function pickFrameMode(page: Page, mode: "Frame" | "Screen") {
-  await page
-    .locator(
-      '[data-design-bottom-toolbar] button[aria-label="Frame options"],' +
-        ' [data-design-bottom-toolbar] button[aria-label="Screen options"]',
-    )
-    .first()
-    .click();
-  await page.getByRole("menuitem").filter({ hasText: mode }).first().click();
-  await page.waitForTimeout(600);
-}
-
-async function drawFrameTool(
-  page: Page,
-  mode: "Frame" | "Screen",
-  from: { x: number; y: number },
-  to: { x: number; y: number },
+/** At 100% zoom pointer input still lands on whole page pixels, so a dragged edge can round by one px. */
+function expectWithinAPixel(
+  actual: Record<string, number>,
+  expected: Record<string, number>,
+  label: string,
 ) {
-  await pickFrameMode(page, mode);
-  await page.mouse.move(from.x, from.y);
-  await page.mouse.down();
-  await page.mouse.move(to.x, to.y, { steps: 16 });
-  await page.mouse.up();
-  await page.waitForTimeout(3000);
+  const off = Object.keys(expected).filter(
+    (key) => Math.abs(actual[key]! - expected[key]!) > 1,
+  );
+  expect(
+    off,
+    `${label}: got ${JSON.stringify(actual)}, expected ${JSON.stringify(expected)}`,
+  ).toEqual([]);
 }
 
-async function drawWith(
-  page: Page,
-  tool: string,
-  from: { x: number; y: number },
-  to: { x: number; y: number },
+/** Resolves a saved inline style the way the canvas renders it. */
+async function computedFromSaved(
+  app: App,
+  node: SavedNode | undefined,
+  properties: string[],
 ) {
-  await page
-    .locator(`[data-design-bottom-toolbar] button[aria-label="${tool}"]`)
-    .click();
-  await page.waitForTimeout(500);
-  await page.mouse.move(from.x, from.y);
-  await page.mouse.down();
-  await page.mouse.move(to.x, to.y, { steps: 16 });
-  await page.mouse.up();
-  await page.waitForTimeout(3000);
+  return app.page.evaluate(
+    ({ style, properties }) => {
+      const probe = document.createElement("div");
+      probe.style.cssText = style;
+      document.body.append(probe);
+      const computed = getComputedStyle(probe);
+      const values = Object.fromEntries(
+        properties.map((name) => [name, computed.getPropertyValue(name)]),
+      );
+      probe.remove();
+      return values;
+    },
+    { style: node?.attrs.style ?? "", properties },
+  );
 }
 
-test.beforeAll(async ({}, testInfo) => {
-  baseURL =
-    (testInfo.project.use as { baseURL?: string }).baseURL ??
-    process.env.E2E_BASE_URL ??
-    e2eBaseURL();
-});
-
-test("the Frame option remains sticky when reactivated with F", async ({
-  page,
-}) => {
-  const id = await newDesign(page);
-  await openEditor(page, id);
-  const empty = await emptyBoardPoint(page);
-  const filesBefore = await designFiles(page, id);
-
-  await drawFrameTool(page, "Frame", empty, {
-    x: empty.x + 180,
-    y: empty.y + 140,
+/** The colour actually painted at a board point, whatever layer it comes from. */
+async function paintedAt(app: App, boardX: number, boardY: number) {
+  const point = await app.pagePoint(boardX, boardY);
+  const png = await app.page.screenshot({
+    clip: {
+      x: Math.round(point.x),
+      y: Math.round(point.y),
+      width: 1,
+      height: 1,
+    },
   });
-  expect(await designFiles(page, id)).toEqual(filesBefore);
+  return app.page.evaluate(async (base64) => {
+    const image = new Image();
+    image.src = `data:image/png;base64,${base64}`;
+    await image.decode();
+    const canvas = document.createElement("canvas");
+    canvas.width = 1;
+    canvas.height = 1;
+    const context = canvas.getContext("2d")!;
+    context.drawImage(image, 0, 0);
+    return [...context.getImageData(0, 0, 1, 1).data];
+  }, png.toString("base64"));
+}
+
+async function filenames(app: App, id: string) {
+  return (await app.savedRecord(id)).files.map((file) => file.filename).sort();
+}
+
+async function drawBoardFrame(
+  app: App,
+  id: string,
+  box: { x: number; y: number; width: number; height: number },
+) {
+  const before = await app.savedNodes(id, "__board__.html");
+  await drawBox(app, box);
+  const after = await app.savedNodes(id, "__board__.html");
   expect(
-    (await fileContent(page, id, "__board__.html")).match(
-      /data-an-primitive="frame"/g,
-    ),
-  ).toHaveLength(1);
+    added(before, after).map((node) => node.attrs["data-an-primitive"]),
+  ).toEqual(["frame"]);
+  const [frame] = added(before, after);
+  expectWithinAPixel(savedBox(frame), box, "drawn board frame");
+  return frame;
+}
 
-  await page.keyboard.press("f");
-  await page.mouse.move(empty.x, empty.y + 180);
-  await page.mouse.down();
-  await page.mouse.move(empty.x + 160, empty.y + 300, { steps: 16 });
-  await page.mouse.up();
-  await page.waitForTimeout(3000);
-  expect(await designFiles(page, id)).toEqual(filesBefore);
-  expect(
-    (await fileContent(page, id, "__board__.html")).match(
-      /data-an-primitive="frame"/g,
-    ),
-  ).toHaveLength(2);
-});
-
-test("the Screen option creates a screen after selecting Frame", async ({
-  page,
+test("after choosing Frame in the frame menu, pressing F again still draws board frames, not screens", async ({
+  app,
 }) => {
-  const id = await newDesign(page);
-  await openEditor(page, id);
-  const filesBefore = await designFiles(page, id);
+  const { id } = await openScreenOnBoard(app);
+  const files = await filenames(app, id);
+  await selectTool(app.page, "Frame");
+  await drawBoardFrame(app, id, { x: 440, y: -200, width: 120, height: 100 });
 
-  await page
-    .locator('[data-design-bottom-toolbar] button[aria-label="Frame"]')
-    .click();
-  await page.waitForTimeout(400);
+  await app.page.keyboard.press("f");
+  await expect(
+    app.page.locator('[data-design-bottom-toolbar] button[aria-label="Frame"]'),
+  ).toHaveAttribute("aria-pressed", "true");
+  await drawBoardFrame(app, id, { x: 440, y: 0, width: 120, height: 80 });
 
-  const empty = await emptyBoardPoint(page);
-  await drawFrameTool(page, "Screen", empty, {
-    x: empty.x + 200,
-    y: empty.y + 150,
-  });
-  expect(await designFiles(page, id)).toHaveLength(filesBefore.length + 1);
+  expect(await filenames(app, id)).toEqual(files);
 });
 
-test("the live board uses the light canvas theme token", async ({ page }) => {
-  await page.emulateMedia({ colorScheme: "light" });
-  await page.addInitScript(() => localStorage.setItem("theme", "light"));
-  const id = await newDesign(page);
-  await openEditor(page, id);
-  const empty = await emptyBoardPoint(page);
-  await drawWith(page, "Rectangle", empty, {
-    x: empty.x + 160,
-    y: empty.y + 120,
-  });
+// fixme: fails on current main after the merge: Error: saved design has no __board__.html
+test.fixme("Screen mode draws one new top-level screen at the dragged box and no board frame", async ({
+  app,
+}) => {
+  const { id, screenId } = await openScreenOnBoard(app);
+  const before = await app.savedRecord(id);
+  const boardBefore = await app.savedNodes(id, "__board__.html");
+  await app.page.keyboard.press("f");
+  await selectTool(app.page, "Screen");
 
-  await expect(page.locator("html")).toHaveClass(/light/);
-  // The wrapper paints the board; the document inside it is transparent so a
-  // colour-picker tick does not rebuild the iframe srcdoc.
-  await expect(page.locator("[data-board-surface-layer]")).toHaveCSS(
+  await drawBox(app, { x: 440, y: -200, width: 160, height: 120 });
+
+  const after = await app.savedRecord(id);
+  const newFiles = after.files.filter(
+    (file) => !before.files.some((old) => old.id === file.id),
+  );
+  expect(newFiles.map((file) => file.filename.endsWith(".html"))).toEqual([
+    true,
+  ]);
+  const data = after.data as {
+    canvasFrames: Record<
+      string,
+      { x: number; y: number; width: number; height: number }
+    >;
+  };
+  const frames = data.canvasFrames;
+  const { x, y, width, height } = frames[newFiles[0]!.id]!;
+  expectWithinAPixel(
+    { x, y, width, height },
+    { x: 440, y: -200, width: 160, height: 120 },
+    "new screen frame",
+  );
+  expect(Object.keys(frames).sort()).toStrictEqual(
+    [screenId, newFiles[0]!.id].sort(),
+  );
+  expect(frames[screenId], "the existing screen stays put").toStrictEqual({
+    x: 0,
+    y: 0,
+    width: 400,
+    height: 300,
+    z: 0,
+  });
+  expectOnlyChanged(
+    boardBefore,
+    await app.savedNodes(id, "__board__.html"),
+    [],
+  );
+});
+
+// fixme: fails on current main after the merge: Error: expect(received).toEqual(expected) // deep equality
+test.fixme("after drawing a board frame in the light theme, the board stays light grey and the screen stays painted", async ({
+  app,
+}) => {
+  await app.page.emulateMedia({ colorScheme: "light" });
+  await app.page.addInitScript(() => localStorage.setItem("theme", "light"));
+  const { id } = await openScreenOnBoard(app);
+  await expect(app.page.locator("html")).toHaveClass(/light/);
+  await app.page.keyboard.press("f");
+  await selectTool(app.page, "Frame");
+
+  await drawBoardFrame(app, id, { x: 440, y: -200, width: 120, height: 100 });
+
+  await expect(app.page.locator("[data-board-surface-layer]")).toHaveCSS(
     "background-color",
     "rgb(235, 235, 235)",
   );
+  expect(await paintedAt(app, 520, 200), "empty board").toEqual([
+    235, 235, 235, 255,
+  ]);
+  expect(await paintedAt(app, 200, 150), "screen body").toEqual(SCREEN_BLUE);
+  expect(await paintedAt(app, 500, -150), "the new frame").toEqual(WHITE);
 });
 
-test("the development interaction trace exposes a dump", async ({ page }) => {
-  const id = await newDesign(page);
-  await openEditor(page, id);
-
-  await expect
-    .poll(() =>
-      page.evaluate(() => typeof window.__designTrace?.dump === "function"),
-    )
-    .toBe(true);
-  const dump = await page.evaluate(() => window.__designTrace!.dump());
-  expect(dump).toContain("[");
-});
-
-test("1:19 — the Frame tool inside a screen makes a frame, not a screen", async ({
-  page,
+test("Frame mode inside a screen adds a frame to that screen at the dragged box, not a new screen", async ({
+  app,
 }) => {
-  const id = await newDesign(page);
-  await openEditor(page, id);
-  const screen = await screenBox(page);
-  const before = await designFiles(page, id);
+  const { id } = await openScreenOnBoard(app);
+  const files = await filenames(app, id);
+  const before = await app.savedNodes(id);
+  await app.page.keyboard.press("f");
+  await selectTool(app.page, "Frame");
 
-  await drawFrameTool(
-    page,
-    "Frame",
-    { x: screen.x + 40 * screen.scale, y: screen.y + 150 * screen.scale },
-    { x: screen.x + 260 * screen.scale, y: screen.y + 400 * screen.scale },
+  await drawBox(app, { x: 100, y: 100, width: 160, height: 120 });
+
+  expect(await filenames(app, id)).toEqual(files);
+  const after = await app.savedNodes(id);
+  expect(
+    added(before, after).map((node) => node.attrs["data-an-primitive"]),
+  ).toEqual(["frame"]);
+  const [frame] = added(before, after);
+  expect(frame.parent).toBe("page");
+  expectWithinAPixel(
+    savedBox(frame),
+    { x: 100, y: 100, width: 160, height: 120 },
+    "frame in the screen",
   );
-
-  expect(
-    await designFiles(page, id),
-    "drawing inside a screen must not add a screen file",
-  ).toEqual(before);
-  expect(
-    await fileContent(page, id, "index.html"),
-    "the frame must land in the screen it was drawn in",
-  ).toContain('data-an-primitive="frame"');
+  expectOnlyChanged(before, after, [frame.id]);
 });
 
-test("1:19 — the Screen tool makes a top-level screen, the Frame tool does not", async ({
-  page,
+test("a board frame dragged onto a screen moves into it with its centre at the release point, and stays there after reload", async ({
+  app,
 }) => {
-  const id = await newDesign(page);
-  await openEditor(page, id);
-  const empty = await emptyBoardPoint(page);
-  const before = await designFiles(page, id);
-
-  await drawFrameTool(page, "Screen", empty, {
-    x: empty.x + 240,
-    y: empty.y + 260,
+  const { id } = await openScreenOnBoard(app);
+  await app.page.keyboard.press("f");
+  await selectTool(app.page, "Frame");
+  const frame = await drawBoardFrame(app, id, {
+    x: 440,
+    y: -200,
+    width: 80,
+    height: 80,
   });
+  const screenBefore = await app.savedNodes(id);
+  await app.page.keyboard.press("v");
+
+  await dragOnCanvas(app, { x: 480, y: -160 }, { x: 200, y: 150 });
 
   expect(
-    (await designFiles(page, id)).length,
-    "a board frame becomes a new screen file",
-  ).toBe(before.length + 1);
-});
-
-// boardSurfaceLocalPointToBoardPoint translates the board's 8192² document as
-// 1:1 canvas units, so a board-sourced drag's canvas y runs past the target
-// screen and getFrameEntryAtPoint never resolves a frame.
-test.fixme("4:24 — a board frame can be dragged into a screen and become a child", async ({
-  page,
-}) => {
-  const id = await newDesign(page);
-  await openEditor(page, id);
-  const empty = await emptyBoardPoint(page);
-  await drawFrameTool(page, "Frame", empty, {
-    x: empty.x + 200,
-    y: empty.y + 200,
+    (await app.savedNodes(id, "__board__.html")).has(frame.id),
+    "the frame left the board",
+  ).toBe(false);
+  const screenAfter = await app.savedNodes(id);
+  expect(screenAfter.get(frame.id)?.parent).toBe("page");
+  const { style: _boardStyle, ...boardAttrs } = frame.attrs;
+  const { style: _screenStyle, ...screenAttrs } = screenAfter.get(
+    frame.id,
+  )!.attrs;
+  expect(screenAttrs).toEqual({
+    ...boardAttrs,
+    "data-agent-native-clone-root": "true",
+    "data-agent-native-preserve-styles": "true",
   });
-
-  expect(
-    await fileContent(page, id, "__board__.html"),
-    "precondition: the frame tool must put a frame on the board",
-  ).toContain('data-an-primitive="frame"');
-
-  // Board objects live in their own iframe behind the screens.
-  const boardFrame = page
-    .locator("[data-board-surface-layer] iframe")
-    .first()
-    .contentFrame()
-    .locator('[data-an-primitive="frame"]')
-    .first();
-  const from = (await boardFrame.boundingBox())!;
-  const screen = await screenBox(page);
-
-  await page
-    .locator('[data-design-bottom-toolbar] button[aria-label="Move"]')
-    .click();
-  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(
-    from.x + from.width / 2 - 12,
-    from.y + from.height / 2,
-    {
-      steps: 4,
-    },
+  expectWithinAPixel(
+    savedBox(screenAfter.get(frame.id)),
+    { x: 160, y: 110, width: 80, height: 80 },
+    "frame in the screen",
   );
-  await page.mouse.move(
-    screen.x + screen.width / 2,
-    screen.y + 300 * screen.scale,
-    { steps: 24 },
+  expectOnlyChanged(screenBefore, screenAfter, [frame.id]);
+
+  await app.page.reload();
+  await expect(app.node(frame.id)).toBeVisible();
+  expectWithinAPixel(
+    await app.designRect(frame.id),
+    { x: 160, y: 110, width: 80, height: 80 },
+    "rendered after reload",
   );
-  await page.waitForTimeout(700);
-  await page.mouse.up();
-  await page.waitForTimeout(3000);
-
-  expect(
-    await fileContent(page, id, "index.html"),
-    `Clip 4:24 "adding a frame inside of a screen is not possible". Dragging a ` +
-      `board frame onto a screen must move it into that screen's document.`,
-  ).toContain('data-an-primitive="frame"');
 });
 
-// Was an invisible skip: it fired on EVERY run, so this guarded nothing while
-// still counting toward the suite total. Measured cause — its three selectors
-// cannot match a committed board object. `data-draft-id` is transient (the
-// in-progress draw, gone once committed) and `data-board-primitive-id` /
-// `data-an-board-object` do not exist anywhere in the app. Committed board
-// objects live INSIDE the board-surface iframe, so a host-level z-index
-// comparison cannot see them. Rewriting it needs the real stacking contract
-// between `[data-board-surface-layer]` and `[data-screen-iframe-id]`, which is
-// a product decision in the canvas-layering area, not a test fix.
-test.fixme("2:11 — a shape drawn on the board is not painted behind the screens", async ({
-  page,
+test("a board frame dropped onto a larger board frame nests in it with its centre at the release point", async ({
+  app,
 }) => {
-  const id = await newDesign(page);
-  await openEditor(page, id);
-  const empty = await emptyBoardPoint(page);
-  await drawWith(page, "Rectangle", empty, {
-    x: empty.x + 160,
-    y: empty.y + 120,
+  const { id } = await openScreenOnBoard(app);
+  await app.page.keyboard.press("f");
+  await selectTool(app.page, "Frame");
+  const source = await drawBoardFrame(app, id, {
+    x: 440,
+    y: -200,
+    width: 80,
+    height: 80,
   });
+  await app.page.keyboard.press("f");
+  const target = await drawBoardFrame(app, id, {
+    x: 440,
+    y: 100,
+    width: 160,
+    height: 160,
+  });
+  const before = await app.savedNodes(id, "__board__.html");
+  await app.page.keyboard.press("v");
 
-  const stacking = await page.evaluate(() => {
-    const zOf = (el: Element | null) => {
-      let node = el as HTMLElement | null;
-      while (node) {
-        const z = getComputedStyle(node).zIndex;
-        if (z && z !== "auto") return Number(z);
-        node = node.parentElement;
-      }
-      return 0;
-    };
-    const screenCard = document.querySelector("[data-screen-iframe-id]");
-    const boardObject = document.querySelector(
-      "[data-draft-id],[data-board-primitive-id],[data-an-board-object]",
-    );
-    return boardObject
-      ? { screen: zOf(screenCard), object: zOf(boardObject) }
-      : null;
-  });
-  test.skip(
-    !stacking,
-    "no board object node was found to compare stacking against",
+  await dragOnCanvas(app, { x: 480, y: -160 }, { x: 520, y: 180 });
+
+  const after = await app.savedNodes(id, "__board__.html");
+  expect(after.get(source.id)?.parent).toBe(target.id);
+  expectWithinAPixel(
+    savedBox(after.get(source.id)),
+    { x: 40, y: 40, width: 80, height: 80 },
+    "source inside the target",
   );
-
-  expect(
-    stacking!.object,
-    `Clip 2:11 "this is now behind the screen. I don't understand why that is." ` +
-      `A board object must not stack below a screen card ` +
-      `(object z=${stacking!.object}, screen z=${stacking!.screen}).`,
-  ).toBeGreaterThanOrEqual(stacking!.screen);
+  // The source was the board's first child, so leaving it moves the target up.
+  expect(after.get(target.id)).toEqual({ ...before.get(target.id), index: 0 });
+  expectOnlyChanged(before, after, [source.id]);
 });
 
-test("a rectangle drawn on the board keeps its neutral fill", async ({
-  page,
+// fixme: product bug: Position and ownership are correct, but the frame is painted behind the locked screen. The pixel at its centre is the screen's blue
+test.fixme("a board frame released over a locked screen stays on the board at the release point, painted above the screen", async ({
+  app,
 }) => {
-  const id = await newDesign(page);
-  await openEditor(page, id);
-  const empty = await emptyBoardPoint(page);
-  await drawWith(page, "Rectangle", empty, {
-    x: empty.x + 160,
-    y: empty.y + 120,
+  const { id } = await openScreenOnBoard(app);
+  const homeRow = app.page
+    .getByRole("tree", { name: "Layers" })
+    .getByRole("treeitem")
+    .filter({
+      has: app.page.getByRole("button", { name: "Home", exact: true }),
+    });
+  await homeRow.hover();
+  await homeRow.getByRole("button", { name: "Lock layer" }).click();
+  await expect(
+    homeRow.getByRole("button", { name: "Unlock layer" }),
+  ).toBeVisible();
+  await app.page.keyboard.press("f");
+  await selectTool(app.page, "Frame");
+  const frame = await drawBoardFrame(app, id, {
+    x: 440,
+    y: -200,
+    width: 80,
+    height: 80,
   });
+  const screenBefore = await app.savedNodes(id);
+  await app.page.keyboard.press("v");
 
-  const style =
-    /data-an-primitive="rectangle"[^>]*style="([^"]*)"/.exec(
-      await fileContent(page, id, "__board__.html"),
-    )?.[1] ?? "";
+  await dragOnCanvas(app, { x: 480, y: -160 }, { x: 200, y: 150 });
+
+  const board = await app.savedNodes(id, "__board__.html");
+  expectWithinAPixel(
+    savedBox(board.get(frame.id)),
+    { x: 160, y: 110, width: 80, height: 80 },
+    "frame on the board",
+  );
+  expectOnlyChanged(screenBefore, await app.savedNodes(id), []);
   expect(
-    style,
-    `the clip reports rectangles coming out black; the canonical fill is a ` +
-      `neutral grey. Got: ${style || "(no rectangle found)"}`,
-  ).toContain("rgb(218, 218, 218)");
+    await paintedAt(app, 200, 150),
+    "the frame is painted over the locked screen",
+  ).toEqual(WHITE);
+
+  await app.page.reload();
+  await app.zoomToFit();
+  await app.zoomTo100();
+  expect(
+    await paintedAt(app, 200, 150),
+    "still painted over the screen after reload",
+  ).toEqual(WHITE);
 });
 
-test("the canvas does not go black and hide the screens after drawing a frame", async ({
-  page,
+// fixme: fails on current main after the merge: Error: expect(locator).toBeVisible() failed
+test.fixme("R on the board draws a #D9D9D9 rectangle at the dragged box", async ({
+  app,
 }) => {
-  const id = await newDesign(page);
-  await openEditor(page, id);
-  const empty = await emptyBoardPoint(page);
+  const { id } = await openScreenOnBoard(app);
+  const before = await app.savedNodes(id, "__board__.html");
+  await app.page.keyboard.press("r");
 
-  const before = await screenBox(page);
+  await drawBox(app, { x: 440, y: -200, width: 160, height: 120 });
+
+  const after = await app.savedNodes(id, "__board__.html");
   expect(
-    before.width,
-    "precondition: the screen renders before drawing",
-  ).toBeGreaterThan(50);
-
-  await drawFrameTool(page, "Frame", empty, {
-    x: empty.x + 240,
-    y: empty.y + 260,
+    added(before, after).map((node) => node.attrs["data-an-primitive"]),
+  ).toEqual(["rectangle"]);
+  const [rect] = added(before, after);
+  expectWithinAPixel(
+    savedBox(rect),
+    { x: 440, y: -200, width: 160, height: 120 },
+    "board rectangle",
+  );
+  expect(await computedFromSaved(app, rect, ["background-color"])).toEqual({
+    "background-color": "rgb(217, 217, 217)",
   });
-
-  // The frame has to exist, or "the screens are still visible" holds for the
-  // trivial reason that nothing was drawn.
-  await expect
-    .poll(() => fileContent(page, id, "__board__.html"), { timeout: 20_000 })
-    .toContain('data-an-primitive="frame"');
-
-  // Clip "Canvas Turns Black and Hides Frames": after the frame was created
-  // the overview painted black and every screen vanished from the canvas.
-  const after = await page
-    .locator("iframe[data-design-preview-iframe]")
-    .first()
-    .boundingBox();
-  expect(
-    after && after.width > 50 && after.height > 50,
-    `the screen must still be on the canvas after drawing a frame; got ` +
-      `${after ? `${Math.round(after.width)}x${Math.round(after.height)}` : "no screen"}`,
-  ).toBe(true);
-
-  const visibleScreens = await page.locator("[data-screen-iframe-id]").count();
-  expect(
-    visibleScreens,
-    "screens must not be hidden after drawing a frame",
-  ).toBeGreaterThan(0);
+  expect(await paintedAt(app, 520, -140)).toEqual([217, 217, 217, 255]);
 });

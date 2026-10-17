@@ -72,10 +72,6 @@ describe("dashboard-panel-query: program source", () => {
     });
 
     it("accepts a bare program id and stores it as a descriptor", () => {
-      // Production: a panel saved as `dp_01c5e3d...` threw `is not valid JSON`
-      // on every render because the writer passed any string through untouched
-      // while the reader required JSON. With no params the id IS the whole
-      // descriptor, so both sides have to accept it.
       expect(normalizeDashboardPanelQuery("program", "dp_01c5e3d")).toBe(
         JSON.stringify({ programId: "dp_01c5e3d" }),
       );
@@ -155,6 +151,31 @@ describe("dashboard-panel-query: program source", () => {
         expect.objectContaining({
           appId: "app",
           programId: "dp_custom_api",
+        }),
+      );
+    });
+
+    it("keeps org-only credential scope when previewing a data-program panel", async () => {
+      mocks.runDataProgram.mockResolvedValue({
+        ok: true,
+        rows: [{ id: 1 }],
+        schema: [{ name: "id", type: "number" }],
+        truncated: false,
+      });
+
+      await runDashboardPanelQuery({
+        source: "program",
+        query: JSON.stringify({ programId: "dp_customer" }),
+        ctx: { ...ctx, credentialScope: "org" },
+      });
+
+      expect(mocks.runDataProgram).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ctx: {
+            userEmail: ctx.userEmail,
+            orgId: ctx.orgId,
+            credentialScope: "org",
+          },
         }),
       );
     });

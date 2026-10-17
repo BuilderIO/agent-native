@@ -1,9 +1,3 @@
-/**
- * Constructing an `Intl.DateTimeFormat` costs ~45µs, and resolving one wall
- * clock probes the zone a dozen times — so formatters are cached per zone and
- * option set. Only the date varies per call, and that is an argument to
- * `format`/`formatToParts`, never part of the formatter.
- */
 const formatterCache = new Map<string, Intl.DateTimeFormat>();
 
 export function timezoneFormatter(
@@ -23,14 +17,14 @@ export function timezoneFormatter(
   return formatter;
 }
 
-/**
- * Whether a value names a zone this calendar can use. Only a `RangeError` means
- * Intl rejected the zone; any other failure is a real fault and must surface
- * instead of being reported as "invalid".
- *
- * Several older helpers around the template still run their own version of this
- * check with a bare `catch`; prefer this one and delete those as you touch them.
- */
+export function timezoneShortName(timezone: string, locale = "en-US"): string {
+  return (
+    timezoneFormatter(timezone, { timeZoneName: "shortGeneric" }, locale)
+      .formatToParts(new Date())
+      .find((part) => part.type === "timeZoneName")?.value ?? timezone
+  );
+}
+
 export function isCalendarTimezone(value: unknown): value is string {
   if (typeof value !== "string" || !value.trim()) return false;
   try {
@@ -138,6 +132,7 @@ export function getCalendarViewDateRange(
   selectedDate: string,
   timezone: string,
   weekStartsOn: 0 | 1 = 0,
+  numberOfDays = 7,
 ): { from: string; to: string } {
   const selectedMonthStart = `${selectedDate.slice(0, 7)}-01`;
   const [year, month] = selectedMonthStart.split("-").map(Number);
@@ -148,8 +143,14 @@ export function getCalendarViewDateRange(
   let rangeStart = selectedDate;
   let rangeEndExclusive = addDaysToDateKey(selectedDate, 1);
   if (viewMode === "week") {
-    rangeStart = startOfCalendarWeek(selectedDate, weekStartsOn);
-    rangeEndExclusive = addDaysToDateKey(rangeStart, 7);
+    const displayedDays = Number.isInteger(numberOfDays)
+      ? Math.min(31, Math.max(1, numberOfDays))
+      : 7;
+    rangeStart =
+      displayedDays === 7
+        ? startOfCalendarWeek(selectedDate, weekStartsOn)
+        : selectedDate;
+    rangeEndExclusive = addDaysToDateKey(rangeStart, displayedDays);
   } else if (viewMode === "month") {
     const monthEnd = addDaysToDateKey(nextMonthStart, -1);
     rangeStart = startOfCalendarWeek(selectedMonthStart, weekStartsOn);

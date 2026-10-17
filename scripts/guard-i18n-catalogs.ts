@@ -8,6 +8,8 @@ import {
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { coreMessagesForLocale } from "../packages/core/src/localization/core-messages.js";
+import defaultEnglishMessages from "../packages/core/src/localization/default-messages.js";
 import {
   DEFAULT_LOCALE,
   isValidLocaleCode,
@@ -16,8 +18,26 @@ import {
   type LocaleCode,
 } from "../packages/core/src/localization/shared.js";
 import { splitDocSegments } from "../packages/docs/lib/doc-block-segments";
+import { toolkitMessagesForLocale } from "../packages/toolkit/src/app/i18n/catalog.js";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
+
+// Baseline ids and ignore checks use "/" separators on every OS.
+function relativeToRoot(target: string): string {
+  return path.relative(rootDir, target).split(path.sep).join("/");
+}
+const toolkitCatalogDir = path.join(
+  rootDir,
+  "packages",
+  "toolkit",
+  "src",
+  "app",
+  "i18n",
+  "catalogs",
+);
+const toolkitPropLocalizedSources = new Set([
+  "packages/toolkit/src/app/auth/AuthPage.tsx",
+]);
 const pluralSuffixes = new Set(["zero", "one", "two", "few", "many", "other"]);
 const supportedLocaleSet = new Set<string>(SUPPORTED_LOCALES);
 
@@ -210,13 +230,24 @@ async function checkCatalogKeyCoverage(catalogDirs: string[]) {
 
     const source = await loadFlatCatalog(sourceCatalog);
     if (source.errors.length > 0) continue;
-    const sourceKeys = source.flat;
-    const sourceRoot = path.dirname(dir);
+    const sourceKeys =
+      dir === toolkitCatalogDir
+        ? flattenCatalogMessages(
+            toolkitMessagesForLocale(DEFAULT_LOCALE),
+            coreMessagesForLocale(DEFAULT_LOCALE),
+            defaultEnglishMessages,
+          )
+        : source.flat;
+    const sourceRoot =
+      dir === toolkitCatalogDir
+        ? path.join(rootDir, "packages", "toolkit", "src", "app")
+        : path.dirname(dir);
 
     for (const file of collectSourceFiles(sourceRoot)) {
-      const rel = path.relative(rootDir, file);
+      const rel = relativeToRoot(file);
       if (
         rel.includes("/i18n/") ||
+        toolkitPropLocalizedSources.has(rel) ||
         rawLiteralFileIgnore.some((part) => rel.includes(part))
       ) {
         continue;
@@ -263,7 +294,7 @@ async function checkCatalogEnglishValueDebt(catalogDirs: string[]) {
   const noTranslateTerms = readNoTranslateTerms();
 
   for (const dir of catalogDirs) {
-    const relDir = path.relative(rootDir, dir);
+    const relDir = relativeToRoot(dir);
     const sourceCatalog = path.join(dir, `${DEFAULT_LOCALE}.ts`);
     if (!existsSync(sourceCatalog)) continue;
 
@@ -306,14 +337,7 @@ async function checkCatalogEnglishValueDebt(catalogDirs: string[]) {
 export function findCatalogDirs(): string[] {
   const candidates = [
     path.join(rootDir, "app", "i18n"),
-    path.join(
-      rootDir,
-      "packages",
-      "core",
-      "src",
-      "localization",
-      "core-messages",
-    ),
+    toolkitCatalogDir,
     path.join(
       rootDir,
       "packages",
@@ -334,6 +358,12 @@ export function findCatalogDirs(): string[] {
   return [...new Set(candidates)].filter((dir) => existsSync(dir)).sort();
 }
 
+function flattenCatalogMessages(...messages: unknown[]): FlatCatalog {
+  const flat = new Map<string, string>();
+  for (const value of messages) flattenCatalog(value, [], flat, []);
+  return flat;
+}
+
 function safeReadDir(dir: string) {
   try {
     return readdirSync(dir);
@@ -343,7 +373,7 @@ function safeReadDir(dir: string) {
 }
 
 async function checkCatalogDir(dir: string): Promise<string[]> {
-  const relDir = path.relative(rootDir, dir);
+  const relDir = relativeToRoot(dir);
   const errors: string[] = [];
   const files = safeReadDir(dir)
     .filter((file) => file.endsWith(".ts") && file !== "index.ts")
@@ -417,7 +447,7 @@ async function checkCatalogScriptContamination(
 ): Promise<string[]> {
   const errors: string[] = [];
   for (const dir of catalogDirs) {
-    const relDir = path.relative(rootDir, dir);
+    const relDir = relativeToRoot(dir);
     for (const file of safeReadDir(dir).sort()) {
       if (!file.endsWith(".ts") || file === "index.ts") continue;
       const locale = file.replace(/\.ts$/, "");
@@ -472,7 +502,7 @@ async function loadFlatCatalog(file: string): Promise<{
     return {
       flat: new Map(),
       errors: [
-        `failed to import ${path.relative(rootDir, file)}: ${
+        `failed to import ${relativeToRoot(file)}: ${
           error instanceof Error ? error.message : String(error)
         }`,
       ],
@@ -508,7 +538,7 @@ function flattenCatalog(
 }
 
 function checkDuplicateTopLevelCatalogKeys(file: string) {
-  const rel = path.relative(rootDir, file);
+  const rel = relativeToRoot(file);
   const text = readFileSync(file, "utf8");
   const start = findCatalogObjectStart(text);
   if (start < 0) return [];
@@ -817,6 +847,9 @@ const rawLiteralRoots = [
   "packages/core/src/client/AgentPanel.tsx",
   "packages/core/src/client/AssistantChat.tsx",
   "packages/core/src/client/MultiTabAssistantChat.tsx",
+  "packages/core/src/client/AgentKitAssistantChat.tsx",
+  "packages/core/src/client/agentkit-chat",
+  "packages/agentkit/src/react",
   "packages/core/src/client/chat/ChatHistoryList.tsx",
   "packages/core/src/client/chat/action-chat-ui-surface.tsx",
   "packages/core/src/client/chat/markdown-renderer.tsx",
@@ -942,6 +975,45 @@ const rawLiteralAllowPatterns = [
 ];
 const codeLikeRawLiteralPattern =
   /[{}();=<>]|\b(?:const|let|return|useState|useRef|useMemo|ReactNode|Record|Map|Set|Promise|queryClient|undefined|null|true|false)\b/;
+const typescriptParameterFragmentPattern =
+  /^\s*,\s*[a-z_$][\w$]*\??\s*:\s*(?:readonly\s+)?[A-Z][\w$]*(?:\.[A-Z][\w$]*)*\s*$/;
+
+const genericTypeHeadPattern = /([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*$/;
+
+function isGenericTypeParameterFragment(
+  source: string,
+  closingAngleIndex: number,
+  value: string,
+): boolean {
+  if (!typescriptParameterFragmentPattern.test(value)) return false;
+
+  let depth = 0;
+  let openingAngleIndex = -1;
+  for (let index = closingAngleIndex; index >= 0; index--) {
+    if (source[index] === ">" && source[index - 1] !== "=") depth++;
+    else if (source[index] === "<" && source[index + 1] !== "=") {
+      depth--;
+      if (depth === 0) {
+        openingAngleIndex = index;
+        break;
+      }
+    }
+  }
+  if (openingAngleIndex < 0 || source[openingAngleIndex + 1] === "/") {
+    return false;
+  }
+
+  const beforeOpeningAngle = source.slice(0, openingAngleIndex);
+  const headMatch = beforeOpeningAngle.match(genericTypeHeadPattern);
+  if (!headMatch) return false;
+  const typeHeadStart = openingAngleIndex - headMatch[0].length;
+  const beforeTypeHead = source.slice(0, typeHeadStart);
+  return (
+    /[:,|&]\s*$/.test(beforeTypeHead) ||
+    /=>\s*$/.test(beforeTypeHead) ||
+    /\b(?:extends|implements|as|satisfies)\s*$/.test(beforeTypeHead)
+  );
+}
 
 function readRawLiteralBaseline() {
   return readLineBaseline(rawLiteralBaselinePath);
@@ -999,7 +1071,7 @@ function checkRawVisibleLiterals(): { errors: string[]; issueIds: string[] } {
     if (!existsSync(abs)) continue;
     const files = collectSourceFiles(abs);
     for (const file of files) {
-      const rel = path.relative(rootDir, file);
+      const rel = relativeToRoot(file);
       if (rawLiteralFileIgnore.some((part) => rel.includes(part))) continue;
       const text = readFileSync(file, "utf8");
       const issues = checkRawVisibleLiteralFile(rel, text);
@@ -1045,7 +1117,7 @@ function isSourceFile(file: string): boolean {
   return /\.(tsx?|jsx?)$/.test(file);
 }
 
-function checkRawVisibleLiteralFile(
+export function checkRawVisibleLiteralFile(
   rel: string,
   text: string,
 ): Array<{ id: string; message: string }> {
@@ -1058,13 +1130,6 @@ function checkRawVisibleLiteralFile(
     if (lineText.includes("i18n-ignore")) return;
     if (/^\s*(?:\/\/|\*)/.test(lineText)) return;
     const trimmed = value.replace(/\s+/g, " ").trim();
-    if (
-      (rel.startsWith("packages/core/src/client/") ||
-        rel.startsWith("packages/toolkit/src/")) &&
-      /,\s*\w+\??:\s*(?:readonly\s+)?(?:Readonly\w*|Pick)\b/.test(trimmed)
-    ) {
-      return;
-    }
     if (!isLikelyVisibleLiteral(trimmed)) return;
     const id = `${rel}|${trimmed}`;
     issues.push({
@@ -1085,7 +1150,11 @@ function checkRawVisibleLiteralFile(
   }
 
   for (const match of text.matchAll(/>([^<>{}]*[A-Za-z][^<>{}]*)</g)) {
-    report(match.index ?? 0, match[1] ?? "");
+    const index = match.index ?? 0;
+    const value = match[1] ?? "";
+    if (!isGenericTypeParameterFragment(text, index, value)) {
+      report(index, value);
+    }
   }
 
   const attrPattern = new RegExp(
@@ -1166,13 +1235,20 @@ const protectedLocalizedDocsIdentifiers = [
 ];
 
 const corruptedLocalizedDocsIdentifierPatterns = [
-  /Prompt(?!Composer)[\p{L}]+r/u,
+  /(?<![\p{L}\p{N}_])Prompt(?!Composer)[\p{L}]+r(?![\p{L}\p{N}_])/u,
   /Agent(?!ComposerFrame)[\p{L}]+rFrame/u,
   /Tiptap(?!Composer)[\p{L}]+r/u,
   /buildPrompt(?!ComposerSubmission)[\p{L}]+rSubmission/u,
   /encode(?!ComposerDraft)[\p{L}]+Draft/u,
   /Nachricht\/send/u,
 ];
+
+export function findCorruptedLocalizedDocsIdentifiers(text: string): string[] {
+  return corruptedLocalizedDocsIdentifierPatterns.flatMap((pattern) => {
+    const match = text.match(pattern);
+    return match ? [match[0]] : [];
+  });
+}
 
 type LocalizedDocsCoverageArgs = {
   sourceSlugs: Iterable<string>;
@@ -1286,7 +1362,7 @@ function checkLocalizedDocsEmbeddedStrings(): {
       );
       if (sourceStrings.length === 0) continue;
 
-      const rel = path.relative(rootDir, file);
+      const rel = relativeToRoot(file);
       for (const source of sourceStrings) {
         if (noTranslateTerms.has(source)) continue;
         if (!containsSourcePhrase(localizedText, source)) continue;
@@ -1319,7 +1395,7 @@ function checkLocalizedDocsProtectedIdentifiers(): string[] {
 
       const sourceText = readFileSync(sourceFile, "utf8");
       const localizedText = readFileSync(file, "utf8");
-      const rel = path.relative(rootDir, file);
+      const rel = relativeToRoot(file);
 
       for (const identifier of protectedLocalizedDocsIdentifiers) {
         if (!sourceText.includes(identifier)) continue;
@@ -1329,11 +1405,11 @@ function checkLocalizedDocsProtectedIdentifiers(): string[] {
         );
       }
 
-      for (const pattern of corruptedLocalizedDocsIdentifierPatterns) {
-        const match = localizedText.match(pattern);
-        if (!match) continue;
+      for (const identifier of findCorruptedLocalizedDocsIdentifiers(
+        localizedText,
+      )) {
         errors.push(
-          `${rel}: likely translated/corrupted code identifier "${match[0]}" must be restored to the English API identifier`,
+          `${rel}: likely translated/corrupted code identifier "${identifier}" must be restored to the English API identifier`,
         );
       }
     }

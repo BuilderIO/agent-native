@@ -1,26 +1,3 @@
-/**
- * Prod incident (2026-07-25 reliability sweep): `import-file`'s PDF path
- * crashed with "DOMMatrix is not defined" 21 times in 14 days. `pdf-parse`'s
- * `/worker` submodule unconditionally imports `@napi-rs/canvas` (a native
- * N-API binary) as a side effect of the import itself — just to read its
- * bundled worker-script blob (`getData()`) — and assigns its `DOMMatrix`
- * export onto `globalThis` for pdfjs-dist's text-transform math to use. That
- * native binary is fragile in serverless Lambda-style environments (missing
- * platform binding, wrong glibc/musl target) and can silently fail to
- * populate `globalThis.DOMMatrix` without the surrounding import itself
- * throwing, so the crash only surfaces later, deep inside `getText()`.
- *
- * `getText()` never renders to a canvas — `CanvasFactory` is documented
- * optional on `LoadParameters` and is only consumed by `getImage()`/
- * `getScreenshot()`. So for pure text extraction we don't need the canvas
- * import to succeed; we only need SOME `DOMMatrix` implementation to exist
- * for pdfjs-dist's 2D transform math. This installs a minimal, spec-correct
- * 2D-affine `DOMMatrix` polyfill (PDF content-stream matrices are always the
- * 2D 6-value form, never 3D) as a fallback, then attempts the real
- * `@napi-rs/canvas`-backed setup for the CanvasFactory/worker-script wiring,
- * catching failure instead of letting it crash the whole import.
- */
-
 interface Minimal2DMatrix {
   a: number;
   b: number;
@@ -114,19 +91,11 @@ function installDomMatrixPolyfillIfMissing(): void {
   (globalThis as { DOMMatrix?: unknown }).DOMMatrix = PolyfillDOMMatrix;
 }
 
-/** Result of `setupPdfParse` — pass `canvasFactory` to `new PDFParse(...)` when present. */
 export interface PdfParseSetup {
   PDFParse: typeof import("pdf-parse").PDFParse;
   canvasFactory: object | undefined;
 }
 
-/**
- * Sets up `pdf-parse` for text extraction, tolerating a broken native-canvas
- * dependency. Always installs the DOMMatrix polyfill FIRST (cheap, no
- * native deps, spec-correct for the 2D case pdfjs-dist actually uses) so
- * `getText()` can never hit "DOMMatrix is not defined" regardless of
- * whether the canvas worker setup below succeeds.
- */
 export async function setupPdfParse(): Promise<PdfParseSetup> {
   installDomMatrixPolyfillIfMissing();
 
@@ -137,10 +106,6 @@ export async function setupPdfParse(): Promise<PdfParseSetup> {
     PDFParse.setWorker(getData());
     canvasFactory = CanvasFactory;
   } catch (err) {
-    // Native @napi-rs/canvas binding unavailable in this runtime — fine for
-    // text-only extraction. Leave the worker script unconfigured (a
-    // documented no-op read, see PDFParse.setWorker) and CanvasFactory
-    // undefined; pdfjs-dist runs in-process without a separate worker.
     console.warn(
       "[import-file] pdf-parse canvas worker setup failed, continuing without it (text-only extraction is unaffected):",
       err instanceof Error ? err.message : String(err),

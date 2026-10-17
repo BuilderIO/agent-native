@@ -18,6 +18,27 @@ pnpm action create-form --title "Contact Form" --fields '[...]'
 
 The script generates a unique ID, creates a URL slug, and stores the form in SQL as `draft` status.
 
+### One request, one form
+
+Every form the user describes is its own form. Use `create-form` for each new
+form request even when a form is already open on screen or you created one
+earlier in the same conversation — the open form is context, not a default
+target. Reach for `update-form` / `patch-form-fields` only when the user is
+changing that specific form.
+
+| The user says | Call |
+| --- | --- |
+| "Create a customer feedback form..." | `create-form` |
+| "Now build an event registration form..." | `create-form` (a second form) |
+| "Add a phone field to it" | `patch-form-fields` |
+| "Rename this form / publish it" | `update-form` |
+| "Rewrite this form as a signup form" | `update-form` with `confirmReplaceFields: true` |
+
+`update-form` rejects a `fields` replacement that drops most of the form's
+existing questions with `unconfirmed_field_loss`. That error means the call was
+about to overwrite a form the user still wants: create the new form instead,
+unless they explicitly asked to rewrite this one in place.
+
 ## Field Types
 
 | Type          | Description                    | Options needed | Example use           |

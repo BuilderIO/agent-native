@@ -1,6 +1,7 @@
 interface ActionQuery {
   queryKey: readonly unknown[];
   isActive?: () => boolean;
+  meta?: Record<string, unknown>;
 }
 
 interface ActionEvent {
@@ -17,9 +18,13 @@ const COMMENT_MUTATIONS = new Set([
 
 const DOCUMENT_MUTATIONS = new Set([
   "create-and-link-notion-page",
+  "decide-resource-suggestion",
+  "decide-resource-suggestion-proposal",
   "delete-document",
   "delete-document-property",
   "delete-content-database",
+  "execute-content-trash-purge",
+  "permanently-delete-document",
   "duplicate-document-property",
   "edit-document",
   "execute-builder-source-batch",
@@ -28,6 +33,7 @@ const DOCUMENT_MUTATIONS = new Set([
   "migrate-content-database-rows",
   "move-document",
   "mutate-content-database-block",
+  "patch-database-items",
   "process-builder-body-hydration",
   "pull-builder-doc",
   "pull-document",
@@ -46,6 +52,7 @@ const DOCUMENT_MUTATIONS = new Set([
   "sync-local-folder-source",
   "sync-manifest-local-folder-source",
   "transcribe-media",
+  "undo-content-import",
   "update-document",
 ]);
 
@@ -64,6 +71,7 @@ const DATABASE_RESULT_MUTATIONS = new Set([
   "import-content-source",
   "migrate-content-database-rows",
   "move-database-item",
+  "patch-database-items",
   "remove-database-items",
   "reorder-document-property",
   "restore-content-database",
@@ -83,7 +91,20 @@ const DATABASE_PRESENTATION_MUTATIONS = new Set([
 
 const DATABASE_LIFECYCLE_MUTATIONS = new Set([
   "delete-content-database",
+  "execute-content-trash-purge",
+  "permanently-delete-document",
   "restore-content-database",
+  "restore-document",
+]);
+
+const DOCUMENT_DISCOVERY_MUTATIONS = new Set([
+  "create-document",
+  "import-content",
+]);
+
+const PREVIEW_DRAFT_MUTATIONS = new Set([
+  "resolve-preview-document-draft",
+  "update-preview-document-draft",
 ]);
 
 const DATABASE_LIFECYCLE_QUERIES = new Set([
@@ -91,6 +112,7 @@ const DATABASE_LIFECYCLE_QUERIES = new Set([
   "list-documents",
   "list-trashed-content-databases",
   "list-trashed-documents",
+  "list-content-trash",
 ]);
 
 const CONTENT_MUTATIONS = new Set([
@@ -98,11 +120,46 @@ const CONTENT_MUTATIONS = new Set([
   ...DOCUMENT_MUTATIONS,
 ]);
 
+const SUGGESTION_MUTATIONS = new Set([
+  "create-resource-suggestion",
+  "create-resource-suggestion-proposal",
+  "suggest-document-edit",
+  "update-resource-suggestion",
+  "decide-resource-suggestion",
+  "decide-resource-suggestion-proposal",
+]);
+
+const REVIEW_MUTATIONS = new Set([
+  "create-resource-suggestion",
+  "create-resource-suggestion-proposal",
+  "suggest-document-edit",
+  "decide-resource-suggestion",
+  "decide-resource-suggestion-proposal",
+  "create-review-comment",
+  "reply-review-comment",
+  "resolve-review-thread",
+  "delete-review-comment",
+  "consume-review-feedback",
+  "send-review-thread-to-agent",
+  "set-review-status",
+  "react-to-review-comment",
+  "set-review-thread-unread",
+  "set-review-thread-muted",
+]);
+
+const COMMENT_AI_MUTATIONS = new Set([
+  "start-comment-ai-request",
+  "reply-to-comment-ai-request",
+  "create-comment-ai-suggestion",
+  "apply-comment-ai-request",
+]);
+
 function queryTargetsDocument(query: ActionQuery, documentId: string): boolean {
   if (query.queryKey[0] !== "action") return false;
   if (
     query.queryKey[1] !== "get-document" &&
     query.queryKey[1] !== "list-comments" &&
+    query.queryKey[1] !== "list-comment-ai-requests" &&
     query.queryKey[1] !== "list-document-properties"
   ) {
     return false;
@@ -113,6 +170,67 @@ function queryTargetsDocument(query: ActionQuery, documentId: string): boolean {
     typeof args === "object" &&
     (("id" in args && args.id === documentId) ||
       ("documentId" in args && args.documentId === documentId))
+  );
+}
+
+function queryTargetsDocumentReviewResource(
+  query: ActionQuery,
+  actionName: "list-resource-suggestions" | "list-review-comments",
+  documentId: string,
+): boolean {
+  if (query.queryKey[0] !== "action" || query.queryKey[1] !== actionName)
+    return false;
+  const args = query.queryKey[2];
+  return (
+    !!args &&
+    typeof args === "object" &&
+    "resourceType" in args &&
+    args.resourceType === "document" &&
+    "resourceId" in args &&
+    args.resourceId === documentId
+  );
+}
+
+function eventsIncludeMutation(
+  events: readonly ActionEvent[],
+  mutations: ReadonlySet<string>,
+): boolean {
+  return events.some(
+    (event) =>
+      event.source === "action" &&
+      typeof event.key === "string" &&
+      mutations.has(event.key),
+  );
+}
+
+function eventRefreshesDocumentQuery(eventKey: string, queryName: unknown) {
+  if (eventKey === "start-comment-ai-request") return false;
+  if (
+    eventKey === "reply-to-comment-ai-request" ||
+    eventKey === "create-comment-ai-suggestion"
+  )
+    return queryName === "list-comments";
+  if (eventKey === "apply-comment-ai-request")
+    return queryName === "get-document" || queryName === "list-comments";
+  if (
+    eventKey === "decide-resource-suggestion" ||
+    eventKey === "decide-resource-suggestion-proposal"
+  )
+    return queryName === "get-document";
+  return CONTENT_MUTATIONS.has(eventKey);
+}
+
+// A read started for a page open has no observer until the page mounts, so
+// the active-query rules below never reach it. Any change that could alter
+// what it read spoils it, whichever page the change touched.
+function eventSpoilsPageOpenRead(eventKey: string, queryName: unknown) {
+  if (queryName === "get-preview-document-draft") {
+    return PREVIEW_DRAFT_MUTATIONS.has(eventKey);
+  }
+  return (
+    queryName === "get-document" &&
+    (PREVIEW_DRAFT_MUTATIONS.has(eventKey) ||
+      eventRefreshesDocumentQuery(eventKey, queryName))
   );
 }
 
@@ -139,12 +257,28 @@ function queryTargetsDatabase(query: ActionQuery, documentId: string): boolean {
   );
 }
 
+// The Files tree is ordered by the stored personal view but not keyed by it,
+// so it reads again with that view.
 function queryTargetsActiveDatabasePresentation(query: ActionQuery): boolean {
-  return (
-    query.queryKey[0] === "action" &&
-    query.queryKey[1] === "get-content-database-personal-view" &&
-    query.isActive?.() === true
-  );
+  if (query.queryKey[0] !== "action" || query.isActive?.() !== true)
+    return false;
+  if (query.queryKey[1] === "get-content-database-personal-view") return true;
+  if (query.queryKey[1] !== "query-content-database-items") return false;
+  const args = query.queryKey[2];
+  return !!args && typeof args === "object" && "navigation" in args;
+}
+
+function queryTargetsActiveNavigationOrRecent(query: ActionQuery): boolean {
+  if (query.queryKey[0] !== "action" || query.isActive?.() !== true)
+    return false;
+  if (
+    query.queryKey[1] === "get-content-recent" ||
+    query.queryKey[1] === "get-content-navigation-context"
+  )
+    return true;
+  if (query.queryKey[1] !== "query-content-database-items") return false;
+  const args = query.queryKey[2];
+  return !!args && typeof args === "object" && "navigation" in args;
 }
 
 function isDatabaseLifecycleQuery(query: ActionQuery): boolean {
@@ -152,6 +286,20 @@ function isDatabaseLifecycleQuery(query: ActionQuery): boolean {
     query.queryKey[0] === "action" &&
     typeof query.queryKey[1] === "string" &&
     DATABASE_LIFECYCLE_QUERIES.has(query.queryKey[1])
+  );
+}
+
+function isDocumentListQuery(query: ActionQuery): boolean {
+  return (
+    query.queryKey[0] === "action" && query.queryKey[1] === "list-documents"
+  );
+}
+
+function isActiveFilesDatabaseQuery(query: ActionQuery): boolean {
+  return (
+    isDatabaseQuery(query) &&
+    query.isActive?.() === true &&
+    query.meta?.contentDatabaseSystemRole === "files"
   );
 }
 
@@ -164,9 +312,42 @@ export function contentDocumentIdFromPathname(
 
 export function contentActionInvalidatePredicate(
   pathname: string,
+  isPageOpenRead: (query: ActionQuery) => boolean = () => false,
 ): (query: ActionQuery, events: readonly ActionEvent[]) => boolean {
   const documentId = contentDocumentIdFromPathname(pathname);
   return (query, events) => {
+    if (
+      query.queryKey[0] === "action" &&
+      (query.queryKey[1] === "get-document" ||
+        query.queryKey[1] === "get-preview-document-draft") &&
+      isPageOpenRead(query) &&
+      events.some(
+        (event) =>
+          event.source === "action" &&
+          typeof event.key === "string" &&
+          eventSpoilsPageOpenRead(event.key, query.queryKey[1]),
+      )
+    ) {
+      return true;
+    }
+    if (
+      query.queryKey[0] === "action" &&
+      query.queryKey[1] === "get-content-notification-prefs"
+    ) {
+      return events.some(
+        (event) =>
+          event.source === "action" &&
+          event.key === "update-content-notification-prefs",
+      );
+    }
+    if (
+      queryTargetsActiveNavigationOrRecent(query) &&
+      events.some(
+        (event) => event.source === "action" && event.key === "update-document",
+      )
+    ) {
+      return true;
+    }
     const args = query.queryKey[2];
     const targetId =
       args && typeof args === "object"
@@ -176,6 +357,12 @@ export function contentActionInvalidatePredicate(
             ? args.documentId
             : undefined
         : undefined;
+    if (
+      eventsIncludeMutation(events, DOCUMENT_DISCOVERY_MUTATIONS) &&
+      (isDocumentListQuery(query) || isActiveFilesDatabaseQuery(query))
+    ) {
+      return true;
+    }
     if (
       (isDatabaseLifecycleQuery(query) ||
         (isDatabaseQuery(query) && query.isActive?.() === true)) &&
@@ -192,18 +379,50 @@ export function contentActionInvalidatePredicate(
       return false;
     }
     if (
+      query.queryKey[1] === "list-comment-ai-requests" &&
+      typeof targetId === "string" &&
+      targetId === documentId
+    ) {
+      return eventsIncludeMutation(events, COMMENT_AI_MUTATIONS);
+    }
+    if (
+      queryTargetsDocumentReviewResource(
+        query,
+        "list-resource-suggestions",
+        documentId,
+      )
+    ) {
+      return (
+        eventsIncludeMutation(events, SUGGESTION_MUTATIONS) ||
+        eventsIncludeMutation(events, COMMENT_AI_MUTATIONS)
+      );
+    }
+    if (
+      queryTargetsDocumentReviewResource(
+        query,
+        "list-review-comments",
+        documentId,
+      )
+    ) {
+      return eventsIncludeMutation(events, REVIEW_MUTATIONS);
+    }
+    if (
       typeof targetId === "string" &&
       queryTargetsDocument(query, targetId) &&
       (query.isActive ? query.isActive() : targetId === documentId)
     ) {
-      // Mounted Page surfaces can belong to a collection preview rather than
-      // the route. Keep inactive cached Pages out of the refresh fan-out.
       return events.some(
         (event) =>
           event.source === "action" &&
           typeof event.key === "string" &&
-          CONTENT_MUTATIONS.has(event.key),
+          eventRefreshesDocumentQuery(event.key, query.queryKey[1]),
       );
+    }
+    if (
+      queryTargetsActiveDatabasePresentation(query) &&
+      eventsIncludeMutation(events, DATABASE_PRESENTATION_MUTATIONS)
+    ) {
+      return true;
     }
     if (queryTargetsDatabase(query, documentId)) {
       return events.some(
@@ -211,14 +430,6 @@ export function contentActionInvalidatePredicate(
           event.source === "action" &&
           typeof event.key === "string" &&
           DATABASE_RESULT_MUTATIONS.has(event.key),
-      );
-    }
-    if (queryTargetsActiveDatabasePresentation(query)) {
-      return events.some(
-        (event) =>
-          event.source === "action" &&
-          typeof event.key === "string" &&
-          DATABASE_PRESENTATION_MUTATIONS.has(event.key),
       );
     }
     return false;

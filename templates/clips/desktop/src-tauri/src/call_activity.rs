@@ -1,11 +1,3 @@
-//! Whether a conferencing app is holding a live audio input right now.
-//!
-//! Both meeting watchers read this, from opposite ends of a call: the ad-hoc
-//! detector treats a running input as corroboration that a call actually
-//! started, and the silence detector treats its release as evidence one
-//! ended. The silence detector's `mic_attribution` watcher also reuses
-//! `bundle_id_matches` to compare Control Center's mic attribution against
-//! the same candidate bundle ids, independent of CoreAudio.
 
 #[cfg(target_os = "macos")]
 pub(crate) fn default_call_app_bundle_ids() -> Vec<String> {
@@ -21,9 +13,6 @@ pub(crate) fn default_call_app_bundle_ids() -> Vec<String> {
 }
 
 pub(crate) fn bundle_id_matches(bundle_id: &str, candidate: &str) -> bool {
-    // Readings arrive lowercased (CoreAudio and Control Center both do that
-    // here) while configured ids keep their canonical case ("com.google.Chrome"),
-    // so compare case-insensitively at this one boundary.
     let bundle_id = bundle_id.to_lowercase();
     let candidate = candidate.to_lowercase();
     let (bundle_id, candidate) = (bundle_id.as_str(), candidate.as_str());
@@ -31,11 +20,6 @@ pub(crate) fn bundle_id_matches(bundle_id: &str, candidate: &str) -> bool {
         return true;
     }
     if candidate == "us.zoom.xos" {
-        // Zoom's in-call helpers (CptHost, caphost, aomhost, airhost,
-        // zCCIMeetingHost, ...) run as separate CoreAudio process objects
-        // under their own "us.zoom.*" bundle ids inside zoom.us.app, not as
-        // dotted children of us.zoom.xos, so the generic suffix rule below
-        // can't see them.
         return bundle_id.starts_with("us.zoom.");
     }
     !matches!(
@@ -50,18 +34,6 @@ pub(crate) fn bundle_id_matches(bundle_id: &str, candidate: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Returns whether one of the target conferencing apps currently has a live
-/// CoreAudio input stream. `None` means the OS could not provide a reliable
-/// answer, so callers must keep the existing conservative fallbacks.
-///
-/// `kAudioProcessPropertyIsRunningInput` is macOS 14+, so an older system is a
-/// `None` and never a `Some(false)`. Callers that collapse the two make the
-/// feature silently dead on Sonoma-minus rather than degraded.
-///
-/// Observation only: this enumerates process objects and never opens an input
-/// unit. A detector that grabbed one while idle would fight `whisper_speech`,
-/// which holds VPIO with uplink processing bypassed precisely so a call app
-/// cannot starve Clips of mic buffers.
 #[cfg(target_os = "macos")]
 pub(crate) fn call_app_uses_microphone(bundle_ids: &[String]) -> Option<bool> {
     use core_foundation::base::TCFType;
@@ -111,9 +83,6 @@ pub(crate) fn call_app_uses_microphone(bundle_ids: &[String]) -> Option<bool> {
         return None;
     }
 
-    // Set when a target bundle is found but its running-input state can't be
-    // read. Distinct from "no target bundle is running at all" — the caller's
-    // None/Some(false) contract depends on not conflating the two.
     let mut matched_bundle_with_unreadable_input = false;
 
     for process in processes {
@@ -208,18 +177,12 @@ mod tests {
 
     #[test]
     fn zoom_in_call_helpers_match_by_bundle_prefix() {
-        // Real in-call helper bundle ids observed on this machine: Zoom runs
-        // them as separate CoreAudio process objects, not as children of
-        // us.zoom.xos.
         assert!(bundle_id_matches("us.zoom.cpthost", "us.zoom.xos"));
         assert!(bundle_id_matches("us.zoom.caphost", "us.zoom.xos"));
         assert!(bundle_id_matches("us.zoom.aomhost", "us.zoom.xos"));
         assert!(bundle_id_matches("us.zoom.airhost", "us.zoom.xos"));
         assert!(bundle_id_matches("us.zoom.zccimeetinghost", "us.zoom.xos"));
-        // Not a helper of us.zoom.xos, but still a "us.zoom.*" bundle — the
-        // broad prefix is intentional here, see the doc comment above.
         assert!(bundle_id_matches("us.zoom.zoomclips", "us.zoom.xos"));
-        // Unrelated apps still need an exact or dotted-child match.
         assert!(!bundle_id_matches(
             "com.microsoft.teams2",
             "com.microsoft.teams"

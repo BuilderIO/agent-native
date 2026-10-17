@@ -128,7 +128,7 @@ describe("Clips Slack unfurls", () => {
     });
   });
 
-  it("uses a public video frame when no stored thumbnail exists", () => {
+  it("uses the branded image while a thumbnail is unavailable", () => {
     expect(
       buildSlackVideoBlock({
         recording: recording({
@@ -139,8 +139,19 @@ describe("Clips Slack unfurls", () => {
         basePath: "/clips",
       }),
     ).toMatchObject({
+      thumbnail_url: AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE,
+    });
+  });
+
+  it("versions Slack thumbnail URLs when the recording changes", () => {
+    expect(
+      buildSlackVideoBlock({
+        recording: recording({ updatedAt: "2026-09-28T17:46:22.267Z" }),
+        origin: "https://clips.example.com",
+      }),
+    ).toMatchObject({
       thumbnail_url:
-        "https://clips.example.com/clips/api/agent-frame.jpg?id=rec-1&atMs=350",
+        "https://clips.example.com/api/thumbnail/rec-1?v=2026-09-28T17%3A46%3A22.267Z",
     });
   });
 

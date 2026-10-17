@@ -1,4 +1,5 @@
 import { generateTabId } from "@agent-native/core/client/agent-chat";
+import { trackEvent } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import {
   useCollaborativeDoc,
@@ -9,18 +10,19 @@ import {
 import {
   useSession,
   callAction,
-  useChangeVersions,
+  useChangeVersion,
   useActionMutation,
   type AuthSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useOrgRole } from "@agent-native/core/client/org";
-import { ShareButton } from "@agent-native/core/client/sharing";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
   CreativeContextShareSheet,
   CreativeContextShareTab,
+  useCreativeContextLab,
 } from "@agent-native/creative-context/client";
+import { ShareButton } from "@agent-native/toolkit/app/sharing";
 import { PresenceBar } from "@agent-native/toolkit/collab-ui";
 import {
   useDroppable,
@@ -68,6 +70,7 @@ import {
 import { useSearchParams, useParams, useNavigate } from "react-router";
 import { toast } from "sonner";
 
+import { DashboardAnnotationsProvider } from "@/components/dashboard/dashboard-annotations-context";
 import { DashboardHistoryPanel } from "@/components/dashboard/DashboardHistoryPanel";
 import { DashboardMetadata } from "@/components/dashboard/DashboardMetadata";
 import {
@@ -100,6 +103,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
   Tooltip,
   TooltipContent,
@@ -118,7 +122,6 @@ import { useDashboardViews } from "@/hooks/use-dashboard-views";
 import { useUserPref } from "@/hooks/use-user-pref";
 import {
   DASHBOARD_REPORT_BOOTSTRAP_RETRY_DELAY_MS,
-  DASHBOARD_REPORT_BOOTSTRAP_TIMEOUT_MS,
   dashboardReportCaptureError,
   type DashboardReportCapturePhase,
 } from "@/lib/dashboard-report-capture";
@@ -137,6 +140,19 @@ import { useAutoFocusSelect } from "@/lib/use-auto-focus-select";
 
 import BlankDashboard from "../BlankDashboard";
 import { DashboardSkeleton } from "../DashboardSkeleton";
+import { useAnnotationEditing } from "./annotation-editing";
+import {
+  canPersistDashboardFilterPreference,
+  dashboardFilterParams,
+  dashboardFilterPreferenceSaveState,
+  dashboardFilterPreferenceUpdate,
+  matchesDashboardFilterRestoreState,
+  resolveDashboardFilterRestoreStep,
+  serverReadState,
+  type DashboardFilterPreference,
+  type DashboardFilterPreferenceSaveGuard,
+  type DashboardFilterRestoreProgress,
+} from "./dashboard-filter-restore";
 import {
   availableDropSlotIdsForPanel,
   buildDashboardPanelGroups,
@@ -150,10 +166,23 @@ import {
   sameDropSlot,
   type DashboardDropSlot,
 } from "./dashboard-layout";
-import { createDashboardSaveQueue } from "./dashboard-save-queue";
+import {
+  otherViewerCount,
+  useDashboardSaveFeedback,
+  type DashboardSaveUndo,
+} from "./dashboard-save-feedback";
+import {
+  DashboardSaveQueueConflictError,
+  createDashboardSaveQueue,
+  type DashboardSaveOutcome,
+  type DashboardSaveQueue,
+  type DashboardSaveResult,
+} from "./dashboard-save-queue";
 import {
   createDashboardAdoptionHold,
   dashboardPrefetchInitialData,
+  dashboardVersionAfterSave,
+  releaseDashboardAdoptionHold,
   shouldShowDashboardLoadError,
   shouldAdoptDashboardQueryResult,
   type DashboardAdoptionHold,
@@ -166,17 +195,29 @@ import {
 } from "./DashboardFilterBar";
 import { EmailReportDialog } from "./EmailReportDialog";
 import { dashboardExtensionSlotId } from "./extension-slot";
-import { interpolate } from "./interpolate";
+import {
+  fetchDashboard,
+  parseDashboardCertification,
+  type FetchedDashboard,
+} from "./fetch-dashboard";
+import { interpolate, interpolateDashboardPanelSql } from "./interpolate";
 import { serializePanelSql } from "./panel-sql";
 import { AddPanelPopover, PanelEditorDialog } from "./PanelEditorDialog";
 import { listReportablePanelIds } from "./report-panel-window";
-import { SqlChartCard } from "./SqlChartCard";
+import { dashboardTileElementId, SqlChartCard } from "./SqlChartCard";
 import {
   clampDashboardColumns,
+  clampPanelHeight,
+  clampPanelWidth,
   DEFAULT_DASHBOARD_COLUMNS,
-  type DashboardCertification,
+  MAX_PANEL_HEIGHT,
+  PANEL_HEIGHT_UNIT_PX,
+  mergeUnchangedPanelFields,
+  type DashboardFilter,
+  type FilterPreset,
   type SqlDashboardConfig,
   type SqlPanel,
+  type TableColumnConfig,
 } from "./types";
 import { ViewsMenu } from "./ViewsMenu";
 
@@ -187,14 +228,9 @@ type DashboardTabGroup = {
   tabs: Array<{ value: string; label: string }>;
 };
 
-function sameFilterMap(
-  a: Record<string, string> | undefined,
-  b: Record<string, string>,
-): boolean {
-  const aKeys = Object.keys(a ?? {});
-  if (aKeys.length !== Object.keys(b).length) return false;
-  return aKeys.every((key) => a![key] === b[key]);
-}
+type DashboardConfigUpdate = (
+  current: SqlDashboardConfig,
+) => SqlDashboardConfig;
 
 function groupDashboardTabs(tabs: string[]): {
   groups: DashboardTabGroup[];
@@ -224,10 +260,14 @@ function DashboardDropLine({
   slot,
   activeSlot,
   disabled,
+  gridColumns,
+  columnOffset = 0,
 }: {
   slot: DashboardDropSlot;
   activeSlot: DashboardDropSlot | null;
   disabled: boolean;
+  gridColumns?: number;
+  columnOffset?: number;
 }) {
   const { setNodeRef } = useDroppable({
     id: dropSlotId(slot),
@@ -239,11 +279,19 @@ function DashboardDropLine({
     <div
       ref={setNodeRef}
       aria-hidden="true"
+      data-disabled={disabled ? "true" : undefined}
       data-active={sameDropSlot(activeSlot, slot) ? "true" : undefined}
       className={
         slot.type === "row"
           ? "dashboard-row-drop-slot"
           : "dashboard-column-drop-slot"
+      }
+      style={
+        slot.type === "column" && gridColumns
+          ? ({
+              "--dashboard-column-offset": `${(columnOffset / gridColumns) * 100}%`,
+            } as React.CSSProperties)
+          : undefined
       }
     />
   );
@@ -260,47 +308,120 @@ function DashboardDragPreview({ panel }: { panel: SqlPanel | null }) {
   );
 }
 
-/**
- * A single chart cell, memoized so that drag interactions — which re-render the
- * dashboard page on every drop-slot change — do NOT re-render every chart's
- * Recharts subtree. During a drag the panel, vars, remoteEditor, and the
- * stable callbacks below don't change, so React skips these cells entirely and
- * only the lightweight drop-line indicators update. This keeps dragging smooth
- * on dense dashboards. Outside a drag, prop changes (filter/vars edits, remote
- * collaborator highlights, panel edits) still re-render normally.
- */
 const PanelCell = memo(function PanelCell({
   panel,
+  gridColumns,
   vars,
+  timeRangeFilter,
   remoteEditor,
   editable,
   eagerLoad,
   reportScreenshot,
   isDragSource,
   selectedForChat,
+  highlighted,
   selectPanelForChat,
   onRemovePanel,
   onEditPanel,
-  onSavePanel,
+  onSaveSql,
+  onResizePanel,
+  onSaveColumns,
+  hasPendingDashboardSave,
   dashboardExtensionContext,
 }: {
   panel: SqlPanel;
+  gridColumns: number;
   vars: Record<string, string>;
+  timeRangeFilter: DashboardFilter | undefined;
   remoteEditor: { color: string; name: string } | undefined;
   editable: boolean;
   eagerLoad: boolean;
   reportScreenshot: boolean;
   isDragSource: boolean;
   selectedForChat: boolean;
+  highlighted: boolean;
   selectPanelForChat: (
     panel: DashboardPanelChatContextArgs,
     options?: SelectDashboardPanelOptions,
   ) => void;
   onRemovePanel: (panelId: string) => void;
   onEditPanel: (panel: SqlPanel) => void;
-  onSavePanel: (panel: SqlPanel) => Promise<void>;
+  onSaveSql: (panelId: string, sql: string) => Promise<void>;
+  onResizePanel: (
+    panelId: string,
+    axis: "width" | "height",
+    value: number | undefined,
+  ) => Promise<SqlPanel>;
+  onSaveColumns: (panelId: string, columns: TableColumnConfig[]) => void;
+  hasPendingDashboardSave: boolean;
   dashboardExtensionContext: Record<string, unknown>;
 }) {
+  const t = useT();
+  const cellRef = useRef<HTMLDivElement>(null);
+  const resizeRef = useRef<{
+    axis: "width" | "height";
+    pointerId: number;
+    startX: number;
+    startY: number;
+    unit: number;
+    initial: { width: number; height: number };
+    preview: { width: number; height: number };
+  } | null>(null);
+  const resizeValuesRef = useRef<{
+    panelId: string;
+    width: number;
+    height?: number;
+  }>({
+    panelId: panel.id,
+    width: clampPanelWidth(panel.width, gridColumns),
+    height: panel.height,
+  });
+  const savedResizeValuesRef = useRef(resizeValuesRef.current);
+  const resizeSaveCountRef = useRef(0);
+  const resizeSaveAxisCountRef = useRef({ width: 0, height: 0 });
+  const resizeSaveSequenceRef = useRef(0);
+  const [resizeSaveGeneration, setResizeSaveGeneration] = useState(0);
+  const [previewWidth, setPreviewWidth] = useState<number | null>(null);
+  const [previewHeight, setPreviewHeight] = useState<number | null>(null);
+  const [timeRangeOverride, setTimeRangeOverride] = useState<string | null>(
+    null,
+  );
+  const validTimeRangeOverride = timeRangeFilter?.options?.some(
+    (option) => option.value === timeRangeOverride,
+  )
+    ? timeRangeOverride
+    : null;
+  useEffect(() => {
+    if (timeRangeOverride !== null && validTimeRangeOverride === null) {
+      setTimeRangeOverride(null);
+    }
+  }, [timeRangeOverride, validTimeRangeOverride]);
+  useEffect(() => {
+    if (resizeSaveCountRef.current > 0 || hasPendingDashboardSave) return;
+    const savedValues = {
+      panelId: panel.id,
+      width: clampPanelWidth(panel.width, gridColumns),
+      height: panel.height,
+    };
+    resizeValuesRef.current = savedValues;
+    savedResizeValuesRef.current = savedValues;
+    setPreviewWidth(null);
+    setPreviewHeight(null);
+  }, [
+    panel.id,
+    panel.width,
+    panel.height,
+    gridColumns,
+    resizeSaveGeneration,
+    hasPendingDashboardSave,
+  ]);
+  const effectiveVars = useMemo(
+    () =>
+      validTimeRangeOverride
+        ? { ...vars, timeRange: validTimeRangeOverride }
+        : vars,
+    [vars, validTimeRangeOverride],
+  );
   const resolved = useMemo(
     () =>
       panel.config?.description
@@ -308,18 +429,20 @@ const PanelCell = memo(function PanelCell({
             ...panel,
             config: {
               ...panel.config,
-              description: interpolate(panel.config.description, vars),
+              description: interpolate(panel.config.description, effectiveVars),
             },
           }
         : panel,
-    [panel, vars],
+    [panel, effectiveVars],
   );
   const resolvedSql = useMemo(
     () =>
-      interpolate(serializePanelSql(panel.sql), vars, {
-        failClosedTimeVariables: true,
-      }),
-    [panel.sql, vars],
+      interpolateDashboardPanelSql(
+        serializePanelSql(panel.sql),
+        effectiveVars,
+        panel,
+      ),
+    [panel.sql, effectiveVars],
   );
   const handleSelectForChat = useCallback(
     (options?: SelectDashboardPanelOptions) => {
@@ -345,18 +468,238 @@ const PanelCell = memo(function PanelCell({
     [panel, selectPanelForChat],
   );
 
+  const measuredHeight = () =>
+    clampPanelHeight(
+      Math.round(
+        (cellRef.current?.getBoundingClientRect().height ??
+          PANEL_HEIGHT_UNIT_PX) / PANEL_HEIGHT_UNIT_PX,
+      ),
+    );
+
+  const saveResize = (axis: "width" | "height", value: number | undefined) => {
+    if (axis === "height" && panel.chartType === "section") return;
+    if (axis === "width" && value === undefined) return;
+    const current =
+      resizeValuesRef.current.panelId === panel.id
+        ? resizeValuesRef.current
+        : {
+            panelId: panel.id,
+            width: clampPanelWidth(panel.width, gridColumns),
+            height: panel.height,
+          };
+    const nextValues =
+      axis === "width"
+        ? { ...current, width: value! }
+        : { ...current, height: value };
+    const sequence = ++resizeSaveSequenceRef.current;
+    resizeValuesRef.current = nextValues;
+    resizeSaveCountRef.current += 1;
+    resizeSaveAxisCountRef.current[axis] += 1;
+    if (axis === "width") setPreviewWidth(value!);
+    else setPreviewHeight(value ?? null);
+
+    void onResizePanel(panel.id, axis, value)
+      .then((savedPanel) => {
+        const savedValues = {
+          panelId: savedPanel.id,
+          width: clampPanelWidth(savedPanel.width, gridColumns),
+          height: savedPanel.height,
+        };
+        savedResizeValuesRef.current = savedValues;
+        resizeSaveCountRef.current -= 1;
+        resizeSaveAxisCountRef.current[axis] -= 1;
+        setResizeSaveGeneration((generation) => generation + 1);
+        if (sequence !== resizeSaveSequenceRef.current) return;
+        resizeValuesRef.current = savedValues;
+        setPreviewWidth(null);
+        setPreviewHeight(null);
+      })
+      .catch((err: unknown) => {
+        resizeSaveCountRef.current -= 1;
+        resizeSaveAxisCountRef.current[axis] -= 1;
+        setResizeSaveGeneration((generation) => generation + 1);
+        const savedValues = savedResizeValuesRef.current;
+        if (
+          resizeSaveAxisCountRef.current[axis] === 0 &&
+          savedValues.panelId === panel.id
+        ) {
+          const currentValues =
+            resizeValuesRef.current.panelId === panel.id
+              ? resizeValuesRef.current
+              : savedValues;
+          resizeValuesRef.current = {
+            ...currentValues,
+            [axis]: savedValues[axis],
+          };
+          if (axis === "width") setPreviewWidth(savedValues.width);
+          else setPreviewHeight(savedValues.height ?? null);
+        }
+        toast.error(
+          err instanceof DashboardSaveQueueConflictError ||
+            (err instanceof Error &&
+              err.message === t("sqlDashboard.saveFailed"))
+            ? t("sqlDashboard.saveFailed")
+            : err instanceof Error
+              ? t("sqlDashboard.saveFailedWithMessage", {
+                  message: err.message,
+                })
+              : t("sqlDashboard.saveFailed"),
+        );
+      });
+  };
+
+  const handleResizePointerDown = (
+    axis: "width" | "height",
+    event: React.PointerEvent<HTMLButtonElement>,
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const cell = cellRef.current;
+    if (!cell) return;
+    const row = cell.closest<HTMLElement>(".dashboard-grid");
+    const current =
+      resizeValuesRef.current.panelId === panel.id
+        ? resizeValuesRef.current
+        : {
+            panelId: panel.id,
+            width: clampPanelWidth(panel.width, gridColumns),
+            height: panel.height,
+          };
+    const initial = {
+      width: current.width,
+      height:
+        current.height === undefined
+          ? measuredHeight()
+          : clampPanelHeight(current.height),
+    };
+    resizeRef.current = {
+      axis,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      unit:
+        axis === "width"
+          ? Math.max(1, (row?.getBoundingClientRect().width ?? 1) / gridColumns)
+          : PANEL_HEIGHT_UNIT_PX,
+      initial,
+      preview: initial,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const handleResizePointerMove = (
+    event: React.PointerEvent<HTMLButtonElement>,
+  ) => {
+    event.stopPropagation();
+    const active = resizeRef.current;
+    if (!active || active.pointerId !== event.pointerId) return;
+    const delta =
+      active.axis === "width"
+        ? event.clientX - active.startX
+        : event.clientY - active.startY;
+    const steps = Math.round(delta / active.unit);
+    const nextValue =
+      active.axis === "width"
+        ? clampPanelWidth(active.initial.width + steps, gridColumns)
+        : clampPanelHeight(active.initial.height + steps);
+    active.preview =
+      active.axis === "width"
+        ? { ...active.preview, width: nextValue }
+        : { ...active.preview, height: nextValue };
+    if (active.axis === "width") setPreviewWidth(nextValue);
+    else setPreviewHeight(nextValue);
+  };
+
+  const finishResize = (event: React.PointerEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    const active = resizeRef.current;
+    if (!active || active.pointerId !== event.pointerId) return;
+    handleResizePointerMove(event);
+    const { axis, initial, preview } = active;
+    resizeRef.current = null;
+    if (preview[axis] === initial[axis]) {
+      if (resizeSaveCountRef.current === 0) {
+        setPreviewWidth(null);
+        setPreviewHeight(null);
+      }
+      return;
+    }
+    saveResize(axis, preview[axis]);
+  };
+
+  const cancelResize = (event: React.PointerEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    if (resizeRef.current?.pointerId !== event.pointerId) return;
+    resizeRef.current = null;
+    setPreviewWidth(null);
+    setPreviewHeight(null);
+  };
+
+  const handleResizeKeyDown = (
+    axis: "width" | "height",
+    event: React.KeyboardEvent<HTMLButtonElement>,
+  ) => {
+    const current =
+      resizeValuesRef.current.panelId === panel.id
+        ? resizeValuesRef.current
+        : {
+            panelId: panel.id,
+            width: clampPanelWidth(panel.width, gridColumns),
+            height: panel.height,
+          };
+    const currentValue =
+      axis === "width"
+        ? current.width
+        : current.height === undefined
+          ? measuredHeight()
+          : clampPanelHeight(current.height);
+    const maxValue = axis === "width" ? gridColumns : MAX_PANEL_HEIGHT;
+    const nextValue =
+      event.key === "Home"
+        ? 1
+        : event.key === "End"
+          ? maxValue
+          : axis === "width" && event.key === "ArrowRight"
+            ? Math.min(maxValue, currentValue + 1)
+            : axis === "width" && event.key === "ArrowLeft"
+              ? Math.max(1, currentValue - 1)
+              : axis === "height" && event.key === "ArrowDown"
+                ? Math.min(maxValue, currentValue + 1)
+                : axis === "height" && event.key === "ArrowUp"
+                  ? Math.max(1, currentValue - 1)
+                  : null;
+    if (nextValue === null || nextValue === currentValue) return;
+    event.preventDefault();
+    event.stopPropagation();
+    saveResize(axis, nextValue);
+  };
+
+  const renderedWidth =
+    previewWidth ?? clampPanelWidth(panel.width, gridColumns);
+  const renderedHeight =
+    panel.chartType === "section"
+      ? null
+      : (previewHeight ??
+        (panel.height === undefined ? null : clampPanelHeight(panel.height)));
+
   return (
     <div
+      ref={cellRef}
       className="dashboard-grid-cell relative h-full"
-      style={
-        remoteEditor
+      data-panel-height={renderedHeight ?? undefined}
+      style={{
+        gridColumn: `span ${renderedWidth}`,
+        ...(renderedHeight !== null
+          ? { height: renderedHeight * PANEL_HEIGHT_UNIT_PX }
+          : {}),
+        ...(remoteEditor
           ? {
               outline: `2px solid ${remoteEditor.color}`,
               outlineOffset: 2,
               borderRadius: 8,
             }
-          : undefined
-      }
+          : {}),
+      }}
     >
       {remoteEditor && (
         <span
@@ -374,19 +717,24 @@ const PanelCell = memo(function PanelCell({
         resolvedSql={resolvedSql}
         onRemove={() => onRemovePanel(panel.id)}
         onEdit={() => onEditPanel(panel)}
-        onSaveSql={(sql) => onSavePanel({ ...panel, sql })}
+        onSaveSql={(sql) => onSaveSql(panel.id, sql)}
+        onSaveColumns={(columns) => onSaveColumns(panel.id, columns)}
         editable={editable}
         eagerLoad={eagerLoad}
         reportScreenshot={reportScreenshot}
         isDragSource={isDragSource}
         selectedForChat={selectedForChat}
+        highlighted={highlighted}
         onSelectForChat={handleSelectForChat}
         dashboardId={
           typeof dashboardExtensionContext.dashboardId === "string"
             ? dashboardExtensionContext.dashboardId
             : ""
         }
-        filters={vars}
+        filters={effectiveVars}
+        timeRangeFilter={timeRangeFilter}
+        timeRangeOverride={validTimeRangeOverride}
+        onTimeRangeOverrideChange={setTimeRangeOverride}
         extensionContext={
           panel.chartType === "extension"
             ? {
@@ -405,144 +753,67 @@ const PanelCell = memo(function PanelCell({
             : undefined
         }
       />
+      {editable ? (
+        <>
+          <button
+            type="button"
+            role="slider"
+            aria-label={t("sqlDashboard.resizePanelWidth")}
+            aria-valuemin={1}
+            aria-valuemax={gridColumns}
+            aria-valuenow={renderedWidth}
+            aria-orientation="horizontal"
+            title={t("sqlDashboard.resizePanelWidth")}
+            className="dashboard-panel-resize-handle dashboard-panel-resize-width"
+            onKeyDown={(event) => handleResizeKeyDown("width", event)}
+            onPointerDown={(event) => handleResizePointerDown("width", event)}
+            onPointerMove={handleResizePointerMove}
+            onPointerUp={finishResize}
+            onPointerCancel={cancelResize}
+          >
+            <IconGripVertical className="h-4 w-4" />
+          </button>
+          {panel.chartType !== "section" ? (
+            <button
+              type="button"
+              role="slider"
+              aria-label={t("sqlDashboard.resizePanelHeight")}
+              aria-valuemin={1}
+              aria-valuemax={MAX_PANEL_HEIGHT}
+              aria-valuenow={renderedHeight ?? measuredHeight()}
+              aria-orientation="vertical"
+              title={t("sqlDashboard.resizePanelHeight")}
+              className="dashboard-panel-resize-handle dashboard-panel-resize-height"
+              onKeyDown={(event) => handleResizeKeyDown("height", event)}
+              onPointerDown={(event) =>
+                handleResizePointerDown("height", event)
+              }
+              onPointerMove={handleResizePointerMove}
+              onPointerUp={finishResize}
+              onPointerCancel={cancelResize}
+            >
+              <IconGripVertical className="h-4 w-4 rotate-90" />
+            </button>
+          ) : null}
+          {panel.chartType !== "section" && panel.height !== undefined ? (
+            <button
+              type="button"
+              aria-label={t("sqlDashboard.resetPanelHeight")}
+              title={t("sqlDashboard.resetPanelHeight")}
+              className="dashboard-panel-resize-handle dashboard-panel-reset-height"
+              onClick={(event) => {
+                event.stopPropagation();
+                saveResize("height", undefined);
+              }}
+            >
+              <IconArrowBackUp aria-hidden="true" className="h-3.5 w-3.5" />
+            </button>
+          ) : null}
+        </>
+      ) : null}
     </div>
   );
 });
-
-type FetchedDashboard = {
-  id: string;
-  config: SqlDashboardConfig;
-  archivedAt: string | null;
-  hiddenAt: string | null;
-  hiddenBy: string | null;
-  orgId: string | null;
-  visibility: "private" | "org" | "public";
-  createdAt: string | null;
-  createdBy: string | null;
-  updatedAt: string | null;
-  updatedBy: string | null;
-} & ResourceAccess;
-
-function parseDashboardDemoMetadata(
-  value: unknown,
-): SqlDashboardConfig["demo"] {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return undefined;
-  }
-  const raw = value as Record<string, unknown>;
-  return typeof raw.id === "string" && raw.id
-    ? {
-        id: raw.id,
-        version: typeof raw.version === "string" ? raw.version : undefined,
-        installedAt:
-          typeof raw.installedAt === "string" ? raw.installedAt : undefined,
-      }
-    : undefined;
-}
-
-function parseDashboardCatalogMetadata(
-  value: unknown,
-): SqlDashboardConfig["catalog"] {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return undefined;
-  }
-  const raw = value as Record<string, unknown>;
-  return {
-    templateId: typeof raw.templateId === "string" ? raw.templateId : undefined,
-    templateVersion:
-      typeof raw.templateVersion === "string" ? raw.templateVersion : undefined,
-    installedAt:
-      typeof raw.installedAt === "string" ? raw.installedAt : undefined,
-  };
-}
-
-function parseDashboardCertification(
-  value: unknown,
-): DashboardCertification | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return undefined;
-  }
-  const raw = value as Record<string, unknown>;
-  if (
-    raw.status !== "certified" ||
-    typeof raw.certifiedAt !== "string" ||
-    typeof raw.certifiedBy !== "string" ||
-    typeof raw.certifiedForUpdatedAt !== "string"
-  ) {
-    return undefined;
-  }
-  return {
-    status: "certified",
-    certifiedAt: raw.certifiedAt,
-    certifiedBy: raw.certifiedBy,
-    certifiedForUpdatedAt: raw.certifiedForUpdatedAt,
-  };
-}
-
-async function fetchDashboard(
-  id: string,
-  options?: { reportScreenshot?: boolean },
-): Promise<FetchedDashboard | null> {
-  try {
-    const data: any = await callAction(
-      "get-sql-dashboard",
-      { id, includeConfig: true },
-      {
-        method: "GET",
-        ...(options?.reportScreenshot
-          ? { timeoutMs: DASHBOARD_REPORT_BOOTSTRAP_TIMEOUT_MS }
-          : {}),
-      },
-    );
-    if (!data) return null;
-    if (data.error) {
-      throw new Error(
-        typeof data.message === "string" && data.message
-          ? data.message
-          : typeof data.error === "string"
-            ? data.error
-            : "Dashboard bootstrap failed",
-      );
-    }
-    return {
-      id,
-      config: {
-        name: data.name ?? "Untitled Dashboard",
-        description: data.description,
-        certification: parseDashboardCertification(data.certification),
-        parentId:
-          typeof data.parentId === "string" && data.parentId.trim().length > 0
-            ? data.parentId
-            : undefined,
-        catalog: parseDashboardCatalogMetadata(data.catalog),
-        demo: parseDashboardDemoMetadata(data.demo),
-        filters: data.filters,
-        variables: data.variables,
-        columns: typeof data.columns === "number" ? data.columns : undefined,
-        panels: data.panels ?? [],
-      },
-      archivedAt: typeof data.archivedAt === "string" ? data.archivedAt : null,
-      hiddenAt: typeof data.hiddenAt === "string" ? data.hiddenAt : null,
-      hiddenBy: typeof data.hiddenBy === "string" ? data.hiddenBy : null,
-      orgId: typeof data.orgId === "string" ? data.orgId : null,
-      visibility:
-        data.visibility === "org" || data.visibility === "public"
-          ? data.visibility
-          : "private",
-      createdAt: typeof data.createdAt === "string" ? data.createdAt : null,
-      createdBy: typeof data.createdBy === "string" ? data.createdBy : null,
-      updatedAt: typeof data.updatedAt === "string" ? data.updatedAt : null,
-      updatedBy: typeof data.updatedBy === "string" ? data.updatedBy : null,
-      role: typeof data.role === "string" ? data.role : undefined,
-      canEdit: typeof data.canEdit === "boolean" ? data.canEdit : undefined,
-      canManage:
-        typeof data.canManage === "boolean" ? data.canManage : undefined,
-    };
-  } catch (error) {
-    if (options?.reportScreenshot) throw error;
-    return null;
-  }
-}
 
 function DashboardReportCaptureSurface({
   phase,
@@ -576,20 +847,24 @@ function DashboardReportCaptureSurface({
   );
 }
 
-/**
- * Save dashboard config via the update-dashboard action. Throws on error so
- * callers (e.g. the panel editor dialog) can surface BigQuery validation
- * errors inline instead of silently swallowing them.
- */
 async function saveDashboard(
   dashboardId: string,
   data: SqlDashboardConfig,
-): Promise<void> {
-  await callAction("update-dashboard", {
+  expectedUpdatedAt?: string,
+): Promise<DashboardSaveOutcome> {
+  return await callAction("update-dashboard", {
     dashboardId,
     config: data as unknown as Record<string, unknown>,
+    expectedUpdatedAt,
   });
 }
+
+const TILE_HIGHLIGHT_MS = 2000;
+
+// The tooltip trigger around each item replaces its `data-state`, so the
+// selected mode is styled from `aria-checked`, which the trigger leaves alone.
+const DASHBOARD_MODE_ITEM_CLASS =
+  "h-6 px-2 text-xs text-muted-foreground aria-checked:bg-accent aria-checked:text-foreground aria-checked:shadow-sm";
 
 export default function SqlDashboardPage() {
   const { session } = useSession();
@@ -605,6 +880,7 @@ function SqlDashboardPageContent({
   session: AuthSession | null;
 }) {
   const t = useT();
+  const creativeContextEnabled = useCreativeContextLab();
   const { canManageOrg, org } = useOrgRole();
   const [searchParams, setSearchParams] = useSearchParams();
   const { id: routeId } = useParams<{ id: string }>();
@@ -614,7 +890,31 @@ function SqlDashboardPageContent({
   const dashboardId = searchParams.get("id") || routeId;
   const reportSettingsRequested = searchParams.get("reportSettings") === "1";
 
-  const [dashboard, setDashboard] = useState<SqlDashboardConfig | null>(null);
+  // The dashboard config together with the route id it was loaded for. A
+  // route change leaves it in state for one render before the reset effect
+  // clears it, so anything that acts on "this dashboard" must not pair it with
+  // the new route id. Writes name their dashboard too: a save that resolves
+  // after the route moved on must not put its config under the next id.
+  const [loadedDashboard, setLoadedDashboard] = useState<{
+    id: string;
+    config: SqlDashboardConfig | null;
+  } | null>(null);
+  const loadedDashboardRef = useRef<typeof loadedDashboard>(null);
+  const dashboard = loadedDashboard?.config ?? null;
+  const loadedDashboardId = loadedDashboard?.id ?? null;
+  const updateDashboard = useCallback(
+    (
+      id: string,
+      update: (current: SqlDashboardConfig | null) => SqlDashboardConfig | null,
+    ) => {
+      const loaded = loadedDashboardRef.current;
+      if (loaded?.id !== id) return;
+      const next = { id, config: update(loaded.config) };
+      loadedDashboardRef.current = next;
+      setLoadedDashboard(next);
+    },
+    [],
+  );
 
   useEffect(() => {
     const nextTitle = `${normalizeDocumentTitle(
@@ -666,6 +966,7 @@ function SqlDashboardPageContent({
   const [redoRevisionIds, setRedoRevisionIds] = useState<string[]>([]);
   const [dashboardActionsOpen, setDashboardActionsOpen] = useState(false);
   const [contextSheetOpen, setContextSheetOpen] = useState(false);
+  const [editMode, setEditMode] = useState(false);
   const [activeDropSlot, setActiveDropSlot] =
     useState<DashboardDropSlot | null>(null);
   const [activeDragPanelId, setActiveDragPanelId] = useState<string | null>(
@@ -673,12 +974,30 @@ function SqlDashboardPageContent({
   );
   const viewedDashboardIdRef = useRef<string | null>(null);
   const pendingConfigRef = useRef<DashboardAdoptionHold | null>(null);
-  const dashboardSaveQueueRef = useRef<{
-    dashboardId: string;
-    queue: ReturnType<typeof createDashboardSaveQueue<SqlDashboardConfig>>;
-  } | null>(null);
+  const dashboardUpdatedAtRef = useRef<string | null>(null);
+  useEffect(() => {
+    dashboardUpdatedAtRef.current = dashboardUpdatedAt;
+  }, [dashboardUpdatedAt]);
+  const openDashboardIdRef = useRef(dashboardId);
+  useEffect(() => {
+    openDashboardIdRef.current = dashboardId;
+  }, [dashboardId]);
+  // One queue per dashboard for the page's life: a second queue for a
+  // dashboard you come back to would run its saves alongside the first's.
+  const dashboardSaveQueuesRef = useRef(
+    new Map<string, DashboardSaveQueue<SqlDashboardConfig>>(),
+  );
+  const [dashboardSavePendingCounts, setDashboardSavePendingCounts] = useState<
+    Record<string, number>
+  >({});
+  const hasPendingDashboardSave = Boolean(
+    dashboardId && dashboardSavePendingCounts[dashboardId],
+  );
   const revisionRestoreInFlightRef = useRef(false);
   const canEdit = !reportScreenshot && resourceCanEdit(resourceAccess);
+  // Every dashboard opens in view mode: drag handles, column edits, and inline
+  // renames exist only while an editor has switched to edit mode.
+  const editing = canEdit && editMode && loadedDashboardId === dashboardId;
   const canManage = !reportScreenshot && resourceCanManage(resourceAccess);
   const canCertify =
     !reportScreenshot &&
@@ -717,6 +1036,7 @@ function SqlDashboardPageContent({
     title: dashboard?.name,
     panelCount: dashboard?.panels.length,
     canEdit,
+    editing,
   });
   const isDemoDashboard = dashboard?.demo?.id === "demo-node-exporter";
   const showDemoIntro =
@@ -754,15 +1074,7 @@ function SqlDashboardPageContent({
         undoRevisionIndex < dashboardRevisions.length - 1));
   const canRedo = canEdit && !!dashboardId && redoRevisionIds.length > 0;
 
-  // Refetch the dashboard whenever the `dashboards` source bumps OR any
-  // agent action runs. We depend on both because:
-  // - `dashboards` covers same-process writes from upsertDashboard
-  // - `action` covers every successful agent action and is emitted by the
-  //   agent runner unconditionally, which makes the refresh resilient even
-  //   if the dashboards-store emit is missed (different process, etc.).
-  // Folding counters into the queryKey is the framework pattern for "agent
-  // writes show up without a manual refresh"; see `use-change-version.ts`.
-  const sync = useChangeVersions(["dashboards", "action"]);
+  const sync = useChangeVersion("dashboards");
   const dashboardQuery = useQuery({
     queryKey: ["data", "sql-dashboard", dashboardId, dashboardScope, sync],
     enabled: !!dashboardId,
@@ -795,11 +1107,9 @@ function SqlDashboardPageContent({
     },
   });
 
-  // Panel edit dialog state
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingPanel, setEditingPanel] = useState<SqlPanel | null>(null);
 
-  // ── Collaborative editing ──────────────────────────────────────────
   const currentUser: CollabUser | undefined =
     !reportScreenshot && session?.email
       ? {
@@ -824,6 +1134,24 @@ function SqlDashboardPageContent({
     user: currentUser,
   });
 
+  // handleUndo is declared below the saves that offer it, so the save toast's
+  // Undo goes through this ref.
+  const handleUndoRef = useRef<
+    ((write?: DashboardSaveUndo) => Promise<void>) | null
+  >(null);
+  const undoLatestSave = useCallback((write: DashboardSaveUndo) => {
+    void handleUndoRef.current?.(write);
+  }, []);
+  const dashboardShared =
+    dashboardVisibility === "org" || dashboardVisibility === "public";
+  const trackSave = useDashboardSaveFeedback({
+    // Its Undo works only in edit mode, so leaving edit mode closes the toast.
+    dashboardId: editing ? dashboardId : undefined,
+    shared: dashboardShared,
+    otherViewers: otherViewerCount(activeUsers, session?.email),
+    onUndo: undoLatestSave,
+  });
+
   const updateCachedDashboardConfig = useCallback(
     (updated: SqlDashboardConfig) => {
       if (!dashboardId) return;
@@ -845,20 +1173,54 @@ function SqlDashboardPageContent({
   );
 
   const holdDashboardConfig = useCallback(() => {
-    if (!dashboardId) return;
-    pendingConfigRef.current = createDashboardAdoptionHold({
+    if (!dashboardId) return null;
+    // The ref, not state: a save that just landed has moved the ref already,
+    // and a hold from the older version would adopt that save's own refetch
+    // over an edit still queued.
+    const hold = createDashboardAdoptionHold({
       dashboardId,
-      currentUpdatedAt: dashboardUpdatedAt,
+      currentUpdatedAt: dashboardUpdatedAtRef.current,
     });
+    pendingConfigRef.current = hold;
     void queryClient.cancelQueries(
       {
         queryKey: ["data", "sql-dashboard", dashboardId, dashboardScope],
       },
       { revert: false },
     );
-  }, [dashboardId, dashboardScope, dashboardUpdatedAt, queryClient]);
+    return hold;
+  }, [dashboardId, dashboardScope, queryClient]);
 
-  // Track which panels remote users are editing (from awareness)
+  const rollbackFailedDashboardSave = useCallback(
+    (
+      id: string,
+      optimisticConfig: SqlDashboardConfig,
+      queue: DashboardSaveQueue<SqlDashboardConfig>,
+      hold: DashboardAdoptionHold | null,
+    ) => {
+      if (queue.pending() > 0) return false;
+      pendingConfigRef.current = releaseDashboardAdoptionHold(
+        pendingConfigRef.current,
+        hold,
+      );
+      const confirmedConfig = queue.confirmed();
+      const latest = loadedDashboardRef.current;
+      if (
+        confirmedConfig &&
+        latest?.id === id &&
+        latest.config === optimisticConfig
+      ) {
+        updateDashboard(id, () => confirmedConfig);
+        updateCachedDashboardConfig(confirmedConfig);
+      }
+      void queryClient.invalidateQueries({
+        queryKey: ["data", "sql-dashboard", id, dashboardScope],
+      });
+      return true;
+    },
+    [dashboardScope, queryClient, updateCachedDashboardConfig, updateDashboard],
+  );
+
   const [remoteEditingPanels, setRemoteEditingPanels] = useState<
     Map<string, { color: string; name: string }>
   >(new Map());
@@ -886,10 +1248,8 @@ function SqlDashboardPageContent({
     };
   }, [awareness, ydoc]);
 
-  // Listen for remote collab changes — when the Y.Text("content") changes
-  // from a remote update, parse it and update dashboard state.
   useEffect(() => {
-    if (!ydoc || !collabSynced) return;
+    if (!dashboardId || !ydoc || !collabSynced) return;
     const ytext = ydoc.getText("content");
     const handler = () => {
       const raw = ytext.toJSON();
@@ -899,11 +1259,15 @@ function SqlDashboardPageContent({
           JSON.parse(raw) as Record<string, unknown>,
         ) as unknown as SqlDashboardConfig;
         if (parsed && Array.isArray(parsed.panels)) {
+          const saveQueue = dashboardSaveQueuesRef.current.get(dashboardId);
+          if (saveQueue?.pending() && saveQueue.isLocalSnapshot(parsed)) {
+            return;
+          }
           if (!revisionRestoreInFlightRef.current) {
             resetRevisionNavigation();
           }
           holdDashboardConfig();
-          setDashboard(parsed);
+          updateDashboard(dashboardId, () => parsed);
           updateCachedDashboardConfig(parsed);
         }
       } catch {
@@ -915,32 +1279,73 @@ function SqlDashboardPageContent({
       ytext.unobserve(handler);
     };
   }, [
+    dashboardId,
     ydoc,
     collabSynced,
     holdDashboardConfig,
     resetRevisionNavigation,
     updateCachedDashboardConfig,
+    updateDashboard,
   ]);
 
-  // Per-user saved filter state
   const filterPrefKey = dashboardId ? `dashboard-filters:${dashboardId}` : "";
-  const {
-    data: savedFilters,
-    isLoading: filtersLoading,
-    isSuccess: filtersLoaded,
-    save: saveFilterPref,
-  } = useUserPref<{ filters: Record<string, string> }>(filterPrefKey);
+  const filterPref = useUserPref<{
+    filters: Record<string, string>;
+    viewId?: string;
+  }>(filterPrefKey);
+  const { data: savedFilters, save: saveFilterPref } = filterPref;
+  const savedFiltersState = serverReadState(filterPref);
 
-  // Dashboard views
-  const { saveView } = useDashboardViews(dashboardId ?? undefined);
+  const dashboardViews = useDashboardViews(dashboardId ?? undefined);
+  const { views, isSuccess: dashboardViewsLoaded, saveView } = dashboardViews;
+  const dashboardViewsState = serverReadState(dashboardViews);
+  const defaultView = views.find((view) => view.isDefault);
+  // A deleted view must not come back as a dangling `view` param.
+  const savedViewId = views.some((view) => view.id === savedFilters?.viewId)
+    ? savedFilters?.viewId
+    : undefined;
 
-  // Track whether we've applied saved filters on initial load
-  const appliedSaved = useRef(false);
+  const filterRestoreProgress = useRef<DashboardFilterRestoreProgress>({
+    status: "pending",
+  });
+  const skipFilterPreferenceSave =
+    useRef<DashboardFilterPreferenceSaveGuard | null>(null);
+  // The address bar's filters and view when a write for them failed.
+  const failedFilterPreference = useRef<
+    ({ dashboardId: string } & DashboardFilterPreference) | null
+  >(null);
+
+  // Edit mode, unfinished edits and open dialogs belong to the dashboard,
+  // account and organization they were opened in; kept, they would reappear
+  // and act on the next one. They reset during render, not in the effect below: the
+  // first render after a switch would otherwise show them under the next
+  // dashboard's id, and a save from that render would write the old config
+  // there. The scope is URI-encoded, so it never contains the separator.
+  const draftsOwner = `${dashboardScope}/${dashboardId ?? ""}`;
+  const [draftsOwnerShown, setDraftsOwnerShown] = useState(draftsOwner);
+  if (draftsOwnerShown !== draftsOwner) {
+    setDraftsOwnerShown(draftsOwner);
+    setEditMode(false);
+    setEditingName(false);
+    setEditingDescription(false);
+    setActiveDropSlot(null);
+    setActiveDragPanelId(null);
+    setEditorOpen(false);
+    setEditingPanel(null);
+    setDashboardActionsOpen(false);
+    setOpenDeleteAfterMenuClose(false);
+    setConfirmDeleteOpen(false);
+    setEmailReportOpen(false);
+    setHistoryOpen(false);
+    setContextSheetOpen(false);
+  }
 
   useEffect(() => {
-    appliedSaved.current = false;
+    filterRestoreProgress.current = { status: "pending" };
+    skipFilterPreferenceSave.current = null;
     setLoaded(false);
-    setDashboard(null);
+    loadedDashboardRef.current = null;
+    setLoadedDashboard(null);
     setArchivedAt(null);
     setHiddenAt(null);
     setDashboardOrgId(null);
@@ -958,14 +1363,18 @@ function SqlDashboardPageContent({
   useEffect(() => {
     if (!dashboardId || !dashboardQuery.isSuccess) return;
     const fetched = dashboardQuery.data;
+    const saveQueue = dashboardSaveQueuesRef.current.get(dashboardId);
     const adoption = shouldAdoptDashboardQueryResult({
       dashboardId,
       loaded,
       isPlaceholderData: dashboardQuery.isPlaceholderData,
       fetchedId: fetched?.id,
       fetchedUpdatedAt: fetched?.updatedAt,
-      currentUpdatedAt: dashboardUpdatedAt,
+      // The ref, not state: it already has the saves that landed, so a fetch
+      // from between two of them is older news.
+      currentUpdatedAt: dashboardUpdatedAtRef.current,
       hold: pendingConfigRef.current,
+      savesPending: !!saveQueue && saveQueue.pending() > 0,
     });
     if (adoption.clearHold) {
       pendingConfigRef.current = null;
@@ -982,13 +1391,15 @@ function SqlDashboardPageContent({
       resetRevisionNavigation();
     }
     const fetchedConfig = fetched?.config ?? null;
+    const nextLoadedDashboard = { id: dashboardId, config: fetchedConfig };
     const fetchedVisibility =
       fetched?.visibility === "private" ||
       fetched?.visibility === "org" ||
       fetched?.visibility === "public"
         ? fetched.visibility
         : null;
-    setDashboard(fetchedConfig);
+    loadedDashboardRef.current = nextLoadedDashboard;
+    setLoadedDashboard(nextLoadedDashboard);
     setArchivedAt(fetched?.archivedAt ?? null);
     setHiddenAt(fetched?.hiddenAt ?? null);
     setDashboardOrgId(fetched?.orgId ?? null);
@@ -1014,6 +1425,18 @@ function SqlDashboardPageContent({
     ) {
       viewedDashboardIdRef.current = dashboardId;
       incrementItemView("dashboard", dashboardId);
+      trackEvent("dashboard_viewed", {
+        app_name: "analytics",
+        template_name: "analytics",
+        dashboard_id: dashboardId,
+        output_id: dashboardId,
+        output_type: "dashboard",
+        is_owner: Boolean(
+          session?.email &&
+          fetched.createdBy &&
+          session.email.toLowerCase() === fetched.createdBy.toLowerCase(),
+        ),
+      });
     }
   }, [
     dashboardId,
@@ -1026,136 +1449,254 @@ function SqlDashboardPageContent({
     resetRevisionNavigation,
   ]);
 
-  // Apply saved filters on initial load if no filter URL params are present
   useEffect(() => {
     if (
       reportScreenshot ||
-      appliedSaved.current ||
-      filtersLoading ||
-      !filtersLoaded ||
+      filterRestoreProgress.current.status === "complete" ||
       !loaded ||
       !dashboard
     )
       return;
-    appliedSaved.current = true;
 
-    // Check if there's a view param — if so, load view filters
-    const viewId = searchParams.get("view");
-    if (viewId) return; // View filters are applied by the view param handler
+    const previousProgress = filterRestoreProgress.current;
+    const restoreStep = resolveDashboardFilterRestoreStep({
+      searchParams,
+      defaultView,
+      savedFilters: savedFilters?.filters,
+      savedViewId,
+      viewsState: dashboardViewsState,
+      savedFiltersState,
+      progress: previousProgress,
+    });
+    filterRestoreProgress.current = restoreStep.progress;
+    const filterRestore = restoreStep.restore;
+    if (!filterRestore) return;
 
-    // Check if any f_ params are already in the URL
-    const hasUrlFilters = Array.from(searchParams.keys()).some((k) =>
-      k.startsWith(FILTER_PARAM_PREFIX),
-    );
-    if (hasUrlFilters) return;
-
-    // If the agent just wrote the URL via set-search-params (URLSync in
-    // AgentPanel.tsx sets this), don't clobber it with saved defaults.
-    // The agent's write is authoritative for the current intent.
     try {
       const appliedAt = Number(
         sessionStorage.getItem("__agentUrlAppliedAt__") || 0,
       );
-      if (appliedAt && Date.now() - appliedAt < 5000) return;
+      if (appliedAt && Date.now() - appliedAt < 5000) {
+        filterRestoreProgress.current = { status: "complete" };
+        return;
+      }
     } catch {
       // sessionStorage unavailable — fall through.
     }
 
-    // Apply saved filter defaults — use replace so the restore doesn't
-    // leave an extra history entry behind the user's actual nav.
-    if (savedFilters?.filters && Object.keys(savedFilters.filters).length > 0) {
-      setSearchParams(
-        (prev) => {
-          const next = new URLSearchParams(prev);
-          for (const [key, value] of Object.entries(savedFilters.filters)) {
-            if (value) next.set(key, value);
-          }
-          return next;
-        },
-        { replace: true },
-      );
+    if (filterRestore.source === "dashboard-default") {
+      skipFilterPreferenceSave.current = {
+        filters: filterRestore.filters,
+        viewId: filterRestore.viewId,
+        previousFilters: dashboardFilterParams(searchParams),
+        previousViewId: searchParams.get("view") ?? undefined,
+      };
     }
+
+    setSearchParams(
+      (prev) => {
+        if (previousProgress.status === "fallback-applied") {
+          if (
+            !matchesDashboardFilterRestoreState(
+              prev,
+              previousProgress.filters,
+              previousProgress.viewId,
+            )
+          ) {
+            return prev;
+          }
+        } else if (
+          prev.has("view") ||
+          Array.from(prev.keys()).some((key) =>
+            key.startsWith(FILTER_PARAM_PREFIX),
+          )
+        ) {
+          return prev;
+        }
+        const next = new URLSearchParams(prev);
+        for (const key of Array.from(next.keys())) {
+          if (key.startsWith(FILTER_PARAM_PREFIX)) next.delete(key);
+        }
+        for (const [key, value] of Object.entries(filterRestore.filters)) {
+          if (value) next.set(key, value);
+        }
+        if (filterRestore.viewId) {
+          next.set("view", filterRestore.viewId);
+        } else {
+          next.delete("view");
+        }
+        return next;
+      },
+      { replace: true },
+    );
   }, [
-    filtersLoading,
-    filtersLoaded,
+    savedFiltersState,
+    dashboardViewsState,
     loaded,
     dashboard,
+    defaultView,
     savedFilters,
+    savedViewId,
     reportScreenshot,
     searchParams,
     setSearchParams,
   ]);
 
-  // Auto-save filter state when URL params change (debounced)
   const saveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  // Not gated on filter definitions: the pref also holds the open view, and a
+  // dashboard without filters can still have one open.
   useEffect(() => {
     if (
       reportScreenshot ||
       !loaded ||
-      !dashboard?.filters?.length ||
-      !dashboardId
+      !dashboardId ||
+      !canPersistDashboardFilterPreference(
+        filterRestoreProgress.current,
+        dashboardFilterParams(searchParams),
+        searchParams.get("view") ?? undefined,
+      )
     )
       return;
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
-      const currentFilters: Record<string, string> = {};
-      searchParams.forEach((v, k) => {
-        if (k.startsWith(FILTER_PARAM_PREFIX)) {
-          currentFilters[k] = v;
-        }
+      const filterPreferenceSaveState = dashboardFilterPreferenceSaveState(
+        skipFilterPreferenceSave.current,
+        dashboardFilterParams(searchParams),
+        searchParams.get("view") ?? undefined,
+      );
+      if (filterPreferenceSaveState === "applied") {
+        skipFilterPreferenceSave.current = null;
+        return;
+      }
+      if (filterPreferenceSaveState === "pending") return;
+      if (filterPreferenceSaveState === "changed") {
+        skipFilterPreferenceSave.current = null;
+      }
+      const filters = dashboardFilterParams(searchParams);
+      const viewId = searchParams.get("view") ?? undefined;
+      // A failed write rereads the old preference; resending it on each reread
+      // would retry forever while saving is down. It is held only while the
+      // address bar still shows what it was for, whatever the read is doing:
+      // coming back to that later is a new change to write.
+      const failed = failedFilterPreference.current;
+      if (
+        failed?.dashboardId === dashboardId &&
+        matchesDashboardFilterRestoreState(
+          searchParams,
+          failed.filters,
+          failed.viewId,
+        )
+      )
+        return;
+      failedFilterPreference.current = null;
+      const result = dashboardFilterPreferenceUpdate({
+        saved: savedFilters,
+        savedState: savedFiltersState,
+        viewsState: dashboardViewsState,
+        searchParams,
       });
-      // Opening a dashboard restores the saved filters into the URL, so
-      // without this the mere act of loading a page writes the value back —
-      // one round-trip plus a sync event that invalidates every mounted query.
-      if (sameFilterMap(savedFilters?.filters, currentFilters)) return;
-      saveFilterPref({ filters: currentFilters });
+      if (result.status !== "changed") return;
+      saveFilterPref(result.update, {
+        onError: () => {
+          failedFilterPreference.current = { dashboardId, filters, viewId };
+        },
+      });
     }, 1500);
     return () => clearTimeout(saveTimer.current);
   }, [
     searchParams,
     loaded,
-    dashboard?.filters,
     dashboardId,
     savedFilters,
     saveFilterPref,
     reportScreenshot,
+    savedFiltersState,
+    dashboardViewsState,
   ]);
 
-  const enqueueDashboardSave = useCallback(
-    (id: string, updated: SqlDashboardConfig) => {
-      if (dashboardSaveQueueRef.current?.dashboardId !== id) {
-        dashboardSaveQueueRef.current = {
-          dashboardId: id,
-          queue: createDashboardSaveQueue((config) =>
-            saveDashboard(id, config),
-          ),
+  const dashboardSaveQueue = useCallback((id: string) => {
+    const existing = dashboardSaveQueuesRef.current.get(id);
+    if (existing) return existing;
+    const queue = createDashboardSaveQueue<SqlDashboardConfig>(
+      async (config, expectedUpdatedAt) => {
+        const result = await saveDashboard(id, config, expectedUpdatedAt);
+        dashboardUpdatedAtRef.current = dashboardVersionAfterSave(
+          {
+            dashboardId: openDashboardIdRef.current,
+            updatedAt: dashboardUpdatedAtRef.current,
+          },
+          {
+            dashboardId: id,
+            sentAgainst: expectedUpdatedAt,
+            saved: result.updatedAt,
+          },
+        );
+        return {
+          changed: result.changed,
+          updatedAt: result.updatedAt,
+          revisionId: result.revisionId,
+          changes: result.changes,
+          omittedChanges: result.omittedChanges,
         };
-      }
-      return dashboardSaveQueueRef.current.queue.enqueue(updated);
+      },
+    );
+    dashboardSaveQueuesRef.current.set(id, queue);
+    return queue;
+  }, []);
+
+  const trackDashboardSaveQueue = useCallback(
+    (id: string, save: Promise<DashboardSaveResult<SqlDashboardConfig>>) => {
+      setDashboardSavePendingCounts((counts) => ({
+        ...counts,
+        [id]: (counts[id] ?? 0) + 1,
+      }));
+      return save.finally(() => {
+        setDashboardSavePendingCounts((counts) => {
+          const pending = (counts[id] ?? 1) - 1;
+          if (pending > 0) return { ...counts, [id]: pending };
+          const next = { ...counts };
+          delete next[id];
+          return next;
+        });
+      });
     },
     [],
   );
 
-  /**
-   * Persist without throwing — background save used for drag reorder, width
-   * toggle, title/description edits, and panel delete. If the save fails
-   * (e.g. a panel's SQL becomes invalid after an earlier edit), surface a
-   * toast so the user knows and the error isn't silently swallowed.
-   */
   const persist = useCallback(
-    (updated: SqlDashboardConfig) => {
+    (update: DashboardConfigUpdate) => {
       if (!dashboardId) return;
       if (!canEdit) {
         toast.error(t("sqlDashboard.viewOnly"));
         return;
       }
+      const loaded = loadedDashboardRef.current;
+      if (loaded?.id !== dashboardId || !loaded.config) return;
+      const updated = update(loaded.config);
+      if (updated === loaded.config) return;
       resetRevisionNavigation();
-      holdDashboardConfig();
-      setDashboard(updated);
+      const hold = holdDashboardConfig();
+      updateDashboard(dashboardId, () => updated);
       updateCachedDashboardConfig(updated);
-      void enqueueDashboardSave(dashboardId, updated)
-        .then(({ isLatest }) => {
+      const queue = dashboardSaveQueue(dashboardId);
+      void trackSave(
+        trackDashboardSaveQueue(
+          dashboardId,
+          queue.enqueue(
+            updated,
+            dashboardUpdatedAtRef.current,
+            update,
+            loaded.config,
+          ),
+        ),
+      )
+        .then(({ isLatest, config: savedConfig }) => {
           if (!isLatest) return;
+          const latest = loadedDashboardRef.current;
+          if (latest?.id === dashboardId && latest.config === updated) {
+            updateDashboard(dashboardId, () => savedConfig);
+            updateCachedDashboardConfig(savedConfig);
+          }
           queryClient.removeQueries({
             queryKey: sqlDashboardPrefetchKey(dashboardId, dashboardScope),
           });
@@ -1173,12 +1714,16 @@ function SqlDashboardPageContent({
           });
         })
         .catch((err) => {
+          // A later save may own the optimistic state, but this save still failed.
+          rollbackFailedDashboardSave(dashboardId, updated, queue, hold);
           toast.error(
-            err instanceof Error
-              ? t("sqlDashboard.saveFailedWithMessage", {
-                  message: err.message,
-                })
-              : t("sqlDashboard.saveFailed"),
+            err instanceof DashboardSaveQueueConflictError
+              ? t("sqlDashboard.saveFailed")
+              : err instanceof Error
+                ? t("sqlDashboard.saveFailedWithMessage", {
+                    message: err.message,
+                  })
+                : t("sqlDashboard.saveFailed"),
           );
         });
     },
@@ -1186,31 +1731,61 @@ function SqlDashboardPageContent({
       dashboardId,
       dashboardScope,
       canEdit,
-      enqueueDashboardSave,
+      dashboardSaveQueue,
       holdDashboardConfig,
+      rollbackFailedDashboardSave,
+      trackDashboardSaveQueue,
       queryClient,
       resetRevisionNavigation,
       t,
+      trackSave,
       updateCachedDashboardConfig,
+      updateDashboard,
     ],
   );
 
-  /**
-   * Persist that throws — used by the panel editor dialog so it can keep the
-   * dialog open and display the BigQuery validation error inline.
-   */
   const persistThrow = useCallback(
-    async (updated: SqlDashboardConfig) => {
+    async (update: DashboardConfigUpdate) => {
       if (!dashboardId) return;
       if (!canEdit) {
         throw new Error(t("sqlDashboard.viewOnly"));
       }
+      const loaded = loadedDashboardRef.current;
+      if (loaded?.id !== dashboardId || !loaded.config) return;
+      const updated = update(loaded.config);
+      if (updated === loaded.config) return loaded.config;
       resetRevisionNavigation();
-      holdDashboardConfig();
-      const { isLatest } = await enqueueDashboardSave(dashboardId, updated);
-      if (!isLatest) return;
-      setDashboard(updated);
+      const hold = holdDashboardConfig();
+      updateDashboard(dashboardId, () => updated);
       updateCachedDashboardConfig(updated);
+      const queue = dashboardSaveQueue(dashboardId);
+      let saveResult: DashboardSaveResult<SqlDashboardConfig>;
+      try {
+        saveResult = await trackSave(
+          trackDashboardSaveQueue(
+            dashboardId,
+            queue.enqueue(
+              updated,
+              dashboardUpdatedAtRef.current,
+              update,
+              loaded.config,
+            ),
+          ),
+        );
+      } catch (err) {
+        rollbackFailedDashboardSave(dashboardId, updated, queue, hold);
+        if (err instanceof DashboardSaveQueueConflictError) {
+          throw new Error(t("sqlDashboard.saveFailed"));
+        }
+        throw err;
+      }
+      const { isLatest, config: savedConfig } = saveResult;
+      if (!isLatest) return savedConfig;
+      const latest = loadedDashboardRef.current;
+      if (latest?.id === dashboardId && latest.config === updated) {
+        updateDashboard(dashboardId, () => savedConfig);
+        updateCachedDashboardConfig(savedConfig);
+      }
       queryClient.removeQueries({
         queryKey: sqlDashboardPrefetchKey(dashboardId, dashboardScope),
       });
@@ -1226,81 +1801,102 @@ function SqlDashboardPageContent({
       void queryClient.invalidateQueries({
         queryKey: ["data", "sql-dashboard", dashboardId, dashboardScope],
       });
+      return savedConfig;
     },
     [
       dashboardId,
       dashboardScope,
       canEdit,
-      enqueueDashboardSave,
+      dashboardSaveQueue,
       holdDashboardConfig,
+      rollbackFailedDashboardSave,
+      trackDashboardSaveQueue,
       queryClient,
       resetRevisionNavigation,
       t,
+      trackSave,
       updateCachedDashboardConfig,
+      updateDashboard,
     ],
   );
 
-  const handleUndo = useCallback(async () => {
-    if (
-      !dashboardId ||
-      !canEdit ||
-      restoreDashboardRevision.isPending ||
-      revisionRestoreInFlightRef.current
-    ) {
-      return;
-    }
+  // Undo and redo restore a revision for everyone, so they run only in edit
+  // mode, whichever control calls them. The save toast passes its write, so
+  // Undo restores exactly the revision that write left, and a newer save by
+  // someone else makes the restore fail rather than taking their change back.
+  const handleUndo = useCallback(
+    async (write?: DashboardSaveUndo) => {
+      if (
+        !dashboardId ||
+        !editing ||
+        restoreDashboardRevision.isPending ||
+        revisionRestoreInFlightRef.current
+      ) {
+        return;
+      }
 
-    revisionRestoreInFlightRef.current = true;
-    try {
-      const revisions =
-        dashboardRevisions ?? (await refetchDashboardRevisions()).data;
-      if (!revisions?.length) return;
-      const targetIndex =
-        undoRevisionId === null ? 0 : Math.max(0, undoRevisionIndex + 1);
-      const targetRevision = revisions[targetIndex];
-      if (!targetRevision) return;
+      revisionRestoreInFlightRef.current = true;
+      try {
+        let revisionId = write?.revisionId;
+        if (!revisionId) {
+          // Fetched now: a list held from before the latest save would point
+          // Undo at an older revision. A failed fetch throws, so Undo reports
+          // it didn't run instead of passing for an empty history.
+          const { data: revisions } = await refetchDashboardRevisions({
+            throwOnError: true,
+          });
+          const undoneIndex =
+            revisions?.findIndex(
+              (revision) => revision.id === undoRevisionId,
+            ) ?? -1;
+          revisionId = revisions?.[undoneIndex + 1]?.id;
+          if (!revisionId) return;
+        }
 
-      holdDashboardConfig();
-      const restored = await restoreDashboardRevision.mutateAsync({
-        dashboardId,
-        revisionId: targetRevision.id,
-        expectedUpdatedAt: dashboardUpdatedAt ?? undefined,
-      });
-      setUndoRevisionId(targetRevision.id);
-      setRedoRevisionIds((current) => [
-        ...current,
-        restored.snapshotRevisionId,
-      ]);
-      if (restored?.updatedAt) setDashboardUpdatedAt(restored.updatedAt);
-      toast.success(t("dashboard.undoSuccess"));
-    } catch (error) {
-      resetRevisionNavigation();
-      toast.error(
-        error instanceof Error
-          ? t("dashboard.undoFailedWithMessage", { message: error.message })
-          : t("dashboard.undoFailed"),
-      );
-    } finally {
-      revisionRestoreInFlightRef.current = false;
-    }
-  }, [
-    canEdit,
-    dashboardId,
-    dashboardRevisions,
-    dashboardUpdatedAt,
-    holdDashboardConfig,
-    restoreDashboardRevision,
-    refetchDashboardRevisions,
-    resetRevisionNavigation,
-    t,
-    undoRevisionId,
-    undoRevisionIndex,
-  ]);
+        holdDashboardConfig();
+        const restored = await restoreDashboardRevision.mutateAsync({
+          dashboardId,
+          revisionId,
+          expectedUpdatedAt:
+            write?.updatedAt ?? dashboardUpdatedAtRef.current ?? undefined,
+        });
+        setUndoRevisionId(revisionId);
+        setRedoRevisionIds((current) => [
+          ...current,
+          restored.snapshotRevisionId,
+        ]);
+        if (restored?.updatedAt) setDashboardUpdatedAt(restored.updatedAt);
+        toast.success(t("dashboard.undoSuccess"));
+      } catch (error) {
+        resetRevisionNavigation();
+        toast.error(
+          error instanceof Error
+            ? t("dashboard.undoFailedWithMessage", { message: error.message })
+            : t("dashboard.undoFailed"),
+        );
+      } finally {
+        revisionRestoreInFlightRef.current = false;
+      }
+    },
+    [
+      dashboardId,
+      editing,
+      holdDashboardConfig,
+      restoreDashboardRevision,
+      refetchDashboardRevisions,
+      resetRevisionNavigation,
+      t,
+      undoRevisionId,
+    ],
+  );
+  useEffect(() => {
+    handleUndoRef.current = handleUndo;
+  }, [handleUndo]);
 
   const handleRedo = useCallback(async () => {
     if (
       !dashboardId ||
-      !canEdit ||
+      !editing ||
       !canRedo ||
       restoreDashboardRevision.isPending
     ) {
@@ -1316,7 +1912,7 @@ function SqlDashboardPageContent({
       const restored = await restoreDashboardRevision.mutateAsync({
         dashboardId,
         revisionId: targetRevisionId,
-        expectedUpdatedAt: dashboardUpdatedAt ?? undefined,
+        expectedUpdatedAt: dashboardUpdatedAtRef.current ?? undefined,
       });
       setRedoRevisionIds((current) => current.slice(0, -1));
       setUndoRevisionId(null);
@@ -1333,10 +1929,9 @@ function SqlDashboardPageContent({
       revisionRestoreInFlightRef.current = false;
     }
   }, [
-    canEdit,
     canRedo,
     dashboardId,
-    dashboardUpdatedAt,
+    editing,
     holdDashboardConfig,
     redoRevisionIds,
     resetRevisionNavigation,
@@ -1345,7 +1940,7 @@ function SqlDashboardPageContent({
   ]);
 
   useEffect(() => {
-    if (reportScreenshot) return;
+    if (!editing) return;
 
     const handleUndoShortcut = (event: KeyboardEvent) => {
       if (
@@ -1378,42 +1973,122 @@ function SqlDashboardPageContent({
     canEdit,
     dashboardId,
     dashboardRevisions,
+    editing,
     handleRedo,
     handleUndo,
-    reportScreenshot,
     restoreDashboardRevision.isPending,
   ]);
 
   const removePanel = useCallback(
     (panelId: string) => {
-      if (!dashboard) return;
-      persist({
-        ...dashboard,
+      persist((current) => ({
+        ...current,
         panels: removePanelFromLayout(
-          dashboard.panels,
+          current.panels,
           panelId,
-          dashboardColumns,
+          clampDashboardColumns(current.columns ?? DEFAULT_DASHBOARD_COLUMNS),
         ),
-      });
+      }));
     },
-    [dashboard, dashboardColumns, persist],
+    [persist],
   );
 
-  const handleSavePanel = useCallback(
-    async (panel: SqlPanel) => {
-      if (!dashboard) return;
-      const idx = dashboard.panels.findIndex((p) => p.id === panel.id);
-      const nextPanels =
-        idx >= 0
-          ? dashboard.panels.map((p, i) => (i === idx ? panel : p))
-          : [...dashboard.panels, panel];
-      await persistThrow({ ...dashboard, panels: nextPanels });
+  const handleResizePanel = useCallback(
+    async (
+      panelId: string,
+      axis: "width" | "height",
+      value: number | undefined,
+    ): Promise<SqlPanel> => {
+      const savedConfig = await persistThrow((current) => {
+        const panel = current.panels.find((p) => p.id === panelId);
+        if (!panel) return current;
+        return {
+          ...current,
+          panels: current.panels.map((p) => {
+            if (p.id !== panelId) return p;
+            if (axis === "height" && value === undefined) {
+              const resized = { ...p };
+              delete resized.height;
+              return resized;
+            }
+            return { ...p, [axis]: value };
+          }),
+        };
+      });
+      const savedPanel = savedConfig?.panels.find((p) => p.id === panelId);
+      if (!savedPanel) throw new DashboardSaveQueueConflictError();
+      return savedPanel;
     },
-    [dashboard, persistThrow],
+    [persistThrow],
+  );
+  const handleSavePanel = useCallback(
+    async (panel: SqlPanel, editorBaseline?: SqlPanel | null) => {
+      await persistThrow((current) => {
+        const idx = current.panels.findIndex((p) => p.id === panel.id);
+        if (editorBaseline && idx < 0) {
+          throw new DashboardSaveQueueConflictError();
+        }
+        const nextPanel =
+          editorBaseline !== undefined && idx >= 0
+            ? mergeUnchangedPanelFields(
+                panel,
+                editorBaseline,
+                current.panels[idx],
+              )
+            : panel;
+        const nextPanels =
+          idx >= 0
+            ? current.panels.map((p, i) => (i === idx ? nextPanel : p))
+            : [...current.panels, nextPanel];
+        return { ...current, panels: nextPanels };
+      });
+    },
+    [persistThrow],
+  );
+  const handleSaveSql = useCallback(
+    async (panelId: string, sql: string) => {
+      await persistThrow((current) => {
+        if (!current.panels.some((panel) => panel.id === panelId)) {
+          return current;
+        }
+        return {
+          ...current,
+          panels: current.panels.map((panel) =>
+            panel.id === panelId ? { ...panel, sql } : panel,
+          ),
+        };
+      });
+    },
+    [persistThrow],
+  );
+  const handleSaveEditedPanel = useCallback(
+    async (panel: SqlPanel) => {
+      await handleSavePanel(panel, editingPanel);
+    },
+    [editingPanel, handleSavePanel],
+  );
+
+  // Column edits apply optimistically through `persist`, the same path as
+  // removing a panel; a failed save toasts and refetches the saved config.
+  const handleSaveColumns = useCallback(
+    (panelId: string, columns: TableColumnConfig[]) => {
+      persist((current) => ({
+        ...current,
+        panels: current.panels.map((p) =>
+          p.id === panelId ? { ...p, config: { ...p.config, columns } } : p,
+        ),
+      }));
+    },
+    [persist],
   );
 
   const openEditPanel = useCallback(
     (panel: SqlPanel) => {
+      trackEvent("dashboard_panel_editor_opened", {
+        app_name: "analytics",
+        template_name: "analytics",
+        panel_type: panel.chartType,
+      });
       setEditingPanel(panel);
       setEditorOpen(true);
       awareness?.setLocalStateField("editingPanelId", panel.id);
@@ -1421,7 +2096,6 @@ function SqlDashboardPageContent({
     [awareness],
   );
 
-  // Clear awareness when panel editor closes
   const handleEditorOpenChange = useCallback(
     (open: boolean) => {
       setEditorOpen(open);
@@ -1452,38 +2126,42 @@ function SqlDashboardPageContent({
     (event: DragEndEvent) => {
       setActiveDropSlot(null);
       setActiveDragPanelId(null);
-      if (!dashboard) return;
       const slot = readDropSlot(event.over?.data.current);
       if (!slot) return;
       const panelId = String(event.active.id);
-      const columnExpansion = columnExpansionForDropSlot(
-        buildDashboardPanelGroups(dashboard.panels, dashboardColumns),
-        panelId,
-        slot,
-      );
-      const nextPanels = movePanelToDropSlot(
-        dashboard.panels,
-        panelId,
-        slot,
-        dashboardColumns,
-      );
-      if (nextPanels === dashboard.panels) return;
-      const persistedPanels = columnExpansion?.sectionPanelId
-        ? nextPanels.map((panel) =>
-            panel.id === columnExpansion.sectionPanelId
-              ? { ...panel, columns: columnExpansion.columns }
-              : panel,
-          )
-        : nextPanels;
-      persist({
-        ...dashboard,
-        ...(columnExpansion && !columnExpansion.sectionPanelId
-          ? { columns: columnExpansion.columns }
-          : {}),
-        panels: persistedPanels,
+      persist((current) => {
+        const columns = clampDashboardColumns(
+          current.columns ?? DEFAULT_DASHBOARD_COLUMNS,
+        );
+        const columnExpansion = columnExpansionForDropSlot(
+          buildDashboardPanelGroups(current.panels, columns),
+          panelId,
+          slot,
+        );
+        const nextPanels = movePanelToDropSlot(
+          current.panels,
+          panelId,
+          slot,
+          columns,
+        );
+        if (nextPanels === current.panels) return current;
+        const persistedPanels = columnExpansion?.sectionPanelId
+          ? nextPanels.map((panel) =>
+              panel.id === columnExpansion.sectionPanelId
+                ? { ...panel, columns: columnExpansion.columns }
+                : panel,
+            )
+          : nextPanels;
+        return {
+          ...current,
+          ...(columnExpansion && !columnExpansion.sectionPanelId
+            ? { columns: columnExpansion.columns }
+            : {}),
+          panels: persistedPanels,
+        };
       });
     },
-    [dashboard, dashboardColumns, persist],
+    [persist],
   );
 
   const handleDragCancel = useCallback(() => {
@@ -1492,21 +2170,50 @@ function SqlDashboardPageContent({
   }, []);
 
   const handleSaveName = useCallback(() => {
-    if (!dashboard) return;
     const name = nameInput.trim() || "Untitled Dashboard";
-    persist({ ...dashboard, name });
+    persist((current) => ({ ...current, name }));
     setEditingName(false);
-  }, [dashboard, nameInput, persist]);
+  }, [nameInput, persist]);
+
+  const handleSaveFilterPreset = useCallback(
+    (filterId: string, preset: FilterPreset) => {
+      if (!dashboard?.filters) return;
+      persist((current) =>
+        current.filters
+          ? {
+              ...current,
+              filters: current.filters.map((filter) =>
+                filter.id === filterId
+                  ? {
+                      ...filter,
+                      // The page reads config unvalidated, and the filter bar
+                      // skips malformed preset lists.
+                      presets: Array.isArray(filter.presets)
+                        ? [...filter.presets, preset]
+                        : [preset],
+                    }
+                  : filter,
+              ),
+            }
+          : current,
+      );
+      trackEvent("dashboard_filter_preset_saved", {
+        app_name: "analytics",
+        template_name: "analytics",
+        value_count: preset.values.length,
+      });
+    },
+    [dashboard, persist],
+  );
 
   const handleSaveDescription = useCallback(() => {
-    if (!dashboard) return;
     const description = descriptionInput.trim();
-    persist({
-      ...dashboard,
+    persist((current) => ({
+      ...current,
       description: description || undefined,
-    });
+    }));
     setEditingDescription(false);
-  }, [dashboard, descriptionInput, persist]);
+  }, [descriptionInput, persist]);
 
   const vars = useMemo<Record<string, string>>(() => {
     const filterValues = dashboard?.filters
@@ -1518,6 +2225,21 @@ function SqlDashboardPageContent({
     return { ...(dashboard?.variables ?? {}), ...filterValues };
   }, [dashboard?.variables, dashboard?.filters, searchParams]);
 
+  const timeRangeFilter = useMemo<DashboardFilter | undefined>(
+    () => dashboard?.filters?.find((f) => f.id === "timeRange"),
+    [dashboard?.filters],
+  );
+
+  const dashboardExtensionContext = useMemo<Record<string, unknown>>(
+    () => ({
+      dashboardId: loadedDashboardId,
+      dashboardName: dashboard?.name ?? "",
+      dashboardDescription: dashboard?.description ?? null,
+      filters: vars,
+    }),
+    [loadedDashboardId, dashboard?.name, dashboard?.description, vars],
+  );
+
   const currentReportFilters = useMemo<Record<string, string>>(() => {
     const out = dashboard?.filters
       ? extractFilterParams(dashboard.filters, searchParams)
@@ -1527,11 +2249,13 @@ function SqlDashboardPageContent({
     return out;
   }, [dashboard?.filters, searchParams]);
 
+  // Reruns on a dashboard change, after the reset closed the dialog, so a
+  // report-settings link to another dashboard still opens it.
   useEffect(() => {
     if (!reportScreenshot && reportSettingsRequested) {
       setEmailReportOpen(true);
     }
-  }, [reportScreenshot, reportSettingsRequested]);
+  }, [dashboardId, reportScreenshot, reportSettingsRequested]);
 
   const handleEmailReportOpenChange = useCallback(
     (open: boolean) => {
@@ -1549,8 +2273,6 @@ function SqlDashboardPageContent({
     [reportSettingsRequested, setSearchParams],
   );
 
-  // Distinct tab values across panels in declaration order. When this is
-  // non-empty the dashboard renders a tab strip and filters panels by tab.
   const tabs = useMemo<string[]>(() => {
     if (!dashboard) return [];
     const seen = new Set<string>();
@@ -1572,8 +2294,6 @@ function SqlDashboardPageContent({
         ? requestedTab
         : tabs[0]
       : null;
-  // The report URL carries no `tab` parameter and must show every panel, so
-  // the normal first-tab fallback does not apply in report mode.
   const activeTab = reportScreenshot ? null : selectedTab;
   const groupedTabs = useMemo(() => groupDashboardTabs(tabs), [tabs]);
   const activeTabGroup = activeTab
@@ -1582,8 +2302,49 @@ function SqlDashboardPageContent({
       )
     : null;
 
+  const requestedTileId = searchParams.get("tile");
+  const [highlightedTileId, setHighlightedTileId] = useState<string | null>(
+    null,
+  );
+  const handledTileIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!requestedTileId) {
+      handledTileIdRef.current = null;
+      return;
+    }
+    if (!dashboard || handledTileIdRef.current === requestedTileId) return;
+    const panel = dashboard.panels.find((p) => p.id === requestedTileId);
+    if (!panel) return;
+    const panelTab = panel.tab;
+    if (panelTab && panelTab !== selectedTab) {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.set("tab", panelTab);
+          return next;
+        },
+        { replace: true },
+      );
+      return;
+    }
+    const element = document.getElementById(dashboardTileElementId(panel.id));
+    if (!element) return;
+    handledTileIdRef.current = requestedTileId;
+    element.scrollIntoView({ block: "center" });
+    setHighlightedTileId(panel.id);
+    window.setTimeout(() => setHighlightedTileId(null), TILE_HIGHLIGHT_MS);
+  }, [dashboard, requestedTileId, selectedTab, setSearchParams]);
+
   const handleTabChange = useCallback(
     (value: string) => {
+      trackEvent("dashboard_tab_changed", {
+        app_name: "analytics",
+        template_name: "analytics",
+        tab_position: Math.max(0, tabs.indexOf(value)) + 1,
+        tab_count: tabs.length,
+        has_nested_tabs: groupedTabs.hasNestedTabs,
+      });
       setSearchParams(
         (prev) => {
           const next = new URLSearchParams(prev);
@@ -1593,7 +2354,7 @@ function SqlDashboardPageContent({
         { replace: true },
       );
     },
-    [setSearchParams],
+    [groupedTabs.hasNestedTabs, setSearchParams, tabs],
   );
   const handleTabGroupChange = useCallback(
     (groupName: string) => {
@@ -1604,9 +2365,6 @@ function SqlDashboardPageContent({
     [groupedTabs.groups, handleTabChange],
   );
 
-  // Panels visible under the current tab. Untagged panels appear on every
-  // tab; tagged panels only on their own tab. When no tabs are defined the
-  // dashboard shows every panel as before.
   const visiblePanels = useMemo(() => {
     if (!dashboard) return [];
     return activeTab
@@ -1614,9 +2372,6 @@ function SqlDashboardPageContent({
       : dashboard.panels;
   }, [dashboard, activeTab]);
 
-  // Group panels into "section blocks": each section starts a new block whose
-  // grid uses the section's `columns` (falling back to the dashboard default).
-  // Panels before any section go in an initial unsectioned block.
   const panelGroups = useMemo(() => {
     return buildDashboardPanelGroups(visiblePanels, dashboardColumns);
   }, [visiblePanels, dashboardColumns]);
@@ -1731,7 +2486,7 @@ function SqlDashboardPageContent({
           : undefined,
       );
       if (certification) {
-        setDashboard((current) =>
+        updateDashboard(dashboardId, (current) =>
           current ? { ...current, certification } : current,
         );
       }
@@ -1755,6 +2510,7 @@ function SqlDashboardPageContent({
     dashboardScope,
     queryClient,
     t,
+    updateDashboard,
   ]);
 
   const dismissDemoIntro = useCallback(() => {
@@ -1841,13 +2597,17 @@ function SqlDashboardPageContent({
   ]);
 
   const handleSaveView = useCallback(
-    async (name: string, filters: Record<string, string>) => {
+    async (
+      name: string,
+      filters: Record<string, string>,
+      isDefault: boolean,
+    ) => {
       const id = name
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, "-")
         .replace(/^-|-$/g, "")
         .slice(0, 60);
-      await saveView({ id, name, filters });
+      await saveView({ id, name, filters, isDefault });
     },
     [saveView],
   );
@@ -1860,17 +2620,18 @@ function SqlDashboardPageContent({
   useSetPageTitle(
     reportScreenshot ? null : dashboard ? (
       <div className="flex min-w-0 items-center gap-2">
-        {editingName && canEdit ? (
+        {editingName && editing ? (
           <Input
+            size="sm"
             ref={nameInputRef}
             value={nameInput}
             onChange={(e) => setNameInput(e.target.value)}
             onBlur={handleSaveName}
             onKeyDown={(e) => e.key === "Enter" && handleSaveName()}
-            className="h-8 w-full sm:w-64 text-lg font-semibold"
+            className="w-full sm:w-64 text-lg font-semibold"
             autoFocus
           />
-        ) : canEdit ? (
+        ) : editing ? (
           <button
             className="group flex min-w-0 items-center gap-1 truncate text-lg font-semibold hover:text-primary"
             onClick={() => {
@@ -1905,6 +2666,13 @@ function SqlDashboardPageContent({
     ) : null,
   );
 
+  const annotationEditing = useAnnotationEditing({
+    dashboardId: loadedDashboardId ?? undefined,
+    dashboard,
+    editing,
+    persist,
+  });
+
   useSetHeaderActions(
     reportScreenshot ? null : dashboard ? (
       <>
@@ -1914,9 +2682,54 @@ function SqlDashboardPageContent({
           agentActive={agentActive}
           currentUserEmail={session?.email}
         />
+        {canEdit ? (
+          <ToggleGroup
+            type="single"
+            value={editing ? "edit" : "view"}
+            onValueChange={(value) => {
+              if (!value) return;
+              setEditMode(value === "edit");
+              trackEvent("dashboard_mode_changed", {
+                app_name: "analytics",
+                template_name: "analytics",
+                mode: value,
+              });
+            }}
+            aria-label={t("dashboardMode.label")}
+            className="h-8 gap-0.5 rounded-md border p-0.5"
+          >
+            {/* The hints are wider than their buttons, so a hoverable hint
+                would stay open over the neighbouring button and block its hint. */}
+            <Tooltip disableHoverableContent>
+              <TooltipTrigger asChild>
+                <ToggleGroupItem
+                  value="view"
+                  className={DASHBOARD_MODE_ITEM_CLASS}
+                >
+                  <IconEye className="h-3.5 w-3.5" />
+                  {t("dashboardMode.view")}
+                </ToggleGroupItem>
+              </TooltipTrigger>
+              <TooltipContent>{t("dashboardMode.viewHint")}</TooltipContent>
+            </Tooltip>
+            <Tooltip disableHoverableContent>
+              <TooltipTrigger asChild>
+                <ToggleGroupItem
+                  value="edit"
+                  className={DASHBOARD_MODE_ITEM_CLASS}
+                >
+                  <IconPencil className="h-3.5 w-3.5" />
+                  {t("dashboardMode.edit")}
+                </ToggleGroupItem>
+              </TooltipTrigger>
+              <TooltipContent>{t("dashboardMode.editHint")}</TooltipContent>
+            </Tooltip>
+          </ToggleGroup>
+        ) : null}
         {dashboardId && (
           <ViewsMenu dashboardId={dashboardId} canEdit={canEdit} />
         )}
+        {annotationEditing.menu}
         {dashboardId ? (
           <ShareButton
             resourceType="dashboard"
@@ -1926,32 +2739,36 @@ function SqlDashboardPageContent({
             variant="compact"
             triggerClassName="border-0 bg-accent text-accent-foreground hover:bg-accent/80 hover:text-accent-foreground"
             shareUrl={dashboardShareUrl}
-            shareTabs={{
-              tabs: [
-                {
-                  value: "context",
-                  label: t("creativeContext.share.tabLabel"),
-                  content: (
-                    <CreativeContextShareTab
-                      resource={{
-                        appId: "analytics",
-                        resourceType: "dashboard",
-                        resourceId: dashboardId,
-                        title: dashboard.name,
-                        updatedAt: dashboardUpdatedAt ?? undefined,
-                        preview: {
-                          kind: "document",
-                          label: t("dashboard.sqlDashboard"),
-                        },
-                      }}
-                    />
-                  ),
-                },
-              ],
-            }}
+            shareTabs={
+              creativeContextEnabled
+                ? {
+                    tabs: [
+                      {
+                        value: "context",
+                        label: t("creativeContext.share.tabLabel"),
+                        content: (
+                          <CreativeContextShareTab
+                            resource={{
+                              appId: "analytics",
+                              resourceType: "dashboard",
+                              resourceId: dashboardId,
+                              title: dashboard.name,
+                              updatedAt: dashboardUpdatedAt ?? undefined,
+                              preview: {
+                                kind: "document",
+                                label: t("dashboard.sqlDashboard"),
+                              },
+                            }}
+                          />
+                        ),
+                      },
+                    ],
+                  }
+                : undefined
+            }
           />
         ) : null}
-        {canEdit ? (
+        {editing ? (
           <AddPanelPopover
             onSave={handleSavePanel}
             dashboardId={dashboardId ?? ""}
@@ -1984,7 +2801,7 @@ function SqlDashboardPageContent({
             <TooltipContent>{t("sqlDashboard.details")}</TooltipContent>
           </Tooltip>
           <DropdownMenuContent align="end" className="w-72">
-            {dashboardId && canEdit && !archivedAt ? (
+            {creativeContextEnabled && dashboardId && canEdit && !archivedAt ? (
               <DropdownMenuItem
                 onSelect={(event) => {
                   event.preventDefault();
@@ -1999,7 +2816,7 @@ function SqlDashboardPageContent({
             {dashboardId ? (
               <>
                 <DropdownMenuSeparator />
-                {canEdit ? (
+                {editing ? (
                   <DropdownMenuItem
                     disabled={!canUndo || restoreDashboardRevision.isPending}
                     aria-keyshortcuts="Meta+Z"
@@ -2016,7 +2833,7 @@ function SqlDashboardPageContent({
                     </span>
                   </DropdownMenuItem>
                 ) : null}
-                {canEdit ? (
+                {editing ? (
                   <DropdownMenuItem
                     disabled={!canRedo || restoreDashboardRevision.isPending}
                     aria-keyshortcuts="Meta+Shift+Z"
@@ -2048,6 +2865,10 @@ function SqlDashboardPageContent({
                   onSelect={(event) => {
                     event.preventDefault();
                     setDashboardActionsOpen(false);
+                    trackEvent("dashboard_history_opened", {
+                      app_name: "analytics",
+                      template_name: "analytics",
+                    });
                     setHistoryOpen(true);
                   }}
                 >
@@ -2155,7 +2976,7 @@ function SqlDashboardPageContent({
             onRestored={resetRevisionNavigation}
           />
         ) : null}
-        {dashboardId ? (
+        {creativeContextEnabled && dashboardId ? (
           <CreativeContextShareSheet
             open={contextSheetOpen}
             onOpenChange={setContextSheetOpen}
@@ -2270,7 +3091,7 @@ function SqlDashboardPageContent({
     return <BlankDashboard />;
   }
 
-  return (
+  const content = (
     <DashboardReportCaptureSurface
       className="space-y-4"
       phase="ready"
@@ -2306,8 +3127,8 @@ function SqlDashboardPageContent({
           <Button
             type="button"
             variant="ghost"
-            size="icon"
-            className="absolute right-2 top-2 h-8 w-8 text-cyan-900 hover:bg-cyan-400/20 hover:text-cyan-950 dark:text-cyan-100 dark:hover:text-cyan-50"
+            size="icon-sm"
+            className="absolute right-2 top-2 text-cyan-900 hover:bg-cyan-400/20 hover:text-cyan-950 dark:text-cyan-100 dark:hover:text-cyan-50"
             onClick={dismissDemoIntro}
             aria-label={t("sqlDashboard.dismissDemoIntro")}
           >
@@ -2316,7 +3137,7 @@ function SqlDashboardPageContent({
         </Alert>
       ) : null}
       {/* Description (click to edit) */}
-      {editingDescription && canEdit ? (
+      {editingDescription && editing ? (
         <Textarea
           ref={descriptionInputRef}
           value={descriptionInput}
@@ -2336,22 +3157,22 @@ function SqlDashboardPageContent({
       ) : !reportScreenshot && dashboard.description ? (
         <button
           className={
-            canEdit
+            editing
               ? "text-sm text-muted-foreground hover:text-foreground text-left flex items-start gap-1.5 w-full group"
               : "text-sm text-muted-foreground text-left flex items-start gap-1.5 w-full"
           }
           onClick={() => {
-            if (!canEdit) return;
+            if (!editing) return;
             setDescriptionInput(dashboard.description ?? "");
             setEditingDescription(true);
           }}
         >
           <span className="flex-1">{dashboard.description}</span>
-          {canEdit ? (
+          {editing ? (
             <IconPencil className="h-3 w-3 mt-0.5 shrink-0 opacity-0 group-hover:opacity-60" />
           ) : null}
         </button>
-      ) : canEdit ? (
+      ) : editing ? (
         <button
           className="text-xs text-muted-foreground/60 hover:text-muted-foreground flex items-center gap-1"
           onClick={() => {
@@ -2410,7 +3231,11 @@ function SqlDashboardPageContent({
         dashboard.filters.length > 0 && (
           <DashboardFilterBar
             filters={dashboard.filters}
+            views={dashboardViewsLoaded ? views : null}
+            viewsRefreshing={dashboardViewsState === "loading"}
             onSaveView={canEdit ? handleSaveView : undefined}
+            onSavePreset={editing ? handleSaveFilterPreset : undefined}
+            shared={dashboardShared}
           />
         )}
 
@@ -2435,12 +3260,15 @@ function SqlDashboardPageContent({
           </CardContent>
         </Card>
       ) : (
+        // Keyed by dashboard: a card's state, such as personal column widths,
+        // must not carry over to a panel with the same id on the next one.
         <DndContext
+          key={loadedDashboardId}
           sensors={sensors}
           collisionDetection={dashboardCollisionDetection}
-          onDragStart={canEdit ? handleDragStart : undefined}
-          onDragOver={canEdit ? handleDragOver : undefined}
-          onDragEnd={canEdit ? handleDragEnd : undefined}
+          onDragStart={editing ? handleDragStart : undefined}
+          onDragOver={editing ? handleDragOver : undefined}
+          onDragEnd={editing ? handleDragEnd : undefined}
           onDragCancel={handleDragCancel}
         >
           <div
@@ -2493,7 +3321,7 @@ function SqlDashboardPageContent({
                       resolvedSql=""
                       onRemove={() => removePanel(section.id)}
                       onEdit={() => openEditPanel(section)}
-                      editable={canEdit}
+                      editable={editing}
                       eagerLoad={reportScreenshot}
                       isDragSource={activeDragPanelId === section.id}
                     />
@@ -2506,7 +3334,7 @@ function SqlDashboardPageContent({
                   key={`row-slot-${group.key}-${rowIndex}`}
                   slot={{ type: "row", groupKey: group.key, rowIndex }}
                   activeSlot={activeDropSlot}
-                  disabled={!canEdit}
+                  disabled={!editing}
                 />
               );
 
@@ -2521,7 +3349,7 @@ function SqlDashboardPageContent({
                           className="dashboard-grid"
                           style={
                             {
-                              "--dash-cols": row.panels.length,
+                              "--dash-cols": group.columns,
                             } as React.CSSProperties
                           }
                         >
@@ -2533,34 +3361,39 @@ function SqlDashboardPageContent({
                               columnIndex: 0,
                             }}
                             activeSlot={activeDropSlot}
-                            disabled={!canEdit}
+                            disabled={!editing}
+                            gridColumns={group.columns}
                           />
                           {row.panels.map((panel, columnIndex) => (
                             <Fragment key={panel.id}>
                               <PanelCell
                                 panel={panel}
+                                gridColumns={group.columns}
                                 vars={vars}
+                                timeRangeFilter={timeRangeFilter}
                                 remoteEditor={
                                   reportScreenshot
                                     ? undefined
                                     : remoteEditingPanels.get(panel.id)
                                 }
-                                editable={canEdit}
+                                editable={editing}
                                 eagerLoad={reportScreenshot}
                                 reportScreenshot={reportScreenshot}
                                 isDragSource={activeDragPanelId === panel.id}
                                 selectedForChat={selectedPanelId === panel.id}
+                                highlighted={highlightedTileId === panel.id}
                                 selectPanelForChat={selectPanelForChat}
                                 onRemovePanel={removePanel}
                                 onEditPanel={openEditPanel}
-                                onSavePanel={handleSavePanel}
-                                dashboardExtensionContext={{
-                                  dashboardId,
-                                  dashboardName: dashboard.name,
-                                  dashboardDescription:
-                                    dashboard.description ?? null,
-                                  filters: vars,
-                                }}
+                                onSaveSql={handleSaveSql}
+                                onResizePanel={handleResizePanel}
+                                onSaveColumns={handleSaveColumns}
+                                hasPendingDashboardSave={
+                                  hasPendingDashboardSave
+                                }
+                                dashboardExtensionContext={
+                                  dashboardExtensionContext
+                                }
                               />
                               <DashboardDropLine
                                 slot={{
@@ -2570,7 +3403,19 @@ function SqlDashboardPageContent({
                                   columnIndex: columnIndex + 1,
                                 }}
                                 activeSlot={activeDropSlot}
-                                disabled={!canEdit}
+                                disabled={!editing}
+                                gridColumns={group.columns}
+                                columnOffset={row.panels
+                                  .slice(0, columnIndex + 1)
+                                  .reduce(
+                                    (total, item) =>
+                                      total +
+                                      clampPanelWidth(
+                                        item.width,
+                                        group.columns,
+                                      ),
+                                    0,
+                                  )}
                               />
                             </Fragment>
                           ))}
@@ -2594,11 +3439,23 @@ function SqlDashboardPageContent({
           open={editorOpen}
           onOpenChange={handleEditorOpenChange}
           panel={editingPanel}
-          onSave={handleSavePanel}
+          onSave={handleSaveEditedPanel}
           dashboardId={dashboardId ?? ""}
           existingPanelTitles={dashboard.panels.map((p) => p.title)}
         />
       ) : null}
     </DashboardReportCaptureSurface>
+  );
+  return (
+    <DashboardAnnotationsProvider
+      dashboardId={loadedDashboardId}
+      annotations={dashboard.annotations}
+      dataNoteActions={
+        reportScreenshot ? undefined : annotationEditing.dataNoteActions
+      }
+    >
+      {content}
+      {annotationEditing.dialogs}
+    </DashboardAnnotationsProvider>
   );
 }

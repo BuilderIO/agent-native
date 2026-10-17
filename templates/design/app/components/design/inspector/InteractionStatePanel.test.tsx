@@ -15,11 +15,6 @@ import {
   type InteractionStatePanelProps,
 } from "./InteractionStatePanel";
 
-// Minimal catalog covering only the keys this component reads, so tests get
-// the REAL translated strings (not the useT() humanized-fallback path) while
-// staying independent of the full app/i18n-data.ts catalog. Coverage across
-// all 11 locales for these keys is verified by `guard:i18n-catalogs`, not
-// here.
 const CATALOG_MESSAGES = {
   editPanel: {
     interactionStates: {
@@ -83,7 +78,7 @@ describe("InteractionStatePanel", () => {
     expect(markup).not.toContain("Editing");
   });
 
-  it("shows the plain Figma state name when Hover is active", () => {
+  it("shows the plain state name when Hover is active", () => {
     const markup = renderPanel({ activeState: "hover" });
     expect(markup).toContain(">Hover<");
     expect(markup).not.toContain(">Editing Hover state<");
@@ -188,9 +183,6 @@ describe("InteractionStatePanel menu interactions", () => {
         ?.getAttribute("aria-expanded"),
     ).toBe("true");
 
-    // A just-authored source update can briefly make inspectorElement null.
-    // EditPanel keeps `open` above this conditional subtree and passes it back
-    // when the exact same stable selection is reconciled.
     await act(async () => {
       root.render(
         <AgentNativeI18nProvider
@@ -228,7 +220,7 @@ describe("InteractionStatePanel menu interactions", () => {
     ).toBe("true");
   });
 
-  it("matches Figma's state order, icons, and selected trailing dot", async () => {
+  it("uses the configured state order, icons, and selected trailing dot", async () => {
     const { container } = await mountPanel();
     const trigger = container.querySelector<HTMLButtonElement>(
       'button[aria-label="Interaction state"]',
@@ -262,7 +254,7 @@ describe("InteractionStatePanel menu interactions", () => {
     expect(items[0]?.querySelector('[aria-hidden="true"]')).not.toBeNull();
   });
 
-  it("keeps canonical Figma order when the caller narrows states out of order", async () => {
+  it("keeps canonical state order when the caller narrows states out of order", async () => {
     const { container } = await mountPanel({
       availableStates: ["disabled", "hover", "focus"],
     });

@@ -21,11 +21,6 @@ const SAFE_RUNTIME_VERSION = /^[A-Za-z0-9][A-Za-z0-9._:/ -]{0,159}$/;
 
 export type MultiFrontierHelperKind = "research" | "test_analysis" | "review";
 
-/**
- * This is created only from a provider/runtime probe that proved both model
- * selection and a process-enforced read-only workspace. A prompt claim is not
- * enough to make a runtime helper-capable.
- */
 export interface MultiFrontierProvenHelperCapability {
   schemaVersion: 1;
   providerId: "codex" | "claude";
@@ -107,10 +102,6 @@ export interface MultiFrontierHelperRuntimeOptions {
   now?(): string;
 }
 
-/**
- * A main-process-only guard around optional helpers. It deliberately has no
- * editing mode: adding one requires a separately proven fenced lease handoff.
- */
 export class MultiFrontierHelperRuntime {
   readonly #options: MultiFrontierHelperRuntimeOptions;
   readonly #taskIds = new Set<string>();

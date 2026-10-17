@@ -32,13 +32,13 @@ Una buena plantilla:
 Utilice la plantilla de Chat cuando desee una aplicación mínima con el cableado del marco ya instalado:
 
 ```bash
-npx @agent-native/core@latest create my-template --template chat --standalone
+npx --yes @agent-native/core@latest create my-template --template chat --standalone
 ```
 
 Para un espacio de trabajo con varias aplicaciones, ejecute el selector e incluya Chat con las plantillas de dominio que desee:
 
 ```bash
-npx @agent-native/core@latest create my-platform
+npx --yes @agent-native/core@latest create my-platform
 ```
 
 Chat le brinda autenticación, hilos de chat duraderos, recursos respaldados por PostgreSQL, herramientas, estado de la aplicación, actions y sincronización de sondeo. Agregas el modelo de dominio y el producto UI.
@@ -516,13 +516,13 @@ Antes de compartir:
 Las plantillas de la comunidad se instalan directamente desde un repositorio público de GitHub. Coloca la aplicación Agent-Native en la raíz:
 
 ```bash
-npx @agent-native/core@latest create my-app --template community:owner/repo
+npx --yes @agent-native/core@latest create my-app --template community:owner/repo
 ```
 
 Añade `#branch`, `#tag` o `#commit` para fijar una revisión concreta:
 
 ```bash
-npx @agent-native/core@latest create my-app --template community:owner/repo#v1.0.0
+npx --yes @agent-native/core@latest create my-app --template community:owner/repo#v1.0.0
 ```
 
 La CLI solo descarga el código fuente; no instala dependencias ni ejecuta scripts de la plantilla. Las plantillas de la comunidad son código de terceros, así que revisa el repositorio, la licencia, las dependencias y los scripts antes de ejecutar `pnpm install`.

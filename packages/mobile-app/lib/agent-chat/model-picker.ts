@@ -33,6 +33,11 @@ export const MOBILE_AGENT_OPTIONS = [
   },
 ] as const;
 
+export const DEFAULT_CHAT_SETTINGS: AgentChatSettings = {
+  model: "gpt-6-luna",
+  effort: "high",
+};
+
 export const MOBILE_LOCAL_AGENT_ENGINES: Set<string> = new Set(
   MOBILE_AGENT_OPTIONS.flatMap((agent) =>
     "engine" in agent && agent.engine ? [agent.engine] : [],
@@ -58,13 +63,36 @@ export function getMobileAgentLabel(engine: string | undefined): string {
 
 export function formatMobileModelLabel(model: string | undefined): string {
   if (!model) return "Auto";
-  const raw = model.replace(/-\d{8}$/, "");
-  if (/sonnet/i.test(raw)) return "Sonnet 5";
-  if (/opus/i.test(raw)) return "Opus 3.5";
-  if (/haiku/i.test(raw)) return "Haiku 3.5";
+  const raw = model
+    .split("/")
+    .pop()!
+    .replace(/-\d{8}$/, "");
+  const claude = raw.match(/^claude-(sonnet|opus|haiku)-(\d+(?:[-.]\d+)?)$/i);
+  if (claude) {
+    const family = claude[1]![0]!.toUpperCase() + claude[1]!.slice(1);
+    return `${family} ${claude[2]!.replace("-", ".")}`;
+  }
   if (/gpt-4o/i.test(raw)) return "GPT-4o";
-  if (/gpt-5-6-luna/i.test(raw)) return "GPT-5.6 Luna";
-  if (/gemini/i.test(raw)) return "Gemini 2.0";
+  const gpt = raw.match(
+    /^gpt-(\d+)(?:[.-](\d+))?(?:-(luna|sol|terra|mini|codex-mini))?$/i,
+  );
+  if (gpt) {
+    const version = gpt[2] ? `${gpt[1]}.${gpt[2]}` : gpt[1];
+    const suffix = gpt[3]
+      ?.replaceAll("-", " ")
+      .replace(/\b\w/g, (letter) => letter.toUpperCase());
+    return `GPT-${version}${suffix ? ` ${suffix}` : ""}`;
+  }
+  const gemini = raw.match(
+    /^gemini-(\d+)(?:[.-](\d+))?-(flash(?:-lite)?|pro)(?:-preview)?$/i,
+  );
+  if (gemini) {
+    const version = gemini[2] ? `${gemini[1]}.${gemini[2]}` : gemini[1];
+    const variant = gemini[3]!
+      .replaceAll("-", " ")
+      .replace(/\b\w/g, (letter) => letter.toUpperCase());
+    return `Gemini ${version} ${variant}`;
+  }
   return raw.charAt(0).toUpperCase() + raw.slice(1);
 }
 

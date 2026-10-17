@@ -1,9 +1,4 @@
-import {
-  IconCheck,
-  IconDownload,
-  IconLoader2,
-  IconRefresh,
-} from "@tabler/icons-react";
+import { IconDownload, IconLoader2, IconRefresh } from "@tabler/icons-react";
 import { useState } from "react";
 
 import {
@@ -14,10 +9,6 @@ import {
 import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
 import { Button } from "./ui/button";
 
-/**
- * An explicit shadcn alert keeps update state discoverable in the compact
- * popover. Settings no longer carries a detached dot that users have to infer.
- */
 export function UpdateBanner() {
   const status = useUpdateStatus();
   const [dismissedErrorMessage, setDismissedErrorMessage] = useState<
@@ -108,14 +99,8 @@ export function UpdateBanner() {
 
   return (
     <Alert className="update-banner update-banner--ready p-2 text-xs">
-      <span className="update-banner-icon" aria-hidden>
-        <IconCheck size={16} stroke={1.9} />
-      </span>
       <div className="update-banner-copy">
         <AlertTitle className="mb-0">Update ready</AlertTitle>
-        <AlertDescription className="update-banner-description text-[11px] leading-tight">
-          Restart Clips to install it.
-        </AlertDescription>
       </div>
       <div className="update-banner-actions">
         <Button

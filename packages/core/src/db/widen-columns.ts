@@ -1,12 +1,11 @@
-/**
- * In-place widening of legacy 32-bit `integer` columns to 64-bit `BIGINT` on
- * Postgres.
- *
- * Lives in its own module so stores can import it without every client mock
- * needing to stub the helper.
- */
-
 import { getDbExec, type DbExec } from "./client.js";
+import {
+  isHostedFunctionInvocationRuntime,
+  isMigrationExecutingRuntime,
+  isMigrationAuthorizedRuntime,
+  isProductionServerlessFunctionRuntime,
+} from "./migration-runtime.js";
+import { isRecordingStoreMigration } from "./runtime-facts.js";
 
 const PLAIN_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -38,10 +37,17 @@ const PLAIN_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
 export async function widenIntColumnsToBigInt(
   table: string,
   columns: string[],
-  // Injectable for tests; production callers use the configured client.
   injectedClient?: DbExec,
 ): Promise<void> {
-  if (!true || columns.length === 0) return;
+  if (
+    columns.length === 0 ||
+    (!isMigrationExecutingRuntime() &&
+      (isHostedFunctionInvocationRuntime() ||
+        (isProductionServerlessFunctionRuntime() &&
+          !isMigrationAuthorizedRuntime())))
+  ) {
+    return;
+  }
   if (!PLAIN_IDENTIFIER.test(table)) return;
   const client = injectedClient ?? getDbExec();
   let int4Columns: Set<string>;
@@ -52,8 +58,11 @@ export async function widenIntColumnsToBigInt(
       args: [table],
     });
     int4Columns = new Set(rows.map((r) => String(r.column_name)));
-  } catch {
-    // Leave the existing table unchanged when introspection is unavailable.
+  } catch (err) {
+    // At release the store ledger records success, so a skipped widen must fail.
+    if (isMigrationAuthorizedRuntime() || isRecordingStoreMigration()) {
+      throw err;
+    }
     return;
   }
   for (const col of columns) {
@@ -62,7 +71,10 @@ export async function widenIntColumnsToBigInt(
       await client.execute(
         `ALTER TABLE ${table} ALTER COLUMN ${col} TYPE BIGINT`,
       );
-    } catch {
+    } catch (err) {
+      if (isMigrationAuthorizedRuntime() || isRecordingStoreMigration()) {
+        throw err;
+      }
       // A concurrent boot already widened it, or the role lacks ALTER — both
       // are safe to ignore; a later boot retries if still needed.
     }

@@ -10,13 +10,13 @@ describe("dispatch integration links", () => {
         "https://dispatch.agent-native.com/overview",
       ),
     ).toBe(
-      "https://dispatch.agent-native.com/integrations?provider=gong&appId=brain&returnTo=ask",
+      "https://dispatch.agent-native.com/settings/integrations?provider=gong&appId=brain&returnTo=ask",
     );
   });
 
   it("preserves the workspace gateway for mounted Dispatch", () => {
     expect(dispatchIntegrationsHref("hubspot", "/dispatch/overview")).toBe(
-      "/dispatch/integrations?provider=hubspot&appId=brain&returnTo=ask",
+      "/dispatch/settings/integrations?provider=hubspot&appId=brain&returnTo=ask",
     );
   });
 });

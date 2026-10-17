@@ -1,13 +1,13 @@
 import { configureTracking } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import {
-  AppProviders,
   callAction,
   createAgentNativeQueryClient,
   useDbSync,
 } from "@agent-native/core/client/hooks";
 import { getLocaleInitScript } from "@agent-native/core/client/i18n";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
+import { AppProviders } from "@agent-native/toolkit/app/providers";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import {
@@ -21,7 +21,9 @@ import {
 import type { LinksFunction } from "react-router";
 
 import { AuthProvider } from "@/components/auth/AuthProvider";
+import { SqlQuerySnapshotSessionBridge } from "@/components/auth/SqlQuerySnapshotSessionBridge";
 import { ProviderCorpusJobNotifier } from "@/components/ProviderCorpusJobNotifier";
+import "@/lib/register-analysis-result-renderer";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
@@ -31,6 +33,7 @@ import { TAB_ID } from "@/lib/tab-id";
 import { CommandPalette } from "./components/layout/CommandPalette";
 import { Layout as AppLayout } from "./components/layout/Layout";
 import { i18nCatalog } from "./i18n";
+import { isReplayFrameRequest } from "./pages/sessions/session-replay-frame";
 
 import stylesheet from "./global.css?url";
 configureTracking({
@@ -87,22 +90,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
 }
 
 function DbSyncBridge() {
-  // Invalidate react-query caches on DB changes (agent edits, other tabs,
-  // cron jobs). SQL chart queries can be expensive, so they stay on explicit
-  // refresh/filter semantics instead of joining the broad action fallback.
-  // Screen-refresh is handled automatically inside AgentSidebar.
   const queryClient = useQueryClient();
   useDbSync({
     queryClient,
-    // Netlify functions cannot reliably hold the local long-lived SSE
-    // response. Analytics uses the poll safety net until a hosted realtime
-    // gateway is configured for this deployment.
-    sseUrl: false,
     ignoreSource: TAB_ID,
     onEvent: notifyProviderCorpusJobSyncEvent,
     actionInvalidatePredicate: shouldInvalidateAnalyticsQueryForAction,
-    // These boot-time maintenance calls update their own local state and do
-    // not imply that every mounted Analytics query needs to restart.
     suppressActionInvalidationFor: [
       "ensure-demo-dashboards",
       "manage-agent-engine",
@@ -116,6 +109,7 @@ export function shouldInvalidateAnalyticsQueryForAction(query: {
 }): boolean {
   const [scope, name] = query.queryKey;
   if (
+    (scope === "data" && name === "sql-dashboard") ||
     scope === "sql-chart" ||
     scope === "sql-dashboards-sidebar" ||
     scope === "analyses-sidebar" ||
@@ -123,8 +117,6 @@ export function shouldInvalidateAnalyticsQueryForAction(query: {
   ) {
     return false;
   }
-  // The notifier refreshes for corpus-job events and only polls while a job is
-  // actively running. Unrelated actions must not restart its idle query.
   if (scope === "action" && name === "provider-corpus-jobs") return false;
   return true;
 }
@@ -143,14 +135,16 @@ export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   const location = useLocation();
 
-  // Public, unauthenticated routes render SSR-first without the authenticated
-  // app chrome (sidebar/chat/command palette). See the status routes and the
-  // `/` workspace-app public path in server/plugins/auth.ts.
   const isPublicStatusPath =
     location.pathname === "/status" || location.pathname.startsWith("/status/");
-  const isMarketingPath = location.pathname === "/";
+  // Frame mode renders one replay for a headless browser holding a signed,
+  // recording-scoped agent link: no session, no app chrome.
+  const isReplayFramePath = isReplayFrameRequest(
+    location.pathname,
+    location.search,
+  );
 
-  if (isPublicStatusPath || isMarketingPath) {
+  if (isPublicStatusPath || isReplayFramePath) {
     return (
       <AppToolkitProvider>
         <AppProviders
@@ -167,12 +161,11 @@ export default function Root() {
   }
 
   return (
-    // defaultTheme="dark": analytics defaults to dark mode if no stored preference.
-    // toaster={null}: suppress AppProviders' built-in sonner; analytics renders
-    // both its styled Sonner and the legacy shadcn Toaster explicitly below.
     <AppToolkitProvider>
+      <SqlQuerySnapshotSessionBridge />
       <AppProviders
         queryClient={queryClient}
+        skeletonLayout="assistant"
         defaultTheme="dark"
         toaster={null}
         i18n={{ catalog: i18nCatalog }}
@@ -193,4 +186,4 @@ export default function Root() {
   );
 }
 
-export { ErrorBoundary } from "@agent-native/core/client/ui";
+export { ErrorBoundary } from "@agent-native/toolkit/app/shared";

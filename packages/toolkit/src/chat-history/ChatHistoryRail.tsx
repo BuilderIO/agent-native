@@ -1,4 +1,4 @@
-import { IconDots, IconPlus } from "@tabler/icons-react";
+import { IconChevronDown, IconChevronUp, IconPlus } from "@tabler/icons-react";
 import type { ReactNode } from "react";
 
 import { ActionButton, IconButton } from "../design-system/components.js";
@@ -28,11 +28,6 @@ export interface ChatHistoryRailProps extends Omit<
   railLabels: ChatHistoryRailLabels;
   previewCount?: number;
   expandedCount?: number;
-  /**
-   * Product-level presentation slot for design systems that want to replace
-   * the rail wholesale. State and actions still come from the same controller
-   * as the default view.
-   */
   renderRail?: (context: ChatHistoryRailRenderContext) => ReactNode;
 }
 
@@ -80,7 +75,13 @@ export function DefaultChatHistoryRailView({
           type="button"
           className="an-chat-history-rail__disclosure"
           size="compact"
-          icon={<IconDots size={14} strokeWidth={1.8} aria-hidden="true" />}
+          icon={
+            expanded ? (
+              <IconChevronUp size={14} strokeWidth={1.8} aria-hidden="true" />
+            ) : (
+              <IconChevronDown size={14} strokeWidth={1.8} aria-hidden="true" />
+            )
+          }
           onPress={toggleExpanded}
           aria-expanded={expanded}
           label={disclosureLabel}
@@ -102,10 +103,6 @@ export function DefaultChatHistoryRailView({
   );
 }
 
-/**
- * Compact recent-chat rail for app sidebars. Hosts own thread persistence,
- * sorting, routing, and mutations; the rail only owns progressive disclosure.
- */
 export function ChatHistoryRail({
   items,
   onNewChat,

@@ -37,14 +37,6 @@ function parseRect(search: string): BorderRect | null {
   };
 }
 
-/**
- * A thin frame painted around the screen region currently being recorded. The
- * window itself is full-screen, click-through, and capture-excluded (see
- * `show_region_record_border` on the Rust side). The frame is drawn entirely
- * OUTWARD via an outset box-shadow with no fill, so its pixels sit just outside
- * the captured rect and never leak into the recording even on the macOS 15.4+
- * builds where `NSWindowSharingNone` is occasionally bypassed.
- */
 export function RegionRecordBorder() {
   const [rect] = useState<BorderRect | null>(() =>
     typeof window === "undefined" ? null : parseRect(window.location.search),
@@ -52,7 +44,6 @@ export function RegionRecordBorder() {
 
   useEffect(() => {
     if (rect) return;
-    // No usable region — close the overlay so an empty window never lingers.
     getCurrentWindow()
       .close()
       .catch(() => {});

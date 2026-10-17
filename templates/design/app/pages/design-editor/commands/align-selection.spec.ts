@@ -22,7 +22,9 @@ const HTML = `<!doctype html>
 </html>`;
 
 function nodes() {
-  const projection = buildCodeLayerProjection(HTML);
+  const projection = buildCodeLayerProjection(HTML, {
+    source: { kind: "design-file", fileId: "file-1" },
+  });
   const byTag = (predicate: (node: CodeLayerNode) => boolean) => {
     const found = projection.nodes.find(predicate);
     if (!found) throw new Error("fixture node not found");

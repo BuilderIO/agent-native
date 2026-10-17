@@ -59,6 +59,7 @@ vi.mock("./google-api.js", () => ({
   gmailWatch: vi.fn(),
   googleFetch: vi.fn(),
   peopleGetProfile: vi.fn(),
+  registerGmailAccountToken: vi.fn(),
 }));
 
 import { isConnected } from "./google-auth.js";

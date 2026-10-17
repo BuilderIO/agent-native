@@ -26,7 +26,7 @@ vi.mock("@agent-native/core/server", () => ({
   },
   resolveHasBuilderGatewayCredential: (...args: unknown[]) =>
     mockResolveHasBuilderGatewayCredential(...args),
-  resolveSecret: (...args: unknown[]) => mockResolveSecret(...args),
+  resolveGeminiApiKey: () => mockResolveSecret("GOOGLE_GENERATIVE_AI_API_KEY"),
 }));
 
 vi.mock("@agent-native/core/voice", () => ({
@@ -78,7 +78,7 @@ describe("cleanup-transcript", () => {
     vi.unstubAllGlobals();
   });
 
-  it("uses GPT-5.6 Luna through Builder when the managed path succeeds", async () => {
+  it("uses Luna through Builder when the managed path succeeds", async () => {
     mockBuilderStream.mockImplementation(async function* () {
       yield { type: "text-delta", text: "Cleaned transcript from Luna." };
       yield { type: "stop", reason: "end_turn" };
@@ -95,7 +95,7 @@ describe("cleanup-transcript", () => {
       provider: "builder",
     });
     expect(mockBuilderStream).toHaveBeenCalledWith(
-      expect.objectContaining({ model: "gpt-5-6-luna" }),
+      expect.objectContaining({ model: "gpt-6-luna" }),
     );
     expect(fetch).not.toHaveBeenCalled();
   });

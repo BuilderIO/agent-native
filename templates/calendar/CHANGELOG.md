@@ -3,6 +3,239 @@
 All notable user-facing changes to Agent-Native Calendar are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-08
+
+### Added
+
+- Connected agents can create events, edit events, and RSVP to one recurring occurrence or the entire series directly over MCP
+
+  Creating invitations or out-of-office auto-declines requires approval in connected clients and the Calendar agent.
+
+### Improved
+
+- Calendar highlights proposed times and links to Google Calendar for review
+- The week view's all-day section can be resized
+
+## 2026-10-06
+
+### Fixed
+
+- Builder.io setup details render immediately, and model settings hide disconnected defaults and upgrade outdated GPT selections.
+- Sign-in pages show the ocean wave without a fallback flash and keep it clear of the marketing copy.
+
+## 2026-10-05
+
+### Fixed
+
+- Notifications sent by the agent or an automation show up again in a bell in the Calendar header.
+- On phones, the Calendar header shows the full date range again, with Today as a compact icon.
+- Sign-in and signup pages now share the animated Agent-Native wave.
+
+## 2026-10-02
+
+### Improved
+
+- Builder.io setup copy now clarifies account activation and sign-in.
+- Owners and admins can save Apollo, HubSpot, Gong, and Pylon keys for the whole organization or just for themselves.
+
+## 2026-10-01
+
+### Improved
+
+- Public booking pages show their background and a layout-matched skeleton while details load
+
+## 2026-09-30
+
+### Fixed
+
+- Chat stays ready for your next draft while a message is being sent.
+
+## 2026-09-29
+
+### Improved
+
+- Settings pages now share the account layout, with dated updates that load in batches.
+
+### Fixed
+
+- Chat prompts clear immediately while the assistant thinks.
+- Events longer than 24 hours appear as compact bars at the top of Calendar.
+- Sent chat prompts clear immediately, while reply progress appears in the conversation.
+
+## 2026-09-28
+
+### Improved
+
+- The app canvas now meets the right chat sidebar without a dark seam or rounded corner.
+- Booking link host, custom-field, visibility, and delete controls now live in a collapsible Advanced section.
+- Settings now opens in the new layout, with Account, Connections, Agent, Organization, and app sections.
+
+### Fixed
+
+- Public booking pages no longer get stuck loading.
+
+## 2026-09-27
+
+### Improved
+
+- Calendar time suggestions now format dates and times in your language.
+- Invitation rules now link to Automations for actions beyond accept, decline, and hide.
+- Events created by the agent now show their date and time with a direct link to Calendar.
+- Calendar shows cards for event changes and lets you start an event draft from a suggested time.
+
+### Fixed
+
+- Calendar cards keep your booking link title when it matches the default label
+- Calendar event cards retain Meet and Zoom links, show conferencing warnings, and format event times in your selected locale.
+- Calendar event cards show times in the supplied offset or Calendar timezone and keep long working-location labels readable.
+- Calendar time links keep separate drafts per timezone and preserve edits when reopened
+
+### Security
+
+- Meeting links from invitations now open in a new tab that cannot redirect your Calendar tab
+
+## 2026-09-26
+
+### Improved
+
+- Calendar confirms created events in chat with the time and links to open or join them
+- Loading screens now reflect the app's home layout.
+- Manage AI invitation rules and recent activity in separate tabs, with Jev connection options
+
+### Fixed
+
+- Calendar users can clear saved invitation rules after Jev is disconnected
+- Cancellation emails now send guests back to the correct Calendar booking page.
+
+### Changed
+
+- The app entry now opens the shared sign-in and sign-up screen instead of a separate marketing page.
+
+### Security
+
+- Signing out clears lingering sign-in sessions so another account cannot reappear.
+
+## 2026-09-25
+
+### Added
+
+- Add Jev invitation rules for auto-accept, auto-decline, and auto-hide with automation status.
+
+### Improved
+
+- Calendar settings are reorganized into General, Calendars, Booking, and Notifications in the new Settings.
+- Settings now opens from your name at the bottom of the sidebar, or with ⌘,.
+- The bookings list shows the latest bookings first and keeps dates and times together.
+- Colleague events use the saved accent color shown in the calendar sidebar.
+- If Zoom cannot confirm a meeting, Calendar keeps the booking and follows up with meeting details
+- Public booking links show their title, description, and duration in previews.
+
+### Fixed
+
+- Bookings with an uncertain Zoom response stay reserved for review without appearing as confirmed calendar events.
+- Canceling a booking now resolves its Zoom meeting first.
+- Public booking pages reject malformed meeting settings before reserving a slot.
+- Shared booking cancellations require editor access, and unresolved Zoom meetings stay protected when meeting settings change.
+- Calendar rule Undo stays consistent during RSVP updates, and one failed event no longer blocks later activity.
+- Gong requests keep legacy credentials paired with their saved API endpoint
+- Reserved bookings reach Google Calendar when Zoom fails, and guests can retry when meeting creation never started.
+- Invitation rules continue scanning after a single RSVP lookup fails
+- Booking links without a meeting type now show a not-found page.
+- Personal booking pages use the host's saved timezone for availability.
+- Booking link previews now show their image in browser-based link preview tools
+- Calendar feeds with the same URL keep their own names and colors.
+- Calendar invitation rules surface expired connections and undo safely without duplicate RSVP updates
+- Restore locally hidden events from activity after disconnecting an account
+
+## 2026-09-24
+
+### Fixed
+
+- Calendar no longer shows an internal server error banner when a shared workspace Google connection can't be authorized
+- Guest inputs wrap beneath existing guests so the active input stays visible
+
+## 2026-09-23
+
+### Improved
+
+- Calendar opens faster by loading translated catalogs only when you need them.
+
+### Fixed
+
+- Bookings no longer confirm without their configured Zoom meeting
+- Release a booking slot when Zoom creation never starts
+- Zoom booking timeouts keep the slot reserved to prevent duplicate meetings.
+
+## 2026-09-22
+
+### Improved
+
+- Apps start with an app-shaped skeleton while session data loads immediately.
+- Calendar shows an app-shaped skeleton while the calendar workspace loads.
+
+### Fixed
+
+- Opening Calendar signed out inside an embedded tab now shows sign-in instead of a page whose actions all fail.
+
+## 2026-09-21
+
+### Fixed
+
+- Events stay editable when their calendar is connected through multiple Google accounts
+
+## 2026-09-18
+
+### Fixed
+
+- Calendar now preserves grouped guest counts and keeps the event detail panel keyboard accessible.
+
+## 2026-09-16
+
+### Fixed
+
+- Booking links reject unsafe validation rules without freezing the booking page
+- Booking link time-zone arrows now scroll to earlier and later times.
+
+## 2026-09-15
+
+### Improved
+
+- Account menus are now shorter, with workspace apps and agent management available in Settings.
+- Calendar mirrors Notion Calendar's customizable day ranges and view settings
+
+### Fixed
+
+- Calendar shortcut help renders each command row without duplicate React keys
+- Calendar treats already-deleted Google events as absent during cleanup.
+
+## 2026-09-14
+
+### Security
+
+- Calendar requests only the permissions needed for Calendar and account identity
+
+## 2026-09-13
+
+### Improved
+
+- Calendar sidebar overflow is easier to discover with visible scroll controls and edge cues.
+
+### Fixed
+
+- Event mutations stay scoped to the selected calendar when provider IDs collide.
+- Reset event detail drafts when switching between same-ID calendar sources
+
+## 2026-09-12
+
+### Fixed
+
+- Deleting a recurring event no longer hides matching events from other calendars.
+- Fixed calendar shortcuts and event interactions for more reliable location suggestions, drag confirmations, and recurring-event deletion.
+- Prevent optimistic calendar updates and rollback from crossing accounts when provider event IDs collide.
+- Primary Google recurring RSVP and deletion actions now update account-scoped cached occurrences.
+- Selected events stay bound to the correct calendar when event IDs collide.
+- Week navigation now opens on the configured first day of the destination week.
+
 ## 2026-09-10
 
 ### Fixed
@@ -36,6 +269,10 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 - Calendar booking pages show the docs hero wave background
 
 ## 2026-09-04
+
+### Added
+
+- Booking link hosts now show whether their real working hours are applied, with a one-click request to fix it when they aren't
 
 ### Improved
 

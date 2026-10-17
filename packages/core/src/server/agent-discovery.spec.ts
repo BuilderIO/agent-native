@@ -1,16 +1,24 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TEMPLATES } from "../cli/templates-meta.js";
 import {
-  BUILTIN_AGENTS_FOR_SEEDING,
+  agentHandleNumberVariant,
   discoverAgents,
   discoverOrgDirectoryAgents,
+  findAgent,
   findWorkspaceDispatchAgent,
   getBuiltinAgents,
+  getBuiltinAgentsForSeeding,
+  loadWorkspaceAppsManifest,
   normalizeAgentId,
   shouldIncludeRemoteAgentManifest,
 } from "./agent-discovery.js";
 import { resolveAppRuntimeUrl } from "./app-url.js";
+import { resetBuiltinAgentsConfigForTests } from "./builtin-agents.js";
 import { runWithRequestContext } from "./request-context.js";
 
 const resourceListMock = vi.hoisted(() => vi.fn());
@@ -20,7 +28,9 @@ const resourceListContentByOwnersAndPrefixesMock = vi.hoisted(() => vi.fn());
 const getSettingMock = vi.hoisted(() => vi.fn());
 const DISCOVERY_ENV_KEYS = [
   "NODE_ENV",
+  "AGENT_USER_EMAIL",
   "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+  "AGENT_NATIVE_BUILTIN_AGENTS_JSON",
   "WORKSPACE_GATEWAY_URL",
   "VITE_WORKSPACE_GATEWAY_URL",
   "APP_URL",
@@ -73,10 +83,12 @@ describe("agent discovery", () => {
     ) as typeof previousEnv;
     for (const key of DISCOVERY_ENV_KEYS) delete process.env[key];
     process.env.NODE_ENV = "test";
+    resetBuiltinAgentsConfigForTests();
   });
 
   afterEach(() => {
     for (const key of DISCOVERY_ENV_KEYS) restoreEnv(key, previousEnv[key]);
+    resetBuiltinAgentsConfigForTests();
   });
 
   it("derives built-in connected agents from public and default-agent production templates", () => {
@@ -106,6 +118,143 @@ describe("agent discovery", () => {
     expect(ids).not.toContain("voice");
   });
 
+  it("preserves remote resource read failures for callers that need complete discovery", async () => {
+    resourceListMock.mockRejectedValueOnce(new Error("resource store offline"));
+
+    await expect(
+      discoverAgents("dispatch", { requireReadableAgentSources: true }),
+    ).rejects.toThrow("Unable to read connected agent resources");
+    await expect(discoverAgents("dispatch")).resolves.toEqual(
+      getBuiltinAgents("dispatch"),
+    );
+  });
+
+  it("preserves individual resource read failures for callers that need complete discovery", async () => {
+    resourceListMock.mockResolvedValueOnce([
+      { id: "remote-1", path: "remote-agents/custom.json" },
+    ]);
+    resourceGetMock.mockRejectedValueOnce(new Error("resource unavailable"));
+
+    await expect(
+      discoverAgents("dispatch", { requireReadableAgentSources: true }),
+    ).rejects.toThrow("Unable to read connected agent resources");
+  });
+
+  it("rejects malformed remote manifests for callers that need complete discovery", async () => {
+    resourceListMock.mockResolvedValueOnce([
+      { id: "remote-1", path: "remote-agents/custom.json" },
+    ]);
+    resourceGetMock.mockResolvedValueOnce({ content: "{not-json" });
+
+    await expect(
+      discoverAgents("dispatch", { requireReadableAgentSources: true }),
+    ).rejects.toMatchObject({
+      message: "Unable to read connected agent resources",
+      cause: expect.objectContaining({
+        message: "Invalid remote agent manifest: remote-agents/custom.json",
+      }),
+    });
+    await expect(discoverAgents("dispatch")).resolves.toEqual(
+      getBuiltinAgents("dispatch"),
+    );
+  });
+
+  it("does not use a built-in when its connected-agent manifest is unreadable", async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agent-discovery-workspace-"),
+    );
+    const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(workspaceRoot);
+    resourceListMock.mockResolvedValue([
+      { id: "design-resource", path: "remote-agents/design.json" },
+    ]);
+    resourceGetMock.mockRejectedValue(new Error("resource unavailable"));
+    process.env.APP_URL = "https://workspace.example.test";
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
+      apps: [{ id: "briefs", name: "Briefs", path: "/briefs" }],
+    });
+
+    try {
+      await expect(
+        findAgent("design", "dispatch", { requireReadableAgentSources: true }),
+      ).rejects.toThrow("Unable to read connected agent resources");
+      await expect(
+        findAgent("briefs", "dispatch", { requireReadableAgentSources: true }),
+      ).resolves.toMatchObject({ id: "briefs" });
+      await expect(findAgent("design", "dispatch")).resolves.toMatchObject({
+        id: "design",
+      });
+    } finally {
+      cwdSpy.mockRestore();
+      fs.rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("resolves a built-in after complete strict discovery finds no override", async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agent-discovery-workspace-"),
+    );
+    const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(workspaceRoot);
+
+    try {
+      await expect(
+        findAgent("design", "dispatch", { requireReadableAgentSources: true }),
+      ).resolves.toMatchObject({ id: "design" });
+    } finally {
+      cwdSpy.mockRestore();
+      fs.rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps unreadable workspace manifests distinct from missing agents", async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agent-discovery-workspace-"),
+    );
+    const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(workspaceRoot);
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = "{not-json";
+
+    try {
+      await expect(
+        findAgent("briefs", "dispatch", { requireReadableAgentSources: true }),
+      ).rejects.toThrow("Invalid workspace apps environment manifest");
+      await expect(discoverAgents("dispatch")).resolves.toEqual(
+        getBuiltinAgents("dispatch"),
+      );
+    } finally {
+      cwdSpy.mockRestore();
+      fs.rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps unreadable workspace app metadata distinct from missing agents", async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agent-discovery-workspace-"),
+    );
+    const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(workspaceRoot);
+    process.env.APP_URL = "https://workspace.example.test";
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
+      apps: [{ id: "briefs", name: "Briefs", path: "/briefs" }],
+    });
+    getSettingMock.mockRejectedValue(new Error("settings unavailable"));
+
+    try {
+      await runWithRequestContext({ orgId: "org-123" }, async () => {
+        await expect(
+          findAgent("briefs", "dispatch", {
+            requireReadableAgentSources: true,
+          }),
+        ).rejects.toThrow("settings unavailable");
+
+        getSettingMock.mockResolvedValue(null);
+        await expect(findAgent("briefs", "dispatch")).resolves.toMatchObject({
+          id: "briefs",
+        });
+      });
+    } finally {
+      cwdSpy.mockRestore();
+      fs.rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
   it("exposes the remote-agent visibility predicate used by list views", () => {
     expect(
       shouldIncludeRemoteAgentManifest({ id: "dispatch" }, "dispatch"),
@@ -128,12 +277,65 @@ describe("agent discovery", () => {
     expect(normalizeAgentId("videos")).toBe("clips");
   });
 
+  it("maps the retired videos host to the current Clips host", async () => {
+    process.env.NODE_ENV = "production";
+    resetBuiltinAgentsConfigForTests();
+    const clipsUrl = TEMPLATES.find(
+      (template) => template.name === "clips",
+    )?.prodUrl;
+    if (!clipsUrl) throw new Error("Clips template must have a production URL");
+
+    const manifest = JSON.stringify({
+      id: "videos",
+      name: "Videos",
+      description: "AI video creator",
+      url: "https://videos.agent-native.com",
+    });
+    resourceListMock.mockResolvedValue([
+      { id: "videos-resource", path: "remote-agents/videos.json" },
+    ]);
+    resourceGetMock.mockResolvedValue({ content: manifest });
+
+    await expect(discoverAgents("analytics")).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "clips", url: clipsUrl }),
+      ]),
+    );
+
+    resourceListContentByOwnersAndPrefixesMock.mockResolvedValue([
+      {
+        id: "videos-resource",
+        owner: "__shared__",
+        path: "remote-agents/videos.json",
+        content: manifest,
+      },
+    ]);
+    await expect(
+      discoverOrgDirectoryAgents("analytics"),
+    ).resolves.toMatchObject({
+      status: "available",
+      agents: expect.arrayContaining([
+        expect.objectContaining({ id: "clips", url: clipsUrl }),
+      ]),
+    });
+  });
+
   it("seeds built-in remote agents with production URLs only", () => {
-    for (const agent of BUILTIN_AGENTS_FOR_SEEDING) {
+    process.env.AGENT_NATIVE_BUILTIN_AGENTS_JSON = JSON.stringify({
+      urls: { design: "https://beta.design.agent-native.com" },
+    });
+    resetBuiltinAgentsConfigForTests();
+
+    const seeded = getBuiltinAgentsForSeeding();
+    expect(seeded.length).toBeGreaterThan(0);
+    for (const agent of seeded) {
       expect(agent.url).toMatch(/^https:\/\/.+\.agent-native\.com$/);
       expect(agent.url).not.toContain("localhost");
       expect(agent.url).not.toContain("127.0.0.1");
     }
+    expect(seeded.find((agent) => agent.id === "design")?.url).toBe(
+      TEMPLATES.find((template) => template.name === "design")?.prodUrl,
+    );
   });
 
   it("uses local built-in agent URLs only for truly local runtimes", () => {
@@ -162,6 +364,177 @@ describe("agent discovery", () => {
     );
 
     expect(slides?.url).toBe("https://slides.agent-native.com");
+  });
+
+  it("uses a configured built-in URL in hosted agent discovery", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.AGENT_NATIVE_BUILTIN_AGENTS_JSON = JSON.stringify({
+      urls: { design: "https://beta.design.agent-native.com" },
+    });
+    resetBuiltinAgentsConfigForTests();
+
+    const design = (await discoverAgents("analytics")).find(
+      (agent) => agent.id === "design",
+    );
+
+    expect(design?.url).toBe("https://beta.design.agent-native.com");
+  });
+
+  it("keeps local URL preference ahead of configured built-in URLs", () => {
+    process.env.NODE_ENV = "production";
+    process.env.AGENT_NATIVE_BUILTIN_AGENTS_JSON = JSON.stringify({
+      urls: { design: "https://beta.design.agent-native.com" },
+    });
+    resetBuiltinAgentsConfigForTests();
+
+    const design = getBuiltinAgents("analytics", {
+      preferLocalUrls: true,
+    }).find((agent) => agent.id === "design");
+
+    expect(design?.url).toBe(
+      `http://localhost:${TEMPLATES.find((template) => template.name === "design")?.devPort}`,
+    );
+  });
+
+  it("keeps framework-monorepo local URLs ahead of configured built-in URLs", () => {
+    process.env.AGENT_NATIVE_BUILTIN_AGENTS_JSON = JSON.stringify({
+      urls: { design: "https://beta.design.agent-native.com" },
+    });
+    resetBuiltinAgentsConfigForTests();
+
+    const design = getBuiltinAgents("analytics").find(
+      (agent) => agent.id === "design",
+    );
+
+    expect(design?.url).toBe(
+      `http://localhost:${TEMPLATES.find((template) => template.name === "design")?.devPort}`,
+    );
+  });
+
+  it.each(["framework", "standalone"] as const)(
+    "keeps resolved built-in URLs over seeded defaults in a %s local runtime",
+    async (runtime) => {
+      const cwd =
+        runtime === "standalone"
+          ? vi
+              .spyOn(process, "cwd")
+              .mockReturnValue("/tmp/agent-discovery-isolated-workspace")
+          : undefined;
+      try {
+        process.env.AGENT_NATIVE_BUILTIN_AGENTS_JSON = JSON.stringify({
+          urls: { design: "https://beta.design.agent-native.com" },
+        });
+        resetBuiltinAgentsConfigForTests();
+        const template = TEMPLATES.find((entry) => entry.name === "design");
+        if (!template?.prodUrl)
+          throw new Error("Design template must have a URL");
+        const manifest = JSON.stringify({
+          id: "design",
+          name: "Design",
+          url: template.prodUrl,
+        });
+        resourceListMock.mockResolvedValue([
+          { id: "design-resource", path: "remote-agents/design.json" },
+        ]);
+        resourceGetMock.mockResolvedValue({ content: manifest });
+        resourceListContentByOwnersAndPrefixesMock.mockResolvedValue([
+          {
+            id: "design-resource",
+            owner: "__shared__",
+            path: "remote-agents/design.json",
+            content: manifest,
+          },
+        ]);
+        const expected =
+          runtime === "framework"
+            ? `http://localhost:${template.devPort}`
+            : "https://beta.design.agent-native.com";
+        expect(
+          (await discoverAgents("analytics")).find(
+            (agent) => agent.id === "design",
+          )?.url,
+        ).toBe(expected);
+        const directory = await discoverOrgDirectoryAgents("analytics");
+        expect(directory.status).toBe("available");
+        if (directory.status === "available") {
+          expect(
+            directory.agents.find((agent) => agent.id === "design")?.url,
+          ).toBe(expected);
+        }
+      } finally {
+        cwd?.mockRestore();
+      }
+    },
+  );
+
+  it("preserves remote-manifest and workspace-app precedence over configured URLs", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.AGENT_NATIVE_BUILTIN_AGENTS_JSON = JSON.stringify({
+      urls: { design: "https://beta.design.agent-native.com" },
+    });
+    resetBuiltinAgentsConfigForTests();
+    resourceListMock.mockResolvedValue([
+      { id: "design-resource", path: "remote-agents/design.json" },
+    ]);
+    const designProductionUrl = TEMPLATES.find(
+      (template) => template.name === "design",
+    )?.prodUrl;
+    if (!designProductionUrl)
+      throw new Error("Design template must have a URL");
+    resourceGetMock.mockResolvedValue({
+      content: JSON.stringify({
+        id: "design",
+        name: "Design",
+        url: designProductionUrl,
+      }),
+    });
+
+    const seededDesign = (await discoverAgents("analytics")).find(
+      (agent) => agent.id === "design",
+    );
+    expect(seededDesign?.url).toBe("https://beta.design.agent-native.com");
+
+    resourceListContentByOwnersAndPrefixesMock.mockResolvedValue([
+      {
+        id: "design-resource",
+        owner: "__shared__",
+        path: "remote-agents/design.json",
+        content: JSON.stringify({
+          id: "design",
+          name: "Design",
+          url: designProductionUrl,
+        }),
+      },
+    ]);
+    const directoryResult = await discoverOrgDirectoryAgents("analytics");
+    expect(directoryResult.status).toBe("available");
+    if (directoryResult.status === "available") {
+      expect(
+        directoryResult.agents.find((agent) => agent.id === "design")?.url,
+      ).toBe("https://beta.design.agent-native.com");
+    }
+
+    resourceGetMock.mockResolvedValue({
+      content: JSON.stringify({
+        id: "design",
+        name: "Connected Design",
+        url: "https://connected-design.example.test",
+      }),
+    });
+    const remoteDesign = (await discoverAgents("analytics")).find(
+      (agent) => agent.id === "design",
+    );
+    expect(remoteDesign?.url).toBe("https://connected-design.example.test");
+
+    process.env.APP_URL = "https://workspace.example.test";
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
+      apps: [{ id: "design", name: "Workspace Design", path: "/design" }],
+    });
+    const workspaceDesign = (await discoverAgents("analytics")).find(
+      (agent) => agent.id === "design",
+    );
+
+    expect(workspaceDesign?.url).toBe("https://workspace.example.test/design");
   });
 
   it("keeps localhost built-in agent URLs when only a loopback app URL is configured", () => {
@@ -355,6 +728,106 @@ describe("agent discovery", () => {
     );
   });
 
+  it("discovers personal agents only for the authenticated user", async () => {
+    resourceListMock.mockImplementation(async (owner: string, prefix: string) =>
+      prefix === "remote-agents/" && owner === "alice@example.test"
+        ? [{ id: "personal-resource", path: "remote-agents/personal.json" }]
+        : [],
+    );
+    resourceGetMock.mockResolvedValue({
+      id: "personal-resource",
+      content: JSON.stringify({
+        id: "personal-agent",
+        name: "Personal Agent",
+        url: "https://personal.example.com",
+      }),
+    });
+
+    const aliceAgents = await runWithRequestContext(
+      { userEmail: "alice@example.test", orgId: "org-123" },
+      () => discoverAgents("dispatch", { includePersonalAgents: true }),
+    );
+    const bobAgents = await runWithRequestContext(
+      { userEmail: "bob@example.test", orgId: "org-123" },
+      () => discoverAgents("dispatch", { includePersonalAgents: true }),
+    );
+    const unscopedAgents = await runWithRequestContext(
+      { orgId: "org-123" },
+      () => discoverAgents("dispatch", { includePersonalAgents: true }),
+    );
+    const directoryAgents = await runWithRequestContext(
+      { userEmail: "alice@example.test", orgId: "org-123" },
+      () => discoverAgents("dispatch"),
+    );
+
+    expect(resourceListMock).toHaveBeenCalledWith(
+      "alice@example.test",
+      "remote-agents/",
+    );
+    expect(resourceListMock).toHaveBeenCalledWith(
+      "bob@example.test",
+      "remote-agents/",
+    );
+    expect(aliceAgents).toContainEqual(
+      expect.objectContaining({
+        id: "personal-agent",
+        url: "https://personal.example.com",
+      }),
+    );
+    expect(bobAgents).not.toContainEqual(
+      expect.objectContaining({ id: "personal-agent" }),
+    );
+    expect(unscopedAgents).not.toContainEqual(
+      expect.objectContaining({ id: "personal-agent" }),
+    );
+    expect(directoryAgents).not.toContainEqual(
+      expect.objectContaining({ id: "personal-agent" }),
+    );
+
+    process.env.AGENT_USER_EMAIL = "alice@example.test";
+    const ambientOnlyAgents = await runWithRequestContext(
+      { orgId: "org-123" },
+      () => discoverAgents("dispatch", { includePersonalAgents: true }),
+    );
+    expect(ambientOnlyAgents).not.toContainEqual(
+      expect.objectContaining({ id: "personal-agent" }),
+    );
+  });
+
+  it("keeps shared and organization agents ahead of personal agents", async () => {
+    resourceListMock.mockImplementation(async (owner: string, prefix: string) =>
+      prefix === "remote-agents/"
+        ? [{ id: `${owner}-resource`, path: "remote-agents/same-agent.json" }]
+        : [],
+    );
+    resourceGetMock.mockImplementation(async (id: string) => {
+      const owner = id.slice(0, id.indexOf("-resource"));
+      return {
+        id,
+        content: JSON.stringify({
+          id: "same-agent",
+          name: owner,
+          url:
+            owner === "__organization__:org-123"
+              ? "https://org.example.com"
+              : owner === "__shared__"
+                ? "https://shared.example.com"
+                : "https://personal.example.com",
+        }),
+      };
+    });
+
+    const agents = await runWithRequestContext(
+      { userEmail: "alice@example.test", orgId: "org-123" },
+      () => discoverAgents("dispatch", { includePersonalAgents: true }),
+    );
+
+    expect(agents.find((agent) => agent.id === "same-agent")).toMatchObject({
+      name: "__organization__:org-123",
+      url: "https://org.example.com",
+    });
+  });
+
   it("prefers the organization manifest and reads each scoped resource once", async () => {
     resourceListMock.mockImplementation(
       async (owner: string, prefix: string) => {
@@ -517,7 +990,7 @@ describe("agent discovery", () => {
     );
   });
 
-  it("resolves the trusted Dispatch callback only from the workspace manifest", () => {
+  it("resolves the trusted Dispatch callback only from the workspace manifest", async () => {
     process.env.APP_URL = "https://workspace.example.test";
     process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
       apps: [
@@ -536,7 +1009,7 @@ describe("agent discovery", () => {
       ],
     });
 
-    expect(findWorkspaceDispatchAgent()).toMatchObject({
+    expect(await findWorkspaceDispatchAgent()).toMatchObject({
       id: "control-plane",
       name: "Workspace Dispatch",
       url: "https://workspace.example.test/dispatch",
@@ -552,7 +1025,7 @@ describe("agent discovery", () => {
         },
       ],
     });
-    expect(findWorkspaceDispatchAgent()).toBeUndefined();
+    expect(await findWorkspaceDispatchAgent()).toBeUndefined();
   });
 
   it("uses explicit workspace manifest URLs without falling back to built-ins", async () => {
@@ -1007,6 +1480,48 @@ describe("agent discovery", () => {
     });
   });
 
+  it("skips filesystem apps with unreadable route trees in best-effort discovery", async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agent-discovery-workspace-"),
+    );
+    const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(workspaceRoot);
+    try {
+      fs.writeFileSync(
+        path.join(workspaceRoot, "package.json"),
+        JSON.stringify({
+          name: "test-workspace",
+          "agent-native": { workspaceCore: "workspace-core" },
+        }),
+      );
+      for (const app of ["dispatch", "healthy", "broken"]) {
+        const appDir = path.join(workspaceRoot, "apps", app);
+        fs.mkdirSync(appDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(appDir, "package.json"),
+          JSON.stringify({ name: app, displayName: app }),
+        );
+      }
+      const brokenRoutes = path.join(
+        workspaceRoot,
+        "apps",
+        "broken",
+        "app",
+        "routes",
+      );
+      fs.mkdirSync(path.dirname(brokenRoutes), { recursive: true });
+      fs.writeFileSync(brokenRoutes, "not a directory");
+
+      await expect(loadWorkspaceAppsManifest()).resolves.toEqual([
+        expect.objectContaining({ id: "dispatch" }),
+        expect.objectContaining({ id: "healthy" }),
+      ]);
+      await expect(loadWorkspaceAppsManifest(true)).rejects.toThrow();
+    } finally {
+      cwdSpy.mockRestore();
+      fs.rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
   it("starts remote manifests and workspace metadata concurrently", async () => {
     process.env.APP_URL = "https://workspace.example.test";
     process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
@@ -1036,6 +1551,67 @@ describe("agent discovery", () => {
     resolveMetadata(null);
 
     await expect(pending).resolves.toMatchObject({ status: "available" });
+  });
+
+  describe("singular/plural handle resolution", () => {
+    it("resolves the Plan app when a caller asks for 'plans'", async () => {
+      await expect(findAgent("plans", "brain")).resolves.toMatchObject({
+        id: "plan",
+      });
+    });
+
+    it("resolves every built-in agent from its other grammatical number", async () => {
+      const unresolved: string[] = [];
+      for (const agent of getBuiltinAgents()) {
+        const variant = agentHandleNumberVariant(agent.id);
+        if (!variant) continue;
+        if ((await findAgent(variant))?.id !== agent.id) {
+          unresolved.push(`${variant} -> ${agent.id}`);
+        }
+      }
+      expect(unresolved).toEqual([]);
+    });
+
+    it("leaves a genuinely unknown handle unresolved", async () => {
+      await expect(findAgent("nosuchapp", "brain")).resolves.toBeUndefined();
+    });
+
+    it("refuses to guess when two agents differ only by a trailing s", async () => {
+      resourceListMock.mockResolvedValue([
+        { id: "r-report", path: "remote-agents/report.json" },
+        { id: "r-reports", path: "remote-agents/reports.json" },
+      ]);
+      resourceGetMock.mockImplementation(async (id: string) =>
+        id === "r-report"
+          ? {
+              content: JSON.stringify({
+                id: "report",
+                name: "Report",
+                url: "https://report.example.com",
+              }),
+            }
+          : {
+              content: JSON.stringify({
+                id: "reports",
+                name: "Reports",
+                url: "https://reports.example.com",
+              }),
+            },
+      );
+
+      await expect(findAgent("report")).resolves.toMatchObject({
+        id: "report",
+      });
+      await expect(findAgent("reportss")).resolves.toBeUndefined();
+    });
+
+    it("produces no variant for handles where the swap is meaningless", () => {
+      expect(agentHandleNumberVariant("")).toBeNull();
+      expect(agentHandleNumberVariant("  ")).toBeNull();
+      expect(agentHandleNumberVariant("access")).toBeNull();
+      expect(agentHandleNumberVariant("plan")).toBe("plans");
+      expect(agentHandleNumberVariant("Forms")).toBe("form");
+    });
   });
 });
 

@@ -5,6 +5,8 @@ import {
   resetAppConfigForTests,
 } from "../app-config/index.js";
 import {
+  renderChangeEmailConfirmationEmail,
+  renderChangeEmailVerificationEmail,
   renderMagicLinkEmail,
   renderVerifySignupEmail,
 } from "./email-templates";
@@ -23,8 +25,6 @@ describe("renderVerifySignupEmail", () => {
       verifyUrl: "https://example.com/verify?token=abc",
     });
 
-    // No slug means sendEmail keeps the deployment's configured sender rather
-    // than branding a third-party app onto the first-party domain.
     expect(rendered.appSender).toBeUndefined();
   });
 
@@ -118,5 +118,37 @@ describe("renderMagicLinkEmail", () => {
     expect(rendered.html).toContain("expires in 5 minutes");
     expect(rendered.text).toContain("https://example.com/magic-link?token=abc");
     expect(rendered.appSender).toBeUndefined();
+  });
+});
+
+describe("email change email templates", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("asks the current address to confirm the requested destination", () => {
+    const rendered = renderChangeEmailConfirmationEmail({
+      email: "current@example.test",
+      newEmail: "next@example.test",
+      confirmationUrl: "https://example.test/verify?token=confirm",
+    });
+
+    expect(rendered.subject).toContain("Confirm your email change");
+    expect(rendered.html).toContain("current@example.test");
+    expect(rendered.html).toContain("next@example.test");
+    expect(rendered.text).toContain(
+      "https://example.test/verify?token=confirm",
+    );
+  });
+
+  it("asks the new address to verify ownership", () => {
+    const rendered = renderChangeEmailVerificationEmail({
+      email: "next@example.test",
+      verifyUrl: "https://example.test/verify?token=verify",
+    });
+
+    expect(rendered.subject).toContain("Verify your new email");
+    expect(rendered.html).toContain("next@example.test");
+    expect(rendered.text).toContain("https://example.test/verify?token=verify");
   });
 });

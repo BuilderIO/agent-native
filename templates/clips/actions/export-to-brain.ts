@@ -1,11 +1,3 @@
-/**
- * Export Clips transcripts to Brain's signed ingest endpoint.
- *
- * Configure the destination with scoped credentials:
- *   - BRAIN_INGEST_URL: Brain generic ingest endpoint
- *   - BRAIN_INGEST_TOKEN: per-source bearer token
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { resolveCredential } from "@agent-native/core/credentials";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";

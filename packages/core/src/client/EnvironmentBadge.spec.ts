@@ -2,13 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import {
   BETA_OPT_OUT_DURATION_MS,
+  buildAutomaticBetaRedirectUrl,
   buildEnvironmentOptOutUrl,
   buildEnvironmentUrl,
   isBetaOptOutActive,
   isBuilderIoEmployee,
   resolveEnvironmentChannel,
   resolveEnvironmentTargets,
-} from "./EnvironmentBadge.js";
+} from "../../../toolkit/src/app/shared/EnvironmentBadge.js";
 
 describe("EnvironmentBadge", () => {
   it("recognizes first-party beta and production hosts", () => {
@@ -29,6 +30,10 @@ describe("EnvironmentBadge", () => {
     expect(resolveEnvironmentTargets("chat.agent-native.com")).toEqual({
       betaHost: "beta.chat.agent-native.com",
       productionHost: "chat.agent-native.com",
+    });
+    expect(resolveEnvironmentTargets("design.agent-native.com")).toEqual({
+      betaHost: "beta.design.agent-native.com",
+      productionHost: "design.agent-native.com",
     });
     expect(resolveEnvironmentTargets("starter.agent-native.com")).toBeNull();
     expect(resolveEnvironmentTargets("www.agent-native.com")).toBeNull();
@@ -60,6 +65,21 @@ describe("EnvironmentBadge", () => {
         "plan.agent-native.com",
       ),
     ).toBe("https://plan.agent-native.com/projects/42?tab=activity#runs");
+  });
+
+  it("builds an automatic beta destination without a return marker", () => {
+    expect(
+      buildAutomaticBetaRedirectUrl(
+        "https://plan.agent-native.com/projects/42?tab=activity#runs",
+        "beta.plan.agent-native.com",
+      ),
+    ).toBe("https://beta.plan.agent-native.com/projects/42?tab=activity#runs");
+    expect(
+      buildEnvironmentUrl(
+        "https://plan.agent-native.com/projects/42?tab=activity#runs",
+        "beta.plan.agent-native.com",
+      ),
+    ).toBe("https://beta.plan.agent-native.com/projects/42?tab=activity#runs");
   });
 
   it("adds an 8-hour opt-out when switching back to production", () => {

@@ -1,14 +1,6 @@
 import { TZDate } from "@date-fns/tz";
 import { startOfWeek, startOfMonth, startOfYear, format } from "date-fns";
 
-/**
- * Booking limits enforcement.
- *
- * Limits constrain how many bookings an event type can receive in a time
- * window (day / week / month / year). We pass in existing booking counts
- * per bucket and return a function that tells us whether a proposed start
- * time would exceed any limit.
- */
 import type { BookingLimits } from "../shared/index.js";
 
 export interface BookingCounts {

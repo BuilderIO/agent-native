@@ -32,10 +32,6 @@ function makeElement(overrides: Partial<ElementInfo> = {}): ElementInfo {
   };
 }
 
-// ---------------------------------------------------------------------------
-// isTextElement — T1: typography panel for T-tool text (div + primitiveKind)
-// ---------------------------------------------------------------------------
-
 describe("isTextElement", () => {
   it("treats known text tags as text regardless of primitiveKind", () => {
     expect(isTextElement(makeElement({ tagName: "p" }))).toBe(true);
@@ -95,15 +91,6 @@ describe("isTextElement", () => {
   });
 
   it("classifies a childless flex div with its own text as text (B5-12)", () => {
-    // REVERSED from the original assertion: this test used to require the
-    // fallback to reject flex containers, but real-design evidence proved
-    // that assumption wrong — the T-tool's own text primitives are
-    // `display: flex` divs (flex drives their vertical alignment), and
-    // board/overview selection payloads omit `primitiveKind`, so the old
-    // exclusion made the Typography section vanish for exactly those text
-    // nodes (text nested in a rectangle via nest-on-drop). A childless div
-    // with its own text is text, flex or not; real containers are still
-    // rejected by the childElementCount guard above.
     expect(
       isTextElement(
         makeElement({
@@ -130,10 +117,6 @@ describe("mergeOptimisticInteractionStateStyles", () => {
     });
   });
 });
-
-// ---------------------------------------------------------------------------
-// authoredStyleValue — IP3/IP4: prefer inlineStyles, treat "auto" as unset
-// ---------------------------------------------------------------------------
 
 describe("authoredStyleValue", () => {
   it("prefers inlineStyles over computedStyles when present", () => {
@@ -165,11 +148,6 @@ describe("authoredStyleValue", () => {
     expect(authoredStyleValue(element, "top")).toBe("12px");
   });
 });
-
-// ---------------------------------------------------------------------------
-// isLayerHiddenBySize / withLayerSizeMarker — IP6/IP7: durable, comment-free
-// non-destructive hide for background layers
-// ---------------------------------------------------------------------------
 
 describe("isLayerHiddenBySize / withLayerSizeMarker", () => {
   it("detects the zero-size marker", () => {
@@ -204,10 +182,6 @@ describe("isLayerHiddenBySize / withLayerSizeMarker", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// strokeHiddenByColor — IP11: hide stroke via zero-alpha color (preserves style)
-// ---------------------------------------------------------------------------
-
 describe("strokeHiddenByColor", () => {
   it("is true for a zero-alpha rgba color with real RGB preserved", () => {
     expect(strokeHiddenByColor("rgba(37, 99, 235, 0)")).toBe(true);
@@ -223,13 +197,6 @@ describe("strokeHiddenByColor", () => {
     expect(strokeHiddenByColor("")).toBe(false);
   });
 });
-
-// ---------------------------------------------------------------------------
-// textStrokeIsVisible / resolveTextStrokeColor — R94: text "Stroke" is a real
-// glyph outline (-webkit-text-stroke), independent of fill (`color`).
-// Removing the fill must never hide the glyphs when a stroke exists, and the
-// stroke color must never fall back to the (possibly transparent) fill color.
-// ---------------------------------------------------------------------------
 
 describe("textStrokeIsVisible", () => {
   it("is true for a non-zero width with an opaque color", () => {
@@ -268,11 +235,6 @@ describe("resolveTextStrokeColor", () => {
   });
 
   it("never derives from a separate (removed) fill color — only reads its own argument", () => {
-    // Regression guard for the R94 bug: StrokeProperties previously fell back
-    // to `styles.color` (the text fill) via `styles.borderColor || styles.color`.
-    // resolveTextStrokeColor must have no such fallback — a caller that
-    // (incorrectly) passed the fill color here would just get it back
-    // unchanged, proving the function itself never reaches for fill state.
     expect(resolveTextStrokeColor("rgba(0, 0, 0, 0)")).not.toBe(
       "rgba(0, 0, 0, 0)",
     );
@@ -281,11 +243,6 @@ describe("resolveTextStrokeColor", () => {
 
 describe("textStrokeAddPatch", () => {
   it("emits exactly the two kebab-case -webkit-text-stroke longhands", () => {
-    // Regression guard: the "Add layer" handler once committed camelCase
-    // webkitTextStrokeWidth/-Color, which normalizeStyleProperty in
-    // code-layer.ts kebab-izes WITHOUT the required leading dash — failing
-    // the style allow-list and silently persisting nothing. The patch keys
-    // must be the dashed vendor-prefixed longhands, exactly.
     expect(Object.keys(textStrokeAddPatch("rgb(37, 99, 235)"))).toEqual([
       "-webkit-text-stroke-width",
       "-webkit-text-stroke-color",
@@ -308,21 +265,6 @@ describe("textStrokeAddPatch", () => {
     );
   });
 });
-
-// ---------------------------------------------------------------------------
-// readTextStrokeStyle — R94: a text stroke must read back correctly from
-// BOTH computedStyles shapes EditPanel ever receives:
-//   1. A live DOM selection (editor-chrome.bridge.ts) reports the two
-//      longhands directly: webkitTextStrokeWidth / webkitTextStrokeColor.
-//   2. A projection-only selection (elementInfoFromCodeLayerNode in
-//      DesignEditor.tsx, used right after reload/reselect before a live
-//      bridge re-selection) instead carries whatever was literally
-//      serialized into the inline style attribute — which browsers always
-//      write back as the shorthand `-webkit-text-stroke: <width> <color>`,
-//      never as the two longhands individually.
-// Without the shorthand fallback here, the Stroke section would go blank on
-// reload for a stroke that is fully persisted and rendering.
-// ---------------------------------------------------------------------------
 
 describe("readTextStrokeStyle", () => {
   it("reads the longhand keys when present (live DOM selection shape)", () => {
@@ -368,10 +310,6 @@ describe("readTextStrokeStyle", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// roundToOneDecimal — IP11/T18: precision=1 controls shouldn't floor to ints
-// ---------------------------------------------------------------------------
-
 describe("roundToOneDecimal", () => {
   it("preserves a 0.5 fractional value", () => {
     expect(roundToOneDecimal(1.5)).toBe(1.5);
@@ -386,13 +324,6 @@ describe("roundToOneDecimal", () => {
     expect(roundToOneDecimal(4)).toBe(4);
   });
 });
-
-// ---------------------------------------------------------------------------
-// readStrokeOutlinePosition / outlineOffsetForPosition — Figma-parity center
-// stroke: implemented as CSS outline + a negative outline-offset of half the
-// stroke width, distinguished from "outside" (offset 0) by reading the
-// offset back relative to the current width.
-// ---------------------------------------------------------------------------
 
 describe("readStrokeOutlinePosition", () => {
   it("reads offset 0 (or unset) as outside", () => {
@@ -413,7 +344,6 @@ describe("readStrokeOutlinePosition", () => {
   });
 
   it("does not misread a small non-centered negative offset as center", () => {
-    // width 10 -> center would be -5; -1 is much closer to "outside" intent.
     expect(readStrokeOutlinePosition("10px", "-1px")).toBe("outside");
   });
 });
@@ -437,14 +367,8 @@ describe("outlineOffsetForPosition", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// deriveLockedAspectSize — W/H aspect-ratio lock: derives the paired
-// dimension from the ratio captured when the lock was toggled on.
-// ---------------------------------------------------------------------------
-
 describe("deriveLockedAspectSize", () => {
   it("derives height from a width edit using width/height ratio", () => {
-    // 200x100 -> ratio 2. Editing width to 300 should scale height to 150.
     expect(deriveLockedAspectSize("width", 300, 2)).toBe(150);
   });
 
@@ -453,21 +377,16 @@ describe("deriveLockedAspectSize", () => {
   });
 
   it("rounds the derived value to one decimal", () => {
-    // ratio 3 (e.g. 300x100): editing width to 100 -> height 33.333... -> 33.3
     expect(deriveLockedAspectSize("width", 100, 3)).toBe(33.3);
   });
 
   it("round-trips width -> height -> width back to the original", () => {
-    const ratio = 150 / 90; // arbitrary non-integer ratio
+    const ratio = 150 / 90;
     const height = deriveLockedAspectSize("width", 150, ratio);
     const width = deriveLockedAspectSize("height", height, ratio);
     expect(width).toBeCloseTo(150, 1);
   });
 });
-
-// ---------------------------------------------------------------------------
-// mixedElementFromSelection — inlineStyles/primitiveKind mixing for multi-select
-// ---------------------------------------------------------------------------
 
 describe("mixedElementFromSelection", () => {
   it("mixes inlineStyles across the selection like computedStyles", () => {
@@ -500,13 +419,6 @@ describe("mixedElementFromSelection", () => {
     expect(merged?.primitiveKind).toBe("text");
   });
 
-  // isParentFlex/isParentGrid/parentFlexDirection (element-classification.ts)
-  // read parentDisplay/parentAutoLayout/parentLayout to decide whether
-  // LayoutContextProperties renders FlexChildControls/GridChildControls at
-  // all. Left to leak through the `...base` spread unchecked, these would
-  // report whichever element was selected LAST, misrendering (and
-  // misapplying align-self/flex-grow edits) for a selection spanning two
-  // different parents.
   it("clears parentDisplay/parentAutoLayout/parentLayout when the selection's parents disagree", () => {
     const a = makeElement({
       parentDisplay: "flex",
@@ -552,15 +464,6 @@ describe("mixedElementFromSelection", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// fourValuesEqual — backs FlexContainerControls' paddingLinked and
-// CornerRadiusControl's showIndependentCorners seed (STEVE TEST BATCH 4 #4).
-// Both consumers must seed their linked/uniform toggle ONLY from a
-// `useState` initializer on a component keyed per-selection, never from a
-// reactive useEffect — see the callers in EditPanel.tsx for the full story
-// on why a reactive re-derivation collapses the linked view mid-scrub.
-// ---------------------------------------------------------------------------
-
 describe("fourValuesEqual", () => {
   it("is true when all four sides/corners match", () => {
     expect(fourValuesEqual([16, 16, 16, 16])).toBe(true);
@@ -575,13 +478,9 @@ describe("fourValuesEqual", () => {
   });
 
   it("reflects the padding-scrub scenario: editing one linked axis makes it false", () => {
-    // Starting state: all four sides equal (16), paddingLinked seeds true.
     const initial: [number, number, number, number] = [16, 16, 16, 16];
     expect(fourValuesEqual(initial)).toBe(true);
 
-    // First scrub tick on the horizontal PaddingField sets left=right=17,
-    // leaving top/bottom at 16 — this is the exact tick that used to flip
-    // paddingLinked to false via the removed reactive useEffect.
     const afterOneScrubTick: [number, number, number, number] = [
       16, 17, 16, 17,
     ];

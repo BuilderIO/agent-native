@@ -11,13 +11,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
-  // `where()` must behave both as a directly-awaited result (the initial
-  // multi-file lookup in insert-figma-library-asset.ts) AND as a chain that
-  // supports a trailing `.limit(1)` (writeInlineSourceFile's internal
-  // re-select in server/source-workspace.ts, now used by the action's write
-  // path). Returning a real Promise with an extra `.limit()` method attached
-  // covers both call shapes with the same mocked resolved rows, narrowed by
-  // id when the predicate looks like `eq(designFiles.id, someId)`.
   function makeWhereResult(rows: unknown[]) {
     const promise = Promise.resolve(rows) as Promise<unknown[]> & {
       limit: (n: number) => Promise<unknown[]>;
@@ -52,14 +45,10 @@ const mocks = vi.hoisted(() => {
   const db = {
     select: vi.fn(() => fileSelectChain),
     update: vi.fn(() => updateChain),
+    execute: vi.fn().mockResolvedValue({ rows: [] }),
+    transaction: vi.fn(async (callback) => callback(db)),
   };
 
-  // Shared with the @agent-native/core/collab mock below: writeInlineSourceFile
-  // re-reads getText() right after seedFromText/applyText to persist the
-  // "authoritative" collab content back to SQL, so seedFromText must
-  // actually store what getText reads back. Cleared per-test in beforeEach
-  // (the vi.mock factory only runs once per file, so without an explicit
-  // reset this map would leak seeded content across tests).
   const seededCollabText = new Map<string, string>();
 
   return {
@@ -99,7 +88,8 @@ vi.mock("@agent-native/core/application-state", () => ({
 vi.mock("@agent-native/core/collab", () => {
   const seeded = mocks.seededCollabText;
   return {
-    hasCollabState: vi.fn().mockResolvedValue(false),
+    CollabBaseVersionConflictError: class CollabBaseVersionConflictError extends Error {},
+    hasCollabState: vi.fn(async (docId: string) => seeded.has(docId)),
     getText: vi.fn(async (docId: string) => seeded.get(docId) ?? ""),
     applyText: vi.fn(async (docId: string, text: string) => {
       seeded.set(docId, text);
@@ -108,6 +98,35 @@ vi.mock("@agent-native/core/collab", () => {
     seedFromText: vi.fn(async (docId: string, text: string) => {
       if (!seeded.has(docId)) seeded.set(docId, text);
     }),
+    applyTextToYDoc: vi.fn(
+      (doc: { content: string }, _fieldName: string, text: string) => {
+        doc.content = text;
+      },
+    ),
+    withPreparedYDocMutation: vi.fn(
+      async (
+        docId: string,
+        _requestSource: string | undefined,
+        run: (lease: {
+          doc: { content: string; getText: () => { toString: () => string } };
+          baseVersion: number | null;
+          persist: (_tx: unknown, text: string) => Promise<void>;
+        }) => Promise<unknown>,
+      ) => {
+        const doc = {
+          content: seeded.get(docId) ?? "",
+          getText: () => ({ toString: () => doc.content }),
+        };
+        const result = await run({
+          doc,
+          baseVersion: seeded.has(docId) ? 0 : null,
+          persist: async (_tx, text) => {
+            seeded.set(docId, text);
+          },
+        });
+        return result;
+      },
+    ),
   };
 });
 
@@ -192,8 +211,6 @@ describe("insert-figma-library-asset", () => {
 
   it("reads the live collab text as the base instead of the stale SQL row", async () => {
     setFile("<html><body><p>stale sql content</p></body></html>");
-    // Simulate a concurrent editor/agent write that already landed in collab
-    // state ahead of this action's SQL row.
     mocks.seededCollabText.set(
       "file-1",
       "<html><body><p>live collab content</p></body></html>",

@@ -1,4 +1,4 @@
-import type { BlockMdxConfig } from "@agent-native/core/blocks";
+import type { BlockMdxConfig } from "@agent-native/toolkit/app/blocks";
 import { z } from "zod";
 
 import { splitMarkdownHeadingSections } from "./markdown-heading-sections";
@@ -12,7 +12,6 @@ export interface CardItem {
 
 export interface CardsData {
   cards: CardItem[];
-  /** Grid column count, 1-4. Defaults to 3. */
   columns?: number;
 }
 

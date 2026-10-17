@@ -22,9 +22,6 @@ describe("plugins config", () => {
     process.env = { ...originalEnv };
   });
 
-  // The enum is spelled out in the schema so it stays edge-safe, which only
-  // works if a new default plugin slot fails here instead of quietly becoming
-  // the one plugin nobody can turn off.
   it("covers every slot in DEFAULT_PLUGIN_REGISTRY", () => {
     expect([...DEFAULT_PLUGIN_SLOTS].sort()).toEqual(
       Object.keys(DEFAULT_PLUGIN_REGISTRY).sort(),

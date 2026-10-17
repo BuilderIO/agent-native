@@ -1,13 +1,12 @@
 import {
   readClientAppState,
+  useActionMutation,
   writeClientAppState,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-// The composer's model picker shows the chat LLM (Claude/OpenAI/Gemini). The
-// Assets app also drives a separate image model, so expose it as a secondary
-// menu wherever Assets chat is mounted.
 const IMAGE_MODEL_STATE_KEY = "imageGenerationModel";
 const DEFAULT_IMAGE_MODEL = "gemini-3.1-flash-image";
 const IMAGE_MODEL_OPTIONS = [
@@ -25,12 +24,12 @@ const IMAGE_MODEL_OPTIONS = [
   { value: "gpt-image-2", modelName: "GPT Image 2" },
 ] as const;
 
-export function useImageModelMenu() {
+export function useImageModelMenu(threadId?: string | null) {
   const t = useT();
+  const queryClient = useQueryClient();
+  const dismissFailed = useActionMutation("dismiss-variant-slots");
   const [imageModel, setImageModel] = useState<string>(DEFAULT_IMAGE_MODEL);
 
-  // Hydrate the saved image-model default so the picker reflects the user's
-  // last choice across sessions.
   useEffect(() => {
     let cancelled = false;
     void readClientAppState<{ model?: string }>(IMAGE_MODEL_STATE_KEY)
@@ -50,12 +49,24 @@ export function useImageModelMenu() {
     };
   }, []);
 
-  const handleImageModelChange = useCallback((value: string) => {
-    setImageModel(value);
-    void writeClientAppState(IMAGE_MODEL_STATE_KEY, { model: value }).catch(
-      () => {},
-    );
-  }, []);
+  const handleImageModelChange = useCallback(
+    (value: string) => {
+      setImageModel(value);
+      void writeClientAppState(IMAGE_MODEL_STATE_KEY, { model: value }).catch(
+        () => {},
+      );
+      if (threadId) {
+        dismissFailed.mutate(
+          { scope: "failed", threadId },
+          {
+            onSuccess: () =>
+              void queryClient.invalidateQueries({ queryKey: ["app-state"] }),
+          },
+        );
+      }
+    },
+    [dismissFailed, queryClient, threadId],
+  );
 
   return useMemo(
     () => ({

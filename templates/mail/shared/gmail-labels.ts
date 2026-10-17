@@ -1,5 +1,5 @@
 export function normalizeMailLabel(value: string): string {
-  return value.trim().replace(/_/g, " ").toLowerCase();
+  return value.trim().replace(/[_-]/g, " ").toLowerCase();
 }
 
 export function shortMailLabel(value: string): string {
@@ -34,7 +34,7 @@ export function mailLabelsIncludeAny(
 
 const INBOX_SCOPED_APP_LABEL_IDS = new Set([
   "important",
-  "note-to-self",
+  "note to self",
   "personal",
   "social",
   "updates",

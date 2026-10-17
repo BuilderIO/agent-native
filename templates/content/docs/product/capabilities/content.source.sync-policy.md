@@ -75,7 +75,7 @@ typed conflict rather than a plausible but incorrect "synced" state.
   a body while Content owns comments, view configuration, or other native
   metadata on the same Page.
 - An ordinary edit follows that declared route without repeated prompts. A
-  Database membership or a Query projection never fans the edit out to other
+  Collection membership or a Query projection never fans the edit out to other
   Sources; intentional multi-destination work belongs to an explicit Rule,
   mirror, or Automation with per-destination outcomes.
 - A computed, aligned, or otherwise ambiguous projection is read-only until an
@@ -101,7 +101,7 @@ typed conflict rather than a plausible but incorrect "synced" state.
 
 - The Sources catalog owns Source discovery, approval, scope, and connection
   metadata. Adapters own provider-specific operations and certification.
-- Human roles and Page/Database access are owned by the access capabilities;
+- Human roles and Page/Collection access are owned by the access capabilities;
   this policy adds no second permission system.
 - Portable representations and unknown-data preservation belong to faithful
   round-tripping. This record decides when a permitted write may travel, not

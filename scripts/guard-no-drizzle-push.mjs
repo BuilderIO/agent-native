@@ -1,30 +1,4 @@
 #!/usr/bin/env node
-/**
- * guard-no-drizzle-push.mjs
- *
- * Defensive CI guard: refuse to let `drizzle-kit push` (or `drizzle push`) get
- * wired into any build/deploy path.
- *
- * Background (2026-04-21 incident): `pnpm --filter <tpl> exec drizzle-kit push
- * --force` was added to every `templates/*\/netlify.toml` build command. Each
- * template's drizzle schema only knows about template-domain tables, so push
- * saw every framework table (`user`, `session`, `account`, `organization`,
- * `settings`, `application_state`) as "not in schema" and dropped them in 9
- * template production DBs. PR #252 reverted it. See CLAUDE.md / AGENTS.md
- * "No breaking database changes" for the policy.
- *
- * This script scans:
- *   - every `netlify.toml` in the repo
- *   - every `package.json` `build` / `postinstall` / `prebuild` / `deploy`
- *     / `predeploy` / `start` / `prestart` script
- *
- * ...for the literal strings `drizzle-kit push` or `drizzle push`. If any
- * match is found, exit 1 with a loud message.
- *
- * Allowed escape hatch: a standalone `db:push` / `db:push:*` npm script is
- * fine — that's an explicit, human-invoked command, not a build step. Only
- * build/install/deploy/start hooks are blocked, because those run in CI.
- */
 
 import { readFileSync } from "node:fs";
 import { readdir } from "node:fs/promises";
@@ -52,9 +26,6 @@ const SKIP_DIRS = new Set([
   "coverage",
 ]);
 
-// Scripts that run in CI / on deploy / on install. A `drizzle-kit push` in
-// any of these effectively runs against production. Standalone `db:push` is
-// intentionally NOT in this list — we allow humans to invoke that explicitly.
 const DANGEROUS_SCRIPT_HOOKS = new Set([
   "build",
   "prebuild",
@@ -81,7 +52,6 @@ function matchesForbidden(str) {
   return PATTERNS.some((p) => p.test(str));
 }
 
-/** Recursively walk the repo, yielding absolute file paths. */
 async function* walk(dir) {
   let entries;
   try {
@@ -129,7 +99,6 @@ function scanNetlifyToml(file) {
     return;
   }
   if (!matchesForbidden(contents)) return;
-  // Extract matching lines so the error output is actionable.
   const lines = contents.split("\n");
   for (let i = 0; i < lines.length; i++) {
     if (matchesForbidden(lines[i])) {

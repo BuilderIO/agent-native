@@ -1,3 +1,4 @@
+import * as ScrollAreaPrimitive from "@radix-ui/react-scroll-area";
 import {
   IconChevronDown,
   IconLayoutSidebarLeftCollapse,
@@ -11,10 +12,14 @@ import {
   useCallback,
   useContext,
   useMemo,
+  useEffect,
+  useRef,
   useState,
+  type AnchorHTMLAttributes,
   type ComponentType,
   type HTMLAttributes,
   type MouseEvent,
+  type RefAttributes,
   type ReactNode,
 } from "react";
 
@@ -23,6 +28,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "../ui/collapsible.js";
+import { ScrollBar } from "../ui/scroll-area.js";
 import {
   Tooltip,
   TooltipContent,
@@ -32,56 +38,36 @@ import {
 import { cn } from "../utils.js";
 import { usePersistentSidebarCollapsed } from "./use-persistent-sidebar-collapsed.js";
 
-// ---------------------------------------------------------------------------
-// Context
-// ---------------------------------------------------------------------------
-
-export type AppSidebarLinkComponent = ComponentType<{
+export interface AppSidebarLinkProps extends Omit<
+  AnchorHTMLAttributes<HTMLAnchorElement>,
+  "href"
+> {
   to?: string;
   href?: string;
-  className?: string;
-  onClick?: (event: MouseEvent) => void;
-  children?: ReactNode;
-  "aria-label"?: string;
-}>;
+}
+
+export type AppSidebarLinkComponent = ComponentType<
+  AppSidebarLinkProps & RefAttributes<HTMLAnchorElement>
+>;
 
 export interface AppSidebarContextValue {
   collapsed: boolean;
   setCollapsed: (collapsed: boolean | ((current: boolean) => boolean)) => void;
   toggleCollapsed: () => void;
   isMobile: boolean;
-  /** Router-aware link. Defaults to a native `<a href>`. */
   LinkComponent: AppSidebarLinkComponent;
 }
 
 const AppSidebarContext = createContext<AppSidebarContextValue | null>(null);
 
-function NativeSidebarLink({
-  to,
-  href,
-  className,
-  onClick,
-  children,
-  "aria-label": ariaLabel,
-}: {
-  to?: string;
-  href?: string;
-  className?: string;
-  onClick?: (event: MouseEvent) => void;
-  children?: ReactNode;
-  "aria-label"?: string;
-}) {
-  return (
-    <a
-      href={to ?? href}
-      className={className}
-      onClick={onClick}
-      aria-label={ariaLabel}
-    >
+const NativeSidebarLink = forwardRef<HTMLAnchorElement, AppSidebarLinkProps>(
+  ({ to, href, children, ...props }, ref) => (
+    <a ref={ref} href={to ?? href} {...props}>
       {children}
     </a>
-  );
-}
+  ),
+);
+NativeSidebarLink.displayName = "NativeSidebarLink";
 
 const defaultSidebarContextValue: AppSidebarContextValue = {
   collapsed: false,
@@ -108,10 +94,6 @@ function renderSidebarIcon(
   return <IconComponent className={className} />;
 }
 
-// ---------------------------------------------------------------------------
-// Item Definition Types
-// ---------------------------------------------------------------------------
-
 export interface AppSidebarItemDefinition {
   id?: string;
   to?: string;
@@ -125,10 +107,6 @@ export interface AppSidebarItemDefinition {
   onClick?: (event: MouseEvent) => void;
   children?: ReactNode;
 }
-
-// ---------------------------------------------------------------------------
-// Header
-// ---------------------------------------------------------------------------
 
 export interface AppSidebarHeaderProps extends HTMLAttributes<HTMLDivElement> {
   brandName?: ReactNode;
@@ -163,6 +141,26 @@ export const AppSidebarHeader = forwardRef<
     const collapsed = propCollapsed ?? context.collapsed;
     const LinkComponent = context.LinkComponent;
 
+    const brand = brandLink ?? (
+      <LinkComponent
+        to={brandHref}
+        href={brandHref}
+        aria-label={typeof brandName === "string" ? brandName : undefined}
+        onClick={onBrandClick}
+        className={cn(
+          "flex min-w-0 items-center gap-2 rounded text-start outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          collapsed ? "size-8 justify-center" : "shrink-0",
+        )}
+      >
+        {brandIcon}
+        {!collapsed && brandName && (
+          <span className="truncate text-sm font-semibold text-primary">
+            {brandName}
+          </span>
+        )}
+      </LinkComponent>
+    );
+
     return (
       <div
         ref={ref}
@@ -174,24 +172,15 @@ export const AppSidebarHeader = forwardRef<
         )}
         {...props}
       >
-        {brandLink ?? (
-          <LinkComponent
-            to={brandHref}
-            href={brandHref}
-            aria-label={typeof brandName === "string" ? brandName : undefined}
-            onClick={onBrandClick}
-            className={cn(
-              "flex min-w-0 items-center gap-2 rounded text-start outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              collapsed ? "size-8 justify-center" : "shrink-0",
-            )}
-          >
-            {brandIcon}
-            {!collapsed && brandName && (
-              <span className="truncate text-sm font-semibold text-primary">
-                {brandName}
-              </span>
-            )}
-          </LinkComponent>
+        {collapsed && brandName && isValidElement(brand) ? (
+          <TooltipProvider delayDuration={0}>
+            <Tooltip>
+              <TooltipTrigger asChild>{brand}</TooltipTrigger>
+              <TooltipContent side="right">{brandName}</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        ) : (
+          brand
         )}
         {badge}
         {children}
@@ -200,10 +189,6 @@ export const AppSidebarHeader = forwardRef<
   },
 );
 AppSidebarHeader.displayName = "AppSidebarHeader";
-
-// ---------------------------------------------------------------------------
-// Nav Item
-// ---------------------------------------------------------------------------
 
 export interface AppSidebarNavItemProps extends HTMLAttributes<HTMLDivElement> {
   label: ReactNode;
@@ -358,10 +343,6 @@ export const AppSidebarNavItem = forwardRef<
 );
 AppSidebarNavItem.displayName = "AppSidebarNavItem";
 
-// ---------------------------------------------------------------------------
-// Nav Group (Collapsible)
-// ---------------------------------------------------------------------------
-
 export interface AppSidebarNavGroupProps extends HTMLAttributes<HTMLDivElement> {
   label: ReactNode;
   icon?: ComponentType<{ className?: string }> | ReactNode;
@@ -498,10 +479,6 @@ export const AppSidebarNavGroup = forwardRef<
 );
 AppSidebarNavGroup.displayName = "AppSidebarNavGroup";
 
-// ---------------------------------------------------------------------------
-// Section / Divider
-// ---------------------------------------------------------------------------
-
 export interface AppSidebarSectionProps extends Omit<
   HTMLAttributes<HTMLDivElement>,
   "title"
@@ -539,10 +516,6 @@ export const AppSidebarSection = forwardRef<
   );
 });
 AppSidebarSection.displayName = "AppSidebarSection";
-
-// ---------------------------------------------------------------------------
-// Feedback Button
-// ---------------------------------------------------------------------------
 
 export interface AppSidebarFeedbackButtonProps {
   label?: string;
@@ -596,10 +569,6 @@ export function AppSidebarFeedbackButton({
     </Tooltip>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Footer
-// ---------------------------------------------------------------------------
 
 export interface AppSidebarFooterProps extends HTMLAttributes<HTMLDivElement> {
   feedback?: ReactNode;
@@ -683,58 +652,55 @@ export const AppSidebarFooter = forwardRef<
       );
 
     return (
-      <div
-        ref={ref}
-        data-sidebar-footer
-        className={cn(
-          "shrink-0 border-t border-border p-2",
-          collapsed ? "space-y-1" : "space-y-1.5",
-          className,
-        )}
-        {...props}
-      >
-        {resolvedFeedback}
+      <>
+        {resolvedFeedback ? (
+          <div
+            data-sidebar-footer-feedback-row
+            className={cn(
+              "shrink-0 px-2 pb-1",
+              collapsed && "flex justify-center",
+            )}
+          >
+            {resolvedFeedback}
+          </div>
+        ) : null}
         <div
-          data-sidebar-footer-utilities
-          className={cn(
-            collapsed
-              ? "flex flex-col items-center gap-1"
-              : "flex items-center gap-0.5",
-          )}
+          ref={ref}
+          data-sidebar-footer
+          className={cn("shrink-0 border-t border-border p-2", className)}
+          {...props}
         >
-          {orgSwitcher}
-          {footerExtras}
-          {collapseButton}
+          <div
+            data-sidebar-footer-utilities
+            className={cn(
+              collapsed
+                ? "flex flex-col items-center gap-1"
+                : "flex items-center gap-0.5",
+            )}
+          >
+            {orgSwitcher}
+            {footerExtras}
+            {collapseButton}
+          </div>
         </div>
-      </div>
+      </>
     );
   },
 );
 AppSidebarFooter.displayName = "AppSidebarFooter";
 
-// ---------------------------------------------------------------------------
-// AppSidebar (Main Component)
-// ---------------------------------------------------------------------------
-
 export interface AppSidebarProps extends HTMLAttributes<HTMLElement> {
-  // Collapse state
   collapsed?: boolean;
   onCollapsedChange?: (collapsed: boolean) => void;
   defaultCollapsed?: boolean;
   collapsible?: boolean;
   storageKey?: string;
   isMobile?: boolean;
-  /**
-   * When set (boolean), the sidebar owns off-canvas mobile drawer positioning.
-   * Leave undefined when embedding inside an external Sheet/drawer so the
-   * sidebar stays visible without translate offsets.
-   */
   mobileOpen?: boolean;
   onMobileOpenChange?: (open: boolean) => void;
-  /** Router-aware link component. Defaults to a native `<a href>`. */
   linkComponent?: AppSidebarLinkComponent;
+  overflowAffordances?: boolean;
 
-  // Header
   brandName?: ReactNode;
   brandHref?: string;
   brandIcon?: ReactNode;
@@ -742,11 +708,9 @@ export interface AppSidebarProps extends HTMLAttributes<HTMLElement> {
   badge?: ReactNode;
   headerContent?: ReactNode;
 
-  // Items
   items?: AppSidebarItemDefinition[];
   secondaryItems?: AppSidebarItemDefinition[];
 
-  // Footer
   feedback?: ReactNode;
   orgSwitcher?: ReactNode;
   footerExtras?: ReactNode;
@@ -767,6 +731,7 @@ export const AppSidebar = forwardRef<HTMLElement, AppSidebarProps>(
       mobileOpen,
       onMobileOpenChange,
       linkComponent,
+      overflowAffordances = false,
 
       brandName,
       brandHref = "/",
@@ -791,7 +756,6 @@ export const AppSidebar = forwardRef<HTMLElement, AppSidebarProps>(
     },
     ref,
   ) => {
-    // Persistence hook if storageKey is provided and not controlled
     const persistent = usePersistentSidebarCollapsed({
       storageKey: storageKey ?? "app-sidebar-default-key",
       defaultCollapsed,
@@ -838,8 +802,6 @@ export const AppSidebar = forwardRef<HTMLElement, AppSidebarProps>(
     const showCollapsedSidebar = collapsed && !isMobile;
 
     const LinkComponent = linkComponent ?? NativeSidebarLink;
-    // Only self-manage off-canvas transform when the caller controls mobileOpen.
-    // Sheet/drawer embeds leave mobileOpen undefined so content stays visible.
     const ownsMobileDrawer = typeof mobileOpen === "boolean";
 
     const contextValue = useMemo<AppSidebarContextValue>(
@@ -889,7 +851,7 @@ export const AppSidebar = forwardRef<HTMLElement, AppSidebarProps>(
               />
             )}
 
-            <div className="min-h-0 flex-1 overflow-y-auto">
+            <AppSidebarScrollRegion affordances={overflowAffordances}>
               {showCollapsedSidebar ? (
                 <nav className="flex flex-col items-center gap-1 px-2 py-3">
                   {items?.map((item) => (
@@ -979,7 +941,7 @@ export const AppSidebar = forwardRef<HTMLElement, AppSidebarProps>(
                   )}
                 </nav>
               )}
-            </div>
+            </AppSidebarScrollRegion>
 
             {footerContent ?? (
               <AppSidebarFooter
@@ -998,3 +960,95 @@ export const AppSidebar = forwardRef<HTMLElement, AppSidebarProps>(
   },
 );
 AppSidebar.displayName = "AppSidebar";
+
+function AppSidebarScrollRegion({
+  affordances,
+  children,
+}: {
+  affordances: boolean;
+  children: ReactNode;
+}) {
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [edges, setEdges] = useState({ above: false, below: false });
+
+  useEffect(() => {
+    if (!affordances) return;
+    const viewport = viewportRef.current;
+    const content = contentRef.current;
+    if (!viewport || !content) return;
+
+    const update = () => {
+      const remaining = viewport.scrollHeight - viewport.clientHeight;
+      const overflowing = remaining > 1;
+      const above = overflowing && viewport.scrollTop > 1;
+      const below = overflowing && viewport.scrollTop < remaining - 1;
+      setEdges((current) =>
+        current.above === above && current.below === below
+          ? current
+          : { above, below },
+      );
+    };
+    const observer = new ResizeObserver(update);
+    observer.observe(viewport);
+    observer.observe(content);
+    viewport.addEventListener("scroll", update, { passive: true });
+    update();
+    return () => {
+      observer.disconnect();
+      viewport.removeEventListener("scroll", update);
+    };
+  }, [affordances]);
+
+  if (!affordances) {
+    return <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>;
+  }
+
+  return (
+    <ScrollAreaPrimitive.Root
+      type={edges.above || edges.below ? "always" : "auto"}
+      className="relative min-h-0 flex-1 overflow-hidden"
+      data-app-sidebar-scroll-area
+    >
+      <ScrollAreaPrimitive.Viewport
+        ref={viewportRef}
+        className="size-full scroll-py-2 [&>div]:!block"
+        data-app-sidebar-scroll-viewport
+        onFocusCapture={(event) => {
+          const viewport = event.currentTarget;
+          const target = event.target;
+          if (
+            !(target instanceof HTMLElement) ||
+            target === viewport ||
+            !viewport.contains(target)
+          )
+            return;
+          const bounds = viewport.getBoundingClientRect();
+          const focused = target.getBoundingClientRect();
+          if (focused.top < bounds.top + 8) {
+            viewport.scrollTop += focused.top - bounds.top - 8;
+          } else if (focused.bottom > bounds.bottom - 8) {
+            viewport.scrollTop += focused.bottom - bounds.bottom + 8;
+          }
+        }}
+      >
+        <div ref={contentRef}>{children}</div>
+      </ScrollAreaPrimitive.Viewport>
+      <ScrollBar className="z-10 w-1.5 border-none p-px [&>div]:bg-muted-foreground/50" />
+      {edges.above && (
+        <div
+          aria-hidden="true"
+          data-scroll-edge="top"
+          className="pointer-events-none absolute inset-x-0 top-0 h-2 bg-gradient-to-b from-sidebar to-transparent"
+        />
+      )}
+      {edges.below && (
+        <div
+          aria-hidden="true"
+          data-scroll-edge="bottom"
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-2 bg-gradient-to-t from-sidebar to-transparent"
+        />
+      )}
+    </ScrollAreaPrimitive.Root>
+  );
+}

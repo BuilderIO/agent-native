@@ -1,9 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const isConnectedMock = vi.hoisted(() => vi.fn());
-const rsvpEventMock = vi.hoisted(() => vi.fn());
+const { buildDeepLinkMock, isConnectedMock, rsvpEventMock } = vi.hoisted(
+  () => ({
+    buildDeepLinkMock: vi.fn(
+      () => "/_agent-native/open?eventId=google-event-1",
+    ),
+    isConnectedMock: vi.fn(),
+    rsvpEventMock: vi.fn(),
+  }),
+);
 
 vi.mock("@agent-native/core/server", () => ({
+  buildDeepLink: buildDeepLinkMock,
   getRequestOrgId: vi.fn(() => undefined),
   getRequestUserEmail: vi.fn(() => "owner@example.com"),
 }));
@@ -31,5 +39,29 @@ describe("rsvp-event", () => {
     ).rejects.toThrow("Shared Google calendar events are read-only");
 
     expect(rsvpEventMock).not.toHaveBeenCalled();
+  });
+
+  it("returns a compact RSVP card linked to the updated event", async () => {
+    const result = await action.run({
+      id: "google-event-1",
+      status: "accepted",
+      note: "Sensitive response note",
+    });
+
+    expect(result.change).toEqual({
+      verb: "updated",
+      kind: "calendar-event",
+      title: "RSVP",
+      detail: "accepted",
+      url: "/_agent-native/open?eventId=google-event-1",
+    });
+    expect(JSON.stringify(result.change)).not.toContain(
+      "Sensitive response note",
+    );
+    expect(buildDeepLinkMock).toHaveBeenCalledWith({
+      app: "calendar",
+      view: "calendar",
+      params: { eventId: "google-event-1" },
+    });
   });
 });

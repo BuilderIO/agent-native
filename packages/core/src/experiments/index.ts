@@ -1,3 +1,4 @@
+/** @deprecated Import from the Labs entrypoints instead. */
 export {
   defineExperiment,
   defineExperiments,

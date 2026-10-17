@@ -31,6 +31,22 @@ describe("library recording cards", () => {
     expect(source).not.toContain("onRename");
   });
 
+  it("bulk unarchives selected recordings from the archive view", () => {
+    const toolbarSource = readSource("./bulk-action-toolbar.tsx");
+    const gridSource = readSource("./library-grid.tsx");
+
+    expect(toolbarSource).toContain('archiveAction?: "archive" | "unarchive"');
+    expect(toolbarSource).toContain('archiveAction = "archive"');
+    expect(toolbarSource).toContain('"clipsFinalRaw.unarchive"');
+    expect(gridSource).toContain(
+      'archiveAction={view === "archive" ? "unarchive" : "archive"}',
+    );
+    expect(gridSource).toContain("restoreRecording.mutateAsync({ id })");
+    expect(gridSource).toContain('"trashRoute.clipsRestored"');
+    expect(gridSource).toContain('"trashRoute.clipsRestoreFailed"');
+    expect(gridSource).toContain("Promise.allSettled");
+  });
+
   it("offers folder creation from the move menu", () => {
     const source = readSource("./recording-card.tsx");
 
@@ -49,7 +65,8 @@ describe("library recording cards", () => {
     expect(source).toContain("<ContextMenuSub>");
     expect(source).toContain("<ContextMenuSubContent");
     expect(source).toContain('t("clipsFinalRaw.moveToFolder")');
-    expect(source).toContain('t("navigation.trash")');
+    expect(source).toContain('t("libraryGrid.archiveAction")');
+    expect(source).toContain('t("libraryGrid.moveToTrashAction")');
   });
 
   it("uses the shared vertical overflow affordance", () => {

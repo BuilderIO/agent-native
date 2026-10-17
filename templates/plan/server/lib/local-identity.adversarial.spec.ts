@@ -59,20 +59,9 @@ describe("local-identity adversarial", () => {
     it("refuses local mode for the canonical NODE_ENV=production", () => {
       setEnv({ NODE_ENV: "production" });
       expect(isLocalPlanRuntime()).toBe(false);
-      // And therefore an unauthenticated WRITE has no owner.
       expect(resolvePlanOwnerEmailForWrite(undefined)).toBeUndefined();
     });
 
-    // CONTRACT INTENT: the documented promise in local-identity.ts is "the
-    // local-mode fallback can NEVER activate on a hosted deploy". A hosted box
-    // that sets NODE_ENV with a different *case* ("Production" / "PRODUCTION")
-    // — a real, easy misconfiguration — must still refuse local mode, otherwise
-    // an unauthenticated request silently becomes the single local owner and
-    // can create/read/edit plans with no login.
-    //
-    // This test PINS the desired contract. It currently FAILS because the guard
-    // does an exact `=== "production"` comparison and never normalizes case, so
-    // any non-lowercase value falls through to "local mode on".
     it("refuses local mode even when NODE_ENV case differs (Production / PRODUCTION)", () => {
       for (const value of ["Production", "PRODUCTION", "Prod", " production"]) {
         setEnv({ NODE_ENV: value });
@@ -86,8 +75,6 @@ describe("local-identity adversarial", () => {
 
   describe("AUTH_MODE parsing (fail-closed direction is safe)", () => {
     it("treats a non-lowercase AUTH_MODE=LOCAL as a NON-local (real) auth mode", () => {
-      // Fail-closed: uppercase is not the recognized "local" shim, so we must
-      // NOT assume a single local user. (Refusing is the safe direction.)
       setEnv({ NODE_ENV: "development", AUTH_MODE: "LOCAL" });
       expect(isLocalPlanRuntime()).toBe(false);
     });
@@ -142,8 +129,6 @@ describe("local-identity adversarial", () => {
     });
 
     it("only the exact string '0' opts out — '00'/'false'/'no' do NOT (they enable local in dev)", () => {
-      // Documents the brittle parsing: anything other than exactly "0" is not an
-      // opt-out, so it falls through to the default (local on, in dev).
       for (const value of ["00", "false", "no", " 0", "0 "]) {
         setEnv({ NODE_ENV: "development", PLAN_LOCAL_MODE: value });
         expect(isLocalPlanRuntime(), `PLAN_LOCAL_MODE=${value}`).toBe(true);
@@ -168,10 +153,6 @@ describe("local-identity adversarial", () => {
     });
 
     it("a public-VIEWER identity passed to the WRITE resolver is honored as-is (not upgraded), so editor checks still gate it", () => {
-      // resolvePlanOwnerEmailForWrite does NOT special-case the public viewer;
-      // it returns it unchanged. The real write protection is the downstream
-      // assertPlanEditor / comment gate, NOT this resolver. This documents that
-      // the resolver itself is not a write gate for public viewers.
       setEnv({ NODE_ENV: "production" });
       const viewer =
         "public-123e4567-e89b-12d3-a456-426614174000@agent-native.local";
@@ -190,14 +171,12 @@ describe("local-identity adversarial", () => {
     it("a guest-author identity in LOCAL dev falls back to the local owner (not the guest)", () => {
       setEnv({ NODE_ENV: "development" });
       const guest = `guest-123e4567-e89b-12d3-a456-426614174000@${GUEST_AUTHOR_DOMAIN}`;
-      // Guest is rejected, but local mode supplies the local owner instead.
       expect(resolvePlanOwnerEmailForWrite(guest)).toBe(LOCAL_PLAN_OWNER_EMAIL);
     });
   });
 
   describe("synthetic identity classifier hardening", () => {
     it("does not classify a real account whose local-part merely starts with 'guest-' as a guest", () => {
-      // Real account on a real domain must never be treated as a synthetic guest.
       expect(isGuestAuthorIdentity("guest-relations@example.com")).toBe(false);
       expect(isGuestAuthorIdentity("guest-team@agent-native.com")).toBe(false);
     });
@@ -206,14 +185,12 @@ describe("local-identity adversarial", () => {
       expect(isAnonymousPublicViewer("publicist@agent-native.local")).toBe(
         false,
       );
-      // "public-relations" lacks the uuid+exact-domain shape.
       expect(isAnonymousPublicViewer("public-relations@example.com")).toBe(
         false,
       );
     });
 
     it("rejects a guest-shaped local-part on the WRONG domain", () => {
-      // Same local-part, attacker-controlled domain — must not be a guest id.
       expect(
         isGuestAuthorIdentity(
           "guest-123e4567-e89b-12d3-a456-426614174000@evil.com",

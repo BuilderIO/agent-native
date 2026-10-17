@@ -6,10 +6,10 @@ name: "Durable foundations"
 chapter: "content.chapter.durable-home"
 order: 1
 roadmap_status: "in_validation"
-summary: "Pages, Blocks, Databases, Search, history, and recovery form one trustworthy material loop."
-example_workflow: "A teammate creates a project brief, turns its action items into Database records with owners and due dates, closes the app, finds the work again through Search, restores an accidentally deleted Block, and asks an agent to continue from the same durable context."
-works_today: "Content already has SQL-backed Pages, rich Blocks, Databases, Search, document snapshots, and a broad agent Action surface. People and agents can perform much of the ordinary creation and editing loop on the same durable objects."
-remains: "Stable Block identity, actor-aware history, dependable recovery across every object type, and complete end-to-end action parity still need to become one polished foundation."
+summary: "Pages, Blocks, Collections, Search, history, and recovery form one trustworthy material loop."
+example_workflow: "A teammate creates a project brief, turns its action items into Collection records with owners and due dates, closes the app, finds the work again through Search, restores an accidentally deleted Block, and asks an agent to continue from the same durable context."
+works_today: "Content has SQL-backed Pages, rich Blocks, Collections, Search, document snapshots, and a broad agent Action surface. October's two-tab convergence work added a repeatable loss test, kept concurrent words, reduced false conflict warnings, hardened durable saves and recovery, and measured save outcomes (#6656, #6721, #6737, #6984, #7028, #7033, #7111). A reported beta two-tab check converged 18 edits with every save returning 200."
+remains: "Stable Block identity, actor-aware history, dependable recovery across every object type, and complete end-to-end action parity still need proof. F1 remains in validation: the R01–R08 gate and authenticated beta acceptance remain open; the two-tab result alone does not make it Available."
 required_capabilities:
   [
     "content.object.page",
@@ -30,18 +30,18 @@ enhancing_capabilities:
 increments: []
 feature_proof: null
 publicness: "public"
-last_reviewed: "2026-07-29"
+last_reviewed: "2026-10-12"
 ---
 
 # Feature 1: Durable foundations
 
-Pages, Blocks, Databases, Search, history, and recovery form one trustworthy material loop.
+Pages, Blocks, Collections, Search, history, and recovery form one trustworthy material loop.
 
 ## Product contract
 
 - **Pages:** Hold durable identity, access, properties, rich content, and the context required to resume work.
 - **Blocks:** Give every editable rich-content body the same composable grammar, whether it belongs to a Page, Property, Comment, or message.
-- **Databases:** Govern writable collections, membership, typed Properties, validation, defaults, Rules, and the canonical path for creating records.
+- **Collections:** Govern writable collections, membership, typed Properties, validation, defaults, Rules, and the canonical path for creating records.
 - **Search:** Finds only what the current person can access and opens the exact object or context they were looking for.
 - **History:** Records attributable committed Events and logical Revisions without turning every keystroke into a fake milestone.
 - **Recovery:** Restores deleted or changed work without discarding the history that explains what happened.

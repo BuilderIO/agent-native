@@ -1,4 +1,7 @@
-import type { BlockReadProps, BlockSpec } from "@agent-native/core/blocks";
+import type {
+  BlockReadProps,
+  BlockSpec,
+} from "@agent-native/core/blocks/server";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   sourceComponentBlockConfig,

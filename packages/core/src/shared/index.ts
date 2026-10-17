@@ -7,9 +7,16 @@ export {
 export {
   appendAgentChatContextToMessage,
   splitAgentChatContextFromMessage,
+  stripAgentChatContextFromMessage,
   type AgentChatMessageParts,
 } from "./agent-chat-context.js";
 export { agentEnv, type EnvVar } from "./agent-env.js";
+export {
+  APP_STATUS,
+  DEFAULT_APP_STATUS,
+  getAppStatus,
+  type AppStatus,
+} from "./app-status.js";
 export {
   extractOAuthStateAppId,
   extractOAuthStateProvider,
@@ -30,10 +37,46 @@ export {
   type SignInJourneyInput,
 } from "./sign-in-journey.js";
 export { truncate } from "./truncate.js";
+export { backgroundAgentTurnIdForReceipt } from "./background-agent-session.js";
+export {
+  composerSourceRequestSchema,
+  composerSourceListSchema,
+  composerSourceReferenceSchema,
+  composerSourceResultSchema,
+  type ComposerSourceRequest,
+  type ComposerSourceResult,
+} from "./composer-source.js";
+export {
+  MAX_USER_REGEX_INPUT_LENGTH,
+  MAX_USER_REGEX_LENGTH,
+  analyzeRegexSource,
+  compileUserRegex,
+  testUserRegex,
+  type RegexSafetyVerdict,
+  type UserRegexCompileResult,
+  type UserRegexTestResult,
+} from "./bounded-regex.js";
 export {
   isHumanReadableDocumentTitle,
   normalizeDocumentTitle,
 } from "./document-title.js";
+export {
+  parseBase64DataUrl,
+  parseDataUrl,
+  type ParsedBase64DataUrl,
+  type ParsedDataUrl,
+} from "./data-url.js";
+export { stripInlineAttachmentPayloads } from "./attachments.js";
+export { stripInlineBytes, type InlineBytesPolicy } from "./inline-bytes.js";
+export {
+  DEFAULT_REASONING_EFFORT,
+  REASONING_EFFORTS,
+  getReasoningEffortOptionsForModel,
+  isReasoningEffort,
+  reasoningEffortLabel,
+  resolveReasoningEffortSelection,
+  type ReasoningEffort,
+} from "./reasoning-effort.js";
 export { injectDocumentMarkup } from "./html-document.js";
 export {
   formatAgentDesignSystemContext,
@@ -41,6 +84,7 @@ export {
   type AgentDesignSystemContext,
   type AgentDesignSystemContextAvailable,
   type AgentDesignSystemContextUnavailable,
+  type AgentDesignSystemPurpose,
 } from "./design-system-agent-context.js";
 export {
   formatHtmlStyleSummary,
@@ -53,12 +97,16 @@ export { withBuilderUtmTrackingParams } from "./builder-link-tracking.js";
 export {
   BETA_FORCE_QUERY_PARAM,
   BETA_FORCE_SESSION_STORAGE_KEY,
+  BETA_LANE_REDIRECT_QUERY_PARAM,
+  BETA_LANE_RETURN_STORAGE_KEY,
+  BETA_LANE_RETURNED_STORAGE_KEY,
   BETA_REDIRECT_DURATION_MS,
   BETA_REDIRECT_STORAGE_KEY,
   BETA_REDIRECT_SIGN_OUT_STORAGE_KEY,
   BETA_OPT_OUT_DURATION_MS,
   BETA_OPT_OUT_QUERY_PARAM,
   BETA_OPT_OUT_STORAGE_KEY,
+  buildAutomaticBetaRedirectUrl,
   ENVIRONMENT_BETA_HOSTS,
   resolveEnvironmentTargets,
   type EnvironmentBadgeTargets,
@@ -104,11 +152,21 @@ export {
 export {
   AGENT_NATIVE_ACTION_EVENTS,
   AGENT_NATIVE_LIFECYCLE_EVENTS,
+  LEGACY_TRACKING_EVENT_NAME_ALIASES,
+  canonicalTrackingEvent,
   normalizeTrackingDimension,
   withCanonicalTrackingProperties,
   type AgentNativeActionEventName,
   type AgentNativeLifecycleEventName,
 } from "./analytics-events.js";
+export {
+  BUILDER_CONNECT_PROVIDER,
+  BUILDER_CONNECT_PROVIDER_LABEL,
+  connectRequiredResult,
+  normalizeConnectRequiredResult,
+  type ConnectRequiredCard,
+  type ConnectRequiredResult,
+} from "./connect-required.js";
 export {
   DISPATCH_WORKSPACE_ROOT_REDIRECTS,
   RESERVED_WORKSPACE_APP_IDS,
@@ -119,8 +177,10 @@ export {
 } from "./workspace-app-id.js";
 export {
   DEFAULT_WORKSPACE_APP_AUDIENCE,
+  DEFAULT_WORKSPACE_APP_HOME_PATH,
   WORKSPACE_APP_AUDIENCES,
   normalizeWorkspaceAppAudience,
+  normalizeWorkspaceAppHomePath,
   normalizeWorkspaceAppPathList,
   workspaceAppAudienceFromEnv,
   workspaceAppAudienceFromPackageJson,
@@ -145,7 +205,12 @@ export {
   type ChatFirstAppCreationResource,
   type ChatFirstAppCreationVaultAccessMode,
 } from "./chat-first-app-creation.js";
-export { isAutozQaEmail, isQaTestEmail } from "./qa-test-email.js";
+export {
+  isAutozQaEmail,
+  isQaTestEmail,
+  isTestIdentityEmail,
+  testIdentityEmailSql,
+} from "./qa-test-email.js";
 export {
   SYNTHETIC_TRAFFIC_BETA_E2E,
   SYNTHETIC_TRAFFIC_HEADER,
@@ -170,6 +235,7 @@ export {
   AGENT_NATIVE_SOCIAL_IMAGE_PATH,
   AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
   AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
+  buildResourceSocialMeta,
   defaultSocialImageMeta,
   withAgentNativeSocialImageCacheBuster,
   withDefaultSocialImage,

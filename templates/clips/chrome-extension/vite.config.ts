@@ -56,8 +56,6 @@ export default defineConfig({
     __CLIPS_SENTRY_DSN__: JSON.stringify(resolveSentryDsn()),
     __CLIPS_SENTRY_ENVIRONMENT__: JSON.stringify(resolveSentryEnvironment()),
   },
-  // Share recording primitives with the web app recorder (templates/clips/shared)
-  // — matches the "@shared/*" tsconfig path so imports resolve in both builds.
   resolve: {
     alias: { "@shared": resolve(root, "../shared") },
   },
@@ -68,6 +66,10 @@ export default defineConfig({
     rollupOptions: {
       input: {
         background: resolve(root, "src/background.ts"),
+        "content-history-bridge": resolve(
+          root,
+          "src/content-history-bridge.ts",
+        ),
         "content-script": resolve(root, "src/content-script.ts"),
         "github-preview-content": resolve(
           root,

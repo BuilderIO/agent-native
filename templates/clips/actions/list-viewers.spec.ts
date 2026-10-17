@@ -19,6 +19,7 @@ vi.mock("@agent-native/core/sharing", () => ({
 
 vi.mock("drizzle-orm", () => ({
   eq: (left: unknown, right: unknown) => ({ type: "eq", left, right }),
+  sql: vi.fn(),
 }));
 
 vi.mock("../server/db/index.js", () => ({

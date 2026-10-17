@@ -1,26 +1,6 @@
-/**
- * Server-side Yjs document manager with LRU caching and SQL persistence.
- *
- * Performance notes:
- * - `getDoc()` loads the state blob from the DB on cache miss, then keeps the
- *   Y.Doc in memory. A cache hit still costs one version-column SELECT: this
- *   process is one of many serverless instances, so a doc cached here can be
- *   arbitrarily far behind a peer instance's writes, and a read that skips
- *   the check returns old text that looks current. The blob is re-read only
- *   when that version actually moved.
- * - Mutations no longer call `applyStoredState()` unconditionally on every
- *   write. The defensive re-read from the DB happens only inside
- *   `persistMergedState` (needed for the CAS version read), not as a
- *   separate SELECT before applying the new update. This removes the
- *   redundant double-read that the previous implementation performed on
- *   every write even on a hot cache.
- * - Compaction: when the stored blob is >4x the freshly encoded state, the
- *   GC'd encoding is stored instead (removes accumulated Yjs tombstones,
- *   preventing unbounded blob growth without any background jobs).
- */
-
 import * as Y from "yjs";
 
+import type { DbExec } from "../db/client.js";
 import { emitCollabUpdate } from "./emitter.js";
 import {
   applyJsonDiff,
@@ -31,10 +11,10 @@ import {
 } from "./json-to-yjs.js";
 import {
   loadYDocRecord,
-  loadYDocState,
+  loadYDocRecordWithClient,
   loadYDocVersion,
-  saveYDocState,
   trySaveYDocState,
+  trySaveYDocStateWithClient,
 } from "./storage.js";
 import { uint8ArrayToBase64 } from "./storage.js";
 import { applyTextToYDoc, initYDocWithText } from "./text-to-yjs.js";
@@ -42,11 +22,6 @@ import { searchAndReplaceInYXml, extractTextFromYXml } from "./xml-ops.js";
 
 const DEFAULT_FIELD = "content";
 
-/**
- * A peer committed between a caller's base validation and this write's CAS.
- * Its own error type so a caller can map it to a retryable conflict instead of
- * mistaking it for invalid content.
- */
 export class CollabBaseVersionConflictError extends Error {
   constructor(message: string) {
     super(message);
@@ -56,12 +31,6 @@ export class CollabBaseVersionConflictError extends Error {
 
 const MAX_CACHE = 50;
 
-/**
- * Auto-presence: any agent-sourced write produces visible presence and
- * lingering edit attribution without the calling action having to wire
- * agentEnterDocument/agentLeaveDocument itself. Dynamic import avoids a
- * static cycle (agent-presence.ts imports searchAndReplace from this module).
- */
 function touchAgentPresence(
   docId: string,
   requestSource: string | undefined,
@@ -77,10 +46,6 @@ function touchAgentPresence(
     });
 }
 
-/**
- * Compute a small "what changed" descriptor from a text diff by trimming the
- * common prefix/suffix. Used for lingering edit highlights client-side.
- */
 export function computeTextEditDescriptor(
   oldText: string,
   newText: string,
@@ -107,40 +72,27 @@ export function computeTextEditDescriptor(
   return { kind: "doc" };
 }
 
-/**
- * Compaction ratio threshold. When the stored state byte count exceeds
- * COMPACTION_RATIO × the freshly encoded state, write the compact form
- * (strips accumulated tombstones). A value of 4 means: compact when the
- * stored blob is 4× larger than necessary.
- */
 const COMPACTION_RATIO = 4;
 
 interface CacheEntry {
   doc: Y.Doc;
   lastAccess: number;
-  /**
-   * The `_collab_docs.version` this cached doc is known to contain, or `null`
-   * when a write landed whose resulting version this process never learned.
-   * `null` must force a full reload — treating it as "current" is what makes
-   * a peer instance's writes invisible.
-   */
   syncedVersion: number | null;
 }
 
 const _cache = new Map<string, CacheEntry>();
 const _writeLocks = new Map<string, Promise<void>>();
-// Coalesces concurrent staleness checks for the same docId so a burst of
-// readers costs one version SELECT rather than one each.
 const _refreshLocks = new Map<string, Promise<void>>();
-// Coalesces concurrent cache-miss loads for the same docId. Without this, two
-// simultaneous getDoc() callers both miss the cache, both build a Y.Doc and
-// apply stored state, and the second _cache.set silently orphans the first
-// doc (a memory leak that grows with concurrent read traffic).
 const _loadLocks = new Map<string, Promise<Y.Doc>>();
+
+export interface PreparedYDocMutationLease {
+  doc: Y.Doc;
+  baseVersion: number | null;
+  persist(transaction: DbExec, textSnapshot: string): Promise<void>;
+}
 
 function evictIfNeeded(): void {
   if (_cache.size <= MAX_CACHE) return;
-  // Evict least-recently-accessed entry
   let oldest: string | null = null;
   let oldestTime = Infinity;
   for (const [id, entry] of _cache) {
@@ -179,51 +131,89 @@ async function withDocWriteLock<T>(
   }
 }
 
-/**
- * Build state to persist. If the stored blob is significantly larger than
- * the freshly encoded state, store the compact (GC'd) form instead to
- * prevent unbounded blob growth from accumulated tombstones.
- */
+export async function withPreparedYDocMutation<T>(
+  docId: string,
+  requestSource: string | undefined,
+  run: (lease: PreparedYDocMutationLease) => Promise<T>,
+): Promise<T> {
+  return withDocWriteLock(docId, async () => {
+    const current = await getDocForWrite(docId);
+    const latest = await loadYDocRecord(docId);
+    if (latest?.state.length) Y.applyUpdate(current, latest.state);
+
+    const candidate = new Y.Doc();
+    Y.applyUpdate(candidate, Y.encodeStateAsUpdate(current));
+    const baseVector = Y.encodeStateVector(candidate);
+    const baseVersion = latest?.version ?? null;
+    let persisted = false;
+    const lease: PreparedYDocMutationLease = {
+      doc: candidate,
+      baseVersion,
+      persist: async (transaction, textSnapshot) => {
+        if (persisted) {
+          throw new Error("Prepared Yjs mutation was already persisted");
+        }
+        const saved = await trySaveYDocStateWithClient(
+          transaction,
+          docId,
+          Y.encodeStateAsUpdate(candidate),
+          textSnapshot,
+          baseVersion,
+        );
+        if (!saved) {
+          throw new CollabBaseVersionConflictError(
+            `Document ${docId} changed while the prepared mutation was committing.`,
+          );
+        }
+        persisted = true;
+      },
+    };
+
+    try {
+      const result = await run(lease);
+      if (!persisted) {
+        candidate.destroy();
+        return result;
+      }
+      const update = Y.encodeStateAsUpdate(candidate, baseVector);
+      const previous = _cache.get(docId);
+      previous?.doc.destroy();
+      _cache.set(docId, {
+        doc: candidate,
+        lastAccess: Date.now(),
+        syncedVersion: baseVersion === null ? 0 : baseVersion + 1,
+      });
+      evictIfNeeded();
+      if (update.length > 0) {
+        emitCollabUpdate(docId, uint8ArrayToBase64(update), requestSource);
+      }
+      return result;
+    } catch (error) {
+      candidate.destroy();
+      throw error;
+    }
+  });
+}
+
 function buildStateToStore(doc: Y.Doc, storedByteCount: number): Uint8Array {
   const encoded = Y.encodeStateAsUpdate(doc);
   if (
     storedByteCount > 0 &&
     storedByteCount > encoded.length * COMPACTION_RATIO
   ) {
-    // Stored blob is much larger than needed — return the GC'd encoding.
     return encoded;
   }
   return encoded;
 }
 
-/**
- * Persist the merged doc state with CAS retry on conflict.
- *
- * REMOVED: the unconditional `applyStoredState()` that was called on every
- * write path before this function. The only DB read is the `loadYDocRecord`
- * call here — needed to get the CAS version and merge any concurrent writes
- * from OTHER processes. Within this process, the in-memory doc is already
- * up-to-date because mutations are serialized by withDocWriteLock.
- */
 async function persistMergedState(
   docId: string,
   doc: Y.Doc,
   getTextSnapshot: () => string,
   validateTextSnapshot?: (snapshot: string) => void,
-  /**
-   * The row version a caller's base was validated against. Supplied only by
-   * whole-document writers: their `newText` is built on that exact base, so a
-   * peer commit arriving before this CAS must surface as a conflict rather
-   * than be merged with — the merge would silently absorb the other edit and
-   * still pass a syntax check.
-   */
   validatedBaseVersion?: number | null,
 ): Promise<void> {
   for (let attempt = 0; attempt < 5; attempt++) {
-    // One DB read per persist attempt. On first attempt this is the only read
-    // on the write path (previously there was an unconditional second read
-    // before the update was applied). On retry attempts it re-reads to get the
-    // latest version after a CAS conflict.
     const latest = await loadYDocRecord(docId);
     if (validatedBaseVersion !== undefined) {
       const currentVersion = latest?.version ?? null;
@@ -248,9 +238,6 @@ async function persistMergedState(
       expectedVersion,
     );
     if (saved) {
-      // trySaveYDocState inserts at version 0 and otherwise bumps by one.
-      // Recording it keeps the next read on a single version SELECT instead
-      // of re-fetching the blob this process just wrote.
       noteCachedVersion(
         docId,
         doc,
@@ -260,25 +247,11 @@ async function persistMergedState(
     }
   }
 
-  // Exhausting the CAS means a peer kept winning the row — pinned or not. The
-  // old fallback saved unconditionally and returned normally, so the caller
-  // saw a clean success over someone else's clobbered edit.
   throw new CollabBaseVersionConflictError(
     `Document ${docId} kept changing while the edit was being applied; the write was not saved.`,
   );
 }
 
-/**
- * Record the row version a just-persisted doc now matches. `null` means the
- * write's resulting version is unknown, so the next read must reload rather
- * than assume this process is current.
- */
-/**
- * The row version the cached doc currently reflects, or `undefined` when this
- * process cannot prove one — an evicted entry, or a write whose resulting
- * version was never learned. Callers that pin a base must refuse rather than
- * guess.
- */
 function cachedVersionFor(
   docId: string,
   doc: Y.Doc,
@@ -297,13 +270,6 @@ function noteCachedVersion(
   if (entry?.doc === doc) entry.syncedVersion = version;
 }
 
-/**
- * Merge any state written by another process into a cached doc. Costs one
- * version-column read; the state blob is fetched only when the version moved.
- * Yjs merges are idempotent, so re-applying our own state is safe — the bug
- * this closes is the opposite one, a reader that never re-checks and answers
- * from a doc a peer instance moved past minutes ago.
- */
 async function mergeNewerStoredState(
   docId: string,
   entry: CacheEntry,
@@ -313,8 +279,6 @@ async function mergeNewerStoredState(
 
   const refresh = (async () => {
     const storedVersion = await loadYDocVersion(docId);
-    // No row: nothing durable to merge. Anything already in this doc is a
-    // local write that has not been persisted yet, so keep it.
     if (storedVersion === null) return;
     if (entry.syncedVersion === storedVersion) return;
 
@@ -332,17 +296,11 @@ async function mergeNewerStoredState(
   }
 }
 
-/**
- * Get or load a Yjs document by ID. Creates a new empty doc if none exists.
- */
-/** Cold-load path shared by both entry points. */
 async function loadDoc(docId: string): Promise<Y.Doc> {
   const inFlight = _loadLocks.get(docId);
   if (inFlight) return inFlight;
 
   const load = (async () => {
-    // Re-check the cache: a concurrent writer (or loader) may have populated it
-    // between our miss above and acquiring this load slot.
     const reCached = _cache.get(docId);
     if (reCached) {
       reCached.lastAccess = Date.now();
@@ -354,11 +312,6 @@ async function loadDoc(docId: string): Promise<Y.Doc> {
     if (record && record.state.length > 0) {
       Y.applyUpdate(doc, record.state);
     }
-    // A peer can commit between that read and publishing this entry, and the
-    // coherence check above only runs on the NEXT read — so this request would
-    // answer from text that was already stale, which is the exact failure the
-    // check exists to prevent. Re-read until the version stops moving; Yjs
-    // merges are additive, so each pass only adds what a peer committed.
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const storedVersion = await loadYDocVersion(docId);
       if (storedVersion === (record?.version ?? null)) break;
@@ -385,14 +338,6 @@ async function loadDoc(docId: string): Promise<Y.Doc> {
   }
 }
 
-/**
- * The write path's doc. It deliberately skips the peer-state refresh that
- * `getDoc` performs: a mutation diffs `newText` against this text, and a base
- * that has just absorbed a peer's edit turns that diff into an explicit
- * deletion of it. `persistMergedState` merges the peer during the CAS instead,
- * where both edits survive — and skipping the probe saves a round trip on
- * every write.
- */
 export async function getDocForWrite(docId: string): Promise<Y.Doc> {
   const cached = _cache.get(docId);
   if (cached) {
@@ -402,12 +347,6 @@ export async function getDocForWrite(docId: string): Promise<Y.Doc> {
   return loadDoc(docId);
 }
 
-/**
- * A mutation applies its diff to the cached doc and only then persists. Until
- * that CAS lands the write may still be rejected and the doc released, so a
- * read that slips in between would serve content that never becomes durable.
- * Readers wait for the write in flight rather than observe it.
- */
 async function awaitPendingWrite(docId: string): Promise<void> {
   const pending = _writeLocks.get(docId);
   if (pending) await pending.catch(() => {});
@@ -425,10 +364,6 @@ export async function getDoc(docId: string): Promise<Y.Doc> {
   return loadDoc(docId);
 }
 
-/**
- * Apply a binary Yjs update (from a client) to a document.
- * Persists the result and emits a change event.
- */
 export async function applyUpdate(
   docId: string,
   update: Uint8Array,
@@ -436,9 +371,6 @@ export async function applyUpdate(
 ): Promise<void> {
   return withDocWriteLock(docId, async () => {
     const doc = await getDocForWrite(docId);
-    // The cached doc is already up-to-date from the initial load or a previous
-    // write in this process. No redundant applyStoredState() here — cross-
-    // process writes are merged inside persistMergedState when needed.
     Y.applyUpdate(doc, update);
 
     await persistMergedState(docId, doc, () =>
@@ -449,48 +381,109 @@ export async function applyUpdate(
   });
 }
 
-/**
- * Apply a text change to a document. Computes the minimal diff and
- * converts it to Yjs operations.
- *
- * Returns the text snapshot after the update.
- */
+function isEmptyXmlSeedTarget(fragment: Y.XmlFragment): boolean {
+  if (fragment.length === 0) return true;
+  if (fragment.length !== 1) return false;
+  const first = fragment.get(0);
+  if (!(first instanceof Y.XmlElement) || first.nodeName !== "paragraph") {
+    return false;
+  }
+  for (let index = 0; index < first.length; index += 1) {
+    const child = first.get(index);
+    if (!(child instanceof Y.XmlText) || child.toString().length > 0) {
+      return false;
+    }
+  }
+  return true;
+}
+
+export async function seedXmlFragmentIfEmpty(
+  docId: string,
+  seedUpdate: Uint8Array,
+  requestSource?: string,
+): Promise<{ seeded: boolean; state: Uint8Array }> {
+  const candidate = new Y.Doc();
+  try {
+    const decoded = Y.decodeUpdate(seedUpdate);
+    if (decoded.ds.clients.size > 0) {
+      throw new Error("Initial XmlFragment seed cannot contain deletions");
+    }
+    Y.applyUpdate(candidate, seedUpdate);
+    const fragment = candidate.getXmlFragment("default");
+    if (
+      candidate.share.size !== 1 ||
+      !candidate.share.has("default") ||
+      isEmptyXmlSeedTarget(fragment)
+    ) {
+      throw new Error(
+        "Initial XmlFragment seed must contain only a nonempty default fragment",
+      );
+    }
+  } finally {
+    candidate.destroy();
+  }
+
+  return withDocWriteLock(docId, async () => {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const stored = await loadYDocRecord(docId);
+      const committed = new Y.Doc();
+      try {
+        if (stored?.state.length) Y.applyUpdate(committed, stored.state);
+        const fragment = committed.getXmlFragment("default");
+        if (!isEmptyXmlSeedTarget(fragment)) {
+          return { seeded: false, state: Y.encodeStateAsUpdate(committed) };
+        }
+
+        const beforeVector = Y.encodeStateVector(committed);
+        if (fragment.length === 1) fragment.delete(0, 1);
+        Y.applyUpdate(committed, seedUpdate);
+        if (isEmptyXmlSeedTarget(fragment)) {
+          throw new Error(
+            "Initial XmlFragment seed did not populate the default fragment",
+          );
+        }
+        const state = Y.encodeStateAsUpdate(committed);
+        const committedUpdate = Y.encodeStateAsUpdate(committed, beforeVector);
+        const textSnapshot =
+          committed.getText(DEFAULT_FIELD).toString() ||
+          extractTextFromYXml(fragment);
+        const saved = await trySaveYDocState(
+          docId,
+          state,
+          textSnapshot,
+          stored?.version ?? null,
+        );
+        if (!saved) continue;
+
+        releaseDoc(docId);
+        emitCollabUpdate(
+          docId,
+          uint8ArrayToBase64(committedUpdate),
+          requestSource,
+        );
+        return { seeded: true, state };
+      } finally {
+        committed.destroy();
+      }
+    }
+    throw new CollabBaseVersionConflictError(
+      `Document ${docId} kept changing while its initial XmlFragment seed was being committed.`,
+    );
+  });
+}
+
 export async function applyText(
   docId: string,
   newText: string,
   fieldName: string = DEFAULT_FIELD,
   requestSource?: string,
   options: {
-    /**
-     * Validate the converged text this diff will be computed FROM, inside the
-     * write lock. A caller that checked the live text before calling has no
-     * protection against a peer process committing in between: `newText` is a
-     * whole document computed from the older base, so applying it would
-     * overwrite the other writer rather than conflict. Reject here to keep
-     * that a loud, retryable conflict.
-     *
-     * Supplying this also pins the row version the base was read at: the
-     * persistence CAS then rejects a peer commit that lands before the write
-     * (CollabBaseVersionConflictError) rather than merging with it, since the
-     * merge would absorb the other edit and still pass a syntax check.
-     */
     validateBase?: (base: string) => void;
-    /**
-     * Validate the fully converged text after cross-process Yjs updates have
-     * merged, but before the state is persisted or broadcast. A rejected
-     * candidate is discarded from this process's cache so the next read
-     * reloads the last durable state instead of leaking an uncommitted merge.
-     */
     validateSnapshot?: (snapshot: string) => void;
   } = {},
 ): Promise<string> {
   return withDocWriteLock(docId, async () => {
     const doc = await getDocForWrite(docId);
-    // getDoc has just merged any peer state and recorded the row version that
-    // merge corresponds to. Both are read here with no await between them, so
-    // the validated text and the pinned version describe the same state — a
-    // separate version query could straddle a peer commit and pair stale text
-    // with the peer's newer version.
     const validatedBaseVersion = options.validateBase
       ? cachedVersionFor(docId, doc)
       : undefined;
@@ -523,12 +516,6 @@ export async function applyText(
         validatedBaseVersion,
       );
     } catch (error) {
-      // The rejected diff, and any cross-process state merged during the CAS
-      // read, now live only in this cached Y.Doc. Destroy it before throwing:
-      // neither the rejected update nor a compensating rollback should ever be
-      // persisted or emitted. Gating this on validateSnapshot left a pinned
-      // caller's rejected mutation cached forever, so the next successful
-      // write folded peer state on top of durably-rejected content.
       releaseDoc(docId);
       throw error;
     }
@@ -541,12 +528,6 @@ export async function applyText(
   });
 }
 
-/**
- * Search-and-replace text within a Y.XmlFragment (ProseMirror tree).
- * Produces minimal Yjs operations for cursor-preserving updates.
- *
- * Returns whether the text was found and the binary update.
- */
 export async function searchAndReplace(
   docId: string,
   find: string,
@@ -557,7 +538,6 @@ export async function searchAndReplace(
     const doc = await getDocForWrite(docId);
     const fragment = doc.getXmlFragment("default");
 
-    // Capture the update produced by the transaction
     let update: Uint8Array = new Uint8Array(0);
     const handler = (u: Uint8Array) => {
       update = u;
@@ -588,9 +568,6 @@ export async function searchAndReplace(
   });
 }
 
-/**
- * Get the current text content of a document field.
- */
 export async function getText(
   docId: string,
   fieldName: string = DEFAULT_FIELD,
@@ -599,17 +576,11 @@ export async function getText(
   return doc.getText(fieldName).toString();
 }
 
-/**
- * Get the full document state as a Uint8Array.
- */
 export async function getState(docId: string): Promise<Uint8Array> {
   const doc = await getDoc(docId);
   return Y.encodeStateAsUpdate(doc);
 }
 
-/**
- * Get an incremental update relative to a client's state vector.
- */
 export async function getIncUpdate(
   docId: string,
   clientStateVector: Uint8Array,
@@ -618,34 +589,56 @@ export async function getIncUpdate(
   return Y.encodeStateAsUpdate(doc, clientStateVector);
 }
 
-/**
- * Seed a document from existing text content (for migration).
- * Only seeds if no collab state exists yet.
- */
 export async function seedFromText(
   docId: string,
   text: string,
   fieldName: string = DEFAULT_FIELD,
+  client?: DbExec,
 ): Promise<void> {
   return withDocWriteLock(docId, async () => {
-    const existing = await loadYDocState(docId);
-    if (existing && existing.length > 0) return; // Already seeded
+    const existing = client
+      ? await loadYDocRecordWithClient(client, docId)
+      : await loadYDocRecord(docId);
+    if (existing && existing.state.length > 0) return;
+    const expectedVersion = existing ? existing.version : null;
 
     const { doc, state } = initYDocWithText(fieldName, text);
-    await saveYDocState(docId, state, text);
+    let saved: boolean;
+    try {
+      saved = client
+        ? await trySaveYDocStateWithClient(
+            client,
+            docId,
+            state,
+            text,
+            expectedVersion,
+          )
+        : await trySaveYDocState(docId, state, text, expectedVersion);
+    } catch (error) {
+      doc.destroy();
+      throw error;
+    }
+    if (!saved) {
+      releaseDoc(docId);
+      doc.destroy();
+      return;
+    }
 
-    // Cache the doc
+    releaseDoc(docId);
+    if (client) {
+      doc.destroy();
+      return;
+    }
+
     evictIfNeeded();
-    _cache.set(docId, { doc, lastAccess: Date.now(), syncedVersion: null });
+    _cache.set(docId, {
+      doc,
+      lastAccess: Date.now(),
+      syncedVersion: existing ? existing.version + 1 : 0,
+    });
   });
 }
 
-// ─── Structured JSON Operations ─────────────────────────────────────
-
-/**
- * Apply a full JSON update to a document. Computes the minimal diff
- * and converts it to Yjs operations on Y.Map/Y.Array.
- */
 export async function applyJson(
   docId: string,
   newJson: any,
@@ -659,9 +652,6 @@ export async function applyJson(
 
     if (update.length === 0) return;
 
-    // Snapshot the doc's actual post-merge state, not the caller-supplied
-    // `newJson` — persistMergedState may re-apply newer DB state to resolve
-    // concurrent writes, so `newJson` can be stale. Matches applyPatchOps.
     await persistMergedState(docId, doc, () =>
       JSON.stringify(yDocToJson(doc, fieldName)),
     );
@@ -671,9 +661,6 @@ export async function applyJson(
   });
 }
 
-/**
- * Apply surgical JSON patch operations to a document.
- */
 export async function applyPatchOps(
   docId: string,
   ops: PatchOp[],
@@ -700,9 +687,6 @@ export async function applyPatchOps(
   });
 }
 
-/**
- * Get the current JSON state of a document field.
- */
 export async function getJson(
   docId: string,
   fieldName: string = "data",
@@ -711,32 +695,62 @@ export async function getJson(
   return yDocToJson(doc, fieldName);
 }
 
-/**
- * Seed a document from existing JSON content (for migration).
- * Only seeds if no collab state exists yet.
- */
 export async function seedFromJson(
   docId: string,
   json: any,
   fieldName: string = "data",
   type: "map" | "array" = "map",
+  client?: DbExec,
 ): Promise<void> {
   return withDocWriteLock(docId, async () => {
-    const existing = await loadYDocState(docId);
-    if (existing && existing.length > 0) return; // Already seeded
+    const existing = client
+      ? await loadYDocRecordWithClient(client, docId)
+      : await loadYDocRecord(docId);
+    if (existing && existing.state.length > 0) return;
+    const expectedVersion = existing ? existing.version : null;
 
     const { doc, state } = initYDocWithJson(fieldName, json, type);
-    await saveYDocState(docId, state, JSON.stringify(json));
+    let saved: boolean;
+    try {
+      saved = client
+        ? await trySaveYDocStateWithClient(
+            client,
+            docId,
+            state,
+            JSON.stringify(json),
+            expectedVersion,
+          )
+        : await trySaveYDocState(
+            docId,
+            state,
+            JSON.stringify(json),
+            expectedVersion,
+          );
+    } catch (error) {
+      doc.destroy();
+      throw error;
+    }
+    if (!saved) {
+      releaseDoc(docId);
+      doc.destroy();
+      return;
+    }
 
-    // Cache the doc
+    releaseDoc(docId);
+    if (client) {
+      doc.destroy();
+      return;
+    }
+
     evictIfNeeded();
-    _cache.set(docId, { doc, lastAccess: Date.now(), syncedVersion: null });
+    _cache.set(docId, {
+      doc,
+      lastAccess: Date.now(),
+      syncedVersion: existing ? existing.version + 1 : 0,
+    });
   });
 }
 
-/**
- * Release a document from the in-memory cache.
- */
 export function releaseDoc(docId: string): void {
   const entry = _cache.get(docId);
   if (entry) {

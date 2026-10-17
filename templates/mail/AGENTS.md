@@ -5,94 +5,65 @@ replies, and update mail state through actions and application state.
 
 ## Skills
 
-Read the relevant skill before deeper work:
+Read relevant guides before deeper work:
+- `.agents/skills/inbox-reads-and-triage/SKILL.md` — for mail listing, search, coverage, and cleanup.
+- `.agents/skills/mail-interaction-parity/SKILL.md` — for parity and safe send tests.
+- `.agents/skills/email-drafts/SKILL.md` — for composition, sending, scheduling, and tracking.
+- `.agents/skills/draft-queue/SKILL.md` — for team draft workflows.
+- `.agents/skills/contacts-and-crm/SKILL.md` — for recipients or CRM context.
+- `.agents/skills/mail-backends/SKILL.md` — to distinguish Gmail from local fallback.
+- `.agents/skills/inbox-automations/SKILL.md` — for AI rules and Gmail filters.
+- `.agents/skills/provider-api-scans/SKILL.md` — for raw provider calls and scans.
 
-- `inbox-reads-and-triage` for listing/searching mail, inventory coverage,
-  refreshing after mutations, and bulk unread cleanup.
-- `email-drafts` for composing, signatures, style, attachments, sending,
-  scheduled sends, tracking, and aliases.
-- `draft-queue` for org and Slack draft review/send workflows.
-- `contacts-and-crm` for resolving recipients and CRM reach.
-- `mail-backends` for real Gmail vs synthetic local fallback.
-- `inbox-automations` for automation rules, AI filtering, and Gmail-native filters.
-- `provider-api-scans` for raw provider API calls and staged large scans.
+`.agents/skills/actions/SKILL.md`, `.agents/skills/adding-a-feature/SKILL.md`, `.agents/skills/storing-data/SKILL.md`, `.agents/skills/security/SKILL.md`,
+`.agents/skills/secrets/SKILL.md`, `.agents/skills/sharing/SKILL.md`, `.agents/skills/frontend-design/SKILL.md`, `.agents/skills/shadcn-ui/SKILL.md`,
+`.agents/skills/real-time-sync/SKILL.md`, `.agents/skills/context-awareness/SKILL.md`, `.agents/skills/delegate-to-agent/SKILL.md`, `.agents/skills/agent-native-docs/SKILL.md`,
+`.agents/skills/agent-native-toolkit/SKILL.md`, `.agents/skills/customizing-agent-native/SKILL.md`, `.agents/skills/client-side-routing/SKILL.md`, `.agents/skills/reliable-mutations/SKILL.md`,
+`.agents/skills/performance/SKILL.md`, `.agents/skills/external-agents/SKILL.md`, `.agents/skills/portability/SKILL.md`, `.agents/skills/self-modifying-code/SKILL.md`,
+`.agents/skills/turn-into-skill/SKILL.md`, `.agents/skills/workspace-conventions/SKILL.md`.
+
+## Framework Docs
+
+Use local framework docs, not web research: `pnpm action docs-search --query "<topic>"` searches; `pnpm action docs-search --slug "<slug>"` reads a page.
 
 ## Core Rules
 
 - UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
-- Use actions for reads, labels, settings, drafts, queued drafts, filters,
-  scheduling, refresh, and CRM context. Don't edit mail SQL directly unless a
-  skill or action calls for it.
-- Use real Gmail when connected, otherwise synthetic `local-emails`; call
-  actions the same way and never claim fallback data or sends touched the real inbox.
-- Interactive sends require explicit user approval. Draft or queue for review by
-  default; automation-triggered sends remain approval-gated unless the owner
-  opts into Mail's "Allow automations to send emails automatically" setting.
-  Use `queue-email-draft` for teammate or Slack-originated send requests.
-- Resolve people with `find-contact` before drafting or sending. Never guess an
-  address pattern; if it returns zero matches, tell the user.
-- Read `get-mail-settings` before drafting. Use the configured `signature`
-  exactly when present; never invent one from the user's name or profile.
-- Never edit the email store to change a draft the user is currently composing;
-  use `manage-draft` or the `compose-{id}` application-state key.
-- After backend mail mutations (archive, trash, star, mark-read, move, send),
-  call `refresh-list` unless the action itself writes `refresh-signal`.
-- Inventory reads report per-account success, empty result, exhaustion, or
-  error. Never describe partial account coverage as complete.
-- Provider-specific actions are shortcuts, not capability limits: escalate to
-  `provider-api-catalog` / `-docs` / `-request` when the exact endpoint, filter,
-  pagination, or API version matters.
-- `get-hubspot-contact` is the only first-class CRM action; Gong, Pylon, and
-  Apollo are UI-only in Mail — say so rather than implying
-  `provider-api-request` reaches them. The agent can't configure aliases or
-  provider API keys (Settings UI only).
-- Use `view-screen` when the active thread, message, draft, or queue item is
-  unclear, and `get-thread` for conversation context rather than screen text.
-- Store large file/blob payloads in configured file/blob storage, not SQL: no
-  base64, `data:` URLs, images, video/audio, PDFs, ZIPs, screenshots,
-  thumbnails, or replay chunks in app tables, `application_state`, `settings`,
-  or `resources`; persist URLs, ids, or handles instead.
-- Never hardcode API keys, tokens, webhook URLs, signing secrets, private
-  Builder/internal data, customer data, or credential-looking literals. Use
-  secrets/OAuth/runtime configuration and obvious placeholders in examples.
-- For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
+- Use actions for mail reads/writes; do not edit the mail store directly. For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
+- Use real Gmail when connected, otherwise synthetic `local-emails`; never claim fallback data changed the real inbox.
+- Interactive sends require approval; draft/queue by default. Automation sends remain gated unless the owner enables Mail's setting, which covers sends and drafts only; other raw Gmail writes still need approval. Use `queue-email-draft` for teammate/Slack send requests.
+- Resolve recipients with `find-contact`; never guess addresses. Read `get-mail-settings` before drafting and use its signature exactly; never invent one.
+- Edit active drafts through `manage-draft` or `compose-{id}`, not SQL. After backend mutations, call `refresh-list` unless the action writes `refresh-signal`.
+- Preserve per-account coverage: partial, empty, exhausted, and error are distinct. Provider actions are shortcuts; use `provider-api-catalog` / `-docs` / `-request` for exact API needs.
+- `get-hubspot-contact` is the only first-party CRM action; Gong, Pylon, and Apollo are UI-only. Aliases and provider API keys are Settings-UI only.
+- Use `view-screen` when the active thread/message/draft is unclear; use `get-thread` for conversation content.
 
-## Action Map
+## Actions
 
 | Action | Purpose |
 | --- | --- |
-| `search-emails` / `list-emails` | Query mail by view/query. |
-| `list-labels` | List mailbox labels. |
-| `get-email` / `get-thread` | Full body/metadata for a message or thread. |
-| `find-contact` | Resolve a name/partial address to a real email. |
-| `get-hubspot-contact` | HubSpot contact + deals + tickets by email. |
-| `create-attachment-upload` | Short-lived upload URL for an attachment. |
-| `manage-draft` | Create/update/delete a `compose-{id}` draft. |
-| `send-email` / `send-queued-drafts` | Approval-gated real sends; not registered as page-local WebMCP tools. Hand sends to the in-app agent or MCP rather than `provider-api-request`. |
-| `queue-email-draft` / `list-queued-drafts` / `update-queued-draft` / `open-queued-draft` / `send-queued-drafts` | Teammate/Slack draft review. |
-| `mark-read` / `mark-thread-read` / `star-email` / `archive-email` / `unarchive-email` / `trash-email` / `untrash-email` / `move-email` | Message/thread state; `mark-read` does bulk cleanup. |
-| `send-scheduled-email-now` / `cancel-scheduled-email` | Send or cancel a scheduled send. |
-| `manage-gmail-filters` | Gmail-native filters. |
-| `manage-automations` | Recurring and event-triggered automations shown in Settings. |
-| `manage-email-rules` / `trigger-automations` | Inbox automation rules. |
-| `get-ai-filter` / `apply-ai-filter` | Reversible AI filtering, feedback, and learned instructions. |
-| `respond-calendar-invite` | Accept/decline/tentative an invite. |
-| `get-mail-settings` / `update-mail-settings` / `import-gmail-signature` | Signature and writing style. |
-| `manage-snippets` | Saved reply snippets. |
-| `get-tracking` | Open/click stats for a sent message. |
-| `provider-api-catalog` / `provider-api-docs` / `provider-api-request` | Raw Gmail/Calendar/HubSpot API calls. |
-| `refresh-list` | Make the UI refetch. |
+| `list-inbox-threads` / `sync-inbox` / `resync-inbox` | Inbox inventory and sync |
+| `search-emails` / `list-emails` / `get-email` / `get-thread` | Find/read messages |
+| `list-labels` / `find-contact` / `get-hubspot-contact` | Labels and recipient/CRM context |
+| `create-attachment-upload` | Upload attachments |
+| `manage-draft` / `send-email` / `send-queued-drafts` | Manage drafts and approved sends |
+| `create-scheduled-send` / `send-scheduled-email-now` / `cancel-scheduled-email` | Schedule/cancel sends |
+| `queue-email-draft` / `list-queued-drafts` / `update-queued-draft` / `open-queued-draft` | Team drafts |
+| `mark-read` / `mark-thread-read` / `star-email` / `archive-email` / `unarchive-email` / `trash-email` / `untrash-email` / `move-email` | Change mail state |
+| `manage-gmail-filters` / `manage-automations` / `manage-email-rules` / `trigger-automations` | Filters and automation |
+| `get-ai-filter` / `apply-ai-filter` / `refine-ai-filter` / `record-ai-priority-feedback` / `get-ai-priority` | AI filtering and priority |
+| `respond-calendar-invite` | Reply to invite |
+| `get-mail-settings` / `update-mail-settings` / `import-gmail-signature` / `manage-snippets` | Settings and snippets |
+| `get-tracking` | Sent open/click stats |
+| `provider-api-catalog` / `provider-api-docs` / `provider-api-request` | Direct provider APIs |
+| `refresh-list` | Refetch UI |
 
 ## Application State
 
-- `navigation` exposes inbox/thread/draft-queue views and selected ids.
-- `compose-{id}` entries are open compose tabs and draft content.
-- `navigate` moves the UI via `view`, `threadId`, `settingsSection`,
-  `queuedDraftId`, or `composeDraftId`; the accepted values are listed in
-  `inbox-reads-and-triage`.
-- `settingsSection: "ai-filter"` opens the AI filter controls and review ledger.
+- `navigation` exposes inbox/thread/draft-queue views and selected ids; `compose-{id}` holds open compose tabs and draft content.
+- `navigate` accepts `view`, `tab` (`label`/`filter`), `sort` (`newest`/`priority`), `threadId`, `settingsSection`, `queuedDraftId`, or `composeDraftId`.
+- `settingsSection` opens `rules` or `ai-filter`.
 
-## Source Changes
+Before building common workspace or agent UI, read `agent-native-toolkit`; for supported customization, read `customizing-agent-native`.
 
-Before building common workspace or agent UI, read `agent-native-toolkit`; read
-`customizing-agent-native` before adapting shared UI.
+Search with `rg --hidden --follow`; read the exact linked guide before deeper work.

@@ -28,6 +28,12 @@ export default defineAction({
       .optional()
       .describe("Unsent calendar invite draft ID to open for review"),
     extensionId: z.string().optional().describe("Extension ID to open"),
+    addPersonEmail: z
+      .string()
+      .optional()
+      .describe(
+        "Open the add-a-peer's-calendar dialog prefilled with this email. Prefills the search only; the user still confirms the add.",
+      ),
   }),
   http: false,
   run: async (args) => {
@@ -37,10 +43,11 @@ export default defineAction({
       !args.eventId &&
       !args.eventDraftId &&
       !args.calendarViewMode &&
-      !args.extensionId
+      !args.extensionId &&
+      !args.addPersonEmail
     ) {
       throw new Error(
-        "At least view, date, calendarViewMode, eventId, eventDraftId, or extensionId is required.",
+        "At least view, date, calendarViewMode, eventId, eventDraftId, extensionId, or addPersonEmail is required.",
       );
     }
     const nav: Record<string, string> = {};
@@ -56,6 +63,10 @@ export default defineAction({
       nav.view = args.view ?? "extensions";
       nav.extensionId = args.extensionId;
     }
+    if (args.addPersonEmail) {
+      nav.view = args.view ?? "calendar";
+      nav.addPersonEmail = args.addPersonEmail;
+    }
     await writeAppStateForCurrentTab("navigate", nav);
 
     const parts: string[] = [];
@@ -65,6 +76,7 @@ export default defineAction({
     if (args.eventId) parts.push(`event:${args.eventId}`);
     if (args.eventDraftId) parts.push(`event-draft:${args.eventDraftId}`);
     if (args.extensionId) parts.push(`extension:${args.extensionId}`);
+    if (args.addPersonEmail) parts.push(`add-person:${args.addPersonEmail}`);
     return `Navigating to ${parts.join(" ")}`;
   },
 });

@@ -2,6 +2,7 @@ import { getCredentialContext } from "@agent-native/core/server";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { and, desc, eq, inArray, isNull, lte, or } from "drizzle-orm";
 
+import { normalizeGitHubRepoRef } from "../../shared/source-config-validation.js";
 import type {
   BrainCaptureKind,
   BrainSourceProvider,
@@ -18,6 +19,7 @@ import {
   serializeCapture,
   stableJson,
 } from "./brain.js";
+import { BrainClassifierUnavailableError } from "./capture-sanitization.js";
 import { resolveMeetingMemberEmails } from "./meeting-audience.js";
 import {
   ensureSlackPublicChannelMembership,
@@ -27,6 +29,27 @@ import {
   inspectSourceCredentialAvailability,
   resolveSourceCredential,
 } from "./source-credentials.js";
+import {
+  isBrainAdmin,
+  recordZoomAuditEvent,
+  type ZoomAuditEvent,
+} from "./zoom-governance.js";
+import {
+  ZoomHttpError,
+  downloadZoomTranscript,
+  getZoomMeetingRecordings,
+  isReadyZoomTranscript,
+  fetchZoomAccessToken,
+  listZoomRecordings,
+  hasProcessingTranscript,
+  listZoomAccountRecordings,
+  nextZoomCursorFrom,
+  normalizeZoomRecording,
+  isApprovedZoomMeeting,
+  zoomApprovedMeetingIds,
+  zoomApprovedMeetingsKey,
+  zoomExternalId,
+} from "./zoom.js";
 
 export interface ConnectorSyncResult {
   runId: string;
@@ -162,12 +185,16 @@ interface SlackChannelCursor {
   latestTs?: string;
   pageCursor?: string;
   pendingLatestTs?: string;
+  recentPageCursor?: string;
+  recentPendingLatestTs?: string;
+  recentLatestTs?: string;
 }
 
 interface SlackSyncCursor {
   channels?: Record<string, SlackChannelCursor>;
   publicChannelOffset?: number;
   retry?: RetryCursor;
+  transientRetryAt?: string;
   lastRunAt?: string;
 }
 
@@ -175,6 +202,16 @@ interface GranolaSyncCursor {
   cursor?: string | null;
   updatedAfter?: string;
   retry?: RetryCursor;
+  transientRetryAt?: string;
+  lastRunAt?: string;
+}
+
+interface ZoomSyncCursor {
+  from?: string;
+  filterKey?: string | null;
+  lookbackDays?: number;
+  retry?: RetryCursor;
+  transientRetryAt?: string;
   lastRunAt?: string;
 }
 
@@ -221,28 +258,6 @@ interface SlackListResponse {
   response_metadata?: { next_cursor?: string };
 }
 
-interface SlackMembersResponse {
-  members?: string[];
-  response_metadata?: { next_cursor?: string };
-}
-
-interface SlackUserInfoResponse {
-  user?: {
-    deleted?: boolean;
-    is_app_user?: boolean;
-    is_bot?: boolean;
-    is_workflow_bot?: boolean;
-    profile?: { email?: string };
-  };
-}
-
-type SlackUserEmailCacheEntry =
-  | { kind: "human"; email: string }
-  | { kind: "non-human" }
-  | { kind: "unresolved" };
-type SlackUserEmailCache = Map<string, SlackUserEmailCacheEntry>;
-
-const SLACK_USER_LOOKUP_CONCURRENCY = 4;
 const SLACK_THREAD_CAPTURE_CONCURRENCY = 4;
 const GRANOLA_NOTE_CAPTURE_CONCURRENCY = 4;
 const CONNECTOR_SYNC_LEASE_MS = 10 * 60 * 1_000;
@@ -294,6 +309,7 @@ interface GitHubRepoCursor {
 interface GitHubSyncCursor {
   repositories?: Record<string, GitHubRepoCursor>;
   retry?: RetryCursor;
+  transientRetryAt?: string;
   lastRunAt?: string;
 }
 
@@ -689,6 +705,31 @@ async function requireConnectorCredential(
   return value;
 }
 
+export function connectorErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === "string" && error.trim()) return error;
+  if (error && typeof error === "object") {
+    const record = error as { message?: unknown; error?: unknown };
+    if (typeof record.message === "string" && record.message.trim()) {
+      return record.message;
+    }
+    if (record.error instanceof Error && record.error.message) {
+      return record.error.message;
+    }
+  }
+  const kind =
+    error && typeof error === "object" && error.constructor?.name
+      ? error.constructor.name
+      : typeof error;
+  return `Sync stopped by an unexpected ${kind} with no details, often a dropped database or network connection. Nothing was lost; Brain retries at the next sync.`;
+}
+
+function transientRetryAt(error: unknown): string | undefined {
+  return error instanceof BrainClassifierUnavailableError && error.retryAfterMs
+    ? new Date(Date.now() + error.retryAfterMs).toISOString()
+    : undefined;
+}
+
 function retryCursor(
   error: ConnectorRateLimitError,
   provider: BrainSourceProvider,
@@ -808,10 +849,6 @@ export interface SlackThreadCapture {
   metadata: Record<string, unknown>;
 }
 
-/**
- * Builds the only Slack representation Brain persists. It deliberately omits
- * Slack user ids, display names, and the raw Events/Web API payload.
- */
 export function normalizeSlackThreadCapture(input: {
   channel: SlackChannel;
   messages: SlackMessage[];
@@ -862,8 +899,6 @@ export function normalizeSlackThreadCapture(input: {
       ),
       sourceUrl: input.permalink ?? null,
       permalink: input.permalink ?? null,
-      // These offsets are against `content`, the safe persisted capture, never
-      // against a provider payload.
       safeSegments,
     },
   };
@@ -1055,88 +1090,6 @@ async function slackPermalink(
   return data.permalink ?? null;
 }
 
-async function slackPrivateChannelMemberEmails(
-  token: string,
-  channelId: string,
-  userEmailCache: SlackUserEmailCache,
-): Promise<string[] | null> {
-  const memberIds = new Set<string>();
-  const seenCursors = new Set<string>();
-  let cursor: string | undefined;
-  while (true) {
-    const response = await slackApi<SlackMembersResponse>(
-      token,
-      "conversations.members",
-      { channel: channelId, limit: 1_000, cursor },
-    );
-    for (const memberId of response.members ?? []) {
-      if (memberId) memberIds.add(memberId);
-    }
-    const nextCursor = response.response_metadata?.next_cursor?.trim();
-    if (!nextCursor) break;
-    if (seenCursors.has(nextCursor)) return null;
-    seenCursors.add(nextCursor);
-    cursor = nextCursor;
-  }
-  const userIds = Array.from(memberIds);
-  if (!userIds.length) return null;
-  if (
-    userIds.some((userId) => userEmailCache.get(userId)?.kind === "unresolved")
-  ) {
-    return null;
-  }
-
-  const uncachedUserIds = userIds.filter(
-    (userId) => !userEmailCache.has(userId),
-  );
-  for (
-    let offset = 0;
-    offset < uncachedUserIds.length;
-    offset += SLACK_USER_LOOKUP_CONCURRENCY
-  ) {
-    const batch = uncachedUserIds.slice(
-      offset,
-      offset + SLACK_USER_LOOKUP_CONCURRENCY,
-    );
-    await Promise.all(
-      batch.map(async (userId) => {
-        const user = await slackApi<SlackUserInfoResponse>(
-          token,
-          "users.info",
-          { user: userId },
-        );
-        const slackUser = user.user;
-        if (
-          slackUser?.deleted === true ||
-          slackUser?.is_app_user === true ||
-          slackUser?.is_bot === true ||
-          slackUser?.is_workflow_bot === true
-        ) {
-          userEmailCache.set(userId, { kind: "non-human" });
-          return;
-        }
-        const email = slackUser?.profile?.email?.trim().toLowerCase();
-        userEmailCache.set(
-          userId,
-          email ? { kind: "human", email } : { kind: "unresolved" },
-        );
-      }),
-    );
-    if (
-      batch.some((userId) => userEmailCache.get(userId)?.kind === "unresolved")
-    ) {
-      return null;
-    }
-  }
-
-  const emails = userIds.flatMap((userId) => {
-    const entry = userEmailCache.get(userId);
-    return entry?.kind === "human" ? [entry.email] : [];
-  });
-  if (!emails.length) return null;
-  return Array.from(new Set(emails)).sort();
-}
-
 function configuredSlackChannelIds(config: Record<string, unknown>) {
   return new Set(
     slackChannelRefsFromConfig(config).filter((value) =>
@@ -1151,7 +1104,6 @@ async function createSlackThreadCapture(input: {
   messages: SlackMessage[];
   permalink: string | null;
   syncRunId?: string;
-  memberEmails?: string[] | null;
 }) {
   const normalized = normalizeSlackThreadCapture({
     channel: input.channel,
@@ -1169,11 +1121,7 @@ async function createSlackThreadCapture(input: {
       content: normalized.content,
       capturedAt: normalized.capturedAt,
       metadata: normalized.metadata,
-      audience: {
-        kind: input.channel.is_private ? "slack-private-channel" : "org",
-        memberEmails: input.memberEmails ?? undefined,
-        upstreamRefHash: input.channel.id,
-      },
+      audience: { kind: "org", upstreamRefHash: input.channel.id },
     });
     return { capture, blocked: false };
   } catch (error) {
@@ -1392,7 +1340,7 @@ export async function runSlackPilot(
           : undefined,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = connectorErrorMessage(err);
     const channelValidation = {
       requested: requestedRefs.length,
       checked: 0,
@@ -1662,27 +1610,9 @@ async function granolaApi<T>(
   return (await response.json()) as T;
 }
 
-function githubRepoFromValue(value: string): string | null {
-  const trimmed = value.trim().replace(/\.git$/, "");
-  if (!trimmed) return null;
-  const withoutProtocol = trimmed
-    .replace(/^https?:\/\/github\.com\//i, "")
-    .replace(/^git@github\.com:/i, "");
-  const [owner, repo] = withoutProtocol.split("/");
-  if (!owner || !repo) return null;
-  const cleanRepo = repo.split(/[?#]/)[0];
-  if (
-    !/^[A-Za-z0-9_.-]+$/.test(owner) ||
-    !/^[A-Za-z0-9_.-]+$/.test(cleanRepo)
-  ) {
-    return null;
-  }
-  return `${owner}/${cleanRepo}`;
-}
-
 function githubReposFromConfig(config: Record<string, unknown>): string[] {
   return configuredList(config, ["repositories", "repos"], "github")
-    .map(githubRepoFromValue)
+    .map(normalizeGitHubRepoRef)
     .filter((repo): repo is string => Boolean(repo));
 }
 
@@ -1790,7 +1720,7 @@ function githubRefsFromText(
   const pattern =
     /https:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/(issues|pull)\/(\d+)/gi;
   for (const match of text.matchAll(pattern)) {
-    const repo = githubRepoFromValue(`${match[1]}/${match[2]}`);
+    const repo = normalizeGitHubRepoRef(`${match[1]}/${match[2]}`);
     const number = Number(match[4]);
     if (!repo || !Number.isInteger(number) || number <= 0) continue;
     refs.push({
@@ -2283,7 +2213,7 @@ async function syncFromConfiguredItems(
     };
   } catch (err) {
     await heartbeat.stop();
-    const message = err instanceof Error ? err.message : String(err);
+    const message = connectorErrorMessage(err);
     await renewRunLease(run);
     await getDb()
       .update(schema.brainSources)
@@ -2350,7 +2280,7 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
   );
   const limit = configuredNumber(config, ["historyLimit", "limit"], 15, {
     min: 1,
-    max: 15,
+    max: 30,
     nestedKey: "slack",
   });
   const maxChannels = configuredNumber(
@@ -2387,7 +2317,7 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
           : undefined,
   );
 
-  const captures = [];
+  const captures: ConnectorSyncResult["captures"] = [];
   const stats: Record<string, unknown> = {
     configuredChannels: channelRefs.length,
     includePublicChannels,
@@ -2416,7 +2346,7 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
     );
     if (!channelRefs.length && !includePublicChannels) {
       throw new Error(
-        "Slack source must configure channelIds, channels, allowedChannels, or includePublicChannels",
+        "No Slack channels are selected. Add channel IDs to this source or turn on public channels.",
       );
     }
 
@@ -2462,7 +2392,6 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
     }
     const channels = [...channelsById.values()];
     stats.eligibleChannels = channels.length;
-    const userEmailCache: SlackUserEmailCache = new Map();
 
     const channelsToScan = includePublicChannels
       ? (() => {
@@ -2504,54 +2433,11 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
         stats.publicChannelsAlreadyJoined =
           Number(stats.publicChannelsAlreadyJoined) + 1;
       }
-      const privateMemberEmails = channel.is_private
-        ? await slackPrivateChannelMemberEmails(
-            token,
-            channel.id,
-            userEmailCache,
-          )
-        : null;
-      if (channel.is_private && !privateMemberEmails?.length) {
-        stats.rejectedChannels = Number(stats.rejectedChannels) + 1;
-        continue;
-      }
-
       stats.scannedChannels = Number(stats.scannedChannels) + 1;
       const channelCursor = nextCursor.channels?.[channel.id] ?? {};
       const pendingLatest =
         channelCursor.pendingLatestTs ?? channelCursor.latestTs;
-
-      for (let page = 0; page < pagesPerChannel; page += 1) {
-        const params: Record<
-          string,
-          string | number | boolean | null | undefined
-        > = {
-          channel: channel.id,
-          limit,
-        };
-        if (channelCursor.pageCursor) {
-          params.cursor = channelCursor.pageCursor;
-        } else if (channelCursor.latestTs) {
-          params.oldest = channelCursor.latestTs;
-          params.inclusive = false;
-        } else if (initialOldest) {
-          params.oldest = initialOldest;
-          params.inclusive = false;
-        }
-
-        const data = await slackApi<SlackHistoryResponse>(
-          token,
-          "conversations.history",
-          params,
-        );
-        const messages = (data.messages ?? []).filter(isSlackTextMessage);
-        stats.messagesSeen = Number(stats.messagesSeen) + messages.length;
-
-        const newest = newestSlackTs(messages);
-        if (!channelCursor.pendingLatestTs && newest) {
-          channelCursor.pendingLatestTs = newest;
-        }
-
+      const captureMessages = async (messages: SlackMessage[]) => {
         const fetchedThreadTs = new Set<string>();
         const threadWork: Array<{
           message: SlackMessage;
@@ -2563,9 +2449,7 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
           if (!threadTs || fetchedThreadTs.has(threadTs)) continue;
           fetchedThreadTs.add(threadTs);
           const fetchPermalink = permalinkCalls < permalinkLimit;
-          if (fetchPermalink) {
-            permalinkCalls += 1;
-          }
+          if (fetchPermalink) permalinkCalls += 1;
           threadWork.push({ message, threadTs, fetchPermalink });
         }
 
@@ -2595,7 +2479,6 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
                 messages: thread.messages?.length ? thread.messages : [message],
                 permalink,
                 syncRunId: runId,
-                memberEmails: privateMemberEmails,
               });
             }),
           );
@@ -2618,9 +2501,92 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
           if (batchFailed) throw batchError;
           await renewRunLease(run);
         }
+      };
+
+      if (channelCursor.pageCursor || channelCursor.recentPageCursor) {
+        const recentParams: Record<
+          string,
+          string | number | boolean | null | undefined
+        > = { channel: channel.id, limit };
+        if (channelCursor.recentPageCursor) {
+          recentParams.cursor = channelCursor.recentPageCursor;
+        } else if (channelCursor.recentLatestTs ?? pendingLatest) {
+          recentParams.oldest = channelCursor.recentLatestTs ?? pendingLatest;
+          recentParams.inclusive = false;
+        }
+        const recent = await slackApi<SlackHistoryResponse>(
+          token,
+          "conversations.history",
+          recentParams,
+        );
+        const recentMessages = (recent.messages ?? []).filter(
+          isSlackTextMessage,
+        );
+        stats.messagesSeen = Number(stats.messagesSeen) + recentMessages.length;
+        const recentNewest = newestSlackTs(recent.messages ?? []);
+        if (!channelCursor.recentPendingLatestTs && recentNewest) {
+          channelCursor.recentPendingLatestTs = recentNewest;
+        }
+        await captureMessages(recentMessages);
+        if (recent.has_more) {
+          const nextPage = recent.response_metadata?.next_cursor;
+          if (!nextPage) throw new Error("Slack recent history cursor missing");
+          channelCursor.recentPageCursor = nextPage;
+          stats.recentHistoryIncomplete = true;
+        } else {
+          channelCursor.recentPageCursor = undefined;
+          channelCursor.recentLatestTs =
+            channelCursor.recentPendingLatestTs ?? channelCursor.recentLatestTs;
+          channelCursor.recentPendingLatestTs = undefined;
+        }
+        if (!channelCursor.pageCursor) {
+          if (!channelCursor.recentPageCursor) {
+            channelCursor.latestTs =
+              channelCursor.recentLatestTs ?? channelCursor.latestTs;
+            channelCursor.recentLatestTs = undefined;
+          }
+          nextCursor.channels![channel.id] = channelCursor;
+          continue;
+        }
+        nextCursor.channels![channel.id] = channelCursor;
+      }
+
+      for (let page = 0; page < pagesPerChannel; page += 1) {
+        const params: Record<
+          string,
+          string | number | boolean | null | undefined
+        > = {
+          channel: channel.id,
+          limit,
+        };
+        if (channelCursor.pageCursor) {
+          params.cursor = channelCursor.pageCursor;
+        } else if (channelCursor.latestTs) {
+          params.oldest = channelCursor.latestTs;
+          params.inclusive = false;
+        } else if (initialOldest) {
+          params.oldest = initialOldest;
+          params.inclusive = false;
+        }
+
+        const data = await slackApi<SlackHistoryResponse>(
+          token,
+          "conversations.history",
+          params,
+        );
+        const messages = (data.messages ?? []).filter(isSlackTextMessage);
+        stats.messagesSeen = Number(stats.messagesSeen) + messages.length;
+
+        const newest = newestSlackTs(data.messages ?? []);
+        if (!channelCursor.pendingLatestTs && newest) {
+          channelCursor.pendingLatestTs = newest;
+        }
+
+        await captureMessages(messages);
 
         const nextPage = data.response_metadata?.next_cursor;
-        if (data.has_more && nextPage) {
+        if (data.has_more) {
+          if (!nextPage) throw new Error("Slack history cursor missing");
           channelCursor.pageCursor = nextPage;
           nextCursor.channels![channel.id] = channelCursor;
           if (page + 1 < pagesPerChannel) continue;
@@ -2629,10 +2595,15 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
 
         channelCursor.pageCursor = undefined;
         channelCursor.latestTs =
+          (channelCursor.recentPageCursor
+            ? undefined
+            : channelCursor.recentLatestTs) ??
           channelCursor.pendingLatestTs ??
           pendingLatest ??
           channelCursor.latestTs;
         channelCursor.pendingLatestTs = undefined;
+        if (!channelCursor.recentPageCursor)
+          channelCursor.recentLatestTs = undefined;
         nextCursor.channels![channel.id] = channelCursor;
         break;
       }
@@ -2669,12 +2640,13 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
         : "Slack sync completed with no new channel messages",
     };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = connectorErrorMessage(err);
     const isRateLimit = err instanceof ConnectorRateLimitError;
     const failedCursor: SlackSyncCursor = {
       ...cursor,
       ...nextCursor,
       retry: isRateLimit ? retryCursor(err, "slack") : cursor.retry,
+      transientRetryAt: transientRetryAt(err),
       lastRunAt: nowIso(),
     };
     stats.capturesCreated = captures.length;
@@ -2766,14 +2738,6 @@ export async function refreshSlackThreadCapture(
         `Slack thread refresh rejected for channel ${channelId}: it matches a Brain public-channel exclusion`,
       );
     }
-    const memberEmails = channel.is_private
-      ? await slackPrivateChannelMemberEmails(token, channel.id, new Map())
-      : null;
-    if (channel.is_private && !memberEmails?.length) {
-      throw new Error(
-        `Slack private channel ${channel.id} has no resolvable member emails; refusing to refresh without an ACL`,
-      );
-    }
     const [thread, permalink] = await Promise.all([
       slackApi<SlackRepliesResponse>(token, "conversations.replies", {
         channel: channel.id,
@@ -2788,7 +2752,6 @@ export async function refreshSlackThreadCapture(
       messages: thread.messages ?? [],
       permalink,
       syncRunId: runId,
-      memberEmails,
     });
     const stats = {
       channelId: channel.id,
@@ -2820,7 +2783,7 @@ export async function refreshSlackThreadCapture(
         : null,
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = connectorErrorMessage(error);
     await finishRun(run, "error", { capturesCreated: 0 }, message);
     throw error;
   }
@@ -3028,11 +2991,12 @@ async function syncGranola(source: SourceRow): Promise<ConnectorSyncResult> {
         : "Granola sync completed with no new notes",
     };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = connectorErrorMessage(err);
     const isRateLimit = err instanceof ConnectorRateLimitError;
     const nextCursor: GranolaSyncCursor = {
       ...cursor,
       retry: isRateLimit ? retryCursor(err, "granola") : cursor.retry,
+      transientRetryAt: transientRetryAt(err),
       lastRunAt: nowIso(),
     };
     stats.capturesCreated = captures.length;
@@ -3063,6 +3027,447 @@ async function syncGranola(source: SourceRow): Promise<ConnectorSyncResult> {
       sourceId: source.id,
       provider: "granola",
       status: isRateLimit ? "success" : "error",
+      capturesCreated: captures.length,
+      captures,
+      stats,
+      message,
+    };
+  }
+}
+
+const ZOOM_MAX_LOOKBACK_DAYS = 30;
+const ZOOM_DEFAULT_LOOKBACK_DAYS = 7;
+const ZOOM_DIAGNOSTIC_LIMIT = 50;
+const ZOOM_DIAGNOSTIC_FILE_LIMIT = 10;
+const ZOOM_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+function utcDate(ms: number): string {
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+async function zoomCall<T>(endpoint: string, call: () => Promise<T>) {
+  try {
+    return await call();
+  } catch (error) {
+    if (error instanceof ZoomHttpError && error.status === 429) {
+      throw new ConnectorRateLimitError(
+        "zoom",
+        endpoint,
+        error.retryAfterSeconds ?? 60,
+      );
+    }
+    throw error;
+  }
+}
+
+const ZOOM_DEDUPE_CHUNK_SIZE = 500;
+
+async function importedZoomExternalIds(
+  sourceId: string,
+  externalIds: string[],
+): Promise<Set<string>> {
+  const imported = new Set<string>();
+  for (
+    let offset = 0;
+    offset < externalIds.length;
+    offset += ZOOM_DEDUPE_CHUNK_SIZE
+  ) {
+    const chunk = externalIds.slice(offset, offset + ZOOM_DEDUPE_CHUNK_SIZE);
+    const rows = await getDb()
+      .select({ externalId: schema.brainRawCaptures.externalId })
+      .from(schema.brainRawCaptures)
+      .where(
+        and(
+          eq(schema.brainRawCaptures.sourceId, sourceId),
+          inArray(schema.brainRawCaptures.externalId, chunk),
+          eq(schema.brainRawCaptures.sensitivityDisposition, "allowed"),
+        ),
+      );
+    for (const row of rows) {
+      if (row.externalId) imported.add(row.externalId);
+    }
+  }
+  return imported;
+}
+
+export function zoomUserIdsFromConfig(
+  config: Record<string, unknown>,
+): string[] | null {
+  const raw = objectValue(config.zoom).userIds;
+  if (!Array.isArray(raw)) return null;
+  return raw
+    .filter((value): value is string => typeof value === "string")
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
+async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
+  const config = parseJson<Record<string, unknown>>(source.configJson, {});
+  if (isFixtureConfig(config) || transcriptItems(config).length > 0) {
+    return syncFromConfiguredItems(
+      source,
+      "Zoom fixture source has no configured transcripts.",
+    );
+  }
+
+  const run = await createRun(source);
+  const { runId } = run;
+  const db = getDb();
+  const runStartedAt = Date.now();
+  const cursor = parseJson<ZoomSyncCursor>(source.cursorJson, {});
+  const lookbackDays = configuredNumber(
+    config,
+    ["lookbackDays"],
+    ZOOM_DEFAULT_LOOKBACK_DAYS,
+    {
+      min: 1,
+      max: ZOOM_MAX_LOOKBACK_DAYS,
+      nestedKey: "zoom",
+    },
+  );
+  const dayMs = 24 * 60 * 60 * 1000;
+  const to = utcDate(runStartedAt);
+  const earliest = utcDate(runStartedAt - ZOOM_MAX_LOOKBACK_DAYS * dayMs);
+  const approvedMeetingIds = zoomApprovedMeetingIds(objectValue(config.zoom));
+  const filterKey = zoomApprovedMeetingsKey(approvedMeetingIds);
+  // A changed allowlist or a longer lookback can include meetings the cursor
+  // has already moved past.
+  const filterChanged = (cursor.filterKey ?? null) !== filterKey;
+  const lookbackIncreased =
+    lookbackDays > (cursor.lookbackDays ?? ZOOM_DEFAULT_LOOKBACK_DAYS);
+  const lookbackFrom = utcDate(runStartedAt - lookbackDays * dayMs);
+  const cursorFrom =
+    cursor.from && ZOOM_DATE.test(cursor.from) ? cursor.from : null;
+  // A rewind must not start after the cursor: the cursor may be held back for
+  // a transcript still processing beyond the lookback window.
+  const rewind = filterChanged || lookbackIncreased;
+  const requestedFrom = !cursorFrom
+    ? lookbackFrom
+    : rewind && lookbackFrom < cursorFrom
+      ? lookbackFrom
+      : cursorFrom;
+  const from = requestedFrom < earliest ? earliest : requestedFrom;
+
+  const captures = [];
+  const stats: Record<string, unknown> = {
+    from,
+    to,
+    recordingListsScanned: 0,
+    approvedMeetingSeries: approvedMeetingIds.size,
+    meetingsSeen: 0,
+    meetingsSkippedByFilter: 0,
+    transcriptsWithoutDownloadUrl: 0,
+    filterChanged,
+    transcriptsDownloaded: 0,
+    emptyTranscripts: 0,
+    alreadyImported: 0,
+    pendingTranscripts: 0,
+    sensitivityBlocked: 0,
+    capturesCreated: 0,
+    rateLimited: false,
+  };
+  const pendingMeetingStarts: string[] = [];
+  // Only approved meetings are described; unapproved ones are just counted.
+  const matchedMeetings: Array<{
+    id: string;
+    topic: string | null;
+    start: string;
+    files: string[];
+    filesOmitted?: number;
+  }> = [];
+  stats.matchedMeetings = matchedMeetings;
+  // Unapproved meetings are only counted (meetingsSkippedByFilter); their IDs
+  // are never written to the audit trail.
+  const audit = (event: Omit<ZoomAuditEvent, "orgId" | "sourceId">) =>
+    recordZoomAuditEvent({
+      ...event,
+      orgId: source.orgId,
+      sourceId: source.id,
+    });
+  // The run row already holds the outcome, so a failed completion audit must
+  // not turn a committed sync into an error.
+  const auditSyncFinished = (detail: Record<string, unknown>) =>
+    audit({ event: "sync-finished", detail }).catch((error) =>
+      console.warn("[brain] Could not record Zoom sync-finished audit", error),
+    );
+  let refused = false;
+  const refuse = async (reason: string, message: string): Promise<never> => {
+    refused = true;
+    await audit({
+      event: "sync-refused",
+      decision: "deny",
+      detail: { reason },
+    });
+    throw new Error(message);
+  };
+
+  try {
+    if (approvedMeetingIds.size === 0) {
+      await refuse(
+        "no-approved-series",
+        "Zoom source has no approved meeting series. Add the recurring meeting IDs whose owners opted in; Brain reads nothing from Zoom until then.",
+      );
+    }
+    if (!(await isBrainAdmin(source.ownerEmail, source.orgId))) {
+      await refuse(
+        "owner-not-brain-admin",
+        "Zoom source owner is not a Brain admin (an organization owner or admin), so Brain reads nothing from Zoom. Make the owner an org admin or have an admin recreate the source.",
+      );
+    }
+    const accountId = await requireConnectorCredential(
+      "ZOOM_ACCOUNT_ID",
+      "Zoom",
+      "zoom",
+      config,
+    );
+    const clientId = await requireConnectorCredential(
+      "ZOOM_CLIENT_ID",
+      "Zoom",
+      "zoom",
+      config,
+    );
+    const clientSecret = await requireConnectorCredential(
+      "ZOOM_CLIENT_SECRET",
+      "Zoom",
+      "zoom",
+      config,
+    );
+    const token = await zoomCall("/oauth/token", () =>
+      fetchZoomAccessToken({ accountId, clientId, clientSecret }),
+    );
+    const configuredUserIds = zoomUserIdsFromConfig(config);
+    const renewLease = () => renewRunLease(run);
+    const recordingLists = configuredUserIds
+      ? configuredUserIds.map((userId) => ({
+          endpoint: "/users/{userId}/recordings",
+          list: () => listZoomRecordings(token, userId, from, to, renewLease),
+        }))
+      : [
+          {
+            endpoint: "/accounts/me/recordings",
+            list: () => listZoomAccountRecordings(token, from, to, renewLease),
+          },
+        ];
+
+    for (const recordingList of recordingLists) {
+      const listed = await zoomCall(recordingList.endpoint, recordingList.list);
+      await renewRunLease(run);
+      stats.recordingListsScanned = Number(stats.recordingListsScanned) + 1;
+      stats.meetingsSeen = Number(stats.meetingsSeen) + listed.length;
+      const meetings = listed.filter((meeting) =>
+        isApprovedZoomMeeting(meeting.id, approvedMeetingIds),
+      );
+      stats.meetingsSkippedByFilter =
+        Number(stats.meetingsSkippedByFilter) + listed.length - meetings.length;
+      const imported = await importedZoomExternalIds(
+        source.id,
+        meetings.map(zoomExternalId),
+      );
+      for (const meeting of meetings) {
+        if (matchedMeetings.length < ZOOM_DIAGNOSTIC_LIMIT) {
+          const files = meeting.recording_files ?? [];
+          matchedMeetings.push({
+            id: String(meeting.id),
+            topic: meeting.topic ?? null,
+            start: meeting.start_time,
+            files: files
+              .slice(0, ZOOM_DIAGNOSTIC_FILE_LIMIT)
+              .map((file) =>
+                [
+                  file.file_type,
+                  file.status ?? "",
+                  file.download_url ? "url" : "no-url",
+                ].join(":"),
+              ),
+            ...(files.length > ZOOM_DIAGNOSTIC_FILE_LIMIT
+              ? { filesOmitted: files.length - ZOOM_DIAGNOSTIC_FILE_LIMIT }
+              : {}),
+          });
+        }
+        if (hasProcessingTranscript(meeting)) {
+          pendingMeetingStarts.push(meeting.start_time);
+          stats.pendingTranscripts = Number(stats.pendingTranscripts) + 1;
+        }
+        if (imported.has(zoomExternalId(meeting))) {
+          stats.alreadyImported = Number(stats.alreadyImported) + 1;
+          continue;
+        }
+        let recordingFiles = meeting.recording_files ?? [];
+        let fetchedDetail = false;
+        const readyTranscripts = recordingFiles.filter(isReadyZoomTranscript);
+        if (
+          readyTranscripts.length > 0 &&
+          readyTranscripts.every((file) => !file.download_url)
+        ) {
+          await renewRunLease(run);
+          const detail = await zoomCall(
+            "/meetings/{meetingUuid}/recordings",
+            () => getZoomMeetingRecordings(token, meeting.uuid),
+          );
+          if (!isApprovedZoomMeeting(detail.id, approvedMeetingIds)) {
+            await audit({
+              event: "occurrence-denied",
+              decision: "deny",
+              meetingId: String(meeting.id),
+              meetingUuid: meeting.uuid,
+              detail: {
+                content: "transcript",
+                reason: "detail-names-unapproved-meeting",
+              },
+            });
+            continue;
+          }
+          fetchedDetail = true;
+          recordingFiles = detail.recording_files ?? [];
+        }
+        const transcripts = recordingFiles.filter(
+          (file): file is typeof file & { download_url: string } =>
+            isReadyZoomTranscript(file) && Boolean(file.download_url),
+        );
+        stats.transcriptsWithoutDownloadUrl =
+          Number(stats.transcriptsWithoutDownloadUrl) +
+          recordingFiles.filter(
+            (file) => isReadyZoomTranscript(file) && !file.download_url,
+          ).length;
+        const outcome = {
+          downloaded: 0,
+          captured: 0,
+          quarantined: 0,
+          empty: 0,
+        };
+        for (const file of transcripts) {
+          await renewRunLease(run);
+          const vtt = await zoomCall("recording transcript download", () =>
+            downloadZoomTranscript(token, file.download_url),
+          );
+          stats.transcriptsDownloaded = Number(stats.transcriptsDownloaded) + 1;
+          outcome.downloaded += 1;
+          const normalized = normalizeZoomRecording(meeting, vtt);
+          if (!normalized) {
+            stats.emptyTranscripts = Number(stats.emptyTranscripts) + 1;
+            outcome.empty += 1;
+            continue;
+          }
+          const captureResult = await createConnectorCapture({
+            sourceId: source.id,
+            externalId: normalized.externalId,
+            title: normalized.title,
+            kind: "transcript",
+            content: normalized.content,
+            capturedAt: normalized.capturedAt,
+            metadata: { ...normalized.metadata, syncRunId: runId },
+            audience: { kind: "org", upstreamRefHash: meeting.uuid },
+          });
+          if (captureResult.capture) {
+            captures.push(serializeCapture(captureResult.capture));
+            outcome.captured += 1;
+          }
+          if (captureResult.blocked) {
+            stats.sensitivityBlocked = Number(stats.sensitivityBlocked) + 1;
+            outcome.quarantined += 1;
+          }
+        }
+        if (fetchedDetail || outcome.downloaded > 0) {
+          await audit({
+            event: "occurrence-allowed",
+            decision: "allow",
+            meetingId: String(meeting.id),
+            meetingUuid: meeting.uuid,
+            detail: { content: "transcript", ...outcome },
+          });
+        }
+        await renewRunLease(run);
+      }
+    }
+
+    const nextCursor: ZoomSyncCursor = {
+      from: nextZoomCursorFrom({
+        overlapFrom: utcDate(runStartedAt - dayMs),
+        pendingMeetingStarts,
+        earliest,
+      }),
+      filterKey,
+      lookbackDays,
+      retry: undefined,
+      lastRunAt: nowIso(),
+    };
+
+    stats.capturesCreated = captures.length;
+    await renewRunLease(run);
+    await db
+      .update(schema.brainSources)
+      .set({
+        cursorJson: stableJson(nextCursor),
+        lastSyncedAt: nowIso(),
+        lastError: null,
+        status: "active",
+        updatedAt: nowIso(),
+      })
+      .where(
+        and(
+          accessFilter(schema.brainSources, schema.brainSourceShares),
+          eq(schema.brainSources.id, source.id),
+        ),
+      );
+    await finishRun(run, "success", stats);
+    await auditSyncFinished({
+      runId,
+      status: "success",
+      capturesCreated: captures.length,
+      meetingsSkippedByFilter: stats.meetingsSkippedByFilter ?? 0,
+    });
+    return {
+      runId,
+      sourceId: source.id,
+      provider: "zoom",
+      status: "success",
+      capturesCreated: captures.length,
+      captures,
+      stats,
+      message: captures.length
+        ? `Imported ${captures.length} Zoom transcripts`
+        : "Zoom sync completed with no new transcripts",
+    };
+  } catch (err) {
+    const message = connectorErrorMessage(err);
+    const isRateLimit = err instanceof ConnectorRateLimitError;
+    const nextCursor: ZoomSyncCursor = {
+      ...cursor,
+      retry: isRateLimit ? retryCursor(err, "zoom") : cursor.retry,
+      transientRetryAt: transientRetryAt(err),
+      lastRunAt: nowIso(),
+    };
+    stats.capturesCreated = captures.length;
+    stats.rateLimited = isRateLimit;
+    await renewRunLease(run);
+    await db
+      .update(schema.brainSources)
+      .set({
+        cursorJson: stableJson(nextCursor),
+        lastError: message,
+        status: isRateLimit ? "active" : "error",
+        updatedAt: nowIso(),
+      })
+      .where(
+        and(
+          accessFilter(schema.brainSources, schema.brainSourceShares),
+          eq(schema.brainSources.id, source.id),
+        ),
+      );
+    await finishRun(run, "error", stats, message);
+    if (!refused) {
+      await auditSyncFinished({
+        runId,
+        status: "error",
+        capturesCreated: captures.length,
+        rateLimited: isRateLimit,
+      });
+    }
+    return {
+      runId,
+      sourceId: source.id,
+      provider: "zoom",
+      status: "error",
       capturesCreated: captures.length,
       captures,
       stats,
@@ -3399,12 +3804,13 @@ async function syncGitHub(source: SourceRow): Promise<ConnectorSyncResult> {
     };
   } catch (err) {
     await heartbeat.stop();
-    const message = err instanceof Error ? err.message : String(err);
+    const message = connectorErrorMessage(err);
     const isRateLimit = err instanceof ConnectorRateLimitError;
     const failedCursor: GitHubSyncCursor = {
       ...cursor,
       ...nextCursor,
       retry: isRateLimit ? retryCursor(err, "github") : cursor.retry,
+      transientRetryAt: transientRetryAt(err),
       lastRunAt: nowIso(),
     };
     stats.capturesCreated = captures.length;
@@ -3459,6 +3865,10 @@ const granolaConnector: Connector = {
   sync: syncGranola,
 };
 
+const zoomConnector: Connector = {
+  sync: syncZoom,
+};
+
 const githubConnector: Connector = {
   sync: syncGitHub,
 };
@@ -3478,6 +3888,7 @@ const connectors: Record<BrainSourceProvider, Connector> = {
   slack: slackConnector,
   granola: granolaConnector,
   github: githubConnector,
+  zoom: zoomConnector,
 };
 
 export async function runConnectorSync(source: SourceRow) {

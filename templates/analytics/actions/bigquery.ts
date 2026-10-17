@@ -1,9 +1,13 @@
+import { createHash } from "node:crypto";
+
 import { AgentActionStopError, defineAction } from "@agent-native/core";
 import type { ActionRunContext } from "@agent-native/core/action";
 import { getRequestRunContext } from "@agent-native/core/server";
+import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
-import { runQuery } from "../server/lib/bigquery";
+import { BigQueryBackendError, runQuery } from "../server/lib/bigquery";
+import { recoverFromSchemaMiss } from "../server/lib/bigquery-schema-recovery";
 
 function extractBigQueryMessage(message: string): string {
   const jsonStart = message.indexOf("{");
@@ -25,16 +29,11 @@ function extractBigQueryMessage(message: string): string {
   }
 
   return message
-    .replace(/^BigQuery (API|poll) error \d+:\s*/i, "")
+    .replace(/^BigQuery (API|poll|job) error(?: \d+)?:\s*/i, "")
     .replace(/\s+/g, " ")
     .trim();
 }
 
-// Only credentials/not-configured failures stop the turn: retrying a missing
-// service account is pointless, so a clean stop pointing at Settings is the
-// right behavior. Query/SQL errors are NOT stopped here — they are returned as
-// a normal recoverable result so the model can introspect the schema and retry
-// (see the run() catch block below).
 function stopForBigQueryNotConfigured(message: string): never {
   const detail = extractBigQueryMessage(message);
   throw new AgentActionStopError(detail, {
@@ -70,6 +69,54 @@ function stopForBigQueryCancellation(): never {
 
 function normalizeSqlForRepeat(sql: string): string {
   return sql.trim().replace(/\s+/g, " ");
+}
+
+function fingerprintSql(sql: string): string {
+  const shape = sql
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/--[^\r\n]*/g, " ")
+    .replace(/(?:[rR])?'''[\s\S]*?'''|(?:[rR])?"""[\s\S]*?"""/g, "?")
+    .replace(/(?:[rR])?'(?:\\.|''|[^'])*'|(?:[rR])?"(?:\\.|""|[^"])*"/g, "?")
+    .replace(/(?<![\w.])[-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?(?![\w.])/g, "?")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+  return createHash("sha256").update(shape).digest("hex").slice(0, 16);
+}
+
+function trackBigQueryOutcome(
+  sql: string,
+  context: ActionRunContext | undefined,
+  properties: Record<string, number | boolean | string>,
+): void {
+  track(
+    "sql_run",
+    {
+      app_name: "analytics",
+      template_name: "analytics",
+      surface: "bigquery",
+      query_fingerprint: fingerprintSql(sql),
+      ...properties,
+    },
+    context,
+  );
+}
+
+function classifyBigQueryError(message: string): string {
+  if (/timed out/i.test(message)) return "timeout";
+  if (/permission|access denied|not authorized|forbidden/i.test(message)) {
+    return "permission";
+  }
+  if (/quota|rate limit|billing|bytes billed/i.test(message)) return "quota";
+  if (
+    /unrecognized name|not found|no such|syntax|invalid query/i.test(message)
+  ) {
+    return "schema_or_sql";
+  }
+  if (/credentials|service account|token exchange/i.test(message)) {
+    return "configuration";
+  }
+  return "other";
 }
 
 function hasPriorFailedBigQueryCall(sql: string): boolean {
@@ -126,27 +173,58 @@ function stopForRepeatedBigQueryQuery(): never {
 
 export default defineAction({
   description:
-    "Query the user-configured BigQuery data warehouse. Use this when the user asks for warehouse SQL, BigQuery, or a data-dictionary metric/table that lives in BigQuery. If the user names a provider action such as Jira or Pylon, use that provider action first and do not use BigQuery unless the user explicitly asks for a warehouse copy. For a named customer or organization ID, resolve the canonical CRM/contract identity first and verify the returned rows carry the same customer and org/root-org identifiers. For account health, distinguish completed-month usage from current partial snapshots, contract metrics from similarly named platform metrics, total distinct contracted users from DAU/WAU, and actual usage from contracted capacity. Pass standard SQL via the `sql` arg. Do NOT use `db-query` for warehouse data (it only reaches the app's own SQL database). If a query fails with a schema or SQL error (unknown dataset/table/column, syntax), treat it as a normal debugging signal: inspect the real schema with `search-bigquery-schema` (or query INFORMATION_SCHEMA), correct the query based on the error, and run it again — a few corrective attempts are expected. Surface the error to the user only if it still fails after a few attempts or is non-recoverable (missing credentials, permission, quota). Never rerun identical failing SQL, and never substitute made-up numbers for data you could not query.",
+    "Query the user-configured BigQuery data warehouse. Use this when the user asks for warehouse SQL, BigQuery, or a data-dictionary metric/table that lives in BigQuery. If the user names a provider action such as Jira or Pylon, use that provider action first and do not use BigQuery unless the user explicitly asks for a warehouse copy. For a named customer or organization ID, resolve the canonical CRM/contract identity first and verify the returned rows carry the same customer and org/root-org identifiers. For account health, distinguish completed-month usage from current partial snapshots, contract metrics from similarly named platform metrics, total distinct contracted users from DAU/WAU, and actual usage from contracted capacity. Pass standard SQL via the `sql` arg. Do NOT use `db-query` for warehouse data (it only reaches the app's own SQL database). If a query fails with a schema or SQL error (unknown dataset/table/column, syntax), treat it as a normal debugging signal: use the `didYouMean` and `columns` the failure often carries, else inspect the real schema with `search-bigquery-schema` (or query INFORMATION_SCHEMA), correct the query based on the error, and run it again — a few corrective attempts are expected. Surface the error to the user only if it still fails after a few attempts or is non-recoverable (missing credentials, permission, quota). Never rerun identical failing SQL, and never substitute made-up numbers for data you could not query.",
   schema: z.object({
     sql: z.string().describe("SQL query to execute"),
   }),
   readOnly: true,
+  mcpTool: false,
   toolCallable: true,
   grounding: true,
   run: async (args, context?: ActionRunContext) => {
+    const startedAt = Date.now();
     if (hasPriorFailedBigQueryCall(args.sql)) {
+      trackBigQueryOutcome(args.sql, context, {
+        query_status: "blocked",
+        error_category: "repeated_query",
+        query_duration_ms: 0,
+        row_count: 0,
+        total_rows: 0,
+        bytes_processed: 0,
+        cache_hit: false,
+        truncated: false,
+      });
       stopForRepeatedBigQueryQuery();
     }
     try {
-      return await runQuery(args.sql, { signal: context?.signal });
+      const result = await runQuery(args.sql, { signal: context?.signal });
+      trackBigQueryOutcome(args.sql, context, {
+        query_status: "success",
+        query_duration_ms: Math.max(0, Date.now() - startedAt),
+        row_count: result.rows.length,
+        total_rows: result.totalRows,
+        bytes_processed: result.cached ? 0 : result.bytesProcessed,
+        cache_hit: result.cached === true,
+        truncated: result.truncated === true,
+      });
+      return result;
     } catch (err) {
-      // A run cancellation is terminal for this invocation. Returning it as a
-      // recoverable SQL error would invite the agent to retry work after the
-      // parent run has already ended. Normalize the provider's AbortError so
-      // the generic tool-error path cannot record it as a warehouse failure.
-      if (context?.signal?.aborted) stopForBigQueryCancellation();
-
       const msg = err instanceof Error ? err.message : String(err);
+      const cancelled = context?.signal?.aborted === true;
+      trackBigQueryOutcome(args.sql, context, {
+        query_status: cancelled ? "cancelled" : "error",
+        error_category: cancelled ? "cancelled" : classifyBigQueryError(msg),
+        query_duration_ms: Math.max(0, Date.now() - startedAt),
+        row_count: 0,
+        total_rows: 0,
+        bytes_processed: 0,
+        cache_hit: false,
+        truncated: false,
+      });
+      if (cancelled) stopForBigQueryCancellation();
+
+      const providerDetail =
+        err instanceof BigQueryBackendError ? err.providerDetail : null;
       if (
         /GOOGLE_APPLICATION_CREDENTIALS_JSON not configured/i.test(msg) ||
         /BIGQUERY_PROJECT_ID/i.test(msg) ||
@@ -154,12 +232,9 @@ export default defineAction({
         /Token exchange failed/i.test(msg)
       ) {
         stopForBigQueryNotConfigured(
-          "BigQuery isn't connected for this workspace yet. Open Settings -> Data sources and add BIGQUERY_PROJECT_ID + GOOGLE_APPLICATION_CREDENTIALS_JSON (a service-account JSON key).",
+          "BigQuery isn't connected for this user yet. Open Settings -> Data sources and connect Google OAuth, or add BIGQUERY_PROJECT_ID and a service-account JSON key.",
         );
       }
-      // A timeout means the SQL was valid but slow. Routing it through the schema-error
-      // branch below told the model to go re-inspect the schema and rerun, which turns
-      // one slow query into a loop of 60-second attempts.
       if (/BigQuery query timed out/i.test(msg)) {
         return {
           error: "bigquery_query_timeout",
@@ -168,14 +243,24 @@ export default defineAction({
           hint: "The SQL was valid but exceeded the 60-second warehouse budget. Do NOT inspect the schema and do NOT rerun this query as-is. Make it cheaper: narrow the date range, add a LIMIT, aggregate in SQL instead of returning raw rows, or filter on a partition/cluster column. If the full scan is genuinely required, run it through run-code with background: true instead of retrying here.",
         };
       }
-      if (/BigQuery (API|poll) error/i.test(msg)) {
-        // Recoverable: hand the real error back to the model so it can inspect
-        // the schema and self-correct, instead of force-ending the turn.
+      if (/BigQuery (API|poll|job) error/i.test(msg)) {
+        const message = extractBigQueryMessage(providerDetail ?? msg);
+        const recovery = await recoverFromSchemaMiss(
+          args.sql,
+          message,
+          context?.signal,
+        );
+        const foundSchema = Boolean(
+          recovery?.columns?.length || recovery?.didYouMeanTables?.length,
+        );
         return {
           error: "bigquery_query_failed",
-          message: extractBigQueryMessage(msg),
+          message,
           recoverable: true,
-          hint: "Likely a schema mismatch (wrong dataset, table, or column) or a SQL issue. Use search-bigquery-schema to get the exact datasets/tables/columns (or query INFORMATION_SCHEMA), correct the SQL based on this error, and run it again. Change the query based on the error — do not rerun identical SQL — and never substitute made-up numbers for data you could not query.",
+          hint: foundSchema
+            ? "The warehouse schema for this failure is below: correct the SQL using the exact names in `didYouMean`, `didYouMeanTables`, or `columns` and run it again. Do not rerun identical SQL, and never substitute made-up numbers for data you could not query."
+            : "Likely a schema mismatch (wrong dataset, table, or column) or a SQL issue. Use search-bigquery-schema to get the exact datasets/tables/columns (or query INFORMATION_SCHEMA), correct the SQL based on this error, and run it again. Change the query based on the error — do not rerun identical SQL — and never substitute made-up numbers for data you could not query.",
+          ...recovery,
         };
       }
       throw err;

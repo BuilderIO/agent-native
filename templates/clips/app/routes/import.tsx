@@ -4,11 +4,11 @@ import {
 } from "@agent-native/core/client/api-path";
 import { callAction, getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { AgentMark } from "@agent-native/toolkit/app/shared";
 import {
   IconArrowLeft,
   IconCheck,
   IconLink,
-  IconSparkles,
   IconUpload,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -23,6 +23,7 @@ import {
 import { Link, useLocation, useNavigate } from "react-router";
 
 import { StorageSetupCard } from "@/components/recorder/storage-setup-card";
+import { StorageStatusRetry } from "@/components/recorder/storage-status-retry";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -180,8 +181,6 @@ export default function ImportRoute() {
       stageTimerRef.current = setInterval(() => {
         setStageIndex((prev) => Math.min(prev + 1, importStages.length - 1));
       }, 1300);
-      // Ease the accent bar toward ~92% while the request is in flight; the
-      // real completion snaps it to 100%.
       progressTimerRef.current = setInterval(() => {
         setProgress((p) => (p >= 92 ? p : p + Math.max(0.6, (92 - p) * 0.07)));
       }, 120);
@@ -201,7 +200,7 @@ export default function ImportRoute() {
         };
         const recordingId = result?.recordingId;
         if (!recordingId) {
-          throw new Error("Loom import did not return a recording id.");
+          throw new Error(t("recordRoute.couldNotImportLoom"));
         }
 
         clearTimers();
@@ -224,7 +223,6 @@ export default function ImportRoute() {
         await copyRecordingLink(recordingId);
         await writeNavigateAppState(recordingId);
 
-        // Linger on the "done" reveal, then fade out into the clip.
         completeImportToast(t("recordRoute.loomImported"));
         setPhase("done");
         timeoutsRef.current.push(
@@ -261,16 +259,18 @@ export default function ImportRoute() {
     ],
   );
 
-  const markStorageConfigured = useCallback(() => {
-    queryClient.setQueryData<VideoStorageStatus>(
-      VIDEO_STORAGE_STATUS_KEY,
-      (prev) => ({
-        configured: true,
-        activeProvider: prev?.activeProvider ?? null,
-        builderConfigured: prev?.builderConfigured ?? false,
-      }),
-    );
-  }, [queryClient]);
+  const markStorageConfigured = useCallback(
+    (status?: VideoStorageStatus) => {
+      if (status) {
+        queryClient.setQueryData(VIDEO_STORAGE_STATUS_KEY, status);
+      } else {
+        void queryClient.invalidateQueries({
+          queryKey: VIDEO_STORAGE_STATUS_KEY,
+        });
+      }
+    },
+    [queryClient],
+  );
 
   return (
     <div className="relative min-h-screen bg-background">
@@ -295,7 +295,9 @@ export default function ImportRoute() {
         </p>
 
         <div className="mx-auto w-full max-w-lg">
-          {storageConfigured === null ? (
+          {storageQuery.isError ? (
+            <StorageStatusRetry onRetry={() => void storageQuery.refetch()} />
+          ) : storageConfigured === null ? (
             <ImportPanelSkeleton />
           ) : storageConfigured ? (
             <div
@@ -315,7 +317,7 @@ export default function ImportRoute() {
               <div className="p-6">
                 {phase === "importing" ? (
                   <div className="flex flex-col items-center gap-2 py-8 text-center">
-                    <IconSparkles className="h-6 w-6 animate-pulse text-primary" />
+                    <AgentMark className="h-6 w-6 animate-pulse text-primary" />
                     <p
                       key={stageIndex}
                       className="text-base font-semibold text-foreground"
@@ -330,7 +332,7 @@ export default function ImportRoute() {
                 ) : phase === "done" || phase === "leaving" ? (
                   <div className="flex flex-col items-center gap-4 py-6 text-center">
                     <div className="flex items-center gap-2 text-primary">
-                      <IconSparkles className="h-6 w-6" />
+                      <AgentMark className="h-6 w-6" />
                       <p className="text-base font-semibold text-foreground">
                         {t("importRoute.doneHeading")}
                       </p>

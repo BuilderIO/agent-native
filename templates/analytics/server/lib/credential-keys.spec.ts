@@ -53,11 +53,11 @@ describe("credential key lookup", () => {
     expect(
       credentialProviderConfigs.find((cfg) => cfg.provider === "bigquery"),
     ).toMatchObject({
-      requiredKeys: [
+      requiredKeys: ["BIGQUERY_PROJECT_ID"],
+      optionalKeys: [
         "GOOGLE_APPLICATION_CREDENTIALS_JSON",
-        "BIGQUERY_PROJECT_ID",
+        "ANALYTICS_BIGQUERY_EVENTS_TABLE",
       ],
-      optionalKeys: ["ANALYTICS_BIGQUERY_EVENTS_TABLE"],
     });
     expect(
       credentialProviderConfigs.find((cfg) => cfg.provider === "gong"),

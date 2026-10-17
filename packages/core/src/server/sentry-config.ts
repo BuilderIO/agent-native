@@ -72,13 +72,6 @@ export function getSentryClientConfigScript(): string | null {
   ].join("");
 }
 
-/**
- * Hosted Realtime Gateway config for the client, or null for the in-process
- * (local) transport. Values are env-derived and identical for every visitor,
- * so this is safe inside the CDN-cached SSR shell (see `guard:ssr-cache-shell`).
- * The per-user subscribe token is NOT here — it is minted client-side after
- * load from `/_agent-native/realtime-token`.
- */
 export function resolveRealtimeClientConfig(): {
   transport: "hosted";
   gatewayBaseUrl: string;

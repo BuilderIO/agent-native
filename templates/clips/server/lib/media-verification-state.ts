@@ -9,10 +9,29 @@ export type MediaVerificationMarker = {
   nextAttemptAt: string;
   leaseUntil: string | null;
   updatedAt: string;
+  uploadAttemptId?: string | null;
+  uploadGenerationId?: string | null;
 };
 
 export function mediaVerificationStateKey(recordingId: string): string {
   return `${MEDIA_VERIFICATION_STATE_PREFIX}${recordingId}`;
+}
+
+export function mediaVerificationMarkerMatchesUpload(
+  marker: MediaVerificationMarker,
+  uploadAttemptId: string | null,
+  uploadGenerationId: string | null,
+): boolean {
+  const hasAttemptFence = marker.uploadAttemptId !== undefined;
+  const hasGenerationFence = marker.uploadGenerationId !== undefined;
+  if (hasAttemptFence !== hasGenerationFence) return false;
+  if (!hasAttemptFence) {
+    return uploadAttemptId === null && uploadGenerationId === null;
+  }
+  return (
+    marker.uploadAttemptId === uploadAttemptId &&
+    marker.uploadGenerationId === uploadGenerationId
+  );
 }
 
 export function parseMediaVerificationMarker(
@@ -33,6 +52,16 @@ export function parseMediaVerificationMarker(
       (typeof state.leaseUntil !== "string" ||
         !Number.isFinite(Date.parse(state.leaseUntil)))) ||
     typeof state.updatedAt !== "string"
+  ) {
+    return null;
+  }
+  if (
+    (state.uploadAttemptId !== undefined &&
+      state.uploadAttemptId !== null &&
+      typeof state.uploadAttemptId !== "string") ||
+    (state.uploadGenerationId !== undefined &&
+      state.uploadGenerationId !== null &&
+      typeof state.uploadGenerationId !== "string")
   ) {
     return null;
   }

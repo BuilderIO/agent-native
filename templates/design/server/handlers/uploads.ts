@@ -15,6 +15,7 @@ import { nanoid } from "nanoid";
 
 import {
   MAX_UPLOAD_BYTES,
+  MAX_UPLOAD_FILES_PER_REQUEST,
   MAX_UPLOAD_MB,
   TOTAL_BODY_LIMIT,
 } from "../lib/request-body-limits.js";
@@ -86,11 +87,6 @@ function tenantUploadDir(email: string): string {
 function safeFilename(originalName: string): string | null {
   const ext = path.extname(originalName).toLowerCase();
   if (!ALLOWED_EXTENSIONS.has(ext)) return null;
-  // Filename uniqueness comes from nanoid (~21 chars, ~126 bits of entropy),
-  // not `Date.now()` — second-resolution timestamps are guessable and let
-  // someone with the per-tenant URL prefix probe the upload window. The
-  // tenant subdir already namespaces by user; nanoid makes the leaf
-  // unguessable too. (audit 10 medium / audit 01 medium).
   return `${nanoid()}${ext}`;
 }
 
@@ -182,9 +178,6 @@ export const uploadFiles = defineEventHandler(async (event) => {
     return { error: "Unauthorized" };
   }
 
-  const MAX_FILES = 20;
-  // Content-Length can be spoofed, so the parsed-byte check below is the real
-  // limit; this only avoids buffering an obviously oversized body first.
   const contentLength = Number(
     getRequestHeader(event, "content-length") ?? "0",
   );
@@ -201,9 +194,11 @@ export const uploadFiles = defineEventHandler(async (event) => {
     return { error: "No files uploaded" };
   }
 
-  if (fileParts.length > MAX_FILES) {
+  if (fileParts.length > MAX_UPLOAD_FILES_PER_REQUEST) {
     setResponseStatus(event, 413);
-    return { error: `Too many files (max ${MAX_FILES})` };
+    return {
+      error: `Too many files (max ${MAX_UPLOAD_FILES_PER_REQUEST})`,
+    };
   }
 
   const totalBytes = fileParts.reduce((sum, p) => sum + p.data.length, 0);
@@ -234,9 +229,6 @@ export const uploadFiles = defineEventHandler(async (event) => {
       const extracted = await extractUploadText(ext, part.data);
 
       return {
-        // Return the filename (nanoid + ext) as the opaque path token rather
-        // than the internal filesystem path so we don't expose the server
-        // directory layout or per-tenant hash to the client.
         path: filename,
         originalName,
         filename,
@@ -250,7 +242,6 @@ export const uploadFiles = defineEventHandler(async (event) => {
 
   const failures = results.filter((r) => r.status === "rejected");
   if (failures.length > 0) {
-    // Clean up any files that were successfully written before the failure.
     const writtenPaths = results
       .filter((r) => r.status === "fulfilled")
       .map(
@@ -268,7 +259,6 @@ export const uploadFiles = defineEventHandler(async (event) => {
     };
   }
 
-  // Strip the internal _destPath field before returning to the client.
   return results.map((r) => {
     const { _destPath: _unused, ...rest } = (
       r as PromiseFulfilledResult<InternalUploadedFileResult>

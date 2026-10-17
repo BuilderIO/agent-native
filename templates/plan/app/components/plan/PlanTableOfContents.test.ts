@@ -90,8 +90,6 @@ describe("PlanTableOfContents", () => {
     ];
 
     const items = collectPlanTocItems(blocks);
-    // The "## Key changes" heading already covers the diff block, so the diff
-    // must NOT add a second "Key changes" entry; the file-tree still gets one.
     expect(items.map((item) => ({ id: item.id, label: item.label }))).toEqual([
       { id: "plan-heading-kc-0", label: "Key changes" },
       { id: "plan-section-files", label: "Files changed" },

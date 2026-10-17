@@ -32,7 +32,7 @@ describe("editor side panels", () => {
 
   it("clears generic animation targets when the active slide changes", () => {
     expect(pageSource).toContain(`useEffect(() => {
-    setAnimationTarget(null);
+    setAnimationTargets(NO_ANIMATION_TARGETS);
   }, [activeSlideId]);`);
     const toggleAnimationsStart = pageSource.indexOf(
       "const toggleAnimations = useCallback(() => {",
@@ -46,19 +46,19 @@ describe("editor side panels", () => {
       toggleLayersStart,
     );
     expect(toggleAnimationsSource).toContain("setLayersOpen(false);");
-    expect(toggleAnimationsSource).toContain("setAnimationTarget(null);");
+    expect(toggleAnimationsSource).toContain(
+      "setAnimationTargets(NO_ANIMATION_TARGETS);",
+    );
     expect(toggleAnimationsSource).toContain(
       "setAnimationsOpen((open) => !open);",
     );
   });
 
-  it("rounds the canvas edge consistently for either right-side panel", () => {
-    expect(editorSource).toContain(
-      'animationsOpen || layersOpen ? "rounded-r-lg" : ""',
-    );
+  it("rounds the canvas right edge only for the right-side Transitions panel", () => {
+    expect(editorSource).toContain('animationsOpen ? "rounded-r-lg" : ""');
   });
 
-  it("mounts Layers beside the canvas shell like Transitions", () => {
+  it("mounts Layers below the Slides thumbnails", () => {
     expect(editorSource).toContain(
       "createPortal(layersPanel, layersPanelSlot)",
     );
@@ -75,7 +75,10 @@ describe("editor side panels", () => {
       "\n      </div>\n\n      {/* Hidden upload input */}",
       workspaceStart,
     );
-    expect(layersHost).toBeGreaterThan(workspaceStart);
+    const railStart = pageSource.indexOf("<EditorSidebar", workspaceStart);
+    const canvasStart = pageSource.indexOf("<SlideEditor", workspaceStart);
+    expect(layersHost).toBeGreaterThan(railStart);
+    expect(layersHost).toBeLessThan(canvasStart);
     expect(layersHost).toBeLessThan(workspaceEnd);
   });
 
@@ -87,6 +90,12 @@ describe("editor side panels", () => {
       "onContextMenuLayer={readOnly ? undefined : handleLayerContextMenu}",
     );
     expect(editorSource).toContain("{slideElementContextMenuContent}");
+    expect(editorSource).toContain("<ContextMenuSub>");
+    expect(editorSource).toContain('t("styleInspector.order")');
+    expect(editorSource).toContain('handleArrangeSelected("front")');
+    expect(editorSource).toContain('handleArrangeSelected("forward")');
+    expect(editorSource).toContain('handleArrangeSelected("backward")');
+    expect(editorSource).toContain('handleArrangeSelected("back")');
   });
 });
 
@@ -95,15 +104,10 @@ describe("slide context toolbar", () => {
 
   it("is the only styling surface, on every editable slide", () => {
     expect(mountIndex).toBeGreaterThan(-1);
-    // Excalidraw slides included: they have no selectable content, but
-    // SlideRenderer still paints slide.background behind the drawing, and this
-    // row is now the only place that background can be edited.
     expect(editorSource).not.toContain("!readOnly && !slide.excalidrawData");
   });
 
   it("keeps the toolbar alive while text is being edited", () => {
-    // Without the marker the click-outside handler exits the edit and drops
-    // the saved range, so partial-text formatting would hit the whole object.
     expect(editorSource).toContain('data-slide-inline-edit-surface="true"');
   });
 
@@ -121,9 +125,6 @@ describe("slide context toolbar", () => {
   });
 
   it("keeps the rich text selection alive while the toolbar is pressed", () => {
-    // Without this guard on the wrapper, applying a style to a partial text
-    // selection silently no-ops: focus leaves the contentEditable before the
-    // patch resolves the range.
     const wrapper = editorSource.slice(
       Math.max(0, mountIndex - 300),
       mountIndex,
@@ -133,10 +134,14 @@ describe("slide context toolbar", () => {
     );
   });
 
-  it("cancels native image dragging on the editable canvas", () => {
-    expect(editorSource).toContain(
-      "onDragStart={(event) => event.preventDefault()}",
+  it("cancels native image dragging on the editable canvas, but not text being edited", () => {
+    expect(editorSource).toContain("onDragStart={handleSlideDragStart}");
+    const start = editorSource.indexOf("const handleSlideDragStart");
+    const handler = editorSource.slice(start, start + 500);
+    expect(handler).toContain(
+      "textSessionRef.current?.text.element.contains(event.target)",
     );
+    expect(handler).toContain("event.preventDefault()");
   });
 
   it("keeps the comment target mounted for Excalidraw slides", () => {

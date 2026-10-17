@@ -50,13 +50,10 @@ describe("assertPlanEditor teaching errors", () => {
     const error = await assertPlanEditor("recap-42").catch((e: unknown) => e);
     expect(error).toBeInstanceOf(ForbiddenError);
     const message = (error as Error).message;
-    // Names the resource kind and the caller's actual role.
     expect(message).toContain(
       "Recap recap-42 is read-only for you (your role: viewer)",
     );
-    // Tells the agent not to loop on the same call.
     expect(message).toContain("Do not retry this call");
-    // Names the sanctioned alternatives.
     expect(message).toContain("create-visual-recap");
     expect(message).toContain("reply-to-plan-comment");
     expect(message).toContain("comment-only update-visual-plan");
@@ -77,7 +74,6 @@ describe("assertPlanEditor teaching errors", () => {
     );
     expect(message).toContain("Do not retry this call");
     expect(message).toContain("reply-to-plan-comment");
-    // Plan phrasing must not point at the recap-only replacement flow.
     expect(message).not.toContain("create-visual-recap");
   });
 

@@ -1,14 +1,5 @@
-/**
- * Pure grouping for the cross-app thread history list. Threads arrive
- * newest-first across all apps; grouping preserves that order so the most
- * recently active app floats to the top and each app's threads stay in
- * recency order. Kept out of the component so it can be unit-tested without
- * React Native.
- */
-
 import type { ChatThreadSummary } from "./types";
 
-/** A thread is identified across apps by its origin plus its id. */
 export function threadKey(thread: ChatThreadSummary): string {
   return `${thread.baseUrl ?? ""}:${thread.id}`;
 }

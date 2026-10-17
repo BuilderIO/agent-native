@@ -1,138 +1,286 @@
+import { type Page } from "@playwright/test";
+
+import { appPath, designFrame, enterDirectMode, gotoEditor } from "./helpers";
 import {
   expect,
+  expectOnlyChanged,
+  styleOf,
   test,
-  type APIRequestContext,
-  type Page,
-} from "@playwright/test";
+  type App,
+  type SavedNode,
+} from "./rails";
 
-import { e2eBaseURL } from "./base-url";
-import { appPath } from "./helpers";
-
-const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
 const SCREEN_HTML = `<!doctype html>
 <html><head><meta charset="utf-8"><title>Screen</title></head>
 <body style="margin:0;position:relative;min-height:1400px">
 <div data-agent-native-node-id="rect-a" style="position:absolute;left:120px;top:140px;width:300px;height:200px;background:#c9c9c9"></div>
 </body></html>`;
 
-async function action(
-  request: APIRequestContext,
-  name: string,
-  input: Record<string, unknown>,
-) {
-  const response = await request.post(
-    `${BASE_URL}/_agent-native/actions/${name}`,
-    { data: input },
+async function seedScreens(app: App, count: number, content: string) {
+  const extra = Object.fromEntries(
+    Array.from({ length: count - 1 }, (_, i) => [
+      `screen-${i + 2}.html`,
+      content,
+    ]),
   );
-  if (!response.ok()) {
-    throw new Error(`${name}: ${response.status()} ${await response.text()}`);
-  }
-  return response.json();
-}
-
-async function createDesign(request: APIRequestContext) {
-  const created = await action(request, "create-design", {
-    title: `Alt-drag element QA ${Date.now()}`,
-    projectType: "prototype",
-  });
-  const designId = created.id ?? created.data?.id ?? created.design?.id;
-  if (!designId) throw new Error("create-design returned no id");
-  const file = await action(request, "create-file", {
-    designId,
-    filename: "index.html",
-    content: SCREEN_HTML,
-    fileType: "html",
-  });
-  const fileId = file.id ?? file.data?.id;
-  if (!fileId) throw new Error("create-file returned no id");
-  await action(request, "update-design", {
-    id: designId,
-    dataOperations: [
-      {
-        op: "set",
-        path: ["screenMetadata", fileId],
-        value: { sourceType: "inline", width: 1280, height: 1400 },
+  const designId = await app.seed(content, { files: extra });
+  const record = await (
+    await app.page.request.get(
+      appPath(`/_agent-native/actions/get-design?id=${designId}`),
+    )
+  ).json();
+  const filenames = ["index.html", ...Object.keys(extra)];
+  const fileIds: string[] = filenames.map(
+    (name) =>
+      record.files.find((file: { filename: string }) => file.filename === name)
+        .id,
+  );
+  const response = await app.page.request.post(
+    appPath("/_agent-native/actions/update-design"),
+    {
+      data: {
+        id: designId,
+        dataOperations: fileIds.flatMap((fileId, index) => [
+          {
+            op: "set",
+            path: ["screenMetadata", fileId],
+            value: { sourceType: "inline", width: 1280, height: 1400 },
+          },
+          {
+            op: "set",
+            path: ["canvasFrames", fileId],
+            value: {
+              x: index * 1600,
+              y: 0,
+              width: 1280,
+              height: 1400,
+              z: index,
+            },
+          },
+        ]),
       },
-      {
-        op: "set",
-        path: ["canvasFrames", fileId],
-        value: { x: 0, y: 0, width: 1280, height: 1400, z: 0 },
-      },
-    ],
-  });
-  return { designId };
+    },
+  );
+  expect(response.ok()).toBe(true);
+  return { designId, fileIds, filenames };
 }
 
-/** Shapes actually painted in the screen's live preview document. */
-async function paintedShapes(page: Page) {
-  return page.evaluate(() => {
-    const frame = document.querySelector<HTMLIFrameElement>(
-      "iframe[data-screen-iframe-id]",
-    );
-    const doc = frame?.contentDocument;
-    if (!doc) return -1;
-    return doc.querySelectorAll("body > div[data-agent-native-node-id]").length;
-  });
+function bodyChildren(nodes: Map<string, SavedNode>) {
+  const body = [...nodes.values()].find((node) => node.tag === "body")!.id;
+  return [...nodes.values()]
+    .filter((node) => node.parent === body)
+    .sort((a, b) => a.index - b.index)
+    .map((node) => node.id);
 }
 
-// One alt-drag paints TWO clones (count goes 1 -> 3), so the gesture
-// duplicates twice. Mechanism located: startMove clones the element into the
-// live DOM (cloneNode + insertBefore) to drag an optimistic copy, and the host
-// Measured: a duplicate never reaches the canvas. paintedShapes is 1 where 2
-// is expected (the pre-drag count of 1 passes, so the counter is right). Same
-// number, same shape as editor-keyboard-layers' keyboard-duplicate step, so
-// one bug with two gestures: the clone is created in state, then the host's
-// follow-up source push removes what it cannot match by selector. Lives in the
-// overview canvas / host source-sync reconciliation.
-test.fixme("alt-dragging an element keeps every copy on the canvas, not just in state", async ({
-  page,
-  request,
+function expectNear(
+  actual: string | number | undefined,
+  expected: number,
+  label: string,
+  tolerance = 2,
+) {
+  expect(
+    Math.abs(parseFloat(String(actual)) - expected),
+    `${label} ${actual}`,
+  ).toBeLessThanOrEqual(tolerance);
+}
+
+/** Page point of design px in a given screen. */
+async function screenPoint(page: Page, screenId: string, x: number, y: number) {
+  const iframe = page.locator(`iframe[data-screen-iframe-id="${screenId}"]`);
+  const box = (await iframe.boundingBox())!;
+  const width = await iframe.evaluate(
+    (element: HTMLIFrameElement) =>
+      element.contentDocument!.documentElement.clientWidth,
+  );
+  const scale = box.width / width;
+  return { x: box.x + x * scale, y: box.y + y * scale };
+}
+
+async function renderedRect(page: Page, screenId: string, nodeId: string) {
+  return designFrame(page, screenId)
+    .locator(`[data-agent-native-node-id="${nodeId}"]`)
+    .evaluate((element) => {
+      const r = element.getBoundingClientRect();
+      return {
+        x: Math.round(r.x),
+        y: Math.round(r.y),
+        width: Math.round(r.width),
+        height: Math.round(r.height),
+      };
+    });
+}
+
+async function altDrag(
+  page: Page,
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+) {
+  await page.mouse.move(from.x, from.y);
+  await page.keyboard.down("Alt");
+  await page.mouse.down();
+  await page.mouse.move(from.x + 12, from.y + 8, { steps: 4 });
+  await page.mouse.move(to.x, to.y, { steps: 20 });
+}
+
+test("alt-dragging an element keeps every copy on the canvas, not just in state", async ({
+  app,
 }) => {
-  const { designId } = await createDesign(request);
-  try {
-    await page.goto(appPath(`/design/${designId}?view=overview&zoom=30`), {
-      waitUntil: "domcontentloaded",
-    });
+  const page = app.page;
+  const { designId, fileIds } = await seedScreens(app, 1, SCREEN_HTML);
+  await page.goto(appPath(`/design/${designId}?view=overview&zoom=30`), {
+    waitUntil: "domcontentloaded",
+  });
+  await expect(
+    designFrame(page, fileIds[0]).locator(
+      '[data-agent-native-node-id="rect-a"]',
+    ),
+  ).toBeVisible();
+  await app.settled();
+  const source = await screenPoint(page, fileIds[0], 270, 240);
+  const before = await app.savedNodes(designId);
+
+  const copies: string[] = [];
+  const expectedTopLeft = [
+    { x: 250, y: 400 },
+    { x: 580, y: 660 },
+  ];
+  for (const [index, topLeft] of expectedTopLeft.entries()) {
+    await page.mouse.click(source.x, source.y);
+    await expect.poll(() => app.selectedLayers()).toHaveLength(1);
+    await altDrag(
+      page,
+      source,
+      await screenPoint(page, fileIds[0], topLeft.x + 150, topLeft.y + 100),
+    );
+    await page.mouse.up();
+    await page.keyboard.up("Alt");
     await expect
-      .poll(async () => page.locator("[data-screen-shell]").count(), {
-        timeout: 40_000,
-      })
-      .toBeGreaterThan(0);
-    await page.waitForTimeout(3500);
-
-    const card = (await page
-      .locator("[data-screen-card]")
-      .first()
-      .boundingBox())!;
-    const scale = card.width / 1280;
-    const at = (x: number, y: number) => ({
-      x: card.x + x * scale,
-      y: card.y + y * scale,
-    });
-
-    // Drill into the frame so the rectangle itself is the drag target.
-    const source = at(270, 240);
-    await page.mouse.dblclick(source.x, source.y);
-    await page.waitForTimeout(1500);
-    expect(await paintedShapes(page)).toBe(1);
-
-    for (let copy = 0; copy < 2; copy += 1) {
-      await page.mouse.click(source.x, source.y);
-      await page.waitForTimeout(700);
-      const drop = at(400 + copy * 330, 500 + copy * 260);
-      await page.mouse.move(source.x, source.y);
-      await page.keyboard.down("Alt");
-      await page.mouse.down();
-      await page.mouse.move(drop.x, drop.y, { steps: 14 });
-      await page.mouse.up();
-      await page.keyboard.up("Alt");
-
-      // Settle past the host's follow-up source push, which is what can
-      // delete a clone it fails to match by selector.
-      await page.waitForTimeout(3500);
-      expect(await paintedShapes(page)).toBe(copy + 2);
-    }
-  } finally {
-    await action(request, "delete-design", { id: designId }).catch(() => {});
+      .poll(async () => bodyChildren(await app.savedNodes(designId)).length)
+      .toBe(index + 2);
+    await app.settled();
+    copies.push(
+      bodyChildren(await app.savedNodes(designId)).find(
+        (id) => id !== "rect-a" && !copies.includes(id),
+      )!,
+    );
   }
+
+  const after = await app.savedNodes(designId);
+  expectOnlyChanged(before, after, copies);
+  for (const [index, copy] of copies.entries()) {
+    const style = styleOf(after.get(copy));
+    expectNear(
+      style.left,
+      expectedTopLeft[index].x,
+      `copy ${index + 1} saved left`,
+    );
+    expectNear(
+      style.top,
+      expectedTopLeft[index].y,
+      `copy ${index + 1} saved top`,
+    );
+    const painted = await renderedRect(page, fileIds[0], copy);
+    expectNear(
+      painted.x,
+      expectedTopLeft[index].x,
+      `copy ${index + 1} painted x`,
+    );
+    expectNear(
+      painted.y,
+      expectedTopLeft[index].y,
+      `copy ${index + 1} painted y`,
+    );
+    expect({ width: painted.width, height: painted.height }).toEqual({
+      width: 300,
+      height: 200,
+    });
+  }
+  expect(await renderedRect(page, fileIds[0], "rect-a")).toEqual({
+    x: 120,
+    y: 140,
+    width: 300,
+    height: 200,
+  });
+});
+
+// fixme: product bug: the copy lands at the drop point, but the source keeps its selection box, so the copy is not the only selected layer
+test.fixme("alt-dragging an element onto another screen copies it to the drop point without moving the source", async ({
+  app,
+}) => {
+  const page = app.page;
+  const { designId, fileIds } = await seedScreens(
+    app,
+    2,
+    SCREEN_HTML.replace("left:120px", "left:700px"),
+  );
+  await gotoEditor(page, designId);
+  await enterDirectMode(page, {
+    screenId: fileIds[0],
+    waitForBridgeReady: true,
+  });
+  await page.keyboard.press("Shift+1");
+  let previous = "";
+  await expect
+    .poll(async () => {
+      const now = JSON.stringify(
+        await Promise.all(
+          fileIds.map((id) =>
+            page.locator(`iframe[data-screen-iframe-id="${id}"]`).boundingBox(),
+          ),
+        ),
+      );
+      const stable = now === previous;
+      previous = now;
+      return stable;
+    })
+    .toBe(true);
+  await app.settled();
+  const source = await screenPoint(page, fileIds[0], 850, 240);
+  await page.mouse.click(source.x, source.y);
+  const sourceSelection = designFrame(page, fileIds[0]).locator(
+    '[data-agent-native-edit-overlay="selection"]',
+  );
+  await expect(sourceSelection).toBeVisible();
+  const sourceBefore = await app.savedNodes(designId);
+  const targetBefore = await app.savedNodes(designId, "screen-2.html");
+
+  await altDrag(page, source, await screenPoint(page, fileIds[1], 640, 700));
+  await expect(page.locator("[data-cross-screen-drag-ghost]")).toBeVisible();
+  await page.mouse.up();
+  await page.keyboard.up("Alt");
+
+  await expect
+    .poll(
+      async () =>
+        bodyChildren(await app.savedNodes(designId, "screen-2.html")).length,
+    )
+    .toBe(2);
+  await app.settled();
+  const targetAfter = await app.savedNodes(designId, "screen-2.html");
+  const [copy] = bodyChildren(targetAfter).filter((id) => id !== "rect-a");
+  expectOnlyChanged(sourceBefore, await app.savedNodes(designId), []);
+  expectOnlyChanged(targetBefore, targetAfter, [copy]);
+  const saved = styleOf(targetAfter.get(copy));
+  expect({
+    position: saved.position,
+    width: saved.width,
+    height: saved.height,
+  }).toEqual({
+    position: "absolute",
+    width: "300px",
+    height: "200px",
+  });
+  expectNear(saved.left, 490, "copy saved left (drop point minus grab offset)");
+  expectNear(saved.top, 600, "copy saved top (drop point minus grab offset)");
+  expect(await renderedRect(page, fileIds[0], "rect-a")).toEqual({
+    x: 700,
+    y: 140,
+    width: 300,
+    height: 200,
+  });
+  await expect(
+    sourceSelection,
+    "only the copy is shown as selected",
+  ).toBeHidden();
 });

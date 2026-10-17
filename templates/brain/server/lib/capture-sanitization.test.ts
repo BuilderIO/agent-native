@@ -1,15 +1,35 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DEFAULT_BRAIN_SETTINGS } from "../../shared/types.js";
 import {
+  BrainClassifierUnavailableError,
   buildSanitizerSystemPrompt,
   sanitizeCaptureForStorage,
 } from "./capture-sanitization.js";
+import { jevSensitivityDecision } from "./jev-classifier.js";
+import { BRAIN_SENSITIVITY_CATEGORIES } from "./search-index-contracts.js";
 import {
   deterministicQuarantineDecision,
   fallbackSensitivityDecision,
+  sanitizeSensitiveText,
   screenSensitivityDeterministically,
 } from "./sensitivity-policy.js";
+
+const mocks = vi.hoisted(() => ({
+  classifyWithJev: vi.fn(),
+  resolveOwnerEngineApiKey: vi.fn(),
+  resolveEngine: vi.fn(),
+}));
+
+vi.mock("./jev-classifier.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./jev-classifier.js")>();
+  return { ...actual, classifyWithJev: mocks.classifyWithJev };
+});
+
+vi.mock("@agent-native/core/server", () => ({
+  resolveOwnerEngineApiKey: mocks.resolveOwnerEngineApiKey,
+  resolveEngine: mocks.resolveEngine,
+}));
 
 const baseInput = {
   kind: "transcript" as const,
@@ -24,6 +44,19 @@ const baseInput = {
   settings: DEFAULT_BRAIN_SETTINGS,
 };
 
+beforeEach(() => {
+  mocks.classifyWithJev.mockReset().mockResolvedValue({ configured: false });
+  mocks.resolveOwnerEngineApiKey.mockReset().mockResolvedValue({
+    apiKey: "not-a-real-key",
+    apiKeyEnvVar: undefined,
+  });
+  mocks.resolveEngine.mockReset();
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 describe("capture sanitization", () => {
   it("suppresses credentials rather than retaining a redacted secret-bearing line", async () => {
     const result = await sanitizeCaptureForStorage({
@@ -36,6 +69,19 @@ describe("capture sanitization", () => {
     expect(result.decision?.categories).toContain("secret-credential");
     expect(result.content).not.toContain("secret123");
     expect(JSON.stringify(result.metadata)).not.toContain("secret123");
+  });
+
+  it("redacts every credential label variant it suppresses on, in any case", () => {
+    for (const line of [
+      "private-key: not-a-real-value",
+      "access_token=not-a-real-value",
+      "API_KEY: not-a-real-value",
+      "authorization: bearer exampleexampleexample",
+    ]) {
+      const redacted = sanitizeSensitiveText(line);
+      expect(redacted).not.toContain("not-a-real-value");
+      expect(redacted).not.toContain("exampleexample");
+    }
   });
 
   it("quotes workspace settings as lower-priority data in the model prompt", async () => {
@@ -71,6 +117,23 @@ describe("capture sanitization", () => {
       "Attorney-client privileged advice from outside counsel.",
     ],
     ["secret-credential", "api key: not-a-real-secret-value"],
+    // guard:allow-secret-literal — shape-only fixtures proving suppression
+    ["secret-credential", "rotate xoxb-000000000000-000000000000-EXAMPLEEXAMP"],
+    // guard:allow-secret-literal — shape-only fixtures proving suppression
+    ["secret-credential", "deploy uses AKIAEXAMPLEEXAMPLE99 today"],
+    // guard:allow-secret-literal — shape-only fixtures proving suppression
+    ["secret-credential", "oauth GOCSPX-EXAMPLEEXAMPLEEXAMPLEEX is rotating"],
+    // guard:allow-secret-literal — PEM header only, no key material
+    ["secret-credential", "-----BEGIN OPENSSH PRIVATE KEY-----"],
+    // guard:allow-secret-literal — shape-only fixtures proving suppression
+    [
+      "secret-credential",
+      "curl -H 'Authorization: Bearer EXAMPLEEXAMPLEEXAMPLE'",
+    ],
+    // guard:allow-secret-literal — shape-only fixtures proving suppression
+    ["secret-credential", "authorization: bearer exampleexampleexample"],
+    ["secret-credential", "private-key: not-a-real-value"],
+    ["secret-credential", "access_token=not-a-real-value"],
   ])("hard category %s is always suppressed", async (category, content) => {
     const result = await sanitizeCaptureForStorage({ ...baseInput, content });
 
@@ -192,6 +255,148 @@ describe("capture sanitization", () => {
   });
 
   it.each([
+    [{ configured: true, failureReason: "jev-timeout" }, "jev-timeout"],
+    [
+      { configured: false, failureReason: "jev-credential-unavailable" },
+      "jev-credential-unavailable",
+    ],
+  ])(
+    "refuses to store a capture Jev could not judge (%o)",
+    async (outcome, reason) => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("VITEST", "");
+      mocks.classifyWithJev.mockResolvedValueOnce(outcome);
+
+      const pending = sanitizeCaptureForStorage({
+        ...baseInput,
+        settings: {
+          ...DEFAULT_BRAIN_SETTINGS,
+          privacyClassifierModel: "classifier-model",
+          privacyClassifierEngine: "classifier-engine",
+        },
+        content: "Decision: ship the search index next Tuesday.",
+      });
+
+      await expect(pending).rejects.toBeInstanceOf(
+        BrainClassifierUnavailableError,
+      );
+      await expect(pending).rejects.toMatchObject({ reason });
+      expect(mocks.resolveEngine).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ["jev-timeout", "timed out after 3 attempts", 600_000],
+    ["jev-http-503", "returned HTTP 503 after 3 attempts", 600_000],
+    ["jev-credential-unavailable", "no Builder connection", null],
+    ["jev-credential-lookup-failed", "lookup failed", 600_000],
+    ["jev-http-401", "rejected the source owner", null],
+  ])(
+    "explains a %s failure in plain language",
+    (reason, phrase, retryAfterMs) => {
+      const error = new BrainClassifierUnavailableError(reason);
+
+      expect(error.message).toContain(phrase);
+      expect(error.message).toContain("nothing was skipped");
+      expect(error.message).not.toContain(reason);
+      expect(error.message).not.toContain("hourly");
+      expect(error.retryAfterMs).toBe(retryAfterMs);
+    },
+  );
+
+  it("stores a routine Slack message verbatim when Jev allows it", async () => {
+    const content = "lunch at noon, see you there";
+    mocks.classifyWithJev.mockResolvedValueOnce({
+      configured: true,
+      authSource: "stored-key",
+      decision: jevSensitivityDecision(
+        Object.fromEntries(
+          BRAIN_SENSITIVITY_CATEGORIES.map((category) => [category, 0.3]),
+        ),
+        {
+          judgedContent: content,
+          capturedAt: baseInput.capturedAt,
+          truncated: false,
+        },
+      ),
+    });
+
+    const result = await sanitizeCaptureForStorage({
+      ...baseInput,
+      kind: "message",
+      title: "#general",
+      source: { ...baseInput.source, title: "Slack", provider: "slack" },
+      content,
+    });
+
+    expect(result.decision).toMatchObject({
+      classifier: "jev",
+      disposition: "allowed",
+    });
+    expect(result.content).toBe(content);
+    expect(result.title).toBe("#general");
+    expect(result.content).not.toContain("No company-relevant content");
+  });
+
+  it("lets Jev judge a routine message that contains an HR keyword", async () => {
+    const content =
+      "We're investigating the checkout outage from this morning.";
+    mocks.classifyWithJev.mockResolvedValueOnce({
+      configured: true,
+      authSource: "stored-key",
+      decision: jevSensitivityDecision(
+        Object.fromEntries(
+          BRAIN_SENSITIVITY_CATEGORIES.map((category) => [category, 0.1]),
+        ),
+        {
+          judgedContent: content,
+          capturedAt: baseInput.capturedAt,
+          truncated: false,
+        },
+      ),
+    });
+
+    const result = await sanitizeCaptureForStorage({
+      ...baseInput,
+      kind: "message",
+      title: "#eng",
+      source: { ...baseInput.source, title: "Slack", provider: "slack" },
+      content,
+    });
+
+    expect(mocks.classifyWithJev).toHaveBeenCalledOnce();
+    expect(result.decision).toMatchObject({
+      classifier: "jev",
+      disposition: "allowed",
+    });
+    expect(result.content).toBe(content);
+  });
+
+  it("still suppresses credentials before Jev sees the capture", async () => {
+    const result = await sanitizeCaptureForStorage({
+      ...baseInput,
+      content: "Deploy notes. password: not-a-real-secret",
+    });
+
+    expect(mocks.classifyWithJev).not.toHaveBeenCalled();
+    expect(result.decision?.disposition).toBe("suppressed");
+    expect(result.decision?.categories).toEqual(["secret-credential"]);
+    expect(result.content).not.toContain("not-a-real-secret");
+  });
+
+  it("keeps the full keyword screen when the model classifier is selected", async () => {
+    const result = await sanitizeCaptureForStorage({
+      ...baseInput,
+      settings: { ...DEFAULT_BRAIN_SETTINGS, privacyClassifier: "model" },
+      content: "We're investigating the checkout outage from this morning.",
+    });
+
+    expect(mocks.classifyWithJev).not.toHaveBeenCalled();
+    expect(result.decision?.disposition).toBe("suppressed");
+    expect(result.decision?.categories).toEqual(["investigation"]);
+  });
+
+  it.each([
     "Decision: raise the API request limit for the launch.",
     "Decision: ship the bonus feature in the next product release.",
     "The medical device customer approved the integration roadmap.",
@@ -237,6 +442,7 @@ describe("capture sanitization", () => {
         title: "Granola",
         provider: "granola",
       },
+      sourceConfig: { sanitizeBeforeStorage: true },
       settings: {
         ...DEFAULT_BRAIN_SETTINGS,
         privacyClassifierModel: "classifier-model",

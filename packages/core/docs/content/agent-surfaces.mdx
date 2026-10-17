@@ -94,13 +94,13 @@ approve work, inspect native results, and keep a durable thread history.
 For a full app starting point, use the [Chat template](/docs/template-chat):
 
 ```bash
-npx @agent-native/core@latest create my-chat-app --template chat
+npx --yes @agent-native/core@latest create my-chat-app --template chat
 ```
 
 The simplest full-page chat:
 
 ```tsx
-import { AgentChatSurface } from "@agent-native/core/client/chat";
+import { AgentChatSurface } from "@agent-native/toolkit/app/chat";
 
 export default function ChatRoute() {
   return <AgentChatSurface mode="page" className="h-screen" />;
@@ -114,12 +114,11 @@ page can then morph the full chat into the sidebar while keeping the active
 thread:
 
 ```tsx
+import { AgentChatSurface, AgentSidebar } from "@agent-native/toolkit/app/chat";
 import {
-  AgentChatSurface,
-  AgentSidebar,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
-} from "@agent-native/core/client/chat";
+} from "@agent-native/core/client/agent-chat";
 import { useLocation } from "react-router";
 
 function ChatRoute() {
@@ -152,7 +151,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
 The simplest embedded chat with your own chrome:
 
 ```tsx
-import { AssistantChat } from "@agent-native/core/client/chat";
+import { AssistantChat } from "@agent-native/toolkit/app/chat";
 
 export function ProjectChat({ threadId }: { threadId: string }) {
   return <AssistantChat threadId={threadId} />;
@@ -202,6 +201,81 @@ chat only—it does not change HTTP, MCP, A2A, job, or trigger exposure. Default
 framework guidance and spawned sub-agents inherit the same surface. Trusted
 shell tools are automatically reduced to the request-filtered sandbox because
 an unrestricted shell cannot enforce a hard action boundary.
+
+### Request-scoped additional actions
+
+Use `resolveAdditionalActions` when the actions a caller can use are only known
+at request time, such as tools a user registers while the server runs. The
+callback runs once per authenticated interactive chat run (production and dev),
+before `tool-search` and `resolveActionSurface`, so both see the returned
+entries. They join that caller's registry for that run only. A2A tasks and MCP
+`ask_app` calls receive them only when you list those surfaces in
+`additionalActionSurfaces`; `surface` tells the callback which one is asking.
+
+```ts
+createAgentChatPlugin({
+  actions,
+  additionalActionSurfaces: ["a2a"],
+  resolveAdditionalActions: async ({ surface, ownerEmail, orgId }) =>
+    loadUserTools(ownerEmail, orgId, {
+      includeEditorTools: surface === "chat",
+    }),
+});
+```
+
+Treat returned entries as untrusted input. The framework ignores an entry, and
+logs a warning once, when its name is not 1–64 letters, digits, `_`, or `-`;
+when the name belongs to any template, framework, dev, or MCP action, including
+actions hidden from the agent; when it is an `mcp__` name the caller cannot
+see; or when its tool definition is unusable. Descriptions lose hidden control
+characters and are capped. `parameters` must be a bounded schema of plain JSON
+data with an `object` root, using only common validation and annotation
+keywords. Unknown keywords, `pattern`, `patternProperties`, `uniqueItems`,
+`$async`, `$id`, anchors, and any `$ref` that is recursive or points outside
+the schema are refused. The model sees the checked copy of the schema, and a
+call whose arguments are too large to validate against it is refused. Flags such as
+`readOnly` and `access` are your app's own declarations, which the framework
+trusts as it trusts `run`: set them from what your code does, never from
+metadata a user registered.
+
+Each entry is bound to the caller it was resolved for. Every call, whichever
+dispatcher makes it, refuses to run for a different user or organization,
+enforces the entry's `access` policy, and validates the arguments against its
+schema without type coercion.
+
+Names are pinned only when a hosted chat turn continues as a durable background
+run. The callback runs again, and the turn keeps its original names for these
+entries and the caller's MCP tools alike: new entries stay out, a name that
+disappeared returns an error when called, and a name that remains runs its
+current definition. Every other request resolves fresh, including each
+continuation on a local sidecar, and a dropped stream that reattaches to its run
+resolves nothing.
+
+Put the binding's identity in the name, such as a window id or scope
+(`notes_window_42_insert`), so a rebind reads as one tool leaving and another
+appearing. "Always allow" approvals follow the tool name, so they carry over
+when the same name later means something new.
+
+Set `revision` on an entry to stop that: one-time approvals and "Always allow"
+record the revision they were given for, and a different revision asks the user
+again. A custom "Always allow" handler should pass the approval's `askId` to
+`set-tool-approval-policy` as `approvalId`; without it, the grant covers only
+entries that have no revision.
+
+A call to a tool the conversation used or loaded earlier, but that this run no
+longer has, fails with `Error: Tool no longer available` instead of
+`Unknown tool`, and a run that starts after loaded tools went away tells the
+model which ones. If the user had approved that call, the run stops rather than
+letting the model continue without it. For chat, the callback also receives
+`threadId`, `requestedTurnId`, and `internalContinuation`, so an app that
+wants one tool set for a whole turn can keep its own snapshot.
+
+These entries are native tools for the agent loop only. Like the caller's MCP
+tools, they aren't reachable from `run-code` or `tool-orchestration`.
+
+`event` is set for `chat` and `a2a`; `ask_app` calls have none. The callback
+is not called for anonymous requests, scheduled jobs, automations, or agent-team
+sub-agents. An error the callback throws fails the request.
 
 ## Native inline UI {#native-inline-ui}
 
@@ -262,10 +336,10 @@ want a complete product shape.
 
 Every Agent-Native app eventually needs a place where users can configure their agent: set standing instructions, review what it's done, connect MCP servers, manage automations, and control access. Building that UI from scratch is a lot of work. Agent-Native ships a pre-built full-page component, `AgentTabsPage`, that covers all of it across twelve tabs.
 
-Mount it at `/settings/agent` in your app. Current templates use this as the canonical route and pass `agentPageHref="/settings/agent"` to `AgentSidebar`. `/agent` is kept as a legacy redirect.
+First-party templates don't mount it: Settings covers the same ground (Agent › Model, Instructions, Memory, Skills, Files, and Sub-agents, plus the app's Automations and MCP server pages), `/agent` redirects into Settings, and `agentPageHref="/settings/agent"` on `AgentSidebar` opens Settings › Agent › Model. Mount `AgentTabsPage` on its own route when an app wants the whole agent surface on one page.
 
-```tsx filename="app/routes/settings.agent.tsx"
-import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
+```tsx filename="app/routes/agent.tsx"
+import { AgentTabsPage } from "@agent-native/toolkit/app/agent-page";
 export default function AgentRoute() {
   return <AgentTabsPage />;
 }
@@ -273,20 +347,20 @@ export default function AgentRoute() {
 
 The shared page currently provides twelve tabs across two groups:
 
-| Group     | Tab               | Shows                                                                                                                                                                                                                                            |
-| --------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Resources | **Files**         | The existing `ResourcesPanel` for personal or organization files                                                                                                                                                                                 |
-| Resources | **Instructions**  | Always-on AGENTS.md-style rules                                                                                                                                                                                                                  |
-| Resources | **Agents**        | Custom sub-agent profiles                                                                                                                                                                                                                        |
-| Resources | **Memory**        | Long-term recall notes                                                                                                                                                                                                                           |
-| Resources | **Skills**        | Reusable workflows                                                                                                                                                                                                                               |
-| Resources | **Learnings**     | Corrections and patterns captured over time                                                                                                                                                                                                      |
-| Resources | **Remote agents** | A2A connections to other agent-native apps (replaces what the Connections tab used to show)                                                                                                                                                      |
-| Agent     | **Snapshots**     | A scope preview, token budget, ordered system sections grouped by provenance/governance/source, and the latest live-thread snapshot. Renamed from "Context"; old `#context` links redirect here.                                                 |
-| Agent     | **Connections**   | MCP server management only                                                                                                                                                                                                                       |
-| Agent     | **Automations**   | Personal and organization Scheduled/Event automations with pause/resume, details, and delete flows. The stable compatibility URL remains `/agent#jobs`.                                                                                          |
-| Agent     | **Settings**      | Agent model, API keys, limits, voice, and automation settings                                                                                                                                                                                    |
-| Agent     | **MCP**           | The app MCP URL, an A2A agent card when available, and shared setup guides for Claude, ChatGPT, Cursor, Claude Code, Codex, and other clients. Find it in **Settings → MCP** or use `/mcp/connect` for the full connect flow and token fallback. |
+| Group     | Tab               | Shows                                                                                                                                                                                                                                                   |
+| --------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Resources | **Files**         | The existing `ResourcesPanel` for personal or organization files                                                                                                                                                                                        |
+| Resources | **Instructions**  | Always-on AGENTS.md-style rules                                                                                                                                                                                                                         |
+| Resources | **Agents**        | Custom sub-agent profiles                                                                                                                                                                                                                               |
+| Resources | **Memory**        | Long-term recall notes                                                                                                                                                                                                                                  |
+| Resources | **Skills**        | Reusable workflows                                                                                                                                                                                                                                      |
+| Resources | **Learnings**     | Corrections and patterns captured over time                                                                                                                                                                                                             |
+| Resources | **Remote agents** | A2A connections to other agent-native apps (replaces what the Connections tab used to show)                                                                                                                                                             |
+| Agent     | **Snapshots**     | A scope preview, token budget, ordered system sections grouped by provenance/governance/source, and the latest live-thread snapshot. Renamed from "Context"; old `#context` links redirect here.                                                        |
+| Agent     | **Connections**   | MCP server management only                                                                                                                                                                                                                              |
+| Agent     | **Automations**   | Personal and organization Scheduled/Event automations with pause/resume, details, and delete flows. The stable compatibility URL remains `/agent#jobs`.                                                                                                 |
+| Agent     | **Settings**      | Agent model, API keys, limits, voice, and automation settings                                                                                                                                                                                           |
+| Agent     | **MCP**           | The app MCP URL, an A2A agent card when available, and shared setup guides for Claude, ChatGPT, Cursor, Claude Code, Codex, and other clients. Find it in **Settings → MCP server** or use `/mcp/connect` for the full connect flow and token fallback. |
 
 The page shows personal (`user`-scope) data only. There is no org-level toggle today. It is a thin shell over existing components and access checks, not a new admin console: Connections describes what the app can call; MCP describes how external clients connect to it.
 
@@ -434,7 +508,7 @@ point with Slack/Telegram, scheduled jobs, and shared secrets out of the box.
 The smallest no-browser local path is a scaffold plus one action:
 
 ```bash
-npx @agent-native/core@latest create my-agent --headless
+npx --yes @agent-native/core@latest create my-agent --headless
 cd my-agent
 pnpm install
 ```
@@ -445,6 +519,7 @@ Then define the durable operation:
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
+// One action powers every app surface: UI, agent, HTTP, MCP, A2A, and CLI.
 export default defineAction({
   description: "Summarize this week's submissions.",
   readOnly: true,
@@ -567,10 +642,8 @@ boundary: your runtime streams normalized events, and Agent-Native renders the
 composer, transcript, tool calls, approvals, native widgets, and app layout.
 
 ```tsx
-import {
-  AssistantChat,
-  createHttpAgentChatRuntime,
-} from "@agent-native/core/client/chat";
+import { AssistantChat } from "@agent-native/toolkit/app/chat";
+import { createHttpAgentChatRuntime } from "@agent-native/core/client/agent-chat";
 
 const runtime = createHttpAgentChatRuntime({
   endpoint: "/api/support-agent/chat",

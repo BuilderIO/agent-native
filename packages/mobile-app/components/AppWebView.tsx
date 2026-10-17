@@ -26,6 +26,7 @@ import { NativeSignInSheet } from "@/components/NativeSignInSheet";
 import { WebView } from "@/components/uniwind-interop";
 import { clipsSessionOwnerKey } from "@/lib/clips-session";
 import { useMobileThemeColors } from "@/lib/mobile-colors";
+import { registerMobileSlidesWebView } from "@/lib/mobile-deck-save-bridge";
 import { buildMobileGuestThemeScript } from "@/lib/mobile-theme";
 import { useNativeAppAuthState } from "@/lib/native-app-auth";
 import {
@@ -49,6 +50,7 @@ import {
 import {
   buildMobileWebViewAuthUrl,
   canCaptureMobileWebViewSession,
+  mobileWebViewTargetPath,
   resolveStickyWebViewUrl,
 } from "@/lib/webview-auth-url";
 import {
@@ -76,6 +78,8 @@ interface AppWebViewProps {
   sessionOwnerKey?: string;
   /** Workspace app id for the parent-authenticated embed-session path. */
   workspaceAppId?: string;
+  /** Enables the Slides-only save handshake for scoped mobile history restore. */
+  enableMobileDeckSaveFlushBridge?: boolean;
   /** Shown in the load-failure message, e.g. "Failed to load Calendar". */
   appName?: string;
 }
@@ -243,15 +247,6 @@ async function resolveGoogleAuthUrl(startUrl: string): Promise<string | null> {
   }
 }
 
-function embedTargetPath(rawUrl: string): string {
-  try {
-    const parsed = new URL(rawUrl);
-    return `${parsed.pathname || "/"}${parsed.search}`;
-  } catch {
-    return "/";
-  }
-}
-
 // Mirrors the framework's auth-entry grammar (see core's sign-in-journey):
 // an app can land on any of these when its session is gone.
 const SIGN_IN_ENTRY_PATHS = [
@@ -291,11 +286,15 @@ function AppWebView(
     parentSessionTokenKey,
     sessionOwnerKey,
     workspaceAppId,
+    enableMobileDeckSaveFlushBridge = false,
     appName,
   }: AppWebViewProps,
   ref: React.Ref<AppWebViewHandle>,
 ) {
   const webviewRef = useRef<WebViewRef>(null);
+  const mobileDeckSaveBridgeRef = useRef<ReturnType<
+    typeof registerMobileSlidesWebView
+  > | null>(null);
   const { destructive, foreground, primaryForeground, theme } =
     useMobileThemeColors();
   const [loading, setLoading] = useState(true);
@@ -402,6 +401,27 @@ function AppWebView(
   useImperativeHandle(ref, () => ({ reload }), [reload]);
 
   useEffect(() => {
+    if (
+      !enableMobileDeckSaveFlushBridge ||
+      (workspaceAppId !== undefined && workspaceAppId !== "slides")
+    ) {
+      return;
+    }
+    const bridge = registerMobileSlidesWebView((script) => {
+      const webview = webviewRef.current;
+      if (!webview) throw new Error("Slides WebView is not mounted.");
+      webview.injectJavaScript(script);
+    });
+    mobileDeckSaveBridgeRef.current = bridge;
+    return () => {
+      bridge.dispose();
+      if (mobileDeckSaveBridgeRef.current === bridge) {
+        mobileDeckSaveBridgeRef.current = null;
+      }
+    };
+  }, [enableMobileDeckSaveFlushBridge, workspaceAppId]);
+
+  useEffect(() => {
     webviewRef.current?.injectJavaScript(buildMobileGuestThemeScript(theme));
   }, [theme]);
 
@@ -486,7 +506,7 @@ function AppWebView(
       const mint = () =>
         createWorkspaceAppEmbedSession({
           app: workspaceAppId!,
-          path: embedTargetPath(url),
+          path: mobileWebViewTargetPath(url),
         });
       const known = peekWorkspaceSsoEnabled(parentSessionToken);
       if (known === false) {
@@ -722,6 +742,7 @@ function AppWebView(
       if (!isTrustedWebViewUrl(event.nativeEvent.url, trustedOrigin)) return;
       try {
         const msg = JSON.parse(event.nativeEvent.data);
+        if (mobileDeckSaveBridgeRef.current?.receiveAck(msg)) return;
         if (workspaceAppId && msg.type === "agentNative.embedSessionExpired") {
           refreshWorkspaceEmbed(true);
           return;
@@ -816,6 +837,7 @@ function AppWebView(
       openGoogleSession,
       refreshWorkspaceEmbed,
       workspaceAppId,
+      mobileDeckSaveBridgeRef,
     ],
   );
 

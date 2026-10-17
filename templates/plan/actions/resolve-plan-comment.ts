@@ -103,6 +103,8 @@ export default defineAction({
   mcpApp: {
     compactCatalog: true,
   },
+  changeResource: (input) =>
+    input.planId ? { resourceType: "plan", resourceId: input.planId } : null,
   run: async (args) => {
     const requesterEmail = getRequestUserEmail();
     const requesterName = getRequestUserName();
@@ -110,7 +112,6 @@ export default defineAction({
       ? resolvePlanOwnerEmailForWrite(requesterEmail)
       : requesterEmail;
 
-    // Same identity checks as update-visual-plan comment paths.
     if (isAnonymousPublicViewer(requesterEmail)) {
       throw new ForbiddenError(
         "Resolving a comment requires an agent-native account. Sign in to resolve.",
@@ -127,7 +128,6 @@ export default defineAction({
       );
     }
 
-    // Commenter-level access is sufficient for status changes.
     const access = await resolveAccess(
       "plan",
       args.planId,
@@ -146,7 +146,6 @@ export default defineAction({
     const db = getDb();
     const now = nowIso();
 
-    // Load the existing comment — must be on this plan.
     const [existing] = await db
       .select({
         id: schema.planComments.id,
@@ -204,7 +203,6 @@ export default defineAction({
         ? existingThreadCommentIds
         : [existing.id];
 
-    // Optionally post a reply note before updating the status.
     let insertedNoteId: string | undefined;
     if (args.resolutionNote) {
       const noteRows = buildUpdatedPlanCommentRows({
@@ -263,7 +261,6 @@ export default defineAction({
       createdBy: "agent",
     });
 
-    // Notify and emit events for the reply note (if any).
     if (insertedNoteId) {
       const bundleAfter = await loadPlanBundle(args.planId);
       await notifyPlanCommentRecipients({

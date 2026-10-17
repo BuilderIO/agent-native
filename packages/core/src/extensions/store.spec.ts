@@ -51,6 +51,13 @@ describe("extensions/store", () => {
       ),
     ).toBe(true);
     expect(
+      statements.some((sql) =>
+        /ALTER\s+TABLE\s+tool_shares\s+ADD\s+COLUMN\s+IF\s+NOT\s+EXISTS\s+notified_at/i.test(
+          sql,
+        ),
+      ),
+    ).toBe(true);
+    expect(
       statements.some((sql) => /RENAME\s+TO\s+tool_data_old/i.test(sql)),
     ).toBe(false);
     expect(
@@ -269,10 +276,6 @@ describe("extensions/store", () => {
         hiddenAt: null,
       },
     ];
-    // The helper combines accessFilter() with isNull(archivedAt) and, for the
-    // default case, isNull(hiddenAt). Spy on and()/isNull() (keeping the real
-    // drizzle module intact so schema.ts's sql`` template still works) to
-    // emulate the DB-side filter deterministically.
     const andSpy = vi.fn((...args: unknown[]) => ({
       __filter: args.some(
         (arg) => (arg as { kind?: string } | null)?.kind === "hidden",
@@ -480,10 +483,6 @@ describe("extensions/store", () => {
   });
 
   it("refuses to flip an existing extension to public visibility", async () => {
-    // Defense in depth — the framework `set-resource-visibility` action
-    // already rejects 'public' for extensions, but `updateExtension` is also
-    // called directly from the HTTP `PUT /extensions/:id` handler, so the
-    // store helper must enforce the rule independently.
     const client = {
       execute: vi.fn(async () => ({ rows: [], rowsAffected: 0 })),
     };

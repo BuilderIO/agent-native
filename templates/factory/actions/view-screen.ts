@@ -1,12 +1,3 @@
-/**
- * See what the user is currently looking at on screen.
- *
- * Reads and returns the current navigation state from application state.
- *
- * Usage:
- *   pnpm action view-screen
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { readAppStateForCurrentTab } from "@agent-native/core/application-state";
 import { dispatchActions } from "@agent-native/dispatch/actions";
@@ -37,7 +28,7 @@ function stringField(value: unknown): string | null {
 
 export default defineAction({
   description:
-    "See what the user is currently looking at on screen. Returns the factory list, Inbox, Automations jobs, Map selection, or other visible tab — not a graph unless the user is on the Map. Always call this first when the visible selection matters.",
+    "See what the user is currently looking at on screen. Returns the factory list, Inbox, Automations jobs, Map selection, or other visible tab — not a graph unless the user is on the Map. Basic route context is included in <current-screen>; call this for a fresh or fuller snapshot when visible selection details matter.",
   schema: z.object({}),
   http: false,
   readOnly: true,

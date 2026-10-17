@@ -6,12 +6,16 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { designDataForAccessRole } from "../server/lib/design-data-access.js";
 import {
+  trackDesignExported,
+  withDesignExportFailureTracking,
+} from "../server/lib/design-export-tracking.js";
+import {
   exportFilename,
   injectHiddenLayerExportStyle,
   trySaveExportFile,
 } from "../server/lib/design-export.js";
 import { isBoardFile } from "../shared/board-file.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 
 const METADATA_ARCHIVE_DIR = "agent-native-metadata";
 
@@ -24,6 +28,10 @@ function safeArchivePath(filename: string, fallback: string): string {
   return normalized || fallback;
 }
 
+const trackZipExportFailures = withDesignExportFailureTracking<{ id: string }>(
+  "zip",
+);
+
 export default defineAction({
   description:
     "Export a design project as a ZIP file containing all design files and a README. " +
@@ -31,26 +39,24 @@ export default defineAction({
   schema: z.object({
     id: z.string().describe("Design ID to export"),
   }),
-  run: async ({ id }) => {
+  run: trackZipExportFailures(async ({ id }, ctx, facts) => {
     const access = await resolveAccess("design", id);
     if (!access) throw new Error(`Design not found: ${id}`);
+    facts.designId = id;
 
     const row = access.resource;
     const db = getDb();
 
-    // Fetch all design files
     const files = await db
       .select()
       .from(schema.designFiles)
       .where(eq(schema.designFiles.designId, id));
     const exportFiles = files.filter((file) => !isBoardFile(file.filename));
+    facts.fileCount = exportFiles.length;
 
-    // Dynamic import JSZip
     const JSZip = (await import("jszip")).default;
     const zip = new JSZip();
 
-    // Add generated metadata under a reserved folder so valid design files named
-    // README.md or design-data.json can still export at the project root.
     const readme = [
       `# ${row.title}`,
       "",
@@ -66,17 +72,11 @@ export default defineAction({
 
     zip.file(`${METADATA_ARCHIVE_DIR}/README.md`, readme);
 
-    // Preserve design-relative paths so exported HTML keeps working with
-    // sibling CSS/assets. Strip traversal segments defensively for legacy rows.
     for (const [index, file] of exportFiles.entries()) {
       const filename = safeArchivePath(
         file.filename,
         `design-file-${index + 1}.txt`,
       );
-      // Layers toggled hidden in the editor are only suppressed by the live
-      // editor bridge; inject the same display:none rule into exported HTML
-      // files so opening them directly from the zip doesn't reveal layers
-      // the user hid in the editor.
       const content =
         file.fileType === "html"
           ? injectHiddenLayerExportStyle(file.content ?? "")
@@ -94,12 +94,16 @@ export default defineAction({
       zip.file(`${METADATA_ARCHIVE_DIR}/design-data.json`, exportDesignData);
     }
 
-    // Generate ZIP
     const zipBuffer = await zip.generateAsync({ type: "nodebuffer" });
     const zipBase64 = zipBuffer.toString("base64");
 
     const filename = exportFilename(row.title, "zip");
     const saveResult = await trySaveExportFile(filename, zipBuffer);
+
+    trackDesignExported(
+      { ...facts, exportFormat: "zip", status: "completed" },
+      ctx,
+    );
 
     return {
       zipBase64,
@@ -107,5 +111,5 @@ export default defineAction({
       ...saveResult,
       fileCount: exportFiles.length,
     };
-  },
+  }),
 });

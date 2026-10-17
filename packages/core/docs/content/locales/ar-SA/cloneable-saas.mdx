@@ -58,8 +58,8 @@ https://github.com/owner/repo
 بداية قابلة لإعادة الإنتاج. ومن دون مرجع، تجرب CLI الفرع `main` ثم `master`:
 
 ```bash
-npx @agent-native/core@latest create my-app --template community:owner/repo#v1.2.0
-npx @agent-native/core@latest create my-app --template https://github.com/owner/repo#v1.2.0
+npx --yes @agent-native/core@latest create my-app --template community:owner/repo#v1.2.0
+npx --yes @agent-native/core@latest create my-app --template https://github.com/owner/repo#v1.2.0
 ```
 
 لاختيار تطبيق المصدر من مستودع مساحة عمل دون تفاعل، استخدم
@@ -67,8 +67,8 @@ npx @agent-native/core@latest create my-app --template https://github.com/owner/
 علامات اقتباس لأن shells مثل zsh تتعامل مع `?` كنمط glob:
 
 ```bash
-npx @agent-native/core@latest create my-app --template 'community:owner/repo?app=analytics#v1.2.0'
-npx @agent-native/core@latest create my-app --template 'https://github.com/owner/repo?app=analytics#v1.2.0'
+npx --yes @agent-native/core@latest create my-app --template 'community:owner/repo?app=analytics#v1.2.0'
+npx --yes @agent-native/core@latest create my-app --template 'https://github.com/owner/repo?app=analytics#v1.2.0'
 ```
 
 خارج مساحة العمل، يحول `create` تطبيق المصدر المحدد إلى تطبيق مستقل. لإضافته
@@ -279,10 +279,10 @@ GitHub أو عناوين URL لأشجار GitHub أو أدلتها الفرعي�
 لإنشاء سقالة تطبيق جديد:
 
 ```bash
-npx @agent-native/core@latest create my-platform
+npx --yes @agent-native/core@latest create my-platform
 ```
 
-يسأل CLI أولًا **كيف تريد البدء؟** اختر **Chat** لمساحة عمل بسيطة تضم Chat وDispatch، أو **First-party template(s)** لفتح منتقي التطبيقات المتعدد. أما Community وHeadless فهما مساران لتطبيق مستقل. تشارك تطبيقات مساحة العمل المصادقة والعلامة التجارية وتكوين الوكيل وقاعدة البيانات، ويُضاف كل تطبيق إلى `apps/<name>/` مع كل ملف تحتاجه. بالنسبة إلى automation بلا UI في المتصفح بدلاً من UI التطبيق، استخدم `npx @agent-native/core@latest create my-agent --headless`.
+يسأل CLI أولًا **كيف تريد البدء؟** اختر **Chat** لمساحة عمل بسيطة تضم Chat وDispatch، أو **First-party template(s)** لفتح منتقي التطبيقات المتعدد. أما Community وHeadless فهما مساران لتطبيق مستقل. تشارك تطبيقات مساحة العمل المصادقة والعلامة التجارية وتكوين الوكيل وقاعدة البيانات، ويُضاف كل تطبيق إلى `apps/<name>/` مع كل ملف تحتاجه. بالنسبة إلى automation بلا UI في المتصفح بدلاً من UI التطبيق، استخدم `npx --yes @agent-native/core@latest create my-agent --headless`.
 
 املأ `.env` (`ANTHROPIC_API_KEY` و`DATABASE_URL`)، ثم شغّل `pnpm install` و`pnpm dev`. لا يوجد تسجيل دخول يجب تنفيذه ولا مسارات نائبة.
 

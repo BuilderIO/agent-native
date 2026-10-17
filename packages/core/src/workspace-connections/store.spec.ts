@@ -9,13 +9,15 @@ import {
 } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
+import { resetAppConfigForTests } from "../app-config/index.js";
 
 vi.mock("../db/client.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../db/client.js")>();
   return {
     ...actual,
     getDbExec: () => sharedClient,
-    isProductionServerlessFunctionRuntime: () => false,
+    isProductionServerlessFunctionRuntime:
+      actual.isProductionServerlessFunctionRuntime,
     retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
   };
 });
@@ -98,6 +100,49 @@ afterAll(async () => {
 });
 
 describe("workspace connection store", () => {
+  it("does not run schema DDL in hosted apps without release migrations", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "workspace-groups-test");
+    resetAppConfigForTests();
+    const execute = vi.spyOn(sharedClient, "execute");
+    try {
+      const { workspaceUserGroupsStore } = await import("./groups.js");
+      workspaceUserGroupsStore.reset();
+      await workspaceUserGroupsStore.ready();
+      expect(execute).not.toHaveBeenCalled();
+    } finally {
+      execute.mockRestore();
+      vi.unstubAllEnvs();
+      resetAppConfigForTests();
+    }
+  });
+
+  it("does not run runtime schema DDL in hosted function invocations", async () => {
+    const previousNodeEnv = process.env.NODE_ENV;
+    const previousNetlifyFunctionName = process.env.NETLIFY_FUNCTION_NAME;
+    process.env.NODE_ENV = "production";
+    process.env.NETLIFY_FUNCTION_NAME = "workspace-groups-test";
+    vi.stubEnv("AGENT_NATIVE_RELEASE_MIGRATIONS", "1");
+    resetAppConfigForTests();
+    const execute = vi.spyOn(sharedClient, "execute");
+    try {
+      const { ensureWorkspaceUserGroupsTable } = await import("./groups.js");
+      await ensureWorkspaceUserGroupsTable();
+      expect(execute).not.toHaveBeenCalled();
+    } finally {
+      execute.mockRestore();
+      vi.unstubAllEnvs();
+      resetAppConfigForTests();
+      if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previousNodeEnv;
+      if (previousNetlifyFunctionName === undefined) {
+        delete process.env.NETLIFY_FUNCTION_NAME;
+      } else {
+        process.env.NETLIFY_FUNCTION_NAME = previousNetlifyFunctionName;
+      }
+    }
+  });
+
   it("describes app-level access semantics", async () => {
     const { getWorkspaceConnectionAppAccess } = await import("./store.js");
     const baseConnection = {
@@ -316,6 +361,185 @@ describe("workspace connection store", () => {
     });
   });
 
+  it("requires reauthorization when an OAuth summary omits its provider", async () => {
+    const {
+      summarizeWorkspaceConnectionProviderForApp,
+      summarizeWorkspaceConnectionProviderReadiness,
+    } = await import("./store.js");
+    const { getWorkspaceConnectionProvider } =
+      await import("../connections/catalog.js");
+    const provider = getWorkspaceConnectionProvider("google_sheets");
+    if (!provider) throw new Error("Google Sheets provider is missing.");
+    const connection = {
+      id: "conn-google-sheets-legacy",
+      provider: "google_sheets",
+      label: "Google Sheets: Alice",
+      accountId: "alice-google-account",
+      accountLabel: "Alice",
+      status: "connected" as const,
+      scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
+      config: { credentialMode: "oauth" },
+      allowedApps: [],
+      allowedUsers: [],
+      credentialRefs: [
+        { key: "GOOGLE_CLIENT_ID", scope: "workspace" as const },
+        { key: "GOOGLE_CLIENT_SECRET", scope: "workspace" as const },
+      ],
+      ownerEmail: "alice@example.com",
+      orgId: "org-1",
+      createdAt: new Date(0).toISOString(),
+      updatedAt: new Date(0).toISOString(),
+      lastCheckedAt: null,
+      lastError: null,
+    };
+
+    const appSummary = summarizeWorkspaceConnectionProviderForApp({
+      providerId: provider.id,
+      appId: "analytics",
+      connections: [connection],
+      includeConnections: "all",
+    });
+    const readiness = summarizeWorkspaceConnectionProviderReadiness({
+      provider,
+      appId: "analytics",
+      connections: [connection],
+    });
+
+    expect(appSummary).toMatchObject({
+      grantState: "granted",
+      activeConnectionCount: 0,
+      statuses: ["needs_reauth"],
+      connections: [{ id: connection.id, status: "needs_reauth" }],
+    });
+    expect(readiness).toMatchObject({
+      status: "needs_attention",
+      readyConnectionCount: 0,
+      appGrant: { statuses: ["needs_reauth"] },
+    });
+  });
+
+  it("keeps an API-token connection with an account ID active without an OAuth marker", async () => {
+    const {
+      summarizeWorkspaceConnectionProviderForApp,
+      summarizeWorkspaceConnectionProviderReadiness,
+    } = await import("./store.js");
+    const { getWorkspaceConnectionProvider } =
+      await import("../connections/catalog.js");
+    const catalogProvider = getWorkspaceConnectionProvider("hubspot");
+    if (!catalogProvider) throw new Error("HubSpot provider is missing.");
+    const provider = {
+      ...catalogProvider,
+      credentialKeys: [{ key: "HUBSPOT_PRIVATE_APP_TOKEN", required: true }],
+    };
+    const connection = {
+      id: "conn-hubspot-api-token",
+      provider: "hubspot",
+      label: "HubSpot: Acme",
+      accountId: "portal-42",
+      accountLabel: "Acme",
+      status: "connected" as const,
+      scopes: [],
+      config: {},
+      allowedApps: [],
+      allowedUsers: [],
+      credentialRefs: [
+        { key: "HUBSPOT_PRIVATE_APP_TOKEN", scope: "org" as const },
+      ],
+      ownerEmail: "alice@example.com",
+      orgId: "org-1",
+      createdAt: new Date(0).toISOString(),
+      updatedAt: new Date(0).toISOString(),
+      lastCheckedAt: null,
+      lastError: null,
+    };
+
+    const appSummary = summarizeWorkspaceConnectionProviderForApp({
+      providerId: provider.id,
+      provider,
+      appId: "analytics",
+      connections: [connection],
+      includeConnections: "all",
+    });
+    const readiness = summarizeWorkspaceConnectionProviderReadiness({
+      provider,
+      appId: "analytics",
+      connections: [connection],
+    });
+
+    expect(appSummary).toMatchObject({
+      grantState: "connected",
+      activeConnectionCount: 1,
+      statuses: ["connected"],
+    });
+    expect(readiness).toMatchObject({
+      status: "ready",
+      readyConnectionCount: 1,
+      missingRequiredCredentialKeys: [],
+    });
+  });
+
+  it("accepts Google's URL aliases for the OpenID email and profile scopes", async () => {
+    const {
+      summarizeWorkspaceConnectionProviderForApp,
+      summarizeWorkspaceConnectionProviderReadiness,
+    } = await import("./store.js");
+    const { getWorkspaceConnectionProvider } =
+      await import("../connections/catalog.js");
+    const provider = getWorkspaceConnectionProvider("google_sheets");
+    if (!provider) throw new Error("Google Sheets provider is missing.");
+    const connection = {
+      id: "conn-google-sheets-oidc-aliases",
+      provider: "google_sheets",
+      label: "Google Sheets: Alice",
+      accountId: "alice-google-account",
+      accountLabel: "Alice",
+      status: "connected" as const,
+      scopes: [
+        "openid",
+        "https://www.googleapis.com/auth/userinfo.email",
+        "https://www.googleapis.com/auth/userinfo.profile",
+        "https://www.googleapis.com/auth/drive.file",
+      ],
+      config: {},
+      allowedApps: [],
+      allowedUsers: [],
+      credentialRefs: [
+        { key: "GOOGLE_CLIENT_ID", scope: "workspace" as const },
+        { key: "GOOGLE_CLIENT_SECRET", scope: "workspace" as const },
+      ],
+      ownerEmail: "alice@example.com",
+      orgId: "org-1",
+      createdAt: new Date(0).toISOString(),
+      updatedAt: new Date(0).toISOString(),
+      lastCheckedAt: null,
+      lastError: null,
+    };
+
+    const appSummary = summarizeWorkspaceConnectionProviderForApp({
+      providerId: provider.id,
+      provider,
+      appId: "analytics",
+      connections: [connection],
+      includeConnections: "all",
+    });
+    const readiness = summarizeWorkspaceConnectionProviderReadiness({
+      provider,
+      appId: "analytics",
+      connections: [connection],
+    });
+
+    expect(appSummary).toMatchObject({
+      activeConnectionCount: 1,
+      statuses: ["connected"],
+      connections: [{ id: connection.id, status: "connected" }],
+    });
+    expect(readiness).toMatchObject({
+      status: "ready",
+      readyConnectionCount: 1,
+      appGrant: { statuses: ["connected"] },
+    });
+  });
+
   it("scopes personal list, upsert, and delete to the request user", async () => {
     const { runWithRequestContext } =
       await import("../server/request-context.js");
@@ -402,6 +626,7 @@ describe("workspace connection store", () => {
           provider: "slack",
           label: "Team Slack",
           allowedApps: ["dispatch"],
+          scopes: ["channels:read"],
         }),
     );
 
@@ -426,12 +651,78 @@ describe("workspace connection store", () => {
         }),
     );
     expect(updated.label).toBe("Updated Team Slack");
+    expect(updated.scopes).toEqual(["channels:read"]);
+
+    const cleared = await runWithRequestContext(
+      { userEmail: "bob@example.com", orgId: "org-1" },
+      () =>
+        upsertWorkspaceConnection({
+          id: "conn-org",
+          provider: "slack",
+          label: "Updated Team Slack",
+          scopes: [],
+        }),
+    );
+    expect(cleared.scopes).toEqual([]);
 
     const otherOrg = await runWithRequestContext(
       { userEmail: "carol@example.com", orgId: "org-2" },
       () => getWorkspaceConnection("conn-org"),
     );
     expect(otherOrg).toBeNull();
+  });
+
+  it("clears OAuth scopes when a connection account changes without new scopes", async () => {
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    const { upsertWorkspaceConnection } = await import("./store.js");
+
+    await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "org-1" },
+      async () => {
+        const original = await upsertWorkspaceConnection({
+          id: "conn-account-rebind",
+          provider: "slack",
+          label: "Slack workspace",
+          accountId: "team-old",
+          scopes: ["channels:read"],
+        });
+        const sameAccount = await upsertWorkspaceConnection({
+          id: original.id,
+          provider: "slack",
+          label: "Renamed Slack workspace",
+          accountId: "team-old",
+        });
+
+        expect(sameAccount.scopes).toEqual(["channels:read"]);
+
+        const omittedAccount = await upsertWorkspaceConnection({
+          id: original.id,
+          provider: "slack",
+          label: "Updated Slack workspace",
+        });
+        expect(omittedAccount.accountId).toBe("team-old");
+        expect(omittedAccount.scopes).toEqual(["channels:read"]);
+
+        const rebound = await upsertWorkspaceConnection({
+          id: original.id,
+          provider: "slack",
+          label: "Other Slack workspace",
+          accountId: "team-new",
+        });
+        expect(rebound.accountId).toBe("team-new");
+        expect(rebound.scopes).toEqual([]);
+
+        const cleared = await upsertWorkspaceConnection({
+          id: original.id,
+          provider: "slack",
+          label: "No Slack workspace",
+          accountId: null,
+        });
+        expect(cleared.accountId).toBeNull();
+        expect(cleared.scopes).toEqual([]);
+      },
+    );
   });
 
   it("normalizes and enforces connection-level user allowlists", async () => {
@@ -651,6 +942,138 @@ describe("workspace connection store", () => {
         }),
     );
     expect(bobAfterRemoval.available).toBe(false);
+  });
+
+  it("rejects duplicate workspace user group names within an org", async () => {
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    const { upsertWorkspaceUserGroup } = await import("./groups.js");
+
+    await pglite.exec(`
+      CREATE TABLE IF NOT EXISTS org_members (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL,
+        email TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'member',
+        joined_at BIGINT NOT NULL DEFAULT 0,
+        federation_removal_pending_at INTEGER
+      )
+    `);
+    await pglite
+      .prepare(
+        "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
+      )
+      .run("member-owner", "org-groups", "owner@example.com", "owner", 1);
+
+    await runWithRequestContext(
+      { userEmail: "owner@example.com", orgId: "org-groups" },
+      () =>
+        upsertWorkspaceUserGroup({
+          name: "Rev Ops",
+          memberEmails: [],
+        }),
+    );
+
+    await expect(
+      runWithRequestContext(
+        { userEmail: "owner@example.com", orgId: "org-groups" },
+        () =>
+          upsertWorkspaceUserGroup({
+            name: " rev ops ",
+            memberEmails: [],
+          }),
+      ),
+    ).rejects.toThrow(/already exists/i);
+  });
+
+  it("rejects concurrent case-variant workspace group writes", async () => {
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    const { listWorkspaceUserGroupsForOrg, upsertWorkspaceUserGroup } =
+      await import("./groups.js");
+
+    await pglite.exec(`
+      CREATE TABLE IF NOT EXISTS org_members (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL,
+        email TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'member',
+        joined_at BIGINT NOT NULL DEFAULT 0,
+        federation_removal_pending_at INTEGER
+      )
+    `);
+
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const orgId = `org-groups-concurrent-${attempt}`;
+      await pglite
+        .prepare(
+          "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
+        )
+        .run(
+          `member-owner-${attempt}`,
+          orgId,
+          "owner@example.com",
+          "owner",
+          attempt,
+        );
+
+      const results = await Promise.allSettled(
+        ["Finance", "finance"].map((name, index) =>
+          runWithRequestContext({ userEmail: "owner@example.com", orgId }, () =>
+            upsertWorkspaceUserGroup({
+              id: `concurrent-group-${attempt}-${index}`,
+              name,
+              memberEmails: [],
+            }),
+          ),
+        ),
+      );
+      const fulfilled = results.filter(
+        (result): result is PromiseFulfilledResult<unknown> =>
+          result.status === "fulfilled",
+      );
+      const rejected = results.filter(
+        (result): result is PromiseRejectedResult =>
+          result.status === "rejected",
+      );
+
+      expect(fulfilled).toHaveLength(1);
+      expect(rejected).toHaveLength(1);
+      expect(
+        String(rejected[0]?.reason?.message ?? rejected[0]?.reason),
+      ).toMatch(/already exists/i);
+      expect(await listWorkspaceUserGroupsForOrg(orgId)).toHaveLength(1);
+    }
+  });
+
+  it("normalizes names for writers that do not know the derived column", async () => {
+    const { ensureWorkspaceUserGroupsTable } = await import("./groups.js");
+    const id = "legacy-writer-group";
+    const orgId = "org-groups-legacy-writer";
+
+    await ensureWorkspaceUserGroupsTable();
+    await pglite
+      .prepare(
+        `INSERT INTO workspace_user_groups
+          (id, org_id, name, member_emails_json, created_by_email, created_at, updated_at)
+         VALUES (?, ?, ?, '[]', '', 0, 0)`,
+      )
+      .run(id, orgId, "Finance");
+
+    const inserted = await pglite
+      .prepare("SELECT normalized_name FROM workspace_user_groups WHERE id = ?")
+      .all(id);
+    expect(inserted[0]?.normalized_name).toBe("finance");
+
+    await pglite
+      .prepare(
+        "UPDATE workspace_user_groups SET name = ?, normalized_name = NULL WHERE id = ?",
+      )
+      .run("Finance Team", id);
+    const updated = await pglite
+      .prepare("SELECT normalized_name FROM workspace_user_groups WHERE id = ?")
+      .all(id);
+    expect(updated[0]?.normalized_name).toBe("finance team");
   });
 
   it("scopes workspace connection grants to the active org", async () => {
@@ -1078,6 +1501,159 @@ describe("workspace connection store", () => {
     expect(missing.reason).toMatch(/not found/i);
   });
 
+  it("can constrain implicit connection selection to the authenticated owner", async () => {
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    const { resolveWorkspaceConnectionForApp, upsertWorkspaceConnection } =
+      await import("./store.js");
+
+    await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "org-1" },
+      () =>
+        upsertWorkspaceConnection({
+          id: "bigquery-alice",
+          provider: "bigquery",
+          label: "Alice Google",
+        }),
+    );
+    await runWithRequestContext(
+      { userEmail: "bob@example.com", orgId: "org-1" },
+      () =>
+        upsertWorkspaceConnection({
+          id: "bigquery-bob",
+          provider: "bigquery",
+          label: "Bob Google",
+        }),
+    );
+
+    const resolved = await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "org-1" },
+      () =>
+        resolveWorkspaceConnectionForApp({
+          appId: "analytics",
+          provider: "bigquery",
+          connectionOwnerEmail: " ALICE@example.com ",
+          requireConnected: true,
+        }),
+    );
+
+    expect(resolved).toMatchObject({
+      available: true,
+      connection: {
+        id: "bigquery-alice",
+        ownerEmail: "alice@example.com",
+      },
+    });
+
+    const otherOwnerConnection = await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "org-1" },
+      () =>
+        resolveWorkspaceConnectionForApp({
+          appId: "analytics",
+          provider: "bigquery",
+          connectionId: "bigquery-bob",
+          connectionOwnerEmail: "alice@example.com",
+          requireConnected: true,
+        }),
+    );
+
+    expect(otherOwnerConnection).toMatchObject({
+      available: false,
+      connection: null,
+    });
+    expect(otherOwnerConnection.reason).toMatch(/not found/i);
+  });
+
+  it("can select an owner's BigQuery connection by account id", async () => {
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    const { resolveWorkspaceConnectionForApp, upsertWorkspaceConnection } =
+      await import("./store.js");
+
+    await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "org-1" },
+      () =>
+        upsertWorkspaceConnection({
+          id: "bigquery-alice-personal",
+          provider: "bigquery",
+          label: "Alice Personal Google",
+          accountId: "alice-personal-account",
+        }),
+    );
+    await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "org-1" },
+      () =>
+        upsertWorkspaceConnection({
+          id: "bigquery-alice-work",
+          provider: "bigquery",
+          label: "Alice Work Google",
+          accountId: "alice-work-account",
+        }),
+    );
+
+    const resolved = await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "org-1" },
+      () =>
+        resolveWorkspaceConnectionForApp({
+          appId: "analytics",
+          provider: "bigquery",
+          connectionOwnerEmail: "alice@example.com",
+          accountId: "alice-personal-account",
+          requireConnected: true,
+        }),
+    );
+
+    expect(resolved).toMatchObject({
+      available: true,
+      connection: {
+        id: "bigquery-alice-personal",
+        ownerEmail: "alice@example.com",
+        accountId: "alice-personal-account",
+      },
+    });
+  });
+
+  it("blocks connected OAuth grants that no longer meet provider scopes", async () => {
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    const { resolveWorkspaceConnectionForApp, upsertWorkspaceConnection } =
+      await import("./store.js");
+    const requestContext = {
+      userEmail: "alice@example.com",
+      orgId: "org-1",
+    };
+
+    await runWithRequestContext(requestContext, () =>
+      upsertWorkspaceConnection({
+        id: "conn-sheets-needs-reauth",
+        provider: "google_sheets",
+        label: "Google Sheets",
+        accountId: "alice-google-account",
+        status: "connected",
+        scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
+        config: { credentialMode: "oauth" },
+      }),
+    );
+
+    const resolved = await runWithRequestContext(requestContext, () =>
+      resolveWorkspaceConnectionForApp({
+        appId: "analytics",
+        provider: "google_sheets",
+        connectionId: "conn-sheets-needs-reauth",
+        requireConnected: true,
+      }),
+    );
+
+    expect(resolved).toMatchObject({
+      available: false,
+      connection: {
+        id: "conn-sheets-needs-reauth",
+        status: "needs_reauth",
+      },
+    });
+    expect(resolved.reason).toMatch(/needs_reauth/);
+  });
+
   it("builds a reusable provider catalog for one app", async () => {
     const { runWithRequestContext } =
       await import("../server/request-context.js");
@@ -1393,6 +1969,50 @@ describe("workspace connection store", () => {
     expect(Date.parse(connection?.lastUsedAt ?? "")).toBeGreaterThan(0);
     expect(grant?.lastUsedAt).toBe(connection?.lastUsedAt);
   }, 15_000);
+
+  it("does not use a reviewer credential for an org-scoped workspace connection read", async () => {
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    const { writeAppSecret } = await import("../secrets/index.js");
+    const { resolveWorkspaceConnectionCredentialForApp } =
+      await import("./credentials.js");
+    const { upsertWorkspaceConnection } = await import("./store.js");
+
+    await runWithRequestContext(
+      { userEmail: "customer@example.com", orgId: "customer-org" },
+      () =>
+        upsertWorkspaceConnection({
+          id: "conn-customer-bigquery",
+          provider: "bigquery",
+          label: "Customer BigQuery",
+          allowedApps: ["analytics"],
+          credentialRefs: [{ key: "BIGQUERY_PROJECT_ID" }],
+        }),
+    );
+    await writeAppSecret({
+      key: "BIGQUERY_PROJECT_ID",
+      value: "reviewer-project",
+      scope: "user",
+      scopeId: "admin@example.com",
+    });
+
+    const result = await runWithRequestContext(
+      {
+        userEmail: "admin@example.com",
+        orgId: "customer-org",
+        credentialScope: "org",
+      },
+      () =>
+        resolveWorkspaceConnectionCredentialForApp({
+          appId: "analytics",
+          provider: "bigquery",
+          key: "BIGQUERY_PROJECT_ID",
+        }),
+    );
+
+    expect(result.available).toBe(false);
+    expect(result.value).toBeUndefined();
+  });
 
   it("skips last-used recording when recordUsage is false", async () => {
     const { runWithRequestContext } =

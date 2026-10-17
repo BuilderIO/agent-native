@@ -256,7 +256,6 @@ describe("latestEntryIndexAt", () => {
     expect(latestEntryIndexAt(entries, 0)).toBe(-1);
     expect(latestEntryIndexAt(entries, 1_000)).toBe(0);
     expect(latestEntryIndexAt(entries, 4_700)).toBe(0);
-    // 250ms tolerance mirrors the timeline's active-marker window.
     expect(latestEntryIndexAt(entries, 4_800)).toBe(1);
     expect(latestEntryIndexAt(entries, 5_100)).toBe(1);
     expect(latestEntryIndexAt(entries, 60_000)).toBe(2);
@@ -316,7 +315,6 @@ describe("devtools inline expansion layout", () => {
     expect(expanded[2]).toBe(68);
     expect(expanded[3]).toBe(68 + 104);
     expect(expanded[5]).toBe(68 + 104 + 34 + 34);
-    // Expanding one row must not collapse virtualization math for neighbors.
     expect(expanded[1] - expanded[0]).toBe(34);
     expect(expanded[5] - expanded[4]).toBe(34);
 

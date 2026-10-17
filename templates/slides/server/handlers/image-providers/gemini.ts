@@ -1,4 +1,7 @@
-import { resolveSecret } from "@agent-native/core/server";
+import {
+  readGeminiDeployCredentialEnv,
+  resolveGeminiApiKey,
+} from "@agent-native/core/server";
 
 import type {
   ImageProvider,
@@ -11,11 +14,11 @@ export class GeminiProvider implements ImageProvider {
   name = "gemini";
 
   isConfigured(): boolean {
-    return !!process.env.GEMINI_API_KEY;
+    return !!readGeminiDeployCredentialEnv();
   }
 
   async isConfiguredForRequest(): Promise<boolean> {
-    return !!(await resolveSecret("GEMINI_API_KEY"));
+    return !!(await resolveGeminiApiKey());
   }
 
   async generate(
@@ -25,18 +28,19 @@ export class GeminiProvider implements ImageProvider {
     config?: ImageProviderConfig,
   ): Promise<ImageGenerationResult> {
     const { GoogleGenAI } = await import("@google/genai");
-    const apiKey = await resolveSecret("GEMINI_API_KEY");
-    if (!apiKey) throw new Error("GEMINI_API_KEY not configured");
+    const apiKey = await resolveGeminiApiKey();
+    if (!apiKey)
+      throw new Error(
+        "Gemini API key (GOOGLE_GENERATIVE_AI_API_KEY) not configured",
+      );
     const client = new GoogleGenAI({ apiKey });
 
-    // Randomly select up to 4 reference images for style matching
     const shuffled = [...referenceImages].sort(() => Math.random() - 0.5);
     const selectedRefs = shuffled.slice(0, 4);
     console.log(
       `[Gemini] Using ${selectedRefs.length} of ${referenceImages.length} reference images (randomly selected)`,
     );
 
-    // Build contents with reference images + text prompt
     const contents: any[] = [];
     for (const ref of selectedRefs) {
       contents.push({
@@ -55,10 +59,8 @@ export class GeminiProvider implements ImageProvider {
       contents.push({ text: prompt });
     }
 
-    // Build image config from provider config
     const imageConfig: Record<string, string> = {};
     if (config?.size) {
-      // Map size hints to Gemini imageSize values
       const sizeMap: Record<string, string> = {
         small: "1K",
         "1k": "1K",
@@ -74,9 +76,6 @@ export class GeminiProvider implements ImageProvider {
       imageConfig.aspectRatio = config.aspectRatio;
     }
 
-    // Google retired the "-preview" aliases (shut down 2026-06-25); the GA
-    // model ids dropped the suffix. Sending the old preview ids 404s every
-    // call before falling through to gemini-2.5-flash-image.
     const geminiModels = [
       "gemini-3.1-flash-image",
       "gemini-3-pro-image",

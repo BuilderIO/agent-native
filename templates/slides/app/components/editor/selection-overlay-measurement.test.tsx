@@ -6,9 +6,13 @@ import { describe, expect, it } from "vitest";
 
 import {
   createSelectionOverlayAutofitKey,
+  createSelectionOverlayMeasurementIdentityKey,
   createSelectionOverlayMeasurementKey,
+  currentSelectionOverlayFrame,
   currentSelectionOverlayRect,
   isSelectionOverlayAutofitSettled,
+  isSameSelectedContainer,
+  isSameSelectionMeasurement,
   isSelectionOverlayOnActiveSlide,
   type SelectionOverlayMeasurement,
 } from "./selection-overlay-measurement";
@@ -44,6 +48,22 @@ function measurementKey(
   });
 }
 
+function measurementIdentityKey(
+  objectId: string,
+  revision = 0,
+  canvasZoom = 100,
+) {
+  return createSelectionOverlayMeasurementIdentityKey({
+    slideId: "slide-1",
+    content: "",
+    objectId,
+    selector: `[data-slide-object-id="${objectId}"]`,
+    path: [0],
+    canvasZoom,
+    revision,
+  });
+}
+
 function SelectionOverlayHarness({
   objectId,
   content,
@@ -64,6 +84,7 @@ function SelectionOverlayHarness({
   onRender: (left: number | null) => void;
 }) {
   const key = measurementKey(objectId, content, revision, canvasZoom);
+  const identityKey = measurementIdentityKey(objectId, revision, canvasZoom);
   const [measurement, setMeasurement] =
     useState<SelectionOverlayMeasurement | null>(null);
   const selectionIsOnActiveSlide = isSelectionOverlayOnActiveSlide(
@@ -71,7 +92,7 @@ function SelectionOverlayHarness({
     activeSlideId,
   );
   const visibleRect = selectionIsOnActiveSlide
-    ? currentSelectionOverlayRect(measurement, key)
+    ? currentSelectionOverlayRect(measurement, key, identityKey)
     : null;
   onRender(visibleRect?.left ?? null);
 
@@ -80,7 +101,7 @@ function SelectionOverlayHarness({
       setMeasurement(null);
       return;
     }
-    setMeasurement({ key, rect: currentRect });
+    setMeasurement({ key, identityKey, rect: currentRect });
   }, [currentRect, key, selectionIsOnActiveSlide]);
 
   return visibleRect ? (
@@ -90,31 +111,31 @@ function SelectionOverlayHarness({
 
 function AutofitSelectionOverlayHarness({
   autofitSettled,
+  content,
   currentRect,
   onRender,
 }: {
   autofitSettled: boolean;
+  content: string;
   currentRect: DOMRect;
   onRender: (left: number | null) => void;
 }) {
-  const key = measurementKey("object-a", "autofit content");
+  const key = measurementKey("object-a", content);
+  const identityKey = measurementIdentityKey("object-a");
   const [measurement, setMeasurement] =
     useState<SelectionOverlayMeasurement | null>(null);
-  const visibleRect = isSelectionOverlayAutofitSettled(
-    autofitSettled ? key : null,
+  const visibleRect = currentSelectionOverlayRect(
+    measurement,
     key,
-  )
-    ? currentSelectionOverlayRect(measurement, key)
-    : null;
+    identityKey,
+  );
   onRender(visibleRect?.left ?? null);
 
   useLayoutEffect(() => {
-    if (!autofitSettled) {
-      setMeasurement(null);
+    if (!isSelectionOverlayAutofitSettled(autofitSettled ? key : null, key))
       return;
-    }
 
-    setMeasurement({ key, rect: currentRect });
+    setMeasurement({ key, identityKey, rect: currentRect });
   }, [autofitSettled, currentRect, key]);
 
   return visibleRect ? (
@@ -169,10 +190,37 @@ describe("selection overlay measurement", () => {
       canvasZoom: 75,
       revision: 0,
     });
+    const identityKey = measurementIdentityKey("object-a", 0, 100);
+    const currentIdentityKey = measurementIdentityKey("object-a", 0, 75);
 
     expect(
-      currentSelectionOverlayRect({ key: oldKey, rect: rect(120) }, currentKey),
+      currentSelectionOverlayRect(
+        { key: oldKey, identityKey, rect: rect(120) },
+        currentKey,
+        currentIdentityKey,
+      ),
     ).toBeNull();
+  });
+
+  it("invalidates the rotated handle frame with its matching rect", () => {
+    const frame = {
+      left: 175,
+      top: 125,
+      width: 100,
+      height: 50,
+      transform: "matrix(0, 1, -1, 0, 0, 0)",
+      transformOrigin: { x: 50, y: 25 },
+    };
+    const measurement = {
+      key: "selection-a",
+      rect: rect(200),
+      frame,
+    };
+
+    expect(currentSelectionOverlayFrame(measurement, "selection-a")).toEqual(
+      frame,
+    );
+    expect(currentSelectionOverlayFrame(measurement, "selection-b")).toBeNull();
   });
 
   it("hides the old rect while the same object receives new geometry", () => {
@@ -210,6 +258,7 @@ describe("selection overlay measurement", () => {
     const view = render(
       <AutofitSelectionOverlayHarness
         autofitSettled={false}
+        content="autofit content"
         currentRect={rect(120)}
         onRender={(left) => renderedLefts.push(left)}
       />,
@@ -221,12 +270,56 @@ describe("selection overlay measurement", () => {
     view.rerender(
       <AutofitSelectionOverlayHarness
         autofitSettled
+        content="autofit content"
         currentRect={rect(560)}
         onRender={(left) => renderedLefts.push(left)}
       />,
     );
 
     expect(renderedLefts.slice(beforeSettle)).toEqual([null, 560]);
+    expect(
+      view.container.firstElementChild?.getAttribute(
+        "data-selection-overlay-left",
+      ),
+    ).toBe("560");
+  });
+
+  it("keeps the prior outline visible while new slide content awaits AutoFit", () => {
+    const renderedLefts: Array<number | null> = [];
+    const view = render(
+      <AutofitSelectionOverlayHarness
+        autofitSettled
+        content="before undo"
+        currentRect={rect(120)}
+        onRender={(left) => renderedLefts.push(left)}
+      />,
+    );
+    expect(view.container.firstElementChild).not.toBeNull();
+
+    const beforeContentChange = renderedLefts.length;
+    view.rerender(
+      <AutofitSelectionOverlayHarness
+        autofitSettled={false}
+        content="after undo"
+        currentRect={rect(560)}
+        onRender={(left) => renderedLefts.push(left)}
+      />,
+    );
+    expect(renderedLefts.slice(beforeContentChange)).toEqual([120]);
+    expect(
+      view.container.firstElementChild?.getAttribute(
+        "data-selection-overlay-left",
+      ),
+    ).toBe("120");
+
+    view.rerender(
+      <AutofitSelectionOverlayHarness
+        autofitSettled
+        content="after undo"
+        currentRect={rect(560)}
+        onRender={(left) => renderedLefts.push(left)}
+      />,
+    );
     expect(
       view.container.firstElementChild?.getAttribute(
         "data-selection-overlay-left",
@@ -310,5 +403,68 @@ describe("selection overlay measurement", () => {
       renderedLefts.slice(beforeSlideChange).every((left) => left === null),
     ).toBe(true);
     expect(view.container.firstElementChild).toBeNull();
+  });
+});
+
+describe("same-measurement checks", () => {
+  const frame = {
+    left: 10,
+    top: 20,
+    width: 100,
+    height: 30,
+    transform: "none",
+    transformOrigin: { x: 50, y: 15 },
+  };
+
+  it("treats an unchanged rect and frame as the same measurement", () => {
+    const current: SelectionOverlayMeasurement = {
+      key: "a",
+      rect: rect(10),
+      frame,
+    };
+    expect(
+      isSameSelectionMeasurement(current, {
+        key: "a",
+        rect: rect(10),
+        frame: { ...frame },
+      }),
+    ).toBe(true);
+  });
+
+  it("flags a moved rect, a grown frame, another key, or no current measurement", () => {
+    const current: SelectionOverlayMeasurement = {
+      key: "a",
+      rect: rect(10),
+      frame,
+    };
+    expect(
+      isSameSelectionMeasurement(current, { key: "a", rect: rect(11), frame }),
+    ).toBe(false);
+    expect(
+      isSameSelectionMeasurement(current, {
+        key: "a",
+        rect: rect(10),
+        frame: { ...frame, height: 31 },
+      }),
+    ).toBe(false);
+    expect(
+      isSameSelectionMeasurement(current, { key: "b", rect: rect(10), frame }),
+    ).toBe(false);
+    expect(
+      isSameSelectionMeasurement(null, { key: "a", rect: rect(10), frame }),
+    ).toBe(false);
+  });
+
+  it("compares containers including absence", () => {
+    expect(isSameSelectedContainer(null, null)).toBe(true);
+    expect(
+      isSameSelectedContainer(null, { rect: rect(1), frame, group: false }),
+    ).toBe(false);
+    expect(
+      isSameSelectedContainer(
+        { rect: rect(1), frame, group: false },
+        { rect: rect(1), frame, group: true },
+      ),
+    ).toBe(false);
   });
 });

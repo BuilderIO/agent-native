@@ -1,3 +1,4 @@
+import type { RelativeStyleOperation } from "../edit-panel/style-change-types";
 import { getBreakpointIframeId, getPrimaryIframeId } from "./iframe-targeting";
 
 export type LinkedScreenPreviewReplaceFn = (
@@ -7,6 +8,7 @@ export type LinkedScreenPreviewReplaceFn = (
   options?: {
     forceFullDocument?: boolean;
     preserveTextEditingSession?: boolean;
+    allowSourceNodeSwap?: boolean;
   },
 ) => boolean;
 
@@ -14,19 +16,47 @@ export type LinkedScreenPreviewStyleFn = (
   selector: string,
   property: string,
   value: string,
-  options?: { selectorCandidates?: string[]; nodeId?: string | null },
+  options?: {
+    selectorCandidates?: string[];
+    nodeId?: string | null;
+    phase?: string;
+    relativeOperation?: RelativeStyleOperation;
+  },
 ) => boolean;
+
+export type LinkedScreenPreviewInteractionStateFn = (args: {
+  selector: string;
+  selectorCandidates?: string[];
+  nodeId?: string | null;
+  state: string;
+  styles: Record<string, string>;
+  routePath?: string;
+}) => boolean;
+
+export type LinkedScreenPreviewPendingDeleteFn = (args: {
+  selector: string;
+  selectorCandidates: string[];
+  requestId: string;
+  transactionId?: string;
+}) => boolean;
+
+export type LinkedScreenPreviewCancelPendingDeleteFn = (args: {
+  selector?: string;
+  selectorCandidates?: string[];
+  requestId: string;
+  transactionId?: string;
+}) => boolean;
 
 type LinkedPreviewHandlers = {
   replaceContent: LinkedScreenPreviewReplaceFn;
   sendStyleChange: LinkedScreenPreviewStyleFn;
+  pendingDelete?: LinkedScreenPreviewPendingDeleteFn;
+  cancelPendingDelete?: LinkedScreenPreviewCancelPendingDeleteFn;
+  sendInteractionStatePreviewStyle?: LinkedScreenPreviewInteractionStateFn;
 };
 
 const linkedPreviewHandlersByFrameId = new Map<string, LinkedPreviewHandlers>();
 
-/** True when `frameId` is the primary iframe or a `::bp-<width>` sibling of
- *  `screenId`. Used so undo/redo and style commits can target every linked
- *  breakpoint preview that shares one design_files row. */
 export function isLinkedScreenPreviewFrameId(
   screenId: string,
   frameId: string,
@@ -61,9 +91,6 @@ export function registerLinkedScreenPreviewHandlers(
   };
 }
 
-/** Replace document content in every mounted linked preview for this screen
- *  (primary + breakpoint sub-frames). Each DesignCanvas applies its own
- *  embedded-frame wrapping. */
 export function replaceLinkedScreenPreviewContent(
   screenId: string,
   nextContent: string,
@@ -72,6 +99,7 @@ export function replaceLinkedScreenPreviewContent(
   options?: {
     forceFullDocument?: boolean;
     preserveTextEditingSession?: boolean;
+    allowSourceNodeSwap?: boolean;
   },
 ): boolean {
   if (!screenId) return false;
@@ -85,15 +113,17 @@ export function replaceLinkedScreenPreviewContent(
   return replaced;
 }
 
-/** Apply a runtime style patch to every mounted linked preview for this
- *  screen so base edits that cascade across breakpoints stay visually in
- *  sync before the next full-document replace. */
 export function sendLinkedScreenPreviewStyleChange(
   screenId: string,
   selector: string,
   property: string,
   value: string,
-  options?: { selectorCandidates?: string[]; nodeId?: string | null },
+  options?: {
+    selectorCandidates?: string[];
+    nodeId?: string | null;
+    phase?: string;
+    relativeOperation?: RelativeStyleOperation;
+  },
 ): boolean {
   if (!screenId) return false;
   let sent = false;
@@ -106,12 +136,49 @@ export function sendLinkedScreenPreviewStyleChange(
   return sent;
 }
 
-/** Test-only: drop every registered linked-preview handler. */
+export function sendLinkedScreenPreviewPendingDelete(
+  screenId: string,
+  args: Parameters<LinkedScreenPreviewPendingDeleteFn>[0],
+): boolean {
+  if (!screenId) return false;
+  let sent = false;
+  for (const [frameId, handlers] of linkedPreviewHandlersByFrameId) {
+    if (!isLinkedScreenPreviewFrameId(screenId, frameId)) continue;
+    if (handlers.pendingDelete?.(args)) sent = true;
+  }
+  return sent;
+}
+
+export function sendLinkedScreenPreviewCancelPendingDelete(
+  screenId: string,
+  args: Parameters<LinkedScreenPreviewCancelPendingDeleteFn>[0],
+): boolean {
+  if (!screenId) return false;
+  let sent = false;
+  for (const [frameId, handlers] of linkedPreviewHandlersByFrameId) {
+    if (!isLinkedScreenPreviewFrameId(screenId, frameId)) continue;
+    if (handlers.cancelPendingDelete?.(args)) sent = true;
+  }
+  return sent;
+}
+
+export function sendLinkedScreenPreviewInteractionStateStyle(
+  screenId: string,
+  args: Parameters<LinkedScreenPreviewInteractionStateFn>[0],
+): boolean {
+  if (!screenId) return false;
+  let sent = false;
+  for (const [frameId, handlers] of linkedPreviewHandlersByFrameId) {
+    if (!isLinkedScreenPreviewFrameId(screenId, frameId)) continue;
+    if (handlers.sendInteractionStatePreviewStyle?.(args)) sent = true;
+  }
+  return sent;
+}
+
 export function __clearLinkedScreenPreviewHandlersForTests() {
   linkedPreviewHandlersByFrameId.clear();
 }
 
-/** Test-only: how many linked-preview handlers are currently registered. */
 export function __linkedScreenPreviewHandlerCountForTests() {
   return linkedPreviewHandlersByFrameId.size;
 }

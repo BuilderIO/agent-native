@@ -1,16 +1,14 @@
-// ---------------------------------------------------------------------------
-// Recurring-jobs runtime gating: decide whether this process should run the
-// local recurring-job scheduler loop (disabled by default on hosted/serverless
-// runtimes, enabled by default for local/dev).
-// ---------------------------------------------------------------------------
+import { hasCloudflareRuntime } from "../../db/migration-runtime.js";
 
 type RecurringJobsRuntimeEnvKey =
+  | "A2A_SECRET"
   | "AGENT_NATIVE_BUILD_RECURRING_JOBS"
   | "AGENT_NATIVE_DISABLE_RECURRING_JOBS"
   | "AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS"
   | "APP_URL"
   | "BETTER_AUTH_URL"
   | "CF_PAGES"
+  | "CRON_SECRET"
   | "DEPLOY_URL"
   | "AWS_EXECUTION_ENV"
   | "AWS_LAMBDA_FUNCTION_NAME"
@@ -21,6 +19,7 @@ type RecurringJobsRuntimeEnvKey =
   | "SITE_ID"
   | "URL"
   | "VERCEL"
+  | "VERCEL_ENV"
   | "VITE_APP_URL"
   | "VITE_WORKSPACE_GATEWAY_URL"
   | "WORKSPACE_GATEWAY_URL";
@@ -28,6 +27,19 @@ type RecurringJobsRuntimeEnvKey =
 type RecurringJobsRuntimeEnv = Partial<
   Record<RecurringJobsRuntimeEnvKey, string | undefined>
 >;
+
+/**
+ * Runtime facts the environment cannot carry. A Cloudflare Worker exposes its
+ * bindings only on the request, so the generated worker entry marks the
+ * isolate instead of setting an env var.
+ */
+export interface RecurringJobsPlatform {
+  cloudflareWorker: boolean;
+}
+
+function detectRecurringJobsPlatform(): RecurringJobsPlatform {
+  return { cloudflareWorker: hasCloudflareRuntime() };
+}
 
 function isTruthyEnv(value: string | undefined): boolean {
   return /^(1|true|yes|on)$/i.test(value?.trim() ?? "");
@@ -60,17 +72,14 @@ function isLoopbackAppUrl(value: string | undefined): boolean {
   return false;
 }
 
-/**
- * A serverless isolate is not a durable scheduler. Shared so
- * `shouldDisableRecurringJobsRuntime` and `scheduledTriggerAvailability` cannot
- * drift on what counts as serverless.
- */
 function isServerlessRecurringJobsRuntime(
   env: RecurringJobsRuntimeEnv,
+  platform: RecurringJobsPlatform,
 ): boolean {
   return (
     env.NETLIFY_LOCAL !== "true" &&
-    (isTruthyEnv(env.NETLIFY) ||
+    (platform.cloudflareWorker ||
+      isTruthyEnv(env.NETLIFY) ||
       env.NITRO_PRESET === "netlify" ||
       Boolean(env.AWS_LAMBDA_FUNCTION_NAME) ||
       env.AWS_EXECUTION_ENV?.startsWith("AWS_Lambda") === true ||
@@ -81,13 +90,11 @@ function isServerlessRecurringJobsRuntime(
 
 export function shouldDisableRecurringJobsRuntime(
   env: RecurringJobsRuntimeEnv = process.env,
+  platform: RecurringJobsPlatform = detectRecurringJobsPlatform(),
 ): boolean {
   if (isTruthyEnv(env.AGENT_NATIVE_DISABLE_RECURRING_JOBS)) return true;
 
-  // Keep this check separate from the platform-specific scheduler branch below
-  // so a new sweep cannot accidentally start an in-process timer before its
-  // platform trigger exists.
-  if (isServerlessRecurringJobsRuntime(env)) return true;
+  if (isServerlessRecurringJobsRuntime(env, platform)) return true;
 
   const isLocalRuntime =
     env.NODE_ENV === "development" ||
@@ -112,11 +119,6 @@ export function shouldDisableRecurringJobsRuntime(
   return isLocalRuntime;
 }
 
-/**
- * Hosted Netlify deploys get a durable scheduled sweep emitted by the build.
- * The in-process timer must stay off there: a scale-to-zero recycle destroys
- * that timer, which is exactly the failure mode the emitted sweep fixes.
- */
 export function isNetlifyRecurringJobsRuntime(
   env: RecurringJobsRuntimeEnv = process.env,
 ): boolean {
@@ -125,27 +127,11 @@ export function isNetlifyRecurringJobsRuntime(
   return Boolean((env.NETLIFY && env.NETLIFY !== "false") || env.SITE_ID);
 }
 
-/** What the BUILD decided about recurring jobs, as carried into the runtime. */
 export type RecurringJobsBuildMarker = "enabled" | "disabled";
 
-/**
- * Env name the build embeds its recurring-jobs decision under.
- *
- * Netlify's scheduled function is emitted — or omitted — while the build runs,
- * and a deployed serverless runtime never sees the build environment. So the
- * build has to hand the decision over explicitly; nothing observable at runtime
- * can reconstruct it. Consumed below as a LITERAL `process.env.<name>` member
- * expression because that is the only form Vite's `define` and Nitro's
- * `replace` inline at build time.
- */
 export const RECURRING_JOBS_BUILD_MARKER_ENV_VAR =
   "AGENT_NATIVE_BUILD_RECURRING_JOBS";
 
-/**
- * Build-side resolver: what the build environment decided. Shared with
- * `isRecurringJobsDeployEnabled` in the deploy build so the gate that emits the
- * scheduled function and the marker that reports it cannot disagree.
- */
 export function resolveRecurringJobsBuildMarker(
   env: RecurringJobsRuntimeEnv = process.env,
 ): RecurringJobsBuildMarker {
@@ -171,68 +157,92 @@ function readRecurringJobsBuildMarker(
   return value === "enabled" || value === "disabled" ? value : undefined;
 }
 
+export type PlatformScheduledTriggerDriver =
+  | "netlify-scheduled-function"
+  | "vercel-cron"
+  | "cloudflare-cron-trigger";
+
+export type ScheduledTriggerDriver =
+  | PlatformScheduledTriggerDriver
+  | "in-process";
+
+/**
+ * The secret each emitted trigger authenticates with. Netlify is absent
+ * because its build refuses to emit the scheduled function without
+ * `A2A_SECRET`; Vercel and Cloudflare read theirs only at runtime, so a deploy
+ * without one has a trigger that fires and is rejected every minute.
+ */
+const PLATFORM_TRIGGER_SECRET: Partial<
+  Record<PlatformScheduledTriggerDriver, "CRON_SECRET" | "A2A_SECRET">
+> = {
+  "vercel-cron": "CRON_SECRET",
+  "cloudflare-cron-trigger": "A2A_SECRET",
+};
+
 export type ScheduledTriggerAvailability =
-  | { available: true; driver: "netlify-scheduled-function" | "in-process" }
+  | { available: true; driver: ScheduledTriggerDriver }
   | {
       available: false;
       reason: "disabled-by-env" | "no-platform-scheduler" | "local-development";
+    }
+  | {
+      available: false;
+      reason: "missing-trigger-secret";
+      driver: PlatformScheduledTriggerDriver;
+      secret: "CRON_SECRET" | "A2A_SECRET";
     };
 
-/**
- * Whether ANY driver will actually fire a schedule-triggered automation in this
- * deploy. Distinct from `shouldDisableRecurringJobsRuntime`, which answers the
- * narrower "should THIS process run an in-process timer" and is therefore `true`
- * on hosted Netlify even though schedules do fire there via the emitted
- * scheduled function — reporting that value to a user would call the one
- * working production runtime broken.
- *
- * Each branch reads the scope that actually decides its driver. The Netlify
- * driver is a BUILD artifact, so it is answered by the build marker; every other
- * driver is an in-process timer started from the RUNTIME env, so it is answered
- * by the runtime flag. Reading runtime-only platform markers for the Netlify
- * branch would report `available` off a build that emitted no trigger at all.
- */
+function platformScheduledTriggerDriver(
+  env: RecurringJobsRuntimeEnv,
+  platform: RecurringJobsPlatform,
+): PlatformScheduledTriggerDriver | null {
+  if (isNetlifyRecurringJobsRuntime(env)) return "netlify-scheduled-function";
+  if (platform.cloudflareWorker) return "cloudflare-cron-trigger";
+  // Vercel invokes cron jobs only on the production deployment.
+  if (
+    isTruthyEnv(env.VERCEL) &&
+    (env.VERCEL_ENV ?? "production") === "production"
+  ) {
+    return "vercel-cron";
+  }
+  return null;
+}
+
 export function scheduledTriggerAvailability(
   env: RecurringJobsRuntimeEnv = process.env,
+  platform: RecurringJobsPlatform = detectRecurringJobsPlatform(),
 ): ScheduledTriggerAvailability {
-  const buildMarker = readRecurringJobsBuildMarker(env);
+  const driver = platformScheduledTriggerDriver(env, platform);
 
-  // Netlify: the driver IS the emitted scheduled function. It fires on the
-  // platform's clock without consulting the deployed env, and no runtime value
-  // can conjure it back once the build omitted it — so the build marker is the
-  // only honest input here, in both directions.
-  if (isNetlifyRecurringJobsRuntime(env)) {
-    if (buildMarker === "disabled") {
-      return { available: false, reason: "disabled-by-env" };
+  if (driver) {
+    // The emitted trigger fires on the platform's clock whatever the deployed
+    // env says, so the build's decision outranks a runtime-only switch.
+    const buildMarker = readRecurringJobsBuildMarker(env);
+    const disabled = buildMarker
+      ? buildMarker === "disabled"
+      : isTruthyEnv(env.AGENT_NATIVE_DISABLE_RECURRING_JOBS);
+    if (disabled) return { available: false, reason: "disabled-by-env" };
+    const secret = PLATFORM_TRIGGER_SECRET[driver];
+    if (secret && !env[secret]?.trim()) {
+      return {
+        available: false,
+        reason: "missing-trigger-secret",
+        driver,
+        secret,
+      };
     }
-    if (buildMarker === "enabled") {
-      return { available: true, driver: "netlify-scheduled-function" };
-    }
-    // No marker: a build predating it, or a caller passing a synthetic env.
-    // Fall back to the runtime flag, which only agrees with the build when the
-    // pipeline sets the same value in both scopes.
-    return isTruthyEnv(env.AGENT_NATIVE_DISABLE_RECURRING_JOBS)
-      ? { available: false, reason: "disabled-by-env" }
-      : { available: true, driver: "netlify-scheduled-function" };
+    return { available: true, driver };
   }
 
-  // Everything below is driven by an in-process timer, and the runtime flag is
-  // what `shouldDisableRecurringJobsRuntime` reads before starting it. A build
-  // marker cannot speak for this branch: a build with recurring jobs turned off
-  // still starts the timer if the deployed env does not repeat the switch.
   if (isTruthyEnv(env.AGENT_NATIVE_DISABLE_RECURRING_JOBS)) {
     return { available: false, reason: "disabled-by-env" };
   }
 
-  // Every other serverless host: the build emits a scheduled trigger only for
-  // Netlify, and a frozen isolate cannot hold a timer.
-  if (isServerlessRecurringJobsRuntime(env)) {
+  if (isServerlessRecurringJobsRuntime(env, platform)) {
     return { available: false, reason: "no-platform-scheduler" };
   }
 
-  // Long-lived host. Whatever is left of the runtime gate here is the
-  // local/loopback branch, which needs AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS.
-  return shouldDisableRecurringJobsRuntime(env)
+  return shouldDisableRecurringJobsRuntime(env, platform)
     ? { available: false, reason: "local-development" }
     : { available: true, driver: "in-process" };
 }

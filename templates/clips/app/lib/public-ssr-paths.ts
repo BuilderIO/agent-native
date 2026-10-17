@@ -1,9 +1,3 @@
-/**
- * Routes that must render without the authenticated app shell.
- *
- * `/r/:recordingId` is deliberately absent: it is the private recording
- * workspace. Public playback belongs to `/share/:shareId`.
- */
 export function isStandalonePublicPath(pathname: string): boolean {
   const path = pathname.replace(/\/+$/, "") || "/";
 
@@ -15,4 +9,13 @@ export function isStandalonePublicPath(pathname: string): boolean {
     path.startsWith("/embed/") ||
     path.startsWith("/invite/")
   );
+}
+
+export function isRecordingSharePath(pathname: string): boolean {
+  return /^\/share\/[^/]+\/?$/.test(pathname);
+}
+
+export function isLegacyRecordingPath(pathname: string): boolean {
+  const path = pathname.replace(/\/+$/, "") || "/";
+  return path.startsWith("/r/");
 }

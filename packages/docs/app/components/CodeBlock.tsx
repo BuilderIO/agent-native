@@ -6,11 +6,13 @@ import { codeToHtml } from "shiki";
 interface CodeBlockProps {
   code: string;
   lang?: string;
+  className?: string;
 }
 
 export default function CodeBlock({
   code,
   lang = "typescript",
+  className = "my-4",
 }: CodeBlockProps) {
   const t = useT();
   const [html, setHtml] = useState("");
@@ -25,8 +27,6 @@ export default function CodeBlock({
         light: "github-light-default",
         dark: "github-dark-default",
       },
-      // Emit BOTH --shiki-light and --shiki-dark CSS vars (no baked-in default
-      // theme) so the per-theme color rules in global.css work in both modes.
       defaultColor: false,
     })
       .then((result) => {
@@ -49,7 +49,7 @@ export default function CodeBlock({
   }
 
   return (
-    <div className="code-block group relative my-4">
+    <div className={`code-block group relative ${className}`}>
       <button
         type="button"
         onClick={handleCopy}

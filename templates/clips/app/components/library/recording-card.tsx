@@ -1,12 +1,16 @@
-import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
-import { UPLOAD_RETRY_RESUME_FLAG } from "@shared/feature-flags";
+import { useLabState } from "@agent-native/core/client/labs";
+import { CLIPS_RESILIENT_RECORDING } from "@shared/labs";
+import { isImageRecording } from "@shared/recording-kind";
+import { recordingPolicyFromLab } from "@shared/recording-policy";
+import { isDefaultTitle } from "@shared/title-source";
 import { isRetryableUploadInterruption } from "@shared/upload-interruption";
 import {
   IconDotsVertical,
   IconLock,
   IconWorld,
   IconUsersGroup,
+  IconPhoto,
   IconPlayerPlay,
   IconShare,
   IconFolder,
@@ -22,7 +26,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 
 import { ClipsAvatar } from "@/components/clips-avatar";
-import { AgentViewCount } from "@/components/player/recording-views-badge";
+import { AgentViewCount } from "@/components/player/agent-view-count";
 import { ViewedByPopover } from "@/components/sharing/viewed-by-popover";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -47,13 +51,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
-import { isDefaultTitle } from "@/hooks/use-auto-title";
 import type { RecordingSummary } from "@/hooks/use-library";
 import { attemptOpenDesktopApp } from "@/lib/capture-install-options";
 import {
   hasRecordingBackup,
   subscribeToRecordingBackupChanges,
 } from "@/lib/recording-backup";
+import { getRecordingUploadRecoveryEnabled } from "@/lib/recording-recovery-policy";
 import {
   isAtRiskRecordingUpload,
   isStaleRecordingUpload,
@@ -62,6 +66,23 @@ import { isStorageSetupFailureReason } from "@/lib/storage-failures";
 import { cn } from "@/lib/utils";
 
 import type { BulkMoveTarget } from "./bulk-action-toolbar";
+import { FolderMoveItems, type FolderMenuParts } from "./folder-move-items";
+
+const DROPDOWN_FOLDER_PARTS: FolderMenuParts = {
+  Item: DropdownMenuItem,
+  Separator: DropdownMenuSeparator,
+  Sub: DropdownMenuSub,
+  SubTrigger: DropdownMenuSubTrigger,
+  SubContent: DropdownMenuSubContent,
+};
+
+const CONTEXT_FOLDER_PARTS: FolderMenuParts = {
+  Item: ContextMenuItem,
+  Separator: ContextMenuSeparator,
+  Sub: ContextMenuSub,
+  SubTrigger: ContextMenuSubTrigger,
+  SubContent: ContextMenuSubContent,
+};
 
 function formatDuration(ms: number): string {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000));
@@ -117,15 +138,28 @@ export function RecordingCard({
 }: RecordingCardProps) {
   const t = useT();
   const formatters = useFormatters();
-  const uploadRetryEnabled = useFeatureFlag(UPLOAD_RETRY_RESUME_FLAG.key);
+  const recordingLab = useLabState(CLIPS_RESILIENT_RECORDING.key);
+  const uploadRetryEnabled =
+    recordingLab.isSuccess &&
+    recordingLab.source !== null &&
+    recordingPolicyFromLab({
+      enabled: recordingLab.enabled,
+      source: recordingLab.source,
+      legacyValues: recordingLab.legacyValues,
+    }).recovery;
   const formatDate = (date: Date) => formatters.formatDate(date);
   const formatRelativeTime = (
     value: number,
     unit: Parameters<typeof formatters.formatRelativeTime>[1],
   ) => formatters.formatRelativeTime(value, unit);
-  const [hovered, setHovered] = useState(false);
+  const [thumbnailFailed, setThumbnailFailed] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [hasBackup, setHasBackup] = useState(false);
+  const [hasBackup, setHasBackup] = useState<boolean | null>(null);
+  const [savedRecovery, setSavedRecovery] = useState<{
+    recordingId: string;
+    enabled: boolean;
+  } | null>(null);
+  const [recoveryCheckFailed, setRecoveryCheckFailed] = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);
   const pendingTrashRef = useRef(false);
 
@@ -150,11 +184,22 @@ export function RecordingCard({
   const staleUpload = isStaleRecordingUpload(recording);
   const atRiskUpload = isAtRiskRecordingUpload(recording);
   const displayFailed = recording.status === "failed" || staleUpload;
-  const showPlaybackChrome = !displayFailed && !waitingForStorage;
+  const hostedFailureReason =
+    recording.failureCode === "global_storage_cap"
+      ? t("clipsFinalRaw.hostedStorageFull")
+      : recording.failureCode === "taken_down"
+        ? t("clipsFinalRaw.hostedRecordingTakenDown")
+        : null;
+  // A screenshot has nothing to play and no length to show, so the card drops
+  // the play overlay and the duration badge rather than claiming "0:00".
+  const isImage = isImageRecording(recording);
+  const showPlaybackChrome = !displayFailed && !waitingForStorage && !isImage;
   const failureReason = staleUpload
     ? (recording.failureReason ??
       t("recordingPage.processingStuck", { status: recording.status }))
-    : (recording.failureReason ?? t("clipsFinalRaw.removeFailedClip"));
+    : (hostedFailureReason ??
+      recording.failureReason ??
+      t("clipsFinalRaw.removeFailedClip"));
   const nativeUploadPaused =
     recording.status === "failed" &&
     /native recording|native fullscreen|screencapture|avconvert/i.test(
@@ -164,17 +209,19 @@ export function RecordingCard({
     (recording.status === "failed" &&
       isRetryableUploadInterruption(recording.failureReason)) ||
     (recording.status === "uploading" && staleUpload);
+  const retryableUpload =
+    Boolean(onRetry) && retryableStatus && !nativeUploadPaused;
   const canRetry =
-    uploadRetryEnabled &&
-    Boolean(onRetry) &&
-    retryableStatus &&
-    !nativeUploadPaused;
+    retryableUpload &&
+    savedRecovery?.recordingId === recording.id &&
+    savedRecovery.enabled;
 
   useEffect(() => {
-    if (!canRetry) {
+    if (!retryableUpload) {
       setHasBackup(false);
       return;
     }
+    setHasBackup(null);
     let cancelled = false;
     const checkForBackup = () => {
       void hasRecordingBackup(recording.id).then((found) => {
@@ -190,7 +237,34 @@ export function RecordingCard({
       cancelled = true;
       unsubscribe();
     };
-  }, [canRetry, recording.id]);
+  }, [retryableUpload, recording.id]);
+
+  useEffect(() => {
+    setSavedRecovery(null);
+    setRecoveryCheckFailed(false);
+    if (!retryableUpload || hasBackup !== true) return;
+    let cancelled = false;
+    void getRecordingUploadRecoveryEnabled(recording.id)
+      .then((enabled) => {
+        if (cancelled) return;
+        setSavedRecovery({ recordingId: recording.id, enabled });
+        setRecoveryCheckFailed(false);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setSavedRecovery(null);
+        setRecoveryCheckFailed(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    uploadRetryEnabled,
+    recordingLab.source,
+    retryableUpload,
+    hasBackup,
+    recording.id,
+  ]);
 
   const handleRetry = useCallback(
     async (e: React.MouseEvent) => {
@@ -215,11 +289,11 @@ export function RecordingCard({
   const displayOwnerName = recording.ownerName?.trim() || recording.ownerEmail;
   const visibilityLabel = t(`shareUi.visibility.${recording.visibility}.label`);
 
-  const displayThumbnail = useMemo(() => {
-    if (hovered && recording.animatedThumbnailUrl)
-      return recording.animatedThumbnailUrl;
-    return recording.thumbnailUrl;
-  }, [hovered, recording.animatedThumbnailUrl, recording.thumbnailUrl]);
+  const displayThumbnail = recording.thumbnailUrl;
+
+  useEffect(() => {
+    setThumbnailFailed(false);
+  }, [recording.thumbnailUrl]);
 
   const ownerInitials = useMemo(() => {
     const words = displayOwnerName.split(/\s+/).filter(Boolean);
@@ -281,8 +355,6 @@ export function RecordingCard({
       <ContextMenuTrigger asChild>
         <div
           role="article"
-          onMouseEnter={() => setHovered(true)}
-          onMouseLeave={() => setHovered(false)}
           className={cn(
             "group relative flex flex-col rounded-lg border bg-card overflow-hidden cursor-pointer",
             "border-border/80 hover:border-primary/40",
@@ -299,18 +371,22 @@ export function RecordingCard({
 
           {/* Thumbnail */}
           <div className="relative z-10 aspect-video overflow-hidden bg-muted pointer-events-none">
-            {displayThumbnail ? (
+            {displayThumbnail && !thumbnailFailed ? (
               // eslint-disable-next-line jsx-a11y/alt-text
               <img
                 src={displayThumbnail}
                 className="h-full w-full object-cover"
                 draggable={false}
+                onError={() => setThumbnailFailed(true)}
+                loading="lazy"
               />
             ) : (
               <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-primary/10 to-primary/5">
-                {showPlaybackChrome && (
+                {isImage ? (
+                  <IconPhoto className="h-10 w-10 text-primary/40" />
+                ) : showPlaybackChrome ? (
                   <IconPlayerPlay className="h-10 w-10 text-primary/40" />
-                )}
+                ) : null}
               </div>
             )}
 
@@ -341,8 +417,10 @@ export function RecordingCard({
                 checked={selected}
                 onClick={handleCheckbox}
                 className={cn(
-                  "pointer-events-auto absolute start-2 top-2 z-20 size-5 rounded border-background/80 bg-foreground/25 text-background opacity-70 shadow-sm backdrop-blur-sm transition-[background-color,border-color,opacity] hover:bg-foreground/45 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100",
-                  (selectionMode || selected) && "opacity-100",
+                  "pointer-events-auto absolute start-2 top-2 z-20 size-5 rounded border-ring bg-background text-foreground opacity-100 shadow-sm ring-1 ring-ring transition-[background-color,border-color,opacity] hover:bg-foreground/45",
+                  selectionMode || selected
+                    ? "opacity-100 sm:opacity-100"
+                    : "sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100",
                   selected &&
                     "border-primary bg-primary text-primary-foreground hover:bg-primary/90",
                 )}
@@ -361,7 +439,7 @@ export function RecordingCard({
               )}
 
             {!displayFailed && !waitingForStorage && atRiskUpload && (
-              <div className="absolute inset-x-2 bottom-2 rounded-md border border-amber-500/30 bg-background/95 p-2 text-start shadow-sm backdrop-blur">
+              <div className="absolute inset-x-2 bottom-2 rounded-md border border-amber-500/30 bg-background/95 p-2 text-start shadow-sm">
                 <div className="flex items-start gap-2">
                   <IconAlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
                   <div className="min-w-0 flex-1">
@@ -379,7 +457,7 @@ export function RecordingCard({
             {(displayFailed || waitingForStorage) && (
               <div
                 className={cn(
-                  "absolute inset-x-2 bottom-2 rounded-md border bg-background/95 p-2.5 text-start shadow-sm backdrop-blur",
+                  "absolute inset-x-2 bottom-2 rounded-md border bg-background/95 p-2.5 text-start shadow-sm",
                   waitingForStorage
                     ? "border-primary/30"
                     : "border-destructive/30",
@@ -437,7 +515,14 @@ export function RecordingCard({
                           ? t("clipsFinalRaw.retrying")
                           : t("clipsFinalRaw.retry")}
                       </Button>
-                    ) : canRetry ? (
+                    ) : recoveryCheckFailed && hasBackup ? (
+                      <div
+                        role="alert"
+                        className="mt-1.5 text-[10px] leading-snug text-muted-foreground"
+                      >
+                        {t("clipsFinalRaw.retryCheckFailed")}
+                      </div>
+                    ) : retryableUpload && hasBackup === false ? (
                       <div className="mt-1.5 text-[10px] leading-snug text-muted-foreground">
                         {t("clipsFinalRaw.retryUnavailableHere")}
                       </div>
@@ -522,27 +607,12 @@ export function RecordingCard({
                             {t("navigation.newFolder")}
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
-                          {moveTargets.map((target, index) => (
-                            <DropdownMenuItem
-                              key={target.id ?? `root-${index}`}
-                              disabled={target.disabled || isMovePending}
-                              onSelect={() => onMove?.(recording, target.id)}
-                            >
-                              <span
-                                className="truncate"
-                                style={{
-                                  paddingInlineStart: (target.depth ?? 0) * 12,
-                                }}
-                              >
-                                {target.name}
-                              </span>
-                              {target.disabled && (
-                                <span className="ms-auto text-xs text-muted-foreground">
-                                  {t("clipsFinalRaw.current")}
-                                </span>
-                              )}
-                            </DropdownMenuItem>
-                          ))}
+                          <FolderMoveItems
+                            parts={DROPDOWN_FOLDER_PARTS}
+                            targets={moveTargets}
+                            disabled={isMovePending}
+                            onMove={(folderId) => onMove?.(recording, folderId)}
+                          />
                         </DropdownMenuSubContent>
                       </DropdownMenuSub>
                     ) : null}
@@ -556,7 +626,7 @@ export function RecordingCard({
                       ) : (
                         <DropdownMenuItem onSelect={() => onArchive(recording)}>
                           <IconArchive className="h-4 w-4 me-2" />{" "}
-                          {t("navigation.archive")}
+                          {t("libraryGrid.archiveAction")}
                         </DropdownMenuItem>
                       ))}
                     {onTrash && (
@@ -568,7 +638,7 @@ export function RecordingCard({
                         className="text-destructive focus:text-destructive"
                       >
                         <IconTrash className="h-4 w-4 me-2" />{" "}
-                        {t("navigation.trash")}
+                        {t("libraryGrid.moveToTrashAction")}
                       </DropdownMenuItem>
                     )}
                   </DropdownMenuContent>
@@ -683,27 +753,12 @@ export function RecordingCard({
                 {t("navigation.newFolder")}
               </ContextMenuItem>
               <ContextMenuSeparator />
-              {moveTargets.map((target, index) => (
-                <ContextMenuItem
-                  key={target.id ?? `context-root-${index}`}
-                  disabled={target.disabled || isMovePending}
-                  onSelect={() => onMove?.(recording, target.id)}
-                >
-                  <span
-                    className="truncate"
-                    style={{
-                      paddingInlineStart: (target.depth ?? 0) * 12,
-                    }}
-                  >
-                    {target.name}
-                  </span>
-                  {target.disabled && (
-                    <span className="ms-auto text-xs text-muted-foreground">
-                      {t("clipsFinalRaw.current")}
-                    </span>
-                  )}
-                </ContextMenuItem>
-              ))}
+              <FolderMoveItems
+                parts={CONTEXT_FOLDER_PARTS}
+                targets={moveTargets}
+                disabled={isMovePending}
+                onMove={(folderId) => onMove?.(recording, folderId)}
+              />
             </ContextMenuSubContent>
           </ContextMenuSub>
         ) : null}
@@ -717,7 +772,7 @@ export function RecordingCard({
           ) : (
             <ContextMenuItem onSelect={() => onArchive(recording)}>
               <IconArchive className="h-4 w-4 me-2" />
-              {t("navigation.archive")}
+              {t("libraryGrid.archiveAction")}
             </ContextMenuItem>
           ))}
         {onTrash && (
@@ -728,7 +783,7 @@ export function RecordingCard({
             className="text-destructive focus:text-destructive"
           >
             <IconTrash className="h-4 w-4 me-2" />
-            {t("navigation.trash")}
+            {t("libraryGrid.moveToTrashAction")}
           </ContextMenuItem>
         )}
       </ContextMenuContent>

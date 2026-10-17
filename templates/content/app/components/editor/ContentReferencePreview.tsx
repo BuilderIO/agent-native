@@ -4,7 +4,8 @@ import { lazy, Suspense, useMemo } from "react";
 import { Link } from "react-router";
 
 import { Button } from "@/components/ui/button";
-import { useDocument, useDocuments } from "@/hooks/use-documents";
+import { useLocalSourceDocument } from "@/hooks/use-content-links";
+import { useDocument } from "@/hooks/use-documents";
 import { cn } from "@/lib/utils";
 
 const ReadonlyReferenceEditor = lazy(async () => {
@@ -55,31 +56,26 @@ export function resolveContentReferencePath(
 export function ContentReferencePreview({
   sourcePath,
   currentPath,
+  fromDocumentId,
   title,
   className,
   referenceDepth = 0,
 }: {
   sourcePath?: string | null;
   currentPath?: string | null;
+  fromDocumentId?: string | null;
   title?: string | null;
   className?: string;
   referenceDepth?: number;
 }) {
   const t = useT();
-  const documentsQuery = useDocuments();
   const resolvedPath = useMemo(
     () => resolveContentReferencePath(sourcePath, currentPath),
     [currentPath, sourcePath],
   );
-  const document = useMemo(() => {
-    if (!resolvedPath) return null;
-    return (documentsQuery.data ?? []).find(
-      (candidate) =>
-        candidate.source?.mode === "local-files" &&
-        trimSlashes(candidate.source.path ?? "") === resolvedPath,
-    );
-  }, [documentsQuery.data, resolvedPath]);
-  const documentQuery = useDocument(document?.id ?? null);
+  const sourceQuery = useLocalSourceDocument(resolvedPath, fromDocumentId);
+  const document = sourceQuery.data;
+  const documentQuery = useDocument(document?.documentId ?? null);
   const body = documentQuery.data?.content ?? "";
   const displayTitle =
     title?.trim() ||
@@ -115,9 +111,9 @@ export function ContentReferencePreview({
             asChild
             size="sm"
             variant="ghost"
-            className="h-8 gap-1.5 px-2 text-xs"
+            className="gap-1.5 px-2 text-xs"
           >
-            <Link to={`/page/${document.id}`}>
+            <Link to={`/page/${document.documentId}`}>
               <IconExternalLink className="size-3.5" />
               {t("editor.reference.open")}
             </Link>
@@ -133,7 +129,11 @@ export function ContentReferencePreview({
           <div className="text-sm text-muted-foreground">
             {t("editor.reference.selfReference")}
           </div>
-        ) : documentsQuery.isLoading ? (
+        ) : sourceQuery.isError ? (
+          <div className="text-sm text-muted-foreground">
+            {t("editor.reference.loadError")}
+          </div>
+        ) : sourceQuery.isLoading ? (
           <div className="text-sm text-muted-foreground">
             {t("editor.reference.loading")}
           </div>
@@ -162,8 +162,8 @@ export function ContentReferencePreview({
             }
           >
             <ReadonlyReferenceEditor
-              key={document.id}
-              documentId={document.id}
+              key={document.documentId}
+              documentId={document.documentId}
               content={body}
               onChange={() => {}}
               editable={false}

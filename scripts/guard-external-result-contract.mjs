@@ -68,7 +68,6 @@ const WAIT_RE =
 
 const RESULT_KEY_RE = /\b(description|nextRequiredAction)\s*:/g;
 
-/** Mirrors isActionExposedToExternalAgents(entry) in packages/core/src/action.ts:1234. */
 function isExternal(source) {
   if (/\bagentTool\s*:\s*false\b/.test(source)) return false;
   if (/\bmcpTool\s*:\s*true\b/.test(source)) return true;
@@ -77,10 +76,6 @@ function isExternal(source) {
   return !mcpToolPresent && !endsTurnTrue;
 }
 
-/** Extract the source range of a property value, balancing brackets so an
- *  arrow-function value (nextRequiredAction: (x) => `...`) doesn't get cut
- *  off at its first internal comma. Stops at the first top-level comma or
- *  the enclosing object's closing brace. */
 function extractPropertyValue(source, afterColonIndex) {
   let i = afterColonIndex;
   while (i < source.length && /\s/.test(source[i])) i++;
@@ -113,8 +108,6 @@ function lineAt(source, offset) {
   return line;
 }
 
-/** Pure, testable core: given one file's path/source/added-line set, return
- *  the violations found in it. */
 export function findExternalResultContractViolations(
   file,
   source,
@@ -153,11 +146,6 @@ export function findExternalResultContractViolations(
   }
 
   const basename = path.basename(file);
-  // Scope check B to a NEW create-* action, not any touched one: an existing
-  // action picks up an added line constantly (a tweaked description, a log
-  // line) without its result contract changing at all. A file is "new" here
-  // when the `defineAction(` call itself is on an added line — an existing
-  // file's defineAction( call predates this branch's diff.
   const isNewFile = addedLineNumbers.has(
     lineAt(source, defineActionMatch.index),
   );
@@ -196,9 +184,6 @@ export function checkExternalResultContract(cwd) {
     try {
       source = readFileSync(absPath, "utf8");
     } catch (err) {
-      // An added file this guard cannot read is not a clean file — that
-      // would coerce "unreadable" into "nothing to check". Report it and
-      // stop the same way requireAddedLines reports could-not-run.
       console.error(
         `guard-external-result-contract: could not read added file ${rel} ` +
           `(${err?.message ?? err}), so the check did not run.`,

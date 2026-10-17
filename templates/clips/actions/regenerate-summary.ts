@@ -1,12 +1,3 @@
-/**
- * Delegate: regenerate the recording's description from its transcript.
- *
- * See regenerate-title.ts for the delegation pattern.
- *
- * Usage:
- *   pnpm action regenerate-summary --recordingId=<id>
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -146,6 +137,8 @@ export default defineAction({
     );
     return {
       queued: true,
+      kind: "regenerate-summary",
+      requestedAt,
       recordingId: args.recordingId,
       includeFullVideoInAi,
     };

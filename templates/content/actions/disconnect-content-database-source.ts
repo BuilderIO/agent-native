@@ -58,10 +58,10 @@ async function deleteSourceRecords(databaseId: string, sourceId: string) {
 
 export default defineAction({
   description:
-    "Disconnect a content database from its current source. This removes source metadata, mappings, row identity, change sets, and execution records, but keeps the database rows/pages and local properties.",
+    "Disconnect a content collection from its current source. This removes source metadata, mappings, row identity, change sets, and execution records, but keeps the collection rows/pages and local properties.",
   schema: z.object({
-    databaseId: z.string().optional().describe("Database ID"),
-    documentId: z.string().optional().describe("Database document/page ID"),
+    databaseId: z.string().optional().describe("Collection ID"),
+    documentId: z.string().optional().describe("Collection document/page ID"),
     sourceId: z
       .string()
       .optional()

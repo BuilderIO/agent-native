@@ -24,7 +24,6 @@ const MAX_CONTEXT_ATTRIBUTES = 12;
 const MAX_CONTEXT_CHARS = 200;
 const MAX_PROVENANCE_CHARS = 4000;
 
-/** Fill modes this action executes. `formula` is computed, not reasoned. */
 const AGENT_FILL_MODES = [
   "agent-summarize",
   "agent-classify",
@@ -119,8 +118,6 @@ export default defineAction({
             domain: record.domain,
             objectType: record.objectType,
             currentValue: existing ? readStoredValue(existing) : null,
-            // A protected cell is reported up front so the caller does not
-            // spend reasoning on a value that will be kept anyway.
             protectedBy: existing ? protectedBy(existing) : null,
             context: context.get(recordId) ?? {},
           };
@@ -142,9 +139,6 @@ export default defineAction({
       );
     }
 
-    // Validate EVERY value before writing ANY. A batch that writes three cells
-    // and then rejects the fourth leaves the user with a partly-filled column
-    // and no way to tell which half the agent stands behind.
     const knownOptionValues = new Set(
       allowedOptions.map((option) => option.value),
     );
@@ -194,7 +188,6 @@ export default defineAction({
           [
             {
               fieldName: attribute.apiSlug,
-              // The grid renders this as the cell's "source" line.
               provider: entry.source ?? `fill:${attributeRow.fillMode}`,
               ...(entry.sourceUrl ? { sourceUrl: entry.sourceUrl } : {}),
               ...(entry.reasoning ? { reasoning: entry.reasoning } : {}),
@@ -229,11 +222,6 @@ export default defineAction({
   },
 });
 
-/**
- * The attribute as something this action may write, or a typed 422 explaining
- * why not. A misconfigured attribute fails here rather than filling a column the
- * next provider sync will overwrite.
- */
 function requireAgentFillable(row: CrmAttributeRow): CrmWritableAttribute {
   if (!row.fillMode) {
     throw new CrmAttributeValueError(
@@ -300,14 +288,6 @@ export type CurrentFieldRow = {
   provenanceJson: string;
 };
 
-/**
- * Why an existing value outranks a fill, or null when the fill may proceed.
- *
- * A human edit and a value someone paid a provider for are the two things a
- * later automated fill must never quietly replace. The paid enrichment ingest
- * shares this rule — it honours `human-edit` and overwrites its own earlier
- * `paid-enrichment` values, which is why the decision lives in one function.
- */
 export function protectedBy(row: CurrentFieldRow): string | null {
   if (row.actorType === "user") return "human-edit";
   if (isPaidProvenance(row.provenanceJson)) return "paid-enrichment";
@@ -319,8 +299,6 @@ function isPaidProvenance(provenanceJson: string): boolean {
   try {
     parsed = JSON.parse(provenanceJson);
   } catch {
-    // An unreadable provenance blob is not proof the value was free. Treat it
-    // as protected: keeping a value we cannot explain beats overwriting one.
     return true;
   }
   const entries = Array.isArray(parsed) ? parsed : [parsed];
@@ -406,7 +384,6 @@ async function loadCurrentValues(recordIds: string[], apiSlug: string) {
   return new Map(rows.map((row) => [row.recordId, row]));
 }
 
-/** A bounded slice of each record's other current values, for the brief. */
 async function loadRecordContext(recordIds: string[]) {
   const rows = await getDb()
     .select({

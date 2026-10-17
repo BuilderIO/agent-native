@@ -104,14 +104,11 @@ export function ThreadHistorySheet({
   );
   const { width } = useWindowDimensions();
   const drawerWidth = Math.min(380, width * 0.88);
-  // Start with the complete workspace history, then let the user narrow it.
   const [selectedAppId, setSelectedAppId] = useState<"all" | (string & {})>(
     "all",
   );
-  // Discards results from a superseded app-filter request.
   const requestIdRef = useRef(0);
 
-  // Chat first (the default view), then the rest in registry order.
   const apps = useMemo(
     () =>
       [...chatCapableApps()].sort((a, b) =>
@@ -154,8 +151,6 @@ export function ThreadHistorySheet({
     }
   }, [visible, refresh]);
 
-  // The chip row already names the app, so the per-app section header is
-  // redundant — keep only the thread rows.
   const rows = useMemo(
     () =>
       threads.map((thread) => ({

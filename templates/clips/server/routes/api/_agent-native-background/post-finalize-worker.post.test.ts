@@ -4,7 +4,7 @@ const mockReadBody = vi.hoisted(() => vi.fn());
 const mockSetResponseStatus = vi.hoisted(() => vi.fn());
 const mockDispatchPostFinalizeJob = vi.hoisted(() => vi.fn());
 const mockRunWithRequestContext = vi.hoisted(() => vi.fn());
-const mockVerifyScopedAgentAccessToken = vi.hoisted(() => vi.fn());
+const mockVerifyShortLivedToken = vi.hoisted(() => vi.fn());
 const mockRunLoomImportJob = vi.hoisted(() => vi.fn());
 const mockFinalizeRun = vi.hoisted(() => vi.fn());
 const mockEnsureRecordingThumbnail = vi.hoisted(() => vi.fn());
@@ -12,6 +12,7 @@ const mockMarkThumbnailFailed = vi.hoisted(() => vi.fn());
 const mockUpdateReturning = vi.hoisted(() =>
   vi.fn(async () => [{ id: "rec-1" }]),
 );
+const mockNe = vi.hoisted(() => vi.fn((..._args: unknown[]) => "ne"));
 const mockDb = vi.hoisted(() => ({
   select: vi.fn(() => {
     const builder = {
@@ -23,6 +24,7 @@ const mockDb = vi.hoisted(() => ({
           ownerEmail: "owner@example.test",
           orgId: "org-1",
           status: "processing",
+          uploadAttemptId: "attempt-1",
           uploadGenerationId: "generation-1",
         },
       ]),
@@ -47,14 +49,16 @@ vi.mock("drizzle-orm", () => ({
   eq: vi.fn(() => "eq"),
   isNull: vi.fn(() => "isNull"),
   lt: vi.fn(() => "lt"),
+  ne: (...args: unknown[]) => mockNe(...args),
   or: vi.fn(() => "or"),
 }));
 
 vi.mock("@agent-native/core/server", () => ({
   runWithRequestContext: (...args: unknown[]) =>
     mockRunWithRequestContext(...args),
-  verifyScopedAgentAccessToken: (...args: unknown[]) =>
-    mockVerifyScopedAgentAccessToken(...args),
+  scopedAgentAccessResourceId: (kind: string, id: string) => `${kind}:${id}`,
+  verifyShortLivedToken: (...args: unknown[]) =>
+    mockVerifyShortLivedToken(...args),
 }));
 
 vi.mock("../../../../actions/finalize-recording.js", () => ({
@@ -91,6 +95,8 @@ vi.mock("../../../db/index.js", () => ({
       ownerEmail: "recordings.ownerEmail",
       orgId: "recordings.orgId",
       status: "recordings.status",
+      failureCode: "recordings.failureCode",
+      uploadAttemptId: "recordings.uploadAttemptId",
       uploadGenerationId: "recordings.uploadGenerationId",
       loomImportClaimId: "recordings.loomImportClaimId",
       loomImportClaimedAt: "recordings.loomImportClaimedAt",
@@ -113,6 +119,7 @@ vi.mock("../../../../actions/export-to-brain.js", () => ({
   default: { run: vi.fn() },
 }));
 
+import requestTranscript from "../../../../actions/request-transcript.js";
 import handler from "./post-finalize-worker.post";
 
 describe("post-finalize worker", () => {
@@ -125,8 +132,10 @@ describe("post-finalize worker", () => {
       token: "valid-token",
       delayMs: 1_000,
       retryAttempt: 2,
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
     });
-    mockVerifyScopedAgentAccessToken.mockReturnValue({ ok: true });
+    mockVerifyShortLivedToken.mockReturnValue({ ok: true });
     mockRunWithRequestContext.mockImplementation(
       (_context: unknown, callback: () => unknown) => callback(),
     );
@@ -157,6 +166,8 @@ describe("post-finalize worker", () => {
       recordingId: "rec-1",
       kind: "media-ready",
       retryAttempt: 2,
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
       regenerate: undefined,
       requireAccepted: true,
     });
@@ -204,6 +215,36 @@ describe("post-finalize worker", () => {
     });
   });
 
+  it("hands a regenerate the import it was accepted against", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "transcript",
+      token: "valid-token",
+      regenerate: true,
+      replaceImportId: "import-1",
+    });
+    mockDb.select.mockImplementationOnce(() => {
+      const builder = {
+        from: vi.fn(() => builder),
+        where: vi.fn(() => builder),
+        limit: vi.fn(async () => [
+          { id: "rec-1", ownerEmail: "owner@example.test", status: "ready" },
+        ]),
+      };
+      return builder;
+    });
+
+    await handler({} as any);
+
+    expect(requestTranscript.run).toHaveBeenCalledWith({
+      recordingId: "rec-1",
+      force: true,
+      retryAttempt: undefined,
+      regenerate: true,
+      replaceImportId: "import-1",
+    });
+  });
+
   it("claims a Loom import before running its side effects", async () => {
     mockReadBody.mockResolvedValue({
       recordingId: "rec-1",
@@ -225,12 +266,34 @@ describe("post-finalize worker", () => {
     });
   });
 
+  it("does not claim a taken-down Loom import", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "loom-import",
+      token: "valid-token",
+    });
+    mockUpdateReturning.mockResolvedValueOnce([]);
+
+    await expect(handler({} as any)).resolves.toMatchObject({
+      ok: true,
+      recordingId: "rec-1",
+      kind: "loom-import",
+      skipped: true,
+      reason: "loom-import-already-running",
+    });
+
+    expect(mockNe).toHaveBeenCalledWith("recordings.failureCode", "taken_down");
+    expect(mockRunLoomImportJob).not.toHaveBeenCalled();
+  });
+
   it("re-enters finalization with the processing row generation", async () => {
     mockReadBody.mockResolvedValue({
       recordingId: "rec-1",
       kind: "media-ready",
       token: "valid-token",
       retryAttempt: 2,
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
     });
     await expect(handler({} as any)).resolves.toMatchObject({
       ok: true,
@@ -239,8 +302,84 @@ describe("post-finalize worker", () => {
     expect(mockFinalizeRun).toHaveBeenCalledWith({
       id: "rec-1",
       mediaVerificationRetryAttempt: 2,
+      uploadAttemptId: "attempt-1",
       uploadGenerationId: "generation-1",
     });
+  });
+
+  it("passes captured attempt and generation identities to finalization", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "media-ready",
+      token: "valid-token",
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+    });
+    mockDb.select.mockImplementationOnce(() => {
+      const builder = {
+        from: vi.fn(() => builder),
+        where: vi.fn(() => builder),
+        limit: vi.fn(async () => [
+          {
+            id: "rec-1",
+            ownerEmail: "owner@example.test",
+            orgId: "org-1",
+            status: "processing",
+            uploadAttemptId: "attempt-1",
+            uploadGenerationId: "generation-1",
+          },
+        ]),
+      };
+      return builder;
+    });
+
+    await expect(handler({} as any)).resolves.toMatchObject({
+      ok: true,
+      kind: "media-ready",
+    });
+
+    expect(mockFinalizeRun).toHaveBeenCalledWith({
+      id: "rec-1",
+      mediaVerificationRetryAttempt: 1,
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+    });
+  });
+
+  it("skips media verification jobs for a replaced upload identity", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "media-ready",
+      token: "valid-token",
+      uploadAttemptId: "attempt-old",
+      uploadGenerationId: "generation-old",
+    });
+
+    await expect(handler({} as any)).resolves.toMatchObject({
+      ok: true,
+      kind: "media-ready",
+      skipped: true,
+      reason: "upload-identity-changed",
+    });
+
+    expect(mockFinalizeRun).not.toHaveBeenCalled();
+  });
+
+  it("skips media verification jobs without a captured upload identity", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "media-ready",
+      token: "valid-token",
+      retryAttempt: 2,
+    });
+
+    await expect(handler({} as any)).resolves.toMatchObject({
+      ok: true,
+      kind: "media-ready",
+      skipped: true,
+      reason: "upload-identity-missing",
+    });
+    expect(mockFinalizeRun).not.toHaveBeenCalled();
   });
 
   it("repairs a missing thumbnail in the owner request context", async () => {

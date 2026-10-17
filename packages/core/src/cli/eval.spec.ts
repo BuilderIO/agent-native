@@ -1,0 +1,664 @@
+import path from "node:path";
+
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const fsMock = vi.hoisted(() => {
+  const readFile = vi.fn(async (..._args: unknown[]): Promise<string> => {
+    throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+  });
+  return {
+    mkdir: vi.fn(async () => undefined),
+    writeFile: vi.fn(async () => undefined),
+    rename: vi.fn(async () => undefined),
+    rm: vi.fn(async () => undefined),
+    readFile,
+    open: vi.fn(async (filePath: unknown) => {
+      const contents = Buffer.from(await readFile(filePath, "utf8"), "utf8");
+      return {
+        stat: vi.fn(async () => ({ size: contents.byteLength })),
+        read: vi.fn(
+          async (
+            target: Buffer,
+            targetOffset: number,
+            length: number,
+            position: number,
+          ) => {
+            const chunk = contents.subarray(position, position + length);
+            chunk.copy(target, targetOffset);
+            return { bytesRead: chunk.length };
+          },
+        ),
+        close: vi.fn(async () => undefined),
+      };
+    }),
+  };
+});
+const promotion = vi.hoisted(() => ({
+  loadTraceEvalPromotion: vi.fn(),
+  persistPromotedEvalDataset: vi.fn(),
+}));
+const evalSuite = vi.hoisted(() => ({
+  runEvalSuite: vi.fn(),
+  formatReport: vi.fn(() => "report"),
+}));
+
+vi.mock("node:fs/promises", () => ({
+  default: fsMock,
+  mkdir: fsMock.mkdir,
+  writeFile: fsMock.writeFile,
+  rename: fsMock.rename,
+  rm: fsMock.rm,
+  readFile: fsMock.readFile,
+  open: fsMock.open,
+}));
+vi.mock("../server/request-context.js", () => ({
+  getRequestUserEmail: () => "alice@example.com",
+}));
+vi.mock("../observability/actions/promote-trace-eval.js", () => ({
+  loadTraceEvalPromotion: (...args: unknown[]) =>
+    promotion.loadTraceEvalPromotion(...args),
+  persistPromotedEvalDataset: (...args: unknown[]) =>
+    promotion.persistPromotedEvalDataset(...args),
+}));
+vi.mock("../eval/index.js", () => ({
+  runEvalSuite: (...args: unknown[]) => evalSuite.runEvalSuite(...args),
+  formatReport: (...args: unknown[]) => evalSuite.formatReport(...args),
+}));
+vi.mock("../agent/engine/index.js", () => ({
+  registerBuiltinEngines: vi.fn(),
+}));
+vi.mock("../scripts/utils.js", () => ({
+  loadEnv: vi.fn(),
+}));
+
+import {
+  PROMOTED_EVAL_PRIVACY_VERSION,
+  promotedDatasetDescription,
+  promotedTraceReference,
+} from "../eval/from-trace.js";
+import { parseEvalArgs, runEval } from "./eval.js";
+
+const promoted = {
+  promotion: {
+    sourceRunId: "run-1",
+    dataset: {
+      id: "ds-1",
+      name: `from-trace:${promotedTraceReference("run-1")}`,
+    },
+    eval: {
+      name: `from-trace:${promotedTraceReference("run-1")}`,
+      input: { prompt: "hello" },
+      threshold: 0.5,
+      source: {
+        kind: "trace" as const,
+        runId: promotedTraceReference("run-1"),
+      },
+      scorers: [{ type: "usesTool" as const, toolName: "search-docs" }],
+    },
+  },
+  alreadyStored: false,
+};
+
+describe("parseEvalArgs", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("keeps run-mode pattern parsing when argv[0] is not promote", () => {
+    expect(parseEvalArgs(["greeting", "--json"])).toEqual({
+      command: "run",
+      pattern: "greeting",
+      json: true,
+      threshold: undefined,
+    });
+    expect(parseEvalArgs(["--threshold", "0.8"])).toEqual({
+      command: "run",
+      pattern: undefined,
+      json: false,
+      threshold: 0.8,
+    });
+    expect(parseEvalArgs(["promote-me"])).toEqual({
+      command: "run",
+      pattern: "promote-me",
+      json: false,
+      threshold: undefined,
+    });
+    expect(
+      parseEvalArgs([
+        "analytics",
+        "--owner-email",
+        "alice@example.com",
+        "--org-id=org_1",
+      ]),
+    ).toEqual({
+      command: "run",
+      pattern: "analytics",
+      json: false,
+      threshold: undefined,
+      ownerEmail: "alice@example.com",
+      orgId: "org_1",
+    });
+  });
+
+  it("requires owner and org identity flags together", () => {
+    const exit = vi.spyOn(process, "exit").mockImplementation(((
+      code?: number,
+    ) => {
+      throw new Error(`process.exit(${code})`);
+    }) as typeof process.exit);
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    expect(() => parseEvalArgs(["--owner-email", "alice@example.com"])).toThrow(
+      "process.exit(2)",
+    );
+    expect(exit).toHaveBeenCalledWith(2);
+    expect(error).toHaveBeenCalledWith(
+      "eval: provide both --owner-email and --org-id",
+    );
+  });
+
+  it("parses promote with the required reviewed prompt", () => {
+    expect(
+      parseEvalArgs([
+        "promote",
+        "run-1",
+        "--reviewed-prompt",
+        "show active users daily",
+        "--write",
+        "evals/from-trace.eval.ts",
+        "--json",
+        "--must-contain",
+        "30 days",
+        "--dataset-name",
+        "weekly analytics dataset",
+      ]),
+    ).toEqual({
+      command: "promote",
+      runId: "run-1",
+      reviewedPrompt: "show active users daily",
+      write: "evals/from-trace.eval.ts",
+      json: true,
+      mustContain: "30 days",
+      datasetName: "weekly analytics dataset",
+    });
+  });
+
+  it("parses reviewed prompt and history file inputs", () => {
+    expect(
+      parseEvalArgs([
+        "promote",
+        "run-1",
+        "--reviewed-prompt-file",
+        "reviewed-prompt.txt",
+        "--reviewed-history-file",
+        "reviewed-history.json",
+      ]),
+    ).toEqual({
+      command: "promote",
+      runId: "run-1",
+      reviewedPromptFile: "reviewed-prompt.txt",
+      reviewedHistoryFile: "reviewed-history.json",
+      json: false,
+    });
+  });
+
+  it("refuses promote --write without a runId", () => {
+    const exit = vi.spyOn(process, "exit").mockImplementation(((
+      code?: number,
+    ) => {
+      throw new Error(`process.exit(${code})`);
+    }) as typeof process.exit);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    expect(() =>
+      parseEvalArgs(["promote", "--write", "evals/from-trace.eval.ts"]),
+    ).toThrow("process.exit(2)");
+    expect(exit).toHaveBeenCalledWith(2);
+  });
+
+  it("refuses promote with no runId", () => {
+    vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error(`process.exit(${code})`);
+    }) as typeof process.exit);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    expect(() => parseEvalArgs(["promote"])).toThrow("process.exit(2)");
+  });
+
+  it("requires a nonblank reviewed prompt for promotion", () => {
+    const exit = vi.spyOn(process, "exit").mockImplementation(((
+      code?: number,
+    ) => {
+      throw new Error(`process.exit(${code})`);
+    }) as typeof process.exit);
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    expect(() => parseEvalArgs(["promote", "run-1"])).toThrow(
+      "process.exit(2)",
+    );
+    expect(() =>
+      parseEvalArgs(["promote", "run-1", "--reviewed-prompt", "   "]),
+    ).toThrow("process.exit(2)");
+    expect(exit).toHaveBeenCalledWith(2);
+    expect(error).toHaveBeenCalledWith(
+      "eval promote: provide exactly one of --reviewed-prompt or --reviewed-prompt-file",
+    );
+  });
+
+  it("requires exactly one reviewed prompt source", () => {
+    const exit = vi
+      .spyOn(process, "exit")
+      .mockImplementation((code?: number) => {
+        throw new Error(`process.exit(${code})`);
+      });
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    expect(() =>
+      parseEvalArgs([
+        "promote",
+        "run-1",
+        "--reviewed-prompt",
+        "show active users daily",
+        "--reviewed-prompt-file",
+        "reviewed-prompt.txt",
+      ]),
+    ).toThrow("process.exit(2)");
+    expect(exit).toHaveBeenCalledWith(2);
+    expect(error).toHaveBeenCalledWith(
+      "eval promote: provide exactly one of --reviewed-prompt or --reviewed-prompt-file",
+    );
+  });
+
+  it("rejects promote --write when the path is missing or empty", () => {
+    const exit = vi.spyOn(process, "exit").mockImplementation(((
+      code?: number,
+    ) => {
+      throw new Error(`process.exit(${code})`);
+    }) as typeof process.exit);
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    expect(() => parseEvalArgs(["promote", "run-1", "--write"])).toThrow(
+      "process.exit(2)",
+    );
+    expect(() => parseEvalArgs(["promote", "run-1", "--write="])).toThrow(
+      "process.exit(2)",
+    );
+    expect(exit).toHaveBeenCalledWith(2);
+    expect(error).toHaveBeenCalledWith("eval promote: --write requires a path");
+  });
+});
+
+describe("runEval production-path gate", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("requires the production chat path and disables result persistence", async () => {
+    evalSuite.runEvalSuite.mockReset();
+    evalSuite.formatReport.mockReturnValue("report");
+    evalSuite.runEvalSuite.mockResolvedValue({
+      report: { total: 1, failed: 0 },
+      files: [],
+    });
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error(`process.exit(${code})`);
+    }) as typeof process.exit);
+
+    await expect(
+      runEval(["--owner-email", "eval@example.com", "--org-id", "org-eval"]),
+    ).rejects.toThrow("process.exit(0)");
+
+    expect(evalSuite.runEvalSuite).toHaveBeenCalledWith(
+      expect.objectContaining({
+        identity: { ownerEmail: "eval@example.com", orgId: "org-eval" },
+        requireProductionChatPath: true,
+        persist: false,
+      }),
+    );
+  });
+
+  it("fails an empty production eval run", async () => {
+    evalSuite.runEvalSuite.mockReset();
+    evalSuite.runEvalSuite.mockResolvedValue({
+      report: { total: 0, passed: 0, failed: 0, skipped: 0, results: [] },
+      files: [],
+    });
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error(`process.exit(${code})`);
+    }) as typeof process.exit);
+
+    await expect(runEval(["--json"])).rejects.toThrow("process.exit(1)");
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('"ok": false'));
+  });
+});
+
+describe("runPromote", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  beforeEach(() => {
+    promotion.loadTraceEvalPromotion.mockReset();
+    promotion.persistPromotedEvalDataset.mockReset();
+    fsMock.mkdir.mockReset();
+    fsMock.writeFile.mockReset();
+    fsMock.rename.mockReset();
+    fsMock.rm.mockReset();
+    fsMock.readFile.mockReset();
+    fsMock.mkdir.mockResolvedValue(undefined);
+    fsMock.writeFile.mockResolvedValue(undefined);
+    fsMock.rename.mockResolvedValue(undefined);
+    fsMock.rm.mockResolvedValue(undefined);
+    fsMock.readFile.mockRejectedValue(
+      Object.assign(new Error("ENOENT"), { code: "ENOENT" }),
+    );
+    promotion.loadTraceEvalPromotion.mockResolvedValue(promoted);
+    promotion.persistPromotedEvalDataset.mockImplementation(
+      async (dataset: unknown) => dataset,
+    );
+    vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error(`process.exit(${code})`);
+    }) as typeof process.exit);
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  it("writes the fixture before persisting the dataset", async () => {
+    const order: string[] = [];
+    promotion.loadTraceEvalPromotion.mockImplementation(async () => {
+      order.push("load");
+      return promoted;
+    });
+    fsMock.writeFile.mockImplementation(async () => {
+      order.push("write");
+    });
+    fsMock.rename.mockImplementation(async () => {
+      order.push("rename");
+    });
+    promotion.persistPromotedEvalDataset.mockImplementation(
+      async (dataset: unknown) => {
+        order.push("persist");
+        return dataset;
+      },
+    );
+
+    await expect(
+      runEval([
+        "promote",
+        "run-1",
+        "--reviewed-prompt",
+        "show active users daily",
+        "--write",
+        "evals/from-trace.eval.ts",
+        "--dataset-name",
+        "weekly analytics dataset",
+      ]),
+    ).rejects.toThrow("process.exit(0)");
+
+    expect(order).toEqual(["load", "write", "rename", "persist"]);
+    expect(promotion.loadTraceEvalPromotion).toHaveBeenCalledWith(
+      {
+        runId: "run-1",
+        reviewedPrompt: "show active users daily",
+        mustContain: undefined,
+        datasetName: "weekly analytics dataset",
+      },
+      { userId: "alice@example.com" },
+    );
+    const tmp = String(fsMock.writeFile.mock.calls[0]?.[0]);
+    const target = String(fsMock.rename.mock.calls[0]?.[1]);
+    expect(tmp).toMatch(/\.tmp$/);
+    expect(tmp).not.toMatch(new RegExp(`\\.${process.pid}\\.tmp$`));
+    expect(fsMock.writeFile.mock.calls[0]?.[2]).toEqual({
+      encoding: "utf8",
+      flag: "wx",
+    });
+    expect(String(fsMock.writeFile.mock.calls[0]?.[1])).not.toContain("run-1");
+    expect(target).toMatch(/from-trace\.eval\.ts$/);
+  });
+
+  it("reads reviewed prompt and history files without logging their contents", async () => {
+    const history = [
+      { role: "user", text: "show recent active users" },
+      { role: "assistant", text: "I can review the user trend" },
+    ];
+    fsMock.readFile.mockImplementation(async (filePath) => {
+      if (String(filePath) === path.resolve("reviewed-prompt.txt")) {
+        return "show active users daily";
+      }
+      if (String(filePath) === path.resolve("reviewed-history.json")) {
+        return JSON.stringify(history);
+      }
+      throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+    });
+
+    await expect(
+      runEval([
+        "promote",
+        "run-1",
+        "--reviewed-prompt-file",
+        "reviewed-prompt.txt",
+        "--reviewed-history-file",
+        "reviewed-history.json",
+      ]),
+    ).rejects.toThrow("process.exit(0)");
+
+    expect(promotion.loadTraceEvalPromotion).toHaveBeenCalledWith(
+      {
+        runId: "run-1",
+        reviewedPrompt: "show active users daily",
+        reviewedHistory: history,
+        mustContain: undefined,
+        datasetName: undefined,
+      },
+      { userId: "alice@example.com" },
+    );
+    expect(console.log).not.toHaveBeenCalledWith(
+      expect.stringContaining("show active users daily"),
+    );
+  });
+
+  it("checks the reviewed file size before reading its contents", async () => {
+    const read = vi.fn(async () => ({ bytesRead: 0 }));
+    const close = vi.fn(async () => undefined);
+    fsMock.open.mockResolvedValueOnce({
+      stat: vi.fn(async () => ({ size: 64 * 1024 + 1 })),
+      read,
+      close,
+    } as never);
+
+    await expect(
+      runEval([
+        "promote",
+        "run-1",
+        "--reviewed-prompt-file",
+        "oversized-prompt.txt",
+      ]),
+    ).rejects.toThrow("process.exit(1)");
+
+    expect(read).not.toHaveBeenCalled();
+    expect(close).toHaveBeenCalledOnce();
+    expect(promotion.loadTraceEvalPromotion).not.toHaveBeenCalled();
+    expect(promotion.persistPromotedEvalDataset).not.toHaveBeenCalled();
+  });
+
+  it("rejects a malformed reviewed history file before promotion", async () => {
+    fsMock.readFile.mockImplementation(async (filePath) => {
+      if (String(filePath) === path.resolve("reviewed-prompt.txt")) {
+        return "show active users daily";
+      }
+      if (String(filePath) === path.resolve("reviewed-history.json")) {
+        return JSON.stringify([{ role: "system", text: "hidden" }]);
+      }
+      throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+    });
+
+    await expect(
+      runEval([
+        "promote",
+        "run-1",
+        "--reviewed-prompt-file",
+        "reviewed-prompt.txt",
+        "--reviewed-history-file",
+        "reviewed-history.json",
+      ]),
+    ).rejects.toThrow("process.exit(1)");
+    expect(promotion.loadTraceEvalPromotion).not.toHaveBeenCalled();
+    expect(promotion.persistPromotedEvalDataset).not.toHaveBeenCalled();
+    expect(console.error).toHaveBeenCalledWith(
+      expect.stringContaining("Reviewed history entries must have a"),
+    );
+  });
+
+  it("does not persist when --write fails", async () => {
+    fsMock.writeFile.mockRejectedValue(new Error("EACCES"));
+
+    await expect(
+      runEval([
+        "promote",
+        "run-1",
+        "--reviewed-prompt",
+        "show active users daily",
+        "--write",
+        "evals/from-trace.eval.ts",
+      ]),
+    ).rejects.toThrow("process.exit(1)");
+
+    expect(promotion.persistPromotedEvalDataset).not.toHaveBeenCalled();
+    expect(fsMock.rename).not.toHaveBeenCalled();
+    expect(fsMock.rm).toHaveBeenCalled();
+  });
+
+  it("does not insert again when the promotion is already stored", async () => {
+    promotion.loadTraceEvalPromotion.mockResolvedValue({
+      ...promoted,
+      alreadyStored: true,
+    });
+
+    await expect(
+      runEval([
+        "promote",
+        "run-1",
+        "--reviewed-prompt",
+        "show active users daily",
+        "--write",
+        "evals/from-trace.eval.ts",
+      ]),
+    ).rejects.toThrow("process.exit(0)");
+
+    expect(fsMock.rename).toHaveBeenCalled();
+    expect(promotion.persistPromotedEvalDataset).not.toHaveBeenCalled();
+  });
+
+  it("removes the fixture when persistence fails", async () => {
+    promotion.persistPromotedEvalDataset.mockRejectedValue(
+      new Error("db down"),
+    );
+
+    await expect(
+      runEval([
+        "promote",
+        "run-1",
+        "--reviewed-prompt",
+        "show active users daily",
+        "--write",
+        "evals/from-trace.eval.ts",
+      ]),
+    ).rejects.toThrow("process.exit(1)");
+
+    expect(fsMock.rm).toHaveBeenCalledWith(
+      expect.stringMatching(/from-trace\.eval\.ts$/),
+      { force: true },
+    );
+  });
+
+  it("restores the previous fixture when persistence fails", async () => {
+    fsMock.readFile.mockResolvedValue("export const previous = true;\n");
+    promotion.persistPromotedEvalDataset.mockRejectedValue(
+      new Error("db down"),
+    );
+
+    await expect(
+      runEval([
+        "promote",
+        "run-1",
+        "--reviewed-prompt",
+        "show active users daily",
+        "--write",
+        "evals/from-trace.eval.ts",
+      ]),
+    ).rejects.toThrow("process.exit(1)");
+
+    const writes = fsMock.writeFile.mock.calls.map((call) => String(call[1]));
+    expect(writes.at(-1)).toContain("export const previous = true;");
+    expect(fsMock.rename).toHaveBeenCalledTimes(2);
+    expect(fsMock.rm).not.toHaveBeenCalled();
+  });
+
+  it("rewrites the fixture from the dataset that won the save", async () => {
+    promotion.persistPromotedEvalDataset.mockResolvedValue({
+      id: "ds-winner",
+      name: `from-trace:${promotedTraceReference("run-1")}`,
+      description: promotedDatasetDescription("run-1"),
+      entries: [
+        {
+          input: "active users",
+          expectedOutput: "active users",
+          context: {
+            runId: promotedTraceReference("run-1"),
+            history: [],
+            tools: ["search-docs"],
+            privacyVersion: PROMOTED_EVAL_PRIVACY_VERSION,
+          },
+        },
+      ],
+      createdAt: 1,
+      updatedAt: 1,
+      userId: "alice@example.com",
+    });
+
+    await expect(
+      runEval([
+        "promote",
+        "run-1",
+        "--reviewed-prompt",
+        "show active users daily",
+        "--write",
+        "evals/from-trace.eval.ts",
+      ]),
+    ).rejects.toThrow("process.exit(0)");
+
+    const writes = fsMock.writeFile.mock.calls.map((call) => String(call[1]));
+    expect(writes).toHaveLength(2);
+    expect(writes[1]).toContain("active users");
+    expect(writes[1]).toContain("search-docs");
+  });
+
+  it.each([
+    ["redaction", "show Alice Example users"],
+    ["length", "show ".repeat(601)],
+  ])(
+    "does not write a fixture when the prompt fails %s validation",
+    async (_case, reviewedPrompt) => {
+      promotion.loadTraceEvalPromotion.mockRejectedValue(
+        new Error("Reviewed prompt validation failed"),
+      );
+
+      await expect(
+        runEval([
+          "promote",
+          "run-1",
+          "--reviewed-prompt",
+          reviewedPrompt,
+          "--write",
+          "evals/from-trace.eval.ts",
+        ]),
+      ).rejects.toThrow("process.exit(1)");
+
+      expect(fsMock.writeFile).not.toHaveBeenCalled();
+      expect(promotion.persistPromotedEvalDataset).not.toHaveBeenCalled();
+    },
+  );
+});

@@ -5,6 +5,11 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { scanReleaseSchemaCoverage } from "./release-schema-complete.js";
+import {
+  STORE_REGISTRY_FILE,
+  discoverStores,
+  renderStoreRegistry,
+} from "./store-registry-codegen.js";
 
 const tempRoots: string[] = [];
 
@@ -14,46 +19,64 @@ afterEach(() => {
   }
 });
 
-/** A miniature core package: the release list plus whatever stores are given. */
-function makeCore(files: Record<string, string>): string {
+function write(coreDir: string, rel: string, content: string): void {
+  const abs = path.join(coreDir, rel);
+  fs.mkdirSync(path.dirname(abs), { recursive: true });
+  fs.writeFileSync(abs, content, "utf8");
+}
+
+function makeCore(
+  files: Record<string, string>,
+  { generate = true }: { generate?: boolean } = {},
+): { root: string; coreDir: string } {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "release-schema-guard-"));
   tempRoots.push(root);
   const coreDir = path.join(root, "packages", "core");
   for (const [rel, content] of Object.entries(files)) {
-    const abs = path.join(coreDir, rel);
-    fs.mkdirSync(path.dirname(abs), { recursive: true });
-    fs.writeFileSync(abs, content, "utf8");
+    write(coreDir, rel, content);
   }
-  return root;
+  if (generate) {
+    write(
+      coreDir,
+      STORE_REGISTRY_FILE,
+      renderStoreRegistry(discoverStores(coreDir)),
+    );
+  }
+  return { root, coreDir };
 }
 
-const listWith = (specs: string[]) =>
-  specs.map((spec) => `import { ensureTable } from "${spec}";`).join("\n");
+const store = (id: string) => `
+import { ensureTableExists } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
+export const ${id}Store = defineStore({
+  id: "${id}",
+  migrations: [
+    {
+      name: "baseline",
+      run: () => ensureTableExists("${id}", "CREATE TABLE IF NOT EXISTS ${id} (id TEXT)"),
+    },
+  ],
+});
+`;
 
-const STORE = `
+const UNREGISTERED = `
 import { ensureTableExists } from "../db/ddl-guard.js";
 export async function ensureTable(): Promise<void> {
-  await ensureTableExists("widgets", "CREATE TABLE IF NOT EXISTS widgets (id TEXT)");
+  await ensureTableExists("gadgets", "CREATE TABLE IF NOT EXISTS gadgets (id TEXT)");
 }
 `;
 
 describe("scanReleaseSchemaCoverage", () => {
-  it("passes when every store defining schema is in the release list", () => {
-    const root = makeCore({
-      "src/server/release-schema.ts": listWith(["../widgets/store.js"]),
-      "src/widgets/store.ts": STORE,
-    });
+  it("passes when every module defining schema is a registered store", () => {
+    const { root } = makeCore({ "src/widgets/store.ts": store("widgets") });
 
     expect(scanReleaseSchemaCoverage({ root }).findings).toEqual([]);
   });
 
-  // The bug this guard exists for: a store whose tables nothing can create on a
-  // hosted deploy, because production serverless never runs `ensureTable()`.
-  it("flags a store that defines schema and is not in the list", () => {
-    const root = makeCore({
-      "src/server/release-schema.ts": listWith(["../widgets/store.js"]),
-      "src/widgets/store.ts": STORE,
-      "src/gadgets/store.ts": STORE,
+  it("flags a module that creates tables outside a store", () => {
+    const { root } = makeCore({
+      "src/widgets/store.ts": store("widgets"),
+      "src/gadgets/store.ts": UNREGISTERED,
     });
 
     const { findings } = scanReleaseSchemaCoverage({ root });
@@ -65,11 +88,8 @@ describe("scanReleaseSchemaCoverage", () => {
     });
   });
 
-  // extensions/slots/store.ts creates its tables by executing named SQL
-  // constants, so the ensureTableExists check alone could not see it.
-  it("flags a store that runs DDL held in a named constant", () => {
-    const root = makeCore({
-      "src/server/release-schema.ts": listWith([]),
+  it("flags a module that runs DDL held in a named constant", () => {
+    const { root } = makeCore({
       "src/slots/store.ts": `
         import { SLOT_CREATE_SQL, SLOT_BY_KEY_INDEX_SQL } from "./schema.js";
         export async function ensureSlotTables(): Promise<void> {
@@ -86,12 +106,8 @@ describe("scanReleaseSchemaCoverage", () => {
     expect(findings[0].file).toBe("src/slots/store.ts");
   });
 
-  // The commonest shape in the codebase: DDL built into a local variable and
-  // executed directly, with no `ensureTableExists` and no recognisable constant
-  // name. A guard keyed on the executed expression's NAME would miss this.
-  it("flags a store that executes DDL from a local variable", () => {
-    const root = makeCore({
-      "src/server/release-schema.ts": listWith([]),
+  it("flags a module that executes DDL from a local variable", () => {
+    const { root } = makeCore({
       "src/widgets/store.ts": `
         export async function ensureTable(): Promise<void> {
           const client = getDbExec();
@@ -107,11 +123,8 @@ describe("scanReleaseSchemaCoverage", () => {
     expect(findings[0].file).toBe("src/widgets/store.ts");
   });
 
-  // Reached through the migration half of the release path rather than the
-  // ensure list, so it is created at release either way.
   it("treats a module imported by release-migrations.ts as covered", () => {
-    const root = makeCore({
-      "src/server/release-schema.ts": listWith([]),
+    const { root } = makeCore({
       "src/server/release-migrations.ts":
         'import { runBetterAuthMigrations } from "./better-auth-migrations.js";',
       "src/server/better-auth-migrations.ts": `
@@ -125,11 +138,8 @@ describe("scanReleaseSchemaCoverage", () => {
     expect(scanReleaseSchemaCoverage({ root }).findings).toEqual([]);
   });
 
-  // A `schema.ts` holding the SQL is not the thing that runs it, and a migration
-  // list is applied by runMigrations. Flagging either is pure noise.
   it("ignores modules that hold DDL without executing it", () => {
-    const root = makeCore({
-      "src/server/release-schema.ts": listWith([]),
+    const { root } = makeCore({
       "src/slots/schema.ts":
         'export const SLOT_CREATE_SQL = "CREATE TABLE IF NOT EXISTS slots (id TEXT)";',
       "src/slots/migrations.ts":
@@ -139,10 +149,8 @@ describe("scanReleaseSchemaCoverage", () => {
     expect(scanReleaseSchemaCoverage({ root }).findings).toEqual([]);
   });
 
-  // A plain SELECT held in a constant is not schema.
   it("ignores a non-DDL constant that happens to be executed", () => {
-    const root = makeCore({
-      "src/server/release-schema.ts": listWith([]),
+    const { root } = makeCore({
       "src/server/db-pressure.ts": `
         import { DB_PRESSURE_SQL } from "./sql.js";
         export async function probe(exec) {
@@ -155,8 +163,7 @@ describe("scanReleaseSchemaCoverage", () => {
   });
 
   it("ignores files that only name ensureTableExists in a comment", () => {
-    const root = makeCore({
-      "src/server/release-schema.ts": listWith([]),
+    const { root } = makeCore({
       "src/docs/notes.ts": `
         // Stores call ensureTableExists() to define their schema.
         /* See ensureTableExists( ) in db/ddl-guard.ts. */
@@ -168,32 +175,59 @@ describe("scanReleaseSchemaCoverage", () => {
   });
 
   it("ignores specs, and the ddl-guard that implements the probe", () => {
-    const root = makeCore({
-      "src/server/release-schema.ts": listWith([]),
-      "src/widgets/store.spec.ts": STORE,
-      "src/db/ddl-guard.ts": STORE,
+    const { root } = makeCore({
+      "src/widgets/store.spec.ts": UNREGISTERED,
+      "src/db/ddl-guard.ts": UNREGISTERED,
     });
 
     expect(scanReleaseSchemaCoverage({ root }).findings).toEqual([]);
   });
 
   it("honours a reviewed opt-out marker", () => {
-    const root = makeCore({
-      "src/server/release-schema.ts": listWith([]),
-      "src/widgets/store.ts": `// guard:allow-unreleased-schema - local dev tooling only\n${STORE}`,
+    const { root } = makeCore({
+      "src/widgets/store.ts": `// guard:allow-unreleased-schema - local dev tooling only\n${UNREGISTERED}`,
     });
 
     expect(scanReleaseSchemaCoverage({ root }).findings).toEqual([]);
   });
 
-  // A missing list is the one failure that must not read as "nothing to check":
-  // deleting it would stop every framework table from being created at release.
-  it("fails loudly when the release list itself is gone", () => {
-    const root = makeCore({ "src/widgets/store.ts": STORE });
+  it("fails loudly when the generated registry is gone", () => {
+    const { root } = makeCore(
+      { "src/widgets/store.ts": store("widgets") },
+      { generate: false },
+    );
 
     const { findings } = scanReleaseSchemaCoverage({ root });
 
     expect(findings).toHaveLength(1);
-    expect(findings[0].file).toBe("src/server/release-schema.ts");
+    expect(findings[0].file).toBe(STORE_REGISTRY_FILE);
+  });
+
+  it("flags a registry that no longer matches the stores in src", () => {
+    const { root, coreDir } = makeCore({
+      "src/widgets/store.ts": store("widgets"),
+    });
+    write(coreDir, "src/gadgets/store.ts", store("gadgets"));
+
+    const { findings } = scanReleaseSchemaCoverage({ root });
+
+    expect(findings.map((f) => f.message)).toEqual(
+      expect.arrayContaining([expect.stringContaining("is stale")]),
+    );
+  });
+
+  it("flags two stores that share an id", () => {
+    const { root } = makeCore({
+      "src/widgets/store.ts": store("widgets"),
+      "src/widgets/copy.ts": store("widgets"),
+    });
+
+    const { findings } = scanReleaseSchemaCoverage({ root });
+
+    expect(findings.map((f) => f.message)).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('id "widgets" is declared more than once'),
+      ]),
+    );
   });
 });

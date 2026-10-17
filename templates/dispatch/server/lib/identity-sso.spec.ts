@@ -254,6 +254,54 @@ describe("strict identity app registration", () => {
     );
   });
 
+  it("accepts exact immutable Netlify preview callbacks for the matching app", () => {
+    const deployCallback = `https://${"a".repeat(24)}--agent-native-mail.netlify.app/_agent-native/identity/callback`;
+    const starterCallback = `https://${"b".repeat(24)}--agent-native-starter.netlify.app/_agent-native/identity/callback`;
+    const factoryCallback = `https://${"c".repeat(24)}--agent-native-factory.netlify.app/_agent-native/identity/callback`;
+
+    expect(mod.isAllowedRedirectUri(deployCallback)).toBe(true);
+    expect(
+      mod.resolveIdentitySsoApp("mail", "mail", deployCallback),
+    ).toMatchObject({
+      appId: "mail",
+      origin: new URL(deployCallback).origin,
+    });
+    expect(
+      mod.resolveIdentitySsoApp("chat", "chat", starterCallback),
+    ).not.toBeNull();
+    expect(
+      mod.resolveIdentitySsoApp("factory", "factory", factoryCallback),
+    ).toMatchObject({
+      appId: "factory",
+      clientId: "factory",
+      origin: new URL(factoryCallback).origin,
+    });
+    expect(
+      mod.resolveIdentitySsoApp(
+        "mail",
+        "mail",
+        deployCallback.replace("agent-native-mail", "agent-native-calendar"),
+      ),
+    ).toBeNull();
+    expect(
+      mod.resolveIdentitySsoApp(
+        "mail",
+        "mail",
+        deployCallback.replace(`${"a".repeat(24)}`, "deploy-preview-42"),
+      ),
+    ).toBeNull();
+    expect(
+      mod.resolveIdentitySsoApp("mail", "other-client", deployCallback),
+    ).toBeNull();
+    expect(
+      mod.resolveIdentitySsoApp(
+        "workspace",
+        "workspace-client",
+        `https://${"c".repeat(24)}--agent-native-workspace.netlify.app/_agent-native/identity/callback`,
+      ),
+    ).toBeNull();
+  });
+
   it("rejects mismatched app ids, paths, unknown hosts, and suffix spoofing", () => {
     expect(mod.isAllowedIdentityRedirect("calendar", CALLBACK)).toBe(false);
     expect(

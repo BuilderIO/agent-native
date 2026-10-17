@@ -28,6 +28,7 @@ vi.mock("./list-events.js", () => ({
   resolveCalendarEventRange: resolveCalendarEventRangeMock,
 }));
 
+import { createGoogleAccountEventId } from "../shared/google-calendar-sources";
 import action from "./update-events";
 
 const OWNER = "owner@example.com";
@@ -54,6 +55,97 @@ describe("update-events", () => {
     resolveCalendarEventRangeMock.mockReturnValue(RANGE);
   });
 
+  it("rejects a same-day timed range that collapses to a zero-day all-day span", async () => {
+    listCalendarEventsMock.mockResolvedValue({
+      events: [
+        {
+          id: "google-holiday",
+          googleEventId: "holiday",
+          title: "Company holiday",
+          start: "2026-09-02",
+          end: "2026-09-03",
+          allDay: true,
+          accountEmail: OWNER,
+          source: "google",
+        },
+      ],
+      errors: [],
+    });
+
+    await expect(
+      run({
+        from: "2026-09-01",
+        to: "2026-09-08",
+        start: "2026-09-04T09:00:00.000Z",
+        end: "2026-09-04T10:00:00.000Z",
+      }),
+    ).rejects.toThrow("All-day events need an end date after the start date");
+
+    expect(updateEventMock).not.toHaveBeenCalled();
+  });
+
+  it("surfaces the zero-day all-day collapse in a dry run too", async () => {
+    listCalendarEventsMock.mockResolvedValue({
+      events: [
+        {
+          id: "google-holiday",
+          googleEventId: "holiday",
+          title: "Company holiday",
+          start: "2026-09-02",
+          end: "2026-09-03",
+          allDay: true,
+          accountEmail: OWNER,
+          source: "google",
+        },
+      ],
+      errors: [],
+    });
+
+    await expect(
+      run({
+        from: "2026-09-01",
+        to: "2026-09-08",
+        start: "2026-09-04T09:00:00.000Z",
+        end: "2026-09-04T10:00:00.000Z",
+        dryRun: true,
+      }),
+    ).rejects.toThrow("All-day events need an end date after the start date");
+  });
+
+  it("allows a multi-day range against an all-day target", async () => {
+    listCalendarEventsMock.mockResolvedValue({
+      events: [
+        {
+          id: "google-holiday",
+          googleEventId: "holiday",
+          title: "Company holiday",
+          start: "2026-09-02",
+          end: "2026-09-03",
+          allDay: true,
+          accountEmail: OWNER,
+          source: "google",
+        },
+      ],
+      errors: [],
+    });
+
+    const result = await run({
+      from: "2026-09-01",
+      to: "2026-09-08",
+      start: "2026-09-04T00:00:00.000Z",
+      end: "2026-09-05T00:00:00.000Z",
+      dryRun: true,
+    });
+
+    expect(result.events).toContainEqual(
+      expect.objectContaining({
+        outcome: "matched",
+        start: "2026-09-04",
+        end: "2026-09-05",
+      }),
+    );
+  });
+
   it("rejects a shared source id before a bulk update can target primary", async () => {
     await expect(
       run({
@@ -62,6 +154,27 @@ describe("update-events", () => {
         shiftMinutes: 15,
       }),
     ).rejects.toThrow("Shared Google calendar events are read-only");
+
+    expect(getEventMock).not.toHaveBeenCalled();
+    expect(updateEventMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects an explicit account that conflicts with an opaque event id", async () => {
+    getAuthStatusMock.mockResolvedValue({
+      accounts: [{ email: "alpha@example.com" }, { email: "zulu@example.com" }],
+    });
+    const id = createGoogleAccountEventId({
+      accountEmail: "alpha@example.com",
+      googleEventId: "same-provider-id",
+    });
+
+    await expect(
+      run({
+        ids: [id],
+        accountEmail: "zulu@example.com",
+        shiftMinutes: 15,
+      }),
+    ).rejects.toThrow("does not match");
 
     expect(getEventMock).not.toHaveBeenCalled();
     expect(updateEventMock).not.toHaveBeenCalled();
@@ -112,9 +225,6 @@ describe("update-events", () => {
       sendUpdates: "none",
     });
 
-    // Before the fix this stayed 0: the summary only counted failures out of
-    // `updated`, so a lookup that never made it into that array vanished from
-    // the aggregate while the per-event list still said "failed".
     expect(result.failed).toBe(1);
     expect(result.updated).toBe(0);
     expect(result.skipped).toBe(1);

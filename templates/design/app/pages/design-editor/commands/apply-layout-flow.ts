@@ -1,4 +1,4 @@
-import { applyVisualEdit } from "@shared/code-layer";
+import { applyVisualEdit, type CodeLayerSource } from "@shared/code-layer";
 import { toast } from "sonner";
 
 import { trace } from "@/components/design/design-trace";
@@ -14,18 +14,16 @@ export interface ApplyLayoutFlowArgs {
   ) => void;
   canEditDesign: boolean;
   getFreshActiveContent: () => string;
+  source?: CodeLayerSource;
   t: (key: string, options?: Record<string, unknown>) => string;
 }
 
-/**
- * Turn a container into a flex or grid layout, reflowing its children the way
- * Shift+A does.
- */
 export function runApplyLayoutFlow(
   {
     applyLocalContentUpdate,
     canEditDesign,
     getFreshActiveContent,
+    source,
     t,
   }: ApplyLayoutFlowArgs,
   nodeIds: readonly string[],
@@ -35,18 +33,22 @@ export function runApplyLayoutFlow(
   const baseContent = getFreshActiveContent();
   if (!baseContent) return "unsupported";
 
-  // One accumulating content string, one update: a multi-selection conversion
-  // is a single undo step, like every other batched layer commit.
   let content = baseContent;
   let applied = 0;
   let failed = 0;
   for (const nodeId of nodeIds) {
-    const patch = applyVisualEdit(content, {
-      kind: "autoLayout",
-      targetId: nodeId,
-      enabled: true,
-      containerStyles,
-    });
+    const patch = applyVisualEdit(
+      content,
+      {
+        kind: "autoLayout",
+        targetId: nodeId,
+        enabled: true,
+        containerStyles,
+      },
+      {
+        ...(source ? { source } : {}),
+      },
+    );
     trace("structure", "layout-flow", {
       nodeId,
       properties: Object.keys(containerStyles).join(","),
@@ -57,7 +59,6 @@ export function runApplyLayoutFlow(
       applied += 1;
       continue;
     }
-    // "conflict" is the only status that means "not this file's node".
     if (patch.result.status !== "conflict") {
       failed += 1;
       toast.error(

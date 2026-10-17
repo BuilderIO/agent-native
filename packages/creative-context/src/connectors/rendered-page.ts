@@ -13,6 +13,12 @@ import {
 } from "@agent-native/core/ingestion";
 
 import { normalizeWhitespace } from "./normalize.js";
+import {
+  chromiumPackUrl,
+  loadOptionalServerlessChromium,
+} from "./serverless-chromium.js";
+
+export { chromiumPackUrl } from "./serverless-chromium.js";
 
 export type RenderedPageMethod =
   | "builder-browser"
@@ -274,9 +280,6 @@ export async function renderWithPlaywright(
     : await launchChromium(playwright.chromium);
   let isolatedContext: PlaywrightContextLike | undefined;
   try {
-    // Never reuse a connected browser's ambient context: it can carry cookies,
-    // extensions, or tabs from another workflow. The safe proxy below is only
-    // useful when the page itself is isolated from that state.
     if (!browser.newContext) {
       throw new Error("Browser did not provide isolated context support.");
     }
@@ -301,9 +304,6 @@ export async function renderWithPlaywright(
           `Browser load stabilization unavailable: ${errorMessage(error)}`,
         );
       });
-    // React hydration, CSS-in-JS insertion, and web fonts commonly finish just
-    // after `load`. Give those layers a bounded chance to settle, then capture
-    // the computed cascade rather than the server HTML.
     await page
       .waitForLoadState?.("networkidle", { timeout: 4_000 })
       .catch((error) => {
@@ -540,9 +540,6 @@ async function installNavigationGuard(
       return;
     }
 
-    // Reserve the request slot before the first await. Browser route handlers
-    // overlap, so incrementing only after the proxy response arrives lets a
-    // burst of requests all pass the limit check.
     resourceCount += 1;
     let bodyBudgetRelease: (() => void) | undefined;
     let committedBytes = 0;
@@ -701,59 +698,6 @@ async function launchChromium(
   );
 }
 
-interface ServerlessChromiumLike {
-  args?: string[];
-  /** `chromium-min` downloads and unpacks the browser from this URL. */
-  executablePath(packUrl?: string): Promise<string>;
-}
-
-/**
- * Where the headless browser binary comes from.
- *
- * The full `@sparticuz/chromium` package carries a 66MB browser inside every
- * serverless function — paid on every cold start of every function, to serve a
- * fallback path most requests never take. `chromium-min` is 46KB and fetches
- * the same pinned pack on first launch instead, caching it in the container.
- *
- * Pinned to the version this package depends on: a pack built for a different
- * Chromium than the client expects fails at launch, so this must move in
- * lockstep with the dependency. Point AGENT_NATIVE_CHROMIUM_PACK_URL at your
- * own mirror to drop the runtime dependency on the upstream release.
- */
-const CHROMIUM_PACK_VERSION = "149.0.0";
-
-/** The one resolver for this key. */
-export function chromiumPackUrl(
-  architecture: NodeJS.Architecture = process.arch,
-): string {
-  const packArchitecture = architecture === "arm64" ? "arm64" : "x64";
-  return (
-    process.env.AGENT_NATIVE_CHROMIUM_PACK_URL?.trim() ||
-    `https://github.com/Sparticuz/chromium/releases/download/v${CHROMIUM_PACK_VERSION}` +
-      `/chromium-v${CHROMIUM_PACK_VERSION}-pack.${packArchitecture}.tar`
-  );
-}
-
-async function loadOptionalServerlessChromium(): Promise<ServerlessChromiumLike | null> {
-  const specifier = "@sparticuz/chromium-min";
-  try {
-    const module = (await import(/* @vite-ignore */ specifier)) as unknown as {
-      default?: Partial<ServerlessChromiumLike>;
-    } & Partial<ServerlessChromiumLike>;
-    const chromium = module.default ?? module;
-    return typeof chromium.executablePath === "function"
-      ? (chromium as ServerlessChromiumLike)
-      : null;
-  } catch {
-    // coercion-ok: this optional capability is absent in non-serverless installs.
-    return null;
-  }
-}
-
-/*
- * Kept separate from Playwright loading so a deployment can omit the large
- * serverless Chromium package and still use Builder Browser or system Chrome.
- */
 async function loadOptionalPlaywright(): Promise<PlaywrightLike | null> {
   for (const specifier of [
     "playwright",
@@ -804,7 +748,6 @@ function isMissingBrowserError(error: unknown): boolean {
   );
 }
 
-/** Close common consent banners without accepting tracking or changing page data. */
 function dismissConsentOverlays(): void {
   const selectors = [
     '[aria-label*="reject" i]',
@@ -1283,10 +1226,6 @@ function captureRenderedWebsiteContext(): WebsiteExtraction {
 }
 
 function browserCaptureExpression(): string {
-  // Bundlers can inject a module-scoped `__name` helper into nested functions.
-  // Playwright serializes only the function body into Chromium, so provide the
-  // tiny identity helper in the browser expression rather than leaking a
-  // bundler runtime reference into the page.
   return `(function () {
     const __name = (value) => value;
     return (${captureRenderedWebsiteContext.toString()})();

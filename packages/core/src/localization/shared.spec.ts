@@ -13,6 +13,7 @@ describe("localization shared helpers", () => {
   it("maps traditional Chinese browser locales to zh-TW", () => {
     expect(normalizeLocaleCode("zh-Hant")).toBe("zh-TW");
     expect(normalizeLocaleCode("zh-Hant-TW")).toBe("zh-TW");
+    expect(normalizeLocaleCode("zh-Hant-HK")).toBe("zh-TW");
     expect(normalizeLocaleCode("zh-HK")).toBe("zh-TW");
     expect(normalizeLocaleCode("zh-MO")).toBe("zh-TW");
   });

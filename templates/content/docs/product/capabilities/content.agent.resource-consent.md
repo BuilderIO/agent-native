@@ -56,7 +56,7 @@ A researcher shares a project brief with collaborators and asks an agent to draf
 
 ## Boundaries and non-goals
 
-- This Capability is not another Page or Database role, a custom role builder, or a replacement for ordinary sharing and source authority.
+- This Capability is not another Page or Collection role, a custom role builder, or a replacement for ordinary sharing and source authority.
 - It does not decide whether a request is truthful, appropriate for an audience, reversible, or subject to external confirmation; those are separate contracts.
 - It does not retain private context in a cache after consent or access changes, and it does not make a local device, vault, or provider available merely by recording consent.
 

@@ -24,11 +24,6 @@ const messages = {
   },
   settings: {
     title: "Configurações",
-    description: "Preferências de idioma e espaço de trabalho deste app.",
-    languageTitle: "Idioma",
-    languageDescription:
-      "Escolha o idioma da interface. Essa preferência é salva na sua conta.",
-    languageLabel: "Idioma da interface",
     workspaceTitle: "Espaço de trabalho",
     workspaceDescription:
       "Gerencie membros da equipe, acesso da organização e preferências compartilhadas.",
@@ -44,6 +39,8 @@ const messages = {
     suggestionSurvey: "Criar uma pesquisa de feedback de clientes",
     suggestionSubmissions: "Mostrar envios por dia",
     suggestionExport: "Exportar respostas para CSV",
+    topSignal: "Principal sinal",
+    draftFollowUp: "Rascunhar uma pergunta de acompanhamento",
   },
   sidebar: {
     collapseSidebar: "Recolher barra lateral",
@@ -358,6 +355,10 @@ const messages = {
     responseSubmitted: "Resposta enviada",
     noFields: "Este formulário ainda não tem campos.",
     failedSubmit: "Falha ao enviar o formulário",
+    uncheckablePattern:
+      "A regra deste formulário para {label} não pode ser verificada. Peça ao proprietário do formulário para corrigi-la.",
+    patternTooLong:
+      "O valor de {label} é longo demais para ser verificado pela regra deste formulário.",
   },
   responseInsights: {
     unavailable: "Insights indisponíveis",

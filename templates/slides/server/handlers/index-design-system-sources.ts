@@ -1,20 +1,18 @@
+import { isActionContractError } from "@agent-native/core/action";
 import {
+  cdnSafeOriginStatus,
   FeatureNotConfiguredError,
   indexBuilderDesignSystem,
 } from "@agent-native/core/server";
 import { defineEventHandler, readBody, setResponseStatus } from "h3";
 
 import { upsertBuilderProxyDesignSystem } from "../lib/builder-design-system-proxy.js";
+import { assertDesignSystemWorkflowsEnabled } from "../lib/design-system-workflows.js";
 import {
   resolveSlidesRequestAuth,
   withSlidesRequestContext,
 } from "./request-auth-context.js";
 
-/**
- * Finalizes Builder DSI indexing from upload tokens produced by the
- * browser-streamed resumable upload. The file bytes were streamed straight to
- * storage; this endpoint only forwards the opaque tokens.
- */
 export const indexDesignSystemSources = defineEventHandler(async (event) => {
   const auth = await resolveSlidesRequestAuth(event);
   if (!auth.ok) {
@@ -56,6 +54,7 @@ export const indexDesignSystemSources = defineEventHandler(async (event) => {
     return await withSlidesRequestContext(
       event,
       async ({ email, orgId }) => {
+        await assertDesignSystemWorkflowsEnabled();
         const result = await indexBuilderDesignSystem({
           sources,
           projectName,
@@ -76,6 +75,10 @@ export const indexDesignSystemSources = defineEventHandler(async (event) => {
       session,
     );
   } catch (err) {
+    if (isActionContractError(err)) {
+      setResponseStatus(event, err.statusCode);
+      return { error: err.message, errorCode: err.errorCode };
+    }
     if (err instanceof FeatureNotConfiguredError) {
       setResponseStatus(event, 412);
       return {
@@ -84,7 +87,7 @@ export const indexDesignSystemSources = defineEventHandler(async (event) => {
           err.builderConnectUrl ?? "/_agent-native/builder/connect",
       };
     }
-    setResponseStatus(event, 502);
+    setResponseStatus(event, cdnSafeOriginStatus(502));
     return {
       error:
         err instanceof Error

@@ -16,11 +16,100 @@ export const AGENT_NATIVE_ACTION_EVENTS = {
   failed: "action_failed",
 } as const;
 
+/** Ephemeral join key shared by legacy and canonical records for one event. */
+export const TRACKING_EVENT_ALIAS_ID_PROPERTY = "event_alias_id";
+
 export type AgentNativeLifecycleEventName =
   (typeof AGENT_NATIVE_LIFECYCLE_EVENTS)[keyof typeof AGENT_NATIVE_LIFECYCLE_EVENTS];
 
 export type AgentNativeActionEventName =
   (typeof AGENT_NATIVE_ACTION_EVENTS)[keyof typeof AGENT_NATIVE_ACTION_EVENTS];
+
+export const LEGACY_TRACKING_EVENT_NAME_ALIASES = {
+  "auth.login_clicked": "auth_login_clicked",
+  "auth.signup_clicked": "auth_signup_clicked",
+  "auth.signup_completed": "auth_signup_completed",
+  "auth.signup_viewed": "auth_signup_viewed",
+  "build your app": "build_your_app",
+  "builder branch waitlist joined": "builder_branch_waitlist_joined",
+  "builder connect clicked": "builder_connect_clicked",
+  "builder connect failed": "builder_connect_failed",
+  "builder connect popup blocked": "builder_connect_popup_blocked",
+  "builder connect started": "builder_connect_started",
+  "builder connect succeeded": "builder_connect_succeeded",
+  "builder disconnect failed": "builder_disconnect_failed",
+  "builder disconnect succeeded": "builder_disconnect_succeeded",
+  "checkout.completed": "checkout_completed",
+  "choose get started path": "choose_get_started_path",
+  "click add to agent": "click_add_to_agent",
+  "click build online": "click_build_online",
+  "click community app": "click_community_app",
+  "click community app action": "click_community_app_action",
+  "click community app demo": "click_community_app_demo",
+  "click community app source": "click_community_app_source",
+  "click customize it": "click_customize_it",
+  "click customize locally": "click_customize_locally",
+  "click customize online": "click_customize_online",
+  "click get started": "click_get_started",
+  "click template": "click_template",
+  "click view docs": "click_view_docs",
+  "copy cli command": "copy_cli_command",
+  "copy code block": "copy_code_block",
+  "copy install command": "copy_install_command",
+  "create form": "create_form",
+  "desktop download": "desktop_download",
+  "desktop open": "desktop_open",
+  "environment switched": "environment_switched",
+  "generate deck": "generate_deck",
+  "open assets": "open_assets",
+  "open hosted demo": "open_hosted_demo",
+  "session replay upload rejected": "session_replay_upload_rejected",
+  "session status": "session_status",
+  "skill read docs": "skill_read_docs",
+  "skills_cli cancelled": "skills_cli_cancelled",
+  "skills_cli clients selected": "skills_cli_clients_selected",
+  "skills_cli completed": "skills_cli_completed",
+  "skills_cli connect completed": "skills_cli_connect_completed",
+  "skills_cli connect failed": "skills_cli_connect_failed",
+  "skills_cli connect started": "skills_cli_connect_started",
+  "skills_cli failed": "skills_cli_failed",
+  "skills_cli github action added": "skills_cli_github_action_added",
+  "skills_cli install completed": "skills_cli_install_completed",
+  "skills_cli instructions updated": "skills_cli_instructions_updated",
+  "skills_cli mcp registered": "skills_cli_mcp_registered",
+  "skills_cli plan mode selected": "skills_cli_plan_mode_selected",
+  "skills_cli scope selected": "skills_cli_scope_selected",
+  "skills_cli skills listed": "skills_cli_skills_listed",
+  "skills_cli skills prompted": "skills_cli_skills_prompted",
+  "skills_cli skills selected": "skills_cli_skills_selected",
+  "skills_cli started": "skills_cli_started",
+  "start from scratch": "start_from_scratch",
+  "submit community app": "submit_community_app",
+  "try live demo": "try_live_demo",
+  "view clip preview": "view_clip_preview",
+  "view plan video preview": "view_plan_video_preview",
+} as const;
+
+export function canonicalTrackingEvent(
+  name: string,
+  properties: Record<string, unknown>,
+): {
+  name: string;
+  properties: Record<string, unknown>;
+} | null {
+  const canonicalName = (
+    LEGACY_TRACKING_EVENT_NAME_ALIASES as Record<string, string>
+  )[name];
+  if (!canonicalName) return null;
+  return {
+    name: canonicalName,
+    properties: {
+      ...properties,
+      canonical_event_name: canonicalName,
+      legacy_event_name: name,
+    },
+  };
+}
 
 function stringValue(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
@@ -106,6 +195,7 @@ const LIFECYCLE_PROPERTY_KEYS = [
   "cta_name",
   "link_type",
   "run_id",
+  "llm_chat_eligible",
   "thread_id",
   "turn_id",
   "chat_tab_id",
@@ -219,6 +309,7 @@ export function legacyLifecycleEvent(
     name === "auth.signup_clicked" ||
     name === "auth.login_clicked" ||
     name === "builder connect clicked" ||
+    name === "builder_connect_clicked" ||
     name.startsWith("click ") ||
     name.startsWith("try ") ||
     name.startsWith("choose ") ||
@@ -235,4 +326,113 @@ export function legacyLifecycleEvent(
   }
 
   return null;
+}
+
+/**
+ * The named reasons an agent run fails, recorded as `cause` on the browser's
+ * `agent_run_outcome` event. Analytics groups agent trouble by these and by
+ * error code for everything else, so a new name here is a product decision,
+ * not a refactor.
+ */
+export const AGENT_TROUBLE_CAUSES = [
+  "no_model_connected",
+  "rate_limit",
+  "context_overflow",
+  "provider_error",
+] as const;
+
+export type AgentTroubleCause = (typeof AGENT_TROUBLE_CAUSES)[number];
+
+export function isAgentTroubleCause(
+  value: unknown,
+): value is AgentTroubleCause {
+  return (
+    typeof value === "string" &&
+    (AGENT_TROUBLE_CAUSES as readonly string[]).includes(value)
+  );
+}
+
+/**
+ * Telemetry's copy of a run error code. A code is whatever its thrower set,
+ * such as a route error's `data.code`, so one could be a sentence naming a
+ * person or a document: only an identifier is sent as itself.
+ */
+export const UNRECOGNIZED_AGENT_ERROR_CODE = "unrecognized_code";
+
+const AGENT_ERROR_CODE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
+
+export function agentErrorCodeForTelemetry(
+  code: string | null | undefined,
+): string | null {
+  if (!code) return null;
+  return AGENT_ERROR_CODE_PATTERN.test(code)
+    ? code
+    : UNRECOGNIZED_AGENT_ERROR_CODE;
+}
+
+/** The named cause of a run error code, or null when no name fits it. */
+export function agentTroubleCauseForCode(
+  code: string | null | undefined,
+): AgentTroubleCause | null {
+  const normalized = code?.trim().toLowerCase();
+  if (!normalized) return null;
+  if (
+    normalized === "missing_credentials" ||
+    normalized === "missing_api_key" ||
+    normalized === "agent_chat_ai_setup_required"
+  )
+    return "no_model_connected";
+  if (normalized === "http_429" || normalized.includes("rate_limit"))
+    return "rate_limit";
+  if (
+    normalized.includes("context_length") ||
+    normalized.includes("input_too_long")
+  )
+    return "context_overflow";
+  if (
+    normalized.startsWith("provider_") ||
+    normalized.startsWith("builder_gateway_") ||
+    normalized === "overloaded_error" ||
+    normalized === "authentication_error" ||
+    /^http_5\d\d$/.test(normalized)
+  )
+    return "provider_error";
+  return null;
+}
+
+/**
+ * Every pageview carries `agent_signals: AGENT_SIGNALS_VERSION` from a client
+ * that reports each stopped run unsampled and each thumbs rating as
+ * `agent_feedback_submitted`, and a `page_load_id` on every pageview.
+ * Older clients sampled stops, sent no ratings, and sent no page load id, so
+ * Analytics counts a session's cancelled runs, thumbs-down, and quick backs as
+ * measured only once it has seen the marker.
+ */
+export const AGENT_SIGNALS_PAGEVIEW_PROPERTY = "agent_signals";
+export const AGENT_SIGNALS_VERSION = 1;
+
+/**
+ * Every pageview carries an id that stays the same for one page load. One
+ * analytics session spans every tab, so Analytics follows each page load's
+ * navigation on its own to tell a return to the previous page from a page
+ * another tab opened.
+ */
+export const PAGE_LOAD_PAGEVIEW_PROPERTY = "page_load_id";
+
+/**
+ * Action telemetry reports every `action.response` at least this slow
+ * unsampled, and marks each one someone waited for on the session replay with
+ * its own timing.
+ */
+export const SLOW_ACTION_RESPONSE_MS = 1_000;
+
+/**
+ * Whether an `action.response`'s duration is what a person waited for.
+ * Background tabs throttle timers and cancelled requests never finish.
+ */
+export function isWaitedActionResponse(properties: {
+  page_hidden?: unknown;
+  outcome?: unknown;
+}): boolean {
+  return properties.page_hidden !== true && properties.outcome !== "cancelled";
 }

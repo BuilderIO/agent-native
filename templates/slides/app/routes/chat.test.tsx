@@ -1,0 +1,144 @@
+// @vitest-environment happy-dom
+import { act, cleanup, render } from "@testing-library/react";
+import { MemoryRouter, Route, Routes } from "react-router";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const { chatSurfaceMock } = vi.hoisted(() => ({ chatSurfaceMock: vi.fn() }));
+
+vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/agent-chat")
+  >()),
+  fetchAgentEngineConfiguredState: async () => "unavailable",
+  useAgentEngineConfigured: () => ({
+    canChat: false,
+    missing: false,
+    state: "unknown",
+  }),
+  useChatModels: () => ({
+    availableModels: [],
+    configuredModels: [],
+    defaultModel: "",
+    selectedModel: "",
+    selectedEngine: "",
+    selectedEffort: "medium",
+    isLoading: false,
+    selectionReady: false,
+    unavailableSelection: null,
+    onModelChange: vi.fn(),
+    onEffortChange: vi.fn(),
+    refreshEngines: vi.fn(),
+  }),
+  markAgentChatHomeHandoff: vi.fn(),
+}));
+vi.mock("@agent-native/toolkit/app/chat", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/toolkit/app/chat")>()),
+  AgentChatSurface: (props: Record<string, unknown>) => {
+    chatSurfaceMock(props);
+    return null;
+  },
+}));
+vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
+  useT: () => (key: string, values?: Record<string, unknown>) =>
+    key === "agent.slideNumber" ? `Slide ${values?.number}` : key,
+}));
+vi.mock("@/lib/tab-id", () => ({ TAB_ID: "slides-test" }));
+vi.mock("@/components/editor/SlidesComposerContextProvider", () => ({
+  SlidesComposerContextProvider: () => null,
+}));
+
+import { publishSlidesSelection } from "@/lib/slide-agent-context";
+
+import ChatRoute from "./chat";
+
+afterEach(() => {
+  cleanup();
+  publishSlidesSelection(null);
+  chatSurfaceMock.mockClear();
+});
+
+describe("Slides chat route", () => {
+  it("updates the scope label and agent context after slide navigation", () => {
+    render(
+      <MemoryRouter initialEntries={["/chat?deckId=deck-1"]}>
+        <Routes>
+          <Route path="/chat" element={<ChatRoute />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(chatSurfaceMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        scope: expect.objectContaining({
+          label: "agent.thisSlide",
+          context: expect.stringContaining(
+            "Current slide id is not available.",
+          ),
+        }),
+      }),
+    );
+
+    act(() => {
+      publishSlidesSelection({
+        deckId: "deck-1",
+        slideId: "slide-2",
+        slideIndex: 1,
+        slideNumber: 2,
+        items: [],
+      });
+    });
+
+    expect(chatSurfaceMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        scope: expect.objectContaining({
+          label: "Slide 2",
+          context: expect.stringContaining("Current slide id: slide-2."),
+        }),
+      }),
+    );
+  });
+
+  it("does not rerender its scope for caret changes within the same target", () => {
+    render(
+      <MemoryRouter initialEntries={["/chat?deckId=deck-1"]}>
+        <Routes>
+          <Route path="/chat" element={<ChatRoute />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    const selection = {
+      deckId: "deck-1",
+      slideId: "slide-1",
+      slideNumber: 1,
+      items: [{ objectId: "text-1", textPreview: "first" }],
+    };
+    act(() => publishSlidesSelection(selection));
+    const callsAfterTargetSelection = chatSurfaceMock.mock.calls.length;
+
+    act(() =>
+      publishSlidesSelection({
+        ...selection,
+        items: [{ objectId: "text-1", textPreview: "second" }],
+      }),
+    );
+
+    expect(chatSurfaceMock).toHaveBeenCalledTimes(callsAfterTargetSelection);
+
+    act(() =>
+      publishSlidesSelection({
+        ...selection,
+        items: [{ objectId: "text-2", textPreview: "second" }],
+      }),
+    );
+
+    expect(chatSurfaceMock.mock.lastCall?.[0]).toEqual(
+      expect.objectContaining({
+        scope: expect.objectContaining({
+          context: expect.stringContaining("Selected element targets: text-2."),
+        }),
+      }),
+    );
+  });
+});

@@ -1,10 +1,5 @@
-/**
- * MCP's public protocol path and the framework path kept for compatibility.
- *
- * Only the protocol and its OAuth/connect companions use the public alias.
- * Other framework-owned MCP management routes remain under `/_agent-native`.
- */
 export const MCP_PUBLIC_ROUTE_PREFIX = "/mcp";
+export const MCP_DIRECTORY_ROUTE_PREFIX = "/mcp/directory";
 export const MCP_LEGACY_ROUTE_PREFIX = "/_agent-native/mcp";
 
 export const MCP_ROUTE_PREFIXES = [
@@ -28,7 +23,9 @@ export function isMcpProtocolPath(pathname: string): boolean {
   return (
     pathname === MCP_PUBLIC_ROUTE_PREFIX ||
     pathname === MCP_LEGACY_ROUTE_PREFIX ||
+    pathname === MCP_DIRECTORY_ROUTE_PREFIX ||
     pathname === `${MCP_PUBLIC_ROUTE_PREFIX}/` ||
-    pathname === `${MCP_LEGACY_ROUTE_PREFIX}/`
+    pathname === `${MCP_LEGACY_ROUTE_PREFIX}/` ||
+    pathname === `${MCP_DIRECTORY_ROUTE_PREFIX}/`
   );
 }

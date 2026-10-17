@@ -4,8 +4,6 @@ import {
   docsLocaleFromSegment,
   type DocsLocale,
 } from "./docs-locale";
-// SEO only needs to know whether a source file exists, so this reads only the
-// KEYS of the shared map — the loaders are never called here.
 import {
   docSourceLoaders as defaultDocLoaders,
   localizedDocLoaders,

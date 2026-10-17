@@ -15,13 +15,16 @@ import {
   applySourceFieldPropertyToDatabaseResponse,
   clearDeletedContentDatabaseFromCache,
   contentDatabaseCreationRequest,
+  contentDatabaseItemsPageReadState,
   contentDatabaseResponseCanSeedQuery,
   contentDatabaseItemsPageQueryKey,
+  contentDatabaseItemsContainingDocumentFilter,
   contentDatabaseConstrainedQueryFilter,
   contentDatabaseQueryKey,
   fetchCompleteContentDatabaseList,
   invalidateBuilderBodyHydrationQueries,
   invalidateContentDatabaseSourceRefreshQueries,
+  invalidateContentDatabaseNavigationQueries,
   isContentDatabaseByIdQueryEnabled,
   moveOptimisticContentDatabaseItem,
   preserveScopedDatabasePlaceholder,
@@ -73,7 +76,7 @@ describe("contentDatabaseCreationRequest", () => {
         spaceId: undefined,
         title: "Launches",
       }),
-    ).toThrow("Choose a Content space before creating a database");
+    ).toThrow("Choose a Content space before creating a collection");
   });
 });
 
@@ -209,6 +212,66 @@ describe("contentDatabaseConstrainedQueryFilter", () => {
   });
 });
 
+describe("current Content database table page", () => {
+  it("does not treat a previous view's placeholder rows as the requested result", () => {
+    const previousPage = { items: [{ document: { title: "Previous view" } }] };
+
+    expect(
+      contentDatabaseItemsPageReadState(previousPage, true, false),
+    ).toEqual({ page: undefined, failed: false, settled: false });
+    expect(contentDatabaseItemsPageReadState(previousPage, true, true)).toEqual(
+      { page: undefined, failed: true, settled: true },
+    );
+    expect(
+      contentDatabaseItemsPageReadState(previousPage, false, false),
+    ).toEqual({ page: previousPage, failed: false, settled: true });
+  });
+});
+
+describe("Content database navigation query invalidation", () => {
+  it("matches navigation rows safely and invalidates only the affected database", () => {
+    const queryClient = new QueryClient();
+    const matchingKey = [
+      "action",
+      "query-content-database-items",
+      { databaseId: "files", navigation: { parentId: null } },
+    ] as const;
+    const otherKey = [
+      "action",
+      "query-content-database-items",
+      { databaseId: "other", navigation: { parentId: null } },
+    ] as const;
+    const tableKey = [
+      "action",
+      "query-content-database-items",
+      { databaseId: "files", tableQuery: {} },
+    ] as const;
+    queryClient.setQueryData(matchingKey, {
+      items: [{ documentId: "page" }],
+    });
+    queryClient.setQueryData(otherKey, { items: [] });
+    queryClient.setQueryData(tableKey, {
+      items: [{ document: { id: "page" } }],
+    });
+
+    expect(() =>
+      queryClient.invalidateQueries(
+        contentDatabaseItemsContainingDocumentFilter("page"),
+      ),
+    ).not.toThrow();
+    expect(queryClient.getQueryState(matchingKey)?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(tableKey)?.isInvalidated).toBe(true);
+
+    queryClient.resetQueries();
+    invalidateContentDatabaseNavigationQueries(queryClient, {
+      databaseId: "files",
+    });
+    expect(queryClient.getQueryState(matchingKey)?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(otherKey)?.isInvalidated).toBe(false);
+    expect(queryClient.getQueryState(tableKey)?.isInvalidated).toBe(false);
+  });
+});
+
 describe("isContentDatabaseByIdQueryEnabled", () => {
   it("fetches when a databaseId is present and the caller doesn't pause it", () => {
     expect(isContentDatabaseByIdQueryEnabled("files-db")).toBe(true);
@@ -222,11 +285,6 @@ describe("isContentDatabaseByIdQueryEnabled", () => {
   });
 
   it("pauses fetching for a still-known databaseId instead of requiring the caller to null it out", () => {
-    // A caller that wants to briefly hold off refetching (e.g. a deferred
-    // sidebar read) must be able to do so by passing `enabled: false` while
-    // keeping the same databaseId — nulling databaseId out instead would move
-    // the query to its disabled, uncached key and read as empty rather than
-    // paused. See DocumentSidebar.tsx's useDeferredFilesDatabaseId.
     expect(
       isContentDatabaseByIdQueryEnabled("files-db", { enabled: false }),
     ).toBe(false);

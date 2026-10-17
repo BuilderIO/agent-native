@@ -47,6 +47,60 @@ beforeAll(async () => {
 afterAll(() => rmSync(path, { recursive: true, force: true }));
 
 describe("ordinary property and table-view setup", () => {
+  it("hides a new collection's sole Blocks field in its default table view", async () => {
+    const created = await asOwner(() =>
+      createDatabase.run({
+        spaceId,
+        title: "Blocks visibility",
+        idempotencyKey: "blocks-visibility-database",
+      }),
+    );
+
+    const primaryBlocksField = created.properties.find(
+      (property) => property.definition.type === "blocks",
+    );
+    expect(primaryBlocksField?.definition.name).toBe("Content");
+    expect(created.database.viewConfig.views[0]?.hiddenPropertyIds).toEqual([
+      primaryBlocksField?.definition.id,
+    ]);
+
+    const fresh = await asOwner(() =>
+      readDatabase.run({ databaseId: created.database.id }),
+    );
+    expect(fresh.database.viewConfig.views[0]?.hiddenPropertyIds).toEqual([
+      primaryBlocksField?.definition.id,
+    ]);
+    if (
+      !("mutationContract" in fresh) ||
+      !fresh.mutationContract ||
+      !("configurationRevision" in fresh)
+    ) {
+      throw new Error("Expected setup revisions");
+    }
+
+    await asOwner(() =>
+      updateView.run({
+        operation: "update",
+        target: {
+          spaceId,
+          databaseId: created.database.id,
+          databaseDocumentId: created.database.documentId,
+        },
+        expectedSchemaRevision: fresh.mutationContract!.schemaRevision,
+        expectedConfigurationRevision: fresh.configurationRevision,
+        idempotencyKey: "show-primary-blocks-field",
+        viewId: "default",
+        patch: { hiddenPropertyIds: [] },
+      }),
+    );
+    const revealed = await asOwner(() =>
+      readDatabase.run({ databaseId: created.database.id }),
+    );
+    expect(revealed.database.viewConfig.views[0]?.hiddenPropertyIds).toEqual(
+      [],
+    );
+  });
+
   it("creates and safely edits an ordinary property with stable option identity", async () => {
     const created = await asOwner(() =>
       createDatabase.run({

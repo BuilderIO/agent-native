@@ -4,10 +4,6 @@ import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// Each test runs real migrations against a fresh PGlite database; under full
-// workspace concurrency (and a shared machine running other suites) that
-// setup can far exceed the 5s default, so give it generous headroom. The
-// tests themselves complete in a few seconds uncontended.
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
 const ownerEmail = "owner+approval-fencing@example.test";
@@ -330,8 +326,6 @@ describe("dispatch approval request status fencing", () => {
     });
     expect(Number((approvedAuditRows.rows[0] as any).count)).toBe(0);
 
-    // Confirm no side effect landed either: the policy change must not have
-    // been applied to tenant A's org settings by the foreign-tenant attempt.
     await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
       expect(await dispatchStore.getApprovalPolicy()).toEqual({
         enabled: false,

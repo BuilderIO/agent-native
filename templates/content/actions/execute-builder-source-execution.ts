@@ -392,8 +392,6 @@ export function builderCmsReconciledSourceValuesJson(args: {
     !Array.isArray(requestData)
   ) {
     for (const [fieldName, value] of Object.entries(requestData)) {
-      // Builder blocks remain in body/blob storage. The compact body hash above
-      // is the durable proof used by later required-field validation.
       if (fieldName === "blocks") continue;
       const sourceFieldKey = `data.${fieldName}`;
       next[sourceFieldKey] = value as DocumentPropertyValue;
@@ -656,12 +654,6 @@ export function realExecutionDeps(
       await assertAccess("document", database.documentId, "editor");
     },
     getSourceSnapshot: async (database) => {
-      // Execution always targets one prepared change set. Loading every
-      // Builder-backed document (and every heavy body baseline) here can spend
-      // the hosted request budget before the provider write is dispatched.
-      // Resolve the durable prepared target first, then build the authoritative
-      // write snapshot for that document only. The unscoped fallback preserves
-      // compatibility for legacy/non-persisted callers.
       const [target] = changeSetId
         ? await getDb()
             .select({
@@ -914,10 +906,6 @@ export async function executeBuilderSourceExecutionWithDeps(
         "Builder execution requires Autosave, Draft, or Publish push mode.",
       );
     }
-    // The gate key is keyed on the RAW resolved push mode (matching the plan in
-    // buildBuilderCmsExecutionPlan) — NOT on pushModeConfirmation. Keying on the
-    // confirmation would let a caller's confirmation diverge the key from the
-    // prepared gate; the confirmation is still validated inside the plan below.
     const expectedKey = builderCmsExecutionIdempotencyKey({
       sourceId: source.id,
       changeSetId: changeSet.id,
@@ -1316,8 +1304,8 @@ export default defineAction({
   description:
     "Execute a prepared Builder CMS write gate. This performs a real Builder write only when the approved outbound change-set, push mode, per-source capability, validation, publication, and idempotency gates all pass.",
   schema: z.object({
-    databaseId: z.string().optional().describe("Database ID"),
-    documentId: z.string().optional().describe("Database document/page ID"),
+    databaseId: z.string().optional().describe("Collection ID"),
+    documentId: z.string().optional().describe("Collection document/page ID"),
     sourceId: z
       .string()
       .optional()

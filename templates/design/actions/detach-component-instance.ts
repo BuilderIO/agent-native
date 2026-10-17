@@ -1,34 +1,4 @@
-/**
- * detach-component-instance — Figma's "Detach instance" (⌥⌘B).
- *
- * There is no separate component "definition"/template markup anywhere in
- * this codebase (see `shared/component-model.ts`): a component instance is
- * just an ordinary element carrying a `data-agent-native-component="Name"`
- * annotation (plus optional `data-agent-native-prop-*` overrides), and every
- * instance of the same name is an independently-duplicated copy of HTML —
- * `component_index` only stores metadata (props/variants/runtime selectors),
- * never markup. Detaching an instance therefore doesn't need to "inline a
- * template" the way a real component-instantiation system would: the node's
- * current rendered markup already IS the fully expanded content. Detach
- * severs the *component-instance linkage* by stripping the annotation
- * attributes, so `is-component-instance` checks (`isComponentInstance`,
- * `index-components`, `get-component-details`) stop recognizing this node —
- * exactly Figma's "instance becomes a plain layer" semantics — while leaving
- * position, size, layout, classes, text, and Alpine (`x-data`) behavior
- * completely untouched.
- *
- * Persists through the same deterministic HTML-patch + collab seam as
- * `apply-component-prop-edit` / `apply-visual-edit` (`writeInlineSourceFile`
- * with an `expectedVersionHash` CAS guard), so it participates in the
- * editor's undo/collab machinery exactly like every other HTML-mutating
- * action — there is no separate undo/history log in this codebase to hook
- * into (see those actions' docs).
- *
- * Inline/Alpine designs only; real-app sources fail closed (same posture as
- * `apply-component-prop-edit`).
- */
-
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   agentEnterDocument,
   agentLeaveDocument,
@@ -43,80 +13,106 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
   writeInlineSourceFile,
   type SourceWorkspaceFile,
 } from "../server/source-workspace.js";
-import { buildCodeLayerProjection } from "../shared/code-layer.js";
-import type { CodeLayerSource } from "../shared/code-layer.js";
+import {
+  buildCodeLayerProjection,
+  patchCodeLayerNodeAttributes,
+} from "../shared/code-layer.js";
+import type { CodeLayerNode, CodeLayerSource } from "../shared/code-layer.js";
 import { agentSelectionDescriptor } from "../shared/collab-selection.js";
 import {
   componentNameFor,
   componentNodeIdMatches,
+  COMPONENT_ID_ATTR,
   COMPONENT_NAME_ATTR,
+  COMPONENT_OVERRIDES_ATTR,
   COMPONENT_PROP_PREFIX,
+  COMPONENT_REF_ATTR,
+  COMPONENT_SOURCE_NODE_ID_ATTR,
+  isComponentInstanceForInstanceActions,
 } from "../shared/component-model.js";
 import { designSourceTypeFromData } from "../shared/source-mode.js";
 import { sourceContentHash } from "../shared/source-workspace.js";
 
-// ─── Pure transform ────────────────────────────────────────────────────────
-
-/**
- * Strip the `data-agent-native-component` annotation and every
- * `data-agent-native-prop-*` override attribute from a node's opening tag,
- * using its source span. Pure — no DB / IO — so it can be unit tested
- * directly.
- *
- * Leaves everything else (classes, style, text, `x-data`, `id`,
- * `data-agent-native-node-id`, …) untouched: the node keeps its current
- * rendered appearance and behavior, it simply stops being recognized as a
- * component instance.
- */
 export function stripComponentAnnotations(
   html: string,
-  source: { openStart: number; openEnd: number } | null | undefined,
+  root: CodeLayerNode | null | undefined,
+  projectionNodes: readonly CodeLayerNode[] = root ? [root] : [],
 ): { content: string; changed: boolean; removedAttributes: string[] } {
-  if (!source) {
+  if (!root?.source) {
     return { content: html, changed: false, removedAttributes: [] };
   }
-
-  const openTag = html.slice(source.openStart, source.openEnd);
-  const removed: string[] = [];
-  let newOpenTag = openTag;
-
-  const componentAttrRe = new RegExp(
-    `\\s+${COMPONENT_NAME_ATTR}\\s*=\\s*(?:"[^"]*"|'[^']*'|[^\\s>"']+)`,
-    "i",
-  );
-  if (componentAttrRe.test(newOpenTag)) {
-    removed.push(COMPONENT_NAME_ATTR);
-    newOpenTag = newOpenTag.replace(componentAttrRe, "");
-  }
-
-  const propAttrRe = new RegExp(
-    `\\s+${COMPONENT_PROP_PREFIX}[a-z0-9-]+\\s*=\\s*(?:"[^"]*"|'[^']*'|[^\\s>"']+)`,
-    "gi",
-  );
-  newOpenTag = newOpenTag.replace(propAttrRe, (match) => {
-    removed.push(match.trim().split("=")[0] ?? match.trim());
-    return "";
-  });
-
-  if (newOpenTag === openTag) {
+  const nodesById = new Map(projectionNodes.map((node) => [node.id, node]));
+  const updates: Array<{
+    node: CodeLayerNode;
+    attributes: Record<string, string | null>;
+  }> = [];
+  const removed = new Set<string>();
+  const visited = new Set<string>();
+  const visit = (node: CodeLayerNode, isRoot: boolean): boolean => {
+    if (visited.has(node.id)) return false;
+    visited.add(node.id);
+    const isNestedComponentRoot =
+      !isRoot &&
+      (Object.prototype.hasOwnProperty.call(
+        node.dataAttributes,
+        COMPONENT_ID_ATTR,
+      ) ||
+        Object.prototype.hasOwnProperty.call(
+          node.dataAttributes,
+          COMPONENT_REF_ATTR,
+        ));
+    const attributes: Record<string, string | null> = {};
+    for (const attribute of Object.keys(node.dataAttributes)) {
+      const remove =
+        (isRoot &&
+          (attribute === COMPONENT_NAME_ATTR ||
+            attribute === COMPONENT_ID_ATTR ||
+            attribute === COMPONENT_REF_ATTR ||
+            attribute === COMPONENT_OVERRIDES_ATTR ||
+            attribute === COMPONENT_SOURCE_NODE_ID_ATTR ||
+            attribute.startsWith(COMPONENT_PROP_PREFIX))) ||
+        (!isRoot &&
+          (attribute === COMPONENT_SOURCE_NODE_ID_ATTR ||
+            (!isNestedComponentRoot &&
+              attribute === COMPONENT_OVERRIDES_ATTR)));
+      if (!remove) continue;
+      attributes[attribute] = null;
+      removed.add(attribute);
+    }
+    if (Object.keys(attributes).length > 0) {
+      updates.push({ node, attributes });
+    }
+    if (isNestedComponentRoot) {
+      return true;
+    }
+    for (const childId of node.children) {
+      const child = nodesById.get(childId);
+      if (!child || !visit(child, false)) return false;
+    }
+    return true;
+  };
+  if (!visit(root, true)) {
     return { content: html, changed: false, removedAttributes: [] };
   }
-
+  if (updates.length === 0) {
+    return { content: html, changed: false, removedAttributes: [] };
+  }
+  const content = patchCodeLayerNodeAttributes(html, updates);
+  if (content === null) {
+    return { content: html, changed: false, removedAttributes: [] };
+  }
   return {
-    content:
-      html.slice(0, source.openStart) + newOpenTag + html.slice(source.openEnd),
-    changed: true,
-    removedAttributes: removed,
+    content,
+    changed: content !== html,
+    removedAttributes: [...removed],
   };
 }
-
-// ─── Persistence ────────────────────────────────────────────────────────────
 
 async function persistEdit(file: {
   id: string;
@@ -152,11 +148,9 @@ async function persistEdit(file: {
   }
 }
 
-// ─── Action ───────────────────────────────────────────────────────────────────
-
 export default defineAction({
   description:
-    "Detach a component instance (Figma's ⌥⌘B): strip the " +
+    "Detach a component instance: strip the " +
     "data-agent-native-component annotation and its data-agent-native-prop-* " +
     "overrides from the selected instance root so it becomes a plain, " +
     "unlinked element. Position, size, classes, text, and behavior are " +
@@ -188,7 +182,8 @@ export default defineAction({
   }),
   run: async ({ designId, nodeId, fileId, source }, context) => {
     const access = await resolveAccess("design", designId);
-    if (!access) throw new Error("Design not found");
+    if (!access)
+      fail("Design not found", { errorCode: "not_found", statusCode: 404 });
 
     const rawData = (access.resource as { data?: unknown }).data;
     const sourceType = designSourceTypeFromData(rawData);
@@ -286,12 +281,17 @@ export default defineAction({
         `Node "${nodeId}" is not a component root (no data-agent-native-component attribute) — nothing to detach.`,
       );
     }
+    if (!isComponentInstanceForInstanceActions(node)) {
+      throw new Error(
+        `Node "${nodeId}" is the canonical component main; detach an instance reference instead.`,
+      );
+    }
 
     const {
       content: patchedContent,
       changed,
       removedAttributes,
-    } = stripComponentAnnotations(html, node.source);
+    } = stripComponentAnnotations(html, node, projection.nodes);
 
     if (!changed) {
       return {

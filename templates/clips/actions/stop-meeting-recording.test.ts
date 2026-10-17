@@ -232,7 +232,6 @@ describe("stop-meeting-recording endReason", () => {
 
     const meetingUpdate = (db.update as ReturnType<typeof vi.fn>).mock
       .results[0].value.set.mock.calls[0][0];
-    // Both are coalesced in SQL: the existing values win, no read-then-write.
     expect(meetingUpdate.actualEnd).toMatchObject({ kind: "sql" });
     expect(JSON.stringify(meetingUpdate.actualEnd)).toContain("coalesce(");
     expect(meetingUpdate.endReason).toMatchObject({ kind: "sql" });

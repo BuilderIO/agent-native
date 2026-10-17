@@ -1,7 +1,9 @@
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
-import { useActionMutation } from "@agent-native/core/client/hooks";
+import { useActionMutation, useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useDraggable } from "@dnd-kit/core";
+import { dataNoteIsRecent, type DataNote } from "@shared/data-notes";
+import { isKeyDateChartType } from "@shared/key-dates";
 import {
   IconGripVertical,
   IconDotsVertical,
@@ -15,11 +17,25 @@ import {
   IconMessageCircle,
   IconBrandGoogle,
   IconArrowUpRight,
+  IconLink,
+  IconFlag,
+  IconEyeOff,
 } from "@tabler/icons-react";
-import { useQueryClient } from "@tanstack/react-query";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { isPendingAnnotation } from "@/components/dashboard/annotation-mutations";
+import {
+  useDataNoteActions,
+  usePanelDataNotes,
+} from "@/components/dashboard/dashboard-annotations-context";
+import {
+  DataNoteFlag,
+  DataNoteLines,
+  UnplacedDataNotesListener,
+} from "@/components/dashboard/data-note-bands";
+import type { PanelFreshness } from "@/components/dashboard/panel-freshness";
+import { PanelFreshnessClock } from "@/components/dashboard/PanelFreshnessClock";
 import { ChartFillHeight, SqlChart } from "@/components/dashboard/SqlChart";
 import {
   AlertDialog,
@@ -31,6 +47,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
@@ -43,7 +60,12 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -53,30 +75,67 @@ import {
 } from "@/components/ui/tooltip";
 import type { SelectDashboardPanelOptions } from "@/hooks/use-dashboard-chat-context";
 import { buildCustomBlockPromotionRequest } from "@/lib/custom-block-promotion";
+import { usePersonalColumnWidths } from "@/lib/personal-column-widths";
+import {
+  DASHBOARD_SESSION_LOADING_SCOPE,
+  dashboardCacheScope,
+} from "@/lib/prefetch-keys";
 import { cn } from "@/lib/utils";
 
 import { serializePanelSql } from "./panel-sql";
 import { timeRangeDays } from "./pivot";
-import type { SqlPanel } from "./types";
+import type { DashboardFilter, SqlPanel, TableColumnConfig } from "./types";
 import { ViewSqlPopover } from "./ViewSqlPopover";
+
+const INHERIT_TIME_RANGE = "__inherit__";
+
+function PanelTitle({ title }: { title: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <CardTitle className="min-w-0 text-sm font-medium">
+      <Tooltip open={open} onOpenChange={setOpen}>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.preventDefault();
+              setOpen(true);
+            }}
+            className="block max-w-full truncate rounded text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {title}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>{title}</TooltipContent>
+      </Tooltip>
+    </CardTitle>
+  );
+}
+
+export function dashboardTileElementId(panelId: string): string {
+  return `dashboard-tile-${panelId}`;
+}
 
 interface SqlChartCardProps {
   panel: SqlPanel;
   resolvedSql?: string;
   onRemove: () => void;
   onEdit?: () => void;
-  /** Persist a SQL-only edit from the inline View SQL popover. Should throw on
-   *  validation failure so the popover can stay open and surface the error. */
   onSaveSql?: (sql: string) => Promise<void>;
+  onSaveColumns?: (columns: TableColumnConfig[]) => void;
   editable?: boolean;
   eagerLoad?: boolean;
   reportScreenshot?: boolean;
   isDragSource?: boolean;
   selectedForChat?: boolean;
+  highlighted?: boolean;
   onSelectForChat?: (options?: SelectDashboardPanelOptions) => void;
   extensionContext?: Record<string, unknown> | null;
   dashboardId?: string;
   filters?: Record<string, string>;
+  timeRangeFilter?: DashboardFilter;
+  timeRangeOverride?: string | null;
+  onTimeRangeOverrideChange?: (value: string | null) => void;
 }
 
 const PanelDragHandle = memo(function PanelDragHandle({
@@ -127,22 +186,59 @@ export function SqlChartCard({
   onRemove,
   onEdit,
   onSaveSql,
+  onSaveColumns,
   editable = true,
   eagerLoad = false,
   reportScreenshot = false,
   isDragSource = false,
   selectedForChat = false,
+  highlighted = false,
   onSelectForChat,
   extensionContext,
   dashboardId,
   filters,
+  timeRangeFilter,
+  timeRangeOverride,
+  onTimeRangeOverrideChange,
 }: SqlChartCardProps) {
   const t = useT();
+  const panelDataNotes = usePanelDataNotes(panel);
+  const dataNoteActions = useDataNoteActions();
+  const timeChart = isKeyDateChartType(panel.chartType);
+  // Other charts list the recent notes under the card. A time chart shades
+  // notes over its dates and lists, under its plot, the ones it can't place.
+  const listedDataNotes = useMemo(
+    () =>
+      timeChart ? [] : panelDataNotes.filter((note) => dataNoteIsRecent(note)),
+    [timeChart, panelDataNotes],
+  );
+  const [unplacedDataNotes, setUnplacedDataNotes] = useState<
+    readonly DataNote[]
+  >([]);
+  const flaggedDataNotes = timeChart ? unplacedDataNotes : listedDataNotes;
   const timeRange = timeRangeDays(filters?.timeRange);
-  const queryClient = useQueryClient();
+  const timeRangeOverrideLabel = timeRangeFilter?.options?.find(
+    (option) => option.value === timeRangeOverride,
+  )?.label;
   const exportToGoogleSheets = useActionMutation(
     "export-dashboard-panel-to-google-sheet",
   );
+  // While viewing, dragging a column edge sizes it for this person only. A
+  // table offers rename, reorder, and format whenever it gets onSaveColumns,
+  // so only edit mode passes it on.
+  const personalColumnWidths = usePersonalColumnWidths(
+    dashboardId,
+    panel.id,
+    panel.config?.columns,
+  );
+  const tableColumnProps = editable
+    ? { onSaveColumns }
+    : dashboardId && panel.chartType === "table"
+      ? {
+          columnWidths: personalColumnWidths.widths,
+          onColumnWidthChange: personalColumnWidths.setWidth,
+        }
+      : {};
 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -154,22 +250,48 @@ export function SqlChartCard({
   const [copyTable, setCopyTable] = useState<(() => Promise<void>) | null>(
     null,
   );
-  const [shouldLoadData, setShouldLoadData] = useState(
+  const forcedVisible =
     eagerLoad ||
-      panel.chartType === "section" ||
-      panel.chartType === "extension",
-  );
+    panel.chartType === "section" ||
+    panel.chartType === "extension";
+  const visibilityKey = JSON.stringify([eagerLoad, panel.chartType, panel.id]);
+  const [visibility, setVisibility] = useState({
+    key: visibilityKey,
+    intersecting: false,
+  });
+  if (visibility.key !== visibilityKey) {
+    setVisibility({ key: visibilityKey, intersecting: false });
+  }
+  const visible =
+    forcedVisible ||
+    (visibility.key === visibilityKey && visibility.intersecting);
+  const { session, status } = useSession();
+  const accountScope =
+    status === "authenticated" && session !== null
+      ? dashboardCacheScope(session)
+      : DASHBOARD_SESSION_LOADING_SCOPE;
+  const queryKey = JSON.stringify([
+    accountScope,
+    visibilityKey,
+    dashboardId ?? null,
+    panel.id,
+    panel.source,
+    serializePanelSql(resolvedSql ?? panel.sql),
+  ]);
+  // Permission belongs to the uninterrupted current request, not a history
+  // of SQL strings. Reset before rendering the child so a returning key or a
+  // new account cannot start an offscreen scan with an old permission.
+  const [authorization, setAuthorization] = useState({
+    key: queryKey,
+    allowed: false,
+  });
+  if (authorization.key !== queryKey || (visible && !authorization.allowed)) {
+    setAuthorization({ key: queryKey, allowed: visible });
+  }
+  const shouldLoadData =
+    visible || (authorization.key === queryKey && authorization.allowed);
+  const [refreshToken, setRefreshToken] = useState(0);
   const cardRef = useRef<HTMLDivElement | null>(null);
-  const chartQueryKey = useMemo(
-    () =>
-      [
-        "sql-chart",
-        dashboardId || panel.id,
-        serializePanelSql(resolvedSql ?? panel.sql),
-        panel.source,
-      ] as const,
-    [dashboardId, panel.id, panel.source, panel.sql, resolvedSql],
-  );
   const setCardNodeRef = useCallback((node: HTMLDivElement | null) => {
     cardRef.current = node;
   }, []);
@@ -177,6 +299,28 @@ export function SqlChartCard({
   const handleExportCsvChange = useCallback((handler: (() => void) | null) => {
     setExportCsv(handler ? () => handler : null);
   }, []);
+
+  // Keyed by the panel it was reported for, so a card reused for another
+  // panel or dashboard never shows the previous one's clock.
+  const panelScope = JSON.stringify([
+    accountScope,
+    dashboardId ?? null,
+    panel.id,
+  ]);
+  const [reportedFreshness, setReportedFreshness] = useState<{
+    scope: string;
+    freshness: PanelFreshness | null;
+  } | null>(null);
+  const handleFreshnessChange = useCallback(
+    (freshness: PanelFreshness | null) => {
+      setReportedFreshness({ scope: panelScope, freshness });
+    },
+    [panelScope],
+  );
+  const panelFreshness =
+    reportedFreshness?.scope === panelScope
+      ? reportedFreshness.freshness
+      : null;
 
   const handleCopyTableChange = useCallback(
     (handler: (() => Promise<void>) | null) => {
@@ -196,11 +340,9 @@ export function SqlChartCard({
   }, [copyTable, t]);
 
   const handleRefresh = useCallback(() => {
-    setShouldLoadData(true);
-    void queryClient.invalidateQueries({
-      queryKey: chartQueryKey,
-    });
-  }, [chartQueryKey, queryClient]);
+    setAuthorization({ key: queryKey, allowed: true });
+    setRefreshToken((token) => token + 1);
+  }, [queryKey]);
 
   const handleExportToGoogleSheets = useCallback(async () => {
     if (!dashboardId || panel.chartType !== "table") return;
@@ -264,7 +406,7 @@ export function SqlChartCard({
       if (
         target instanceof Element &&
         target.closest(
-          "button, a, input, textarea, select, [role='menuitem'], [data-no-panel-chat-select]",
+          "button, a, input, textarea, select, [role='menuitem'], [role='menuitemradio'], [data-no-panel-chat-select]",
         )
       ) {
         return;
@@ -275,29 +417,23 @@ export function SqlChartCard({
   );
 
   useEffect(() => {
-    if (eagerLoad) {
-      setShouldLoadData(true);
-      return;
-    }
-    // Sections are layout-only and extensions render their own iframe — neither
-    // waits on the intersection observer that gates SQL panels.
-    if (panel.chartType === "section" || panel.chartType === "extension") {
-      setShouldLoadData(true);
-      return;
-    }
+    if (forcedVisible) return;
 
-    setShouldLoadData(false);
     const node = cardRef.current;
     if (!node || typeof IntersectionObserver === "undefined") {
-      setShouldLoadData(true);
+      setVisibility({ key: visibilityKey, intersecting: true });
       return;
     }
 
+    let active = true;
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) {
-          setShouldLoadData(true);
-          observer.disconnect();
+        const latest = entries[entries.length - 1];
+        if (active && latest) {
+          setVisibility({
+            key: visibilityKey,
+            intersecting: latest.isIntersecting,
+          });
         }
       },
       {
@@ -306,8 +442,11 @@ export function SqlChartCard({
       },
     );
     observer.observe(node);
-    return () => observer.disconnect();
-  }, [eagerLoad, panel.chartType, panel.id]);
+    return () => {
+      active = false;
+      observer.disconnect();
+    };
+  }, [forcedVisible, visibilityKey]);
 
   useEffect(() => {
     setExportCsv(null);
@@ -328,9 +467,17 @@ export function SqlChartCard({
     setMenuOpen(false);
   }, []);
 
-  // Section panels render as a flush header row (no card chrome, full width)
-  // so they read as dividers between groups of panels rather than as another
-  // tile in the grid.
+  const copyTileLink = useCallback(async () => {
+    const url = new URL(window.location.href);
+    url.searchParams.set("tile", panel.id);
+    try {
+      await navigator.clipboard.writeText(url.toString());
+      toast.success(t("sidebar.linkCopied"));
+    } catch {
+      toast.error(t("sidebar.copyLinkFailed"));
+    }
+  }, [panel.id, t]);
+
   if (panel.chartType === "section") {
     return (
       <div
@@ -423,14 +570,11 @@ export function SqlChartCard({
     );
   }
 
-  // Extension panels render their sandboxed iframe full-bleed with no card chrome
-  // or title — the extension owns its own UI. All viewers get the read-only
-  // actions (full screen and refresh); editable
-  // dashboards also get delete and drag.
   if (panel.chartType === "extension") {
     return (
       <div
         ref={setCardNodeRef}
+        id={dashboardTileElementId(panel.id)}
         onClick={handleCardClick}
         style={isDragSource ? { zIndex: 50 } : undefined}
         data-dragging={isDragSource ? "true" : undefined}
@@ -440,6 +584,7 @@ export function SqlChartCard({
         className={cn(
           "dashboard-extension-card group relative h-full rounded-lg transition-colors",
           selectedForChat && "border-foreground/35 ring-1 ring-foreground/10",
+          highlighted && "ring-2 ring-primary",
         )}
       >
         {!expanded && (
@@ -495,6 +640,10 @@ export function SqlChartCard({
               <DropdownMenuItem onSelect={() => setExpanded(true)}>
                 <IconMaximize className="h-4 w-4 mr-2" />
                 {t("sqlDashboard.fullScreen")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => void copyTileLink()}>
+                <IconLink className="h-4 w-4 mr-2" />
+                {t("sidebar.copyLink")}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onSelect={() => setExtRefreshKey((k) => k + 1)}>
@@ -593,13 +742,12 @@ export function SqlChartCard({
     );
   }
 
-  // Every non-section panel exposes at least the Full screen view action, so the
-  // options menu always renders — including on read-only / shared dashboards.
   const showPanelMenu = true;
 
   return (
     <div
       ref={setCardNodeRef}
+      id={dashboardTileElementId(panel.id)}
       onClick={handleCardClick}
       style={isDragSource ? { zIndex: 50 } : undefined}
       data-dragging={isDragSource ? "true" : undefined}
@@ -612,13 +760,36 @@ export function SqlChartCard({
         className={cn(
           "flex h-full flex-col overflow-visible transition-colors",
           selectedForChat && "border-foreground/35 ring-1 ring-foreground/10",
+          highlighted && "ring-2 ring-primary",
         )}
       >
-        <CardHeader className="pb-2 flex flex-row items-center gap-2 shrink-0">
-          <CardTitle className="text-sm font-medium flex-1 truncate">
-            {panel.title}
-          </CardTitle>
-          <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+        <CardHeader className="dashboard-panel-header grid space-y-0 shrink-0 pb-2">
+          <div className="dashboard-panel-title flex min-w-0 items-center gap-1">
+            <PanelTitle title={panel.title} />
+            <DataNoteFlag notes={flaggedDataNotes} panelId={panel.id} />
+            {timeRangeOverrideLabel ? (
+              <Badge
+                variant="secondary"
+                className="max-w-20 min-w-0 shrink truncate px-1.5 py-0 text-[10px] font-normal"
+                title={timeRangeOverrideLabel}
+              >
+                <span className="sr-only">
+                  {t("sqlDashboard.chartTimeRangeOverride")}{" "}
+                </span>
+                {timeRangeOverrideLabel}
+              </Badge>
+            ) : null}
+          </div>
+          <div className="dashboard-panel-freshness min-w-0 overflow-hidden">
+            {panelFreshness ? (
+              <PanelFreshnessClock
+                freshness={panelFreshness}
+                showAge
+                className="h-6 w-full px-1"
+              />
+            ) : null}
+          </div>
+          <div className="dashboard-panel-actions flex items-center justify-end gap-1 opacity-0 transition-opacity motion-reduce:transition-none group-hover:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100">
             {!editable || onSaveSql ? (
               <ViewSqlPopover
                 panel={panel}
@@ -662,10 +833,70 @@ export function SqlChartCard({
                     {t("sqlDashboard.chatWithPanel")}
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
+                  {timeRangeFilter?.options?.length ? (
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger>
+                        {timeRangeFilter.label}
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent className="w-52">
+                        <DropdownMenuRadioGroup
+                          value={timeRangeOverride ?? INHERIT_TIME_RANGE}
+                          onValueChange={(value) =>
+                            onTimeRangeOverrideChange?.(
+                              value === INHERIT_TIME_RANGE ? null : value,
+                            )
+                          }
+                        >
+                          <DropdownMenuRadioItem value={INHERIT_TIME_RANGE}>
+                            {t("sqlDashboard.chartTimeRangeInherit")}
+                          </DropdownMenuRadioItem>
+                          {timeRangeFilter.options.map((opt) => (
+                            <DropdownMenuRadioItem
+                              key={opt.value}
+                              value={opt.value}
+                            >
+                              {opt.label}
+                            </DropdownMenuRadioItem>
+                          ))}
+                        </DropdownMenuRadioGroup>
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                  ) : null}
                   <DropdownMenuItem onSelect={() => setExpanded(true)}>
                     <IconMaximize className="h-4 w-4 mr-2" />
                     {t("sqlDashboard.fullScreen")}
                   </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => void copyTileLink()}>
+                    <IconLink className="h-4 w-4 mr-2" />
+                    {t("sidebar.copyLink")}
+                  </DropdownMenuItem>
+                  {dataNoteActions?.add ? (
+                    <DropdownMenuItem
+                      onSelect={() => dataNoteActions.add?.(panel.id)}
+                    >
+                      <IconFlag className="h-4 w-4 mr-2" />
+                      {t("annotations.addDataNote")}
+                    </DropdownMenuItem>
+                  ) : null}
+                  {/* The note cards are hover-only, so keyboard users hide a note here. */}
+                  {dataNoteActions?.hide
+                    ? panelDataNotes.map((note) => (
+                        <DropdownMenuItem
+                          key={note.id}
+                          disabled={isPendingAnnotation(note.id)}
+                          onSelect={() =>
+                            dataNoteActions.hide?.(note.id, panel.id)
+                          }
+                        >
+                          <IconEyeOff className="h-4 w-4 mr-2 shrink-0" />
+                          <span className="min-w-0 truncate">
+                            {t("annotations.hideNoteHere", {
+                              title: note.title,
+                            })}
+                          </span>
+                        </DropdownMenuItem>
+                      ))
+                    : null}
                   {editable || panel.chartType === "table" ? (
                     <DropdownMenuSeparator />
                   ) : null}
@@ -737,17 +968,25 @@ export function SqlChartCard({
           </div>
         </CardHeader>
         <CardContent className="dashboard-chart-content flex flex-1 flex-col overflow-visible pt-0">
-          <SqlChart
-            panel={panel}
-            resolvedSql={resolvedSql}
-            loadData={shouldLoadData}
-            timeRange={timeRange}
-            reportScreenshot={reportScreenshot}
-            dashboardId={dashboardId}
-            onExportCsvChange={handleExportCsvChange}
-            onCopyTableChange={handleCopyTableChange}
-            extensionContext={extensionContext}
-          />
+          <UnplacedDataNotesListener value={setUnplacedDataNotes}>
+            <SqlChart
+              panel={panel}
+              resolvedSql={resolvedSql}
+              loadData={shouldLoadData}
+              retainWhileOffscreen
+              timeRange={timeRange}
+              reportScreenshot={reportScreenshot}
+              refreshToken={refreshToken}
+              onRefreshRequested={handleRefresh}
+              dashboardId={dashboardId}
+              onExportCsvChange={handleExportCsvChange}
+              onFreshnessChange={handleFreshnessChange}
+              onCopyTableChange={handleCopyTableChange}
+              {...tableColumnProps}
+              extensionContext={extensionContext}
+            />
+          </UnplacedDataNotesListener>
+          <DataNoteLines notes={listedDataNotes} panelId={panel.id} />
         </CardContent>
       </Card>
 
@@ -764,6 +1003,9 @@ export function SqlChartCard({
                 loadData
                 timeRange={timeRange}
                 reportScreenshot={reportScreenshot}
+                refreshToken={refreshToken}
+                onRefreshRequested={handleRefresh}
+                {...tableColumnProps}
                 dashboardId={dashboardId}
                 extensionContext={extensionContext}
               />

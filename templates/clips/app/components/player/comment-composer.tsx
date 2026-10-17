@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
+  type RefObject,
 } from "react";
 
 import {
@@ -41,9 +42,38 @@ interface CommentComposerProps {
   "aria-label"?: string;
 }
 
-function resizeTextarea(element: HTMLTextAreaElement) {
+export function resizeCommentTextarea(element: HTMLTextAreaElement) {
+  const maxHeight = Math.round(window.innerHeight * 0.4);
   element.style.height = "auto";
-  element.style.height = `${element.scrollHeight}px`;
+  const height = Math.min(element.scrollHeight, maxHeight);
+  element.style.height = `${height}px`;
+  element.style.overflowY =
+    element.scrollHeight > maxHeight ? "auto" : "hidden";
+}
+
+export function useAutoResizeCommentTextarea(
+  textareaRef: RefObject<HTMLTextAreaElement | null>,
+  value: string,
+  rows: number,
+) {
+  useLayoutEffect(() => {
+    const element = textareaRef.current;
+    if (element) resizeCommentTextarea(element);
+  }, [rows, textareaRef, value]);
+
+  useLayoutEffect(() => {
+    const element = textareaRef.current;
+    if (!element) return;
+    const resize = () => resizeCommentTextarea(element);
+    const observer =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(resize);
+    observer?.observe(element);
+    window.addEventListener("resize", resize);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", resize);
+    };
+  }, [rows, textareaRef]);
 }
 
 export const CommentComposer = forwardRef<
@@ -69,6 +99,7 @@ export const CommentComposer = forwardRef<
   ref,
 ) {
   const innerRef = useRef<HTMLTextAreaElement | null>(null);
+  const queryRef = useRef<string | null>(null);
   const [query, setQuery] = useState<string | null>(null);
   const [highlight, setHighlight] = useState(0);
 
@@ -84,19 +115,7 @@ export const CommentComposer = forwardRef<
     if (autoFocus) innerRef.current?.focus();
   }, [autoFocus]);
 
-  useLayoutEffect(() => {
-    const element = innerRef.current;
-    if (!element) return;
-    resizeTextarea(element);
-  }, [rows, value]);
-
-  useLayoutEffect(() => {
-    const element = innerRef.current;
-    if (!element || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => resizeTextarea(element));
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [rows]);
+  useAutoResizeCommentTextarea(innerRef, value, rows);
 
   const filtered =
     query === null
@@ -111,12 +130,24 @@ export const CommentComposer = forwardRef<
             );
           })
           .slice(0, 6);
+  const filteredKey = filtered.map((member) => member.email).join("\0");
+
+  useEffect(() => {
+    setHighlight((current) =>
+      Math.min(current, Math.max(filtered.length - 1, 0)),
+    );
+  }, [filtered.length, filteredKey]);
+
+  const updateQuery = (nextQuery: string | null) => {
+    if (queryRef.current !== nextQuery) setHighlight(0);
+    queryRef.current = nextQuery;
+    setQuery(nextQuery);
+  };
 
   const refreshQuery = (element: HTMLTextAreaElement) => {
     const caret = element.selectionStart ?? element.value.length;
     const match = element.value.slice(0, caret).match(/(?:^|\s)@([^\s@]*)$/);
-    setQuery(match ? match[1] : null);
-    setHighlight(0);
+    updateQuery(match ? match[1] : null);
   };
 
   const selectMember = (member: MentionMember) => {
@@ -131,7 +162,7 @@ export const CommentComposer = forwardRef<
     const next = `${value.slice(0, atStart)}@${label} ${value.slice(caret)}`;
     onChange(next);
     onMentionAdd({ email: member.email, name: label });
-    setQuery(null);
+    updateQuery(null);
     requestAnimationFrame(() => {
       const current = innerRef.current;
       if (!current) return;
@@ -212,7 +243,7 @@ export const CommentComposer = forwardRef<
       }
       if (event.key === "Escape") {
         event.preventDefault();
-        setQuery(null);
+        updateQuery(null);
         return;
       }
     }
@@ -235,7 +266,7 @@ export const CommentComposer = forwardRef<
     <Popover
       open={menuOpen}
       onOpenChange={(open) => {
-        if (!open) setQuery(null);
+        if (!open) updateQuery(null);
       }}
     >
       <PopoverAnchor asChild>
@@ -254,12 +285,12 @@ export const CommentComposer = forwardRef<
             onClick={(event) => refreshQuery(event.currentTarget)}
             onKeyDown={handleKeyDown}
             onBlur={() => {
-              setTimeout(() => setQuery(null), 120);
+              setTimeout(() => updateQuery(null), 120);
               onBlur?.();
             }}
             placeholder={placeholder}
             className={cn(
-              "w-full resize-none overflow-y-hidden bg-transparent placeholder:text-muted-foreground focus:outline-none",
+              "max-h-[40vh] w-full resize-none bg-transparent placeholder:text-muted-foreground focus:outline-none",
               className,
             )}
           />

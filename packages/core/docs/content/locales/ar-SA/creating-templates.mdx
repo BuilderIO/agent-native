@@ -32,13 +32,13 @@ Toolkit وTemplates اختياريان. القالب ليس الإطار نفس�
 استخدم نموذج الدردشة عندما تريد تطبيقًا مبسطًا مع توصيلات إطار العمل الموجودة بالفعل:
 
 ```bash
-npx @agent-native/core@latest create my-template --template chat --standalone
+npx --yes @agent-native/core@latest create my-template --template chat --standalone
 ```
 
 بالنسبة لمساحة عمل تحتوي على تطبيقات متعددة، قم بتشغيل المنتقي وقم بتضمين الدردشة مع أي قوالب مجال تريدها:
 
 ```bash
-npx @agent-native/core@latest create my-platform
+npx --yes @agent-native/core@latest create my-platform
 ```
 
 تمنحك الدردشة مصادقة وسلاسل محادثات متينة وموارد مدعومة بـ PostgreSQL وأدوات وحالة التطبيق وactions ومزامنة الاستقصاء. يمكنك إضافة نموذج المجال والمنتج UI.
@@ -515,13 +515,13 @@ export default defineNitroPlugin(() => {
 تُثبَّت قوالب المجتمع مباشرة من مستودع GitHub عام. ضع تطبيق Agent-Native في جذر المستودع:
 
 ```bash
-npx @agent-native/core@latest create my-app --template community:owner/repo
+npx --yes @agent-native/core@latest create my-app --template community:owner/repo
 ```
 
 أضف `#branch` أو `#tag` أو `#commit` لتثبيت مراجعة محددة:
 
 ```bash
-npx @agent-native/core@latest create my-app --template community:owner/repo#v1.0.0
+npx --yes @agent-native/core@latest create my-app --template community:owner/repo#v1.0.0
 ```
 
 تنزّل CLI المصدر فقط، ولا تثبّت الاعتماديات أو تشغّل برامج القالب. قوالب المجتمع شيفرة من جهات خارجية؛ راجع المستودع والترخيص والاعتماديات وبرامج التثبيت قبل تشغيل `pnpm install`.

@@ -99,4 +99,30 @@ describe("update-mail-preferences action", () => {
 
     expect(result.pinnedLabels).toEqual(["travel"]);
   });
+
+  it("persists autocomplete without disturbing other mail preferences", async () => {
+    const result = await action.run({
+      autocompleteEnabled: true,
+      requestSource: "tab-autocomplete",
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        autocompleteEnabled: true,
+        pinnedLabels: ["important", "travel"],
+        theme: "dark",
+      }),
+    );
+  });
+
+  it("persists whether the All tab is visible", async () => {
+    const result = await action.run({
+      showAllTab: false,
+      requestSource: "tab-all",
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({ showAllTab: false, theme: "dark" }),
+    );
+  });
 });

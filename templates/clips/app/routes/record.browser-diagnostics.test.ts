@@ -13,7 +13,7 @@ describe("recorder browser diagnostics boundary", () => {
     const stopEnd = route.indexOf("// Keep the ref current", stopStart);
     const stopFlow = route.slice(stopStart, stopEnd);
     const diagnosticsStop = stopFlow.indexOf(
-      "const diagnosticsSave = saveBrowserDiagnostics(pending.id)",
+      "saveBrowserDiagnostics(pending.id)",
     );
     const transcriptStop = stopFlow.indexOf("liveTranscription.stopAndWait()");
     const mediaStop = stopFlow.indexOf("await engine.stop()");

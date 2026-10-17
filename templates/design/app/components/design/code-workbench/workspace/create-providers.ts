@@ -5,6 +5,7 @@ import type { WorkspaceProvider } from "./types";
 export interface CreateWorkspaceProvidersOptions {
   designId: string;
   canEdit: boolean;
+  onDeleteInlineFile?: (fileId: string) => void | Promise<void>;
   localhostConnections: Array<{
     connectionId: string;
     label: string;
@@ -12,11 +13,6 @@ export interface CreateWorkspaceProvidersOptions {
   }>;
 }
 
-/**
- * Compose the workspace roots shown in the workbench explorer: the design's
- * SQL-backed files first, then one root per connected local app. Future
- * remote-container sources slot in here as additional providers.
- */
 export function createWorkspaceProviders(
   options: CreateWorkspaceProvidersOptions,
 ): WorkspaceProvider[] {
@@ -24,6 +20,7 @@ export function createWorkspaceProviders(
     createInlineProvider({
       designId: options.designId,
       canEdit: options.canEdit,
+      onDeleteFile: options.onDeleteInlineFile,
     }),
   ];
   for (const connection of options.localhostConnections) {

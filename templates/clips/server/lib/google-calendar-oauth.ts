@@ -74,7 +74,6 @@ export async function handleGoogleCalendarCallback(
   return runWithRequestContext({ userEmail: ownerEmail }, async () => {
     const { redirectUri, returnUrl } = state;
 
-    // 1. Exchange code -> tokens.
     const tokens = await exchangeCode({
       code,
       clientId: credentials.clientId,
@@ -85,13 +84,10 @@ export async function handleGoogleCalendarCallback(
       return oauthErrorPage("Google did not return an access token.");
     }
 
-    // 2. Fetch profile so we can label the row.
     const profile = await getUserInfo(tokens.access_token);
     const externalAccountId = profile.id;
     const accountEmail = profile.email;
 
-    // 3. Find an existing account case-insensitively so email-casing changes
-    //    don't create duplicate calendar connections.
     const db = getDb();
     const orgId = await getActiveOrganizationId().catch(() => undefined);
     const now = new Date().toISOString();
@@ -149,14 +145,11 @@ export async function handleGoogleCalendarCallback(
       });
     }
 
-    // 5. Upsert the calendar_accounts row.
     if (existing) {
       await db
         .update(schema.calendarAccounts)
         .set({
           accessTokenSecretRef: accessKey,
-          // Only overwrite the refresh ref if Google sent us one (it only
-          // arrives on the first consent or after re-prompt with prompt=consent).
           ...(tokens.refresh_token
             ? { refreshTokenSecretRef: refreshKey }
             : {}),

@@ -13,7 +13,7 @@ describe("Design app shell", () => {
 
     expect(root).toContain('<html lang="en" data-design-app');
     expect(css).toMatch(
-      /\[data-design-app\] \.agent-composer-context-row\s*\{\s*display:\s*none;/s,
+      /\[data-design-app\]\s*\.agent-composer-context-row:not\(\s*\[data-design-home-composer\]\s*\.agent-composer-context-row\s*\)\s*\{\s*display:\s*none;/s,
     );
   });
 
@@ -50,7 +50,7 @@ describe("Design app shell", () => {
       "--design-action-slot-width: calc(var(--design-baseline-unit) * 4)",
     );
     expect(css).toContain(
-      "--design-chrome-rail-width: calc(var(--design-baseline-unit) * 8)",
+      "--design-chrome-rail-width: calc(var(--design-baseline-unit) * 7)",
     );
     expect(css).toMatch(
       /grid-template-columns:\s*minmax\(0, 1fr\)\s*repeat\(\s*2,\s*var\(--design-action-slot-width\)/,

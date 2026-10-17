@@ -165,7 +165,7 @@ describe("database view save compatibility", () => {
         idempotencyKey: "intent-1",
         viewConfig: defaultDatabaseViewConfig(),
       }),
-    ).toThrow("Database view save contract is unavailable");
+    ).toThrow("Collection view save contract is unavailable");
   });
 
   it("refuses a queued save when the loaded database has changed", () => {
@@ -177,6 +177,6 @@ describe("database view save compatibility", () => {
         idempotencyKey: "intent-1",
         viewConfig: defaultDatabaseViewConfig(),
       }),
-    ).toThrow("Database view save context is unavailable");
+    ).toThrow("Collection view save context is unavailable");
   });
 });

@@ -1,10 +1,3 @@
-/**
- * Abort an in-flight recording upload. Clears any stashed chunks and marks
- * the recording row as failed so the UI can reflect the state.
- *
- * Route: POST /api/uploads/:recordingId/abort
- */
-
 import {
   compareAndSetManyAppState,
   readAppState,
@@ -23,6 +16,11 @@ import {
 
 import { getDb, schema } from "../../../../db/index.js";
 import { mediaVerificationStateKey } from "../../../../lib/media-verification-state.js";
+import {
+  normalizeRecordingFailureCode,
+  trackRecordingFailure,
+} from "../../../../lib/recording-failures.js";
+import { deleteStoredMediaUrl } from "../../../../lib/recording-media-cleanup.js";
 import { deleteRecordingChunks } from "../../../../lib/recording-upload-state.js";
 import {
   getEventOwnerContext,
@@ -33,6 +31,44 @@ import {
   getResumableSession,
 } from "../../../../lib/resumable-session.js";
 import { resolveResumableUploadProvider } from "../../../../lib/resumable-upload-provider.js";
+import { isParkedForStorage } from "../../../../lib/upload-lease.js";
+import { releaseHostedClipRecording } from "../../../../lib/video-storage.js";
+
+function uploadStateMatchesRecording(
+  state: Record<string, unknown>,
+  uploadAttemptId: string | null,
+  uploadGenerationId: string | null,
+): boolean {
+  return (
+    (state.uploadAttemptId == null ||
+      state.uploadAttemptId === uploadAttemptId) &&
+    (state.uploadGenerationId == null ||
+      state.uploadGenerationId === uploadGenerationId)
+  );
+}
+
+function canReconcilePreviousGenerationState(
+  state: Record<string, unknown>,
+  status: string,
+  uploadAttemptId: string | null,
+  uploadGenerationId: string | null,
+  requestedAttemptId: string | null,
+  requestedGenerationId: string | null,
+  allowSameAttemptCancellation: boolean,
+): boolean {
+  return (
+    status === "uploading" &&
+    typeof uploadGenerationId === "string" &&
+    (state.uploadAttemptId == null
+      ? uploadAttemptId === null
+      : state.uploadAttemptId === uploadAttemptId) &&
+    typeof state.uploadGenerationId === "string" &&
+    state.uploadGenerationId !== uploadGenerationId &&
+    requestedAttemptId === uploadAttemptId &&
+    (allowSameAttemptCancellation ||
+      requestedGenerationId === uploadGenerationId)
+  );
+}
 
 export async function handleAbortRecordingUpload(
   event: H3Event,
@@ -40,6 +76,7 @@ export async function handleAbortRecordingUpload(
     recordingId?: string;
     ownerEmail?: string;
     orgId?: string;
+    authUserId?: string;
   },
 ) {
   const recordingId =
@@ -49,21 +86,82 @@ export async function handleAbortRecordingUpload(
     return { error: "Missing recordingId" };
   }
 
-  const { ownerEmail, orgId } = override?.ownerEmail
-    ? { ownerEmail: override.ownerEmail, orgId: override.orgId }
+  const { ownerEmail, orgId, authUserId } = override?.ownerEmail
+    ? {
+        ownerEmail: override.ownerEmail,
+        orgId: override.orgId,
+        authUserId: override.authUserId,
+      }
     : await getEventOwnerContext(event).then((context) => ({
         ownerEmail: context.userEmail,
         orgId: context.orgId,
+        authUserId: context.authUserId,
       }));
   const body = (await readBody(event).catch(() => null)) as {
     reason?: unknown;
+    failureCode?: unknown;
+    failureStage?: unknown;
+    httpStatus?: unknown;
     attemptId?: unknown;
     uploadGenerationId?: unknown;
   } | null;
-  const failureReason =
-    typeof body?.reason === "string" && body.reason.trim()
-      ? body.reason.trim().slice(0, 1000)
-      : "Upload aborted by user";
+  const reasonText =
+    typeof body?.reason === "string" ? body.reason.trim().slice(0, 1000) : "";
+  const isResetChunksHtmlFailure =
+    /reset-chunks\b/i.test(reasonText) &&
+    /(?:<!doctype html|<html\b)/i.test(reasonText);
+  const isHtmlFailure =
+    /returned an HTML error response/i.test(reasonText) ||
+    /(?:<!doctype\s+html\b|<html\b)/i.test(reasonText) ||
+    isResetChunksHtmlFailure;
+  const requestedFailureCode = normalizeRecordingFailureCode(body?.failureCode);
+  const legacyCancellationReasons = new Set([
+    "Recording cancelled by user",
+    "Recording cancelled during countdown",
+    "Upload cancelled",
+  ]);
+  const legacyInterruptionReasons = new Set([
+    "Recording interruption has unknown cause",
+    "The recorder page closed before the recording finished saving.",
+  ]);
+  const normalizedFailureCode =
+    requestedFailureCode !== "unknown"
+      ? requestedFailureCode
+      : legacyCancellationReasons.has(reasonText)
+        ? "user_cancelled"
+        : legacyInterruptionReasons.has(reasonText)
+          ? "recording_interrupted"
+          : "upload_aborted";
+  const failureCode =
+    (normalizedFailureCode === "upload_failed" ||
+      normalizedFailureCode === "upload_aborted") &&
+    isHtmlFailure
+      ? "chunk_html_error"
+      : normalizedFailureCode;
+  const failureStage =
+    body?.failureStage === "multipart_start" ||
+    body?.failureStage === "chunk_upload" ||
+    body?.failureStage === "reset_chunks"
+      ? body.failureStage
+      : isResetChunksHtmlFailure
+        ? "reset_chunks"
+        : isHtmlFailure
+          ? "chunk_upload"
+          : undefined;
+  const explicitHttpStatus =
+    Number.isInteger(body?.httpStatus) &&
+    Number(body?.httpStatus) >= 100 &&
+    Number(body?.httpStatus) <= 599
+      ? Number(body?.httpStatus)
+      : undefined;
+  const htmlStatus = isHtmlFailure
+    ? reasonText.match(/\b([45]\d{2})\b/)?.[1]
+    : undefined;
+  const httpStatus =
+    explicitHttpStatus ?? (htmlStatus ? Number(htmlStatus) : undefined);
+  const failureReason = isHtmlFailure
+    ? `Upload returned an HTML error response${httpStatus ? ` (${httpStatus})` : ""}.`
+    : reasonText || "unknown";
   const requestedAttemptId =
     typeof body?.attemptId === "string" &&
     body.attemptId.length > 0 &&
@@ -77,7 +175,8 @@ export async function handleAbortRecordingUpload(
       ? body.uploadGenerationId
       : null;
 
-  return runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+  const requestContext = { userEmail: ownerEmail, orgId, authUserId };
+  return runWithRequestContext(requestContext, async () => {
     const db = getDb();
 
     const [existing] = await db
@@ -86,8 +185,10 @@ export async function handleAbortRecordingUpload(
         status: schema.recordings.status,
         videoUrl: schema.recordings.videoUrl,
         failureReason: schema.recordings.failureReason,
+        failureCode: schema.recordings.failureCode,
         uploadAttemptId: schema.recordings.uploadAttemptId,
         uploadGenerationId: schema.recordings.uploadGenerationId,
+        storageMode: schema.recordings.storageMode,
       })
       .from(schema.recordings)
       .where(
@@ -102,16 +203,40 @@ export async function handleAbortRecordingUpload(
       return { error: "Recording not found" };
     }
 
+    const preserveFailure =
+      existing.status === "failed" && existing.failureCode != null;
+    const persistedFailureCode =
+      existing.status === "failed" && existing.failureCode
+        ? normalizeRecordingFailureCode(existing.failureCode)
+        : failureCode;
+    const persistedFailureReason = preserveFailure
+      ? existing.failureReason || failureReason
+      : failureReason;
+
     const existingAttemptId = existing.uploadAttemptId ?? null;
     const existingGenerationId = existing.uploadGenerationId ?? null;
+    const allowSameAttemptCancellation =
+      failureCode === "user_cancelled" &&
+      requestedAttemptId !== null &&
+      requestedAttemptId === existingAttemptId;
     if (
       requestedAttemptId !== existingAttemptId ||
-      requestedGenerationId !== existingGenerationId
+      (!allowSameAttemptCancellation &&
+        requestedGenerationId !== existingGenerationId)
     ) {
       setResponseStatus(event, 409);
       return {
         error: "A newer upload retry is already active.",
         staleAttempt: true,
+      };
+    }
+
+    if (failureCode === "upload_interrupted" && isParkedForStorage(existing)) {
+      return {
+        ok: true,
+        recordingId,
+        status: "uploading",
+        parkedForStorage: true,
       };
     }
 
@@ -140,6 +265,28 @@ export async function handleAbortRecordingUpload(
         ? (existingVerificationStateRaw as Record<string, unknown>)
         : null;
     if (
+      !uploadStateMatchesRecording(
+        existingUploadState,
+        existingAttemptId,
+        existingGenerationId,
+      ) &&
+      !canReconcilePreviousGenerationState(
+        existingUploadState,
+        existing.status,
+        existingAttemptId,
+        existingGenerationId,
+        requestedAttemptId,
+        requestedGenerationId,
+        allowSameAttemptCancellation,
+      )
+    ) {
+      setResponseStatus(event, 409);
+      return {
+        error: "A newer upload retry is already active.",
+        staleAttempt: true,
+      };
+    }
+    if (
       existing.status === "processing" &&
       existingUploadState.pendingMediaVerification === true
     ) {
@@ -151,7 +298,7 @@ export async function handleAbortRecordingUpload(
       };
     }
 
-    const preserveRecoveryState =
+    let preserveRecoveryState =
       isStoredButUnservableFinalizeError(failureReason) ||
       isStoredButUnservableFinalizeError(existing.failureReason);
     let resumableSession = preserveRecoveryState
@@ -159,29 +306,218 @@ export async function handleAbortRecordingUpload(
       : await getResumableSession(recordingId, existingGenerationId);
 
     const now = new Date().toISOString();
+    const createAbortedUploadState = (
+      uploadState: Record<string, unknown>,
+      uploadAttemptId: string | null,
+      uploadGenerationId: string | null,
+      reason: string,
+    ) => ({
+      ...uploadState,
+      recordingId,
+      status: "failed",
+      aborted: true,
+      uploadAttemptId,
+      uploadGenerationId,
+      failureReason: reason,
+      updatedAt: now,
+    });
+    let transitionExisting = existing;
+    let transitionAttemptId = existingAttemptId;
+    let transitionGenerationId = existingGenerationId;
+    let transitionFailureCode = persistedFailureCode;
+    let transitionFailureReason = persistedFailureReason;
+    let transitionUploadStateSnapshot = existingUploadStateSnapshot;
+    let transitionVerificationStateSnapshot = existingVerificationStateSnapshot;
+    let abortedUploadState = createAbortedUploadState(
+      existingUploadState,
+      transitionAttemptId,
+      transitionGenerationId,
+      transitionFailureReason,
+    );
+    let uploadStateClaimed = await compareAndSetManyAppState([
+      {
+        key: uploadStateKey,
+        expectedValue: transitionUploadStateSnapshot,
+        nextValue: abortedUploadState,
+      },
+    ]);
+    if (!uploadStateClaimed) {
+      const [latest] = await db
+        .select({
+          id: schema.recordings.id,
+          status: schema.recordings.status,
+          videoUrl: schema.recordings.videoUrl,
+          failureReason: schema.recordings.failureReason,
+          failureCode: schema.recordings.failureCode,
+          uploadAttemptId: schema.recordings.uploadAttemptId,
+          uploadGenerationId: schema.recordings.uploadGenerationId,
+          storageMode: schema.recordings.storageMode,
+        })
+        .from(schema.recordings)
+        .where(
+          and(
+            eq(schema.recordings.id, recordingId),
+            ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+          ),
+        );
+      if (
+        !latest ||
+        (latest.status !== "uploading" && latest.status !== "processing")
+      ) {
+        setResponseStatus(event, 409);
+        return {
+          error: "A newer upload retry is already active.",
+          staleAttempt: true,
+        };
+      }
+
+      transitionAttemptId = latest.uploadAttemptId ?? null;
+      transitionGenerationId = latest.uploadGenerationId ?? null;
+      if (
+        requestedAttemptId !== transitionAttemptId ||
+        (!allowSameAttemptCancellation &&
+          requestedGenerationId !== transitionGenerationId)
+      ) {
+        setResponseStatus(event, 409);
+        return {
+          error: "A newer upload retry is already active.",
+          staleAttempt: true,
+        };
+      }
+
+      const [latestUploadStateRaw, latestVerificationStateRaw] =
+        await Promise.all([
+          readAppState(uploadStateKey),
+          readAppState(verificationStateKey),
+        ]);
+      const latestUploadState =
+        latestUploadStateRaw && typeof latestUploadStateRaw === "object"
+          ? (latestUploadStateRaw as Record<string, unknown>)
+          : {};
+      if (
+        !uploadStateMatchesRecording(
+          latestUploadState,
+          transitionAttemptId,
+          transitionGenerationId,
+        ) &&
+        !canReconcilePreviousGenerationState(
+          latestUploadState,
+          latest.status,
+          transitionAttemptId,
+          transitionGenerationId,
+          requestedAttemptId,
+          requestedGenerationId,
+          allowSameAttemptCancellation,
+        )
+      ) {
+        setResponseStatus(event, 409);
+        return {
+          error: "A newer upload retry is already active.",
+          staleAttempt: true,
+        };
+      }
+      if (
+        latest.status === "processing" &&
+        latestUploadState.pendingMediaVerification === true
+      ) {
+        return {
+          ok: true,
+          recordingId,
+          verificationPending: true,
+          chunksCleared: 0,
+        };
+      }
+
+      transitionExisting = latest;
+      transitionUploadStateSnapshot =
+        latestUploadStateRaw && typeof latestUploadStateRaw === "object"
+          ? (latestUploadStateRaw as Record<string, unknown>)
+          : null;
+      transitionVerificationStateSnapshot =
+        latestVerificationStateRaw &&
+        typeof latestVerificationStateRaw === "object"
+          ? (latestVerificationStateRaw as Record<string, unknown>)
+          : null;
+      transitionFailureCode = failureCode;
+      transitionFailureReason = failureReason;
+      preserveRecoveryState =
+        isStoredButUnservableFinalizeError(failureReason) ||
+        isStoredButUnservableFinalizeError(latest.failureReason);
+      resumableSession = preserveRecoveryState
+        ? null
+        : await getResumableSession(recordingId, transitionGenerationId);
+      abortedUploadState = createAbortedUploadState(
+        latestUploadState,
+        transitionAttemptId,
+        transitionGenerationId,
+        transitionFailureReason,
+      );
+      uploadStateClaimed = await compareAndSetManyAppState([
+        {
+          key: uploadStateKey,
+          expectedValue: transitionUploadStateSnapshot,
+          nextValue: abortedUploadState,
+        },
+      ]);
+      if (!uploadStateClaimed) {
+        setResponseStatus(event, 409);
+        return {
+          error: "A newer upload retry is already active.",
+          staleAttempt: true,
+        };
+      }
+    }
+
     const aborted = await db
       .update(schema.recordings)
       .set({
         status: "failed",
-        failureReason,
+        failureCode: transitionFailureCode,
+        failureReason: transitionFailureReason,
         updatedAt: now,
       })
       .where(
         and(
           eq(schema.recordings.id, recordingId),
           ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
-          eq(schema.recordings.status, existing.status),
-          existingAttemptId === null
+          eq(schema.recordings.status, transitionExisting.status),
+          transitionExisting.failureCode === null ||
+            transitionExisting.failureCode === undefined
+            ? isNull(schema.recordings.failureCode)
+            : eq(schema.recordings.failureCode, transitionExisting.failureCode),
+          transitionAttemptId === null
             ? isNull(schema.recordings.uploadAttemptId)
-            : eq(schema.recordings.uploadAttemptId, existingAttemptId),
-          existingGenerationId === null
-            ? isNull(schema.recordings.uploadGenerationId)
-            : eq(schema.recordings.uploadGenerationId, existingGenerationId),
+            : eq(schema.recordings.uploadAttemptId, transitionAttemptId),
+          allowSameAttemptCancellation
+            ? undefined
+            : transitionGenerationId === null
+              ? isNull(schema.recordings.uploadGenerationId)
+              : eq(
+                  schema.recordings.uploadGenerationId,
+                  transitionGenerationId,
+                ),
         ),
       )
-      .returning({ id: schema.recordings.id });
+      .returning({
+        id: schema.recordings.id,
+        uploadGenerationId: schema.recordings.uploadGenerationId,
+        uploadAttemptId: schema.recordings.uploadAttemptId,
+        recordingPlatform: schema.recordings.recordingPlatform,
+      });
 
     if (aborted.length !== 1) {
+      const uploadStateRestored = await compareAndSetManyAppState([
+        {
+          key: uploadStateKey,
+          expectedValue: abortedUploadState,
+          nextValue: transitionUploadStateSnapshot,
+        },
+      ]);
+      if (!uploadStateRestored) {
+        console.info(
+          `[abort] upload state changed while rolling back stale abort for ${recordingId}`,
+        );
+      }
       setResponseStatus(event, 409);
       return {
         error: "A newer upload retry is already active.",
@@ -189,42 +525,44 @@ export async function handleAbortRecordingUpload(
       };
     }
 
-    const auxiliaryStateUpdated = await compareAndSetManyAppState([
-      {
-        key: uploadStateKey,
-        expectedValue: existingUploadStateSnapshot,
-        nextValue: {
-          ...existingUploadState,
-          recordingId,
-          status: "failed",
-          failureReason,
-          updatedAt: now,
+    if (
+      transitionExisting.status !== "failed" ||
+      transitionExisting.failureCode !== transitionFailureCode
+    ) {
+      trackRecordingFailure({
+        recordingId,
+        userId: ownerEmail,
+        uploadAttemptId: aborted[0]?.uploadAttemptId,
+        platform: aborted[0]?.recordingPlatform,
+        failureCode: transitionFailureCode,
+        failureStage,
+        httpStatus,
+      });
+    }
+    const abortedGenerationId =
+      typeof aborted[0]?.uploadGenerationId === "string"
+        ? aborted[0].uploadGenerationId
+        : transitionGenerationId;
+
+    if (
+      transitionVerificationStateSnapshot &&
+      !(await compareAndSetManyAppState([
+        {
+          key: verificationStateKey,
+          expectedValue: transitionVerificationStateSnapshot,
+          nextValue: null,
         },
-      },
-      ...(existingVerificationStateSnapshot
-        ? [
-            {
-              key: verificationStateKey,
-              expectedValue: existingVerificationStateSnapshot,
-              nextValue: null,
-            },
-          ]
-        : []),
-    ]);
-    if (!auxiliaryStateUpdated) {
+      ]))
+    ) {
       console.info(
-        `[abort] upload state changed after abort claim; preserving replacement state for ${recordingId}`,
+        `[abort] verification state changed after abort claim; preserving replacement state for ${recordingId}`,
       );
     }
 
-    // Reset may have started this exact generation's provider session after
-    // our preflight read but before the abort claim. Re-read after the row CAS
-    // so either abort observes the late handle or reset observes the lost row
-    // claim and compensates it.
     if (!preserveRecoveryState) {
       resumableSession = await getResumableSession(
         recordingId,
-        existingGenerationId,
+        abortedGenerationId,
       );
     }
 
@@ -233,8 +571,11 @@ export async function handleAbortRecordingUpload(
       : await deleteRecordingChunks(
           ownerEmail,
           recordingId,
-          existingGenerationId,
+          abortedGenerationId,
         );
+    // A session the provider could not abort may still hold uploaded parts; it
+    // stays in app state for the reaper, so the reservation has to stay too.
+    let sessionCleanupConfirmed = true;
     if (!preserveRecoveryState) {
       if (resumableSession) {
         const provider = await resolveResumableUploadProvider(
@@ -258,18 +599,37 @@ export async function handleAbortRecordingUpload(
             err instanceof Error ? err.message : String(err),
           );
         }
-        // Keep the provider handle when cleanup fails so a later abort/cleanup
-        // retry can still address the multipart upload. Deleting it here would
-        // permanently orphan the provider-side session.
         if (providerCleanupSucceeded) {
-          await deleteResumableSession(recordingId, existingGenerationId).catch(
+          await deleteResumableSession(recordingId, abortedGenerationId).catch(
             () => {},
           );
+        } else {
+          sessionCleanupConfirmed = false;
         }
       } else {
-        await deleteResumableSession(recordingId, existingGenerationId).catch(
+        await deleteResumableSession(recordingId, abortedGenerationId).catch(
           () => {},
         );
+      }
+    }
+    if (existing.storageMode === "hosted" && !preserveRecoveryState) {
+      const mediaDeleted = existing.videoUrl
+        ? await deleteStoredMediaUrl(existing.videoUrl, {
+            storageMode: "hosted",
+            recordingId,
+          })
+        : true;
+      if (mediaDeleted && sessionCleanupConfirmed) {
+        await releaseHostedClipRecording({
+          recordingId,
+          userId: authUserId,
+          ownerEmail,
+        });
+      } else {
+        console.error("[abort] hosted recording media remains reserved", {
+          recordingId,
+          sessionCleanupConfirmed,
+        });
       }
     }
     await writeAppState("refresh-signal", { ts: Date.now() });

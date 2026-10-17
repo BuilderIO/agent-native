@@ -24,9 +24,19 @@ describe("Calendar mini-calendar navigation", () => {
     expect(source).toContain("function MultiColorDot");
     expect(source).toContain("colorByMeetingType");
     expect(source).toContain('setAddCalendarDefaultTab("google")');
-    expect(source).toContain('section === "owned" && calendar.primary');
+    expect(source).toContain("const displayName = calendar.primary");
     expect(source).toContain("? calendar.accountEmail");
     expect(source).not.toContain("showProvenance");
     expect(source).not.toContain("sourceAccounts.length > 1");
+  });
+
+  it("merges a shared Google calendar with the same person's overlay pin into one row", () => {
+    const source = sidebarSource();
+
+    expect(source).toContain("function otherCalendarLabel");
+    expect(source).toContain("interface OtherCalendarItem");
+    expect(source).toContain("const otherCalendarItems = useMemo");
+    expect(source).toContain("calendar.calendarId.toLowerCase()");
+    expect(source).toContain("person.email.toLowerCase()");
   });
 });

@@ -151,7 +151,6 @@ describe("Content impact applicability", () => {
     assert(directContentEvidence("templates/content/parity/contract.test.ts"));
     assert(directContentEvidence("templates/content/vite.config.ts"));
     assert(directContentEvidence("templates/content/tsconfig.json"));
-    assert(directContentEvidence("templates/content/vitest.config.ts"));
     assert(directContentEvidence("templates/content/drizzle/0001_example.sql"));
     assert(directContentEvidence("templates/content/public/example.svg"));
     assert.equal(
@@ -172,6 +171,28 @@ describe("Content impact applicability", () => {
       ),
       undefined,
     );
+  });
+
+  it("ignores unit tests and test-runner config but keeps proof suites", () => {
+    for (const file of [
+      "templates/content/vitest.config.ts",
+      "templates/content/app/lib/document-tree.test.ts",
+      "templates/content/server/lib/share-links.spec.ts",
+      "templates/content/app/components/__tests__/Toolbar.tsx",
+    ]) {
+      assert.equal(directContentEvidence(file), undefined, file);
+    }
+    for (const file of [
+      "templates/content/e2e/editor.spec.ts",
+      "templates/content/app/e2e/editor.spec.ts",
+      "templates/content/tests/e2e/editor.spec.ts",
+      "templates/content/app/editor.e2e.spec.ts",
+      "templates/content/parity/contract.test.ts",
+      "templates/content/app/lib/renderer-conformance.test.ts",
+      "templates/content/app/lib/document-tree.ts",
+    ]) {
+      assert(directContentEvidence(file), file);
+    }
   });
 
   it("keeps ordinary shared framework, CI, dependency, and infrastructure changes quiet", () => {
@@ -227,6 +248,59 @@ describe("Content impact analysis", () => {
         to: "in_progress",
       },
     ]);
+  });
+
+  it("keeps a unit test that a Capability cites as evidence", () => {
+    const citedRoot = path.join(temporaryRoot, "cited");
+    cpSync(fixture, citedRoot, { recursive: true });
+    const capability = path.join(
+      citedRoot,
+      "capabilities/content.test.beta.md",
+    );
+    writeFileSync(
+      capability,
+      readFileSync(capability, "utf8").replace(
+        "evidence: []",
+        [
+          "evidence:",
+          '  - "../../../app/lib/cited.test.ts"',
+          '  - "actions/root-cited.db.test.ts"',
+          '  - "./templates/content/app/lib/dot-cited.test.ts"',
+          '  - "packages/core/src/cited-proof.ts"',
+          "  - 'app\\lib\\backslash-cited.test.ts'",
+        ].join("\n"),
+      ),
+    );
+    const { catalog } = validateContentProductDocs(citedRoot, {
+      strictCatalog: false,
+      checkProjections: false,
+    });
+    const applicable = (file: string) =>
+      analyzeContentProductImpact({
+        body: "",
+        changedFiles: [file],
+        baseCatalog: catalog,
+        headCatalog: catalog,
+      }).applicable;
+
+    assert.equal(applicable("templates/content/app/lib/cited.test.ts"), true);
+    assert.equal(
+      applicable("templates/content/actions/root-cited.db.test.ts"),
+      true,
+    );
+    assert.equal(
+      applicable("templates/content/app/lib/dot-cited.test.ts"),
+      true,
+    );
+    assert.equal(applicable("packages/core/src/cited-proof.ts"), true);
+    assert.equal(
+      applicable("templates/content/app/lib/backslash-cited.test.ts"),
+      true,
+    );
+    assert.equal(
+      applicable("templates/content/app/lib/uncited.test.ts"),
+      false,
+    );
   });
 
   it("accepts a complete applicable declaration without deterministic findings", () => {

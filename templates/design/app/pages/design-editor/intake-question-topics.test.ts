@@ -244,10 +244,36 @@ describe("loadIntakeContext", () => {
 
 describe("loadIntakeContextFromAppState", () => {
   it("degrades to an explicit unavailable result instead of throwing when the state read fails", async () => {
-    const result = await loadIntakeContextFromAppState(() =>
-      Promise.reject(new Error("app state unreachable")),
+    const result = await loadIntakeContextFromAppState(
+      () => Promise.reject(new Error("app state unreachable")),
+      true,
     );
     expect(result.unavailable).toBe(true);
     expect(result.unavailableReason).toBe("app state unreachable");
+  });
+
+  it("does not read saved context state while Creative Context Labs is off", async () => {
+    vi.clearAllMocks();
+    const readState = vi.fn(async () => ({
+      contextMode: "auto" as const,
+      selectedContextId: null,
+      pinnedPackId: null,
+    }));
+    const result = await loadIntakeContextFromAppState(readState, false);
+
+    expect(readState).not.toHaveBeenCalled();
+    expect(mockedCallAction).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      coverage: {
+        formFactor: false,
+        aesthetic: false,
+        features: false,
+        interactions: false,
+        variants: false,
+      },
+      contextId: null,
+      explicitContext: false,
+      unavailable: false,
+    });
   });
 });

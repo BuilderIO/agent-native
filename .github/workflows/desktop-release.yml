@@ -34,15 +34,11 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  # Pushes to main are the employee-facing Nightly train. Production is only
-  # released deliberately through workflow_dispatch.
   RELEASE_CHANNEL: ${{ github.event_name == 'push' && 'nightly' || inputs.channel || 'production' }}
   AGENT_NATIVE_DESKTOP_RELEASE_CHANNEL: ${{ github.event_name == 'push' && 'nightly' || inputs.channel || 'production' }}
   EP_PRE_RELEASE: ${{ (github.event_name == 'push' && 'nightly' || inputs.channel || 'production') == 'nightly' }}
   ELECTRON_APP_ID: ${{ (github.event_name == 'push' && 'nightly' || inputs.channel || 'production') == 'nightly' && 'com.agentnative.desktop.nightly' || 'com.agentnative.desktop' }}
   ELECTRON_PRODUCT_NAME: ${{ (github.event_name == 'push' && 'nightly' || inputs.channel || 'production') == 'nightly' && 'Agent-Native Nightly' || 'Agent-Native' }}
-  # Deterministic version for auto-triggered builds: base version from
-  # package.json + run number ensures uniqueness without committing back.
   AUTO_VERSION_SUFFIX: ${{ github.run_number }}
 
 jobs:
@@ -183,6 +179,8 @@ jobs:
   build-mac:
     needs: [resolve-version, prepare-release]
     runs-on: macos-latest
+    env:
+      NODE_OPTIONS: --max-old-space-size=8192
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -346,7 +344,7 @@ jobs:
           SENTRY_DESKTOP_ENVIRONMENT: ${{ env.RELEASE_CHANNEL }}
         run: |
           pnpm build:chrome-extension && pnpm build
-          npx electron-builder --win --config --publish always \
+          pnpm exec electron-builder --win --config --publish always \
             "-c.appId=$ELECTRON_APP_ID" \
             "-c.productName=$ELECTRON_PRODUCT_NAME"
 

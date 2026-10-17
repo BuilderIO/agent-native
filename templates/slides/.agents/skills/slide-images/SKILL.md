@@ -11,6 +11,10 @@ Images for slides are generated or sourced through the Slides actions and the
 Assets app. The runtime agent must use the Assets-grounded path described below;
 the local CLI is only a developer entry point.
 
+When a chat attachment has an embeddable URL, add it to the current slide with
+`update-slide` using `<img src="…">`, then call `view-screen` and re-read the
+slide with `get-deck` to confirm it persisted.
+
 ## Scripts
 
 | Script | Purpose | Example |
@@ -52,6 +56,12 @@ generic style references to override a linked design system or preset.
 `search-images` and `search-logos` remain bounded lookup tools for finding
 existing media. They are not a substitute for the active design system or a
 style-generation brief.
+
+Treat both searches as optional enrichment. If a provider is unconfigured or
+unavailable, a search has no matches, or an action returns an error, continue
+the deck with a useful image-free slide using native typography, diagrams, or
+rules. Keep the action error visible; do not retry the lookup in a loop or stop
+deck generation because search failed.
 
 ## Logo Lookup
 

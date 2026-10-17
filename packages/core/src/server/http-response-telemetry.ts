@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 
 import {
-  getHeader,
   getMethod,
   getResponseStatus,
   setResponseHeader,
@@ -9,21 +8,33 @@ import {
 } from "h3";
 import type { H3Event } from "h3";
 
-import { getAppConfig } from "../app-config/index.js";
 import {
   claimStartupDatabaseTelemetry,
   createDatabaseRequestTelemetry,
   enterDatabaseRequestTelemetry,
   type DatabaseRequestTelemetry,
 } from "../db/request-telemetry.js";
-import { getDatabaseRuntimeFingerprint } from "../db/runtime-diagnostics.js";
-import { isMcpPublicPath } from "../mcp/route-paths.js";
-import { track } from "../tracking/index.js";
+import {
+  flushObservability,
+  recordHttpServerHandoff,
+  recordHttpServerRequest,
+} from "../observability/metrics.js";
+import {
+  createTrackingEventScope,
+  endAgentSpan,
+  flushTrackingEvents,
+  startAgentSpan,
+  type TrackingEventScope,
+} from "../observability/tracing.js";
+import { trackingIdentityProperties } from "../observability/tracking-identity.js";
+import {
+  getAppBasePathFromViteEnv,
+  stripAppBasePath,
+} from "./app-base-path.js";
+import { platformWaitUntil, runInBackground } from "./background-work.js";
+import { httpRouteForRequest } from "./http-route.js";
 
-const TELEMETRY_EVENT_NAME = "http.response";
 const REQUEST_ID_HEADER = "x-agent-native-request-id";
-// Provider delivery posts back to these collectors. Recording the collector
-// response would feed another `http.response` event into the same collector.
 const TRACKING_INGEST_PATHS = new Set([
   "/track",
   "/api/analytics/track",
@@ -58,35 +69,39 @@ const processState =
 const REQUEST_TELEMETRY_KEY = Symbol.for(
   "@agent-native/core/http-response-telemetry.request",
 );
+const REQUEST_TRACKING_SCOPE_KEY = Symbol.for(
+  "@agent-native/core/http-response-telemetry.tracking-scope",
+);
 const installedApps = new WeakSet<object>();
+
+interface TrustedActionRoute {
+  actionName: string;
+  routeTemplate: string;
+}
+
+const trustedActionRoutesByApp = new WeakMap<
+  object,
+  Map<string, TrustedActionRoute>
+>();
 
 interface HttpRequestTelemetryState {
   startedAt: number;
   requestId: string;
+  actionName?: string;
+  routeTemplate?: string;
+  trackingScope: TrackingEventScope;
   processAgeAtStartMs: number;
   requestSequence: number;
   frameworkReadyWaitMs: number;
   db: DatabaseRequestTelemetry;
+  dbMeasured: boolean;
   startupDb?: DatabaseRequestTelemetry;
-}
-
-function envValue(key: string): string | undefined {
-  const value = process.env[key]?.trim();
-  return value || undefined;
 }
 
 function boolEnv(key: string): boolean {
   return ["1", "true", "yes", "on"].includes(
     (process.env[key] ?? "").trim().toLowerCase(),
   );
-}
-
-function sampleRate(): number {
-  const raw = envValue("AGENT_NATIVE_HTTP_TELEMETRY_SAMPLE_RATE");
-  if (!raw) return 0.1;
-  const parsed = Number.parseFloat(raw);
-  if (!Number.isFinite(parsed)) return 0.1;
-  return Math.max(0, Math.min(1, parsed));
 }
 
 function shouldDisableTelemetry(): boolean {
@@ -104,6 +119,112 @@ function requestPath(event: H3Event): string {
     String(event.node?.req?.url ?? event.path ?? "/").split("?")[0] ??
     "/";
   return raw || "/";
+}
+
+export function getOrCreateHttpRequestTrackingScope(
+  event: H3Event,
+): TrackingEventScope {
+  const context = event.context as Record<PropertyKey, unknown>;
+  const existing = context[REQUEST_TRACKING_SCOPE_KEY];
+  if (existing) return existing as TrackingEventScope;
+  const scope = createTrackingEventScope();
+  context[REQUEST_TRACKING_SCOPE_KEY] = scope;
+  return scope;
+}
+
+function normalizedRoutePath(pathname: string): string {
+  const normalized = pathname.startsWith("/") ? pathname : `/${pathname}`;
+  return normalized.replace(/\/+$/, "") || "/";
+}
+
+function trustedActionRouteForPath(
+  nitroApp: object,
+  pathname: string,
+): TrustedActionRoute | undefined {
+  const trustedActionRoutes = trustedActionRoutesByApp.get(nitroApp);
+  if (!trustedActionRoutes) return undefined;
+  const normalizedPathname = normalizedRoutePath(pathname);
+  const exactRoute = trustedActionRoutes.get(normalizedPathname);
+  if (exactRoute) return exactRoute;
+
+  const pathSegments = normalizedPathname.split("/").filter(Boolean);
+  const routeEntries: Array<[string, TrustedActionRoute]> = [
+    ...trustedActionRoutes.entries(),
+  ];
+  return routeEntries
+    .filter(([routePath]) => routePath.includes(":"))
+    .sort(([leftPath], [rightPath]) => {
+      const leftSegments = leftPath.split("/").filter(Boolean);
+      const rightSegments = rightPath.split("/").filter(Boolean);
+      const leftStatic = leftSegments.filter(
+        (segment) => !segment.startsWith(":"),
+      ).length;
+      const rightStatic = rightSegments.filter(
+        (segment) => !segment.startsWith(":"),
+      ).length;
+      const leftConstrained = leftSegments.filter(
+        (segment) => segment.startsWith(":") && segment.includes("("),
+      ).length;
+      const rightConstrained = rightSegments.filter(
+        (segment) => segment.startsWith(":") && segment.includes("("),
+      ).length;
+      return (
+        rightStatic - leftStatic ||
+        rightConstrained - leftConstrained ||
+        rightSegments.length - leftSegments.length
+      );
+    })
+    .find(([routePath]) => {
+      const routeSegments = routePath.split("/").filter(Boolean);
+      return (
+        routeSegments.length === pathSegments.length &&
+        routeSegments.every((segment, index) =>
+          routeSegmentMatches(segment, pathSegments[index] ?? ""),
+        )
+      );
+    })?.[1];
+}
+
+function routeSegmentMatches(
+  routeSegment: string,
+  pathSegment: string,
+): boolean {
+  if (!routeSegment.startsWith(":")) return routeSegment === pathSegment;
+  const constraint = /^:[^?(]+(?:\((.*)\))?$/.exec(routeSegment)?.[1];
+  if (!constraint) return true;
+  try {
+    return new RegExp(`^(?:${constraint})$`).test(pathSegment);
+  } catch {
+    // coercion-ok: invalid declared route constraints cannot match a request.
+    return false;
+  }
+}
+
+export function registerHttpRequestTelemetryActionRoute(
+  routePath: string,
+  actionName: string,
+  routeTemplate: string,
+  nitroApp: object,
+): void {
+  const normalizedRoutePathValue = normalizedRoutePath(routePath);
+  const normalizedActionName = actionName.trim();
+  const normalizedRouteTemplate = normalizedRoutePath(routeTemplate);
+  if (!normalizedActionName || !normalizedRouteTemplate) return;
+  const route = {
+    actionName: normalizedActionName,
+    routeTemplate: normalizedRouteTemplate,
+  };
+  const trustedActionRoutes =
+    trustedActionRoutesByApp.get(nitroApp) ?? new Map();
+  trustedActionRoutesByApp.set(nitroApp, trustedActionRoutes);
+  trustedActionRoutes.set(normalizedRoutePathValue, route);
+  const appBasePath = getAppBasePathFromViteEnv();
+  if (appBasePath) {
+    trustedActionRoutes.set(
+      normalizedRoutePath(`${appBasePath}${normalizedRoutePathValue}`),
+      route,
+    );
+  }
 }
 
 function normalizeSegment(segment: string): string {
@@ -130,70 +251,11 @@ export function normalizeHttpTelemetryPath(pathname: string): string {
     .join("/");
 }
 
-function statusClass(statusCode: number): string {
-  if (!Number.isFinite(statusCode) || statusCode < 100) return "unknown";
-  return `${Math.floor(statusCode / 100)}xx`;
-}
-
-function routeKind(pathname: string): string {
-  if (
-    isMcpPublicPath(pathname) ||
-    pathname === "/_agent-native" ||
-    pathname.startsWith("/_agent-native/")
-  ) {
-    return "framework";
-  }
-  if (pathname === "/api" || pathname.startsWith("/api/")) return "api";
-  if (pathname.startsWith("/.well-known/")) return "well-known";
-  return "app";
-}
-
-function hostForEvent(event: H3Event): string | undefined {
-  return (
-    getHeader(event, "x-forwarded-host") ??
-    getHeader(event, "host") ??
-    undefined
-  );
-}
-
-function organizationForHost(host: string | undefined): string | undefined {
-  const configured =
-    envValue("AGENT_NATIVE_ANALYTICS_ORG_NAME") ??
-    envValue("AGENT_NATIVE_ORG_NAME");
-  if (configured) return configured;
-  const normalized = host?.split(":")[0]?.toLowerCase();
-  return normalized?.endsWith(".agent-native.com") ||
-    normalized === "agent-native.com"
-    ? "Builder.io"
-    : undefined;
-}
-
-function shouldTrack(
-  pathname: string,
-  statusCode: number,
-  state: HttpRequestTelemetryState,
-): boolean {
+function shouldRecordRequestSpan(pathname: string): boolean {
   if (shouldDisableTelemetry()) return false;
-  if (isTrackingIngestPath(pathname)) return false;
-  if (pathname.startsWith("/api/analytics/replay")) return false;
-  if (statusCode >= 500) return true;
-  if (
-    statusCode >= 400 &&
-    statusCode < 500 &&
-    /(?:^|\/)_agent-native\/actions(?:\/|$)/.test(pathname)
-  ) {
-    return true;
-  }
-  if (state.requestSequence === 1) return true;
-  if (state.startupDb) return true;
-  if (Date.now() - state.startedAt >= SLOW_REQUEST_MS) return true;
-  if (state.db.errorCount > 0 || state.db.timeoutCount > 0) {
-    return true;
-  }
-  const rate = sampleRate();
-  if (rate <= 0) return false;
-  if (rate >= 1) return true;
-  return Math.random() < rate;
+  const appPath = stripAppBasePath(pathname, getAppBasePathFromViteEnv());
+  if (isTrackingIngestPath(appPath)) return false;
+  return !appPath.startsWith("/api/analytics/replay");
 }
 
 function responseStatusCode(event: H3Event, response?: Response): number {
@@ -217,7 +279,6 @@ function runtimeProvider(): string {
   return "node";
 }
 
-/** Module evaluation → this request starting, i.e. idle boot the app paid for. */
 function moduleToRequestMs(state: HttpRequestTelemetryState): number {
   return Math.max(
     0,
@@ -225,90 +286,71 @@ function moduleToRequestMs(state: HttpRequestTelemetryState): number {
   );
 }
 
-function emitTelemetry(
+async function emitTelemetry(
   event: H3Event,
   state: HttpRequestTelemetryState,
-  response?: Response,
-): void {
+  response: Response,
+  durationMs: number,
+): Promise<void> {
   const statusCode = responseStatusCode(event, response);
   const pathname = requestPath(event);
-  if (!shouldTrack(pathname, statusCode, state)) return;
-
-  try {
-    const host = hostForEvent(event);
-    const db = getDatabaseRuntimeFingerprint();
-    track(TELEMETRY_EVENT_NAME, {
-      source: "server",
-      app: getAppConfig().app.name,
-      template: envValue("AGENT_NATIVE_TEMPLATE") ?? getAppConfig().app.name,
-      organization: organizationForHost(host),
+  const route =
+    state.routeTemplate ??
+    httpRouteForRequest({
       method: getMethod(event),
-      path: normalizeHttpTelemetryPath(pathname),
-      route_kind: routeKind(pathname),
-      status_code: statusCode,
-      status_class: statusClass(statusCode),
-      duration_ms: Math.max(0, Date.now() - state.startedAt),
-      request_id: state.requestId,
-      measurement: "nitro_request",
-      cold_start: state.requestSequence === 1,
-      request_sequence: state.requestSequence,
-      process_age_ms: state.processAgeAtStartMs,
-      boot_to_module_ms: processState.moduleEvalUptimeMs,
-      module_to_request_ms: moduleToRequestMs(state),
-      framework_ready_wait_ms: state.frameworkReadyWaitMs,
-      runtime_provider: runtimeProvider(),
-      function_name: envValue("AWS_LAMBDA_FUNCTION_NAME"),
-      function_memory_mb: envValue("AWS_LAMBDA_FUNCTION_MEMORY_SIZE"),
-      region: envValue("AWS_REGION") ?? envValue("VERCEL_REGION"),
-      host,
-      environment: envValue("NODE_ENV"),
-      deploy_context: envValue("CONTEXT") ?? envValue("VERCEL_ENV"),
-      deploy_id: envValue("DEPLOY_ID") ?? envValue("VERCEL_DEPLOYMENT_ID"),
-      commit_ref:
-        envValue("COMMIT_REF") ??
-        envValue("NETLIFY_COMMIT_REF") ??
-        envValue("VERCEL_GIT_COMMIT_SHA") ??
-        envValue("GIT_COMMIT_SHA"),
-      db_source: db.source,
-      db_url_hash: db.urlHash,
-      db_neon_endpoint: db.neon?.endpointId,
-      db_neon_pooled: db.neon?.pooled,
-      db_operation_count: state.db.operationCount,
-      db_query_count: state.db.queryCount,
-      db_connect_count: state.db.connectCount,
-      db_retry_count: state.db.retryCount,
-      db_error_count: state.db.errorCount,
-      db_timeout_count: state.db.timeoutCount,
-      db_operation_total_ms: Math.round(state.db.operationTotalMs),
-      db_operation_wall_ms: Math.round(state.db.operationWallMs),
-      db_query_total_ms: Math.round(state.db.queryTotalMs),
-      db_connect_total_ms: Math.round(state.db.connectTotalMs),
-      db_slowest_operation_ms: Math.round(state.db.slowestOperationMs),
-      startup_db_operation_count: state.startupDb?.operationCount,
-      startup_db_query_count: state.startupDb?.queryCount,
-      startup_db_connect_count: state.startupDb?.connectCount,
-      startup_db_retry_count: state.startupDb?.retryCount,
-      startup_db_error_count: state.startupDb?.errorCount,
-      startup_db_timeout_count: state.startupDb?.timeoutCount,
-      startup_db_operation_total_ms: state.startupDb
-        ? Math.round(state.startupDb.operationTotalMs)
-        : undefined,
-      startup_db_operation_wall_ms: state.startupDb
-        ? Math.round(state.startupDb.operationWallMs)
-        : undefined,
-      startup_db_query_total_ms: state.startupDb
-        ? Math.round(state.startupDb.queryTotalMs)
-        : undefined,
-      startup_db_connect_total_ms: state.startupDb
-        ? Math.round(state.startupDb.connectTotalMs)
-        : undefined,
-      startup_db_slowest_operation_ms: state.startupDb
-        ? Math.round(state.startupDb.slowestOperationMs)
-        : undefined,
+      pathname,
+      matchedRoute: (event.context as { matchedRoute?: { route?: unknown } })
+        ?.matchedRoute?.route,
     });
-  } catch {
-    // Response telemetry is best-effort. Never perturb request handling.
+
+  if (shouldRecordRequestSpan(pathname)) {
+    try {
+      const endTime = Date.now();
+      const span = await startAgentSpan(
+        "http.server",
+        {
+          "http.request.method": getMethod(event),
+          "http.route": route,
+          "http.response.status_code": statusCode,
+          "agent.cold_start": state.requestSequence === 1,
+          "agent.framework_ready_wait_ms": Math.round(
+            state.frameworkReadyWaitMs,
+          ),
+          "agent.db_operation_count": state.db.operationCount,
+          "agent.db_operation_wall_ms": Math.round(state.db.operationWallMs),
+        },
+        null,
+        state.startedAt,
+      );
+      endAgentSpan(span, {
+        status: statusCode >= 500 ? "error" : "unset",
+        endTime,
+      });
+      // coercion-ok: optional OTel export must never affect request handling.
+    } catch {
+      // Optional OTel export must never affect request handling.
+    }
   }
+  const metric = { method: getMethod(event), statusCode, durationMs, route };
+  recordHttpServerRequest(metric);
+  const recordHandoff = () =>
+    recordHttpServerHandoff({
+      ...metric,
+      durationMs: Date.now() - state.startedAt,
+    });
+  const flush = async () => {
+    await flushTrackingEvents(state.trackingScope);
+    await flushObservability();
+  };
+  const exported = flush().catch((error: unknown) => {
+    console.warn(
+      "[http-response-telemetry] export failed:",
+      error instanceof Error ? error.message : String(error),
+    );
+  });
+  await runInBackground(exported, platformWaitUntil(event.req));
+  // Recorded after the export it measures, so the next flush carries it.
+  recordHandoff();
 }
 
 function requestTelemetryState(
@@ -319,9 +361,21 @@ function requestTelemetryState(
   ] as HttpRequestTelemetryState | undefined;
 }
 
-/** Return the durable request id while a request is still being handled. */
 export function getHttpRequestTelemetryId(event: H3Event): string | undefined {
   return requestTelemetryState(event)?.requestId;
+}
+
+export function setHttpRequestTelemetryActionName(
+  event: H3Event,
+  actionName: string,
+  routeTemplate = "/_agent-native/actions/:action",
+): void {
+  const state = requestTelemetryState(event);
+  const normalized = actionName.trim();
+  if (state && normalized) {
+    state.actionName = normalized;
+    state.routeTemplate = normalizedRoutePath(routeTemplate);
+  }
 }
 
 function appendServerTiming(
@@ -351,13 +405,6 @@ function appendServerTiming(
   }
 }
 
-/**
- * Does this response get stored in a shared (CDN) cache and replayed?
- *
- * SSR HTML and React Router `.data` are one impersonal shell hard-cached for
- * every visitor, so their headers are written ONCE by the origin render and
- * then handed unchanged to everyone who hits the cache afterwards.
- */
 function isSharedCacheable(response: Response): boolean {
   const cacheControl =
     response.headers.get("cache-control")?.toLowerCase() ?? "";
@@ -368,18 +415,6 @@ function isSharedCacheable(response: Response): boolean {
   );
 }
 
-/**
- * Per-phase `server-timing` entries do NOT belong on a shared-cacheable
- * response. `app;dur=2159` on a cached shell describes one origin render from
- * an arbitrary point in the past, yet every later visitor reads it as the cost
- * of their own request — a stale number wearing a live number's name.
- *
- * So a cacheable response gets exactly one entry, `origin`, whose description
- * leads with the absolute wall-clock time of the render that produced it. Two
- * visitors comparing notes see the identical timestamp, which is what a replay
- * is. The live per-invocation breakdown goes to the slow-request log line and
- * to tracking instead; neither is ever cached.
- */
 function originSnapshotDesc(state: HttpRequestTelemetryState): string {
   const parts = [new Date(state.startedAt).toISOString()];
   if (state.requestSequence === 1) {
@@ -392,23 +427,33 @@ function originSnapshotDesc(state: HttpRequestTelemetryState): string {
   if (state.frameworkReadyWaitMs > 0) {
     parts.push(`startup=${Math.round(state.frameworkReadyWaitMs)}`);
   }
+  parts.push(
+    `dbq=${state.db.queryCount}`,
+    `dbrows=${state.db.rowsReturned}`,
+    `dbcatalog=${state.db.catalogQueryCount}`,
+    `dbmigrations=${state.db.migrationTableQueryCount}`,
+    `dbconnects=${state.db.connectCount}`,
+  );
   if (state.db.operationCount > 0) {
     parts.push(
       `db=${Math.round(state.db.operationWallMs)}`,
       `dbops=${state.db.operationCount}`,
     );
   }
+  if (state.startupDb) {
+    parts.push(
+      `startupdbq=${state.startupDb.queryCount}`,
+      `startupdbrows=${state.startupDb.rowsReturned}`,
+      `startupdbcatalog=${state.startupDb.catalogQueryCount}`,
+      `startupdbmigrations=${state.startupDb.migrationTableQueryCount}`,
+      `startupdbconnects=${state.startupDb.connectCount}`,
+    );
+  } else {
+    parts.push("startupdb=unavailable");
+  }
   return parts.join(" ");
 }
 
-/**
- * One structured line per cold or slow request, straight to stdout.
- *
- * Function logs are the only timing surface readable without a deploy, and
- * `track()` silently no-ops when no tracking provider is registered — which is
- * the common case. Deliberately NOT wrapped in a catch: a swallowed emit would
- * leave a slow request indistinguishable from a fast one.
- */
 function logSlowRequest(
   event: H3Event,
   state: HttpRequestTelemetryState,
@@ -421,7 +466,7 @@ function logSlowRequest(
   console.log(
     JSON.stringify({
       event: SLOW_REQUEST_LOG_EVENT,
-      app: getAppConfig().app.name,
+      ...trackingIdentityProperties(),
       method: getMethod(event),
       path: normalizeHttpTelemetryPath(pathname),
       status: responseStatusCode(event, response),
@@ -432,6 +477,7 @@ function logSlowRequest(
       module_to_request_ms: moduleToRequestMs(state),
       process_age_ms: state.processAgeAtStartMs,
       framework_ready_wait_ms: Math.round(state.frameworkReadyWaitMs),
+      db_measured: state.dbMeasured,
       db_ms: Math.round(state.db.operationWallMs),
       db_connect_ms: Math.round(state.db.connectTotalMs),
       db_operation_count: state.db.operationCount,
@@ -465,22 +511,44 @@ export function installHttpResponseTelemetryHooks(nitroApp: any): void {
   installedApps.add(nitroApp);
 
   hooks.hook("request", (event: H3Event) => {
+    const trackingScope = getOrCreateHttpRequestTrackingScope(event);
+    const trustedActionRoute = trustedActionRouteForPath(
+      nitroApp,
+      requestPath(event),
+    );
     const state: HttpRequestTelemetryState = {
       startedAt: Date.now(),
       requestId: randomUUID(),
+      ...(trustedActionRoute
+        ? {
+            actionName: trustedActionRoute.actionName,
+            routeTemplate: trustedActionRoute.routeTemplate,
+          }
+        : {}),
+      trackingScope,
       processAgeAtStartMs: Math.max(0, Math.round(process.uptime() * 1_000)),
       requestSequence: ++processState.requestSequence,
       frameworkReadyWaitMs: 0,
       db: createDatabaseRequestTelemetry(),
+      dbMeasured: false,
     };
     (event.context as Record<PropertyKey, unknown>)[REQUEST_TELEMETRY_KEY] =
       state;
-    enterDatabaseRequestTelemetry(state.db);
+    state.dbMeasured = enterDatabaseRequestTelemetry(state.db);
+    try {
+      event.res.headers.set(REQUEST_ID_HEADER, state.requestId);
+      event.res.errHeaders.set(REQUEST_ID_HEADER, state.requestId);
+    } catch {
+      // coercion-ok: best-effort only. Some adapters don't expose a writable
+      // response this early; the "response" hook below still covers the
+      // success path, and tracking still has the id either way.
+    }
   });
 
-  hooks.hook("response", (response: Response, event: H3Event) => {
+  hooks.hook("response", async (response: Response, event: H3Event) => {
     const state = requestTelemetryState(event);
     if (!state) return;
+    state.startupDb ??= claimStartupDatabaseTelemetry();
 
     const durationMs = Math.max(0, Date.now() - state.startedAt);
     try {
@@ -501,7 +569,7 @@ export function installHttpResponseTelemetryHooks(nitroApp: any): void {
         originSnapshotDesc(state),
       );
       logSlowRequest(event, state, response, durationMs, requestPath(event));
-      emitTelemetry(event, state, response);
+      await emitTelemetry(event, state, response, durationMs);
       return;
     }
 
@@ -539,7 +607,24 @@ export function installHttpResponseTelemetryHooks(nitroApp: any): void {
         state.db.slowestOperationMs,
       );
     }
-    if (state.startupDb && state.startupDb.operationCount > 0) {
+    // db-ops counts a pool connect and its query separately, so statement
+    // budgets read these counters even when the observed value is zero.
+    appendServerTiming(response, event, "db-queries", state.db.queryCount);
+    appendServerTiming(response, event, "db-connects", state.db.connectCount);
+    appendServerTiming(response, event, "db-rows", state.db.rowsReturned);
+    appendServerTiming(
+      response,
+      event,
+      "db-catalog",
+      state.db.catalogQueryCount,
+    );
+    appendServerTiming(
+      response,
+      event,
+      "db-migrations",
+      state.db.migrationTableQueryCount,
+    );
+    if (state.startupDb) {
       appendServerTiming(
         response,
         event,
@@ -552,9 +637,33 @@ export function installHttpResponseTelemetryHooks(nitroApp: any): void {
         "startup-db-connect",
         state.startupDb.connectTotalMs,
       );
+      appendServerTiming(
+        response,
+        event,
+        "startup-db-queries",
+        state.startupDb.queryCount,
+      );
+      appendServerTiming(
+        response,
+        event,
+        "startup-db-rows",
+        state.startupDb.rowsReturned,
+      );
+      appendServerTiming(
+        response,
+        event,
+        "startup-db-catalog",
+        state.startupDb.catalogQueryCount,
+      );
+      appendServerTiming(
+        response,
+        event,
+        "startup-db-migrations",
+        state.startupDb.migrationTableQueryCount,
+      );
     }
 
     logSlowRequest(event, state, response, durationMs, requestPath(event));
-    emitTelemetry(event, state, response);
+    await emitTelemetry(event, state, response, durationMs);
   });
 }

@@ -1,10 +1,18 @@
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, asc, eq, gte, inArray, isNull, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  documentCreationAttribution,
+  requireDocumentRequestActor,
+} from "../server/lib/document-attribution.js";
+import {
+  syncPrivateCalloutReferences,
+  syncPrivateIconReference,
+  verifyPrivateIconCopiedFromDocument,
+} from "../server/lib/private-icon-references.js";
 import {
   lockContentDatabaseMutation,
   touchContentDatabase,
@@ -20,9 +28,9 @@ import { nanoid } from "./_property-utils.js";
 
 export default defineAction({
   description:
-    "Duplicate multiple page rows in a content database in one atomic batch. Use this for two or more selected/named rows instead of looping duplicate-database-item.",
+    "Duplicate multiple page rows in a content collection in one atomic batch. Use this for two or more selected/named rows instead of looping duplicate-database-item.",
   schema: databaseRowBatchSchema,
-  run: async (args) => {
+  run: async (args, ctx) => {
     const db = getDb();
     const { database, rows } = await resolveDatabaseRowsForBatch(args);
     if (!database.spaceId) {
@@ -45,7 +53,7 @@ export default defineAction({
     );
     const sourceItemIds = rows.map((row) => row.item.id);
     const now = new Date().toISOString();
-    const currentUserEmail = getRequestUserEmail() ?? database.ownerEmail;
+    const currentUserEmail = requireDocumentRequestActor(ctx);
 
     const inheritedShares = await db
       .select({
@@ -186,6 +194,17 @@ export default defineAction({
           ),
         );
 
+      for (const duplicate of lockedDuplicates) {
+        await verifyPrivateIconCopiedFromDocument(
+          tx as unknown as ReturnType<typeof getDb>,
+          {
+            sourceDocumentId: duplicate.row.document.id,
+            icon: duplicate.row.document.icon,
+            ownerEmail: duplicate.row.document.ownerEmail,
+            orgId: duplicate.row.document.orgId,
+          },
+        );
+      }
       await tx.insert(schema.documents).values(
         lockedDuplicates.map((duplicate) => ({
           id: duplicate.duplicatedDocumentId,
@@ -200,10 +219,39 @@ export default defineAction({
           isFavorite: 0,
           hideFromSearch: duplicate.row.document.hideFromSearch,
           visibility: duplicate.row.document.visibility,
+          ...documentCreationAttribution(currentUserEmail),
           createdAt: now,
           updatedAt: now,
         })),
       );
+      for (const duplicate of lockedDuplicates) {
+        await syncPrivateIconReference(
+          tx as unknown as ReturnType<typeof getDb>,
+          {
+            elementType: "document",
+            elementId: duplicate.duplicatedDocumentId,
+            documentId: duplicate.duplicatedDocumentId,
+            icon: duplicate.row.document.icon,
+            ownerEmail: duplicate.row.document.ownerEmail,
+            orgId: duplicate.row.document.orgId,
+          },
+        );
+        await syncPrivateCalloutReferences(
+          tx as unknown as ReturnType<typeof getDb>,
+          {
+            documentId: duplicate.duplicatedDocumentId,
+            before: "",
+            after: duplicate.row.document.content,
+            userEmail: currentUserEmail,
+            ownerEmail: duplicate.row.document.ownerEmail,
+            orgId: duplicate.row.document.orgId,
+            source: {
+              kind: "document",
+              documentId: duplicate.row.document.id,
+            },
+          },
+        );
+      }
 
       await tx.insert(schema.contentDatabaseItems).values(
         lockedDuplicates.map((duplicate) => ({

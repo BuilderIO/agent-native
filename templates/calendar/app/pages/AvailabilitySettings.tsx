@@ -252,7 +252,7 @@ export default function AvailabilitySettings() {
                             type="button"
                             variant="ghost"
                             size="sm"
-                            className="h-8 px-2 text-muted-foreground hover:text-destructive"
+                            className="px-2 text-muted-foreground hover:text-destructive"
                             onClick={() => removeDaySlot(key, slotIndex)}
                           >
                             <IconTrash className="mr-1.5 h-3.5 w-3.5" />
@@ -265,7 +265,7 @@ export default function AvailabilitySettings() {
                       type="button"
                       variant="ghost"
                       size="sm"
-                      className="h-8 px-2"
+                      className="px-2"
                       onClick={() => addDaySlot(key)}
                     >
                       <IconPlus className="mr-1.5 h-3.5 w-3.5" />

@@ -63,15 +63,14 @@ function readString(
   return null;
 }
 
-async function resolveOrgRole(
+/** An active member's role: a member pending removal holds none. */
+export async function resolveOrgRole(
   userEmail: string,
   orgId: string,
 ): Promise<string | null> {
-  // A failed lookup must never collapse into "no role": that reads downstream as
-  // a denial and 403s org owners whenever the database is briefly unreachable.
   const { rows } = await getDbExec()
     .execute({
-      sql: `SELECT role FROM org_members WHERE org_id = $1 AND LOWER(email) = $2 LIMIT 1`,
+      sql: `SELECT role FROM org_members WHERE org_id = $1 AND LOWER(email) = $2 AND federation_removal_pending_at IS NULL LIMIT 1`,
       args: [orgId, userEmail.toLowerCase()],
     })
     .catch((error: unknown) => {

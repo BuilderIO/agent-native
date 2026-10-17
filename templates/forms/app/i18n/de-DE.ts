@@ -24,11 +24,6 @@ const messages = {
   },
   settings: {
     title: "Einstellungen",
-    description: "Sprach- und Arbeitsbereichseinstellungen für diese App.",
-    languageTitle: "Sprache",
-    languageDescription:
-      "Wähle die Sprache der Oberfläche. Diese Einstellung wird in deinem Konto gespeichert.",
-    languageLabel: "Oberflächensprache",
     workspaceTitle: "Arbeitsbereich",
     workspaceDescription:
       "Verwalte Teammitglieder, Organisationszugriff und gemeinsame Arbeitsbereichseinstellungen.",
@@ -44,6 +39,8 @@ const messages = {
     suggestionSurvey: "Erstelle eine Kundenfeedback-Umfrage",
     suggestionSubmissions: "Zeige Einreichungen nach Tag",
     suggestionExport: "Antworten als CSV exportieren",
+    topSignal: "Wichtigstes Signal",
+    draftFollowUp: "Rückfrage entwerfen",
   },
   sidebar: {
     collapseSidebar: "Seitenleiste einklappen",
@@ -357,6 +354,10 @@ const messages = {
     responseSubmitted: "Antwort gesendet",
     noFields: "Dieses Formular hat noch keine Felder.",
     failedSubmit: "Formular konnte nicht gesendet werden",
+    uncheckablePattern:
+      "Die Regel dieses Formulars für {label} kann nicht geprüft werden. Bitten Sie den Formularbesitzer, sie zu korrigieren.",
+    patternTooLong:
+      "Der Wert für {label} ist zu lang, um mit der Regel dieses Formulars geprüft zu werden.",
   },
   responseInsights: {
     unavailable: "Insights nicht verfügbar",

@@ -1,75 +1,80 @@
-/**
- * Central model catalog for built-in agent engines.
- *
- * To bump the framework's managed default, update the Anthropic/OpenAI
- * constants below. Builder gateway and OpenRouter IDs are derived here so the
- * usual default bump stays in one file.
- */
-
-// ---------------------------------------------------------------------------
-// Per-model context window table (input token limit)
-//
-// Sources (June 2026):
-//  Anthropic  https://platform.claude.com/docs/en/about-claude/models/overview
-//  OpenAI     https://developers.openai.com/api/docs/models/gpt-5.6
-//  Google     https://ai.google.dev/gemini-api/docs/models
-//  OpenRouter https://openrouter.ai/api/v1/models
-//
-// Family defaults (used when a model id isn't listed explicitly):
-//  claude-*        → 200_000  (Haiku 4.5 and earlier models)
-//  gpt-5*          → 1_050_000 (GPT-5.6 Sol/Terra flagship context)
-//  gemini-2* / gemini-3* → 1_048_576
-//  everything else → 128_000  (safe conservative floor)
-//
-// Note: Fable 5, Sonnet 5, Sonnet 4.6, and Opus 4.6/4.7/4.8 support 1M via the API
-// at standard prices.
-// ---------------------------------------------------------------------------
-
 const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
-  // ── Anthropic / Claude (via Builder gateway or Anthropic direct) ──────────
   "claude-fable-5": 1_000_000,
+  "claude-fable-5-1": 1_000_000,
+  "claude-haiku-5-5": 1_000_000,
+  "claude-opus-5-5": 1_000_000,
   "claude-opus-4-8": 1_000_000,
   "claude-opus-4-7": 1_000_000,
   "claude-sonnet-5": 1_000_000,
+  "claude-sonnet-5-5": 1_000_000,
   "claude-sonnet-4-6": 1_000_000,
   "claude-haiku-4-5": 200_000,
   "claude-haiku-4-5-20251001": 200_000,
+  "anthropic/claude-fable-5.1": 1_000_000,
+  "anthropic/claude-haiku-5.5": 1_000_000,
+  "deepseek-v4-pro": 1_048_576,
+  "deepseek/deepseek-v4-pro": 1_048_576,
+  "deepseek-flash": 1_048_576,
+  "deepseek-v4-1-flash": 1_048_576,
+  "deepseek/deepseek-v4.1-flash": 1_048_576,
+  "grok-code-fast": 200_000,
+  "x-ai/grok-4.7": 500_000,
+  "x-ai/grok-build-0.1": 256_000,
 
-  // ── Builder gateway OpenAI IDs (dot→dash) ────────────────────────────────
   "gpt-5-6-sol": 1_050_000,
   "gpt-5-6-terra": 1_050_000,
   "gpt-5-6-luna": 400_000,
 
-  // ── Gemini (Builder gateway IDs) ─────────────────────────────────────────
   "gemini-3-1-pro": 1_048_576,
   "gemini-3-5-flash": 1_048_576,
   "gemini-3-1-flash-lite": 1_048_576,
 
-  // ── OpenRouter model IDs ──────────────────────────────────────────────────
   "anthropic/claude-fable-5": 1_000_000,
+  "anthropic/claude-opus-5.5": 1_000_000,
   "anthropic/claude-opus-4.8": 1_000_000,
   "anthropic/claude-opus-4.7": 1_000_000,
   "anthropic/claude-sonnet-5": 1_000_000,
+  "anthropic/claude-sonnet-5.5": 1_000_000,
   "anthropic/claude-sonnet-4.6": 1_000_000,
   "openai/gpt-5.6-sol": 1_050_000,
   "openai/gpt-5.6-terra": 1_050_000,
   "openai/gpt-5.6-luna": 1_050_000,
+  "openai/gpt-6.1-sol": 1_050_000,
+  "openai/gpt-6-sol": 1_050_000,
+  "openai/gpt-6-luna": 1_050_000,
+  "openai/gpt-5.5": 1_050_000,
+  "openai/gpt-5.4": 1_050_000,
+  "openai/gpt-5.4-mini": 400_000,
+  "openai/gpt-5.1-codex-mini": 400_000,
   "google/gemini-2.5-flash": 1_048_576,
+  "google/gemini-3.5-flash-lite": 1_048_576,
+  "google/gemini-3.1-flash-lite": 1_048_576,
+  "google/gemini-3.1-pro-preview": 1_048_576,
   "z-ai/glm-5.2": 1_048_576,
 
-  // ── AI-SDK native OpenAI IDs ──────────────────────────────────────────────
+  "gpt-6-sol": 1_050_000,
+  "gpt-6.1-sol": 1_050_000,
+  "gpt-6-luna": 1_050_000,
   "gpt-5.6-sol": 1_050_000,
   "gpt-5.6-terra": 1_050_000,
   "gpt-5.6-luna": 400_000,
+  "gpt-5.5": 1_050_000,
+  "gpt-5.4": 1_050_000,
+  "gpt-5.4-mini": 400_000,
+  "gpt-5.1-codex-mini": 400_000,
+  "gpt-5-4-mini": 400_000,
+  "gpt-5-1-codex-mini": 400_000,
 
-  // ── AI-SDK native Google IDs ──────────────────────────────────────────────
   "gemini-3.5-flash": 1_048_576,
+  "gemini-3.5-flash-lite": 1_048_576,
+  "gemini-3.1-flash-lite": 1_048_576,
   "gemini-3.1-pro-preview": 1_048_576,
+  "gemini-3-5-flash-lite": 1_048_576,
+  "gemini-3-8-flash": 1_048_576,
   "gemini-2.5-flash": 1_048_576,
   "gemini-2.5-pro": 1_048_576,
 };
 
-/** Conservative safe default when a model is not in the table. */
 const DEFAULT_CONTEXT_WINDOW = 128_000;
 
 /**
@@ -85,27 +90,24 @@ export function getContextWindowForModel(modelId: string): number {
   const exact = MODEL_CONTEXT_WINDOWS[modelId];
   if (exact !== undefined) return exact;
 
-  // Family heuristics for unlisted model IDs
   const id = modelId.toLowerCase();
 
-  // Anthropic Fable 5, Opus 4.x, Sonnet 5, and Sonnet 4.6 = 1M
   if (
     id === "claude-fable-5" ||
     id.includes("claude-fable-5") ||
+    id.includes("claude-haiku-5") ||
     id.startsWith("claude-opus-4") ||
+    id.startsWith("claude-opus-5") ||
     id.includes("claude-sonnet-5") ||
     id.includes("claude-sonnet-4-6") ||
     id.includes("claude-sonnet-4.6")
   )
     return 1_000_000;
 
-  // All other Claude models — default 200K
   if (id.startsWith("claude-")) return 200_000;
 
-  // GPT-5.x family — 1.05M
-  if (id.startsWith("gpt-5") || id.startsWith("openai/gpt-5")) return 1_050_000;
+  if (/^(?:openai\/)?gpt-[56]/.test(id)) return 1_050_000;
 
-  // Gemini 2.x / 3.x — 1M
   if (
     id.startsWith("gemini-2") ||
     id.startsWith("gemini-3") ||
@@ -114,65 +116,74 @@ export function getContextWindowForModel(modelId: string): number {
   )
     return 1_048_576;
 
-  // Z.ai GLM 5.x on OpenRouter — 1M context.
   if (id.startsWith("glm-5") || id.includes("/glm-5")) return 1_048_576;
 
   return DEFAULT_CONTEXT_WINDOW;
 }
 
-// ---------------------------------------------------------------------------
-// Per-model max output token table (documented output-token ceilings)
-//
-// Sources (July 2026):
-//  Anthropic  https://platform.claude.com/docs/en/docs/about-claude/models/overview
-//             (Fable 5 / Opus 4.8 / Opus 4.7 / Sonnet 5 / Sonnet 4.6 = 128K;
-//              Haiku 4.5 / Sonnet 4.5 / Opus 4.5 = 64K)
-//  OpenAI     https://developers.openai.com/api/docs/models/gpt-5.6
-//             (GPT-5.6 Sol / Terra / Luna = 40K)
-//
-// Family defaults (used when a model id isn't listed explicitly):
-//  claude flagship (fable-5 / opus-4.6+ / sonnet-5 / sonnet-4.6) → 128_000
-//  claude-* (Haiku 4.5, older/unknown Claude ids)                → 64_000
-//  gpt-5*                                                        → 128_000 (safe fallback)
-//  everything else                                               → 64_000
-//    (safe conservative ceiling that matches the previous global clamp)
-// ---------------------------------------------------------------------------
-
 const MODEL_MAX_OUTPUT_TOKENS: Record<string, number> = {
-  // ── Anthropic / Claude (via Builder gateway or Anthropic direct) ──────────
   "claude-fable-5": 128_000,
+  "claude-fable-5-1": 128_000,
+  "claude-haiku-5-5": 128_000,
+  "claude-opus-5-5": 128_000,
   "claude-opus-4-8": 128_000,
   "claude-opus-4-7": 128_000,
   "claude-sonnet-5": 128_000,
+  "claude-sonnet-5-5": 128_000,
   "claude-sonnet-4-6": 128_000,
   "claude-haiku-4-5": 64_000,
   "claude-haiku-4-5-20251001": 64_000,
+  "anthropic/claude-fable-5.1": 128_000,
+  "anthropic/claude-haiku-5.5": 128_000,
+  "deepseek-v4-pro": 393_216,
+  "deepseek/deepseek-v4-pro": 393_216,
+  "deepseek-flash": 393_216,
+  "deepseek-v4-1-flash": 393_216,
+  "deepseek/deepseek-v4.1-flash": 393_216,
+  "deepseek-v3-1": 32_768,
+  "deepseek/deepseek-chat-v3.1": 32_768,
+  "grok-code-fast": 10_000,
+  "x-ai/grok-4.7": 450_000,
+  "x-ai/grok-build-0.1": 230_400,
 
-  // ── Builder gateway OpenAI IDs (dot→dash) ────────────────────────────────
   "gpt-5-6-sol": 40_000,
   "gpt-5-6-terra": 40_000,
   "gpt-5-6-luna": 40_000,
 
-  // ── OpenRouter model IDs ──────────────────────────────────────────────────
   "anthropic/claude-fable-5": 128_000,
+  "anthropic/claude-opus-5.5": 128_000,
   "anthropic/claude-opus-4.8": 128_000,
   "anthropic/claude-opus-4.7": 128_000,
   "anthropic/claude-sonnet-5": 128_000,
+  "anthropic/claude-sonnet-5.5": 128_000,
   "anthropic/claude-sonnet-4.6": 128_000,
   "openai/gpt-5.6-sol": 40_000,
   "openai/gpt-5.6-terra": 40_000,
   "openai/gpt-5.6-luna": 128_000,
+  "openai/gpt-6.1-sol": 128_000,
+  "openai/gpt-6-sol": 128_000,
+  "openai/gpt-6-luna": 128_000,
+  "openai/gpt-5.5": 128_000,
+  "openai/gpt-5.4": 128_000,
+  "openai/gpt-5.4-mini": 128_000,
+  "openai/gpt-5.1-codex-mini": 128_000,
 
-  // ── AI-SDK native OpenAI IDs ──────────────────────────────────────────────
+  "gpt-6-sol": 128_000,
+  "gpt-6.1-sol": 128_000,
+  "gpt-6-luna": 128_000,
   "gpt-5.6-sol": 40_000,
   "gpt-5.6-terra": 40_000,
   "gpt-5.6-luna": 40_000,
+  "gpt-5.5": 128_000,
+  "gpt-5.4": 128_000,
+  "gpt-5.4-mini": 128_000,
+  "gpt-5.1-codex-mini": 128_000,
+  "gpt-5-5": 128_000,
+  "gpt-5-4": 128_000,
+  "gpt-5-4-mini": 128_000,
+  "gpt-5-1-codex-mini": 128_000,
 };
 
-/**
- * Conservative safe ceiling when a model is not in the table (matches the
- * previous global output-token clamp, and current Claude Haiku 4.5 limits).
- */
 const DEFAULT_MAX_OUTPUT_TOKENS_CEILING = 64_000;
 
 /**
@@ -190,10 +201,8 @@ export function getMaxOutputTokensForModel(
   const exact = MODEL_MAX_OUTPUT_TOKENS[modelId];
   if (exact !== undefined) return exact;
 
-  // Family heuristics for unlisted model IDs
   const id = modelId.toLowerCase();
 
-  // Anthropic Fable 5, Opus 4.6+, Sonnet 5, and Sonnet 4.6 = 128K output
   if (
     id.includes("claude-fable-5") ||
     id.includes("claude-opus-4-6") ||
@@ -208,45 +217,68 @@ export function getMaxOutputTokensForModel(
   )
     return 128_000;
 
-  // All other Claude models (Haiku 4.5, legacy) — 64K ceiling
   if (id.startsWith("claude-") || id.includes("/claude-")) {
     return DEFAULT_MAX_OUTPUT_TOKENS_CEILING;
   }
 
-  // GPT-5.x family — 128K output
-  if (id.startsWith("gpt-5") || id.startsWith("openai/gpt-5")) return 128_000;
+  if (/^(?:openai\/)?gpt-[56]/.test(id)) return 128_000;
 
   return DEFAULT_MAX_OUTPUT_TOKENS_CEILING;
 }
 
-const ENABLE_CLAUDE_SONNET_5 = true;
+export const CLAUDE_SONNET_MODEL_ID = "claude-sonnet-5-5";
+export const CLAUDE_SONNET_MODEL_LABEL = "Claude Sonnet 5.5";
 
-export const CLAUDE_SONNET_MODEL_ID = ENABLE_CLAUDE_SONNET_5
-  ? "claude-sonnet-5"
-  : "claude-sonnet-4-6";
-export const CLAUDE_SONNET_MODEL_LABEL = ENABLE_CLAUDE_SONNET_5
-  ? "Claude Sonnet 5"
-  : "Claude Sonnet 4.6";
+export const BUILDER_CLAUDE_SONNET_MODEL_ID = CLAUDE_SONNET_MODEL_ID;
+export const BUILDER_CLAUDE_SONNET_MODEL_LABEL = CLAUDE_SONNET_MODEL_LABEL;
+const OPENROUTER_CLAUDE_SONNET_MODEL_ID = "anthropic/claude-sonnet-5.5";
 
-const OPENROUTER_CLAUDE_SONNET_MODEL_ID = ENABLE_CLAUDE_SONNET_5
-  ? "anthropic/claude-sonnet-5"
-  : "anthropic/claude-sonnet-4.6";
+export const CURRENT_BUILDER_CLAUDE_MODEL_OPTIONS = [
+  { value: "claude-haiku-5-5", label: "Claude Haiku 5.5" },
+  { value: CLAUDE_SONNET_MODEL_ID, label: CLAUDE_SONNET_MODEL_LABEL },
+  { value: "claude-opus-5-5", label: "Claude Opus 5.5" },
+] as const;
+
+export function getClaudeModelOptionLabel(modelId: string): string {
+  const currentModel = CURRENT_BUILDER_CLAUDE_MODEL_OPTIONS.find(
+    (option) => option.value === modelId,
+  );
+  if (currentModel) return currentModel.label;
+
+  const undatedModelId = modelId.replace(/-\d{8,}$/, "");
+  const match = /^claude-(haiku|sonnet|opus|fable)-(\d+)(?:[-.](\d+))?$/i.exec(
+    undatedModelId,
+  );
+  if (!match) return modelId;
+
+  const family = match[1][0].toUpperCase() + match[1].slice(1);
+  return `Claude ${family} ${match[2]}${match[3] ? `.${match[3]}` : ""}`;
+}
+
+export const BUILDER_MODEL_ALIASES: Readonly<Record<string, string>> = {
+  "claude-sonnet-4-6": "claude-sonnet-5-5",
+  "claude-sonnet-5": "claude-sonnet-5-5",
+  "claude-haiku-4-5": "claude-haiku-5-5",
+  "claude-opus-4-7": "claude-opus-5-5",
+  "claude-opus-4-8": "claude-opus-5-5",
+  "claude-opus-5": "claude-opus-5-5",
+  "gpt-5-6-sol": "gpt-6-1-sol",
+  "gpt-5-6-luna": "gpt-6-luna",
+  "gpt-6-sol": "gpt-6-1-sol",
+  "gpt-6.1-sol": "gpt-6-1-sol",
+  "gemini-3-5-flash": "gemini-3-8-flash",
+  "gemini-3-6-flash": "gemini-3-8-flash",
+  "gemini-3-7-flash": "gemini-3-8-flash",
+};
 
 const ANTHROPIC_DEFAULT_MODEL_ID = CLAUDE_SONNET_MODEL_ID;
-
-function builderGatewayModelId(model: string): string {
-  return model.replace(/\./g, "-");
-}
 
 function openRouterModelId(provider: string, model: string): string {
   return `${provider}/${model}`;
 }
 
-const FRAMEWORK_DEFAULT_OPENAI_MODEL = "gpt-5.6-luna";
-const FRAMEWORK_DEFAULT_BUILDER_OPENAI_MODEL = builderGatewayModelId(
-  FRAMEWORK_DEFAULT_OPENAI_MODEL,
-);
-const FRAMEWORK_DEFAULT_BUILDER_MODEL = FRAMEWORK_DEFAULT_BUILDER_OPENAI_MODEL;
+const FRAMEWORK_DEFAULT_OPENAI_MODEL = "gpt-6-luna";
+const FRAMEWORK_DEFAULT_BUILDER_MODEL = "gpt-6-luna";
 const FRAMEWORK_DEFAULT_OPENROUTER_MODEL = openRouterModelId(
   "openai",
   FRAMEWORK_DEFAULT_OPENAI_MODEL,
@@ -257,26 +289,40 @@ export const AGENT_MODEL_CONFIG = {
     defaultModel: FRAMEWORK_DEFAULT_BUILDER_MODEL,
     supportedModels: [
       "auto",
-      FRAMEWORK_DEFAULT_BUILDER_OPENAI_MODEL,
+      "claude-haiku-5-5",
+      BUILDER_CLAUDE_SONNET_MODEL_ID,
+      "claude-opus-5-5",
+      "gpt-5-4",
+      "gpt-5-5",
+      "gpt-5-4-mini",
+      "gpt-5-1-codex-mini",
+      "gpt-6-1-sol",
       "gpt-5-6-terra",
-      "gpt-5-6-sol",
-      "claude-haiku-4-5",
-      CLAUDE_SONNET_MODEL_ID,
-      "claude-opus-4-8",
-      "gemini-3-5-flash",
+      "gpt-6-luna",
       "gemini-3-1-pro",
-      // Flash-Lite is a transcription-only public id. Advertising it as an
-      // agent-chat option routes through a Vertex preview model whose
-      // availability can lapse while the id remains accepted, leaving chat
-      // with a bare stop/error event that cannot recover.
+      "gemini-3-8-flash",
+      "gemini-3-5-flash-lite",
+      "gemini-3-1-flash-lite",
+      "grok-code-fast",
+      "qwen3-coder",
+      "kimi-k2-5",
+      "deepseek-v4-pro",
+      "deepseek-v4-1-flash",
+      "deepseek-v3-1",
+      "z-ai-glm-4-5",
+      "z-ai-glm-5-1",
+      "z-ai-glm-5-3-flash",
     ],
   },
   anthropic: {
     defaultModel: ANTHROPIC_DEFAULT_MODEL_ID,
     supportedModels: [
+      "claude-haiku-5-5",
       "claude-haiku-4-5-20251001",
       CLAUDE_SONNET_MODEL_ID,
+      "claude-opus-5-5",
       "claude-opus-4-8",
+      "claude-fable-5-1",
       "claude-fable-5",
     ],
   },
@@ -284,33 +330,59 @@ export const AGENT_MODEL_CONFIG = {
     anthropic: {
       defaultModel: ANTHROPIC_DEFAULT_MODEL_ID,
       supportedModels: [
+        "claude-haiku-5-5",
         "claude-haiku-4-5-20251001",
         CLAUDE_SONNET_MODEL_ID,
+        "claude-opus-5-5",
         "claude-opus-4-8",
+        "claude-fable-5-1",
         "claude-fable-5",
       ],
     },
     openai: {
       defaultModel: FRAMEWORK_DEFAULT_OPENAI_MODEL,
-      supportedModels: ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"],
+      supportedModels: [
+        "gpt-6-luna",
+        "gpt-6.1-sol",
+        "gpt-5.6-terra",
+        "gpt-5.5",
+        "gpt-5.4",
+        "gpt-5.4-mini",
+        "gpt-5.1-codex-mini",
+      ],
     },
     openrouter: {
       defaultModel: FRAMEWORK_DEFAULT_OPENROUTER_MODEL,
       supportedModels: [
-        "openai/gpt-5.6-luna",
+        "openai/gpt-6-luna",
         "openai/gpt-5.6-terra",
-        "openai/gpt-5.6-sol",
-        // Keep this shortlist to popular tool-capable text models; OpenRouter
-        // users can still enter any model ID.
+        "openai/gpt-6.1-sol",
         "openai/gpt-6-astra",
         "openai/gpt-6-astra-pro",
+        "openai/gpt-5.5",
+        "openai/gpt-5.4",
+        "openai/gpt-5.4-mini",
+        "openai/gpt-5.1-codex-mini",
+        "anthropic/claude-haiku-5.5",
         OPENROUTER_CLAUDE_SONNET_MODEL_ID,
+        "anthropic/claude-opus-5.5",
         "anthropic/claude-opus-4.8",
         "anthropic/claude-fable-5",
         "anthropic/claude-fable-5.1",
-        // Current stable Gemini on OpenRouter (2.5 Flash is GA)
-        "google/gemini-2.5-flash",
         "google/gemini-3.8-flash",
+        "google/gemini-3.5-flash-lite",
+        "google/gemini-3.1-flash-lite",
+        "google/gemini-3.1-pro-preview",
+        "x-ai/grok-4.7",
+        "x-ai/grok-build-0.1",
+        "qwen/qwen3-coder",
+        "moonshotai/kimi-k2.5",
+        "deepseek/deepseek-v4-pro",
+        "deepseek/deepseek-v4.1-flash",
+        "deepseek/deepseek-chat-v3.1",
+        "z-ai/glm-4.5",
+        "z-ai/glm-5.1",
+        "z-ai/glm-5.3-flash",
         "qwen/qwen3.8-max-0902",
         "meta/muse-spark-1.3",
         "inception/mercury-2.5",
@@ -318,13 +390,15 @@ export const AGENT_MODEL_CONFIG = {
       ],
     },
     google: {
-      defaultModel: "gemini-3.5-flash",
-      supportedModels: ["gemini-3.5-flash", "gemini-3.1-pro-preview"],
+      defaultModel: "gemini-3.8-flash",
+      supportedModels: [
+        "gemini-3.8-flash",
+        "gemini-3.5-flash-lite",
+        "gemini-3.1-flash-lite",
+        "gemini-3.1-pro-preview",
+      ],
     },
     groq: {
-      // llama-3.1-70b-versatile and mixtral-8x7b-32768 were decommissioned
-      // (errors since Jan 2025 and Mar 2025 respectively). Replace with current
-      // Groq production models.
       defaultModel: "llama-3.3-70b-versatile",
       supportedModels: [
         "llama-3.3-70b-versatile",
@@ -341,8 +415,6 @@ export const AGENT_MODEL_CONFIG = {
       ],
     },
     cohere: {
-      // command-r-plus (unversioned) is an alias that may lag; the stable
-      // dated release is command-r-plus-08-2024.
       defaultModel: "command-r-plus-08-2024",
       supportedModels: [
         "command-r-plus-08-2024",
@@ -366,3 +438,32 @@ export type AISDKProvider = keyof typeof AI_SDK_MODEL_CONFIG;
 export const DEFAULT_MODEL = BUILDER_MODEL_CONFIG.defaultModel;
 export const DEFAULT_OPENAI_MODEL = AI_SDK_MODEL_CONFIG.openai.defaultModel;
 export const DEFAULT_ANTHROPIC_MODEL = ANTHROPIC_MODEL_CONFIG.defaultModel;
+
+type ClaudeModelFamily = "haiku" | "sonnet" | "opus";
+
+const RATE_LIMIT_FALLBACK_FAMILY: Record<ClaudeModelFamily, ClaudeModelFamily> =
+  {
+    haiku: "sonnet",
+    sonnet: "haiku",
+    opus: "sonnet",
+  };
+
+function claudeModelFamily(model: string): ClaudeModelFamily | undefined {
+  const id = model.toLowerCase();
+  if (id.includes("haiku")) return "haiku";
+  if (id.includes("sonnet")) return "sonnet";
+  if (id.includes("opus")) return "opus";
+  return undefined;
+}
+
+export function resolveFallbackModel(
+  model: string,
+  supportedModels: readonly string[] | undefined,
+): string | undefined {
+  const family = claudeModelFamily(model);
+  if (!family || !supportedModels) return undefined;
+  const targetFamily = RATE_LIMIT_FALLBACK_FAMILY[family];
+  return supportedModels.find(
+    (id) => id !== model && claudeModelFamily(id) === targetFamily,
+  );
+}

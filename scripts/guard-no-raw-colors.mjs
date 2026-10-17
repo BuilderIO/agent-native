@@ -66,29 +66,16 @@ const IN_SCOPE_EXT = /\.(tsx|ts|css)$/;
 const EXCLUDED_BUILD_DIR =
   /\/(node_modules|dist|build|\.next|\.nuxt|\.output|\.cache|\.turbo|\.netlify|\.vercel|\.wrangler|\.react-router|\.generated|coverage)\//;
 const EXCLUDED_TEST_FILE = /\.(stories|spec|test)\./;
-// Whole-directory, not just `*.spec.*`: an E2E harness module holds the
-// fixture HTML the specs render inside the preview iframe, which is a test
-// document with no theme to honour.
 const EXCLUDED_E2E_DIR = /(^|\/)e2e\//;
 const EXCLUDED_TOKEN_PATH = /(^|\/)(brand|tokens|theme)(\/|$)/i;
-// `global.css` declares a running app's tokens; `templates-meta.ts` is the
-// catalog where each template declares its own brand accent as data (all 17
-// carry a hex plus its rgb triple). Both are definition sites — the raw value
-// has to live somewhere, and flagging them sends an author looking for a token
-// that by construction does not exist yet.
 const THEME_DEFINITION_FILE =
   /(^|\/)(global\.css|packages\/core\/src\/cli\/templates-meta\.ts)$/;
 
-/** Hex colors: #rgb, #rrggbb, #rrggbbaa (longest first so a #rrggbb inside a
- * longer hex run isn't mistaken for a #rgb prefix). */
 const HEX_COLOR_RE = /#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3})\b/;
 
-/** rgb()/rgba()/hsl()/hsla() NOT wrapping a var() — hsl(var(--x)) and
- * rgba(var(--x), .5) are how the theme tokens are actually consumed. */
 const COLOR_FUNC_RE = /\b(?:rgba?|hsla?)\(\s*(?!var\()/i;
 
 const UTILITY_MONO_RE = /\b(bg|text|border)-(white|black)(?=[/\s"'`)]|$)/;
-/** The same utility given an explicit `dark:` counterpart on the same line. */
 const PAIRED_MONO_RE =
   /\bdark:(?:[\w-]+:)*(bg|text|border)-(white|black)(?=[/\s"'`)]|$)/;
 const UTILITY_SHADE_RE =
@@ -96,9 +83,6 @@ const UTILITY_SHADE_RE =
 
 const PRAGMA = /(?:\/\/|\/\*)\s*guard:allow-raw-color\b/;
 
-/** What real token in app/global.css to reach for instead of each literal
- * Tailwind color word — named explicitly so the failure message points
- * somewhere real, not just "use a variable". */
 const TOKEN_HINT = {
   white:
     "background / card / popover (or primary-foreground on a colored surface)",
@@ -131,7 +115,6 @@ function inScope(relPath) {
   return true;
 }
 
-/** Returns a violation descriptor for the line, or null if it's clean. */
 function checkLine(lineText) {
   const hex = HEX_COLOR_RE.exec(lineText);
   if (hex) {
@@ -142,11 +125,6 @@ function checkLine(lineText) {
     return { snippet: colorFunc[0].trim(), help: HEX_HSL_HELP };
   }
   const mono = UTILITY_MONO_RE.exec(lineText);
-  // `bg-black/5 dark:bg-white/10` is the theme layer, expressed inline: the
-  // pair adapts in both directions, which is the property this guard exists to
-  // protect. Flagging it named one instance of the rule (the literal word
-  // "black") instead of the rule itself, and sent readers to replace working
-  // code with a token that does not exist for scrim/overlay tints.
   if (mono && PAIRED_MONO_RE.test(lineText)) {
     return null;
   }
@@ -181,7 +159,7 @@ function main() {
     try {
       src = readFileSync(absFile, "utf8");
     } catch {
-      continue; // file no longer present (renamed/deleted since diffing)
+      continue;
     }
     const lines = src.split("\n");
 

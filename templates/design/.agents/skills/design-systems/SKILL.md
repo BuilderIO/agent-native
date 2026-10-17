@@ -181,6 +181,27 @@ pnpm action set-default-design-system --id <id>
 Pass `--isDefault false` to clear the current default. Setting a system as the
 default unsets the previous default in the same user and organization scope.
 
+### Deleting a Design System
+
+```bash
+pnpm action delete-design-system --id <id>
+```
+
+Requires admin access or higher — the owner, or anyone holding an `admin`
+share role. That is the same `canManage` flag `list-design-systems` returns
+and the Design Systems page renders its Delete control from. Removes the
+system and its shares, and clears `designSystemId` on every linked design and
+saved template the caller can edit — a design system's admin share does not
+grant write access to every design or template that happens to reference it,
+so ones the caller can't edit keep a dangling reference instead, reported
+back as `designsSkippedForAccess` / `templatesSkippedForAccess` (both
+`get-design-template` and `list-design-templates` already resolve a dangling
+`designSystemId` back to `null` rather than erroring). Those designs keep the
+tokens already baked into their HTML, so a design can still look on-brand
+while no longer linked to a system. If the deleted system was the owner's
+default, another of their design systems is promoted to default so future
+design creation doesn't silently drop to "no design system".
+
 ## Multi-Source Import Flow
 
 The design system setup page collects brand assets from multiple sources. When the user clicks "Continue to generation", a structured message is sent to the agent with all sources. Process each source type with the appropriate action:
@@ -238,11 +259,23 @@ pnpm action import-design-tokens \
 ```
 
 Supported sources are `files`, `paste`, and `current-design`. The action parses
-CSS variables, design.md-style labeled lines, Tailwind/theme JSON, colors,
-spacing, radii, and fonts, then persists them through the design's
-`tweakSelections` so the canvas updates like any other token edit. Treat manual
+CSS variables, design.md-style labeled lines, Tailwind/theme JSON, DTCG (W3C
+design tokens) JSON, colors, spacing, radii, and fonts, then persists them
+through the design's
+`tweakSelections` so the canvas updates like any other token edit. DTCG
+`$type`s become token types (see below), and `{group.token}` references become
+`var(--group-token)`. Treat manual
 `apply-design-token-edit` calls as a last-resort one-off edit after import has
 been tried or ruled out.
+
+When you do create a token with `apply-design-token-edit`, pass `type` (`color`,
+`font-family`, `font-weight`, `font-size`, `line-height`, `letter-spacing`,
+`spacing`, `container`, `breakpoint`, `radius`, `shadow`, `opacity`) — the same
+types the Tokens panel `+` menu offers. It is stored in `designs.data.tokenTypes`;
+without it the type is guessed from the name, which often gets the font types
+and opacity wrong. Each type belongs to one panel section (font types go under
+Typography, opacity under Shadows & Effects). Omit `type` when only changing an
+existing token's value.
 
 ### Source: Documents (DOCX, PPTX, PDF)
 
@@ -295,12 +328,12 @@ it is separate from (and does not reopen) the Design System Setup `.fig`
 upload above. Treat it as experimental — the `.fig` container is a proprietary,
 undocumented format, so unsupported node types, geometry, or schema variants
 fail closed with an explicit warning/placeholder rather than a silent
-approximation. Read the returned `fidelityReport` (`stats`, `warnings`) back to
-the user, and see `FIGMA_INTEROPERABILITY.md`'s "`.fig` upload" row for the
-current fidelity contract and required verification corpus.
+approximation. Read the returned `fidelityReport` (`stats`, `warnings`) and
+explain the conversion coverage and any listed fallbacks. See
+`FIGMA_INTEROPERABILITY.md` for supported import and export workflows.
 
-**When the user wants a Figma Assets-style native component drawer inside
-Design**, do not use Figma or media assets. Use `list-design-native-assets` to
+**When the user wants a native component drawer inside Design**, use
+`list-design-native-assets` to
 choose an editable primitive/component/layout, then
 `insert-design-native-asset` to insert it into the active screen. These entries
 are Design-native HTML stamped with component/layer metadata.
@@ -313,10 +346,10 @@ design-system indexing just to insert a component. Use
 component/component set with provenance. Styles and variables still belong in
 the Builder-backed design-system path above.
 
-### Import from Figma (pixel-accurate frame import)
+### Import from a Figma URL or file
 
-**When the user pastes a Figma frame/screen link and wants a real, editable
-Design screen** (not a rendered image, not a component insert), use
+**When the user pastes a Figma frame/screen link and wants an editable Design
+screen** (not a component insert), use
 `import-figma-frame` instead of `list-figma-library-assets` +
 `insert-figma-library-asset`:
 
@@ -328,8 +361,8 @@ pnpm action import-figma-frame --fileKey "<fileKey>" --nodeId "12:34" --designId
 
 - Accepts a full Figma URL (design/file/proto share links, including
   `/branch/<key>/` branch URLs — the branch's own key is used automatically) or
-  an explicit `fileKey` + `nodeId`. If `nodeId` is omitted, the file's first
-  top-level frame is imported.
+  an explicit `fileKey` + `nodeId`. If `nodeId` is omitted, the first `FRAME`
+  node on the file's first page is imported.
 - Maps the node tree to real HTML/CSS: exact position/size, auto-layout as
   flexbox, text (font, line-height, letter-spacing, case, decoration, align),
   fills (solid/gradient/image, correctly layered and gradient-angle-derived,
@@ -398,6 +431,19 @@ The canvas paste listener (`app/lib/figma-clipboard.ts` +
 Tell users who need a path based only on Figma's public contract to copy a
 frame **link** ("Copy link to selection" in Figma). Current Cmd+C is exact
 when `selectedNodeData` is present, with conservative fallback if it changes.
+
+#### Missing images after a paste without a token
+
+A paste imported without a Figma token (`strategy: "localKiwi"`) carries image
+hashes, not bytes: each IMAGE fill is a `url('about:blank')` placeholder on an
+element stamped `data-figma-image-ref="<hash>"`. Fill it in place rather than
+inserting a new image layer and resizing it:
+
+- The user has the image (a Figma export, an SVG, a screenshot): `upload-image`,
+  then `fill-figma-paste-image --fileId <id> --imageUrl <url>`. Add `--hash`
+  when the screen has more than one missing image; the error lists them.
+- The user has the original `.fig`: upload it with `hydrateFileIds`.
+- Figma is connected: `hydrate-figma-paste-images --fileId <id>`.
 
 ### Reading a Figma file/frame without importing it
 
@@ -477,15 +523,17 @@ When the user provides multiple sources, call all applicable import actions in p
 7. **Call `create-design-system`** with the combined result
 8. **Link to design** via `update-design --designSystemId`
 
-## Fidelity Limits And Open-Ended Figma/GitHub API Access
+## Import limits and open-ended provider API access
 
 Figma import/read/paste and design-system/token workflows
 (`import-figma-frame`, `get-figma-design-context`,
 `list-figma-library-assets`, clipboard paste, `.fig` upload) are covered above —
 read them before guessing the calling convention.
 
-Never claim universal lossless Figma import/export; consult
-`FIGMA_INTEROPERABILITY.md` for the real fidelity contract.
+Imported content can include unsupported constructs. Read the import report and
+explain any listed omissions or approximations. Consult
+`FIGMA_INTEROPERABILITY.md` for the supported import, paste, and export
+workflows.
 
 For open-ended GitHub/Figma API questions, use
 `provider-api-catalog`/`provider-api-docs`/`provider-api-request` rather than

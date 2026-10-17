@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { z } from "zod";
 
 import {
@@ -64,7 +64,16 @@ export default defineAction({
   authorize: authorizeDispatchAdmin,
   schema,
   run: async ({ files, scope }) => {
-    const normalized = normalizeAgentPack(files as AgentPackFileInput[]);
+    let normalized: ReturnType<typeof normalizeAgentPack>;
+    try {
+      normalized = normalizeAgentPack(files as AgentPackFileInput[]);
+    } catch (err) {
+      fail(
+        err instanceof Error
+          ? err.message
+          : "That agent pack could not be parsed.",
+      );
+    }
     const { dispatchActions } = await import("./index.js");
     const toolValidation = validateImportedAgentTools(
       normalized.profile.tools,
@@ -115,8 +124,9 @@ export default defineAction({
       };
     }
     if (existingProfile) {
-      throw new Error(
+      fail(
         `An agent already exists at ${root}. Rename the source before importing it.`,
+        { statusCode: 409 },
       );
     }
 

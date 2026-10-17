@@ -36,6 +36,9 @@ function Probe() {
       <a href="/dashboard" data-testid="chrome-link">
         Dashboard
       </a>
+      <a href="/documents/home" data-testid="sibling-app-link">
+        Documents
+      </a>
       <a href="/settings/integrations" data-testid="settings-link">
         Settings
       </a>
@@ -130,10 +133,12 @@ describe("useAgentChatHomeHandoffLinks", () => {
     container?.remove();
     root = null;
     container = null;
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
     window.sessionStorage.clear();
     window.localStorage.clear();
-    vi.unstubAllGlobals();
     vi.useRealTimers();
+    window.history.replaceState({}, "", "/");
   });
 
   it("intercepts app chrome links from the chat route", () => {
@@ -194,6 +199,25 @@ describe("useAgentChatHomeHandoffLinks", () => {
     expect(event.defaultPrevented).toBe(true);
     expect(pathname(container)).toBe("/dashboard");
     expect(consumeAgentChatHomeHandoff("chat", { ttlMs: 5_000 })).toBe(true);
+  });
+
+  it("leaves sibling workspace app links for the browser", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv(
+      "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([
+        { id: "chat", path: "/chat" },
+        { id: "documents", path: "/documents" },
+      ]),
+    );
+    window.history.replaceState({}, "", "/chat/_agent-native/poll");
+    markAgentChatHomeHandoff("chat");
+    ({ container, root } = renderProbe());
+
+    const event = clickLink(container, "sibling-app-link");
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(pathname(container)).toBe("/");
   });
 
   it("does not intercept recent-only links after the marker expires", () => {

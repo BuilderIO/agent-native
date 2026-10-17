@@ -99,6 +99,8 @@ DATABASE_URL=pglite:./data/pglite
 
 框架會根據 `DATABASE_URL` 將 Drizzle 設定為使用 PostgreSQL。
 
+框架會限制每個連線池的連線數。預設值為：長時間執行的 Node.js 程序 20、serverless 前景函式 2、背景函式 4、低連線數排程 worker 1。設定 `AGENT_NATIVE_DB_POOL_MAX` 可覆寫 Neon 與標準 PostgreSQL 用戶端的每池上限。請估算所有作用中的函式執行個體或 Node.js 程序、應用程式及不同資料庫 URL 的總連線數。每個程序都有自己的連線池。總數應低於資料庫或連線池代理上限，並為遷移、管理及其他用戶端預留容量。若提供者有連線池端點，請使用該端點。自架 PostgreSQL 且應用程序較多時，可考慮 PgBouncer 交易池化。
+
 ### Builder.io 託管資料庫 {#builder-managed}
 
 *計畫中（尚不可用）：*連線到 Builder.io 後，您的應用將能使用自動佈建的託管 PostgreSQL 資料庫，無需任何 PostgreSQL 連線字串。

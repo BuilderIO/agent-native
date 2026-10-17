@@ -1,6 +1,16 @@
 import { randomUUID } from "node:crypto";
 
-import { and, asc, eq, inArray, isNull, lte, or, type SQL } from "drizzle-orm";
+import {
+  and,
+  asc,
+  eq,
+  inArray,
+  isNull,
+  lte,
+  or,
+  sql,
+  type SQL,
+} from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../db/index.js";
@@ -24,7 +34,6 @@ export const transactionalEmailStateSchema = z.enum([
 
 export const recapMonthSchema = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/);
 
-/** The three recap modules the agent writes; everything else is templated. */
 export const recapCopySchema = z
   .object({
     heroLine: nonEmptyStringSchema.max(400),
@@ -72,7 +81,6 @@ export const transactionalEmailPayloadSchema = z.discriminatedUnion("type", [
     .object({
       type: z.literal("monthly-recap"),
       ...commonPayloadFields,
-      // The month's top clip, which anchors the card and the AI copy.
       recordingIds: z.array(recordingIdSchema).length(1),
       month: recapMonthSchema,
     })
@@ -197,9 +205,12 @@ export type TransactionalEmailConfig = z.infer<
 export type TransactionalEmailJob = z.infer<typeof transactionalEmailJobSchema>;
 export type RecapCopy = z.infer<typeof recapCopySchema>;
 
-/** Job types whose copy is written by the agent before they can be sent. */
+const AI_BACKED_TYPES = [
+  "two-clips",
+] as const satisfies readonly TransactionalEmailJob["type"][];
+
 export function isAiBackedType(type: TransactionalEmailJob["type"]): boolean {
-  return type === "two-clips";
+  return (AI_BACKED_TYPES as readonly string[]).includes(type);
 }
 
 export type TransactionalEmailStoreOptions = {
@@ -352,6 +363,31 @@ export function createTransactionalEmailStore(
           states?.length
             ? inArray(schema.transactionalEmailJobs.state, states)
             : undefined,
+        )
+        .orderBy(asc(schema.transactionalEmailJobs.createdAt))
+    ).map(databaseJobToJob);
+  }
+
+  async function listAiClaimCandidates(
+    claimantEmail: string,
+  ): Promise<TransactionalEmailJob[]> {
+    const claimant = claimantEmail.trim().toLowerCase();
+    return (
+      await getDb()
+        .select()
+        .from(schema.transactionalEmailJobs)
+        .where(
+          and(
+            inArray(schema.transactionalEmailJobs.state, [
+              "awaiting_ai",
+              "ai_dispatched",
+            ]),
+            inArray(schema.transactionalEmailJobs.type, AI_BACKED_TYPES),
+            or(
+              sql`lower(trim(${schema.transactionalEmailJobs.recipient})) = ${claimant}`,
+              sql`lower(trim(${schema.transactionalEmailJobs.requestedBy})) = ${claimant}`,
+            ),
+          ),
         )
         .orderBy(asc(schema.transactionalEmailJobs.createdAt))
     ).map(databaseJobToJob);
@@ -539,6 +575,34 @@ export function createTransactionalEmailStore(
           schema.transactionalEmailJobs.aiDispatchedAt,
           staleBefore.toISOString(),
         ),
+      ),
+    );
+  }
+
+  async function releaseClaimedAi(logicalKey: string, claimantEmail: string) {
+    const claimant = normalizeRecipient(claimantEmail);
+    const job = await readJob(logicalKey);
+    if (
+      !job ||
+      !isAiBackedType(job.type) ||
+      job.state !== "ai_dispatched" ||
+      job.aiClaimedBy !== claimant
+    ) {
+      return null;
+    }
+    const timestamp = now().toISOString();
+    return replaceJob(
+      transactionalEmailJobSchema.parse({
+        ...job,
+        state: "awaiting_ai",
+        aiClaimedBy: undefined,
+        aiDispatchedAt: undefined,
+        updatedAt: timestamp,
+      }),
+      and(
+        eq(schema.transactionalEmailJobs.logicalKey, job.logicalKey),
+        eq(schema.transactionalEmailJobs.state, "ai_dispatched"),
+        eq(schema.transactionalEmailJobs.aiClaimedBy, claimant),
       ),
     );
   }
@@ -743,9 +807,11 @@ export function createTransactionalEmailStore(
     enqueueOrConvergeFirstImport,
     readJob,
     listJobs,
+    listAiClaimCandidates,
     transition,
     claimAwaitingAi,
     reclaimStaleAiDispatch,
+    releaseClaimedAi,
     completeClaimedAi,
     claimNextAwaitingAi,
     acquireSendingLease,

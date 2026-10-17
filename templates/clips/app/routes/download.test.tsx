@@ -4,33 +4,51 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { fetchMock, markDownloaded } = vi.hoisted(() => ({
-  fetchMock: vi.fn(),
-  markDownloaded: vi.fn(),
-}));
+const {
+  fetchMock,
+  markDownloaded,
+  appBasePathMock,
+  WorkspaceAppMountResolutionError,
+} = vi.hoisted(() => {
+  class WorkspaceAppMountResolutionError extends Error {}
+  const appBasePathMock = vi.fn((): string => {
+    throw new WorkspaceAppMountResolutionError("Workspace mount is unknown");
+  });
+  return {
+    fetchMock: vi.fn(),
+    markDownloaded: vi.fn(),
+    appBasePathMock,
+    WorkspaceAppMountResolutionError,
+  };
+});
 
 vi.mock("@agent-native/core/client/api-path", () => ({
-  appBasePath: () => "",
-  appPath: (path: string) => path,
+  appBasePath: appBasePathMock,
+  appPath: (path: string) => `${appBasePathMock()}${path}`,
+  WorkspaceAppMountResolutionError,
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, values?: { platform?: string }) => {
     const messages: Record<string, string> = {
       "downloadRoute.backToLibrary": "Back to library",
-      "downloadRoute.clipsDesktop": "Clips Desktop",
+      "downloadRoute.clipsDesktop": "Download Clips",
       "downloadRoute.heroDescription": "Record your screen.",
       "downloadRoute.downloadFor": "Download for {{platform}}",
       "downloadRoute.downloadStarted": "Download started",
       "downloadRoute.downloadAgain": "Didn't work? Try downloading again",
       "downloadRoute.retry": "Try again",
+      "downloadRoute.mountError":
+        "Clips could not find its workspace path. Ask your workspace admin to check the app mount configuration.",
       "downloadRoute.stable": "Stable",
       "downloadRoute.nightly": "Nightly",
-      "downloadRoute.switchToNightly": "Switch to Nightly builds",
-      "downloadRoute.switchToStable": "Switch to stable builds",
+      "downloadRoute.allPlatforms": "All platforms",
+      "downloadRoute.releaseChannel": "Release channel",
+      "downloadRoute.macSublabel": "Universal (Apple Silicon + Intel)",
+      "downloadRoute.windowsSublabel": "64-bit MSI installer",
       "downloadRoute.chromeTitle": "Chrome extension for browser logs",
       "captureInstall.chromeDescription":
-        "Best when you want redacted console and network diagnostics from the browser tab.",
+        "Capture browser tabs with the Chrome extension.",
     };
     return (messages[key] ?? key).replace(
       "{{platform}}",
@@ -98,6 +116,7 @@ describe("Clips download page", () => {
   let root: Root;
 
   beforeEach(async () => {
+    appBasePathMock.mockReturnValue("");
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -123,57 +142,74 @@ describe("Clips download page", () => {
     container.remove();
     window.localStorage.clear();
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
     vi.clearAllMocks();
   });
 
   it("selects platforms with direct downloads and switches to Nightly", async () => {
-    expect(container.querySelector("h1")?.textContent).toBe("Clips Desktop");
+    expect(container.querySelector("h1")?.textContent).toBe("Download Clips");
     expect(container.querySelector("a[download]")?.textContent).toContain(
       "Download for macOS",
     );
     expect(container.querySelector("a[download]")?.getAttribute("href")).toBe(
       stableManifest.assets[0].url,
     );
-    expect(
-      container
-        .querySelector('button[aria-label="macOS"]')
-        ?.getAttribute("aria-pressed"),
-    ).toBe("true");
     expect(container.textContent).not.toContain(stableManifest.version);
 
-    act(() => {
-      container
-        .querySelector<HTMLButtonElement>('button[aria-label="Windows"]')
-        ?.click();
-    });
-    expect(container.querySelector("a[download]")?.textContent).toContain(
-      "Download for Windows",
-    );
-    expect(container.querySelector("a[download]")?.getAttribute("href")).toBe(
-      stableManifest.assets[1].url,
-    );
+    expect(
+      container.querySelector(`a[href="${stableManifest.assets[1].url}"]`),
+    ).toBeTruthy();
 
+    appBasePathMock.mockReturnValue("/clips");
     act(() => {
       container
-        .querySelector<HTMLButtonElement>('button[role="switch"]')
+        .querySelector<HTMLButtonElement>(
+          'button[role="radio"][aria-checked="false"]',
+        )
         ?.click();
     });
     await flushEffects();
 
     expect(container.querySelector("h1")?.textContent).toBe(
-      "Clips Desktop Nightly",
+      "Download Clips Nightly",
     );
     expect(container.querySelector("a[download]")?.getAttribute("href")).toBe(
-      nightlyManifest.assets[1].url,
+      nightlyManifest.assets[0].url,
     );
     expect(fetchMock).toHaveBeenLastCalledWith(
-      "/api/clips-latest.json?channel=nightly",
+      "/clips/api/clips-latest.json?channel=nightly",
     );
     expect(
       container
-        .querySelector('button[role="switch"]')
+        .querySelector('button[role="radio"][aria-checked="true"]')
         ?.getAttribute("aria-checked"),
     ).toBe("true");
+  });
+
+  it("keeps the route available when the workspace mount cannot be resolved", async () => {
+    appBasePathMock.mockImplementation(() => {
+      throw new WorkspaceAppMountResolutionError("Workspace mount is unknown");
+    });
+
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>(
+          'button[role="radio"][aria-checked="false"]',
+        )
+        ?.click();
+    });
+    await flushEffects();
+
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "Ask your workspace admin to check the app mount configuration.",
+    );
+    expect(container.querySelector("header a[href]")).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(
+      Array.from(container.querySelectorAll("button")).some((button) =>
+        button.textContent?.includes("Try again"),
+      ),
+    ).toBe(false);
   });
 
   it("confirms the download and offers a retry link after clicking", () => {
@@ -193,9 +229,47 @@ describe("Clips download page", () => {
     );
   });
 
+  it("supports keyboard navigation for release channels", () => {
+    const group = container.querySelector('[role="radiogroup"]');
+    const radios = Array.from(
+      container.querySelectorAll<HTMLButtonElement>('button[role="radio"]'),
+    );
+    expect(group?.getAttribute("aria-label")).toBe("Release channel");
+    expect(radios[0]?.tabIndex).toBe(0);
+    expect(radios[1]?.tabIndex).toBe(-1);
+
+    act(() => {
+      radios[0]?.dispatchEvent(
+        new KeyboardEvent("keydown", { bubbles: true, key: "ArrowRight" }),
+      );
+    });
+
+    expect(radios[0]?.getAttribute("aria-checked")).toBe("false");
+    expect(radios[1]?.getAttribute("aria-checked")).toBe("true");
+    expect(document.activeElement).toBe(radios[1]);
+  });
+
+  it("confirms downloads from secondary platform cards", () => {
+    const windowsDownload = container.querySelector<HTMLAnchorElement>(
+      `a[href="${stableManifest.assets[1].url}"]`,
+    );
+    expect(windowsDownload).toBeTruthy();
+
+    act(() => {
+      windowsDownload?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+    });
+
+    expect(markDownloaded).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toContain(
+      "Didn't work? Try downloading again",
+    );
+  });
+
   it("keeps the extension explanation compact and links to its docs", () => {
     expect(container.textContent).toContain(
-      "Best when you want redacted console and network diagnostics from the browser tab.",
+      "Capture browser tabs with the Chrome extension.",
     );
     const docsLink = container.querySelector<HTMLAnchorElement>(
       'a[aria-label="Chrome extension for browser logs"]',

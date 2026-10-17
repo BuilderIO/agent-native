@@ -5,7 +5,7 @@ import {
   IconArrowBackUp,
   IconTrash,
 } from "@tabler/icons-react";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { EmptyState } from "@/components/library/empty-state";
@@ -23,7 +23,11 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { useRecordings, type RecordingSummary } from "@/hooks/use-library";
+import {
+  dedupeRecordingsById,
+  useInfiniteRecordings,
+  useRecordingsCount,
+} from "@/hooks/use-library";
 import enMessages from "@/i18n/en-US";
 
 export function meta() {
@@ -42,6 +46,8 @@ function Skeleton() {
   );
 }
 
+const PAGE_SIZE = 20;
+
 export default function TrashRoute() {
   const t = useT();
   const [sort, setSort] = useState<SortKey>("recent");
@@ -50,12 +56,123 @@ export default function TrashRoute() {
   const [confirmPurge, setConfirmPurge] = useState(false);
   const [singlePurgeId, setSinglePurgeId] = useState<string | null>(null);
   const [isBulkPending, setIsBulkPending] = useState(false);
+  const scrollRootRef = useRef<HTMLDivElement>(null);
+  const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
+  const nextPageInFlightRef = useRef<string | null>(null);
+  const initialPreloadRequestRef = useRef<string | null>(null);
+  const [isLargeViewport, setIsLargeViewport] = useState(false);
 
-  const args = useMemo(() => ({ view: "trash" as const, sort }), [sort]);
-  const { data, isLoading, isError, isFetching, refetch } = useRecordings(args);
-  const recordings = (data?.recordings ?? []) as RecordingSummary[];
+  const countArgs = useMemo(() => ({ view: "trash" as const }), []);
+  const { data: totalCount } = useRecordingsCount(countArgs);
 
-  // These actions are owned by other teams and ship with the template.
+  useEffect(() => {
+    setSelected(new Set());
+    setLastSelectedId(null);
+  }, [sort]);
+
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const media = window.matchMedia("(min-width: 1024px)");
+    const update = () => setIsLargeViewport(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+
+  const args = useMemo(
+    () => ({
+      view: "trash" as const,
+      sort,
+      limit: PAGE_SIZE,
+    }),
+    [sort],
+  );
+  const totalKnown = typeof totalCount === "number";
+  const {
+    data,
+    isLoading,
+    isError,
+    isFetching,
+    refetch,
+    hasNextPage,
+    isFetchingNextPage,
+    isFetchNextPageError,
+    fetchNextPage,
+  } = useInfiniteRecordings(args, totalKnown ? totalCount : undefined);
+  const recordings = useMemo(
+    () =>
+      dedupeRecordingsById(
+        data?.pages.flatMap((page) => page.recordings) ?? [],
+      ),
+    [data?.pages],
+  );
+  const requestKey = JSON.stringify(args);
+  const fetchNextPageIfIdle = useCallback(() => {
+    if (nextPageInFlightRef.current === requestKey) return;
+    nextPageInFlightRef.current = requestKey;
+    const releaseRequest = () => {
+      if (nextPageInFlightRef.current === requestKey) {
+        nextPageInFlightRef.current = null;
+      }
+    };
+    void fetchNextPage().then(releaseRequest, releaseRequest);
+  }, [fetchNextPage, requestKey]);
+
+  useEffect(() => {
+    if (
+      !isLargeViewport ||
+      isLoading ||
+      !hasNextPage ||
+      isFetchingNextPage ||
+      data?.pages.length !== 1 ||
+      initialPreloadRequestRef.current === requestKey
+    ) {
+      return;
+    }
+    initialPreloadRequestRef.current = requestKey;
+    fetchNextPageIfIdle();
+  }, [
+    data?.pages.length,
+    fetchNextPageIfIdle,
+    hasNextPage,
+    isFetchingNextPage,
+    isLargeViewport,
+    isLoading,
+    requestKey,
+  ]);
+
+  useEffect(() => {
+    const root = scrollRootRef.current;
+    const sentinel = loadMoreSentinelRef.current;
+    if (
+      !root ||
+      !sentinel ||
+      !hasNextPage ||
+      isFetchingNextPage ||
+      isFetchNextPageError ||
+      typeof IntersectionObserver === "undefined"
+    ) {
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          fetchNextPageIfIdle();
+        }
+      },
+      { root, rootMargin: "320px 0px" },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [
+    data?.pages.length,
+    fetchNextPageIfIdle,
+    hasNextPage,
+    isFetchNextPageError,
+    isFetchingNextPage,
+  ]);
+
   const restore = useActionMutation<any, { id: string }>("restore-recording");
   const purge = useActionMutation<any, { id: string }>(
     "delete-recording-permanent",
@@ -233,14 +350,17 @@ export default function TrashRoute() {
         </div>
       </PageHeader>
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-5">
+      <div
+        ref={scrollRootRef}
+        className="flex min-h-0 flex-1 flex-col overflow-y-auto p-5"
+      >
         {isLoading ? (
           <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(300px,1fr))]">
             {Array.from({ length: 6 }).map((_, i) => (
               <Skeleton key={i} />
             ))}
           </div>
-        ) : isError ? (
+        ) : isError && recordings.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-3 px-8 py-20 text-center">
             <IconAlertTriangle className="size-10 text-destructive" />
             <h2 className="text-base font-semibold">
@@ -275,6 +395,24 @@ export default function TrashRoute() {
             ))}
           </div>
         )}
+        {isFetchingNextPage && (
+          <div
+            className="grid gap-4 pt-4 [grid-template-columns:repeat(auto-fill,minmax(300px,1fr))]"
+            role="status"
+          >
+            {Array.from({ length: 4 }, (_, index) => (
+              <Skeleton key={index} />
+            ))}
+          </div>
+        )}
+        {isFetchNextPageError && (
+          <div className="flex justify-center pt-4">
+            <Button size="sm" variant="outline" onClick={fetchNextPageIfIdle}>
+              {t("libraryGrid.retry")}
+            </Button>
+          </div>
+        )}
+        {hasNextPage && <div ref={loadMoreSentinelRef} className="h-px" />}
       </div>
 
       <AlertDialog open={confirmPurge} onOpenChange={setConfirmPurge}>

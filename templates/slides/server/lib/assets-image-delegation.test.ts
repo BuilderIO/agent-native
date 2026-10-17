@@ -1,29 +1,42 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
-const { sendAndWaitMock, signA2ATokenMock } = vi.hoisted(() => ({
+const {
+  A2AClientMock,
+  sendAndWaitMock,
+  signA2AOrganizationTokenMock,
+  signA2ATokenMock,
+  resolveA2ACallerAuthMock,
+} = vi.hoisted(() => ({
+  A2AClientMock: vi.fn(function A2AClient() {
+    return { sendAndWait: sendAndWaitMock };
+  }),
   sendAndWaitMock: vi.fn(),
+  signA2AOrganizationTokenMock: vi.fn(async () => "signed-org-token"),
   signA2ATokenMock: vi.fn(async () => "signed-token"),
+  resolveA2ACallerAuthMock: vi.fn(async () => ({
+    apiKey: "resolved-key" as string | undefined,
+    apiKeyFallbacks: ["org-fallback-key"],
+    userEmail: "author@example.com",
+    orgDomain: "example.com" as string | undefined,
+    orgId: "sender-local-org",
+    orgSecret: "org-secret" as string | undefined,
+    metadata: {},
+  })),
 }));
 
 vi.mock("@agent-native/core/a2a", () => ({
-  A2AClient: vi.fn(function A2AClient() {
-    return { sendAndWait: sendAndWaitMock };
-  }),
+  A2AClient: A2AClientMock,
   buildAgentInvocationPrompt: (prompt: string) => prompt,
-  resolveA2ACallerAuth: vi.fn(async () => ({
-    apiKey: "resolved-key",
-    apiKeyFallbacks: ["org-fallback-key"],
-    userEmail: "author@example.com",
-    orgDomain: "example.com",
-    orgSecret: "org-secret",
-    metadata: {},
-  })),
+  canonicalA2AAudience: (url: string) => url.replace(/\/+$/, ""),
+  getGlobalA2ASecret: () => process.env.A2A_SECRET?.trim(),
+  resolveA2ACallerAuth: resolveA2ACallerAuthMock,
   resolveAgentInvocationTarget: vi.fn(async () => ({
     kind: "discovered",
     name: "Assets",
     url: "https://assets.example.com",
   })),
   signA2AToken: signA2ATokenMock,
+  signA2AOrganizationToken: signA2AOrganizationTokenMock,
 }));
 
 import {
@@ -49,6 +62,9 @@ function task(state: string, text?: string) {
 describe("delegateImageGenerationToAssets", () => {
   beforeEach(() => {
     sendAndWaitMock.mockReset();
+    A2AClientMock.mockClear();
+    signA2AOrganizationTokenMock.mockClear();
+    signA2ATokenMock.mockClear();
   });
 
   it("reports a completed run as delegated", async () => {
@@ -59,8 +75,6 @@ describe("delegateImageGenerationToAssets", () => {
     expect(result.status).toBe("delegated");
   });
 
-  // A failed run used to return its status text as a successful delegation,
-  // so slides reported a brand-grounded image that never existed.
   it.each(["failed", "canceled", "input-required"])(
     "does not report a %s run as delegated",
     async (state) => {
@@ -75,8 +89,6 @@ describe("delegateImageGenerationToAssets", () => {
     },
   );
 
-  // A caller-side timeout leaves the Assets run going, so falling back would
-  // generate (and bill) the same image twice.
   it("reports a caller timeout as pending, not unavailable", async () => {
     const timeout = Object.assign(new Error("timed out"), {
       taskId: "task-9",
@@ -94,8 +106,6 @@ describe("delegateImageGenerationToAssets", () => {
     expect(result.status).toBe("unavailable");
   });
 
-  // Style references used to reach only the local fallback, so a delegated
-  // run silently ignored them.
   it("normalizes requested style references before sending to assets", async () => {
     sendAndWaitMock.mockResolvedValue(task("completed", "done"));
     await delegateImageGenerationToAssets({
@@ -112,8 +122,6 @@ describe("delegateImageGenerationToAssets", () => {
     expect(sentText).toContain("https://cdn.example.com/ref-2.png");
   });
 
-  // Falling back locally on an auth/permission refusal would bypass the Assets
-  // access checks and hand back an off-brand image instead of the real reason.
   it.each([
     "A2A request failed (401): Invalid or expired A2A token",
     "A2A request failed (403): Forbidden",
@@ -125,8 +133,6 @@ describe("delegateImageGenerationToAssets", () => {
     if (result.status === "rejected") expect(result.state).toBe("unauthorized");
   });
 
-  // Requesting several variations means sending the same prompt repeatedly, so
-  // a content-derived key would make Assets reuse one task for every slot.
   it("sends a distinct idempotency key per identical variation request", async () => {
     sendAndWaitMock.mockResolvedValue(task("completed", "done"));
     await delegateImageGenerationToAssets({ prompt: "a hero", deckId: "d1" });
@@ -154,16 +160,103 @@ describe("delegateImageGenerationToAssets", () => {
   });
 
   it("prefers audience-bound signed tokens over the static override", async () => {
+    const previousA2ASecret = process.env.A2A_SECRET;
+    delete process.env.A2A_SECRET;
     process.env.IMAGES_A2A_KEY = "static-override";
     sendAndWaitMock.mockResolvedValue(task("completed", "done"));
-    await delegateImageGenerationToAssets({ prompt: "a hero" });
-    expect(signA2ATokenMock).toHaveBeenCalledWith(
-      "author@example.com",
-      "example.com",
-      "org-secret",
-      expect.objectContaining({ audience: "https://assets.example.com" }),
-    );
-    delete process.env.IMAGES_A2A_KEY;
+    try {
+      await delegateImageGenerationToAssets({ prompt: "a hero" });
+      expect(signA2AOrganizationTokenMock).toHaveBeenCalledWith(
+        "example.com",
+        "org-secret",
+        undefined,
+        { audience: "https://assets.example.com" },
+      );
+      expect(signA2ATokenMock).not.toHaveBeenCalled();
+      expect(A2AClientMock).toHaveBeenCalledWith(
+        "https://assets.example.com",
+        "signed-org-token",
+        {
+          fallbackApiKeys: [
+            "resolved-key",
+            "org-fallback-key",
+            "static-override",
+          ],
+        },
+      );
+    } finally {
+      delete process.env.IMAGES_A2A_KEY;
+      if (previousA2ASecret === undefined) delete process.env.A2A_SECRET;
+      else process.env.A2A_SECRET = previousA2ASecret;
+    }
+  });
+
+  it("uses audience-bound user and org tokens without local org IDs", async () => {
+    const previousA2ASecret = process.env.A2A_SECRET;
+    process.env.A2A_SECRET = "deployment-secret";
+    sendAndWaitMock.mockResolvedValue(task("completed", "done"));
+    try {
+      await delegateImageGenerationToAssets({ prompt: "a hero" });
+
+      expect(signA2ATokenMock).toHaveBeenCalledWith(
+        "author@example.com",
+        "example.com",
+        undefined,
+        {
+          preferGlobalSecret: true,
+          audience: "https://assets.example.com",
+        },
+      );
+      expect(signA2AOrganizationTokenMock).toHaveBeenCalledWith(
+        "example.com",
+        "org-secret",
+        undefined,
+        { audience: "https://assets.example.com" },
+      );
+      expect(A2AClientMock).toHaveBeenCalledWith(
+        "https://assets.example.com",
+        "signed-token",
+        {
+          fallbackApiKeys: [
+            "signed-org-token",
+            "resolved-key",
+            "org-fallback-key",
+          ],
+        },
+      );
+    } finally {
+      if (previousA2ASecret === undefined) delete process.env.A2A_SECRET;
+      else process.env.A2A_SECRET = previousA2ASecret;
+    }
+  });
+
+  it("does not mint a user token when an active org has no domain", async () => {
+    const previousA2ASecret = process.env.A2A_SECRET;
+    process.env.A2A_SECRET = "deployment-secret";
+    resolveA2ACallerAuthMock.mockResolvedValueOnce({
+      apiKey: undefined,
+      apiKeyFallbacks: [],
+      userEmail: "author@example.com",
+      orgId: "sender-local-org",
+      orgDomain: undefined,
+      orgSecret: undefined,
+      metadata: {},
+    });
+    sendAndWaitMock.mockResolvedValue(task("completed", "done"));
+    try {
+      await delegateImageGenerationToAssets({ prompt: "a hero" });
+
+      expect(signA2ATokenMock).not.toHaveBeenCalled();
+      expect(signA2AOrganizationTokenMock).not.toHaveBeenCalled();
+      expect(A2AClientMock).toHaveBeenCalledWith(
+        "https://assets.example.com",
+        undefined,
+        { fallbackApiKeys: [] },
+      );
+    } finally {
+      if (previousA2ASecret === undefined) delete process.env.A2A_SECRET;
+      else process.env.A2A_SECRET = previousA2ASecret;
+    }
   });
 });
 
@@ -211,8 +304,6 @@ describe("extractAssetUrl", () => {
     expect(extractAssetUrl("I could not generate that image.")).toBeNull();
   });
 
-  // A --count 3 batch returns one URL per slot; keeping only the first
-  // silently drops the other candidates.
   it("returns every candidate in reply order", () => {
     const reply = [
       "previewUrl: https://cdn.example.com/a.png",
@@ -234,8 +325,6 @@ describe("extractAssetUrl", () => {
     ).toEqual(["https://cdn.example.com/a.png"]);
   });
 
-  // Both endpoints address one asset, so counting them separately would turn a
-  // two-image batch into four `-vN.png` files.
   it("pairs the preview and download endpoints of one asset", () => {
     const reply = [
       "previewUrl: https://cdn.example.com/a-preview.png",
@@ -264,8 +353,6 @@ describe("extractAssetUrl", () => {
     ]);
   });
 
-  // Assets emits origin-relative paths when the deployment has no public app
-  // URL configured; dropping them loses a completed generation entirely.
   it("resolves an origin-relative asset path against the assets origin", () => {
     expect(
       extractAssetUrl("previewUrl: /api/assets/abc123/content", {
@@ -280,8 +367,6 @@ describe("extractAssetUrl", () => {
     ).toBeNull();
   });
 
-  // A long prose gap between the key and its URL used to drop the endpoint and
-  // shift every later pairing by one.
   it("reads a url far away from its key", () => {
     const reply =
       "The previewUrl, which you can hand straight to the deck editor, is " +
@@ -304,7 +389,6 @@ describe("extractAssetUrl", () => {
 });
 
 describe("imagePreviewMarkdown", () => {
-  // A bare link renders as text in chat, so the user sees no image.
   it("builds an image, not a link", () => {
     expect(
       imagePreviewMarkdown("a monstera", "https://cdn.example.com/a.png"),

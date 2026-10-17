@@ -1,9 +1,3 @@
-import {
-  Picker,
-  useDesignSystemComponent,
-} from "@agent-native/toolkit/design-system";
-import * as PopoverPrimitive from "@radix-ui/react-popover";
-import { IconCheck, IconChevronDown, IconLanguage } from "@tabler/icons-react";
 import i18next, { type i18n as I18nInstance } from "i18next";
 import React, {
   createContext,
@@ -22,7 +16,6 @@ import {
 
 import {
   coreMessagesForLocale,
-  englishAgentChatMessages,
   loadCoreMessagesForLocale,
   normalizeCoreMessageOverrides,
 } from "../localization/core-messages.js";
@@ -33,7 +26,6 @@ import {
   LOCALE_STORAGE_KEY,
   SUPPORTED_LOCALES,
   isValidLocaleCode,
-  localeDisplayName,
   localeDirection,
   localeMetadataFor,
   normalizeLocaleCode,
@@ -49,7 +41,7 @@ import {
 import { injectedAgentNativeConfig } from "./app-config.js";
 import { setClientAppState } from "./application-state.js";
 import { callAction } from "./use-action.js";
-import { cn } from "./utils.js";
+import { useSession } from "./use-session.js";
 
 export {
   DEFAULT_LOCALE,
@@ -106,17 +98,10 @@ export interface AgentNativeI18nCatalog {
   sourceLocale?: LocaleCode;
   messages?: LocaleMessages;
   loadMessages?: (locale: LocaleCode) => Promise<LocaleMessages | null>;
-  /** Metadata for app-registered locales shown in the language picker. */
   locales?: readonly LocaleMetadata[];
-  /** Optional partial framework translations for app-registered locales. */
   coreMessageOverrides?: Partial<
     Record<LocaleCode, AgentNativeI18nLocaleLoader>
   >;
-  /**
-   * Locales this app actually ships translations for. Defaults to every
-   * framework-supported locale when omitted, which only matches apps whose
-   * `loadMessages` covers all of them.
-   */
   supportedLocales?: readonly LocaleCode[];
 }
 
@@ -194,67 +179,6 @@ const LocaleContext =
   globalThis.__AGENT_NATIVE_LOCALE_CONTEXT__ ??
   (globalThis.__AGENT_NATIVE_LOCALE_CONTEXT__ =
     createContext<LocaleContextValue | null>(null));
-
-const LANGUAGE_PICKER_COPY: Record<
-  LocaleCode,
-  { label: string; system: string; systemDescription: string }
-> = {
-  "en-US": {
-    label: "Language",
-    system: "System",
-    systemDescription: "Use your browser language",
-  },
-  "zh-CN": {
-    label: "语言",
-    system: "系统",
-    systemDescription: "使用浏览器语言",
-  },
-  "zh-TW": {
-    label: "語言",
-    system: "系統",
-    systemDescription: "使用瀏覽器語言",
-  },
-  "es-ES": {
-    label: "Idioma",
-    system: "Sistema",
-    systemDescription: "Usar el idioma del navegador",
-  },
-  "fr-FR": {
-    label: "Langue",
-    system: "Système",
-    systemDescription: "Utiliser la langue du navigateur",
-  },
-  "de-DE": {
-    label: "Sprache",
-    system: "System",
-    systemDescription: "Browsersprache verwenden",
-  },
-  "ja-JP": {
-    label: "言語",
-    system: "システム",
-    systemDescription: "ブラウザーの言語を使用",
-  },
-  "ko-KR": {
-    label: "언어",
-    system: "시스템",
-    systemDescription: "브라우저 언어 사용",
-  },
-  "pt-BR": {
-    label: "Idioma",
-    system: "Sistema",
-    systemDescription: "Usar o idioma do navegador",
-  },
-  "hi-IN": {
-    label: "भाषा",
-    system: "सिस्टम",
-    systemDescription: "ब्राउज़र की भाषा का उपयोग करें",
-  },
-  "ar-SA": {
-    label: "اللغة",
-    system: "النظام",
-    systemDescription: "استخدام لغة المتصفح",
-  },
-};
 
 function browserLanguageCandidates(): string[] {
   if (typeof navigator === "undefined") return [];
@@ -438,14 +362,15 @@ function createI18nInstance(args: {
   return instance;
 }
 
-export function AgentNativeI18nProvider({
+function I18nRuntime({
   children,
   catalog,
   initialLocale,
   initialPreference,
   initialMessages,
   persistPreference = true,
-}: AgentNativeI18nProviderProps) {
+  sessionAuthenticated,
+}: AgentNativeI18nProviderProps & { sessionAuthenticated: boolean }) {
   const namespace = catalog?.namespace ?? "translation";
   const sourceLocale = catalog?.sourceLocale ?? DEFAULT_LOCALE;
   const sourceMessages = catalog?.messages ?? {};
@@ -605,6 +530,20 @@ export function AgentNativeI18nProvider({
         if (!cancelled) {
           await i18n.changeLanguage(locale);
         }
+      } catch (error) {
+        if (!cancelled) {
+          console.error(
+            `[agent-native] Failed to load ${locale} messages; falling back to ${sourceLocale}`,
+            error,
+          );
+          setLocale(sourceLocale);
+          await i18n.changeLanguage(sourceLocale).catch((fallbackError) => {
+            console.error(
+              `[agent-native] Failed to switch to source locale ${sourceLocale}`,
+              fallbackError,
+            );
+          });
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -639,7 +578,7 @@ export function AgentNativeI18nProvider({
   }, [locale, localeMetadata]);
 
   useEffect(() => {
-    if (!persistPreference) return;
+    if (!persistPreference || !sessionAuthenticated) return;
     let cancelled = false;
     callAction<LocalizationPreference>(
       "get-localization-preference",
@@ -661,7 +600,7 @@ export function AgentNativeI18nProvider({
     return () => {
       cancelled = true;
     };
-  }, [persistPreference, supportedLocales]);
+  }, [persistPreference, sessionAuthenticated, supportedLocales]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -677,7 +616,7 @@ export function AgentNativeI18nProvider({
   }, [supportedLocales]);
 
   useEffect(() => {
-    if (!persistPreference) return;
+    if (!persistPreference || !sessionAuthenticated) return;
     void setClientAppState(
       "localization",
       {
@@ -689,7 +628,13 @@ export function AgentNativeI18nProvider({
     ).catch(() => {
       // Public/anonymous pages cannot write app-state; localization still works.
     });
-  }, [locale, localeMetadata, persistPreference, preference]);
+  }, [
+    locale,
+    localeMetadata,
+    persistPreference,
+    preference,
+    sessionAuthenticated,
+  ]);
 
   const setPreference = useCallback(
     async (next: LocalePreference) => {
@@ -747,6 +692,24 @@ export function AgentNativeI18nProvider({
   );
 }
 
+function SessionAwareI18nRuntime(
+  props: Omit<AgentNativeI18nProviderProps, "persistPreference"> & {
+    persistPreference: true;
+  },
+) {
+  const { status } = useSession();
+  return (
+    <I18nRuntime {...props} sessionAuthenticated={status === "authenticated"} />
+  );
+}
+
+export function AgentNativeI18nProvider(props: AgentNativeI18nProviderProps) {
+  if (props.persistPreference === false) {
+    return <I18nRuntime {...props} sessionAuthenticated />;
+  }
+  return <SessionAwareI18nRuntime {...props} persistPreference />;
+}
+
 export function useLocale(): LocaleContextValue {
   const value = useContext(LocaleContext);
   if (!value) {
@@ -758,114 +721,6 @@ export function useLocale(): LocaleContextValue {
 export function useOptionalLocale(): LocaleContextValue | null {
   return useContext(LocaleContext);
 }
-
-const CORE_FALLBACK_MESSAGES: Record<string, string> = {
-  ...Object.fromEntries(
-    Object.entries(englishAgentChatMessages).map(([key, value]) => [
-      `agentChat.${key}`,
-      value,
-    ]),
-  ),
-  "runsTray.runs": "Runs",
-  "runsTray.agentRuns": "Agent runs",
-  "runsTray.activeRun_one": "{{count}} active run",
-  "runsTray.activeRun_other": "{{count}} active runs",
-  "runsTray.failedRun_one": "{{count}} failed run",
-  "runsTray.failedRun_other": "{{count}} failed runs",
-  "runsTray.recentRuns": "Recent runs",
-  "runsTray.noRecentRuns": "No recent runs",
-  "runsTray.ariaAgentRuns": "Agent runs, {{label}}",
-  "runsTray.summaryRunning": "{{activeCount}} running",
-  "runsTray.summaryRunningRecent":
-    "{{activeCount}} running · {{terminalCount}} recent",
-  "runsTray.summaryRecent_one": "{{count}} recent run",
-  "runsTray.summaryRecent_other": "{{count}} recent runs",
-  "runsTray.noTrackedWorkYet": "No tracked work yet",
-  "runsTray.emptyDescription":
-    "Background agent work will appear here while it runs and after it finishes.",
-  "runsTray.open": "Open",
-  "runsTray.stopRun": "Stop {{title}}",
-  "runsTray.hideRun": "Hide {{title}}",
-  "runsTray.statusRunning": "Running",
-  "runsTray.statusDone": "Done",
-  "runsTray.statusFailed": "Failed",
-  "runsTray.statusStopped": "Stopped",
-  "runsTray.statusNeedsApproval": "Needs approval",
-  "runsTray.statusNeedsInput": "Needs input",
-  "runsTray.statusPaused": "Paused",
-  "runsTray.updatedJustNow": "Updated just now",
-  "runsTray.finishedJustNow": "Finished just now",
-  "runsTray.updatedMinutes": "Updated {{count}}m ago",
-  "runsTray.finishedMinutes": "Finished {{count}}m ago",
-  "runsTray.updatedHours": "Updated {{count}}h ago",
-  "runsTray.finishedHours": "Finished {{count}}h ago",
-  "runsTray.updatedDate": "Updated {{date}}",
-  "runsTray.finishedDate": "Finished {{date}}",
-  "agentTask.spawnedAgent": "Spawned agent",
-  "agentTask.stop": "Stop spawned agent",
-  "agentTask.openThread": "Open task thread",
-  "codeRequired.fallbackDetail":
-    "Edit locally or use Builder.io to edit this code in the cloud and continue customizing the app any way you like.",
-  "codeRequired.defaultFeature": "Make the requested code changes to this app",
-  "codeRequired.branchError": "Failed to create branch",
-  "codeRequired.title": "Code changes required",
-  "codeRequired.subtitleWithFeature":
-    '"{{feature}}" creates or modifies source code, which needs Desktop or Builder from this surface.',
-  "codeRequired.subtitle":
-    "This action creates or modifies source code, which needs Desktop or Builder from this surface.",
-  "codeRequired.desktopTitle": "Use Agent-Native Desktop",
-  "codeRequired.desktopDescription":
-    "Open the project in the desktop app to enable source edits and CLI access.",
-  "codeRequired.builderAgentTitle": "Use Builder.io Agent",
-  "codeRequired.builderAgentDescription":
-    "Let our cloud agent make the changes for you. You'll get a link to preview and deploy.",
-  "codeRequired.codeChangeTitle": "This requires a code change",
-  "codeRequired.codeChangeBadge": "Code change",
-  "codeRequired.connectBuilderTitle": "Connect Builder.io",
-  "codeRequired.connectBuilderDescription":
-    "Connect Builder (free tier available) to enable cloud-based code changes from this app.",
-  "codeRequired.setupRequired": "Setup required",
-  "codeRequired.branchCreated": "Branch created",
-  "codeRequired.close": "Close",
-  "agentPanel.useBuilder": "Use Builder",
-  "agentPanel.openDesktopToEditCode": "Open Desktop to edit code",
-  "agentPanel.codeUnavailableDescription":
-    "Source-code changes and CLI access are available in the Agent-Native Desktop app.",
-  "agentPanel.downloadDesktop": "Download Desktop",
-  "agentPanel.chatMode": "Chat mode",
-  "agentPanel.chat": "Chat",
-  "agentPanel.cliTerminalMode": "CLI terminal mode",
-  "agentPanel.cli": "CLI",
-  "agentPanel.workspaceMode": "Files, agents, skills, and tasks",
-  "agentPanel.workspace": "Resources",
-  "agentPanel.newChat": "New chat",
-  "agentPanel.newTerminal": "New terminal",
-  "agentPanel.panelOptions": "Agent panel options",
-  "agentPanel.collapseSidebar": "Collapse sidebar",
-  "agentPanel.hideChats": "Hide chats",
-  "agentPanel.allChats": "All chats",
-  "agentPanel.settings": "Settings",
-  "agentPanel.feedback": "Feedback",
-  "agentPanel.exitFullscreen": "Exit fullscreen",
-  "agentPanel.fullscreen": "Fullscreen",
-  "agentPanel.closeTab": "Close tab",
-  "agentPanel.closeOtherTabs": "Close other tabs",
-  "agentPanel.closeAllTabs": "Close all tabs",
-  "agentPanel.clearChat": "Clear chat",
-  "agentPanel.cliRequiresDevMode": "CLI requires dev mode",
-  "agentPanel.cliRequiresDevModeDescription":
-    "Run this app locally with pnpm dev or use Builder.io to access the CLI terminal.",
-  "agentPanel.toggleAgent": "Toggle agent",
-  "runtimeConfig.warningTitle": "Production configuration warning",
-  "runtimeConfig.errorTitle": "Production configuration error",
-  "runtimeConfig.issue_one": "{{count}} issue",
-  "runtimeConfig.issue_other": "{{count}} issues",
-  "runtimeConfig.showDetails": "Show configuration details",
-  "runtimeConfig.hideDetails": "Hide configuration details",
-  "runtimeConfig.copyPrompt": "Copy prompt for AI",
-  "runtimeConfig.copied": "Prompt copied",
-  "runtimeConfig.copyFailed": "Copy failed",
-};
 
 function flattenMessages(
   value: unknown,
@@ -911,10 +766,7 @@ function fallbackMessage(key: string, options?: Record<string, unknown>) {
   const pluralKey =
     Number.isFinite(count) && count === 1 ? `${key}_one` : `${key}_other`;
   const template =
-    DEFAULT_ENGLISH_MESSAGES[pluralKey] ??
-    DEFAULT_ENGLISH_MESSAGES[key] ??
-    CORE_FALLBACK_MESSAGES[pluralKey] ??
-    CORE_FALLBACK_MESSAGES[key];
+    DEFAULT_ENGLISH_MESSAGES[pluralKey] ?? DEFAULT_ENGLISH_MESSAGES[key];
   return template
     ? interpolateFallbackMessage(template, options)
     : humanizeFallbackKey(key);
@@ -951,6 +803,37 @@ export function useT() {
   );
 }
 
+export function useIconPickerLabels() {
+  const t = useT();
+  return {
+    allCategories: t("iconPicker.allCategories"),
+    loadError: t("iconPicker.loadError"),
+    saveError: t("iconPicker.saveError"),
+    uploadFailed: t("iconPicker.uploadFailed"),
+    uploadTooLarge: t("iconPicker.uploadTooLarge"),
+    uploadUnsupportedType: t("iconPicker.uploadUnsupportedType"),
+    retry: t("iconPicker.retry"),
+    uploadHint: t("iconPicker.uploadHint"),
+    colorNames: Object.fromEntries(
+      Object.keys(defaultEnglishMessages.iconPicker.colorNames).map((color) => [
+        color,
+        t(`iconPicker.colorNames.${color}`),
+      ]),
+    ),
+    categoryNames: Object.fromEntries(
+      Object.keys(defaultEnglishMessages.iconPicker.categoryNames).map(
+        (category) => [category, t(`iconPicker.categoryNames.${category}`)],
+      ),
+    ),
+    groupNames: Object.fromEntries(
+      Object.keys(defaultEnglishMessages.iconPicker.groupNames).map((group) => [
+        group,
+        t(`iconPicker.groupNames.${group}`),
+      ]),
+    ),
+  };
+}
+
 export function useFormatters() {
   const context = useContext(LocaleContext);
   const locale = context?.locale ?? DEFAULT_LOCALE;
@@ -979,159 +862,5 @@ export function useFormatters() {
       },
     }),
     [locale],
-  );
-}
-
-export function LanguagePicker({
-  className,
-  includeSystem = true,
-  label,
-  variant = "select",
-}: {
-  className?: string;
-  includeSystem?: boolean;
-  label?: string;
-  variant?: "select" | "icon" | "ghost-icon";
-}) {
-  const {
-    locale,
-    preference,
-    setPreference,
-    supportedLocales,
-    localeMetadata,
-  } = useLocale();
-  const [open, setOpen] = useState(false);
-  const copy =
-    LANGUAGE_PICKER_COPY[locale] ?? LANGUAGE_PICKER_COPY[DEFAULT_LOCALE];
-  const systemCopy =
-    LANGUAGE_PICKER_COPY[
-      resolveLocaleFromCandidates(browserLanguageCandidates())
-    ] ?? LANGUAGE_PICKER_COPY[DEFAULT_LOCALE];
-  const resolvedLabel = label ?? copy.label;
-  const options = [
-    ...(includeSystem
-      ? [
-          {
-            value: "system" as const,
-            label: systemCopy.system,
-            description: systemCopy.systemDescription,
-          },
-        ]
-      : []),
-    ...supportedLocales.map((code) => ({
-      value: code,
-      label: localeDisplayName(code, localeMetadata),
-      description: code,
-    })),
-  ];
-  const selected = options.find((option) => option.value === preference);
-  const selectedLabel = selected?.label ?? preference;
-  const triggerLabel = `${resolvedLabel}: ${selectedLabel}`;
-  const customPicker = useDesignSystemComponent("Picker");
-
-  function handleOptionClick(value: LocalePreference) {
-    setOpen(false);
-    void setPreference(normalizeLocalizationPreference(value).locale);
-  }
-
-  if (variant === "select" && customPicker) {
-    return (
-      <Picker<LocalePreference>
-        mode="select"
-        options={options}
-        value={preference}
-        onChange={(value) => {
-          if (value == null) return;
-          void setPreference(normalizeLocalizationPreference(value).locale);
-        }}
-        placeholder={selectedLabel}
-        aria-label={triggerLabel}
-        className={className}
-      />
-    );
-  }
-
-  return (
-    <div className={className}>
-      <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
-        <PopoverPrimitive.Trigger asChild>
-          <button
-            type="button"
-            aria-label={triggerLabel}
-            title={triggerLabel}
-            data-language-picker-trigger
-            className={cn(
-              "shrink-0 rounded-md outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-              variant === "ghost-icon"
-                ? "flex h-9 w-9 items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground"
-                : "border border-border bg-background text-foreground hover:border-foreground/30 hover:bg-accent/40 hover:text-foreground data-[state=open]:border-foreground/30 data-[state=open]:bg-accent/40",
-              variant === "icon"
-                ? "flex h-8 w-8 items-center justify-center"
-                : variant === "select"
-                  ? "flex h-9 w-full items-center justify-between gap-2 px-3 text-start text-sm"
-                  : null,
-            )}
-          >
-            <span className="flex min-w-0 items-center gap-2">
-              <IconLanguage className="h-4 w-4 shrink-0 text-muted-foreground" />
-              {variant === "select" ? (
-                <span className="truncate">{selectedLabel}</span>
-              ) : (
-                <span className="sr-only">{triggerLabel}</span>
-              )}
-            </span>
-            {variant === "select" ? (
-              <IconChevronDown
-                className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
-                aria-hidden="true"
-              />
-            ) : null}
-          </button>
-        </PopoverPrimitive.Trigger>
-        <PopoverPrimitive.Portal>
-          <PopoverPrimitive.Content
-            align={variant === "select" ? "start" : "end"}
-            sideOffset={6}
-            role="menu"
-            className={cn(
-              // compositing-ok: popover content unmounts on close.
-              "z-[9999] max-h-[min(20rem,var(--radix-popover-content-available-height))] overflow-y-auto rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-lg outline-none will-change-[transform,opacity] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:duration-100 data-[state=open]:duration-150 data-[state=closed]:ease-in data-[state=open]:ease-out data-[side=bottom]:slide-in-from-top-1 data-[side=left]:slide-in-from-right-1 data-[side=right]:slide-in-from-left-1 data-[side=top]:slide-in-from-bottom-1",
-              variant === "icon" || variant === "ghost-icon"
-                ? "min-w-56"
-                : "w-[min(20rem,calc(100vw-2rem))] min-w-[var(--radix-popover-trigger-width)]",
-            )}
-          >
-            {options.map((option) => {
-              const optionSelected = option.value === preference;
-              return (
-                <button
-                  key={option.value}
-                  type="button"
-                  role="menuitemradio"
-                  aria-checked={optionSelected}
-                  title={option.description}
-                  onClick={() => handleOptionClick(option.value)}
-                  className={cn(
-                    "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-start text-sm outline-none transition-colors hover:bg-accent/60 hover:text-foreground focus-visible:bg-accent/60 focus-visible:text-foreground",
-                    optionSelected
-                      ? "bg-accent/40 text-foreground"
-                      : "text-muted-foreground",
-                  )}
-                >
-                  <IconCheck
-                    className={cn(
-                      "h-3.5 w-3.5 shrink-0",
-                      optionSelected ? "opacity-100" : "opacity-0",
-                    )}
-                    aria-hidden="true"
-                  />
-                  <span className="truncate">{option.label}</span>
-                </button>
-              );
-            })}
-          </PopoverPrimitive.Content>
-        </PopoverPrimitive.Portal>
-      </PopoverPrimitive.Root>
-    </div>
   );
 }

@@ -1,6 +1,4 @@
-# React Router generated types
 .react-router/
-# Logs
 logs
 *.log
 npm-debug.log*
@@ -14,7 +12,6 @@ dist
 dist-ssr
 *.local
 
-# Editor directories and files
 .vscode/*
 !.vscode/extensions.json
 .idea
@@ -32,7 +29,6 @@ dist-ssr
 # Auth sessions (sensitive, never commit)
 data/.sessions.json
 
-# Generated chart images (ephemeral)
 media/*.png
 media/theme.json
 
@@ -40,14 +36,12 @@ media/theme.json
 # referral, and artifact-level data); never commit
 .report-preview/
 
-# Learnings (personal preferences and memory — use learnings.defaults.md for tracked defaults)
 learnings.md
 
 build
 
 .generated/
 
-# Migration scratchpad (not for commit)
 .migration/
 .analytics-first-party-bigquery-backfill*.json
 

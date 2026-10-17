@@ -12,7 +12,6 @@ export default defineAction({
   run: async (args) => {
     const { getDb, schema } = getSchedulingContext();
     const email = args.userEmail ?? currentUserEmail();
-    // Delete cache rows for all of this user's credentials
     const creds = await getDb()
       .select({ id: schema.schedulingCredentials.id })
       .from(schema.schedulingCredentials)

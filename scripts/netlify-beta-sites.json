@@ -55,11 +55,6 @@
     "host": "beta.forms.agent-native.com"
   },
   {
-    "id": "macros",
-    "siteId": "9625fdd3-f169-4456-8caa-6d00a57a597f",
-    "host": "beta.macros.agent-native.com"
-  },
-  {
     "id": "mail",
     "siteId": "c9088636-2c0e-419c-a5ff-e8c1aa8fde41",
     "host": "beta.mail.agent-native.com"

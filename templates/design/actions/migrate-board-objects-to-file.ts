@@ -41,12 +41,27 @@ import { getDb, schema } from "../server/db/index.js";
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
+  readLiveSourceFile,
+  withDesignSourceMutationTransaction,
+  writeInlineSourceFile,
+} from "../server/source-workspace.js";
+import {
   BOARD_FILENAME,
   backfillBoardPrimitiveMarkers,
   boardObjectEntryToHtmlFragment,
   emptyBoardHtml,
 } from "../shared/board-file.js";
 import { parseBoardObjects } from "../shared/board-objects.js";
+
+const sourceFileColumns = {
+  id: schema.designFiles.id,
+  designId: schema.designFiles.designId,
+  filename: schema.designFiles.filename,
+  fileType: schema.designFiles.fileType,
+  content: schema.designFiles.content,
+  createdAt: schema.designFiles.createdAt,
+  updatedAt: schema.designFiles.updatedAt,
+};
 
 export default defineAction({
   description:
@@ -61,15 +76,13 @@ export default defineAction({
       .string()
       .describe("Design project ID to migrate board objects for."),
   }),
+  capabilityScopes: ["visual-edit"],
   run: async ({ designId }, context) => {
     await assertAccess("design", designId, "editor");
     await snapshotDesignBeforeAgentEdit(designId, context);
 
     const db = getDb();
 
-    // ── 1. Idempotency guard ──────────────────────────────────────────────
-    // Reserve one stable file id without clearing boardObjects. If the process
-    // stops between phases, the next call resumes the same reservation.
     const [preexistingBoardFile] = await db
       .select({ id: schema.designFiles.id })
       .from(schema.designFiles)
@@ -106,23 +119,17 @@ export default defineAction({
       typeof parsed["boardFileId"] === "string" &&
       parsed["boardFileId"].length > 0
     ) {
-      // ── Marker backfill path ───────────────────────────────────────────────
-      // The board file exists (boardFileId set), but it may have been created
-      // before the data-an-primitive marker was introduced.  Run the additive
-      // backfill so the layers-panel renders the correct icon (ellipse / text /
-      // frame / rectangle) instead of the generic code glyph.
       const existingBoardFileId = parsed["boardFileId"] as string;
 
       const [boardFileRow] = await db
-        .select({ content: schema.designFiles.content })
+        .select(sourceFileColumns)
         .from(schema.designFiles)
         .where(eq(schema.designFiles.id, existingBoardFileId))
         .limit(1);
 
       if (boardFileRow) {
-        const originalContent = boardFileRow.content ?? "";
-        // Only run backfill when the board file has node-id elements but is
-        // missing at least one data-an-primitive marker.
+        const live = await readLiveSourceFile(boardFileRow);
+        const originalContent = live.content;
         const needsBackfill =
           originalContent.includes("data-agent-native-node-id=") &&
           !originalContent.includes("data-an-primitive=");
@@ -130,18 +137,12 @@ export default defineAction({
         if (needsBackfill) {
           const backfilledContent =
             backfillBoardPrimitiveMarkers(originalContent);
-          const now = new Date().toISOString();
-          await db
-            .update(schema.designFiles)
-            .set({ content: backfilledContent, updatedAt: now })
-            .where(eq(schema.designFiles.id, existingBoardFileId));
-
-          // Best-effort collab re-seed.
-          try {
-            await seedFromText(existingBoardFileId, backfilledContent);
-          } catch {
-            // Non-fatal.
-          }
+          await writeInlineSourceFile({
+            designId,
+            file: boardFileRow,
+            content: backfilledContent,
+            expectedVersionHash: live.versionHash,
+          });
 
           return {
             designId,
@@ -161,21 +162,13 @@ export default defineAction({
       };
     }
 
-    // ── 2. Parse legacy board objects ────────────────────────────────────
     const boardObjects = parseBoardObjects(parsed["boardObjects"]);
     const entries = Object.values(boardObjects);
 
-    // ── 3. Build the board HTML ───────────────────────────────────────────
-    // Start from the canonical empty-board template and inject each entry as
-    // a direct <body> child.  Negative left/top are preserved — the migration
-    // intentionally does NOT clamp coords (appendCanvasPrimitiveToHtml clamps
-    // to x/y >= 0 for new screen primitives; the board surface has no such
-    // restriction).
     let boardHtml = emptyBoardHtml();
     if (entries.length > 0) {
       const fragments = entries
         .sort((a, b) => {
-          // Stable render order: lower z first, then creation order.
           const az = a.geometry.z ?? 0;
           const bz = b.geometry.z ?? 0;
           if (az !== bz) return az - bz;
@@ -189,14 +182,13 @@ export default defineAction({
 
     const now = new Date().toISOString();
 
-    // ── 4. Upsert the board file, then finalize the reservation ────────
     const reservationId =
       typeof parsed.boardFileMigrationId === "string" &&
       parsed.boardFileMigrationId
         ? parsed.boardFileMigrationId
         : proposedBoardFileId;
     const [existingBoardFile] = await db
-      .select({ id: schema.designFiles.id })
+      .select(sourceFileColumns)
       .from(schema.designFiles)
       .where(
         and(
@@ -208,21 +200,26 @@ export default defineAction({
     const boardFileId = existingBoardFile?.id ?? reservationId;
 
     if (existingBoardFile) {
-      await db
-        .update(schema.designFiles)
-        .set({ content: boardHtml, updatedAt: now })
-        .where(eq(schema.designFiles.id, boardFileId));
+      const live = await readLiveSourceFile(existingBoardFile);
+      await writeInlineSourceFile({
+        designId,
+        file: existingBoardFile,
+        content: boardHtml,
+        expectedVersionHash: live.versionHash,
+      });
     } else {
       try {
-        await db.insert(schema.designFiles).values({
-          id: boardFileId,
-          designId,
-          filename: BOARD_FILENAME,
-          fileType: "html",
-          content: boardHtml,
-          createdAt: now,
-          updatedAt: now,
-        });
+        await withDesignSourceMutationTransaction(designId, (tx) =>
+          tx.insert(schema.designFiles).values({
+            id: boardFileId,
+            designId,
+            filename: BOARD_FILENAME,
+            fileType: "html",
+            content: boardHtml,
+            createdAt: now,
+            updatedAt: now,
+          }),
+        );
       } catch (error) {
         const [concurrentBoardFile] = await db
           .select({ id: schema.designFiles.id })
@@ -231,6 +228,8 @@ export default defineAction({
           .limit(1);
         if (!concurrentBoardFile) throw error;
       }
+
+      await seedFromText(boardFileId, boardHtml);
     }
 
     await mutateDesignData({
@@ -249,14 +248,6 @@ export default defineAction({
       },
       isApplied: (current) => current.boardFileId === boardFileId,
     });
-
-    // ── 5. Seed collab state for the new board file ───────────────────────
-    // (Best-effort: collab seeding after the file row is committed.)
-    try {
-      await seedFromText(boardFileId, boardHtml);
-    } catch {
-      // Non-fatal — the board file still renders from SQL content.
-    }
 
     return {
       designId,

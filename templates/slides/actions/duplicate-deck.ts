@@ -10,6 +10,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { repairDeckSlideReferences } from "../shared/slide-ids.js";
 import { getDeckUrl } from "./_app-url.js";
+import { trackDeckCreated } from "./_deck-tracking.js";
 
 export default defineAction({
   description:
@@ -36,7 +37,12 @@ export default defineAction({
       ),
   }),
   http: { method: "POST" },
-  run: async ({ deckId, title, newId: clientNewId, slideIds }) => {
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
+  run: async ({ deckId, title, newId: clientNewId, slideIds }, ctx) => {
     const access = await resolveAccess("deck", deckId);
     if (!access) throw new Error(`Deck not found: ${deckId}`);
 
@@ -46,9 +52,6 @@ export default defineAction({
     const now = new Date().toISOString();
     const deckData = JSON.parse(source.data);
 
-    // New IDs for all slides so edits to the copy don't collide with the
-    // original. A caller that already rendered an optimistic copy supplies the
-    // ids it used; anything it did not cover still gets a fresh one.
     const slides = deckData.slides || [];
     const originalSlideIds = slides.map((slide: { id?: unknown }) =>
       typeof slide.id === "string" ? slide.id : null,
@@ -67,16 +70,6 @@ export default defineAction({
       deckData,
       repairDeckSlideReferences(deckData, slides, originalSlideIds),
     );
-    if (
-      deckData.sourceImport &&
-      typeof deckData.sourceImport === "object" &&
-      !Array.isArray(deckData.sourceImport)
-    ) {
-      deckData.sourceImport = {
-        ...deckData.sourceImport,
-        editableSnapshot: true,
-      };
-    }
     deckData.title = newTitle;
     deckData.createdAt = now;
     deckData.updatedAt = now;
@@ -96,6 +89,16 @@ export default defineAction({
       })(),
       orgId: getRequestOrgId() || null,
     });
+
+    trackDeckCreated(
+      newId,
+      {
+        creationMethod: "duplicate",
+        purpose: "direct",
+        slideCount: (deckData.slides || []).length,
+      },
+      ctx,
+    );
 
     return {
       id: newId,

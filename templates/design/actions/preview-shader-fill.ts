@@ -1,23 +1,3 @@
-/**
- * preview-shader-fill — preview-only action.
- *
- * Returns the CSS mesh-gradient approximation for a shader fill so the caller
- * can apply it to the selected node via the `shader-fill-preview` bridge
- * message **without persisting anything**.
- *
- * Deliberately lightweight:
- * - No DB access.
- * - No Yjs / collab writes.
- * - No bridge message sent by this action — the client consumes the returned
- *   CSS and decides how to forward it to the iframe.
- *
- * Composes with motion: the `speed` field on the descriptor can be keyframed
- * later via `apply-motion-edit` once CSS-animation support is proven; for now
- * the preview is static-CSS-only (no WebGL, no canvas).
- *
- * Plan reference: DESIGN-STUDIO-PLAN.md §6.7 + §7 (`preview-shader-fill`).
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
@@ -32,8 +12,6 @@ import {
   type ShaderPresetName,
   validateDescriptor,
 } from "../shared/shader-presets.js";
-
-// ─── Schema ──────────────────────────────────────────────────────────────────
 
 const PRESET_NAMES = Object.keys(SHADER_PRESET_MAP) as [
   ShaderPresetName,
@@ -77,8 +55,6 @@ const targetSchema = z
     "Target element.  Provide nodeId or CSS selector.  When omitted, the root artboard container is targeted.",
   );
 
-// ─── Action ──────────────────────────────────────────────────────────────────
-
 export default defineAction({
   description: `
 Preview a CSS mesh-gradient shader fill on the selected design node without persisting anything.
@@ -114,8 +90,6 @@ support; it has no effect on the static CSS preview output today.
       offsetY: rawDescriptor.offsetY,
     };
 
-    // Validate against the preset manifest so the caller gets clear errors
-    // before wasting a round-trip to the iframe.
     const validation = validateDescriptor(descriptor);
     if (!validation.valid) {
       return {
@@ -129,7 +103,6 @@ support; it has no effect on the static CSS preview output today.
     const previewCss = generateShaderFillPreviewCss(descriptor);
     const fallbackCss = generateShaderFillFallbackCss(descriptor);
 
-    // Build a selector string for the fallback block — prefer nodeId selector.
     const selector = target?.selector
       ? target.selector
       : target?.nodeId
@@ -138,14 +111,11 @@ support; it has no effect on the static CSS preview output today.
 
     const fallbackBlock = buildShaderFillFallbackBlock(selector, descriptor);
 
-    // Build a ready-to-post bridge payload for the iframe.
-    // The `shader-fill-preview` message type is handled by DesignCanvas.tsx.
     const bridgeMessage = {
       type: "shader-fill-preview",
       selector: target?.selector ?? null,
       nodeId: target?.nodeId ?? null,
       css: previewCss,
-      // Metadata so the client can attach a "preview only" badge.
       _preview: true,
       _source: "shader-fill",
       _preset: descriptor.preset,

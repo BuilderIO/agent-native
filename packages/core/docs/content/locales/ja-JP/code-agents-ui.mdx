@@ -156,16 +156,16 @@ codex login status
 デスクトップと CLI は `codex login status` を読み取り、`codex exec` を実行します。
 インストールされている Codex CLI を認証する ChatGPT サブスクリプションまたは API キーを再利用します
 reports. This is separate from the `@ai-sdk/harness-codex` package used by
-[Harness Agents](/docs/harness-agents);ハーネス アダプターはローカルにコピーできます
-Codex CLI は、`codexCliAuth: true` が有効な場合にのみ信頼できるサンドボックスに認証されます
-明示的に有効化されています。
+[Harness Agents](/docs/harness-agents);このアダプターは、ローカル認証ファイルを
+サンドボックスにコピーせず、サポートされているネイティブ サブスクリプション認証情報を
+ホスト上で解決するようになりました。
 
 ## ブラウザホスト
 
 古い非表示の `code` テンプレートは削除されました。ブラウザーでホストされるコード サーフェスを構築するには、通常のアプリを作成し、ホスト実装を使用して共有 UI パッケージをマウントします。
 
 ```bash
-npx @agent-native/core@latest create my-code-ui --template chat
+npx --yes @agent-native/core@latest create my-code-ui --template chat
 cd my-code-ui
 pnpm add @agent-native/code-agents-ui
 pnpm install
@@ -308,7 +308,7 @@ AGENT_NATIVE_CODE_AGENTS_HOME=./data/code-agents pnpm dev
 ## 共有コンポーザー
 
 Agent-Native コードは同じ `AgentComposerFrame` + `PromptComposer` を使用します /
-`TiptapComposer` スタックは `@agent-native/core/client/composer` から
+`TiptapComposer` スタックは `@agent-native/toolkit/app/chat/composer` から
 フレームワーク エージェントのサイドバー。別個にフォークしないでください
 テキストエリア、コーディングツールピッカー、アップロードピッカー、音声ボタン、モデルピッカー、または入力して送信
 コードのようなサーフェスの実装。ホストが追加の制御を 1 つ必要とする場合は、

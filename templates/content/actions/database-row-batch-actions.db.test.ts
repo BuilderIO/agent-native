@@ -349,12 +349,19 @@ describe("database row batch actions", () => {
     expect(result.duplicatedDocumentIds).toHaveLength(2);
     await expect(
       db
-        .select({ spaceId: schema.documents.spaceId })
+        .select({
+          spaceId: schema.documents.spaceId,
+          createdBy: schema.documents.createdBy,
+          updatedBy: schema.documents.updatedBy,
+        })
         .from(schema.documents)
         .where(
           inArray(schema.documents.id, result.duplicatedDocumentIds ?? []),
         ),
-    ).resolves.toEqual([{ spaceId }, { spaceId }]);
+    ).resolves.toEqual([
+      { spaceId, createdBy: OWNER, updatedBy: OWNER },
+      { spaceId, createdBy: OWNER, updatedBy: OWNER },
+    ]);
     expect(result.duplicatedItemId).toBe(result.duplicatedItemIds?.[0]);
     expect(result.duplicatedDocumentId).toBe(result.duplicatedDocumentIds?.[0]);
     expect(result.duplicatedItems?.map((item) => item.id)).toEqual(
@@ -519,6 +526,14 @@ describe("database row batch actions", () => {
       id: single.duplicatedItemId,
       document: { id: single.duplicatedDocumentId },
     });
+    const [singleDocument] = await db
+      .select({
+        createdBy: schema.documents.createdBy,
+        updatedBy: schema.documents.updatedBy,
+      })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, single.duplicatedDocumentId!));
+    expect(singleDocument).toEqual({ createdBy: OWNER, updatedBy: OWNER });
 
     const batch = await runWithRequestContext({ userEmail: OWNER }, () =>
       duplicateDatabaseItemsAction.run({
@@ -1700,9 +1715,6 @@ describe("database row batch actions", () => {
 
     const rows = await orderedRows(databaseId);
     expect(rows).toHaveLength(concurrentAdds);
-    // Every row's database-item position and backing document position must
-    // be unique — two concurrent adds reading the same MAX(position) would
-    // otherwise collide on the same value.
     expect(new Set(rows.map((row) => row.itemPosition)).size).toBe(
       concurrentAdds,
     );
@@ -1827,9 +1839,6 @@ describe("database row batch actions", () => {
       ),
     ).rejects.toThrow(/not found/i);
 
-    // The whole call fails before touching any row — no property values were
-    // written, and the response never gets a chance to report per-row
-    // success/failure for a precondition that is identical for every row.
     const values = await getDb()
       .select({ id: schema.documentPropertyValues.id })
       .from(schema.documentPropertyValues)

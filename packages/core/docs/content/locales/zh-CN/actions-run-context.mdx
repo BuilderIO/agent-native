@@ -97,6 +97,13 @@ export default defineAction({
             "被调用的 action 的注册表键名(例如 `delete-recording`),在每个调用点设置,好让审计日志这类横切关注点能够对这次调用做归因。对于绕过分发器的直接程序化 `run()` 调用,该值为 `undefined`。",
         },
         {
+          name: "toolCallId",
+          type: "string",
+          optional: true,
+          description:
+            "本次调用的模型工具调用 ID（`toolCall.id`）。由代理循环设置，通过 `defineAction()` 包装器调用时也会保留。同一 action 多次执行时，可用它关联事件。它不是 action 输入。没有模型工具调用的调用方中，该值为 `undefined`。",
+        },
+        {
           name: "threadId",
           type: "string",
           optional: true,

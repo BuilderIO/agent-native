@@ -12,23 +12,45 @@ description: >-
 and linked skills. This does not override the active design system, Creative
 Context, reference deck, or source material that the app already provides.
 
+## Read before
+
+Read a reference with `docs-search --slug "skill-create-deck--references-<file>"`,
+for example `skill-create-deck--references-reference-inputs`.
+
+| Situation | Read |
+| --- | --- |
+| A reference deck, attached PDF/PPTX/DOCX, or workspace default applies | `references/reference-inputs.md` |
+| The source is a transcript, meeting notes, or a Google Docs URL | `references/source-material.md` |
+| Writing slide HTML from the fallback title/content patterns or image placeholders | `references/slide-templates.md` |
+
 ## Workflow
 
 1. Read the `creative-context` skill and retrieve factual evidence separately
    from presentation structure. Respect `contextMode: "off"`.
 2. Unless the user named a reference deck or design system, call
-   `get-workspace-defaults` and use what it returns. See "Workspace Defaults".
-3. Plan the slides (deck title, title slide, section dividers, content slides).
-4. Call `create-deck --title "..." --slides '[]'` with a concise, specific
-   title derived from the user's request and source material. The action opens
-   the new empty deck through application state. Never use `Untitled Deck` or
-   another placeholder title for a generated deck.
-5. If the connected browser does not consume the navigation command, call
+   `get-workspace-defaults` once and use the available reference and design
+   system defaults. Call `get-design-system` once for the selected system and
+   reuse its context. `create-deck` also resolves and attaches the effective
+   default; use its returned context for later edits.
+3. Plan the slides and write a compact deck brief: audience, thesis, one message
+   per slide, visual direction, and the deck-level theme contract.
+4. For a short, fully planned deck, call `create-deck` once with every slide
+   in order. Include speaker notes and per-slide Creative Context reuse labels
+   in the payload. Never create an empty deck and then add a finished short
+   deck one slide at a time.
+5. For long or live in-app generation, call `create-deck` with `slides: []`,
+   then add slides sequentially as they are authored so each write preserves
+   its per-slide Creative Context provenance. Wait for each result, but do not
+   read back slides you just wrote: you already hold their HTML, and the
+   `add-slide` result carries the stored `contentHash`. Check the finished deck
+   once at the end (`get-layout-overflows` and `audit-contrast` together).
+6. If the connected browser does not consume the navigation command, call
    `navigate` with the new deck id.
-6. Call `add-slide` once per slide in slide order, waiting for each result.
 
 When speaker notes are requested, put presenter-only text in each slide's
-`notes` field on `create-deck` or `add-slide`; keep it out of the slide HTML.
+   `notes` field on `create-deck` or `add-slide`; keep it out of the slide HTML.
+Write notes as speech, not a summary of the slide: the opener, the transition
+to the next slide, numbers to cite, a timing cue.
 Preserve existing notes when editing or importing a source deck.
 
 When the UI has already created the empty deck, keep its id and rename it before
@@ -51,19 +73,25 @@ Before authoring slide HTML, make a compact deck brief with the audience, job,
 narrative thesis, one-sentence visual direction, active design-system tokens,
 reference-deck composition pattern, image treatment, and known fit risks. The
 linked Agent-Native design system controls tokens, typography, spacing, imagery,
-and slide chrome. Impeccable-inspired advice about hierarchy, subtraction,
-contrast, and polish is a review lens, not a competing theme. If the request is
-open-ended and no approved direction exists, ask one targeted guided question
-or present a bounded choice before writing; do not silently pick a new brand
-language.
+and slide chrome. Read `slide-design` for visual craft; it works inside the
+active system and reference deck, never as a competing theme. If the
+request is open-ended and no approved direction exists, ask one targeted guided
+question or present a bounded choice before writing; do not silently pick a new
+brand language. Write a direction choice for this topic: three options, each a
+vibe word plus one concrete visual cue (palette, type, motif; for example "rust
+technical editorial: warm rust on charcoal, mono headings, code-grid layout"),
+clearly different from each other, the best fit marked recommended. Never offer
+generic labels such as "minimal" or "corporate" alone. Take everything else
+(density, slide count, structure) from the request and do the work.
 
-When the source is a transcript or meeting notes, extract the audience's
-terminology, goals, objections, decisions, owners, dates, metrics, and open
-questions before outlining. Preserve exact names, numbers, dates, and requested
-quotes; retain speaker/source attribution; distinguish quotation, paraphrase,
-inference, and unresolved claim. Do not invent connective claims to make the
-story smoother. Keep factual evidence separate from visual references and
-record the source/version identifiers in provenance when available.
+Before the first slide, lock a deck-level visual contract: background family,
+text and surface roles, accent treatment, heading/body type pairing, spacing
+scale, radius, and image treatment. With a linked system, derive the contract
+from its hydrated tokens. Without one, choose a subject-appropriate direction
+and repeat the same semantic `--deck-*` values on every slide wrapper. Vary
+composition and information hierarchy, not the canvas, font system, or palette.
+Alternating light and dark slides are a theme failure unless the user explicitly
+asks for that structure.
 
 When creative context is available, pass the pre-generation search result's
 `contextPackId` to `create-deck`, pass deck-wide `reuseLabels`, and add
@@ -71,68 +99,15 @@ When creative context is available, pass the pre-generation search result's
 Do not omit these fields and let the final write action search after the HTML
 has already been authored; that would fabricate influence. With an empty
 library, omit them. With Library mode Off, omit them and create normally.
-   before adding the next slide
 
-Do not create multiple slides in parallel for the same deck. Do not spawn
-sub-agents to write into the same deck at the same time. Sub-agents may research
-or draft slide copy, but one writer should call `add-slide` sequentially so the
-editor stays stable and the user can watch progress.
-
-## Reference Decks
-
-The user can pick an existing deck as a style reference when starting a new one.
-When they do, a `## Reference Deck` block is already in your context holding one
-worked HTML example per layout.
-
-Treat it as a pattern library, not an outline. The most common failure here is
-walking the reference deck slide by slide and swapping in new copy, which
-produces a deck with the wrong shape for its own content. Instead:
-
-1. Plan the new deck from the user's request alone — story, slide count, order.
-2. For each slide you decided to write, pick the pattern that fits that content.
-3. Reuse a pattern as often as the content warrants, or never.
-4. When nothing fits, compose a new slide from the same type scale, spacing,
-   color, and markup conventions rather than bending content to a near-miss.
-
-The block deliberately omits the reference deck's slide sequence. Call
-`get-deck --id <reference deck id> --compact false` only if you need full slide
-HTML to see how that deck handled a case the patterns do not cover.
-
-A reference deck and a design system are independent: the design system wins on
-tokens (color, type, spacing, imagery, and slide defaults), the reference deck
-wins on slide-level composition and markup idiom. Apply both when both are
-present. Generic templates in this skill are fallback patterns only. Never let
-a reference screenshot or deck silently transfer its brand tokens.
-
-Decks the user has starred are their intended reference decks. `list-decks`
-reports `starred` so you can offer them when the user asks for something "like
-our usual deck".
-
-## Workspace Defaults
-
-A workspace admin can flag one deck and one design system as the workspace
-default, so a bare "make a deck about X" still comes out on brand. When the user
-did not name a reference deck or design system, call `get-workspace-defaults`
-before planning slides.
-
-- `referenceDeck` — call `get-deck-reference-context --id <id>` and treat the
-  result exactly like a user-picked reference deck.
-- `designSystem` — pass its id as `designSystemId` to `create-deck`, unless the
-  caller already has a personal default, which `create-deck` applies on its own.
-- Either field can come back `{ unavailable: true }`. That means the default
-  exists but this user cannot open it, which is a misconfiguration, not an
-  absent default. Generate without it and tell the user their workspace default
-  is not shared with them, rather than silently producing an off-brand deck.
-
-An explicit request always wins over the workspace default. Do not re-apply a
-workspace default to an existing deck the user is editing.
-
-If the user provides a Google Docs URL as source material, call
-`import-google-doc --url <url>` first and build from the returned text. If the
-action cannot read a private document, the user can connect Google Docs and
-choose the file through the picker, or share the Doc with the configured service
-account. Relay the action's exact access instructions instead of generating from
-the URL alone.
+Do not create multiple independent writes in parallel for the same deck. Do not
+spawn sub-agents to write into the same deck at the same time. Every newly
+generated slide in a short, completed deck belongs in the initial `create-deck`
+slides array. Use sequential `add-slide` writes only while a long deck is being
+authored live. Reserve `patch-deck` for deck fields, existing-slide edits,
+ordering, or source-preserving work. Sub-agents may research or draft slide
+copy, but one writer owns every deck mutation so the editor stays stable and the
+user can watch progress.
 
 ```bash
 pnpm action create-deck --title "My Deck" --slides '[]'
@@ -145,7 +120,7 @@ not consume it, navigate explicitly:
 pnpm action navigate --deckId=<id from create-deck output>
 ```
 
-Then add slides one by one:
+For long or live generation, then add slides one by one:
 
 ```bash
 pnpm action add-slide --deckId=<id> --layout title --content "..."
@@ -154,42 +129,82 @@ pnpm action add-slide --deckId=<id> --layout content --content "..."
 
 ## Slide Wrapper
 
-Every slide's `content` must use this exact outer div:
+Every slide's `content` must use the semantic `--deck-*` contract on its outer
+div. Which of the two forms you use depends on whether a design system is
+linked.
+
+**A design system is linked.** Inherit the renderer's hydrated variables
+(`--ds-bg`, `--ds-text`, `--ds-text-muted`, `--ds-accent`, `--ds-surface`,
+`--ds-heading-font`, `--ds-body-font`, `--ds-radius`) through the contract
+rather than copying values into individual elements:
 
 ```html
-<div class="fmd-slide" style="padding: 64px 80px; display: flex; flex-direction: column; justify-content: flex-start; font-family: var(--ds-body-font, Inter, sans-serif);">
+<div class="fmd-slide" style="--deck-bg: var(--ds-bg); --deck-ink: var(--ds-text); --deck-muted: var(--ds-text-muted); --deck-accent: var(--ds-accent); --deck-surface: var(--ds-surface); --deck-heading-font: var(--ds-heading-font); --deck-body-font: var(--ds-body-font); --deck-radius: var(--ds-radius); background: var(--deck-bg); color: var(--deck-ink); padding: 64px 80px; display: flex; flex-direction: column; justify-content: flex-start; font-family: var(--deck-body-font);">
   <!-- slide content here -->
 </div>
 ```
 
-The literal values in the examples below are fallback values for a deck with no
-linked system. When a system is linked, use its hydrated values or the renderer
-variables (`--ds-accent`, `--ds-bg`, `--ds-text`, `--ds-text-muted`,
-`--ds-heading-font`, `--ds-body-font`, `--ds-radius`) instead of copying
-Poppins, cyan, white, black, or a stock radius into new markup.
+**No design system is linked.** There is no house style to fall back to, and
+the renderer publishes no `--ds-*` tokens beyond the slide's own background.
+Derive a contract from the deck's subject and write it as literal values:
+
+```html
+<div class="fmd-slide" style="--deck-bg: #10261C; --deck-ink: #F2EFE6; --deck-muted: #A8B8AC; --deck-accent: #7FB069; --deck-surface: rgba(255,255,255,0.05); --deck-heading-font: 'Fraunces', Georgia, serif; --deck-body-font: 'Inter', sans-serif; --deck-radius: 4px; background: var(--deck-bg); color: var(--deck-ink); padding: 64px 80px; display: flex; flex-direction: column; justify-content: flex-start; font-family: var(--deck-body-font);">
+  <!-- slide content here -->
+</div>
+```
+
+That example is a nature-related deck, so colors match the topic of deck. Pick the values once, before the first slide, and repeat the identical contract on every wrapper.
+
+Inheriting when nothing is linked is the failure mode to avoid: a
+`var(--ds-accent, currentColor)` reference on an unlinked deck silently
+resolves to a browser default, so the deck reads as unstyled rather than as the
+direction you chose. Never import a stock presentation palette, font, or
+component language as a substitute for choosing.
+
+## Slide numbers
+
+For a footer page number, use the tokens `<span data-slide-number></span>` and
+`<span data-slide-total></span>`, never typed digits: reorders, inserts, and
+deletes would leave a typed `04 / 08` stale. Add `="pad"` for two digits
+(`<span data-slide-number="pad"></span> / <span data-slide-total="pad"></span>`
+renders `04 / 08`). Leave the spans empty; the renderer fills them from the
+slide's position in the deck.
 
 ## Fit budget
 
 The canvas is fixed at its aspect-ratio dimensions. With the standard 16:9
 canvas (960x540) and `padding: 64px 80px`, the usable content area is only
-800x412px. Treat that as a hard budget for the main flow: use at most two title
-lines, three short bullets or cards, and two or three short items per column.
-Split dense source material across slides instead of shrinking it into a dense
-stack. Keep body text at or above 16px. Never hide overflow with zoom,
-`transform: scale()`, clipping, or scroll overflow. A later structural repair
-may reduce the slide's explicit padding, and that padding must remain intact
-when the saved HTML is rendered.
+800x412px (usable height is canvas height minus both vertical paddings). Treat
+that as a hard budget for the main flow: use at most two title lines, three
+short bullets or cards, and two or three short items per column. A content slide
+carries about 40 words besides its title. A bullet fits on one line (about 70
+characters at 18px); only a card may wrap, to two lines. Split dense source
+material across slides instead of shrinking it into a dense stack. Keep body
+text at or above 16px. Never hide overflow with zoom, `transform: scale()`,
+clipping, or scroll overflow. A later structural repair may reduce the slide's
+explicit padding, and that padding must remain intact when the saved HTML is
+rendered.
 
-When no reference deck or hydrated design system is available, use the fallback
-direction: warm neutral paper (`#F5F2EA`), ink text (`#1F2933`), Inter or a
-close sans-serif, 64px vertical and 80px horizontal padding, and one restrained
-blue or coral accent. Build an intentional composition beyond a text dump: use
-a title block, two-column split, metric treatment, rule, callout, visual
-placeholder, or simple diagram where it fits the message. Never use a black
-background with white text as the generic fallback, never omit the padded
-wrapper, and never let body copy touch the canvas edge. Do not add decorative
-cards or shapes without a semantic role, and keep any accent treatment away
-from text so contrast stays readable.
+Before writing a slide, total its flow height: per text block, font-size x
+line-height x wrapped lines (average glyph width is about 0.5 x font-size), plus
+padding and gaps. Count every wrapped line and keep about 10% slack for the
+measured check. Example: a two-line 34px/1.12 heading (76) + 18 gap + three
+cards of two 18px/1.4 lines plus 24 padding (3 x 74 = 223) + two 14px gaps (28)
+= 345, inside 412; a fourth card adds 88 and does not fit. When the total
+exceeds the budget, split the slide; do not shrink type, padding, or gaps.
+
+Build an intentional composition beyond a text dump: use a title block,
+two-column split, metric treatment, rule, callout, visual placeholder, or
+simple diagram where it fits the message. Keep the canvas stable across the
+deck, use accents only for hierarchy or meaning, and do not add decorative
+cards, gradients, fake logos, or shapes without a semantic role. A slide
+with nothing real to show is complete with type, spacing, and a rule. A
+built-in template's signature art belongs to that template; do not carry it
+into other decks.
+
+Author in normal flex/grid flow; the card, wrapper, height, and `contain` rules
+are in `slide-editing` (Flow Layout and the Editor).
 
 ## Bounded visual QA
 
@@ -198,58 +213,22 @@ aspect-ratio dimensions and make one batched review pass. Check hierarchy and
 source fidelity, overflow or clipping, contrast, minimum readable text,
 placeholder remnants, broken or missing images, asset fit, and preserved
 `data-slide-object-id` values. Fix the findings in one correction pass and
-recheck. Do not claim full-deck or pixel-perfect fidelity unless the whole deck
+recheck. After all slide writes, call `get-layout-overflows` once; after a
+measured-overflow repair, call it once more. If status is unknown, name the
+unmeasured slide numbers and IDs, do not claim the deck fits, and do not repeat
+the call this turn unless the editor has produced a new measurement. Then, as
+the last step before the final response, call
+`audit-contrast` for the deck and follow the Contrast section of
+`slide-editing`; never judge contrast by eye or from hex values. Do not claim
+full-deck or pixel-perfect fidelity unless the whole deck
 was rendered and compared.
 
-## Ready-to-Use Templates
+## Batch and incremental generation
 
-Copy and fill in the bracketed values. Keep the wrapper styles and replace
-tokens with the hydrated design-system values when available.
-
-### Title Slide
-
-```html
-<div class="fmd-slide" style="padding: 64px 80px; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; gap: 18px; font-family: var(--ds-body-font, Inter, sans-serif);">
-  <div style="font-size: 14px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ds-accent, #2457D6);">[LABEL OR DATE]</div>
-  <h1 style="font-size: 56px; font-weight: 750; color: var(--ds-text, #1F2933); line-height: 1.05; letter-spacing: -0.04em; margin: 0; max-width: 760px;">[TITLE]</h1>
-  <p style="font-size: 20px; color: var(--ds-text-muted, #667085); margin: 4px 0 0;">[SUBTITLE OR PRESENTER]</p>
-</div>
-```
-
-### Content or Two-Column Slide
-
-```html
-<div class="fmd-slide" style="padding: 64px 80px; display: flex; flex-direction: column; justify-content: flex-start; gap: 18px; font-family: var(--ds-body-font, Inter, sans-serif);">
-  <div style="font-size: 13px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ds-accent, #2457D6);">[SECTION LABEL]</div>
-  <h2 style="font-size: 34px; font-weight: 750; color: var(--ds-text, #1F2933); line-height: 1.12; letter-spacing: -0.03em; margin: 0 0 18px;">[SLIDE HEADING]</h2>
-  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: start;">
-    <div style="display: flex; flex-direction: column; gap: 14px;">
-      <div style="border-left: 3px solid var(--ds-accent, #2457D6); padding: 12px 16px; background: var(--ds-surface, #FFFFFF); border-radius: var(--ds-radius, 14px); font-size: 18px; line-height: 1.4;">[KEY POINT]</div>
-      <div style="border-left: 3px solid var(--ds-secondary, #C85C3A); padding: 12px 16px; background: var(--ds-surface, #FFFFFF); border-radius: var(--ds-radius, 14px); font-size: 18px; line-height: 1.4;">[KEY POINT]</div>
-    </div>
-    <div class="fmd-img-placeholder" style="min-height: 220px; border-radius: var(--ds-radius, 14px);">[VISUAL OR IMAGE DESCRIPTION]</div>
-  </div>
-</div>
-```
-
-Use the same wrapper and tokens for section, statement, metrics, and closing
-slides, changing only the composition. An image placeholder, metric row,
-short rule, or callout should support the message, not fill empty space.
-
-## Image Placeholders
-
-When a slide needs a visual, use this div. It renders as a styled placeholder
-and can later be replaced with a generated image:
-
-```html
-<div class="fmd-img-placeholder" style="width: 100%; min-height: 220px; border-radius: var(--ds-radius, 14px);">[Description of what image should show]</div>
-```
-
-## Bulk Replacement Only
-
-Use a non-empty `create-deck --slides '[...]'` payload only for imports or an
-intentional atomic bulk replacement. For normal AI-generated decks, use the
-empty-deck plus sequential `add-slide` workflow above.
+Use a non-empty `create-deck --slides '[...]'` payload for a short, fully
+planned generated deck, imports, or an intentional atomic bulk replacement.
+For long or live in-app generation, use the empty-deck workflow above and add
+each completed slide sequentially.
 
 For a bulk replacement, pass the same fully styled HTML templates in the
 `slides` array. After creating, navigate to the deck:

@@ -1,12 +1,9 @@
-import { registerExperiments, type ExperimentDefinition } from "./registry.js";
+import { createLabsPlugin } from "../labs/plugin.js";
+import type { ExperimentDefinition } from "./registry.js";
 
-type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
-
-/** A tiny startup plugin for app-local, explicit experiment registration. */
+/** @deprecated Import and call createLabsPlugin instead. */
 export function createExperimentsPlugin(options: {
   experiments: readonly ExperimentDefinition[];
-}): NitroPluginDef {
-  return async () => {
-    registerExperiments(options.experiments);
-  };
+}) {
+  return createLabsPlugin({ labs: options.experiments });
 }

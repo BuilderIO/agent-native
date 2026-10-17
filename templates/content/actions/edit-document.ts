@@ -4,6 +4,7 @@ import { writeAppState } from "@agent-native/core/application-state";
 import { agentTouchDocument } from "@agent-native/core/collab";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import {
   getGenerationCreativeContext,
   recordGenerationCreativeContext,
@@ -15,6 +16,11 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  documentEditAttribution,
+  requireDocumentRequestActor,
+} from "../server/lib/document-attribution.js";
+import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
 import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
 import { applyDocumentTextEdits } from "../shared/document-text-edits.js";
@@ -23,6 +29,11 @@ import {
   lockPrimaryBlocksFields,
   persistBlocksFieldIdentity,
 } from "./_blocks-field-identity.js";
+import {
+  observeDocumentEditOutcome,
+  recordContentSaveOutcome,
+  type ContentSaveOutcomeDimensions,
+} from "./_content-save-outcomes.js";
 import { mutateDocumentBody } from "./_document-edit-mutation.js";
 import { editLinkedLocalDocumentThroughBrowser } from "./_linked-local-document-edit.js";
 
@@ -94,6 +105,16 @@ const editDocumentSchema = z.object({
     .optional()
     .describe(
       "JSON array of {find, replace} objects for a snapshot-stable batch; use instead of find/replace.",
+    ),
+  initializeContent: z
+    .string()
+    .min(1)
+    .refine((value) => value.trim().length > 0, {
+      message: "initializeContent must contain non-whitespace content.",
+    })
+    .optional()
+    .describe(
+      "Exact Markdown containing non-whitespace content, used only to initialize a literally empty document body; mutually exclusive with find, replace, and edits.",
     ),
   contextPackId: z
     .string()
@@ -206,25 +227,58 @@ async function resolveEditCreativeContext(args: {
 
 export default defineAction({
   description:
-    "Surgically edit an existing document's Markdown with exact search-and-replace operations. Prefer this over update-document when preserving the rest of the document; every find string must match exactly once in the immutable base. First call get-document, then pass its baseRevision and a caller-generated idempotencyKey.",
+    "Edit an existing document's Markdown with exact search-and-replace operations, or initialize a literally empty body with initializeContent. Every find string must match exactly once in the immutable base. First call get-document, then pass its baseRevision and a caller-generated idempotencyKey.",
   deferLoading: false,
   mcpTool: true,
   agentInputSchema: externalEditDocumentSchema,
   schema: editDocumentSchema,
   http: false,
-  run: async (args, ctx) => {
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
+  changeResource: (input) => documentChangeResource(input.id),
+  run: observeDocumentEditOutcome(async (args, ctx, measurement) => {
+    const countOutcome = (
+      outcome: ContentSaveOutcomeDimensions["outcome"],
+      historyEffect: ContentSaveOutcomeDimensions["history_effect"],
+      reasonCode?: string,
+    ) => {
+      measurement.settled = true;
+      recordContentSaveOutcome("edit_document", {
+        outcome,
+        origin: "agent",
+        stale_base: "unknown",
+        history_effect: historyEffect,
+        reason_code: reasonCode,
+      });
+    };
     const id = args.id;
     if (!id) throw new Error("--id is required");
+    const actor = requireDocumentRequestActor(ctx);
 
-    // Only publish AI presence for genuine agent invocations (in-app tool loop,
-    // sub-agents/A2A → "tool"; external MCP agents → "mcp"). A browser or
-    // programmatic call must never light the "AI editing" flag.
     const isAgentCaller =
       ctx?.caller === "tool" || ctx?.caller === "mcp" || ctx?.caller === "a2a";
 
-    let edits: TextEdit[];
+    let edits: TextEdit[] = [];
+    const initializesBody = args.initializeContent !== undefined;
 
-    if (Array.isArray(args.edits)) {
+    if (
+      initializesBody &&
+      (args.find !== undefined ||
+        args.replace !== undefined ||
+        args.edits !== undefined)
+    ) {
+      throw new ActionContractError(
+        "initializeContent is mutually exclusive with find, replace, and edits.",
+        { errorCode: "DOCUMENT_EDIT_MODE_CONFLICT", statusCode: 400 },
+      );
+    }
+
+    if (initializesBody) {
+      edits = [];
+    } else if (Array.isArray(args.edits)) {
       edits = args.edits;
     } else if (args.edits !== undefined) {
       throw new Error("--edits must be a JSON array");
@@ -232,7 +286,10 @@ export default defineAction({
       if (!args.find) throw new Error("--find cannot be empty");
       edits = [{ find: args.find, replace: args.replace ?? "" }];
     } else {
-      throw new Error("Either --find or --edits is required");
+      throw new ActionContractError(
+        "One of initializeContent, find, or edits is required.",
+        { errorCode: "DOCUMENT_EDIT_MODE_REQUIRED", statusCode: 400 },
+      );
     }
 
     const access = await assertAccess("document", id, "editor");
@@ -242,11 +299,21 @@ export default defineAction({
       ctx?.caller === "mcp" ||
       ctx?.caller === "webmcp" ||
       ctx?.caller === "a2a";
-    if (isExternalCaller) {
+    const suppliesRevisionProtocol =
+      args.baseRevision !== undefined || args.idempotencyKey !== undefined;
+    const usesRevisionProtocol =
+      isExternalCaller || initializesBody || suppliesRevisionProtocol;
+    if (usesRevisionProtocol) {
       if (!args.baseRevision || !args.idempotencyKey) {
         throw new ActionContractError(
           "External document edits require baseRevision and idempotencyKey from get-document.",
           { errorCode: "DOCUMENT_EDIT_PROTOCOL_REQUIRED", statusCode: 400 },
+        );
+      }
+      if (!ctx) {
+        throw new ActionContractError(
+          "Revisioned document edits require an authenticated caller context.",
+          { errorCode: "CALLER_SCOPE_REQUIRED", statusCode: 401 },
         );
       }
       const isLinkedLocalSource =
@@ -264,11 +331,15 @@ export default defineAction({
           },
         );
       }
+      const mutation = initializesBody
+        ? { initializeContent: args.initializeContent as string }
+        : { edits };
+      measurement.settled = true;
       const result = await mutateDocumentBody({
         documentId: id,
         baseRevision: args.baseRevision,
         idempotencyKey: args.idempotencyKey,
-        edits,
+        ...mutation,
         creativeContextDigest: {
           contextPackId: args.contextPackId ?? null,
           contextModeOverride: args.contextModeOverride ?? null,
@@ -284,38 +355,51 @@ export default defineAction({
         ctx,
       });
       await writeAppState("refresh-signal", { ts: Date.now() });
-      try {
-        agentTouchDocument(id, {
-          edit: {
-            descriptor: {
-              kind: "text",
-              quote: edits[0]?.replace.slice(0, 80) ?? "",
+      if (isAgentCaller) {
+        try {
+          agentTouchDocument(id, {
+            edit: {
+              descriptor: {
+                kind: "text",
+                quote:
+                  args.initializeContent?.slice(0, 80) ??
+                  edits?.[0]?.replace.slice(0, 80) ??
+                  "",
+              },
+              label: existing.title || undefined,
             },
-            label: existing.title || undefined,
+          });
+        } catch (error) {
+          console.error("edit-document: agent presence publish failed", error);
+        }
+      }
+      if (isAgentCaller && result.applied > 0) {
+        track(
+          "ai_refine_used",
+          {
+            app_name: "content",
+            template_name: "content",
+            output_id: id,
+            output_type: "document",
+            edit_count: result.applied,
+            refine_type: initializesBody ? "full_update" : "exact_replace",
           },
-        });
-      } catch (error) {
-        console.error("edit-document: agent presence publish failed", error);
+          ctx,
+        );
       }
       return result;
     }
 
-    // ─── Apply edits to the document markdown ───────────────────────────────
-    //
-    // Native documents edit canonical `documents.content`. A linked local file
-    // instead commits through its exact live source bridge before SQL mirrors
-    // the accepted bytes. The SQL change is delivered to open editors through
-    // normal change-sync and parsed through the real editor pipeline so new
-    // block structure renders correctly and merges through Yjs.
-    //
-    // (The old approach POSTed a Yjs search-replace to a localhost collab origin,
-    // which silently no-oped on serverless — different process, no localhost —
-    // and could only patch text inside existing nodes, never create structure.)
     const applied = applyDocumentTextEdits(existing.content ?? "", edits);
     let { content } = applied;
     const { results, changeCount } = applied;
 
     if (changeCount === 0) {
+      countOutcome(
+        edits.length === 0 ? "unchanged" : "refusal",
+        "none",
+        edits.length === 0 ? undefined : "EDIT_MATCH_MISSING",
+      );
       return { applied: 0, total: edits.length, results };
     }
 
@@ -359,6 +443,7 @@ export default defineAction({
     if (isLinkedLocalSource) {
       const ownerEmail = getRequestUserEmail();
       if (!ownerEmail) {
+        countOutcome("refusal", "none", "local_source_unavailable");
         return {
           applied: 0,
           total: edits.length,
@@ -399,6 +484,7 @@ export default defineAction({
         receipt.status !== "source-persisted/history-pending" &&
         receipt.status !== "source-persisted/readback-pending"
       ) {
+        countOutcome("refusal", "none", "local_source_refused");
         return {
           applied: 0,
           total: edits.length,
@@ -415,8 +501,6 @@ export default defineAction({
       };
     }
 
-    // Persist. The fresh updatedAt is the signal the open editor uses to tell an
-    // intentional external edit apart from a stale autosave echo.
     const db = getDb();
     const now = nextDocumentUpdatedAt(existing.updatedAt);
     try {
@@ -427,6 +511,7 @@ export default defineAction({
           .set({
             content,
             bodyRevision: existing.bodyRevision + 1,
+            ...documentEditAttribution(actor),
             updatedAt: now,
             ...(linkedLocalReconciliationDocument ?? {}),
           })
@@ -479,6 +564,7 @@ export default defineAction({
       });
     } catch (error) {
       if (!linkedLocalPersistence) throw error;
+      countOutcome("applied", "none", "source_persisted_history_pending");
       return {
         applied: changeCount,
         total: edits.length,
@@ -493,6 +579,11 @@ export default defineAction({
     }
 
     if (linkedLocalHistoryReconciliation) {
+      countOutcome(
+        "refusal",
+        "transition",
+        "source_persisted_history_reconciled",
+      );
       return {
         applied: 0,
         total: edits.length,
@@ -504,8 +595,14 @@ export default defineAction({
       };
     }
 
-    // Presence is metadata only. Canonical SQL and change-sync are the sole
-    // body-delivery path; this action must never independently mutate Yjs.
+    countOutcome(
+      "applied",
+      "transition",
+      linkedLocalPersistence?.status === "source-persisted/readback-pending"
+        ? "local_source_readback_pending"
+        : undefined,
+    );
+
     if (isAgentCaller) {
       try {
         const firstChange = edits.find((edit) => edit.replace)?.replace;
@@ -524,6 +621,21 @@ export default defineAction({
     }
 
     await writeAppState("refresh-signal", { ts: Date.now() });
+
+    if (isAgentCaller && changeCount > 0) {
+      track(
+        "ai_refine_used",
+        {
+          app_name: "content",
+          template_name: "content",
+          output_id: id,
+          output_type: "document",
+          edit_count: changeCount,
+          refine_type: "exact_replace",
+        },
+        ctx,
+      );
+    }
 
     return {
       applied: changeCount,
@@ -545,5 +657,5 @@ export default defineAction({
           }
         : {}),
     };
-  },
+  }),
 });

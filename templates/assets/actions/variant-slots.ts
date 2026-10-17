@@ -24,6 +24,7 @@ type VariantScopeInput = {
 type VariantSlotInput = VariantScopeInput & {
   prompt: string;
   slotId: string;
+  ownerEmail?: string | null;
   status: "pending" | "ready" | "failed";
   assetId?: string;
   previewUrl?: string;
@@ -84,9 +85,6 @@ export async function wasVariantSlotDismissed(
     typeof scope === "object" && scope
       ? variantScopeIdFor(scope)
       : normalizeVariantScopeId(scope);
-  // Unscoped callers (CLI/A2A/MCP with no thread or picker tab) share one global
-  // state row across separate processes, so a missing slot there means another
-  // process overwrote the row, not that a human dismissed anything.
   if (!scopeId) return false;
   return withVariantStateLock(async () => {
     const state = await readVariantStateUnlocked(scopeId);
@@ -133,12 +131,21 @@ export async function upsertVariantSlot(input: VariantSlotInput) {
     const nextSlot = {
       slotId: input.slotId,
       runId: input.runId,
+      ownerEmail:
+        input.ownerEmail !== undefined
+          ? input.ownerEmail
+          : existingSlot?.runId === input.runId
+            ? existingSlot.ownerEmail
+            : undefined,
       status: input.status,
       assetId: input.assetId,
       previewUrl: input.previewUrl,
       thumbnailUrl: input.thumbnailUrl,
       error: input.error,
-      createdAt: existingSlot?.createdAt ?? now,
+      createdAt:
+        existingSlot?.runId === input.runId
+          ? (existingSlot.createdAt ?? now)
+          : now,
       updatedAt: now,
     };
     const index = state.slots.findIndex((slot) => slot.slotId === input.slotId);
@@ -156,8 +163,6 @@ function isSameVariantScope(
 ): boolean {
   if (!previous) return false;
 
-  // The batch/run id is the generation boundary: batch slots may have distinct
-  // prompts, while a later run with the same prompt/options must start fresh.
   return (
     previous.libraryId === input.libraryId &&
     variantScopeId(previous) === variantScopeId(input) &&
@@ -177,12 +182,36 @@ export async function readVariantState(
   return withVariantStateLock(() => readVariantStateUnlocked(scopeId));
 }
 
-// Iterations (refine/edit/restyle) are a continuation of what is already on
-// screen for this thread, not a new generation topic: they should append into
-// the live tray instead of tripping the "new batch/run" reset in
-// isSameVariantScope. Passing the current tray's batch/run id plus its
-// collection/preset/session back through keeps every isSameVariantScope check
-// satisfied.
+export async function failMissingVariantRun(input: {
+  runId: string;
+  libraryId: string;
+  scopeId?: string | null;
+  staleBefore: number;
+  error: string;
+}): Promise<boolean> {
+  return withVariantStateLock(async () => {
+    const state = await readVariantStateUnlocked(input.scopeId);
+    if (!state || state.libraryId !== input.libraryId) return false;
+    const slot = state.slots.find(
+      (candidate) =>
+        candidate.runId === input.runId && candidate.status === "pending",
+    );
+    if (!slot) return false;
+    const timestamp = Date.parse(slot.createdAt ?? slot.updatedAt ?? "");
+    if (!Number.isFinite(timestamp) || timestamp > input.staleBefore) {
+      return false;
+    }
+
+    const now = nowIso();
+    slot.status = "failed";
+    slot.error = input.error;
+    slot.updatedAt = now;
+    state.updatedAt = now;
+    await writeVariantStateUnlocked(state, input.scopeId);
+    return true;
+  });
+}
+
 export async function resolveLiveBatchContinuation(input: {
   threadId?: string | null;
   libraryId: string;

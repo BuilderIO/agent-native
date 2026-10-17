@@ -5,11 +5,17 @@ import {
   type McpClientManager,
   type McpTool,
 } from "../mcp-client/index.js";
+import { runWithRequestContext } from "../server/request-context.js";
 import type { ActionEntry } from "./production-agent.js";
 import {
   attachToolSearch,
+  createToolSearchEntry,
+  filterActionsForAgentDiscovery,
+  isTargetedToolSearch,
+  readLoadedToolNames,
   searchToolRegistry,
   TOOL_SEARCH_ACTION_NAME,
+  withLoadedToolNames,
 } from "./tool-search.js";
 
 function action(
@@ -74,7 +80,80 @@ describe("tool-search", () => {
     });
   });
 
-  it("labels Plan availability and current callability without hiding schemas", () => {
+  it("filters feature-gated actions per requesting user before search", async () => {
+    const available = vi.fn(
+      (context?: { userEmail?: string }) =>
+        context?.userEmail === "enabled@example.test",
+    );
+    const registry = {
+      "list-context-packs": {
+        ...action("List Creative Context packs"),
+        agentDiscoveryAvailable: available,
+      },
+      "read-context-source": {
+        ...action("Read a Creative Context source"),
+        agentDiscoveryAvailable: available,
+      },
+      "list-calendar-events": action("List calendar events"),
+    };
+    const toolSearch = createToolSearchEntry(() => registry);
+
+    const disabled = await toolSearch.run(
+      {},
+      {
+        caller: "tool",
+        userEmail: "disabled@example.test",
+      },
+    );
+    expect(
+      disabled.results.map((result: { name: string }) => result.name),
+    ).toEqual(["list-calendar-events"]);
+    expect(available).toHaveBeenCalledOnce();
+    expect(available).toHaveBeenCalledWith({
+      caller: "tool",
+      userEmail: "disabled@example.test",
+    });
+
+    available.mockClear();
+    const enabled = await toolSearch.run(
+      { query: "Creative Context" },
+      { caller: "tool", userEmail: "enabled@example.test" },
+    );
+    expect(
+      enabled.results.map((result: { name: string }) => result.name),
+    ).toEqual(["list-context-packs", "read-context-source"]);
+    expect(available).toHaveBeenCalledOnce();
+  });
+
+  it("filters gated actions from request tools and rebinds tool-search", async () => {
+    const available = vi.fn(async () => false);
+    const registry = attachToolSearch({
+      "list-context-packs": {
+        ...action("List Creative Context packs"),
+        agentDiscoveryAvailable: available,
+      },
+      "list-calendar-events": action("List calendar events"),
+    });
+
+    const filtered = await filterActionsForAgentDiscovery(registry, {
+      caller: "tool",
+      userEmail: "disabled@example.test",
+    });
+
+    expect(filtered).not.toHaveProperty("list-context-packs");
+    const menu = await filtered[TOOL_SEARCH_ACTION_NAME]!.run(
+      {},
+      {
+        caller: "tool",
+        userEmail: "disabled@example.test",
+      },
+    );
+    expect(menu.results.map((result: { name: string }) => result.name)).toEqual(
+      ["list-calendar-events"],
+    );
+  });
+
+  it("labels Plan availability and current callability without returning schemas", () => {
     const read = action("Inspect records");
     const conditional = {
       ...action("Query or persist provider records"),
@@ -104,16 +183,17 @@ describe("tool-search", () => {
           name: "provider",
           callable: true,
           planAvailability: "conditional",
-          inputSchema: expect.any(Object),
         }),
         expect.objectContaining({
           name: "delete",
           callable: false,
           planAvailability: "act-only",
-          inputSchema: expect.any(Object),
         }),
       ]),
     );
+    for (const tool of result.results) {
+      expect(tool).not.toHaveProperty("inputSchema");
+    }
   });
 
   it("can restrict results to read-only or conditionally read-only tools", () => {
@@ -162,21 +242,21 @@ describe("tool-search", () => {
         expect.objectContaining({
           name: "inspect",
           planAvailability: "read",
-          inputSchema: expect.any(Object),
         }),
         expect.objectContaining({
           name: "conditional",
           planAvailability: "conditional",
-          inputSchema: expect.any(Object),
         }),
         expect.objectContaining({
           name: "mcp__zapier__list_records",
           kind: "mcp",
           planAvailability: "conditional",
-          inputSchema: expect.any(Object),
         }),
       ]),
     );
+    for (const tool of result.results) {
+      expect(tool).not.toHaveProperty("inputSchema");
+    }
   });
 
   it("includes connected MCP tools and reports their source server", async () => {
@@ -201,11 +281,7 @@ describe("tool-search", () => {
       kind: "mcp",
       source: "zapier",
     });
-    expect(result.results[0].inputSchema).toMatchObject({
-      properties: {
-        channel: { type: "string" },
-      },
-    });
+    expect(result.results[0]).not.toHaveProperty("inputSchema");
   });
 
   it("searches the live registry after MCP tools are added", async () => {
@@ -293,20 +369,16 @@ describe("tool-search", () => {
       expect(result.totalTools).toBe(3);
       expect(result.count).toBe(3);
       expect(result.count).toBe(result.results.length);
-      // Sorted alphabetically by name.
       expect(result.results.map((tool) => tool.name)).toEqual([
         "create-doc",
         "list-events",
         "send-email",
       ]);
-      // No parameter summaries, no input schema, score 0 — even for the entry
-      // that has parameters (send-email).
       for (const tool of result.results) {
         expect(tool.parameters).toEqual([]);
         expect(tool.score).toBe(0);
         expect(tool).not.toHaveProperty("inputSchema");
       }
-      // Descriptions are still present (truncated form).
       const sendEmail = result.results.find(
         (tool) => tool.name === "send-email",
       );
@@ -328,27 +400,42 @@ describe("tool-search", () => {
       expect(blank.results).toEqual(omitted.results);
     });
 
-    it("is not capped by limit or maxLimit — returns all tools beyond the cap", () => {
+    it("caps menu descriptions", () => {
+      const result = searchToolRegistry(
+        { help: action("Tool description ".repeat(30)) },
+        {},
+      );
+
+      expect(result.results[0].description.length).toBeLessThanOrEqual(140);
+    });
+
+    it("honors the requested limit and enforces the hard result cap", () => {
       const registry: Record<string, ActionEntry> = {};
       for (let i = 0; i < 30; i++) {
-        // Zero-padded so alphabetical name sort is also numeric order.
         const name = `tool-${String(i).padStart(2, "0")}`;
         registry[name] = action(`Tool number ${i}`);
       }
 
       const result = searchToolRegistry(registry, {});
 
-      // 30 > DEFAULT_LIMIT (8) and > MAX_LIMIT (25): menu mode ignores both.
       expect(result.totalTools).toBe(30);
-      expect(result.count).toBe(30);
-      expect(result.results).toHaveLength(30);
+      expect(result.count).toBe(8);
+      expect(result.results).toHaveLength(8);
       expect(result.results[0].name).toBe("tool-00");
-      expect(result.results[29].name).toBe("tool-29");
+      expect(result.results[7].name).toBe("tool-07");
 
-      // An explicit oversized limit is also ignored in menu mode.
       const withLimit = searchToolRegistry(registry, { limit: 5 });
-      expect(withLimit.count).toBe(30);
-      expect(withLimit.results).toHaveLength(30);
+      expect(withLimit.count).toBe(5);
+      expect(withLimit.results).toHaveLength(5);
+
+      const aboveHardCap = searchToolRegistry(
+        registry,
+        { limit: 100 },
+        { maxLimit: 100 },
+      );
+      expect(aboveHardCap.count).toBe(10);
+      expect(aboveHardCap.results).toHaveLength(10);
+      expect(aboveHardCap.message).toContain("Showing 10 of 30");
     });
 
     it("never includes the tool-search entry itself in its own menu results", () => {
@@ -362,7 +449,6 @@ describe("tool-search", () => {
       expect(result.results.map((tool) => tool.name)).not.toContain(
         TOOL_SEARCH_ACTION_NAME,
       );
-      // Only the two real actions are counted, not the tool-search entry.
       expect(result.totalTools).toBe(2);
       expect(result.count).toBe(2);
     });
@@ -387,8 +473,8 @@ describe("tool-search", () => {
     });
   });
 
-  describe("query mode (unchanged behavior)", () => {
-    it("returns ranked matches with parameters populated and includes inputSchema when requested", () => {
+  describe("query mode", () => {
+    it("returns ranked matches with concise parameters and omits redundant schemas", () => {
       const registry = {
         "send-email": action(
           "Send an email message",
@@ -416,14 +502,7 @@ describe("tool-search", () => {
         ],
       });
       expect(result.results[0].score).toBeGreaterThan(0);
-      expect(result.results[0].inputSchema).toMatchObject({
-        type: "object",
-        properties: {
-          to: { type: "string" },
-          subject: { type: "string" },
-        },
-        required: ["to"],
-      });
+      expect(result.results[0]).not.toHaveProperty("inputSchema");
     });
 
     it("respects limit in query mode", () => {
@@ -434,7 +513,6 @@ describe("tool-search", () => {
         );
       }
 
-      // All entries match "report"; limit must cap query-mode results.
       const result = searchToolRegistry(registry, {
         query: "report",
         limit: 5,
@@ -442,6 +520,325 @@ describe("tool-search", () => {
       expect(result.totalTools).toBe(30);
       expect(result.count).toBe(5);
       expect(result.results).toHaveLength(5);
+
+      const aboveHardCap = searchToolRegistry(registry, {
+        query: "report",
+        limit: 100,
+      });
+      expect(aboveHardCap.count).toBe(10);
+      expect(aboveHardCap.results).toHaveLength(10);
     });
+
+    it("bounds descriptions and parameter summaries", () => {
+      const properties = Object.fromEntries(
+        Array.from({ length: 12 }, (_, index) => [
+          `field-${index}`,
+          {
+            type: "string",
+            description: "parameter detail ".repeat(20),
+            enum: Array.from({ length: 10 }, () => "value-".repeat(20)),
+          },
+        ]),
+      );
+      const registry = {
+        report: action(
+          `Generate a report ${"tool detail ".repeat(40)}`,
+          properties,
+          ["field-0"],
+        ),
+      };
+
+      const result = searchToolRegistry(registry, { query: "report" });
+      const [tool] = result.results;
+
+      expect(tool.description.length).toBeLessThanOrEqual(220);
+      expect(tool.parameters).toHaveLength(8);
+      for (const parameter of tool.parameters) {
+        expect(parameter.description?.length).toBeLessThanOrEqual(120);
+        expect(parameter.enum).toHaveLength(5);
+        expect(parameter.enum?.every((value) => value.length <= 60)).toBe(true);
+      }
+      expect(tool).not.toHaveProperty("inputSchema");
+    });
+  });
+
+  describe("loading tools by name", () => {
+    // Names a prompt can advertise must load in one call, whichever form the
+    // model uses, with the named tool ahead of anything that merely mentions it.
+    const registry = {
+      "bigquery-query": action("Run a BigQuery SQL query"),
+      "bigquery-query-history": action(
+        "List past bigquery query runs. Use bigquery query history to review a bigquery query.",
+        { query: { type: "string", description: "bigquery query text" } },
+      ),
+      "search-analytics-query-catalog": action(
+        "Search saved analytics queries",
+      ),
+      "list-dashboards": action("List dashboards"),
+    };
+
+    it("ranks an exact-name query ahead of longer names that mention it", () => {
+      const result = searchToolRegistry(registry, {
+        query: "bigquery-query",
+        limit: 1,
+      });
+
+      expect(result.results.map((r) => r.name)).toEqual(["bigquery-query"]);
+    });
+
+    it("loads several advertised names, with schemas, in a single call", () => {
+      const result = searchToolRegistry(registry, {
+        names: ["bigquery-query", "search-analytics-query-catalog"],
+      });
+
+      expect(result.results.map((r) => r.name).sort()).toEqual([
+        "bigquery-query",
+        "search-analytics-query-catalog",
+      ]);
+      expect(result.message).toBeUndefined();
+    });
+  });
+
+  describe("batched search", () => {
+    const registry = {
+      "send-email": action("Send an email message"),
+      "list-events": action("List calendar events"),
+      "export-report": action("Export a report to CSV"),
+      "delete-event": action("Delete a calendar event"),
+    };
+
+    it("unions the matches of several queries into one result", () => {
+      const result = searchToolRegistry(registry, {
+        queries: ["send email", "export report"],
+      });
+
+      expect(result.results.map((r) => r.name).sort()).toEqual([
+        "export-report",
+        "send-email",
+      ]);
+      expect(result.count).toBe(2);
+      expect(result.query).toBe("send email | export report");
+    });
+
+    it("keeps the single query alongside queries without duplicating it", () => {
+      const result = searchToolRegistry(registry, {
+        query: "send email",
+        queries: ["Send Email", "calendar"],
+      });
+
+      expect(result.query).toBe("send email | calendar");
+      expect(result.results.map((r) => r.name)).toEqual(
+        expect.arrayContaining(["send-email", "list-events", "delete-event"]),
+      );
+      expect(
+        result.results.filter((r) => r.name === "send-email"),
+      ).toHaveLength(1);
+    });
+
+    it("loads exact names, ignoring fuzzy matches, and reports the ones it lacks", () => {
+      const result = searchToolRegistry(registry, {
+        names: ["list-events", "no-such-tool"],
+      });
+
+      expect(result.results.map((r) => r.name)).toEqual(["list-events"]);
+      expect(result.query).toBe("names: list-events, no-such-tool");
+      expect(result.message).toBe(
+        "No tool named no-such-tool is available in the current mode.",
+      );
+    });
+
+    it("combines queries and names in one result", () => {
+      const result = searchToolRegistry(registry, {
+        queries: ["send email"],
+        names: ["delete-event"],
+      });
+
+      expect(result.results.map((r) => r.name).sort()).toEqual([
+        "delete-event",
+        "send-email",
+      ]);
+    });
+
+    it("runs at most five queries and ignores blanks and repeats", () => {
+      const result = searchToolRegistry(registry, {
+        queries: [
+          "email",
+          " ",
+          "EMAIL",
+          "report",
+          "events",
+          "calendar",
+          "csv",
+          "delete",
+        ],
+      });
+
+      expect(result.query).toBe("email | report | events | calendar | csv");
+      expect(result.message).toContain("Only the first 5 queries were used");
+      expect(result.message).toContain("delete");
+    });
+
+    it("says so when names past the limit are ignored", () => {
+      const names = Array.from({ length: 22 }, (_, i) => `tool-${i}`);
+      const result = searchToolRegistry(registry, { names });
+
+      expect(result.query).toBe(`names: ${names.slice(0, 20).join(", ")}`);
+      expect(result.message).toContain("Only the first 20 names were used");
+      expect(result.message).toContain("2 more were ignored");
+      expect(result.message).toContain("tool-21");
+    });
+
+    it("keeps the per-name misses and adds the truncation note", () => {
+      const result = searchToolRegistry(registry, {
+        queries: ["email", "report", "events", "calendar", "csv", "delete"],
+        names: ["no-such-tool"],
+      });
+
+      expect(result.message).toContain("No tool named no-such-tool");
+      expect(result.message).toContain("Only the first 5 queries were used");
+    });
+
+    it("does not mention truncation when nothing was dropped", () => {
+      const result = searchToolRegistry(registry, {
+        queries: ["email", "report"],
+      });
+
+      expect(result.message ?? "").not.toContain("Only the first");
+    });
+
+    it("never cuts the ignored-entries note inside an emoji", () => {
+      const loneSurrogate =
+        /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/;
+      for (let pad = 0; pad < 2; pad += 1) {
+        const result = searchToolRegistry(registry, {
+          queries: [
+            "email",
+            "report",
+            "events",
+            "calendar",
+            "csv",
+            `${"a".repeat(pad)}${"😀".repeat(120)}`,
+          ],
+        });
+        expect(result.message).toContain("Only the first 5 queries");
+        expect(result.message).not.toMatch(loneSurrogate);
+      }
+    });
+
+    describe("isTargetedToolSearch", () => {
+      it.each([
+        ["a query", { query: "email" }, true],
+        ["a queries array", { queries: ["email"] }, true],
+        ["a bare string queries", { queries: "email" }, true],
+        ["a names array", { names: ["send-email"] }, true],
+        ["a bare string names", { names: "send-email" }, true],
+        ["no arguments", {}, false],
+        ["blank entries", { query: " ", queries: [" "], names: [""] }, false],
+        ["a nested list", { queries: [["email"]] }, false],
+        ["a non-string list", { queries: [1], names: [{}] }, false],
+      ])("agrees with the search on %s", (_label, args, targeted) => {
+        expect(isTargetedToolSearch(args)).toBe(targeted);
+        if (targeted) {
+          expect(
+            searchToolRegistry(registry, args).results.length,
+          ).toBeGreaterThan(0);
+        }
+      });
+    });
+
+    it("keeps a repeat guard per query, flagging the call only when all repeated", async () => {
+      await runWithRequestContext(
+        { userEmail: "agent@example.com", run: {} },
+        () => {
+          const first = searchToolRegistry(registry, {
+            queries: ["send email", "export report"],
+          });
+          const partial = searchToolRegistry(registry, {
+            queries: ["send email", "calendar"],
+          });
+          const again = searchToolRegistry(registry, {
+            queries: ["send email", "export report"],
+          });
+
+          expect(first.repeated).toBeUndefined();
+          expect(partial.repeated).toBeUndefined();
+          expect(partial.results.map((r) => r.name)).toEqual(
+            expect.arrayContaining(["send-email", "list-events"]),
+          );
+          expect(again.repeated).toBe(true);
+          expect(again.message).toContain("already ran");
+        },
+      );
+    });
+
+    it("leaves single-query results and menu mode unchanged", () => {
+      expect(searchToolRegistry(registry, { query: "email" }).query).toBe(
+        "email",
+      );
+      expect(searchToolRegistry(registry, { queries: [" "] }).query).toBe("");
+      expect(searchToolRegistry(registry, {}).results).toHaveLength(4);
+    });
+  });
+});
+
+describe("readLoadedToolNames", () => {
+  const output = {
+    query: "alpha",
+    totalTools: 2,
+    count: 1,
+    results: [
+      { name: "alpha-tool", callable: true },
+      { name: "plan-only", callable: false },
+    ],
+  };
+
+  it("reads the loaded list from a result followed by notes", () => {
+    const stored = `${JSON.stringify(
+      withLoadedToolNames(output, ["alpha-tool", 'odd "name"']),
+      null,
+      2,
+    )}\n\nLoaded matching tool schemas for the next step, not this one: alpha-tool`;
+    expect(readLoadedToolNames(stored)).toEqual(["alpha-tool", 'odd "name"']);
+  });
+
+  it("keeps the loaded list readable after the rest of the result is clipped", () => {
+    const stored = JSON.stringify(
+      withLoadedToolNames(output, ["alpha-tool", "beta-tool"]),
+      null,
+      2,
+    );
+    const clipped = `${stored.slice(0, stored.indexOf('"results"') + 20)}\n\n...[truncated]`;
+    expect(readLoadedToolNames(clipped)).toEqual(["alpha-tool", "beta-tool"]);
+  });
+
+  it("reads a compact result and an empty loaded list", () => {
+    expect(
+      readLoadedToolNames(JSON.stringify(withLoadedToolNames(output, []))),
+    ).toEqual([]);
+    expect(
+      readLoadedToolNames(
+        JSON.stringify(withLoadedToolNames(output, ["a", "b"])),
+      ),
+    ).toEqual(["a", "b"]);
+  });
+
+  it("reads the callable matches of a result stored before the loaded list", () => {
+    const stored = `${JSON.stringify(output, null, 2)}\n\nLoaded matching tool schemas for next step: alpha-tool`;
+    expect(readLoadedToolNames(stored)).toEqual(["alpha-tool"]);
+    expect(readLoadedToolNames(JSON.stringify(output))).toEqual(["alpha-tool"]);
+  });
+
+  it("tells a result that loaded nothing from one it cannot read", () => {
+    expect(
+      readLoadedToolNames("Interrupted before this tool returned"),
+    ).toEqual([]);
+    expect(
+      readLoadedToolNames(JSON.stringify({ query: "", results: [] })),
+    ).toEqual([]);
+    const stored = JSON.stringify(output, null, 2);
+    expect(
+      readLoadedToolNames(`${stored.slice(0, 60)}\n\n...[truncated]`),
+    ).toBeNull();
+    expect(readLoadedToolNames('{"query": "alpha", "results": [')).toBeNull();
   });
 });

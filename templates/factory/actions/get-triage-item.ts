@@ -24,6 +24,7 @@ import {
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
 import { recordFactoryAudit } from "../server/triage/audit.js";
+import { deriveInboxPresentation } from "../server/triage/inbox-presentation.js";
 import { triageItemAuthor } from "../server/triage/metadata.js";
 import { readStoredUserLabels } from "../server/triage/slack-user-labels.js";
 
@@ -129,6 +130,11 @@ export default defineAction({
       itemId: item.id,
       author: triageItemAuthor(item.metadataJson) || null,
       userLabels: readStoredUserLabels(item.metadataJson),
+      inboxPresentation: deriveInboxPresentation({
+        source: item.source,
+        status: item.status,
+        metadataJson: item.metadataJson,
+      }),
       decisions: decisions.map((decision) => ({
         decisionId: decision.id,
         outcome: decision.outcome,

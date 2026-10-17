@@ -12,7 +12,7 @@ const browserChat = vi.hoisted(() => ({
   surfaceProps: null as Record<string, unknown> | null,
 }));
 
-vi.mock("@agent-native/core/client/agent-chat", () => ({
+vi.mock("@agent-native/toolkit/app/chat/AgentPanel", () => ({
   AgentChatSurface: (props: Record<string, unknown>) => {
     browserChat.surfaceProps = props;
     return <div data-testid="browser-agent-chat" />;

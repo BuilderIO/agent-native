@@ -1,37 +1,3 @@
-/**
- * MCP-server registration + authentication for `@agent-native/skills`.
- *
- * This is a dependency-free port of the MCP-config-writing + device-code/OAuth
- * flow that lives in `@agent-native/core`'s `cli/connect.ts`. The skills package
- * ships standalone (no `@agent-native/core` dependency), so this module
- * re-implements just the registration surface against the shared on-disk
- * writers in `./mcp-config-writers.js`. It writes the SAME config and speaks the
- * SAME device-code/OAuth protocol as core.
- *
- * Two client families, exactly as in core:
- *   - OAuth-capable (Claude Code, Cursor, OpenCode, GitHub Copilot / VS Code):
- *     get a URL-only HTTP MCP entry (no bearer headers). The user authenticates
- *     in-host via standard remote MCP OAuth.
- *   - Device-code (codex, cowork): run the browser device-code flow against the
- *     descriptor's hosted URL, then write the entry WITH the minted bearer token
- *     + headers. Non-interactive (or no TTY) skips writing device-code configs,
- *     surfacing the exact `agent-native connect <url>` fallback command.
- *
- * Server contract (identical paths + JSON field names to core):
- *   POST <hostedUrl>/mcp/connect/device/start  (no auth)
- *     body { client?, app? }
- *     → { device_code, user_code, verification_uri,
- *         verification_uri_complete, interval, expires_in }
- *   POST <hostedUrl>/mcp/connect/device/poll   (no auth)
- *     body { device_code }
- *     → { status: "pending" }
- *     | { status: "approved", token, mcpUrl, serverName, mcpServerEntry }
- *     | { status: "expired" } | { status: "consumed" }
- *     | { status: "error" | "not_found", message? }
- *
- * Node-only. Node built-ins + global fetch only; no npm deps.
- */
-
 import { ClientId, writeHttpEntryForClient } from "./mcp-config-writers.js";
 
 const DEVICE_START_PATH = "/mcp/connect/device/start";
@@ -39,7 +5,6 @@ const DEVICE_POLL_PATH = "/mcp/connect/device/poll";
 const MCP_PATH = "/mcp";
 const LEGACY_MCP_PATH = "/_agent-native/mcp";
 
-/** OAuth-capable clients (in-host remote MCP OAuth, never a local bearer). */
 const REMOTE_MCP_OAUTH_CLIENTS = new Set<ClientId>([
   "claude-code",
   "claude-code-cli",
@@ -58,18 +23,6 @@ const CLIENT_LABELS: Record<ClientId, string> = {
   "github-copilot": "GitHub Copilot / VS Code",
 };
 
-// ---------------------------------------------------------------------------
-// Public types
-// ---------------------------------------------------------------------------
-
-/**
- * Describes one MCP server to register. `serverName` is the canonical config
- * key; `aliases` are additional config keys that point at the same MCP URL
- * (e.g. `plan` + `agent-native-plans`). `hostedUrl` is the deployed app origin
- * the device-code flow authenticates against; `mcpUrl` is the resolved MCP
- * endpoint written into the config (defaults to `<hostedUrl>/mcp`
- * when only `hostedUrl` is supplied).
- */
 export interface McpDescriptor {
   serverName: string;
   mcpUrl: string;
@@ -98,10 +51,6 @@ export interface RegisterMcpResult {
   authenticated: boolean;
   guidance: string[];
 }
-
-// ---------------------------------------------------------------------------
-// Device-code protocol shapes (field names match core EXACTLY).
-// ---------------------------------------------------------------------------
 
 interface DeviceStartResponse {
   device_code: string;
@@ -135,10 +84,6 @@ interface DeviceGrant {
   headers?: Record<string, string>;
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 export function supportsRemoteMcpOAuth(client: ClientId): boolean {
   return REMOTE_MCP_OAUTH_CLIENTS.has(client);
 }
@@ -149,7 +94,6 @@ function realSleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** Trailing-slash-stripped origin+path for a hosted app URL. */
 function stripTrailingSlash(url: string): string {
   return url.replace(/\/+$/, "");
 }
@@ -162,11 +106,6 @@ function canonicalAgentNativeMcpUrl(url: string): string {
   return trimmed;
 }
 
-/**
- * Resolve the MCP endpoint URL for a descriptor. Prefers an explicit `mcpUrl`,
- * otherwise derives `<hostedUrl>/mcp` (mirrors core's
- * `mcpUrlForBaseUrl`). Returns `undefined` when neither is usable.
- */
 function resolveMcpUrl(descriptor: McpDescriptor): string | undefined {
   if (descriptor.mcpUrl && descriptor.mcpUrl.trim()) {
     return canonicalAgentNativeMcpUrl(descriptor.mcpUrl.trim());
@@ -178,12 +117,10 @@ function resolveMcpUrl(descriptor: McpDescriptor): string | undefined {
   return undefined;
 }
 
-/** Base (origin) URL of the deployed app the device flow runs against. */
 function resolveBaseUrl(descriptor: McpDescriptor): string | undefined {
   if (descriptor.hostedUrl && descriptor.hostedUrl.trim()) {
     return stripTrailingSlash(descriptor.hostedUrl.trim());
   }
-  // Fall back to stripping the MCP path off an explicit mcpUrl.
   if (descriptor.mcpUrl && descriptor.mcpUrl.trim()) {
     const trimmed = stripTrailingSlash(descriptor.mcpUrl.trim());
     if (trimmed.endsWith(LEGACY_MCP_PATH)) {
@@ -196,7 +133,6 @@ function resolveBaseUrl(descriptor: McpDescriptor): string | undefined {
   return undefined;
 }
 
-/** All config keys to register: the canonical name plus any aliases (deduped). */
 function configKeys(descriptor: McpDescriptor): string[] {
   const keys: string[] = [descriptor.serverName];
   for (const alias of descriptor.aliases ?? []) {
@@ -243,10 +179,6 @@ async function postJson(
   }
 }
 
-/**
- * The exact no-browser fallback command core prints. Surfaced as guidance when
- * a device-code client is asked to register non-interactively.
- */
 function clientArgForClients(clients: ClientId[]): string {
   return clients.length === 1 ? clients[0] : clients.join(",");
 }
@@ -261,7 +193,6 @@ function fallbackConnectCommand(
   )} --scope ${scope}`;
 }
 
-/** Write a URL-only entry (no bearer) for every config key, collecting files. */
 function writeUrlOnlyEntries(
   clients: ClientId[],
   keys: string[],
@@ -332,7 +263,6 @@ function oauthNextStepsForClients(
   return lines;
 }
 
-/** Write a token+headers entry for every config key, collecting files. */
 function writeAuthedEntries(
   clients: ClientId[],
   keys: string[],
@@ -366,16 +296,6 @@ function writeAuthedEntries(
   }
 }
 
-// ---------------------------------------------------------------------------
-// Device-code flow (dependency-free port of core's runDeviceFlow)
-// ---------------------------------------------------------------------------
-
-/**
- * Run the device-code flow against `baseUrl` and return the approved grant, or
- * `null` (after logging a clear message) on expiry/consumed/error/timeout. Same
- * state machine and field handling as core; the spinner/browser-open are
- * dropped since this runs inside a non-interactive installer context.
- */
 async function runDeviceFlow(
   baseUrl: string,
   appSlug: string,
@@ -453,7 +373,6 @@ async function runDeviceFlow(
         poll = (json ?? { status: "pending" }) as DevicePollResponse;
       }
     } catch {
-      // Transient network error — keep polling until the deadline.
       poll = { status: "pending" };
     }
 
@@ -519,17 +438,6 @@ function isTerminalPollBody(json: any): boolean {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Public entry point
-// ---------------------------------------------------------------------------
-
-/**
- * Register an MCP server (plus aliases) into the requested client configs,
- * authenticating device-code clients via the browser flow when interactive.
- *
- * Idempotent: re-running replaces the same named entries. Never throws on a
- * single client/key failing — failures are collected into `guidance`.
- */
 export async function registerMcpServer(
   opts: RegisterMcpOptions,
 ): Promise<RegisterMcpResult> {
@@ -556,7 +464,6 @@ export async function registerMcpServer(
 
   const authMode = descriptor.authMode ?? "device";
 
-  // authMode "none" (e.g. context-xray): URL-only for ALL clients, no auth.
   if (authMode === "none") {
     writeUrlOnlyEntries(
       opts.clients,
@@ -570,11 +477,9 @@ export async function registerMcpServer(
     return { written, authenticated, guidance: [...guidance, ...errors] };
   }
 
-  // Split into OAuth-capable and device-code clients, exactly like core.
   const oauthClients = opts.clients.filter((c) => supportsRemoteMcpOAuth(c));
   const deviceClients = opts.clients.filter((c) => !supportsRemoteMcpOAuth(c));
 
-  // OAuth clients always get URL-only entries (in-host OAuth, no local bearer).
   if (oauthClients.length > 0) {
     writeUrlOnlyEntries(
       oauthClients,
@@ -591,7 +496,6 @@ export async function registerMcpServer(
     );
   }
 
-  // Device-code clients.
   if (deviceClients.length > 0) {
     const baseUrl = resolveBaseUrl(descriptor);
 
@@ -627,7 +531,6 @@ export async function registerMcpServer(
       );
 
       if (grant && grant.token) {
-        // Write authed entries; honour the server's resolved mcpUrl when given.
         const resolvedUrl = grant.mcpUrl || mcpUrl;
         writeAuthedEntries(
           deviceClients,
@@ -659,9 +562,7 @@ function describeClients(clients: ClientId[]): string {
   return clients.map((client) => CLIENT_LABELS[client]).join(", ");
 }
 
-/** Derive the `app` slug the device-start endpoint expects. */
 function appSlugFor(descriptor: McpDescriptor, baseUrl: string): string {
-  // Prefer the descriptor's server name without the agent-native prefix.
   const name = descriptor.serverName.replace(/^agent-native-/, "");
   if (name) return name;
   try {

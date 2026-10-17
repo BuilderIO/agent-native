@@ -22,6 +22,7 @@ vi.mock("../server/core-routes-plugin.js", () => ({
 vi.mock("./pending-tasks-store.js", () => ({
   ensurePendingTasksTable: ensurePendingTasksTableMock,
   MAX_PENDING_TASK_ATTEMPTS: 3,
+  MAX_RECOVERABLE_PENDING_TASK_AGE_MS: 24 * 60 * 60 * 1000,
 }));
 
 vi.mock("./integration-durable-dispatch.js", () => ({
@@ -79,6 +80,7 @@ describe("pending task retry job", () => {
           "task-processing",
           "processing",
           10,
+          expect.any(Number),
         ],
       }),
     );
@@ -162,6 +164,7 @@ describe("pending task retry job", () => {
           "task-exhausted",
           "pending",
           20,
+          expect.any(Number),
         ],
       }),
     );
@@ -191,6 +194,7 @@ describe("pending task retry job", () => {
           Date.now() - 90_000,
           Date.now() - 16 * 60_000,
           Date.now() - 75_000,
+          Date.now() - 24 * 60 * 60_000,
           100,
         ],
       }),
@@ -235,6 +239,7 @@ describe("pending task retry job", () => {
           "task-stale-pending",
           "pending",
           30,
+          expect.any(Number),
         ],
       }),
     );
@@ -248,6 +253,7 @@ describe("pending task retry job", () => {
           "task-stale-processing",
           "processing",
           40,
+          expect.any(Number),
         ],
       }),
     );

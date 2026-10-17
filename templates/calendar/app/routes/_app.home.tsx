@@ -1,3 +1,6 @@
+import { useSearchParams } from "react-router";
+
+import { parseCalendarSlotPrefill } from "@/lib/calendar-slot-prefill";
 import CalendarView from "@/pages/CalendarView";
 
 const SEO_TITLE =
@@ -21,5 +24,6 @@ export function meta() {
 }
 
 export default function HomeRoute() {
-  return <CalendarView />;
+  const [searchParams] = useSearchParams();
+  return <CalendarView slotPrefill={parseCalendarSlotPrefill(searchParams)} />;
 }

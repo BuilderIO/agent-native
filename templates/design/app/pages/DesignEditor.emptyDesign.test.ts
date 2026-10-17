@@ -1,24 +1,31 @@
-import { readFileSync } from "node:fs";
-
 import { describe, expect, it } from "vitest";
 
-const source = readFileSync(
-  new URL("./DesignEditor.tsx", import.meta.url),
-  "utf8",
-);
+import { readDesignEditorSource } from "./design-editor/read-design-editor-source";
+
+const source = readDesignEditorSource();
 
 describe("empty design", () => {
+  it("shares composer context with signed-in editor chats, not capability-only sessions", () => {
+    const surfaceStart = source.indexOf("<MemoAgentChatSurface");
+    const surfaceEnd = source.indexOf('mode="panel"', surfaceStart);
+    expect(surfaceStart).toBeGreaterThan(-1);
+    expect(surfaceEnd).toBeGreaterThan(surfaceStart);
+    expect(source.slice(surfaceStart, surfaceEnd)).toMatch(
+      /composerContextProvider=\{\s*isSignedIn \? DesignComposerContextProvider : undefined\s*\}/,
+    );
+    expect(source).toContain(") : canApplyPendingVisualEditsWithAgent ? (");
+    expect(source).toContain(
+      "canEditDesign && (isSignedIn || hostEmbeddedEditor || pageHasWebMcpHost())",
+    );
+  });
+
   it("renders the board instead of an empty state", () => {
-    // Overview draws the board with zero screens, so only the single-screen
-    // canvas needs a file. Requiring one here is what produced a full-page
-    // "No files yet" card on the one screen where drawing is the whole point.
     expect(source).toContain(') : viewMode === "overview" || activeFile ? (');
     expect(source).not.toContain("designEditor.noFiles");
     expect(source).not.toContain("canvasEngaged");
   });
 
   it("keeps a failed generation recoverable", () => {
-    // Losing the card entirely would strand a failed run with no retry.
     expect(source).toContain("<GenerationStatusCard");
     expect(source).toContain("onRetry={handleRetryGeneration}");
     const gate = source.slice(
@@ -27,6 +34,26 @@ describe("empty design", () => {
     );
     expect(gate).toContain(
       "generating || pendingGenerationActive || generationIssue",
+    );
+  });
+
+  it("keeps the prompt and blocks generation when Labs state is unreadable", () => {
+    const submit = source.slice(
+      source.indexOf("onSubmit={async (\n          prompt: string,"),
+      source.indexOf('title={t("designEditor.tweaksPromptTitle")'),
+    );
+    const labStateGuard = submit.indexOf("if (!creativeContextLab.isSuccess)");
+
+    expect(labStateGuard).toBeGreaterThanOrEqual(0);
+    expect(submit.indexOf("setGenerationIssue(issue)")).toBeGreaterThan(
+      labStateGuard,
+    );
+    expect(submit.indexOf("throw new Error(issue)")).toBeGreaterThan(
+      labStateGuard,
+    );
+    expect(submit.indexOf("agentSubmit(")).toBeGreaterThan(labStateGuard);
+    expect(submit.indexOf("patchPendingGeneration(")).toBeGreaterThan(
+      labStateGuard,
     );
   });
 
@@ -44,11 +71,7 @@ describe("empty design", () => {
       source.indexOf("const openGenerateInAgent = useCallback"),
       source.indexOf("const arrivedFromNewDesign"),
     );
-    // Goes through agent-panel:open, which opens the panel AND focuses the
-    // composer — a direct setActiveLeftPanel would open it with no caret.
     expect(handler).toContain('new Event("agent-panel:open")');
-    // Focus lives in focus-agent-composer.ts with its own retry tests; the
-    // listener must call it instead of growing a second copy here.
     const listener = source.slice(
       source.indexOf("const openAgentPanel = () => {"),
       source.indexOf('window.addEventListener("agent-panel:open"'),

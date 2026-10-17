@@ -1,5 +1,14 @@
+import { createHash } from "node:crypto";
+
+import {
+  FACTORY_ALIGNMENT_REVISION,
+  managedReviewSkillAlignment,
+  managedReviewSkillAlignmentMarkers,
+  type FactoryAutomationName,
+} from "../triage/review-skill-alignment.js";
 import {
   factoryAutomationLeafName,
+  readAutomationDisplayName,
   setAutomationFrontmatterField,
 } from "./factory-scope.js";
 
@@ -7,6 +16,8 @@ export const FACTORY_INBOX_LIMIT_MAX = 50;
 export const FACTORY_WORK_LIMIT_MAX = 10;
 export const FACTORY_INBOX_LIMIT_DEFAULT = 25;
 export const FACTORY_INTERVAL_MINUTES = [5, 10, 15, 30, 60] as const;
+export const QA_AGENT_NATIVE_SLACK_CHANNEL_ID = "C0C4U4XRT6X";
+export const QA_AGENT_NATIVE_SLACK_CHANNEL_NAME = "#qa-agent-native";
 
 export type FactoryAutomationSource = "slack" | "github" | "sentry";
 export type FactoryAutomationAuthorMode = "include" | "exclude";
@@ -43,6 +54,17 @@ export type FactoryAutomationConfig = {
   workLimit: number;
 };
 
+export function requiresSlackFindingsDestination(
+  config: Pick<FactoryAutomationConfig, "source" | "template">,
+): boolean {
+  if (config.source === "sentry") return true;
+  return (
+    config.source === "github" &&
+    config.template !== "pr-governance" &&
+    config.template !== "pr-babysit"
+  );
+}
+
 const SLACK_MEMBER_ID = /^[UW][A-Z0-9]+$/i;
 const GITHUB_USER_ID = /^[1-9][0-9]*$/;
 const LEAF_SOURCE: Record<string, FactoryAutomationSource> = {
@@ -74,7 +96,6 @@ function asAutomationSource(
   return null;
 }
 
-/** Seed leaf, including create copies like `factory-pr-babysit-2`. */
 export function canonicalSeedLeafName(nameOrPath: string): string | null {
   const leaf = factoryAutomationLeafName(nameOrPath);
   if (LEAF_SOURCE[leaf]) return leaf;
@@ -196,8 +217,6 @@ export function inferAutomationSource(
   nameOrPath: string,
   content?: string,
 ): FactoryAutomationSource | null {
-  // Template, seed leaf, and destination outrank YAML `source`. A Save that
-  // defaulted a GitHub copy to Slack must not keep winning on the next read.
   const templateRaw = content
     ? readFrontmatterValue(content, "template")
     : undefined;
@@ -314,7 +333,7 @@ export function destinationKey(config: FactoryAutomationConfig): string {
     .join("/");
 }
 
-function readFrontmatterValue(
+export function readFrontmatterValue(
   content: string,
   key: string,
 ): string | undefined {
@@ -327,6 +346,52 @@ function readFrontmatterValue(
   const value = match?.[1]?.trim();
   if (!value) return undefined;
   return value.replace(/^["']|["']$/g, "");
+}
+
+export function readPromptVersion(content: string): number {
+  const raw = readFrontmatterValue(content, "promptVersion");
+  const parsed = Number(raw ?? "0");
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : 0;
+}
+
+export function readConfigSavedAt(content: string): string | null {
+  return readFrontmatterValue(content, "configSavedAt") ?? null;
+}
+
+export function readAlignmentRevision(content: string): number {
+  const raw = readFrontmatterValue(content, "alignmentRevision");
+  const parsed = Number(raw ?? "0");
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : 0;
+}
+
+export function splitAutomationFrontmatter(content: string): {
+  frontmatter: string;
+  body: string;
+} {
+  if (!content.startsWith("---\n")) {
+    return { frontmatter: "", body: content.trim() };
+  }
+  const end = content.indexOf("\n---", 4);
+  if (end === -1) {
+    return { frontmatter: "", body: content.trim() };
+  }
+  return {
+    frontmatter: content.slice(0, end + 4),
+    body: content.slice(end + 4).trim(),
+  };
+}
+
+export function assembleAutomationContent(
+  frontmatter: string,
+  body: string,
+): string {
+  const trimmedBody = body.trim();
+  if (!frontmatter.trim()) {
+    return trimmedBody ? `${trimmedBody}\n` : "";
+  }
+  return trimmedBody
+    ? `${frontmatter}\n\n${trimmedBody}\n`
+    : `${frontmatter}\n`;
 }
 
 export function parseAuthorIdsField(value: string | undefined): string[] {
@@ -396,7 +461,7 @@ export function readFactoryAutomationConfig(
   };
 }
 
-const OPTIONAL_DESTINATION_FRONTMATTER_FIELDS = new Set([
+export const OPTIONAL_DESTINATION_FRONTMATTER_FIELDS = new Set([
   "slackChannelId",
   "slackChannelName",
   "repository",
@@ -404,6 +469,94 @@ const OPTIONAL_DESTINATION_FRONTMATTER_FIELDS = new Set([
   "sentryProjectSlug",
   "sentryEnvironment",
 ]);
+
+export function restoreFactoryAutomationIdentityFields(
+  originalContent: string,
+  repairedContent: string,
+  nameOrPath: string,
+): string {
+  let next = repairedContent;
+  const displayName = readAutomationDisplayName(originalContent);
+  if (displayName && !readAutomationDisplayName(next)) {
+    next = setAutomationFrontmatterField(next, "displayName", displayName);
+  }
+  const original = readFactoryAutomationConfig(originalContent, nameOrPath);
+  const repaired = readFactoryAutomationConfig(next, nameOrPath);
+  for (const key of ["slackChannelId", "slackChannelName"] as const) {
+    const saved = original[key]?.trim();
+    if (saved && !repaired[key]?.trim()) {
+      next = setAutomationFrontmatterField(next, key, saved);
+    }
+  }
+  if (original.authorIds.length > 0 && repaired.authorIds.length === 0) {
+    next = setAutomationFrontmatterField(
+      next,
+      "authorMode",
+      original.authorMode,
+    );
+    next = setAutomationFrontmatterField(
+      next,
+      "authorIds",
+      original.authorIds.join(","),
+    );
+  }
+  return next;
+}
+
+export type AutomationTriggerStamp = {
+  content: string;
+  /** Why the file stays untagged; absent when it is tagged. */
+  skipped?: string;
+};
+
+/**
+ * Tags a job file with its trigger type so core treats it as an automation.
+ * The tag moves the scheduler from its legacy identity fallback to strict
+ * checks (`createdBy`, `runAs: creator`, and an `orgId` matching the owner),
+ * so a file is tagged only when it can pass them. Defaults the legacy path
+ * already assumes are written down; a creator is never invented.
+ */
+export function stampAutomationTriggerType(
+  content: string,
+  options: { orgId: string; triggerType?: string; identityFrom?: string },
+): AutomationTriggerStamp {
+  if (readFrontmatterValue(content, "triggerType") != null) return { content };
+  const read = (key: string) =>
+    readFrontmatterValue(content, key) ??
+    (options.identityFrom
+      ? readFrontmatterValue(options.identityFrom, key)
+      : undefined);
+  const createdBy = read("createdBy");
+  if (!createdBy) return { content, skipped: "it has no createdBy" };
+  const runAs = read("runAs") ?? "creator";
+  if (runAs !== "creator") {
+    return { content, skipped: `it runs as "${runAs}"` };
+  }
+  const orgId = read("orgId") ?? options.orgId;
+  if (orgId !== options.orgId) {
+    return {
+      content,
+      skipped: `its orgId is "${orgId}", not "${options.orgId}"`,
+    };
+  }
+  let next = content;
+  for (const [key, value] of [
+    ["createdBy", createdBy],
+    ["runAs", runAs],
+    ["orgId", orgId],
+  ] as const) {
+    if (readFrontmatterValue(next, key) == null) {
+      next = setAutomationFrontmatterField(next, key, value);
+    }
+  }
+  return {
+    content: setAutomationFrontmatterField(
+      next,
+      "triggerType",
+      options.triggerType ?? "schedule",
+    ),
+  };
+}
 
 export function applyAutomationConfigFrontmatter(
   content: string,
@@ -434,8 +587,6 @@ export function applyAutomationConfigFrontmatter(
     ["schedule", scheduleCron(config)],
   ];
   for (const [key, value] of fields) {
-    // null = omitted (repair/default): keep the existing YAML line.
-    // "" = explicit clear from save: delete the line.
     if (OPTIONAL_DESTINATION_FRONTMATTER_FIELDS.has(key) && value == null) {
       continue;
     }
@@ -473,9 +624,15 @@ export function buildGuardrailsText(
     );
   }
   if (config.template !== "pr-governance" && config.template !== "pr-babysit") {
-    lines.push(
-      "After classifying each item this run works on, call dispatch-factory-item with clearBug true or false and a short reason so the skip or start is recorded.",
-    );
+    if (config.source === "github" || config.source === "sentry") {
+      lines.push(
+        "Classify every item. Record non-eligible items as skips with dispatch-factory-item. Group all eligible GitHub issue or Sentry findings into one report-factory-findings call per run; it posts one message to #qa-agent-native and never writes to GitHub issues.",
+      );
+    } else {
+      lines.push(
+        "After classifying each item this run works on, call dispatch-factory-item with clearBug true or false, risk, confidence, and a short reason so the skip or start is recorded; Builder is only tagged when clearBug is true, risk is low, and confidence is high.",
+      );
+    }
   }
   if (config.source === "slack") {
     lines.push(
@@ -498,54 +655,181 @@ export function extractGuardrails(content: string): string {
   return content.slice(start + GUARDRAILS_START.length, end).trim();
 }
 
-export function stripInjectedAutomationBlocks(content: string): string {
-  let next = content;
+const { start: ALIGNMENT_START, end: ALIGNMENT_END } =
+  managedReviewSkillAlignmentMarkers();
+
+function stripInjectedBlocksOnce(text: string): {
+  next: string;
+  changed: boolean;
+} {
+  let next = text;
+  let changed = false;
   const guardStart = next.indexOf(GUARDRAILS_START);
   const guardEnd = next.indexOf(GUARDRAILS_END);
   if (guardStart !== -1 && guardEnd !== -1 && guardEnd > guardStart) {
     next = `${next.slice(0, guardStart)}${next.slice(guardEnd + GUARDRAILS_END.length)}`;
+    changed = true;
   }
-  const alignStart = next.indexOf("<!-- factory-skill-alignment:start -->");
-  const alignEnd = next.indexOf("<!-- factory-skill-alignment:end -->");
+  const alignStart = next.indexOf(ALIGNMENT_START);
+  const alignEnd = next.indexOf(ALIGNMENT_END);
   if (alignStart !== -1 && alignEnd !== -1 && alignEnd > alignStart) {
-    next = `${next.slice(0, alignStart)}${next.slice(alignEnd + "<!-- factory-skill-alignment:end -->".length)}`;
+    next = `${next.slice(0, alignStart)}${next.slice(alignEnd + ALIGNMENT_END.length)}`;
+    changed = true;
   }
-  next = next.replace(
+  const scopeStripped = next.replace(
     /This automation runs for factory `[^`]+`\. Pass `factoryId: "[^"]+"` on every Factory triage, poll, and config action in this run\.\n*/g,
     "",
   );
-  const bodyStart = next.startsWith("---\n") ? next.indexOf("\n---", 4) + 4 : 0;
-  if (bodyStart > 3 && next.startsWith("---\n")) {
-    return next.slice(bodyStart).trim();
+  if (scopeStripped !== next) {
+    next = scopeStripped;
+    changed = true;
+  }
+  return { next, changed };
+}
+
+export function stripInjectedAutomationBlocks(content: string): string {
+  const { frontmatter, body } = splitAutomationFrontmatter(content);
+  let next = body;
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const { next: stripped, changed } = stripInjectedBlocksOnce(next);
+    next = stripped;
+    if (!changed) break;
+  }
+  const normalized = next.trim();
+  return frontmatter ? normalized : normalized;
+}
+
+export function normalizeUserPrompt(input: string): string {
+  if (input.startsWith("---\n")) {
+    return stripInjectedAutomationBlocks(input);
+  }
+  let next = input;
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const { next: stripped, changed } = stripInjectedBlocksOnce(next);
+    next = stripped;
+    if (!changed) break;
   }
   return next.trim();
 }
 
-export function replaceUserPrompt(content: string, prompt: string): string {
-  if (!content.startsWith("---\n")) return prompt;
-  const end = content.indexOf("\n---", 4);
-  if (end === -1) return prompt;
-  const frontmatter = content.slice(0, end + 4);
+export function countSkillAlignmentBlocks(content: string): number {
+  const { body } = splitAutomationFrontmatter(content);
+  if (!body.includes(ALIGNMENT_START)) return 0;
+  return body.split(ALIGNMENT_START).length - 1;
+}
+
+export function needsAutomationBodyRepair(content: string): boolean {
+  const alignmentBlocks = countSkillAlignmentBlocks(content);
+  if (alignmentBlocks > 1) return true;
+  const revision = readAlignmentRevision(content);
+  if (revision >= FACTORY_ALIGNMENT_REVISION) return false;
+  return alignmentBlocks === 1;
+}
+
+function resolveManagedAutomationName(
+  automationName: string,
+): FactoryAutomationName | null {
+  const seed = canonicalSeedLeafName(automationName);
+  if (!seed) return null;
+  if (
+    seed === "factory-slack-feedback" ||
+    seed === "factory-sentry-errors" ||
+    seed === "factory-github-issues" ||
+    seed === "factory-pr-governance" ||
+    seed === "factory-pr-babysit"
+  ) {
+    return seed;
+  }
+  return null;
+}
+
+export function buildSkillAlignmentBlock(automationName: string): string {
+  const managedName = resolveManagedAutomationName(automationName);
+  if (!managedName) return "";
+  const alignment = managedReviewSkillAlignment(managedName);
+  if (!alignment) return "";
+  return `${ALIGNMENT_START}\n${alignment.trim()}\n${ALIGNMENT_END}`;
+}
+
+export function composeFactoryAutomationBody(options: {
+  userPrompt: string;
+  automationName: string;
+  factoryId: string;
+  config: FactoryAutomationConfig;
+}): string {
+  const userText = normalizeUserPrompt(options.userPrompt);
+  const guardrails = wrapGuardrails(
+    buildGuardrailsText(options.factoryId, options.config),
+  );
+  const alignmentBlock = buildSkillAlignmentBlock(options.automationName);
+  const parts = [guardrails, alignmentBlock, userText].filter(Boolean);
+  return `${parts.join("\n\n")}\n`;
+}
+
+function stripAlignmentMarkers(block: string): string {
+  return block.replace(ALIGNMENT_START, "").replace(ALIGNMENT_END, "").trim();
+}
+
+export function previewAutomationInstructions(options: {
+  factoryId: string;
+  config: FactoryAutomationConfig;
+  automationName: string;
+}): { guardrails: string; skillAlignment: string | null } {
+  const guardrails = buildGuardrailsText(options.factoryId, options.config);
+  const alignmentBlock = buildSkillAlignmentBlock(options.automationName);
+  return {
+    guardrails,
+    skillAlignment: alignmentBlock
+      ? stripAlignmentMarkers(alignmentBlock)
+      : null,
+  };
+}
+
+export function computeExecutionPromptHash(body: string): string {
+  return createHash("sha256").update(body.trim()).digest("hex");
+}
+
+export function replaceAutomationContentWithUserPrompt(
+  content: string,
+  userPrompt: string,
+  automationName: string,
+): string {
+  const { frontmatter } = splitAutomationFrontmatter(content);
+  if (!frontmatter) {
+    return normalizeUserPrompt(userPrompt);
+  }
   const factoryId = readFrontmatterValue(content, "factoryId") ?? "";
-  const config = readFactoryAutomationConfig(content);
-  const guardrails = buildGuardrailsText(factoryId, config);
-  const alignmentStart = content.indexOf(
-    "<!-- factory-skill-alignment:start -->",
+  const config = readFactoryAutomationConfig(content, automationName);
+  const body = composeFactoryAutomationBody({
+    userPrompt,
+    automationName,
+    factoryId,
+    config,
+  });
+  return assembleAutomationContent(frontmatter, body);
+}
+
+function inferAutomationNameFromContent(content: string): string {
+  const templateRaw = readFrontmatterValue(content, "template");
+  if (
+    templateRaw === "slack-feedback" ||
+    templateRaw === "github-issues" ||
+    templateRaw === "pr-governance" ||
+    templateRaw === "pr-babysit" ||
+    templateRaw === "sentry-errors"
+  ) {
+    return seedNameForTemplate(templateRaw) ?? "factory-slack-feedback";
+  }
+  return "factory-slack-feedback";
+}
+
+/** @deprecated Use replaceAutomationContentWithUserPrompt */
+export function replaceUserPrompt(content: string, prompt: string): string {
+  return replaceAutomationContentWithUserPrompt(
+    content,
+    prompt,
+    inferAutomationNameFromContent(content),
   );
-  const alignmentEnd = content.indexOf("<!-- factory-skill-alignment:end -->");
-  const alignment =
-    alignmentStart !== -1 && alignmentEnd !== -1
-      ? content
-          .slice(
-            alignmentStart,
-            alignmentEnd + "<!-- factory-skill-alignment:end -->".length,
-          )
-          .trim()
-      : "";
-  const parts = [wrapGuardrails(guardrails), alignment, prompt.trim()].filter(
-    Boolean,
-  );
-  return `${frontmatter}\n\n${parts.join("\n\n")}\n`;
 }
 
 export function templateIdForSeedName(

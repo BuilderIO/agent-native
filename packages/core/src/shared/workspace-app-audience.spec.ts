@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  DEFAULT_WORKSPACE_APP_HOME_PATH,
+  normalizeWorkspaceAppHomePath,
   normalizeWorkspaceAppPathList,
   workspaceAppRouteAccessFromPackageJson,
 } from "./workspace-app-audience.js";
@@ -24,8 +26,6 @@ describe("workspaceAppRouteAccessFromPackageJson", () => {
   });
 
   it("ignores garbage scalar types so typos don't silently clear overrides", () => {
-    // false / 0 / {} all normalize to [] inside normalizeWorkspaceAppPathList;
-    // the guard must reject them before they become "explicitly empty".
     for (const bad of [false, 0, {}, true]) {
       expect(
         workspaceAppRouteAccessFromPackageJson({
@@ -51,8 +51,6 @@ describe("workspaceAppRouteAccessFromPackageJson", () => {
   });
 
   it("treats null as absent (falls through the alias `??` chain)", () => {
-    // The alias resolution uses `??`, so null doesn't short-circuit. To
-    // clear an inherited override, use an empty array.
     expect(
       workspaceAppRouteAccessFromPackageJson({
         "agent-native": { workspaceApp: { publicPaths: null } },
@@ -74,5 +72,24 @@ describe("normalizeWorkspaceAppPathList", () => {
 
   it("strips trailing slash but keeps the root slash", () => {
     expect(normalizeWorkspaceAppPathList(["/foo/"])).toEqual(["/foo"]);
+  });
+});
+
+describe("normalizeWorkspaceAppHomePath", () => {
+  it("defaults missing or unsafe paths to the authenticated home", () => {
+    expect(normalizeWorkspaceAppHomePath(undefined)).toBe(
+      DEFAULT_WORKSPACE_APP_HOME_PATH,
+    );
+    expect(normalizeWorkspaceAppHomePath("https://evil.example")).toBe(
+      DEFAULT_WORKSPACE_APP_HOME_PATH,
+    );
+    expect(normalizeWorkspaceAppHomePath("/inbox?view=all")).toBe(
+      DEFAULT_WORKSPACE_APP_HOME_PATH,
+    );
+  });
+
+  it("preserves valid app-local routes and the root route", () => {
+    expect(normalizeWorkspaceAppHomePath(" /inbox/ ")).toBe("/inbox");
+    expect(normalizeWorkspaceAppHomePath("/")).toBe("/");
   });
 });

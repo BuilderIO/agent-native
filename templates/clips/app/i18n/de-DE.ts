@@ -1,10 +1,169 @@
 const messages = {
+  meetingAsk: { resizeOrDismissAnswers: "Antworten anpassen oder schließen" },
+  lookbackContext: {
+    includeLast: "Letzte einbeziehen",
+    whatIsThis: "Was ist das?",
+    off: "Aus",
+    none: "Keine",
+    noneExplanation:
+      "„Keine“ bedeutet, dass neue Clips keine frühere Bildschirmzeit enthalten. Rewind zeichnet deinen Bildschirm weiter auf, solange es eingeschaltet ist. Wähle unten „Ausschalten“, um die Aufnahme zu stoppen.",
+    custom: "Benutzerdefiniert…",
+    customLabel: "Benutzerdefinierte Dauer",
+    customAmount: "Dauer",
+    customUnit: "Einheit",
+    unitSeconds: "Sekunden",
+    unitMinutes: "Minuten",
+    customSave: "Dauer verwenden",
+    customErrorEmpty: "Gib eine Dauer ein.",
+    customErrorInvalid: "Gib eine ganze Zahl in Sekunden oder Minuten ein.",
+    customErrorTooLong: "Höchstens 5 Min.",
+    turnOnRewind: "Rewind aktivieren",
+    turnOffRewind: "Ausschalten",
+    turnOffRewindFailed:
+      "Rewind konnte nicht deaktiviert werden. Beende die Aufnahme und versuche es erneut.",
+    turnOnRewindFailed:
+      "Rewind konnte nicht aktiviert werden. Versuch es erneut.",
+    turnOnRewindPermissionFailed:
+      "Erlaube Clips die Bildschirmaufnahme unter Systemeinstellungen > Datenschutz & Sicherheit > Bildschirm- und Systemaudioaufnahme. Starte Clips danach neu und versuche es erneut.",
+    turnOnRewindUnsupported:
+      "Die Bildschirmaufnahme mit Rewind ist nur unter macOS verfügbar.",
+    turnOnRewindNoSpace:
+      "Es ist nicht genug Speicherplatz vorhanden, um Rewind zu starten. Gib Speicherplatz frei und versuche es erneut.",
+    turnOnRewindStopClip:
+      "Beende den aktuellen Clip, bevor du Rewind aktivierst.",
+    turnOnRewindStorageFailed:
+      "Auf den Rewind-Speicher konnte nicht zugegriffen werden. Prüfe den freien Speicherplatz und die Ordnerberechtigungen und versuche es erneut.",
+    rewindConsentTitle: "Rewind aktivieren?",
+    rewindConsentBody:
+      "Wenn Rewind eingeschaltet ist, zeichnet Clips deinen Bildschirm fortlaufend auf und speichert den aktuellen Verlauf auf diesem Gerät, bis dein Zeit- oder Speicherlimit erreicht ist. Wähle „Bildschirm + Audio“, um auch Mikrofon und Systemton aufzunehmen. Verbundene Agents können einzelne Bildschirmbilder direkt abrufen, ohne eine Clips-Freigabe; was danach mit den Bildern geschieht, hängt vom Agent ab. Die gewählte Dauer für frühere Bildschirmzeit fügt Clips automatisch jedem neuen Clip hinzu; dafür gelten dessen Freigabeeinstellungen. Anfragen, einen ausgewählten Zeitraum als Clip zu teilen, werden standardmäßig vor dem Senden geprüft. Deaktiviere die Prüfung vor dem Senden in den Rewind-Einstellungen, damit solche Anfragen automatisch gesendet werden. Ein Clip kann aufgenommenes Mikrofon- und Systemaudio enthalten. Rewind auszuschalten stoppt neue Aufnahmen, aber der gespeicherte Verlauf bleibt erhalten. Wenn Rewind aus ist, kann der Verlauf deine Zeit- oder Speicherlimits überschreiten, bis die Aufnahme wieder startet. Wähle „Alles löschen“, um ihn jetzt zu entfernen.",
+    rewindConsentCancel: "Nicht jetzt",
+    rewindConsentConfirm: "Rewind aktivieren",
+    rewindConsentBusy: "Rewind wird aktiviert…",
+    rewindOffTitle: "Rewind aktivieren",
+    rewindOffBody:
+      "Um frühere Bildschirmzeit einzuschließen, aktiviere zuerst Rewind. Wenn Rewind eingeschaltet ist, speichert es den aktuellen Bildschirmverlauf auf diesem Gerät innerhalb deiner Zeit- und Speicherlimits. Ist Rewind ausgeschaltet, kann gespeicherter Verlauf diese Limits überschreiten, bis die Aufnahme wieder startet. Öffne zum Löschen Settings > Rewind > Storage > On this device und wähle Delete all. Anfragen für einen Clip werden standardmäßig vor dem Senden geprüft, sofern du die Prüfung vor dem Senden in den Rewind-Einstellungen nicht deaktivierst.",
+    requestFailed:
+      "Frühere Bildschirmzeit konnte nicht einbezogen werden. Die Aufnahme läuft ohne sie weiter.",
+    localOnlyUnavailable:
+      "Frühere Bildschirmzeit wird bei rein lokalen Aufnahmen nicht gespeichert.",
+    saving: "{{window}} davor wird gespeichert…",
+    ready: "Mit {{window}} davor",
+    failed: "Frühere Bildschirmzeit konnte nicht gespeichert werden",
+    unreadable: "Frühere Bildschirmzeit konnte nicht geprüft werden",
+    edit: "Bearbeiten",
+    editTitle: "Frühere Bildschirmzeit",
+    editSave: "Speichern",
+    editFailed:
+      "Das Zeitfenster konnte nicht gespeichert werden. Versuch es erneut.",
+    previewPreparing: "Vorschau wird vorbereitet…",
+    previewFailed: "Die Vorschau konnte nicht vorbereitet werden.",
+    previewLabel: "Vorschau der früheren Bildschirmzeit",
+    retry: "Erneut versuchen",
+    playSelection: "Auswahl abspielen",
+    removeFailed:
+      "Frühere Bildschirmzeit für die verworfene Aufnahme konnte nicht entfernt werden.",
+    removeFailedAction:
+      "Frühere Bildschirmzeit konnte nicht entfernt werden. Versuch es erneut.",
+    removeAction: "Frühere Bildschirmzeit entfernen",
+    removeConfirmTitle: "Frühere Bildschirmzeit entfernen?",
+    removeConfirmBody:
+      "Das Filmmaterial wird in den Papierkorb verschoben und der Clip enthält es nicht mehr.",
+    removeConfirm: "Entfernen",
+    removed: "Frühere Bildschirmzeit entfernt",
+    scrubberFromBefore: "Ab {{offset}} davor",
+    scrubberFromStart: "Ab Aufnahmebeginn",
+    scrubberToBefore: "Bis {{offset}} davor",
+    scrubberToStart: "Bis Aufnahmebeginn",
+    scrubberLength: "Dauer",
+    scrubberStartHandle: "Fensterbeginn",
+    scrubberEndHandle: "Fensterende",
+    tab: "Kontext",
+    label: "Bildschirm vor der Aufnahme",
+    window: "{{start}}–{{end}} vor der Aufnahme",
+    savingEarlierTime: "Frühere Bildschirmzeit wird gespeichert…",
+    loadFailed: "Frühere Bildschirmzeit konnte nicht geladen werden.",
+    empty: "An diesem Clip ist keine frühere Bildschirmzeit angehängt.",
+    larger: "Vergrößern",
+    editHint: "Bearbeite das Zeitfenster in Clips Desktop.",
+    waitingOtherDevice: "Warten auf das Gerät, das diesen Clip aufgenommen hat",
+  },
+  agentChat: {
+    setup: {
+      connectBuilder: "Builder.io nutzen",
+      providerStatusUnavailable:
+        "Es konnte nicht bestätigt werden, ob die KI bereit ist.",
+    },
+    common: { retry: "Erneut versuchen" },
+    onboarding: { skipForNow: "Vorerst überspringen" },
+  },
+  timelineTrack: {
+    helpOtherSide:
+      "Klicken Sie zuerst diesen Abschnitt an und ziehen Sie dann die rote Linie nach rechts.",
+    helpOtherSideTerm: "Stattdessen Material vom Abschnitt rechts entfernen",
+    helpRemove: "Klicken Sie ihn an und drücken Sie Entf.",
+    helpRemoveTerm: "Einen ganzen Abschnitt entfernen",
+    helpRestore:
+      "Klicken Sie ihn an und drücken Sie erneut Entf, oder nutzen Sie seinen Pfeil.",
+    helpRestoreTerm: "Einen entfernten Abschnitt zurückholen",
+    helpShorten:
+      "Ziehen Sie die rote Linie nach links. Alles, woran Sie vorbeiziehen, wird am Ende des Abschnitts links davon entfernt.",
+    helpShortenTerm: "Einen Abschnitt kürzen",
+    helpSplit: "Drücken Sie S. Der Schnitt erfolgt an der Abspielposition.",
+    helpSplitTerm: "Den Clip an der aktuellen Stelle teilen",
+    helpTitle: "Die Zeitleiste verwenden",
+    putBack: "Diesen Abschnitt zurückholen",
+    removedSection: "Entfernter Abschnitt, {{duration}}",
+    section: "Abschnitt {{start}} bis {{end}}",
+    sectionEndsAt: "Ende des Abschnitts bei {{at}} – zum Verschieben ziehen",
+    sectionStartsAt:
+      "Beginn des Abschnitts bei {{at}} – zum Verschieben ziehen",
+  },
+  redaction: {
+    box: "Schwärzungsfeld",
+    chip: "{{number}}. {{start}}–{{end}}",
+    endsAt: "Schwärzung endet bei {{at}}",
+    goTo: "Zu dieser Schwärzung springen",
+    helpDraw: "Ziehen Sie über das Bild.",
+    helpDrawTerm: "Etwas abdecken",
+    helpFollow:
+      "Spulen Sie vor und ziehen Sie das Feld dorthin, wo sich das Objekt nun befindet. Das Feld bewegt sich zwischen den von Ihnen gesetzten Punkten. Zeichnen Sie es etwas größer als das, was es abdeckt.",
+    helpFollowTerm: "Etwas verfolgen, das sich bewegt",
+    helpLead:
+      "Nichts ist verborgen, bis Sie auf Einbrennen drücken. Bis dahin liegt das Feld nur darüber, und das Video darunter zeigt weiterhin alles.",
+    helpMove: "Ziehen Sie das Feld oder eine seiner Ecken.",
+    helpMoveTerm: "Ein Feld verschieben oder in der Größe ändern",
+    helpRemove:
+      "Klicken Sie es an und drücken Sie Entf. Cmd+Z stellt es wieder her.",
+    helpRemoveTerm: "Ein Feld entfernen",
+    helpStylesTerm: "Unschärfe oder Deckend",
+    helpTiming:
+      "Ziehen Sie eines der Enden des Balkens in der Spur unter der Zeitleiste.",
+    helpTimingTerm: "Ändern, wann ein Feld erscheint",
+    helpTitle: "Schwärzung verwenden",
+    helpWaypoint:
+      "Jede ist ein von Ihnen gesetzter Punkt. Ziehen Sie eine, um ihren Zeitpunkt zu ändern, oder drücken Sie zweimal darauf, um sie zu entfernen.",
+    helpWaypointTerm: "Die Rauten auf diesem Balken",
+    helpWhenInDoubt: "Beide Varianten verbergen den Bereich vollständig.",
+    notYetBurned:
+      "{{count}} Schwärzung(en) sind eingezeichnet, aber nicht angewendet – das Video zeigt weiterhin alles darunter, bis Sie sie einbrennen.",
+    range: "Schwärzung von {{start}} bis {{end}}",
+    remove: "Schwärzung {{number}} löschen",
+    resize: "Größe dieser Schwärzung ändern",
+    resizeTopLeft: "Größe dieser Schwärzung von oben links ändern",
+    startsAt: "Schwärzung beginnt bei {{at}}",
+    styleBlur: "Unschärfe",
+    styleBlurHint:
+      "Unschärfe: ein über den Bereich erzeugter Farbschleier. Nichts von dem, was darunter lag, fließt in ihn ein, es gibt also nichts darin wiederherzustellen.",
+    styleSolid: "Deckend",
+    styleSolidHint:
+      "Deckend: füllt den Bereich mit einer Farbe. Genauso sicher wie Unschärfe – keine von beiden wird aus dem Abgedeckten erzeugt – wählen Sie also, was im Clip besser aussieht.",
+    waypoint: "Wegpunkt bei {{at}}",
+  },
   common: {
     cancel: "Abbrechen",
     create: "Erstellen",
     save: "Speichern",
     saving: "Speichern…",
-    saveChanges: "Änderungen speichern",
     connected: "Verbunden",
     notConnected: "Nicht verbunden",
     disconnect: "Trennen",
@@ -49,6 +208,7 @@ const messages = {
   navigation: {
     brand: "Clips",
     library: "Bibliothek",
+    screenshots: "Screenshots",
     sharedWithMe: "Mit mir geteilt",
     spaces: "Bereiche",
     meetings: "Treffen",
@@ -66,7 +226,9 @@ const messages = {
     folders: "Ordner",
     recordings: "Aufnahmen",
     newFolder: "Neuer Ordner",
-    noSpaces: "Noch keine Bereiche",
+    noSpaces: "Bringt eure Clips an einem Ort zusammen",
+    noSpacesAdminCta:
+      "Bitte einen Organisationsadmin, den ersten Bereich anzulegen.",
     desktopCta: "Desktop-App laden",
     desktopTitle: "Hol dir die Clips-Desktop-App.",
     desktopBody:
@@ -74,44 +236,47 @@ const messages = {
     expandSidebar: "Seitenleiste erweitern",
     collapseSidebar: "Seitenleiste einklappen",
     agentEmptyState: "Wie kann ich dir mit deinen Aufnahmen helfen?",
-    agentSuggestionSummary: "Fasse meine letzte Aufnahme zusammen",
-    agentSuggestionPricing: "Finde, wo ich Preise erwähnt habe",
-    agentSuggestionFiller: "Entferne Füllwörter aus diesem Clip",
+    agentSuggestionSummary: "Aufnahme zusammenfassen",
+    agentSuggestionPricing: "Preiserwähnungen finden",
+    agentSuggestionFiller: "Füllwörter entfernen",
+    agentScreenshotSuggestionSummary: "Screenshots zusammenfassen",
+    agentScreenshotSuggestionText: "Text in Screenshots finden",
+    agentScreenshotSuggestionCompare: "Screenshots vergleichen",
     createFolderError: "Erstellen fehlgeschlagen",
     folderCreated: "Ordner erstellt",
     folderNamePlaceholder: "Ordnername",
   },
   empty: {
     library: {
-      title: "Deine Bibliothek ist leer",
-      body: "Nimm deine erste Bildschirmaufnahme auf; sie erscheint hier und ist bereit zum Teilen.",
-      cta: "Ersten Clip aufnehmen",
+      title: "Deine Clips starten hier",
+      body: "Nimm deinen Bildschirm, deine Kamera oder beides auf. Dein Clip ist hier bereit zum Prüfen und Teilen.",
+      cta: "Clip aufnehmen",
     },
     shared: {
-      title: "Noch keine Clips mit dir geteilt",
-      body: "Clips, die Teammitglieder mit dir teilen, erscheinen hier.",
+      title: "Entdecke mit dir geteilte Aufnahmen",
+      body: "Sieh dir Clips aus deinem Team an und beteilige dich mit Kommentaren am Gespräch.",
     },
     folder: {
-      title: "Dieser Ordner ist leer",
-      body: "Ziehe Aufnahmen hinein oder starte eine Aufnahme, um in diesem Ordner etwas Neues zu beginnen.",
-      cta: "Hier aufnehmen",
+      title: "Halte diese Arbeit zusammen",
+      body: "Verschiebe zugehörige Aufnahmen in diesen Ordner oder nimm einen neuen Clip für dieses Projekt auf.",
+      cta: "Clip aufnehmen",
     },
     space: {
-      title: "Noch keine Aufnahmen in diesem Bereich",
-      body: "Teile eine Aufnahme mit dem Bereich oder nimm etwas Neues auf; dein Team sieht es dann hier.",
-      cta: "Für diesen Bereich aufnehmen",
+      title: "Gib diesem Bereich seinen ersten Clip",
+      body: "Nimm einen Clip auf oder verschiebe ihn hierher, damit dein Team ihn an einem Ort findet.",
+      cta: "Clip aufnehmen",
     },
     archive: {
-      title: "Nichts archiviert",
-      body: "Archivierte Aufnahmen werden aus der Bibliothek ausgeblendet, aber sicher aufbewahrt. Du kannst sie später jederzeit wiederherstellen.",
+      title: "Keine archivierten Aufnahmen",
+      body: "Archivierte Clips bleiben hier, bis du sie zurückholen möchtest.",
     },
     trash: {
       title: "Der Papierkorb ist leer",
-      body: "Gelöschte Aufnahmen erscheinen hier 30 Tage lang, bevor sie endgültig entfernt werden.",
+      body: "Gelöschte Clips bleiben 30 Tage hier, bevor sie endgültig entfernt werden.",
     },
     search: {
-      title: "Keine Treffer",
-      body: "Versuche einen anderen Suchbegriff oder prüfe deine Filter.",
+      title: "Nichts passt zu dieser Suche",
+      body: "Versuche einen anderen Begriff oder lösche die Filter, um den gesuchten Clip zu finden.",
     },
   },
   trashRoute: {
@@ -145,6 +310,7 @@ const messages = {
   recordingPage: {
     back: "Zurück",
     done: "Fertig",
+    backToClip: "Zurück zum Clip",
     untitledClip: "Unbenannter Clip",
     recordingNotFound: "Aufnahme nicht gefunden",
     noAccess: "Möglicherweise haben Sie keinen Zugriff auf diesen Clip.",
@@ -152,7 +318,7 @@ const messages = {
     sharedWithYou: "Mit Ihnen geteilt",
     storageStillDisconnected: "Der Speicher ist immer noch nicht verbunden",
     finishBuilderOrS3:
-      "Beenden Sie das Builder.io-Popup oder konfigurieren Sie den S3-Speicher und versuchen Sie es dann erneut.",
+      "Nutze Builder.io-Speicher oder konfiguriere S3-kompatiblen Speicher und versuche es erneut.",
     loomImportResumed: "Loom-Import wurde fortgesetzt",
     clipUploadResumed: "Der Clip-Upload wurde fortgesetzt",
     couldNotRetryLoom: "Der Import von Loom konnte nicht wiederholt werden",
@@ -161,6 +327,10 @@ const messages = {
     aiRequestFailed: "AI-Anfrage ist fehlgeschlagen",
     titleUpdated: "Titel aktualisiert",
     descriptionUpdated: "Beschreibung aktualisiert",
+    tags: "Schlagwörter",
+    addTag: "Schlagwort hinzufügen…",
+    tagsUpdateFailed: "Schlagwörter konnten nicht aktualisiert werden",
+    tagTooLong: "Schlagwörter dürfen höchstens {{max}} Zeichen lang sein",
     chaptersGenerated: "Kapitel erstellt",
     fillerCompleted: "Füllwörter wurden entfernt",
     workflowReady: "Workflow bereit",
@@ -169,6 +339,10 @@ const messages = {
     transcriptNotReady: "Das Transkript ist noch nicht fertig",
     tryAfterTranscription:
       "Versuchen Sie es erneut, nachdem die Transkription abgeschlossen ist.",
+    silenceTranscriptUnavailableTitle:
+      "Dieses Transkript kann nicht zum Entfernen von Stille verwendet werden",
+    silenceTranscriptUnavailableDescription:
+      "Versuchen Sie, ein neues Transkript zu erstellen, und entfernen Sie danach erneut die Stille.",
     titleGenerationQueued: "Titel wird erstellt…",
     descriptionQueued: "Beschreibung wird erstellt…",
     chapterQueued: "Kapitel werden erstellt…",
@@ -195,9 +369,9 @@ const messages = {
     savingWentWrong: "Beim Speichern dieses Clips ist ein Fehler aufgetreten.",
     finishingClip: "Ich beende deinen Clip …",
     loomSourcePreserved:
-      "Der Loom-Quelllink bleibt erhalten. Schließen Sie den Speicher Builder.io oder S3 an und Clips versucht erneut, seine eigene Kopie zu speichern.",
+      "Der Loom-Quelllink ist weiterhin vorhanden. Nutze Builder.io-Speicher (Speicher und KI im kostenlosen Tarif) oder S3-kompatiblen Speicher. Clips versucht dann erneut, eine eigene Kopie zu speichern.",
     clipDataPreserved:
-      "Ihre Clipdaten bleiben weiterhin erhalten. Schließen Sie den Speicher Builder.io oder S3 an und Clips lädt ihn automatisch hoch.",
+      "Deine Clipdaten sind weiterhin vorhanden. Nutze Builder.io-Speicher (Speicher und KI im kostenlosen Tarif) oder S3-kompatiblen Speicher. Clips lädt die Daten automatisch hoch.",
     details: "Übersetzt: Details",
     importingLoom: "Loom wird importiert...",
     uploadingSavedClip: "Gespeicherter Clip wird hochgeladen…",
@@ -239,6 +413,8 @@ const messages = {
     silenceWorking: "Stille wird entfernt…",
     silenceCompleted: "Entfernen der Stille abgeschlossen",
     silenceFailed: "Entfernen der Stille fehlgeschlagen",
+    silenceEditsUnreadable:
+      "Gespeicherte Bearbeitungen konnten nicht gelesen werden; Stille wurde nicht entfernt.",
     generatePrSummary: "Erstellen Sie eine PR-Zusammenfassung",
     generateSop: "Generieren Sie SOP",
     generateSopTooltip:
@@ -270,7 +446,7 @@ const messages = {
   sharePage: {
     agentReadableContext: "Vom Agenten lesbarer Clip-Kontext",
     agentInstructions:
-      "Rufen Sie agentContextUrl für das Transkript und den JPEG-Frame URLs ab. Rufen Sie den Frame „URLs“ ab, um den Bildschirm zu SEHEN, und nicht nur, um das Transkript zu lesen.",
+      "Öffne zuerst agentContextUrl. Lies das vollständige Transkript über apis.transcript und rufe recommendedFrames[].url (oder apis.frame.urlTemplate mit atMs) als Bilder ab. Behalte id und agent_access genau wie angegeben bei. Prüfe bei jedem Fehler failureKind, error und nextStep in der JSON-Antwort. Bei failureKind=access erklärt der Link den Zugriff nicht; bitte den Eigentümer eines privaten Clips, im Clips-Share-Menü {{shareWithAgents}} zu wählen und den erzeugten Link zu senden. Bei failureKind=media und funktionierendem Transkript konnten die gespeicherten Medien nicht abgerufen werden; ein anderer Link hilft nicht. Bei failureKind=processing folgen Sie nextStep; das bedeutet nicht, dass Medien fehlen oder der Link ungültig ist. Bei failureKind=expired soll der Eigentümer den Ablauf des Clips im Share-Menü verlängern oder entfernen, speichern und anschließend {{shareWithAgents}} wählen und den neuen Link senden.",
     untitledClip: "Unbenannter Clip",
     incorrectPassword: "Falsches Passwort",
     passwordProtected: "Dieser Clip ist passwortgeschützt",
@@ -327,13 +503,13 @@ const messages = {
     savingWentWrong: "Beim Speichern dieses Clips ist ein Fehler aufgetreten.",
     finishingClip: "Ich schließe diesen Clip ab...",
     loomPreservedManage:
-      "Der Loom-Quelllink bleibt erhalten. Verbinden Sie den Builder.io- oder S3-Speicher und versuchen Sie dann den Import erneut.",
+      "Der Loom-Quelllink ist weiterhin vorhanden. Nutze Builder.io-Speicher (Speicher und KI im kostenlosen Tarif) oder S3-kompatiblen Speicher und versuche den Import erneut.",
     videoPreservedManage:
-      "Das Video bleibt erhalten. Schließen Sie den Speicher Builder.io oder S3 an und Clips beendet den Upload.",
+      "Das Video ist weiterhin vorhanden. Nutze Builder.io-Speicher (Speicher und KI im kostenlosen Tarif) oder S3-kompatiblen Speicher. Clips schließt den Upload ab.",
     creatorNeedsStorage:
-      "Der Ersteller muss den Builder.io- oder S3-Speicher verbinden, bevor dieser Clip fertiggestellt werden kann.",
+      "Der Ersteller muss Builder.io-Speicher (Speicher und KI im kostenlosen Tarif) oder S3-kompatiblen Speicher nutzen, damit dieser Clip fertiggestellt werden kann.",
     signInStorage:
-      "Wenn dies Ihr Clip ist, melden Sie sich hier an, um den Builder.io- oder S3-Speicher zu verbinden und den Upload abzuschließen.",
+      "Wenn dies dein Clip ist, melde dich hier an, um Builder.io-Speicher (Speicher und KI im kostenlosen Tarif) oder S3-kompatiblen Speicher zu nutzen und den Upload abzuschließen.",
     uploadNotCompleteSession:
       "Der Upload ist noch nicht abgeschlossen. Öffnen Sie das Dashboard für diesen Clip oder bitten Sie den Ersteller, den Speicher zu überprüfen.",
     uploadNotCompleteSignIn:
@@ -371,11 +547,18 @@ const messages = {
     agentEmptyTitle: "Mach bei der Unterhaltung mit",
     agentEmptyDescription:
       "Erstelle ein kostenloses Clips-Konto, um zu kommentieren, zu reagieren und Fragen zu diesem Clip zu stellen.",
+    commentSignupTitle:
+      "Bildschirmaufnahmen, die dein KI-Agent sehen und hören kann",
+    commentSignupDescription:
+      "Clips ist ein kostenloser Open-Source-Bildschirmrekorder, um Bugs, Feedback und Schritt-für-Schritt-Anleitungen mit KI-Agenten zu teilen.",
     agentEmptySignInPrompt: "Du hast bereits ein Konto?",
     signUp: "Registrieren",
     ownerInsights: "Eigentümer-Einblicke",
     ownerInsightsDescription:
       "Aufrufe, Abschlussrate und Zuschauerdetails sind für Bearbeiter dieses Clips sichtbar.",
+    beingEdited: "Wird bearbeitet",
+    beingEditedMessage:
+      "Der Eigentümer nimmt Änderungen an diesem Clip vor. Der Link funktioniert wieder, sobald er fertig ist.",
   },
   meetingDetail: {
     untitledMeeting: "Treffen ohne Titel",
@@ -469,9 +652,8 @@ const messages = {
     cleanupBuilderFailed:
       "Die Bereinigung konnte nicht abgeschlossen werden, obwohl Builder.io verbunden ist. Das native Transkript wurde aufbewahrt.",
     cleanupPaused:
-      "Die Bereinigung ist pausiert. Verbinde KI in den Einstellungen: Builder.io (kostenlose Credits) oder deinen eigenen LLM-Schlüssel.",
-    builderNoResponse:
-      "Ich habe keine Antwort von Builder erhalten. Lassen Sie Popups zu und versuchen Sie es erneut.",
+      "Die Bereinigung ist pausiert. Nutze Builder.io in den Einstellungen für KI (kostenlose Credits) oder deinen eigenen LLM-Schlüssel.",
+    builderNoResponse: "Von Builder kam keine Antwort. Versuche es erneut.",
     saveFailed: "Speichern fehlgeschlagen ({{status}})",
     savedRetrying: "Gespeichert. Transkription wird erneut versucht…",
     getGroqKey: "Holen Sie sich den Groq-Schlüssel",
@@ -479,6 +661,33 @@ const messages = {
     waiting: "Warten…",
     nativeSpeechPrimary:
       "Native Spracherkennung bleibt die primäre Transkriptionsquelle.",
+  },
+  transcriptImport: {
+    addFile: "Transkriptdatei hinzufügen",
+    imported: "Importiert",
+    replaceTitle: "Transkript ersetzen?",
+    replaceDescription: "{{fileName}} ersetzt das aktuelle Transkript.",
+    replace: "Ersetzen",
+    regenerateOverImportTitle: "Importiertes Transkript ersetzen?",
+    regenerateOverImportDescription:
+      "Ein neues Transkript aus dem Ton der Aufnahme ersetzt das aus einer Datei importierte.",
+    added: "Transkript hinzugefügt",
+    replaced: "Transkript ersetzt",
+    failed: "Transkript konnte nicht hinzugefügt werden",
+    invalidFile: "{{fileName}} konnte nicht gelesen werden",
+    errorEmpty: "Die Datei enthält keinen Transkripttext.",
+    errorTooLarge: "Die Datei ist zu groß für den Import.",
+    errorNotUtf8:
+      "Die Datei ist kein UTF-8-Text. Speichere sie als UTF-8 und versuche es erneut.",
+    errorMissingTiming:
+      "Zeile {{line}}: Erwartet wurde eine Zeitzeile für den Untertitel wie 00:00:01.000 --> 00:00:04.000.",
+    errorBadTiming:
+      "Zeile {{line}}: Die Zeitangabe des Untertitels konnte nicht gelesen werden.",
+    errorBadRange: "Zeile {{line}}: Der Untertitel endet, bevor er beginnt.",
+    errorMissingTimestamp:
+      "Zeile {{line}}: Erwartet wurde eine Startzeit wie 0:21 oder [0:21].",
+    errorOutOfOrder: "Zeile {{line}}: Diese Zeit liegt vor der vorherigen.",
+    errorPastEnd: "Zeile {{line}}: Diese Zeit liegt nach dem Ende des Videos.",
   },
   thumbnailPicker: {
     failedCapture: "Frame konnte nicht erfasst werden",
@@ -508,6 +717,9 @@ const messages = {
     saveThumbnail: "Thumbnail speichern",
   },
   shareDialog: {
+    redactionsPendingTitle: "Schwärzungen vor dem Teilen abschließen",
+    redactionsPendingBody:
+      "Ausstehende Schwärzungen: {{count}}. Wende sie im Editor an, bevor du teilst; das Video enthält noch den ursprünglichen Inhalt.",
     publicDescription:
       "Jeder, der über den Link verfügt, kann es ansehen – melden Sie sich an, um zu kommentieren oder zu reagieren",
     shareRecording: "Aufzeichnung teilen",
@@ -530,7 +742,7 @@ const messages = {
     openInCodex: "In Codex öffnen",
     copyAgentPrompt: "Agent-Prompt kopieren",
     agentPrompt:
-      "Rufe diese Clips-Agent-Kontext-URL ab: {{agentContextUrl}}. Verwende transcript.segments fuer den gesprochenen Kontext, rufe recommendedFrames oder die Frame-API-URLs ab, um den Bildschirm zu sehen, und pruefe browserDiagnostics, falls vorhanden, fuer redigierte Konsolenprotokolle und fetch/XHR-Anfragemetadaten.",
+      "Lies diese Clips-Agent-Kontext-URL: {{agentContextUrl}}. Lies das vollständige Transkript über apis.transcript und rufe recommendedFrames[].url (oder apis.frame.urlTemplate mit atMs) als Bilder ab. Behalte id und agent_access genau wie angegeben bei. Prüfe bei jedem Fehler failureKind, error und nextStep in der JSON-Antwort. Bei failureKind=access erklärt der Link den Zugriff nicht; bitte den Eigentümer eines privaten Clips, im Clips-Share-Menü {{shareWithAgents}} zu wählen und den erzeugten Link zu senden. Bei failureKind=media und funktionierendem Transkript konnten die gespeicherten Medien nicht abgerufen werden; ein anderer Link hilft nicht. Bei failureKind=processing folgen Sie nextStep; das bedeutet nicht, dass Medien fehlen oder der Link ungültig ist. Bei failureKind=expired soll der Eigentümer den Ablauf des Clips im Share-Menü verlängern oder entfernen, speichern und anschließend {{shareWithAgents}} wählen und den neuen Link senden. Nutze browserDiagnostics bei Fehlerberichten, falls vorhanden.",
     agentTokenDescription:
       "Temporärer Nur-Lese-Link für Agenten, da dieser Clip nicht öffentlich ist. Läuft in 2 Stunden ab.",
     agentPublicDescription:
@@ -667,6 +879,7 @@ const messages = {
     organizationFallback: "Organisation",
     saving: "Sparen…",
     save: "Speichern",
+    saved: "Gespeichert",
   },
   downloadRoute: {
     pageTitle: "Laden Sie Clips Desktop herunter",
@@ -679,12 +892,16 @@ const messages = {
     downloadAgain: "Hat es nicht funktioniert? Erneut herunterladen",
     alsoFor: "Auch verfügbar für {{platform}}",
     backToLibrary: "Zurück zur Bibliothek",
-    clipsDesktop: "Clips Desktop",
+    clipsDesktop: "Clips herunterladen",
     stable: "Stabil",
     nightly: "Nightly",
+    allPlatforms: "Alle Plattformen",
+    releaseChannel: "Release-Kanal",
     switchToNightly: "Zu Nightly-Builds wechseln",
     switchToStable: "Zu stabilen Builds wechseln",
     retry: "Erneut versuchen",
+    mountError:
+      "Clips konnte seinen Pfad im Workspace nicht ermitteln. Bitte den Workspace-Administrator, die App-Pfadkonfiguration zu prüfen.",
     heroDescription:
       "Ein Menüleisten-Recorder für Bildschirm, Kamera und Bildschirm + Kamera. Ein-Klick-Start, verschiebbare Kamerablase, Link zum sofortigen Teilen, wenn Sie anhalten.",
     versionReleased: "Version {{version}} – veröffentlicht {{date}}",
@@ -732,25 +949,26 @@ const messages = {
     agentDescription:
       "Verwalte das Modell, die API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen des Agents.",
     agentTitle: "Agent verwalten",
-    title: "Einstellungen",
     pageTitle: "Einstellungen · Clips",
-    experiments: "Experimente",
-    experimentsIntro:
+    labs: "Labs",
+    labResilientRecording: "Zuverlässige Aufnahme",
+    labResilientRecordingDescription:
+      "Schnellere Uploads von Aufnahmen und bessere Wiederherstellung nach Unterbrechungen ausprobieren.",
+    labResilientRecordingMixedDescription:
+      "Bisherige Aufnahmeeinstellungen sind noch aktiv. Wähle Ein oder Aus, um eine Einstellung zu verwenden.",
+    labsIntro:
       "Diese neuen, instabilen Funktionen können Fehler enthalten. Wir freuen uns über dein Feedback.",
-    experimentVideoEditing: "Videobearbeitung",
-    experimentVideoEditingDescription: "Teste den neuen Videoeditor.",
-    experimentMeetings: "Meetings und Transkription",
-    experimentMeetingsDescription:
+    labVideoEditing: "Videobearbeitung",
+    labVideoEditingDescription: "Teste den neuen Videoeditor.",
+    labMeetings: "Meetings und Transkription",
+    labMeetingsDescription:
       "Teste die automatische Erfassung und Transkription von Meetings.",
-    experimentWisprFlow: "Sprachdiktat",
-    experimentWisprFlowDescription: "Teste die neue Sprachdiktierfunktion.",
-    intro:
-      "Einstellungen und verbundene Dienste für diesen Clips-Arbeitsbereich.",
-    preferencesTitle: "Voreinstellungen",
-    languageTitle: "Sprache",
-    languageDescription:
-      "Wähle die Oberflächensprache für dieses Konto. Clips merkt sie sich geräteübergreifend.",
-    languageLabel: "Oberflächensprache",
+    labWisprFlow: "Sprachdiktat",
+    labWisprFlowDescription:
+      "Sprachdiktat in Clips Desktop ein- oder ausblenden.",
+    labLookbackContext: "Frühere Bildschirmzeit einbeziehen",
+    labLookbackContextDescription:
+      "Bis zu fünf Minuten Bildschirmzeit vor einer Aufnahme als passiven Kontext anhängen.",
     uploadWorkspaceTitle: "Aktiver Arbeitsbereich",
     uploadWorkspaceDescription:
       "Wähle den Arbeitsbereich, den Clips für neue Aufnahmen einschließlich Desktop-Uploads verwendet.",
@@ -764,13 +982,15 @@ const messages = {
       "Aktiver Arbeitsbereich konnte nicht aktualisiert werden",
     whatsNew: "Neuigkeiten",
     changelogEmpty: "Noch keine Updates.",
+    changelogCommentSignup:
+      "Die leere Kommentar-Seitenleiste erklärt kurz, warum sich Clips lohnt, und bietet einen klaren Weg zur Registrierung.",
+    changelogCommentsEmptyState:
+      "Der leere Kommentarbereich erklärt jetzt, wie Bildschirmaufnahmen KI-Agenten helfen.",
+    changelogShareLink:
+      "Angemeldete Nutzer mit einem nicht verfügbaren, abgelaufenen oder privaten Freigabelink gelangen bei „Zur Startseite“ jetzt zu ihrer Bibliothek statt zur öffentlichen Marketingseite.",
     viewAllUpdates: "Alle Updates anzeigen",
     expand: "Erweitern",
     collapse: "Einklappen",
-    playback: "Wiedergabe",
-    defaultPlaybackSpeed: "Standard-Wiedergabegeschwindigkeit",
-    playbackDescription:
-      "Wird automatisch angewendet, wenn du eine Aufnahme öffnest.",
     transcript: "Transkript",
     transcriptCleanup: "Bereinigung im Hintergrund",
     transcriptCleanupDescription:
@@ -778,27 +998,17 @@ const messages = {
     notifications: "Benachrichtigungen",
     monthlyRecap: "Monatliche Zusammenfassung",
     sharing: "Teilen",
-    defaultVisibility: "Standard-Sichtbarkeit neuer Aufnahmen",
-    defaultVisibilityDescription:
-      "Gilt für jede Aufnahme, die du erstellst. Du kannst die Sichtbarkeit pro Aufnahme weiterhin ändern.",
     visibilityPrivate: "Privat - nur du",
     visibilityOrg: "Organisation - alle in deinem Workspace",
     visibilityPublic: "Öffentlich - alle mit dem Link",
     emailNotifications: "E-Mail-Benachrichtigungen",
     emailNotificationsDescription:
       "Wähle aus, welche optionalen Clips-E-Mails du erhalten möchtest.",
-    saved: "Einstellungen gespeichert",
     saveFailed: "Speichern fehlgeschlagen",
-    builderConnectedToast: "Builder.io verbunden",
-    videoStorage: "Videospeicher",
     videoStorageDescription:
       "Builder.io ist der primäre Speicherpfad für Clips-Uploads. S3 ist verfügbar, wenn du deinen eigenen Bucket verwenden musst.",
-    checkingBuilder: "Builder.io wird geprüft",
     builderConnected: "Builder.io verbunden",
     connectBuilder: "Builder.io nutzen",
-    builderConnectedFor: "Builder.io wird für {{orgName}} verwendet.",
-    builderConnectedGeneric:
-      "Neue Clips verwenden den verbundenen Builder.io-Anbieter.",
     builderIncludes:
       "Der kostenlose Tarif von Builder.io umfasst Objektspeicher, Uploads und verwaltete Transkription für neue Clips.",
     s3Title: "S3-kompatibler Speicher",
@@ -806,11 +1016,8 @@ const messages = {
     active: "Aktiv",
     s3BuilderConnectedDescription:
       "Nur verwenden, wenn dieser Arbeitsbereich in deinen eigenen Bucket statt zu Builder.io hochladen soll.",
-    s3CurrentProvider: "Aktuell wird {{providerName}} verwendet.",
     s3OwnBucketDescription:
       "Nutze deinen eigenen Bucket, wenn du keinen Builder.io-Speicher möchtest.",
-    configureS3: "S3 konfigurieren",
-    hideS3: "S3 ausblenden",
     saveStorage: "Speicher speichern",
     storageSaved: "Speichereinstellungen gespeichert",
     storageRequired:
@@ -827,7 +1034,6 @@ const messages = {
       "Bucket-Name muss 3–63 Kleinbuchstaben, Zahlen oder Bindestriche enthalten",
     s3RegionInvalid:
       'Muss eine gültige Region sein (z. B. us-east-1) oder "auto"',
-    apiSetup: "KI-Einrichtung",
     apiSetupDescription: "Wähle, wie Clips eine Verbindung zur KI herstellt.",
     builderEasySetup: "Kostenlose Builder.io-Credits",
     builderAiAvailable:
@@ -838,18 +1044,11 @@ const messages = {
     providerKeyDescription:
       "Wähle Anthropic, OpenAI, OpenRouter, Gemini, Groq, Mistral, Cohere oder Ollama für anbieterseitig abgerechnete Nutzung.",
     providerKeysSet: "{{count}} gesetzt",
-    providerActionTitle: "KI-Anbieter",
-    providerActionDescription:
-      "Builder.io bietet einen kostenlosen Tarif, oder eigene Schlüssel verwenden.",
-    providerManage: "Verwalten",
-    providerCustomKeys: "Eigene Schlüssel",
-    checkingProviderKeys: "Anbieter-Schlüssel werden geprüft…",
     keySet: "Gesetzt",
     keyCleared: "Speicher-Anmeldedaten gelöscht",
     clearAllS3: "Anmeldedaten löschen",
     replaceKey: "Schlüssel ersetzen…",
     pasteProviderKey: "Füge zuerst einen Anbieter-Schlüssel ein.",
-    apiKeySaved: "API-Schlüssel gespeichert",
     apiKeyFailed: "Schlüssel konnte nicht gespeichert werden",
     slackTitle: "Agent-Native Clips für Slack",
     slackDescription:
@@ -877,6 +1076,52 @@ const messages = {
       "Clips löscht das gespeicherte Bot-Token für {{team}} und sendet keine abspielbaren Slack-Vorschauen mehr.",
     thisWorkspace: "dieser Arbeitsbereich",
     slackConnected: "Slack verbunden",
+  },
+  clipsSettings: {
+    popupBlocked:
+      "Der Browser hat das Pop-up blockiert. Erlaube Pop-ups für diese Website und versuche es erneut.",
+    recordingsTab: "Aufnahmen",
+    meetingsTab: "Besprechungen",
+    yourDefaults: "Deine Standards",
+    orgDefault: "Standard für {{org}}",
+    playbackSpeed: "Wiedergabegeschwindigkeit",
+    playbackSpeedDescription: "Gilt, wenn du eine Aufnahme öffnest.",
+    visibility: "Sichtbarkeit",
+    visibilityDescription:
+      "Gilt für Aufnahmen, die du erstellst. Du kannst sie bei jeder Aufnahme ändern.",
+    useOrgDefault: "Standard von {{org}} verwenden ({{visibility}})",
+    useDefault: "Standard verwenden ({{visibility}})",
+    transcriptExport: "Transkript-Export",
+    logoDescription:
+      "Wird in Freigabe-E-Mails und auf öffentlichen Clip-Seiten angezeigt.",
+    change: "Ändern",
+    adminsOnly: "Nur Inhaber und Admins können das ändern.",
+    brandColorInvalid: "Gib einen Hex-Farbcode ein.",
+    loadFailed: "Diese Einstellungen konnten nicht geladen werden.",
+    emailGroup: "E-Mail",
+    calendarGroup: "Kalender",
+    googleCalendar: "Google Calendar",
+    connect: "Verbinden",
+    reconnect: "Neu verbinden",
+    connectedAs: "Verbunden als {{account}}",
+    needsReconnect: "{{account}} muss neu verbunden werden.",
+    disconnectFailed: "Der Kalender konnte nicht getrennt werden.",
+    disconnectCalendarDescription:
+      "Clips synchronisiert keine anstehenden Meetings mehr aus {{account}}.",
+    calendarApp: "Google Calendar-App",
+    desktopGroup: "Desktop-App",
+    meetingCapture: "Besprechungsaufzeichnung",
+    meetingCaptureDescription:
+      "Notizen, Autostart und Benachrichtigungen legst du auf jedem Gerät in Clips Desktop fest.",
+    openClipsDesktop: "Clips Desktop öffnen",
+    keySaved: "Gespeichert",
+    keyNotSaved: "Nicht gespeichert",
+    manage: "Verwalten",
+    add: "Hinzufügen",
+    linkPreviews: "Link-Vorschauen",
+    addWorkspace: "Arbeitsbereich hinzufügen",
+    storageAskAdmin:
+      "Bitte einen Inhaber oder Admin, den Speicher einzurichten.",
   },
   insightsHub: {
     title: "Einblicke",
@@ -921,9 +1166,6 @@ const messages = {
     noOrganization:
       "Noch keine Organisation. Erstelle eine über den Organisationswechsler, um zu beginnen.",
     description: "Organisationsverwaltung: Branding, Mitglieder, Einladungen.",
-    adminsOnlyBranding: "Nur Administratoren können das Branding bearbeiten.",
-    brandingLoadFailed:
-      "Das Branding der Organisation konnte nicht geladen werden.",
     members: "Mitglieder",
     pendingInvites: "Ausstehende Einladungen",
     noPendingInvites: "Keine ausstehenden Einladungen.",
@@ -981,6 +1223,8 @@ const messages = {
     renameFailed: "Clip konnte nicht umbenannt werden",
     renameClip: "Clip umbenennen",
     clipTitle: "Clip-Titel",
+    archiveAction: "Archivieren",
+    moveToTrashAction: "In den Papierkorb verschieben",
     movedToTrash: "In den Papierkorb verschoben",
     restoredFromArchive: "Aus dem Archiv wiederhergestellt",
     archived: "Archiviert",
@@ -1021,7 +1265,7 @@ const messages = {
     videoUrlMissing:
       "Eine oder mehrere Aufzeichnungen haben noch keine fertige Video-URL",
     connectStorage:
-      "Verbinde Speicher vor dem Zusammenfügen von Aufzeichnungen: Builder.io (Speicher + KI im kostenlosen Tarif) oder S3-kompatibler Speicher.",
+      "Nutze Builder.io-Speicher (Speicher und KI im kostenlosen Tarif) oder S3-kompatiblen Speicher, bevor du Aufnahmen zusammenfügst.",
     created: "Zusammengefügte Aufzeichnung erstellt",
     failed: "Aufzeichnungen konnten nicht zusammengefügt werden",
     noOtherRecordings: "Keine anderen Aufzeichnungen verfügbar.",
@@ -1135,14 +1379,14 @@ const messages = {
     elapsed: "Verstrichene Zeit",
     cancel: "Aufnahme verwerfen",
     cancelShortcut: "Verwerfen (⌥⇧C)",
-    discardConfirmTitle: "Diese Aufnahme verwerfen?",
+    discardConfirmTitle: "Diese Aufnahme löschen?",
     discardConfirmDescription:
       "Dies kann nicht rückgängig gemacht werden. Deine bisherige Aufnahme wird endgültig gelöscht.",
     resume: "Fortsetzen",
     discardRecording: "Aufnahme verwerfen",
     restart: "Aufnahme neu starten",
     restartShortcut: "Neu starten (⌥⇧R)",
-    restartQuestion: "Eine neue Aufnahme starten?",
+    restartQuestion: "Diese Aufnahme löschen und neu beginnen?",
     restartConfirm: "Neu starten",
   },
   countdownOverlay: {
@@ -1169,6 +1413,7 @@ const messages = {
     transcript: "Transkript",
     comment: "Kommentar",
     titleOrDescription: "Titel oder Beschreibung",
+    matchAt: "Treffer bei {{time}} im Video",
   },
   organizationSwitcher: {
     noOrganization: "Keine Organisation",
@@ -1250,6 +1495,21 @@ const messages = {
     loadingRecording: "Aufzeichnung wird geladen…",
     recordingNotFound: "Aufzeichnung nicht gefunden",
     noVideoYet: "Noch kein Video verfügbar.",
+    burnFailed: "Die Schwärzungen konnten nicht eingebrannt werden",
+    burnProgressUnreadable:
+      "Der Fortschritt der Schwärzung lässt sich nicht ermitteln. Sie wird höchstwahrscheinlich noch gerendert – aktualisieren Sie die Seite in einem Moment.",
+    burnedRedactionsDone:
+      "Geschwärzt. Diese Bereiche sind nun aus der Datei entfernt und das Original wurde gelöscht.",
+    burningRedactions: "Die Schwärzungen werden in das Video gerendert …",
+    burningRedactionsPercent:
+      "Die Schwärzungen werden in das Video gerendert … {{percent}} %",
+    editFailed: "Diese Änderung konnte nicht gespeichert werden",
+    refreshFailed:
+      "Die neuesten Änderungen konnten nicht geladen werden. Bitte versuche es erneut, bevor du weiterbearbeitest.",
+    autoSaveHint: "Änderungen werden automatisch in diesem Clip gespeichert",
+    savingChanges: "Änderungen werden gespeichert…",
+    changesSaved: "Änderungen in diesem Clip gespeichert",
+    nothingToRedo: "Nichts zum Wiederherstellen",
   },
   transcriptEditor: {
     transcript: "Transkript",
@@ -1260,7 +1520,8 @@ const messages = {
   },
   createSpaceDialog: {
     newSpace: "Neuer Bereich",
-    description: "Erstelle einen Bereich in der aktuellen Organisation.",
+    description:
+      "Ordne Aufnahmen nach Projekt oder Team, damit alle die wichtige Arbeit finden.",
     name: "Name",
     color: "Farbe",
     useColor: "Farbe {{color}} verwenden",
@@ -1286,6 +1547,14 @@ const messages = {
       "Erstelle ein kostenloses Clips-Konto, um der Unterhaltung beizutreten",
     genericTitle: "Erstelle ein kostenloses Clips-Konto, um fortzufahren",
     description: "Danach kehrst du direkt zu diesem Clip zurück.",
+    verificationPendingTitle: "Bestätige deine E-Mail-Adresse",
+    verificationPendingCopy:
+      "Wir haben eine Bestätigungs-E-Mail an {{email}} gesendet. Öffne sie, um die Kontoerstellung abzuschließen und zu diesem Clip zurückzukehren.",
+    resendVerification: "Bestätigungs-E-Mail erneut senden",
+    resendingVerification: "Bestätigungs-E-Mail wird gesendet...",
+    verificationEmailResent: "Eine neue Bestätigungs-E-Mail ist unterwegs.",
+    verificationEmailFailed:
+      "Die Bestätigungs-E-Mail konnte nicht erneut gesendet werden. Versuche es noch einmal oder melde dich mit einem E-Mail-Link an.",
     passwordsMismatch: "Die Passwörter stimmen nicht überein.",
     commentIntent: "kommentieren",
     reactIntent: "eine Reaktion hinzuzufügen",
@@ -1359,29 +1628,48 @@ const messages = {
     disconnected: "Mikrofon getrennt.",
   },
   storageSetup: {
+    builderStorageOffer:
+      "Der kostenlose Tarif von Builder.io umfasst Videospeicher, den du mit einem Klick einrichten kannst.",
+    customKeys: "Eigene Schlüssel",
+    builderConnectPopupError:
+      "Builder.io konnte nicht geöffnet werden. Wenn diese App in einem Chat eingebettet ist, öffne sie in einem Browser-Tab; versuche es andernfalls erneut.",
+    builderConnectError:
+      "Die Einrichtung von Builder.io wurde nicht abgeschlossen. Versuche es erneut oder wähle S3-kompatiblen Speicher.",
+    builderConnectErrorAskAdmin:
+      "Die Einrichtung von Builder.io wurde nicht abgeschlossen. Versuche es erneut oder bitte einen Inhaber oder Admin, den Speicher einzurichten.",
+    builderStatusReadError:
+      "Der Verbindungsstatus ist nicht verfügbar. Versuche es erneut, um ihn zu prüfen.",
+    builderUploadGrantMissing:
+      "Builder.io ist für KI verbunden, aber diese Verbindung kann keine Clips hochladen. Verbinde Builder.io erneut mit Upload-Berechtigung oder bitte einen Inhaber oder Admin um Hilfe.",
+    builderGrantAskAdmin:
+      "Bitte einen Inhaber oder Admin, Builder.io mit Berechtigung zum Hochladen von Clips zu verbinden.",
+    statusUnavailable:
+      "Der Status des Videospeichers konnte nicht geprüft werden.",
+    hostedStorageUnavailable:
+      "Der Clips-Hostingspeicher ist vorübergehend nicht verfügbar. Dein kostenloses Clip-Kontingent bleibt unverändert. Versuche den Upload später erneut.",
+    checkingBuilderConnection: "Builder-Verbindung wird geprüft…",
     builderTimeout:
-      "Nach 5 Minuten kam keine Antwort von Builder. Prüfe das Popup und versuche es erneut.",
+      "Der Builder.io-Speicher konnte nicht als bereit bestätigt werden. Versuche es erneut.",
     builderConnected: "Builder.io verbunden",
     waitingForBuilder: "Warten auf Builder...",
-    connectBuilder: "Builder.io nutzen",
+    description: "Wähle, wo deine aufgenommenen Videos gespeichert werden.",
+    createBuilderAccount: "Builder.io verwenden",
+    signInWithBuilderAccount: "Mit Builder.io-Konto anmelden",
     free: "Kostenlos",
-    configureS3: "S3-kompatiblen Speicher konfigurieren",
     whyPrompt: "Warum sehe ich das?",
     whyDescription:
-      "Clips ist 100 % kostenlos und Open Source, deshalb musst du eine Möglichkeit zum Speichern deiner Clips verbinden. Verbinde Speicher mit Builder.io für Speicher und KI im kostenlosen Tarif, oder nutze S3-kompatiblen Objektspeicher und deine eigenen LLM-Schlüssel.",
+      "Clips ist zu 100 % kostenlos und Open Source. Du brauchst daher einen Speicher für deine Clips. Nutze Builder.io für Speicher und KI im kostenlosen Tarif oder S3-kompatiblen Objektspeicher mit deinen eigenen LLM-Schlüsseln.",
   },
   captureInstall: {
     title: "Choose your recorder (Lokalisiert)",
     description:
       "Use Chrome when you need browser logs, or desktop for the smoothest everyday capture. (Lokalisiert)",
     chromeTitle: "Chrome extension (Lokalisiert)",
-    chromeDescription:
-      "Best when you want redacted console and network diagnostics from the browser tab. (Lokalisiert)",
+    chromeDescription: "Nimm Browser-Tabs mit der Chrome-Erweiterung auf.",
     chromePendingDescription:
       "Browser logs option is ready, pending the Chrome Web Store URL. (Lokalisiert)",
     desktopTitle: "Desktop app (Lokalisiert)",
-    desktopDescription:
-      "Most seamless for global shortcuts, menu-bar recording, meetings, and repeat captures. (Lokalisiert)",
+    desktopDescription: "Nimm mit globalen Tastenkürzeln und Systemaudio auf.",
     openDesktopApp: "Open desktop app (Lokalisiert)",
   },
   editableTitle: {
@@ -1456,6 +1744,27 @@ const messages = {
     exportedMp4: "Exported MP4 (Lokalisiert)",
     exportFailed:
       "Export failed — ffmpeg.wasm can't always handle long videos. Try shorter edits or use the original file. (Lokalisiert)",
+    backToEditing: "Zurück zur Bearbeitung",
+    burnIn: "{{count}} einbrennen",
+    burnInConfirm: "Einbrennen und Original löschen",
+    burnInHint:
+      "Die Schwärzungen dauerhaft in das Video rendern und das Original löschen",
+    burnInTitle: "{{count}} Schwärzung(en) in dieses Video einbrennen?",
+    burnInWarning:
+      "Die abgedeckten Bereiche werden in einer neuen Kopie des Videos zerstört, und die Originaldatei wird gelöscht. Das lässt sich nicht rückgängig machen.",
+    burning: "Wird eingebrannt …",
+    burningPercent: "Wird eingebrannt … {{percent}} %",
+    deleteKey: "Entf",
+    exportUnredactedTitle: "Brennen Sie die Schwärzungen zuerst ein",
+    exportUnredactedWarning:
+      "{{count}} Schwärzung(en) sind auf dieser Aufnahme eingezeichnet, aber noch nicht eingebrannt. Die Datei zeigt also weiterhin alles darunter – und diese Kopie ebenfalls. Brennen Sie sie ein, dann steht dies wieder zur Verfügung.",
+    redact: "Schwärzen",
+    redactHint:
+      "Etwas im Bild abdecken. Nichts ist verborgen, bis Sie es einbrennen.",
+    redactOn: "Schwärzen aktiv",
+    redoTooltip: "Wiederherstellen (Cmd/Strg+Umschalt+Z)",
+    scrollBack: "Die Steuerelemente links anzeigen",
+    scrollOn: "Die Steuerelemente rechts anzeigen",
   },
   preRecord: {
     modeScreenCamera: "Screen + cam (Lokalisiert)",
@@ -1465,7 +1774,7 @@ const messages = {
     surfaceWindowDescription: "Best for slides or one app (Lokalisiert)",
     surfaceBrowser: "Browser tab (Lokalisiert)",
     surfaceBrowserDescription: "Choose an open tab (Lokalisiert)",
-    surfaceScreen: "Screen (Lokalisiert)",
+    surfaceScreen: "Vollbild",
     surfaceScreenDescription: "Capture everything (Lokalisiert)",
     microphoneSelectionUnsupported:
       "This browser does not support microphone device selection. (Lokalisiert)",
@@ -1509,10 +1818,98 @@ const messages = {
     startWithoutMic: "Ohne Ton aufnehmen",
     unmuteMicrophone: "Stummschaltung aufheben",
     uploadVideo: "Upload video (Lokalisiert)",
+    takeScreenshot: "Screenshot aufnehmen",
     importLoom: "Import Loom (Lokalisiert)",
     importing: "Importing... (Lokalisiert)",
     import: "Import (Lokalisiert)",
     recordNew: "Neu aufnehmen",
+  },
+  screenshot: {
+    capturing: "Wird aufgenommen …",
+    saving: "Screenshot wird gespeichert …",
+    saved: "Screenshot gespeichert",
+    failed: "Screenshot fehlgeschlagen",
+    dragToSelect: "Ziehen Sie, um einen Bereich auszuwählen",
+    blur: "Schwärzen",
+    box: "Rahmen",
+    arrow: "Pfeil",
+    text: "Text",
+    edit: "Bearbeiten",
+    deleteMark: "Löschen",
+    textFont: "Schriftart",
+    textSize: "Schriftgröße",
+    textSizeHint: "Schriftgröße in den Pixeln des Screenshots",
+    textSmaller: "Kleinerer Text",
+    textLarger: "Größerer Text",
+    alignLeft: "Linksbündig",
+    alignCenter: "Zentriert",
+    alignRight: "Rechtsbündig",
+    editSave: "Speichern",
+    editSaved: "Screenshot aktualisiert",
+    editConfirm:
+      "Beim Speichern wird das geteilte Bild ersetzt, sodass alle diese Markierungen sehen. Sie können sie später weiterhin verschieben oder entfernen. Speichern?",
+    textPlaceholder: "Hier tippen. Zum Beenden außerhalb klicken",
+    undo: "Rückgängig",
+    redo: "Wiederholen",
+    redactSaving: "Wird gespeichert …",
+    redactFailed: "Der Screenshot konnte nicht gespeichert werden",
+    captureInsecure:
+      "Bildschirmaufnahme erfordert HTTPS oder localhost. Öffne Clips über eine sichere URL und versuche es erneut.",
+    captureUnavailable:
+      "Bildschirmaufnahme ist in diesem Browser nicht verfügbar.",
+    captureUnsupported:
+      "Dein Browser unterstützt keine Bildschirmaufnahme. Versuche eine aktuelle Version von Brave, Chrome, Edge, Safari oder Firefox.",
+    captureNoScreen: "Es wurde kein Bildschirm freigegeben.",
+    captureNoCanvas: "Dieser Browser konnte das Bild nicht vorbereiten.",
+    captureNoPicture:
+      "Der freigegebene Bildschirm hat nie ein Bild gesendet. Versuche es erneut oder gib stattdessen den ganzen Bildschirm frei.",
+    redactLoadFailed:
+      "Der Screenshot konnte nicht zum Bearbeiten geöffnet werden",
+    saveSelection: "Auswahl speichern",
+    saveWholeScreen: "Ganzen Bildschirm speichern",
+    fullscreen: "Vollbild",
+    exitFullscreen: "Vollbild beenden",
+    resizeHandle: "Ziehen, um die Größe zu ändern",
+    textWidthHandle: "Ziehen, um die Breite festzulegen",
+    crop: "Zuschneiden",
+    cropApply: "Zuschnitt anwenden",
+    cropApplyHint:
+      "Nur diesen Teil anzeigen. Der Rest bleibt erhalten, sodass Sie später wieder weiter zuschneiden können",
+    cropReset: "Ganzes Bild anzeigen",
+    kind: {
+      box: "Rahmen",
+      arrow: "Pfeil",
+      text: "Text",
+      redact: "Schwärzung",
+    },
+    markToolbar: "{{kind}} ändern",
+    duplicate: "{{kind}} duplizieren",
+    addText: "Neuen Text hinzufügen",
+    addArrow: "Neuen Pfeil hinzufügen",
+    addBox: "Neuen Rahmen hinzufügen",
+    addRedaction: "Neue Schwärzung hinzufügen",
+    colour: "Farbe",
+    fillBox: "Rahmen füllen",
+    shadow: "Schatten",
+    thickness: "Linienstärke",
+    thin: "Dünn",
+    thick: "Dick",
+    align: "Ausrichtung",
+    redactionStyle: "Schwärzungsstil",
+    background: "Hintergrund",
+    backgroundTitle: "Hintergrund hinzufügen",
+    backgroundNone: "Keiner",
+    notYetBurned:
+      "{{count}} Schwärzung(en) sind platziert, aber nicht eingebrannt. Noch ist nichts verborgen, und niemand sonst kann diesen Screenshot sehen, bis Sie sie einbrennen.",
+    editsUnreadable:
+      "Clips konnte die gespeicherten Screenshot-Bearbeitungen nicht lesen.",
+    burnInHint: "Das Verdeckte endgültig zerstören und das Original löschen",
+    burnInTitle: "{{count}} Schwärzung(en) in diesen Screenshot einbrennen?",
+    burnInWarning:
+      "Die verdeckten Bereiche werden in einer neuen Kopie des Screenshots zerstört, und die Originaldatei wird gelöscht. Dies lässt sich nicht rückgängig machen. Ihre Rahmen, Pfeile und Texte bleiben verschiebbar. Bereits heruntergeladene Kopien behalten ihren Inhalt.",
+    burning: "Wird eingebrannt …",
+    burned: "Schwärzungen eingebrannt",
+    burnFailed: "Die Schwärzungen konnten nicht eingebrannt werden",
   },
   playerSettings: {
     title: "Settings (Lokalisiert)",
@@ -1548,6 +1945,18 @@ const messages = {
     validWebUrl: "Gib eine gültige http://- oder https://-Adresse ein.",
   },
   recordRoute: {
+    freeClipsLeft_one: "Noch {{count}} kostenloser Clip verfügbar",
+    freeClipsLeft_other: "Noch {{count}} kostenlose Clips verfügbar",
+    hostedClipsExhaustedTitle:
+      "Verbinde Builder.io kostenlos, um weiter aufzunehmen",
+    hostedClipsExhaustedDescription:
+      "Du hast alle kostenlosen gehosteten Clips verwendet. Verbinde den Builder.io-Speicher, um weitere Clips in deiner Bibliothek zu speichern.",
+    clipExceedsSizeLimit:
+      "Dieser Clip überschreitet das aktuelle Upload-Größenlimit.",
+    clipExceedsMaxDuration:
+      "Dieser Clip überschreitet die aktuelle maximale Aufnahmedauer.",
+    maxClipDurationReached:
+      "Die maximale Cliplänge ist erreicht. Aufnahme wird gespeichert.",
     pageTitle: "New recording — Clips (Lokalisiert)",
     uploadFailed: "Upload failed (Lokalisiert)",
     uploadFailedAtChunk:
@@ -1562,7 +1971,7 @@ const messages = {
     storageNeededToFinishLoomImport:
       "Storage needed to finish Loom import (Lokalisiert)",
     loomImported: "Loom imported (Lokalisiert)",
-    couldNotImportLoom: "Could not import that Loom. (Lokalisiert)",
+    couldNotImportLoom: "Dieser Loom konnte nicht importiert werden.",
     recordingReadyToUpload: "Recording is ready to upload (Lokalisiert)",
     recordingSaved: "Recording saved (Lokalisiert)",
     linkCopied: "Link kopiert",
@@ -1570,6 +1979,8 @@ const messages = {
     noLocalRecordingData:
       "No local recording data is available to download. (Lokalisiert)",
     recordingDownloadStarted: "Recording download started (Lokalisiert)",
+    partialLocalCopyDownloadStarted:
+      "Die lokale Kopie ist möglicherweise unvollständig. Die verfügbaren Aufnahmedaten werden heruntergeladen.",
     backToLibrary: "Back to library (Lokalisiert)",
     clipsRecorder: "Clips recorder (Lokalisiert)",
     preparingSources: "Preparing sources… (Lokalisiert)",
@@ -1586,7 +1997,9 @@ const messages = {
     betterInDesktop: "Better in the desktop app (Lokalisiert)",
     desktopAppDescription:
       "Menu-bar launch, global shortcuts, auto-updates, and smoother repeat recordings. (Lokalisiert)",
+    recordOnDesktop: "Auf dem Desktop aufnehmen",
     downloadDesktopApp: "Download desktop app (Lokalisiert)",
+    getChromeExtension: "Chrome-Erweiterung erhalten",
     technicalDetails: "Technical details (Lokalisiert)",
     whatToCheck: "What to check (Lokalisiert)",
     downloadRecording: "Download (Lokalisiert)",
@@ -1596,13 +2009,71 @@ const messages = {
     storageConnectedReopeningRecorder:
       "Speicher verbunden. Recorder wird erneut geöffnet...",
     connectStorageToFinish:
-      "Verbinde Speicher im nächsten Bildschirm: Builder.io (Speicher + KI im kostenlosen Tarif) oder S3-kompatibler Speicher. Clips schließt das Speichern ab.",
+      "Nutze im nächsten Bildschirm Builder.io-Speicher (Speicher und KI im kostenlosen Tarif) oder konfiguriere S3-kompatiblen Speicher. Clips schließt das Speichern ab.",
     connectStorageToRetryLoom:
-      "Verbinde Speicher im nächsten Bildschirm: Builder.io (Speicher + KI im kostenlosen Tarif) oder S3-kompatibler Speicher. Clips versucht den Import erneut.",
-    leaveConfirmTitle: "Diese Aufnahme verlassen und verwerfen?",
+      "Nutze im nächsten Bildschirm Builder.io-Speicher (Speicher und KI im kostenlosen Tarif) oder konfiguriere S3-kompatiblen Speicher. Clips versucht den Import erneut.",
+    leaveConfirmTitle: "Diese Aufnahme verlassen?",
     leaveConfirmDescription:
-      "Deine laufende Aufnahme wurde noch nicht vollständig gespeichert. Wenn du diese Seite jetzt verlässt, wird sie verworfen.",
+      "Diese Aufnahme gibt es nur in diesem Tab. Wenn du die Seite verlässt, wird sie gelöscht, außer du lädst vorher eine Kopie herunter.",
     leaveAndDiscard: "Verlassen und verwerfen",
+    recordingWithoutSound:
+      "Aufnahme ohne Ton. Schalte ein Mikrofon ein, um ein Transkript zu erhalten.",
+    pendingStorageTitle: "Verbinde Speicher, um deine Aufnahme zu sichern",
+    pendingStorageDescription:
+      "Verbinde Speicher, und Clips lädt sie sofort hoch.",
+    storageConnectedUploading:
+      "Speicher verbunden. Deine Aufnahme wird hochgeladen…",
+    downloadCopy: "Kopie herunterladen",
+    localRecordingPreview: "Vorschau der lokalen Aufnahme",
+    localPreviewUnavailable:
+      "Diese lokale Vorschau ist nicht verfügbar. Du kannst weiterhin eine Kopie herunterladen.",
+    localRecordingOpenElsewhere:
+      "Diese Aufnahme ist noch in einem anderen Clips-Tab geöffnet.",
+    uploadWaitingForConnection:
+      "Upload pausiert. Clips versucht es automatisch erneut.",
+    uploadDidNotFinish: "Der Upload wurde nicht abgeschlossen.",
+    unfinishedRecording: "Eine Aufnahme ist noch nicht vollständig hochgeladen",
+    finishUpload: "Upload abschließen",
+    leaveKeepDescription:
+      "Clips behält sie in diesem Browser und bietet dir beim nächsten Mal an, den Upload abzuschließen. „Verlassen und verwerfen“ löscht sie endgültig.",
+    leaveAndKeep: "Verlassen und behalten",
+    copySafeInBrowser: "Deine Aufnahme ist in diesem Browser sicher.",
+    copyOnlyInThisTab:
+      "Diese Aufnahme gibt es nur in diesem Tab. Lass ihn geöffnet oder lade eine Kopie herunter.",
+    localCopyFull:
+      "Der Speicher dieses Browsers ist voll, daher kann Clips keine Sicherungskopie anlegen. Lass diesen Tab geöffnet, bis der Upload fertig ist, oder lade eine Kopie herunter.",
+    localCopyFailed:
+      "Clips konnte in diesem Browser keine Sicherungskopie anlegen. Lass diesen Tab geöffnet, bis der Upload fertig ist, oder lade eine Kopie herunter.",
+    localCopyUnreadable:
+      "Die Kopie der Aufnahme in diesem Browser konnte nicht gelesen werden.",
+    recordingOwnedByAnotherAccount:
+      "Diese Aufnahme gehört zu einem anderen Konto. Melde dich in diesem Browser bei diesem Konto an, um sie hochzuladen.",
+    unclaimedRecording:
+      "Eine Aufnahme in diesem Browser ist mit keinem Konto verknüpft",
+    reviewRecording: "Ansehen",
+    claimRecordingPrompt:
+      "Diese Aufnahme ist noch mit keinem Konto verknüpft. In {{email}} hochladen?",
+    claimRecording: "In mein Konto hochladen",
+    lowBrowserStorage:
+      "Dieser Browser hat wenig Speicher frei, daher passt eine lange Aufnahme womöglich nicht in die Sicherungskopie. Lass diesen Tab geöffnet, bis sie hochgeladen ist.",
+    recordingEndMissing:
+      "Das Ende dieser Aufnahme wurde nicht gespeichert. Clips lädt hoch, was vorhanden ist, und behält deine Kopie.",
+    uploadedPartialCopyKept:
+      "Hochgeladen, was dieser Browser gespeichert hat. Das Ende fehlt womöglich, daher hat Clips deine Kopie hier behalten.",
+    uploadUnverifiedCopyKept:
+      "Clips konnte nicht bestätigen, dass die ganze Aufnahme hochgeladen wurde, und hat deine Kopie hier behalten.",
+    copyKeptAfterUpload:
+      "Diese Aufnahme wurde hochgeladen, aber Clips konnte nicht bestätigen, dass sie vollständig ist, und hat deine Kopie hier behalten.",
+    localCopyLockUnavailable:
+      "Clips kann nicht bestätigen, dass kein anderer Tab diese Aufnahme verwendet, und lädt sie deshalb von hier weder hoch noch löscht sie. Lade stattdessen eine Kopie herunter.",
+    uploadAgain: "Erneut hochladen",
+    keptCopyWaiting:
+      "Clips hat eine Kopie einer Aufnahme in diesem Browser behalten",
+    savedRecordingsUnreadable:
+      "Clips konnte die in diesem Browser gespeicherten Aufnahmen nicht lesen.",
+    remindTomorrow: "Morgen erinnern",
+    stillProcessingCopyKept:
+      "Diese Aufnahme wird noch verarbeitet, daher hat Clips deine Kopie hier behalten. Warte darauf oder lade sie erneut hoch.",
   },
   importRoute: {
     pageTitle: "Loom importieren — Clips",
@@ -1628,7 +2099,7 @@ const messages = {
     howToUse: "How to use Dictate (Lokalisiert)",
     browserDictation: "Browser dictation (Lokalisiert)",
     browserDictationDescription:
-      "Use the button on this page, or press the shortcut while this tab is focused. Browser dictation saves here for copy and cleanup. (Lokalisiert)",
+      "Halte deine Gedanken beim Sprechen fest. Kopiere das Transkript oder überarbeite es mit KI.",
     browserDictationDescriptionDesktop:
       "Use the button below to capture a note right here on this page. It does not paste into other apps — for that, use the desktop shortcut on the right. (Lokalisiert)",
     quickNoteTitle: "Quick dictation note (Lokalisiert)",
@@ -1637,19 +2108,51 @@ const messages = {
     desktopShortcuts: "Desktop shortcuts (Lokalisiert)",
     desktopShortcutsDescriptionSuffix: ", in the desktop app. (Lokalisiert)",
     holdFn: "Hold Fn (Lokalisiert)",
+    mobileDictation: "Mobiles Diktat",
+    fnShortcut: "Fn-Kürzel",
+    customShortcut: "Benutzerdefiniertes Kürzel",
+    otherSource: "Andere Quelle",
+    voiceSource: "Stimme",
     browserUnavailable:
       "Browser speech recognition is unavailable here. Use Chrome or the desktop app for global dictation. (Lokalisiert)",
     browserUnavailableShort:
       "Browser speech recognition is unavailable here (Lokalisiert)",
     startSpeaking: "Start speaking... (Lokalisiert)",
-    replacedOriginal: "Replaced original with cleaned text (Lokalisiert)",
+    newDictation: "Neues Diktat",
+    startDictation: "Diktat starten",
+    stop: "Stopp",
+    saving: "Speichern",
+    listening: "Aufnahme läuft",
+    lastCapture: "Letzte Aufnahme",
+    copy: "Kopieren",
+    copied: "Kopiert",
+    copyFailed: "Kopieren nicht möglich",
+    aiProcessed: "KI-verarbeitet",
+    aiCleaned: "Mit KI bereinigt",
+    original: "Original",
+    cleaned: "Bereinigt",
+    delete: "Löschen",
+    deleteDictationTitle: "Dieses Diktat löschen?",
+    deleteDictationDescription:
+      "Dadurch wird das Diktat dauerhaft aus deinem Verlauf entfernt.",
+    deleted: "Diktat gelöscht",
+    deleteFailed: "Diktat konnte nicht gelöscht werden",
+    showDetails: "Details",
+    info: "Diktatinformationen",
+    time: "Uhrzeit",
+    duration: "Dauer",
+    hideDetails: "Details ausblenden",
     noText: "No text (Lokalisiert)",
-    emptyTranscript: "Empty transcript (Lokalisiert)",
-    replaceOriginal: "Replace original with cleaned (Lokalisiert)",
     cleanupWithAi: "Cleanup with AI (Lokalisiert)",
-    cleanupHint:
-      'Click "Cleanup with AI" to fix punctuation, casing, and filler words. (Lokalisiert)',
-    startFirst: "Start your first dictation (Lokalisiert)",
+    cleanupComplete: "Diktat bereinigt",
+    cleanupFailed: "Diktat konnte nicht bereinigt werden",
+    undoCleanup: "Rückgängig",
+    restoreOriginal: "Original wiederherstellen",
+    cleanupRestored: "Ursprüngliches Diktat wiederhergestellt",
+    cleanupRestoreFailed:
+      "Ursprüngliches Diktat konnte nicht wiederhergestellt werden",
+    startFirst: "Verwandle deine Gedanken in Text",
+    recordOnDesktop: "Auf dem Desktop aufnehmen",
     emptyDesktopDescription:
       "Hold {{fnKey}} anywhere on your Mac, or press {{modifierKey}} ⇧ Space. Your history will live here. (Lokalisiert)",
     emptyWebDescription:
@@ -1678,23 +2181,27 @@ const messages = {
     dictionaryTermsPlaceholder: "Agent-Native\nAgent Native → Agent-Native",
     dictionaryTermsRequired: "Gib mindestens einen Begriff ein.",
     dictionarySearch: "Wörterbuch durchsuchen",
-    dictionaryNoMatches: "Keine passenden Begriffe.",
+    dictionaryNoMatches: "Keine Begriffe passen zu dieser Suche",
     dictionaryRemoveTitle: "„{{term}}“ entfernen?",
     dictionaryRemoveDescription:
       "Künftige Diktate verwenden diese Korrektur nicht mehr.",
     dictionaryDescription:
-      "Diese Begriffe helfen der Spracherkennung, deine bevorzugten Schreibweisen zu verwenden.",
+      "Füge bevorzugte Schreibweisen hinzu, damit Clips deine Begriffe erkennt.",
     dictionaryTermPlaceholder: "Term (Lokalisiert)",
     dictionaryReplacementPlaceholder: "Replacement (optional) (Lokalisiert)",
     dictionaryAdd: "Add (Lokalisiert)",
     dictionaryLoading: "Loading dictionary... (Lokalisiert)",
-    dictionaryEmpty: "Noch keine gelernten Begriffe.",
+    dictionaryEmpty: "Lerne Clips dein Vokabular",
     dictionaryUsesCount: "{{count}}-mal verwendet",
     dictionaryRemove: "Entfernen",
     vocabularyAddFailed: "Begriff konnte nicht hinzugefügt werden",
     vocabularyRemoveFailed: "Begriff konnte nicht entfernt werden",
   },
   clipsFinalRaw: {
+    hostedStorageFull:
+      "Der gehostete Clips-Speicher ist voll. Verbinde den Builder.io-Speicher, um weiterhin Clips zu speichern.",
+    hostedRecordingTakenDown:
+      "Diese Aufnahme wurde aus dem gehosteten Clips-Speicher entfernt.",
     splitAtPlayhead: "An Abspielposition teilen (S)",
     selectedCount: "{{count}} ausgewählt",
     selectAll: "Alle auswählen",
@@ -1719,11 +2226,14 @@ const messages = {
     retry: "Wiederholen",
     retrying: "Wird wiederholt…",
     retryFailed: "Dieser Upload konnte nicht wiederholt werden.",
+    retryCheckFailed:
+      "Es konnte nicht geprüft werden, ob dieser Upload erneut versucht werden kann. Lade die Seite neu.",
     retryUnavailableHere:
       "Ein erneuter Versuch ist nur auf dem Gerät oder Browser möglich, auf dem diese Aufnahme erstellt wurde.",
     viewsCount: "{{count}} Aufrufe",
     recordingMenu: "Aufnahmemenü",
     moveToFolder: "In Ordner verschieben",
+    moveHere: "Hierher verschieben",
     unarchive: "Archivierung aufheben",
     shareNamedMeeting: "„{{title}}“ teilen",
     shareMeeting: "Meeting teilen",
@@ -1800,9 +2310,9 @@ const messages = {
     pastRecordings: "Past recordings (Lokalisiert)",
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (Lokalisiert)",
-    connectGoogleCalendar: "Connect Google Calendar (Lokalisiert)",
+    connectGoogleCalendar: "Mach jedes Meeting unvergesslicher",
     desktopReminder:
-      "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins. (Lokalisiert)",
+      "Verbinde Google Kalender, um bevorstehende Meetings zu sehen und mit Clips Desktop Notizen festzuhalten.",
     getDesktopApp: "Get desktop app (Lokalisiert)",
     requiredForReminders:
       "Desktop captures mic + system audio for meeting transcription. (Lokalisiert)",
@@ -1824,20 +2334,20 @@ const messages = {
     disconnectGoogleCalendarTitle: "Disconnect Google Calendar? (Lokalisiert)",
     title: "Meetings (Lokalisiert)",
     intro:
-      "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time. (Lokalisiert)",
+      "Starte während eines Meetings Notizen in Clips Desktop. Das Transkript und die Notizen werden hier gespeichert.",
     searchPlaceholder:
       "Search meetings, attendees, and transcripts... (Lokalisiert)",
     agendaTab: "Agenda (Lokalisiert)",
     pastTab: "Past (Lokalisiert)",
     now: "Now (Lokalisiert)",
-    noPastMeetings: "No past meetings yet (Lokalisiert)",
+    noPastMeetings: "Deine Meeting-Historie beginnt hier",
     loadOlder: "Load older (Lokalisiert)",
     searchFailed:
       "Couldn't search meetings. Try again in a moment. (Lokalisiert)",
     clearSearch: "Clear search (Lokalisiert)",
-    noMeetingsYet: "No meetings yet (Lokalisiert)",
+    noMeetingsYet: "Deine Agenda ist frei",
     noMeetingsDescription:
-      "Connect your calendar and keep Clips Desktop open. When a meeting starts, use Start notes from the reminder or menu bar. (Lokalisiert)",
+      "Bevorstehende Termine aus deinen verbundenen Kalendern erscheinen hier, sobald sie geplant sind.",
     noMeetingsMatch: 'No meetings match "{{query}}" (Lokalisiert)',
     refreshing: "Refreshing… (Lokalisiert)",
     howToTriggerTitle: "How to trigger meeting notes (Lokalisiert)",
@@ -1853,22 +2363,6 @@ const messages = {
     guideStartDescription:
       "Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins. (Lokalisiert)",
   },
-  rewindExtension: {
-    title: "Frühere Aufnahme hinzufügen",
-    description:
-      "Wähle einen Zeitraum aus dem lokalen Rewind und füge ihn am Anfang dieses Clips ein. Nichts wird automatisch hinzugefügt.",
-    progressLabel: "Fortschritt der Rewind-Verarbeitung",
-    privateFirstTitle: "Diesen Clip zuerst privat machen",
-    privateFirstDescription:
-      "Der lokale Rewind-Verlauf kann Kontext von vor dem Aufnahmestart enthalten. Der Clip wird privat. Falls jemand direkten Zugriff hat, hält Clips an, damit du ihn zuerst unter Teilen entfernen kannst.",
-    makePrivateContinue: "Privat machen und fortfahren",
-    add30Seconds: "Vorherige 30 Sekunden hinzufügen",
-    add5Minutes: "Vorherige 5 Minuten hinzufügen",
-    add5MinutesDescription:
-      "Hilfreich, um den Einstieg in eine längere Erklärung wiederherzustellen.",
-    privateReady:
-      "Dieser Clip ist privat. Du kannst jetzt lokalen Rewind-Verlauf hinzufügen.",
-  },
   browserDiagnostics: {
     debug: "Debug",
     title: "Browserdiagnose",
@@ -1876,16 +2370,30 @@ const messages = {
       "{{consoleCount}} Konsolenprobleme · {{networkCount}} fehlgeschlagene Anfragen",
     noFailures: "Keine Fehler erkannt",
     failuresPresent: "Browserfehler erkannt",
+    unviewedCount: "{{count}} ungesehen",
     captureSuccessful: "Diagnosedaten erfolgreich erfasst",
     capturedFrom: "Erfasst von {{source}}",
     browserCapture: "Browseraufnahme",
     views: "Diagnoseansichten",
+    timeline: "Zeitachse",
+    navigation: "Navigation",
+    click: "Klick",
+    input: "Eingabe",
+    scroll: "Scrollen",
+    requestStarted: "Anfrage gestartet",
+    responseReceived: "Antwort empfangen",
     issues: "Probleme",
     consoleSource: "Konsole",
     networkSource: "Netzwerk",
+    appSource: "App-Aktivität",
+    appEvent: "Ereignis",
+    appData: "Daten",
+    appFailureSummary: "{{count}} App-Fehler",
+    appUnavailable: "Die App-Aktivität konnte nicht geladen werden.",
     consoleCount: "Konsole {{count}}",
     networkCount: "Netzwerk {{count}}",
     afterRecording: "Nach der Aufnahme",
+    beforeRecording: "Vor der Aufnahme",
     seekToTime: "Zu {{time}} springen",
     occurrences: "Vorkommen",
     message: "Meldung",
@@ -1897,6 +2405,7 @@ const messages = {
     noIssuesTitle: "Keine Browserprobleme erkannt",
     noConsoleTitle: "Keine Konsolenereignisse",
     noNetworkTitle: "Keine Netzwerkanfragen",
+    noAppTitle: "Keine App-Aktivität",
     capturedDescription: "Für diese Aufnahme wurden Diagnosedaten erfasst.",
   },
   timeline: { clipStartedHere: "Clip begann hier" },

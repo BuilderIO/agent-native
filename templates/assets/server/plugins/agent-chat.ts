@@ -17,6 +17,8 @@ const ASSETS_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
 const INITIAL_TOOL_NAMES = [
   "view-screen",
   "list-libraries",
+  "match-library",
+  "list-templates",
   "list-assets",
   "search-assets",
   "get-asset",
@@ -27,7 +29,6 @@ const INITIAL_TOOL_NAMES = [
   "refine-image",
   "save-generated-asset",
   "export-asset",
-  "create-library",
   "create-collection",
   "open-asset-picker",
   "navigate",
@@ -51,8 +52,6 @@ export default createAgentChatPlugin({
   initialToolNames: INITIAL_TOOL_NAMES,
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
-  // When a user tags an @template, embed its aesthetics/philosophy into the
-  // model-facing message so the agent internalizes the brief before generating.
   prepareRequest: ({ message, references }) =>
     prepareTemplateChatContext({ message, references }),
   mentionProviders: {

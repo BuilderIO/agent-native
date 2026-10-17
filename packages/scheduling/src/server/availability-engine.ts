@@ -1,11 +1,3 @@
-/**
- * Availability engine — combines an event type, schedule, and calendar busy
- * intervals into the slot list shown to the Booker.
- *
- * This is where the pure `computeAvailableSlots` gets plugged into the real
- * world: it fetches the schedule, merges busy times from the selected
- * calendars + existing bookings, and applies booking limits.
- */
 import { eq, gte, lt, and, inArray } from "drizzle-orm";
 
 import { expandSlotForConflictCheck } from "../core/buffers.js";
@@ -39,16 +31,9 @@ export interface AssertSlotAvailableInput {
   endTime: string;
   beforeEventBuffer?: number;
   afterEventBuffer?: number;
-  /** Booking uid to ignore when checking conflicts (e.g. the one being rescheduled). */
   excludeBookingUid?: string;
 }
 
-/**
- * Re-validate a single requested interval right before it's written —
- * cheap by design: aggregates busy only over the buffer-expanded window
- * instead of scanning a full day like `getAvailableSlots`. Throws
- * `SlotConflictError` if the window collides with existing busy time.
- */
 export async function assertSlotAvailable(
   input: AssertSlotAvailableInput,
 ): Promise<void> {
@@ -73,7 +58,6 @@ export async function assertSlotAvailable(
 
 export interface GetSlotsInput {
   eventType: EventType;
-  /** The user we're finding availability for — their schedule + calendars. */
   forUserEmail: string;
   rangeStart: Date;
   rangeEnd: Date;
@@ -141,10 +125,6 @@ async function resolveDefaultSchedule(
   return getScheduleById(rows[0].id);
 }
 
-/**
- * Merge busy intervals from: (a) existing bookings for the user, (b) selected
- * external calendars (via providers), (c) the calendar cache.
- */
 export async function aggregateBusy(input: {
   userEmail: string;
   rangeStart: Date;
@@ -154,7 +134,6 @@ export async function aggregateBusy(input: {
   const db = getDb();
   const busy: BusyInterval[] = [];
 
-  // Existing bookings where this user is the host
   const bookings = await db
     .select()
     .from(schema.bookings)
@@ -174,7 +153,6 @@ export async function aggregateBusy(input: {
     });
   }
 
-  // External calendars via registered providers
   const creds = await db
     .select()
     .from(schema.schedulingCredentials)

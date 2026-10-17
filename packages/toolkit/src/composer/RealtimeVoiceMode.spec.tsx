@@ -19,12 +19,12 @@ const copy: RealtimeVoiceModeCopy = {
     "Voice mode keeps listening while the agent navigates and takes actions.",
   setupTitle: "Set up voice mode",
   setupDescription:
-    "Connect Builder.io to use managed voice with free credits, or add your own keys.",
-  connectBuilder: "Connect Builder.io",
+    "Use Builder.io for managed voice with free credits, or add your own keys.",
+  connectBuilder: "Use Builder.io",
   useOpenAiKey: "Add your own keys",
   startWithOpenAiKey: "Start with OpenAI key",
-  startVoiceMode: "Real-time voice",
-  keepDictating: "Dictate",
+  startVoiceMode: "Start voice chat",
+  keepDictating: "Dictate a message",
   rememberPreference: "Remember my preference",
   showChat: "Show chat",
   hideChat: "Hide chat",
@@ -151,6 +151,7 @@ describe("RealtimeVoiceMode", () => {
     const microphone = document.querySelector<HTMLButtonElement>(
       'button[aria-label="Use microphone"]',
     );
+    expect(microphone?.dataset.agentComposerSlot).toBe("voice-button");
     expect(microphone?.getAttribute("aria-expanded")).toBe("false");
 
     act(() => microphone?.click());
@@ -163,14 +164,14 @@ describe("RealtimeVoiceMode", () => {
     expect(document.body.textContent).not.toContain(
       "Voice mode keeps listening while the agent navigates and takes actions.",
     );
-    expect(document.body.textContent).toContain("Dictate");
+    expect(document.body.textContent).toContain("Dictate a message");
     expect(document.body.textContent).toContain("Remember my preference");
     expect(onStartVoiceMode).not.toHaveBeenCalled();
     expect(onKeepDictating).not.toHaveBeenCalled();
 
     const startVoiceMode = Array.from(
       document.querySelectorAll<HTMLButtonElement>("button"),
-    ).find((button) => button.textContent?.includes("Real-time voice"));
+    ).find((button) => button.textContent?.includes("Start voice chat"));
     act(() => startVoiceMode?.click());
 
     expect(onStartVoiceMode).toHaveBeenCalledOnce();
@@ -194,14 +195,15 @@ describe("RealtimeVoiceMode", () => {
 
     const startVoiceMode = Array.from(
       document.querySelectorAll<HTMLButtonElement>("button"),
-    ).find((button) => button.textContent?.includes("Real-time voice"));
+    ).find((button) => button.textContent?.includes("Start voice chat"));
     expect(startVoiceMode?.disabled).toBe(true);
+    expect(document.querySelector(".animate-spin")).toBeNull();
     act(() => startVoiceMode?.click());
     expect(onStartVoiceMode).not.toHaveBeenCalled();
 
     const keepDictating = Array.from(
       document.querySelectorAll<HTMLButtonElement>("button"),
-    ).find((button) => button.textContent === "Dictate");
+    ).find((button) => button.textContent === "Dictate a message");
     expect(keepDictating?.disabled).toBe(false);
   });
 
@@ -220,7 +222,7 @@ describe("RealtimeVoiceMode", () => {
 
     const keepDictating = Array.from(
       document.querySelectorAll<HTMLButtonElement>("button"),
-    ).find((button) => button.textContent === "Dictate");
+    ).find((button) => button.textContent === "Dictate a message");
     act(() => keepDictating?.click());
 
     expect(onKeepDictating).toHaveBeenCalledOnce();
@@ -245,7 +247,7 @@ describe("RealtimeVoiceMode", () => {
     act(() => remember?.click());
     const realtime = Array.from(
       document.querySelectorAll<HTMLButtonElement>("button"),
-    ).find((button) => button.textContent?.includes("Real-time voice"));
+    ).find((button) => button.textContent?.includes("Start voice chat"));
     act(() => realtime?.click());
 
     expect(onRememberPreference).toHaveBeenCalledWith("realtime");
@@ -297,7 +299,7 @@ describe("RealtimeVoiceMode", () => {
     expect(document.body.textContent).toContain("Set up voice mode");
   });
 
-  it("makes Builder the primary setup action and own keys the secondary", () => {
+  it("does not launch Builder sign-in when the shared account chooser is unavailable", () => {
     const onConnectBuilder = vi.fn();
     const onUseOpenAiKey = vi.fn();
 
@@ -331,14 +333,9 @@ describe("RealtimeVoiceMode", () => {
       document.querySelectorAll<HTMLButtonElement>("button"),
     );
     expect(
-      buttons.find((button) => button.textContent === "Connect Builder.io"),
-    ).toBeDefined();
-    act(() =>
-      buttons
-        .find((button) => button.textContent === "Connect Builder.io")
-        ?.click(),
-    );
-    expect(onConnectBuilder).toHaveBeenCalledOnce();
+      buttons.find((button) => button.textContent === "Use Builder.io"),
+    ).toBeUndefined();
+    expect(onConnectBuilder).not.toHaveBeenCalled();
     expect(onUseOpenAiKey).not.toHaveBeenCalled();
   });
 

@@ -15,14 +15,6 @@ const REQUIRED_TYPOGRAPHY_KEYS = [
   "bodyWeight",
 ];
 
-/**
- * The Design Systems page and slide renderers read data.colors.* and
- * data.typography.* unconditionally (no optional chaining). A syntactically
- * valid but incomplete `data` payload — e.g. from an interrupted generation —
- * would otherwise persist and crash on the very next read. Shared between the
- * create/update actions (write-time validation) and the Design Systems page
- * (read-time validation of rows written before this check existed).
- */
 export function missingDesignSystemDataFields(value: unknown): string[] {
   const missing: string[] = [];
   const record =
@@ -59,4 +51,38 @@ export function missingDesignSystemDataFields(value: unknown): string[] {
   }
 
   return missing;
+}
+
+export type DesignSystemIndexingStatus = "ready" | "indexing" | "unavailable";
+
+export function getDesignSystemIndexingStatus(
+  data: unknown,
+): DesignSystemIndexingStatus {
+  const record =
+    data && typeof data === "object" ? (data as Record<string, unknown>) : null;
+  if (!record || record.source !== "builder") return "ready";
+
+  const hasColors = record.colors && typeof record.colors === "object";
+  const hasTypography =
+    record.typography && typeof record.typography === "object";
+  const docCount = typeof record.docCount === "number" ? record.docCount : 0;
+  const hasTokens =
+    record.tokenValues &&
+    typeof record.tokenValues === "object" &&
+    Object.keys(record.tokenValues as Record<string, unknown>).length > 0;
+
+  if (hasColors || hasTypography || docCount > 0 || hasTokens) return "ready";
+  if (record.warning) return "unavailable";
+  return "indexing";
+}
+
+export function parseDesignSystemIndexingStatus(
+  data: string | null | undefined,
+): DesignSystemIndexingStatus {
+  if (!data) return "ready";
+  try {
+    return getDesignSystemIndexingStatus(JSON.parse(data));
+  } catch {
+    return "unavailable";
+  }
 }

@@ -1,0 +1,200 @@
+.agent-prompt-home {
+  max-width: 92.5rem;
+}
+
+.agent-prompt-home-hero {
+  position: relative;
+  display: flex;
+  min-height: clamp(36rem, 64svh, 44rem);
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.agent-prompt-home-composer {
+  width: 100%;
+  max-width: 43.75rem;
+}
+
+.agent-prompt-home-connection {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows 200ms ease,
+    opacity 160ms ease;
+}
+
+.agent-prompt-home-connection[data-visible] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.agent-prompt-home-connection > * {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.agent-prompt-home-library {
+  padding-block-start: 2rem;
+}
+
+.agent-prompt-home-tabs > div:first-child {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  padding-block: 0.5rem;
+  background: hsl(var(--background));
+}
+
+.agent-template-library-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+}
+
+.agent-context-reference-gallery .agent-template-library-grid {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 15rem), 1fr));
+}
+
+.agent-template-library-preview {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: inherit;
+}
+
+.agent-template-library-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto 5rem;
+}
+
+.agent-template-library-primary {
+  grid-area: 1 / 1 / 3 / 3;
+  position: relative;
+  min-width: 0;
+}
+
+.agent-template-library-caption {
+  min-height: 5rem;
+  padding: 1rem;
+  padding-inline-end: 3rem;
+}
+
+.agent-template-library-actions {
+  grid-column: 2;
+  grid-row: 2;
+  align-self: start;
+  z-index: 1;
+  opacity: 1;
+}
+
+@media (hover: hover) {
+  .agent-template-library-actions {
+    opacity: 0;
+  }
+
+  .agent-template-library-card:hover .agent-template-library-actions,
+  .agent-template-library-card:focus-within .agent-template-library-actions {
+    opacity: 1;
+  }
+}
+
+.agent-template-preview-dialog {
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.agent-template-preview-dialog[data-size="large"] {
+  height: min(85dvh, 60rem);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-prompt-home-connection {
+    transition: none;
+  }
+}
+
+.agent-template-preview-viewer {
+  display: grid;
+  min-height: 0;
+  height: 100%;
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.agent-template-preview-viewer[data-has-rail] {
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 1rem;
+}
+
+.agent-template-preview-rail {
+  display: flex;
+  gap: 0.75rem;
+  overflow: auto;
+  padding: 0.25rem;
+}
+
+.agent-template-preview-thumbnail {
+  flex: 0 0 10rem;
+  min-width: 0;
+}
+
+.agent-template-preview-thumbnail:focus-within,
+.agent-template-preview-thumbnail[data-selected] {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+.agent-template-preview-content {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+@media (min-width: 48rem) {
+  .agent-template-preview-viewer[data-has-rail] {
+    grid-template-columns: 12rem minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .agent-template-preview-rail {
+    display: block;
+  }
+
+  .agent-template-preview-thumbnail + .agent-template-preview-thumbnail {
+    margin-block-start: 0.75rem;
+  }
+}
+
+.agent-template-library-card:focus-within {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+.agent-template-library-card[data-selected] {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+@media (min-width: 40rem) {
+  .agent-template-library-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 64rem) {
+  .agent-template-library-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 80rem) {
+  .agent-template-library-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}

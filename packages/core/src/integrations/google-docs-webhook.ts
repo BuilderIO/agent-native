@@ -20,7 +20,6 @@ export function hashGoogleDocsChannelToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
 }
 
-/** Google Drive delivers channel tokens, not Pub/Sub OIDC bearer tokens. */
 export function verifyGoogleDocsChannel(
   expected: Record<string, unknown> | null | undefined,
   received: GoogleDocsPushHeaders,

@@ -42,8 +42,6 @@ beforeEach(() => {
       },
     },
   };
-  // `navigator` is a getter-only global under Node, so stub the one member the
-  // module reads instead of replacing the object.
   Object.defineProperty(globalThis.navigator, "mediaDevices", {
     configurable: true,
     value: {

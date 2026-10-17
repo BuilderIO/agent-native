@@ -1,15 +1,30 @@
 import {
+  fail,
+  isAgentConnectionRequiredError,
+} from "@agent-native/core/action";
+import {
   isProviderApiId,
   resolveProviderApiOAuthAccessToken,
 } from "@agent-native/core/provider-api";
 import type { SecretRef } from "@agent-native/core/secrets";
+import { getRequestContext } from "@agent-native/core/server";
 import type { WorkspaceConnectionCredentialResolution } from "@agent-native/core/workspace-connections";
 import {
   resolveWorkspaceConnectionCredentialForApp,
   resolveWorkspaceConnectionForApp,
 } from "@agent-native/core/workspace-connections";
 
-import { resolveCredential, type CredentialContext } from "./credentials";
+import {
+  resolveCredentialDetailed,
+  type CredentialContext,
+} from "./credentials";
+import {
+  parseSigmaDirectCredentials,
+  SIGMA_DIRECT_CREDENTIALS_KEY,
+  SIGMA_DIRECT_CONNECTION_MARKER,
+  SIGMA_PROVIDER_ID,
+  sigmaCredentialField,
+} from "./sigma-connection";
 
 export const ANALYTICS_APP_ID = "analytics";
 
@@ -43,6 +58,7 @@ export interface AnalyticsProviderCredential {
   connectionId?: string;
   connectionLabel?: string;
   scope?: SecretRef["scope"];
+  scopeId?: string;
 }
 
 export interface ResolveProviderCredentialOptions {
@@ -57,6 +73,128 @@ export interface AnalyticsGongCredentials {
   accessKey: string;
   accessSecret: string;
   sources: AnalyticsProviderCredential[];
+}
+
+interface SigmaDirectCredentialSnapshot {
+  credentials: NonNullable<ReturnType<typeof parseSigmaDirectCredentials>>;
+  connectionLabel: string;
+}
+
+type SigmaDirectCredentialRead =
+  | { kind: "not-direct" }
+  | { kind: "direct"; snapshot: SigmaDirectCredentialSnapshot };
+
+const sigmaDirectCredentialReads = new WeakMap<
+  object,
+  Map<string, Promise<SigmaDirectCredentialRead>>
+>();
+
+async function readSigmaDirectCredentials(
+  orgId: string,
+  connectionId: string,
+  ctx: CredentialContext,
+): Promise<SigmaDirectCredentialRead> {
+  const requestContext = getRequestContext();
+  if (!requestContext) {
+    throw new Error("Sigma credentials require a request-scoped context.");
+  }
+  let requestCache = sigmaDirectCredentialReads.get(requestContext);
+  if (!requestCache) {
+    requestCache = new Map();
+    sigmaDirectCredentialReads.set(requestContext, requestCache);
+  }
+  const cacheKey = `${orgId}:${connectionId}`;
+  let result = requestCache.get(cacheKey);
+  if (!result) {
+    result = (async () => {
+      const connection = await resolveWorkspaceConnectionForApp({
+        appId: ANALYTICS_APP_ID,
+        provider: SIGMA_PROVIDER_ID,
+        connectionId,
+        requireConnected: true,
+      });
+      if (
+        !connection.available ||
+        connection.connection?.config.analyticsSetup !==
+          SIGMA_DIRECT_CONNECTION_MARKER
+      ) {
+        return { kind: "not-direct" };
+      }
+
+      const directConnection = connection.connection;
+      const credentialRef = directConnection.credentialRefs[0];
+      if (
+        directConnection.allowedApps.length !== 1 ||
+        directConnection.allowedApps[0] !== ANALYTICS_APP_ID ||
+        directConnection.allowedUsers.length > 0 ||
+        (directConnection.allowedUserGroups?.length ?? 0) > 0 ||
+        directConnection.credentialRefs.length !== 1 ||
+        credentialRef?.key !== SIGMA_DIRECT_CREDENTIALS_KEY ||
+        credentialRef.scope !== "org" ||
+        credentialRef.provider !== "sigma"
+      ) {
+        fail("The Analytics Sigma connection access policy is invalid.", {
+          errorCode: "sigma_connection_policy_invalid",
+          statusCode: 409,
+        });
+      }
+
+      const resolution = await resolveWorkspaceConnectionCredentialForApp({
+        appId: ANALYTICS_APP_ID,
+        provider: SIGMA_PROVIDER_ID,
+        key: SIGMA_DIRECT_CREDENTIALS_KEY,
+        connectionId,
+        userEmail: ctx.userEmail,
+        orgId,
+        credentialScope: "org",
+      });
+      const provenance = resolution.provenance;
+      if (
+        !resolution.available ||
+        resolution.status !== "resolved" ||
+        !resolution.value ||
+        !provenance
+      ) {
+        fail("The saved Analytics Sigma credentials could not be read.", {
+          errorCode: "sigma_direct_credentials_unavailable",
+          statusCode: 503,
+        });
+      }
+      if (
+        provenance.connectionId !== connectionId ||
+        provenance.credentialRef.source !== "connection" ||
+        provenance.credentialRef.key !== SIGMA_DIRECT_CREDENTIALS_KEY ||
+        provenance.credentialRef.scope !== "org" ||
+        provenance.credentialRef.provider !== "sigma" ||
+        provenance.secretScope !== "org"
+      ) {
+        fail(
+          "The Analytics Sigma connection credential reference is invalid.",
+          {
+            errorCode: "sigma_connection_policy_invalid",
+            statusCode: 409,
+          },
+        );
+      }
+
+      const credentials = parseSigmaDirectCredentials(resolution.value);
+      if (!credentials) {
+        fail("The saved Analytics Sigma credential bundle could not be read.", {
+          errorCode: "sigma_direct_credentials_unavailable",
+          statusCode: 503,
+        });
+      }
+      return {
+        kind: "direct",
+        snapshot: {
+          credentials,
+          connectionLabel: provenance.connectionLabel,
+        },
+      };
+    })();
+    requestCache.set(cacheKey, result);
+  }
+  return result;
 }
 
 function normalizeKey(key: string): string {
@@ -78,7 +216,7 @@ function uniqueKeys(keys: string | readonly string[]): string[] {
 
 function normalizeCoreCredentialResult(
   result: WorkspaceConnectionCredentialResolution,
-  fallback: { provider: string; key: string },
+  fallback: { provider: string; key: string; ctx: CredentialContext },
 ): AnalyticsProviderCredential | null {
   if (!result.available || !result.value) return null;
   const scope =
@@ -95,6 +233,11 @@ function normalizeCoreCredentialResult(
     connectionId: result.provenance?.connectionId,
     connectionLabel: result.provenance?.connectionLabel,
     scope,
+    ...(scope === "user"
+      ? { scopeId: fallback.ctx.userEmail }
+      : scope === "org" || scope === "workspace"
+        ? { scopeId: fallback.ctx.orgId ?? undefined }
+        : {}),
   };
 }
 
@@ -153,10 +296,14 @@ async function resolveViaCoreHelper({
       connectionId: normalizedConnectionId,
       userEmail: ctx.userEmail,
       orgId: ctx.orgId,
+      ...(ctx.credentialScope === "org"
+        ? { credentialScope: "org" as const }
+        : {}),
     });
     const credential = normalizeCoreCredentialResult(result, {
       provider,
       key,
+      ctx,
     });
     if (credential) return credential;
   }
@@ -170,12 +317,18 @@ async function resolveWorkspaceOAuthProviderCredential(
   if (options.workspaceConnection === false) return null;
   const provider = options.provider.trim().toLowerCase();
   if (!isProviderApiId(provider)) return null;
+  if (provider === "bigquery" && options.ctx.credentialScope === "org") {
+    return null;
+  }
 
   const requestedConnectionId = options.connectionId?.trim() || undefined;
   const resolvedConnection = await resolveWorkspaceConnectionForApp({
     appId: ANALYTICS_APP_ID,
     provider,
     connectionId: requestedConnectionId,
+    ...(provider === "bigquery"
+      ? { connectionOwnerEmail: options.ctx.userEmail }
+      : {}),
     requireConnected: true,
   });
   if (
@@ -214,11 +367,40 @@ export async function resolveWorkspaceConnectionProviderCredential(
   const keys = uniqueKeys(options.keys);
   if (keys.length === 0) return null;
 
+  const provider = options.provider.trim().toLowerCase();
+  const connectionId = options.connectionId?.trim();
+  if (provider === SIGMA_PROVIDER_ID && connectionId) {
+    const requestedKey = keys.find((key) => sigmaCredentialField(key));
+    const field = requestedKey ? sigmaCredentialField(requestedKey) : null;
+    if (requestedKey && field && options.ctx.orgId) {
+      const directRead = await readSigmaDirectCredentials(
+        options.ctx.orgId,
+        connectionId,
+        options.ctx,
+      );
+      if (directRead.kind === "direct") {
+        const directCredentials = directRead.snapshot;
+        const value = directCredentials.credentials[field];
+        if (!value) return null;
+        return {
+          value,
+          key: normalizeKey(requestedKey),
+          provider,
+          source: "workspace_connection",
+          connectionId,
+          connectionLabel: directCredentials.connectionLabel,
+          scope: "org",
+          scopeId: options.ctx.orgId,
+        };
+      }
+    }
+  }
+
   return resolveViaCoreHelper({
-    provider: options.provider,
+    provider,
     keys,
     ctx: options.ctx,
-    connectionId: options.connectionId,
+    connectionId,
   });
 }
 
@@ -227,13 +409,15 @@ export async function resolveLocalAnalyticsProviderCredential(
 ): Promise<AnalyticsProviderCredential | null> {
   const keys = uniqueKeys(options.keys);
   for (const key of keys) {
-    const value = await resolveCredential(key, options.ctx);
-    if (value) {
+    const credential = await resolveCredentialDetailed(key, options.ctx);
+    if (credential) {
       return {
-        value,
+        value: credential.value,
         key,
         provider: options.provider,
         source: "analytics_local",
+        scope: credential.scope,
+        scopeId: credential.scopeId,
       };
     }
   }
@@ -299,6 +483,27 @@ export async function resolveAnalyticsProviderCredential(
   }
 
   return null;
+}
+
+export async function resolveBigQueryOAuthCredential(
+  ctx: CredentialContext,
+): Promise<AnalyticsProviderCredential | null> {
+  try {
+    return await resolveAnalyticsProviderCredential({
+      provider: "bigquery",
+      keys: [],
+      ctx,
+    });
+  } catch (error) {
+    if (
+      isAgentConnectionRequiredError(error) &&
+      error.provider === "bigquery" &&
+      error.reason === "reauthorize"
+    ) {
+      return null;
+    }
+    throw error;
+  }
 }
 
 export async function resolveAnalyticsGongCredentials(

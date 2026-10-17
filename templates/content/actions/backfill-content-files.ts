@@ -9,7 +9,7 @@ import { provisionContentSpaces } from "./_content-spaces.js";
 
 export default defineAction({
   description:
-    "Assign legacy pages to Content spaces and reconcile their canonical Files database memberships.",
+    "Assign legacy pages to Content spaces and reconcile their canonical Files collection memberships.",
   schema: z.object({}),
   run: async () => {
     const userEmail = getRequestUserEmail();

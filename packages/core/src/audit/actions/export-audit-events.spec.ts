@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../../a2a/test-pglite.js";
+import { __resetStoreLedgerSnapshotForTests } from "../../db/store-registry.js";
 import type { AuditEvent } from "../types.js";
 
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
@@ -57,6 +58,7 @@ function makeEvent(over: Partial<AuditEvent> = {}): AuditEvent {
 
 beforeEach(async () => {
   pglite = await createTestPglite();
+  __resetStoreLedgerSnapshotForTests();
   __resetAuditInitForTests();
   seq = 0;
 });
@@ -86,10 +88,8 @@ describe("export-audit-events", () => {
     expect(result.truncated).toBe(false);
     const lines = result.content.split("\n");
     expect(lines[0]).toBe(
-      "id,created_at,action,caller,actor_kind,actor_email,org_id,thread_id,turn_id,target_type,target_id,status,summary,error_code,owner_email,visibility",
+      "id,created_at,action,caller,actor_kind,actor_email,org_id,thread_id,turn_id,target_type,target_id,status,summary,error_code,owner_email,visibility,app",
     );
-    // The escaped summary field embeds a real newline inside its quotes, so
-    // it spans two lines of the joined CSV string.
     expect(result.content).toContain(
       '"has ""quotes"", a comma, and\na newline"',
     );
@@ -110,7 +110,6 @@ describe("export-audit-events", () => {
     expect(lines).toHaveLength(2);
     const parsed = lines.map((line) => JSON.parse(line));
     expect(parsed.map((e) => e.id).sort()).toEqual(["n1", "n2"]);
-    // Newest first, same ordering as list-audit-events.
     expect(parsed[0].id).toBe("n2");
   });
 
@@ -172,7 +171,15 @@ describe("export-audit-events", () => {
       makeEvent({ id: "agent-evt", actorKind: "agent", createdAt: 100 }),
     );
     await insertAuditEvent(
-      makeEvent({ id: "human-evt", actorKind: "human", createdAt: 200 }),
+      makeEvent({
+        id: "human-evt",
+        caller: "frontend",
+        actorKind: "human",
+        createdAt: 200,
+      }),
+    );
+    await insertAuditEvent(
+      makeEvent({ id: "service-evt", actorKind: "service", createdAt: 300 }),
     );
 
     const result = await exportAuditEvents.run(
@@ -182,5 +189,13 @@ describe("export-audit-events", () => {
 
     expect(result.rowCount).toBe(1);
     expect(JSON.parse(result.content).id).toBe("human-evt");
+
+    const serviceResult = await exportAuditEvents.run(
+      { format: "ndjson", actorKind: "service" },
+      { userEmail: "alice@x.com" },
+    );
+
+    expect(serviceResult.rowCount).toBe(1);
+    expect(JSON.parse(serviceResult.content).id).toBe("service-evt");
   });
 });

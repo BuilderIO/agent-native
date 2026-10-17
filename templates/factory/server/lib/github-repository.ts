@@ -77,7 +77,6 @@ export function parseGitHubRepositoryRef(value: string): GitHubRepositoryRef {
     throw new Error(INVALID_REPOSITORY);
   }
   const parts = url.pathname.split("/").filter(Boolean);
-  // Extra path (/pull/1, /tree/main) is ignored; owner and repo are the first two segments.
   if (parts.length < 2) throw new Error(INVALID_REPOSITORY);
   return refFromOwnerRepo(parts[0], parts[1]);
 }

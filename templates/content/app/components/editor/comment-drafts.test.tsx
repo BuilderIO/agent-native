@@ -11,16 +11,23 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   CommentDraftProvider,
+  commentDraftStorageKey,
   useCommentDraft,
+  useCommentDraftContext,
   useCommentPanelSession,
   type CommentDraft,
 } from "./comment-drafts";
+
+(
+  globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
+).IS_REACT_ACT_ENVIRONMENT = true;
 
 describe("comment drafts", () => {
   let container: HTMLDivElement | null = null;
   let root: Root | null = null;
   let currentDraft: ReturnType<typeof useCommentDraft> | null = null;
   let currentPanel: ReturnType<typeof useCommentPanelSession> | null = null;
+  let currentContext: ReturnType<typeof useCommentDraftContext> | null = null;
 
   afterEach(() => {
     act(() => root?.unmount());
@@ -29,6 +36,7 @@ describe("comment drafts", () => {
     container = null;
     currentDraft = null;
     currentPanel = null;
+    currentContext = null;
     window.localStorage.clear();
   });
 
@@ -40,6 +48,7 @@ describe("comment drafts", () => {
     initial?: CommentDraft;
   }) {
     currentDraft = useCommentDraft(draftKey, initial);
+    currentContext = useCommentDraftContext();
     currentPanel = useCommentPanelSession();
     return <div>{currentDraft.draft.text}</div>;
   }
@@ -47,6 +56,7 @@ describe("comment drafts", () => {
   function render(args: {
     documentId?: string;
     email?: string;
+    orgId?: string;
     draftKey?: string;
     initial?: CommentDraft;
     showProbe?: boolean;
@@ -59,6 +69,7 @@ describe("comment drafts", () => {
         <CommentDraftProvider
           documentId={args.documentId ?? "document-a"}
           currentUserEmail={args.email ?? "person@example.com"}
+          currentUserOrgId={args.orgId ?? "org-a"}
         >
           {args.showProbe === false ? null : (
             <Probe
@@ -82,6 +93,14 @@ describe("comment drafts", () => {
       currentPanel!.setHistoryStatus("resolved");
       currentPanel!.setHistoryAuthor("reviewer@example.com");
       currentPanel!.setHistoryScrollTop(184);
+      currentDraft!.setAiDraft({
+        selection: {
+          model: "openai/gpt-5.6-sol",
+          engine: "openai",
+          provider: "openai",
+        },
+        mode: "apply-resolve",
+      });
     });
 
     render({ showProbe: false });
@@ -90,12 +109,46 @@ describe("comment drafts", () => {
     expect(currentDraft!.draft).toMatchObject({
       text: "kept reply",
       mentions: [{ email: "reviewer@example.com", name: "Reviewer" }],
+      aiDraft: {
+        selection: {
+          model: "openai/gpt-5.6-sol",
+          engine: "openai",
+          provider: "openai",
+        },
+        mode: "apply-resolve",
+      },
     });
     expect(currentPanel).toMatchObject({
       historyStatus: "resolved",
       historyAuthor: "reviewer@example.com",
       historyScrollTop: 184,
     });
+  });
+
+  it("clears a submitted AI draft before a second draft starts", () => {
+    render({});
+    act(() => {
+      currentDraft!.setText("Apply the first change");
+      currentDraft!.setAiDraft({
+        selection: {
+          model: "openai/gpt-5.6-sol",
+          engine: "openai",
+          provider: "openai",
+        },
+        mode: "apply-resolve",
+      });
+    });
+    const submitted = currentDraft!.markSubmitted("operation-a");
+    act(() => currentDraft!.clearIfUnchanged(submitted));
+
+    expect(currentDraft!.draft).toMatchObject({
+      text: "",
+      mentions: [],
+      aiDraft: null,
+    });
+
+    act(() => currentDraft!.setText("Start a second draft"));
+    expect(currentDraft!.draft.aiDraft).toBeNull();
   });
 
   it("clears only the submitted revision when a delayed request settles", () => {
@@ -120,6 +173,24 @@ describe("comment drafts", () => {
     expect(currentDraft!.draft.revision).toBeGreaterThan(submitted.revision);
     act(() => currentDraft!.clearIfUnchanged(submitted));
     expect(currentDraft!.draft.text).toBe("A");
+  });
+
+  it("clears a submitted draft immediately and restores it only when no newer draft exists", () => {
+    render({});
+    act(() => currentDraft!.setText("submitted reply"));
+    act(() => currentDraft!.beginSubmission("operation-a"));
+    expect(currentDraft!.draft.text).toBe("");
+
+    act(() => currentDraft!.restoreSubmittedDraft("operation-a"));
+    expect(currentDraft!.draft).toMatchObject({ text: "submitted reply" });
+    act(() => currentDraft!.finishSubmission("operation-a"));
+
+    act(() => currentDraft!.setText("another submitted reply"));
+    act(() => currentDraft!.beginSubmission("operation-b"));
+    act(() => currentDraft!.setText("newer typing"));
+    act(() => currentDraft!.restoreSubmittedDraft("operation-b"));
+    expect(currentDraft!.draft.text).toBe("newer typing");
+    act(() => currentDraft!.finishSubmission("operation-b"));
   });
 
   it("retains the submitted mentions across remount and replaces them on resubmit", () => {
@@ -271,7 +342,7 @@ describe("comment drafts", () => {
     expect(currentDraft!.draft.text).toBe("");
   });
 
-  it("remembers status for each page and account after remount, without saving drafts", () => {
+  it("restores drafts after a provider remount and isolates accounts", () => {
     render({});
     expect(currentPanel).toMatchObject({
       historyStatus: "open",
@@ -285,13 +356,93 @@ describe("comment drafts", () => {
     root = null;
     render({});
     expect(currentPanel!.historyStatus).toBe("all");
-    expect(currentDraft!.draft.text).toBe("");
+    expect(currentDraft!.draft.text).toBe("temporary");
     render({ documentId: "document-b" });
-    expect(currentPanel!.historyStatus).toBe("open");
+    expect(currentPanel!.historyStatus).toBe("all");
+    expect(currentDraft!.draft.text).toBe("");
     render({ email: "other@example.com" });
     expect(currentPanel!.historyStatus).toBe("open");
+    expect(currentDraft!.draft.text).toBe("");
     render({ email: " PERSON@example.com " });
     expect(currentPanel!.historyStatus).toBe("all");
+  });
+
+  it("restores text, mentions including the AI chip, and the structured AI recipient after reload", () => {
+    const recipient = {
+      kind: "agent" as const,
+      model: "openai/gpt-5.6-sol",
+      engine: "openai",
+      provider: "openai",
+      name: "GPT-5.6 Sol",
+    };
+    render({});
+    act(() => {
+      currentDraft!.setText("Persist this AI request");
+      currentDraft!.setMentions([
+        recipient,
+        { email: "reviewer@example.com", name: "Reviewer" },
+      ]);
+      currentDraft!.setAiDraft({
+        selection: {
+          model: "openai/gpt-5.6-sol",
+          engine: "openai",
+          provider: "openai",
+        },
+        mode: "suggest",
+      });
+    });
+    act(() => root!.unmount());
+    root = null;
+    render({});
+
+    expect(currentDraft!.draft).toMatchObject({
+      text: "Persist this AI request",
+      mentions: [
+        recipient,
+        { email: "reviewer@example.com", name: "Reviewer" },
+      ],
+      aiDraft: {
+        selection: {
+          model: "openai/gpt-5.6-sol",
+          engine: "openai",
+          provider: "openai",
+        },
+        mode: "suggest",
+      },
+    });
+  });
+
+  it("scopes persisted drafts by organization and clears acknowledged drafts", () => {
+    render({ orgId: "org-a" });
+    act(() => currentDraft!.setText("organization A"));
+
+    render({ orgId: "org-b" });
+    expect(currentDraft!.draft.text).toBe("");
+    act(() => currentDraft!.setText("organization B"));
+
+    render({ orgId: "org-a" });
+    expect(currentDraft!.draft.text).toBe("organization A");
+    const submitted = currentDraft!.draft;
+    act(() => currentDraft!.clearIfUnchanged(submitted));
+    act(() => root!.unmount());
+    root = null;
+    render({ orgId: "org-a" });
+    expect(currentDraft!.draft.text).toBe("");
+    render({ orgId: "org-b" });
+    expect(currentDraft!.draft.text).toBe("organization B");
+  });
+
+  it("reports unreadable persisted data without treating it as a saved draft", () => {
+    const key = commentDraftStorageKey(
+      "document-a",
+      "person@example.com",
+      "org-a",
+    );
+    localStorage.setItem(key!, "{not-json");
+    render({});
+    expect(currentDraft!.draft.text).toBe("");
+    expect(currentDraft!.draft.aiDraft).toBeNull();
+    expect(currentContext!.persistenceState).toBe("unreadable");
   });
 
   it("keeps independent drafts for thread and edit keys", () => {
@@ -324,7 +475,7 @@ describe("comment drafts", () => {
   it("uses the latest server value after an edit draft is cleared", () => {
     render({
       draftKey: "edit:comment-a",
-      initial: { text: "original", mentions: [] },
+      initial: { text: "original", mentions: [], aiDraft: null },
     });
     act(() => currentDraft!.setText("saved edit"));
     const submitted = currentDraft!.draft;
@@ -332,7 +483,7 @@ describe("comment drafts", () => {
 
     render({
       draftKey: "edit:comment-a",
-      initial: { text: "new server value", mentions: [] },
+      initial: { text: "new server value", mentions: [], aiDraft: null },
     });
     expect(currentDraft!.draft.text).toBe("new server value");
   });

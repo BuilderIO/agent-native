@@ -7,6 +7,7 @@ import {
   getThread as readThread,
   getTeamInfo as readTeamInfo,
   getUserInfo as readUserInfo,
+  postChannelMessage as writeChannelMessage,
   postThreadReply as writeThreadReply,
   type ChannelHistoryResult,
   type SlackAuthTestResult,
@@ -28,7 +29,6 @@ export interface SlackReaderIdentity {
 
 const AGENT_NATIVE_SLACK_USER_NAMES = new Set(["agent-native", "agentnative"]);
 
-/** Slack reports the bot as @agent-native or @agentnative; do not treat hyphen padding as the same handle. */
 export function isAgentNativeSlackUserName(value: string): boolean {
   return AGENT_NATIVE_SLACK_USER_NAMES.has(
     value.trim().replace(/^@/, "").toLowerCase(),
@@ -150,6 +150,14 @@ export function createSlackReader(identity: SlackReaderIdentity) {
         text,
         tokenResolver,
       );
+    },
+    async postChannelMessage(
+      workspace: Workspace,
+      channelId: string,
+      text: string,
+    ): Promise<SlackPostMessageResult> {
+      await verifyAgentNativeIdentity(workspace);
+      return writeChannelMessage(workspace, channelId, text, tokenResolver);
     },
     async hasReaction(
       workspace: Workspace,

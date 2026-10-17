@@ -1,44 +1,14 @@
-/**
- * connect-builder-app — return the Builder connection state / CTA payload for
- * a design so the UI can render the appropriate inline card.
- *
- * This action intentionally does NOT start the OAuth / cli-auth flow; the
- * existing `connect-builder` agent-chat tool owns that flow and renders the
- * interactive card in chat.  What this action does instead:
- *
- * 1. Check whether Builder is currently configured (credentials + project ID)
- *    via the shared `resolveBuilderStatus` helper (no credential values leak).
- * 2. Return a structured payload the UI can use to decide whether to render
- *    an "already connected" summary, a "connect to unlock" CTA, or a
- *    "Builder enabled — ready to migrate" state.
- *
- * The `connectUrl` field is the pre-built URL that opens the Builder cli-auth
- * popup from the current app origin (same shape the agent-chat plugin returns
- * in the `kind: "connect-builder-card"` tool result).  The UI should open this
- * in a popup and poll `/builder/status` for completion, matching the existing
- * connect flow.
- *
- * Gate: any design the caller can view is sufficient — the action is read-only
- * and returns only connection-level metadata, not design content.
- */
-
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { getBuilderBranchProjectId } from "@agent-native/core/server";
 import { getRequestContext } from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 import { resolveBuilderStatus } from "../shared/builder-app.js";
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** The default Builder app host — mirrors the constant in builder-browser.ts. */
 const DEFAULT_BUILDER_APP_HOST = "https://builder.io";
 
-/** Resolve the Builder app host from env, matching core builder-browser.ts. */
 function resolveBuilderAppHost(): string {
   return (
     process.env.BUILDER_APP_HOST ||
@@ -47,19 +17,10 @@ function resolveBuilderAppHost(): string {
   );
 }
 
-/**
- * Build the connect URL for the current deployment's origin.
- * Mirrors the shape returned by `getBuilderBrowserConnectUrl` in core, but
- * without requiring the H3 event — uses the request-context origin instead.
- */
 function buildConnectUrl(origin: string): string {
   const base = origin.replace(/\/+$/, "");
   return `${base}/_agent-native/builder/connect`;
 }
-
-// ---------------------------------------------------------------------------
-// Action
-// ---------------------------------------------------------------------------
 
 export default defineAction({
   description:
@@ -68,8 +29,11 @@ export default defineAction({
     "'Make it real' upgrade flow. Returns { connected, builderEnabled, " +
     "connectUrl, appHost, branchProjectId } so the UI can render the correct " +
     "inline card without making a separate status fetch. " +
-    "When connected is false, direct the user to the connectUrl to start the " +
-    "Builder OAuth flow. When builderEnabled is true, the Builder cloud agent " +
+    "When connected is false, direct the user to the in-app 'Use Builder.io' " +
+    "choice. 'Create and activate' uses one-click provisioning; 'I have a " +
+    "Builder.io account' starts sign-in. Do not direct the user to open " +
+    "connectUrl; the UI uses it only for the existing-account choice. " +
+    "When builderEnabled is true, the Builder cloud agent " +
     "can accept a migration job via migrate-inline-design-to-app.",
   schema: z.object({
     designId: z
@@ -79,18 +43,13 @@ export default defineAction({
   readOnly: true,
   http: { method: "GET" },
   run: async ({ designId }) => {
-    // Require at least viewer access so unauthenticated callers cannot
-    // probe Builder connection state.
     const access = await resolveAccess("design", designId);
     if (!access) {
-      throw new Error("Design not found");
+      fail("Design not found", { errorCode: "not_found", statusCode: 404 });
     }
 
     const status = await resolveBuilderStatus();
 
-    // Resolve the connect URL from the current request origin so it points
-    // to this exact deployment (same origin as the signed connect token the
-    // server mints for cli-auth flows).
     const origin = getRequestContext()?.requestOrigin ?? "";
     const connectUrl = buildConnectUrl(origin);
 
@@ -112,13 +71,13 @@ export default defineAction({
           kind: "connect-builder" as const,
           label: "Make this a real app",
           description:
-            "Connect Builder.io (free tier available) to unlock React components, live props, " +
+            "Use Builder.io (free tier available) to unlock React components, live props, " +
             "data states, branches, and one-click deploys.",
-          primaryAction: "Connect Builder.io",
+          primaryAction: "Use Builder.io",
           connectUrl,
         },
         message:
-          "Builder is not connected (free tier available). Open connectUrl to start the OAuth flow.",
+          "Builder is not connected. Use the in-app Use Builder.io choice: Create and activate is one-click, or choose I have a Builder.io account to sign in.",
       };
     }
 
@@ -146,7 +105,6 @@ export default defineAction({
       };
     }
 
-    // Fully configured — ready for migration.
     return {
       connected: true,
       builderEnabled: true,

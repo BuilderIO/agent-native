@@ -72,7 +72,6 @@ export function normalizeIdentityAuthority(raw: unknown): string | null {
   }
 }
 
-/** Exact first-party app origins. Never replace this with a suffix check. */
 export const CANONICAL_IDENTITY_SSO_APP_ORIGINS = {
   ...CANONICAL_WORKSPACE_SSO_APP_ORIGINS,
 } as const;
@@ -130,11 +129,6 @@ function parseCustomRegistrations(
   }));
 }
 
-/**
- * Return the exact configured registry. Invalid custom entries are ignored;
- * they never broaden the canonical registry. A deployment can therefore roll
- * back custom registration by removing the env without changing code or data.
- */
 export function getIdentitySsoAppRegistry(
   env: NodeJS.ProcessEnv = process.env,
 ): IdentitySsoAppRegistration[] {
@@ -155,12 +149,31 @@ function parseAbsoluteUrl(raw: string): URL | null {
   }
 }
 
-/**
- * General redirect-origin validation. The authorize route additionally calls
- * `resolveIdentitySsoApp`, which enforces the exact registered callback.
- * Localhost remains available for development, but only with exact callback
- * path and client binding in the app resolver below.
- */
+function netlifyPreviewSiteName(appId: string): string | null {
+  if (
+    !Object.prototype.hasOwnProperty.call(
+      CANONICAL_IDENTITY_SSO_APP_ORIGINS,
+      appId,
+    )
+  ) {
+    return null;
+  }
+  return appId === "chat" ? "agent-native-starter" : `agent-native-${appId}`;
+}
+
+function isNetlifyPreviewOriginForApp(url: URL, appId?: string): boolean {
+  if (url.protocol !== "https:" || url.port) return false;
+  const deployHost = /^([a-f0-9]{24})--([a-z0-9-]+)\.netlify\.app$/i.exec(
+    url.hostname,
+  );
+  if (!deployHost) return false;
+  if (appId) return deployHost[2] === netlifyPreviewSiteName(appId);
+  return Object.keys(CANONICAL_IDENTITY_SSO_APP_ORIGINS).some(
+    (canonicalAppId) =>
+      deployHost[2] === netlifyPreviewSiteName(canonicalAppId),
+  );
+}
+
 export function isAllowedRedirectUri(rawRedirectUri: unknown): boolean {
   if (typeof rawRedirectUri !== "string") return false;
   const url = parseAbsoluteUrl(rawRedirectUri);
@@ -169,7 +182,9 @@ export function isAllowedRedirectUri(rawRedirectUri: unknown): boolean {
     return true;
   }
   return (
-    url.protocol === "https:" && DEFAULT_ALLOWED_ORIGINS.includes(url.origin)
+    (url.protocol === "https:" &&
+      DEFAULT_ALLOWED_ORIGINS.includes(url.origin)) ||
+    isNetlifyPreviewOriginForApp(url)
   );
 }
 
@@ -187,11 +202,6 @@ function exactCallbackMatches(
   );
 }
 
-/**
- * Resolve an app only when app id, client id, exact origin, and callback path
- * all agree. Loopback is the narrowly-scoped development exception and still
- * requires a valid app/client id pair plus the fixed callback path.
- */
 export function resolveIdentitySsoApp(
   appId: unknown,
   clientId: unknown,
@@ -231,6 +241,20 @@ export function resolveIdentitySsoApp(
       appId,
       clientId,
       origin: url.origin,
+      callbackPath: IDENTITY_SSO_CALLBACK_PATH,
+    };
+  }
+  if (
+    clientId === appId &&
+    parsedRedirect.pathname === IDENTITY_SSO_CALLBACK_PATH &&
+    !parsedRedirect.search &&
+    !parsedRedirect.hash &&
+    isNetlifyPreviewOriginForApp(parsedRedirect, appId)
+  ) {
+    return {
+      appId,
+      clientId,
+      origin: parsedRedirect.origin,
       callbackPath: IDENTITY_SSO_CALLBACK_PATH,
     };
   }

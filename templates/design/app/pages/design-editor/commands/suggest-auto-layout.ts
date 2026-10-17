@@ -71,7 +71,12 @@ export function runSuggestAutoLayout({
     toast.error(t("designEditor.toasts.reactSourceAnchorsLoading"));
     return;
   }
-  const projection = buildCodeLayerProjection(sourceContent);
+  const projection = buildCodeLayerProjection(sourceContent, {
+    source:
+      sourceType === "localhost"
+        ? { kind: "inline-html", fileId: activeFile.id }
+        : { kind: "design-file", fileId: activeFile.id },
+  });
   const nodesById = new Map(projection.nodes.map((node) => [node.id, node]));
   const selectedIds = getActiveFileSelectedNodeIds(sourceContent);
   if (selectedIds.length !== 1) {
@@ -100,9 +105,6 @@ export function runSuggestAutoLayout({
       };
     });
   const suggestion = inferAutoLayoutSuggestion({
-    // Child measurements are parent-relative, so the container's own local
-    // content box begins at 0,0 even when the container is positioned in its
-    // parent. This prevents outer-canvas placement from becoming padding.
     container: {
       id: container.id,
       x: 0,

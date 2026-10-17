@@ -1,11 +1,4 @@
 #!/usr/bin/env node
-// Generates all logo/icon/favicon assets across the monorepo from the
-// canonical PNG in packages/core/src/assets/branding/favicon.png.
-//
-// Run from the framework root:
-//   node scripts/build-branding-assets.mjs
-//
-// Requires macOS `sips` and `iconutil` (no extra deps).
 
 import { execSync } from "node:child_process";
 import {
@@ -28,9 +21,6 @@ const WEB_ICON_PNG = join(BRANDING, "favicon.png");
 const WEB_ICON_BASE64 = readFileSync(WEB_ICON_PNG).toString("base64");
 const WEB_ICON_DATA_URI = `data:image/png;base64,${WEB_ICON_BASE64}`;
 
-// Inline the canonical PNG as a bundled TS module so runtime code (email logo
-// attachment) never reads it off disk — raw assets aren't traced into the
-// serverless bundle, so a filesystem read there fails with ENOENT.
 writeFileSync(
   join(BRANDING, "favicon-base64.ts"),
   [
@@ -53,25 +43,6 @@ function writeSizedSvg(path, size) {
   writeFileSync(path, webIconSvg(size));
 }
 
-function macAppIconSvg(size) {
-  const scale = size / 1024;
-  const logoTransform = `translate(${157.01333333333332 * scale} ${305.49333333333334 * scale}) scale(${6.227836257309941 * scale})`;
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" fill="none">
-  <rect width="${size}" height="${size}" rx="${210 * scale}" fill="#000000"/>
-  <g transform="${logoTransform}">
-    <path d="M24.5537 65.7695H0L15.0859 39.4619L37.708 0L60.4912 39.4619H39.6396L24.5537 65.7695Z" fill="white"/>
-    <path d="M89.446 0H114L76.2921 65.7704H51.7383L89.446 0Z" fill="url(#fg_grad)"/>
-    <defs>
-      <linearGradient id="fg_grad" x1="101.702" y1="67.4791" x2="113.672" y2="-37.4275" gradientUnits="userSpaceOnUse">
-        <stop stop-color="#00B5FF"/>
-        <stop offset="1" stop-color="#48FFE4"/>
-      </linearGradient>
-    </defs>
-  </g>
-</svg>
-`;
-}
-
 writeSizedSvg(join(BRANDING, "favicon.svg"), 600);
 writeSizedSvg(join(BRANDING, "mac-app-icon.svg"), 600);
 
@@ -83,10 +54,6 @@ function rasterize(svgPath, pngPath, size) {
   );
 }
 
-// Tauri 2.x's image decoder only accepts 8-bit/channel RGBA PNGs. Apple's
-// `ictool` writes 16-bit/channel PNGs, which crash the app at startup with
-// `invalid icon: dimensions don't match the number of pixels supplied`. Run
-// any PNG that Tauri loads directly through sharp-cli to coerce it to 8-bit.
 function force8BitRgba(pngPath) {
   const outDir = dirname(pngPath);
   const tmpDir = join(outDir, ".__bitdepth_tmp");
@@ -264,7 +231,6 @@ function writeWindowsIco(sourceSvg, outputPath) {
   }
 }
 
-// 1) Template & core scaffold favicons (SVGs)
 const TEMPLATE_DIRS = [
   "packages/core/src/templates/default",
   "templates/analytics",
@@ -275,7 +241,6 @@ const TEMPLATE_DIRS = [
   "templates/design",
   "templates/dispatch",
   "templates/forms",
-  "templates/macros",
   "templates/mail",
   "templates/slides",
   "templates/chat",
@@ -297,7 +262,6 @@ for (const t of TEMPLATE_DIRS) {
   console.log(`✔ ${t}/public/{favicon,icon-180,icon-192,icon-512}.svg`);
 }
 
-// 2) Docs site
 const DOCS_PUBLIC = join(ROOT, "packages/docs/public");
 if (existsSync(DOCS_PUBLIC)) {
   writeSizedSvg(join(DOCS_PUBLIC, "favicon.svg"), 1024);
@@ -313,7 +277,6 @@ if (existsSync(DOCS_PUBLIC)) {
     join(DOCS_PUBLIC, "logo512.png"),
     512,
   );
-  // Modern browsers accept a PNG renamed to favicon.ico; keep our existing .ico path working.
   rasterize(
     join(DOCS_PUBLIC, "favicon.svg"),
     join(DOCS_PUBLIC, "favicon.ico"),
@@ -324,9 +287,6 @@ if (existsSync(DOCS_PUBLIC)) {
   );
 }
 
-// 3) Electron desktop app icon — Liquid Glass on macOS Tahoe via .icon → Assets.car,
-// plus a flat .icns fallback for older macOS. Do not export the fallback PNGs
-// through Icon Composer: it bakes a thick white rim/shadow into the .icns.
 const DESKTOP_BUILD = join(ROOT, "packages/desktop-app/build");
 const ICON_BUNDLE = join(BRANDING, "agent-native.icon");
 const ICTOOL =
@@ -359,7 +319,7 @@ if (existsSync(DESKTOP_BUILD)) {
   const MAC_ICON_SOURCE = join(DESKTOP_BUILD, "_mac-icon-source.svg");
   rmSync(ICONSET, { recursive: true, force: true });
   mkdirSync(ICONSET, { recursive: true });
-  writeFileSync(MAC_ICON_SOURCE, macAppIconSvg(1024));
+  writeFileSync(MAC_ICON_SOURCE, webIconSvg(1024));
   const sizes = [
     [16, "icon_16x16.png"],
     [32, "icon_16x16@2x.png"],
@@ -381,7 +341,6 @@ if (existsSync(DESKTOP_BUILD)) {
     { stdio: "inherit" },
   );
 
-  // Compile .icon → Assets.car for native macOS Tahoe Liquid Glass treatment.
   if (HAS_ICTOOL) {
     rmSync(join(DESKTOP_BUILD, "Assets.car"), { force: true });
     rmSync(join(DESKTOP_BUILD, "_actool.plist"), { force: true });
@@ -395,24 +354,16 @@ if (existsSync(DESKTOP_BUILD)) {
   );
 }
 
-// 5) Clips Tauri desktop app — same Liquid Glass treatment as Electron
 const CLIPS_TAURI_DIR = join(ROOT, "templates/clips/desktop/src-tauri");
 const CLIPS_TAURI_ICONS = join(CLIPS_TAURI_DIR, "icons");
 if (existsSync(CLIPS_TAURI_ICONS)) {
   const tmpFav = join(CLIPS_TAURI_ICONS, "_branding-source.svg");
   writeSizedSvg(tmpFav, 1024);
-  // Render the standalone PNGs Tauri references in tauri.conf.json with
-  // the same `ictool` pipeline Electron uses, so the dock icon gets the
-  // proper macOS template (correct safe-area + Liquid Glass shine) and
-  // matches the size of every other app's dock icon. Without this the
-  // PNG is a raw SVG rasterization that fills the whole 1024 canvas
-  // and ends up visibly larger than every neighbouring app.
   if (HAS_ICTOOL) {
     exportIconPreview(join(CLIPS_TAURI_ICONS, "icon.png"), 1024);
     exportIconPreview(join(CLIPS_TAURI_ICONS, "32x32.png"), 32);
     exportIconPreview(join(CLIPS_TAURI_ICONS, "128x128.png"), 128);
     exportIconPreview(join(CLIPS_TAURI_ICONS, "128x128@2x.png"), 256);
-    // ictool writes 16-bit PNGs; Tauri requires 8-bit RGBA at runtime.
     for (const name of [
       "icon.png",
       "32x32.png",
@@ -428,8 +379,6 @@ if (existsSync(CLIPS_TAURI_ICONS)) {
     rasterize(tmpFav, join(CLIPS_TAURI_ICONS, "128x128@2x.png"), 256);
   }
 
-  // Build .icns from a fresh iconset — render via ictool when available so the
-  // Liquid Glass shine is baked in for older macOS versions.
   const ICONSET = join(CLIPS_TAURI_ICONS, "_iconset.iconset");
   rmSync(ICONSET, { recursive: true, force: true });
   mkdirSync(ICONSET, { recursive: true });
@@ -460,8 +409,6 @@ if (existsSync(CLIPS_TAURI_ICONS)) {
   );
   rmSync(ICONSET, { recursive: true, force: true });
 
-  // Compile Assets.car so a release `tauri build` ships Liquid Glass on macOS Tahoe.
-  // Tauri's bundle.macOS.files copies it into Contents/Resources/Assets.car at bundle time.
   if (HAS_ICTOOL) {
     rmSync(join(CLIPS_TAURI_DIR, "Assets.car"), { force: true });
     execSync(
@@ -471,12 +418,10 @@ if (existsSync(CLIPS_TAURI_ICONS)) {
     rmSync(join(CLIPS_TAURI_DIR, "_actool.plist"), { force: true });
   }
 
-  // Windows rc.exe rejects PNG-compressed ICO entries; emit DIB-backed frames.
   writeWindowsIco(tmpFav, join(CLIPS_TAURI_ICONS, "icon.ico"));
 
   rmSync(tmpFav);
 
-  // Tray (macOS menu bar) — monochrome white on transparent at template-image size.
   const traySrc = readFileSync(join(BRANDING, "tray-icon.svg"), "utf8");
   const tmpTray = join(CLIPS_TAURI_ICONS, "_tray-source.svg");
   writeFileSync(tmpTray, traySrc);
@@ -486,7 +431,6 @@ if (existsSync(CLIPS_TAURI_ICONS)) {
   console.log("✔ templates/clips/desktop/src-tauri/{icons/*,Assets.car}");
 }
 
-// 6) Slack bot icon (manual upload to api.slack.com/apps → Basic Information → Display)
 const SLACK_OUT = join(BRANDING, "slack-bot");
 mkdirSync(SLACK_OUT, { recursive: true });
 rasterize(
@@ -503,7 +447,6 @@ console.log(
   "✔ packages/core/src/assets/branding/slack-bot/{agent-native-512,agent-native-1024}.png",
 );
 
-// 7) Mobile app
 const MOBILE_ASSETS = join(ROOT, "packages/mobile-app/assets");
 if (existsSync(MOBILE_ASSETS)) {
   const tmp = join(MOBILE_ASSETS, "_branding-source.svg");
@@ -515,7 +458,6 @@ if (existsSync(MOBILE_ASSETS)) {
   console.log("✔ packages/mobile-app/assets/{icon,adaptive-icon,favicon}.png");
 }
 
-// 7b) Native iOS AppIcon (Expo prebuild output — does NOT auto-regenerate)
 const IOS_APPICON = join(
   ROOT,
   "packages/mobile-app/ios/AgentNative/Images.xcassets/AppIcon.appiconset",

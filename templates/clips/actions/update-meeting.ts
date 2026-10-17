@@ -1,7 +1,3 @@
-/**
- * Update a meeting's metadata. Editor access required.
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -94,9 +90,6 @@ export default defineAction({
       patch.shareTranscript = args.shareTranscript;
     if (args.visibility) patch.visibility = args.visibility;
 
-    // Keep the denormalized JSON used by the summary and the dedicated action
-    // item rows used by list/query surfaces in sync as one mutation. In
-    // particular, completion state and manual edits must survive a refresh.
     await db.transaction(async (tx) => {
       const [updatedMeeting] = await tx
         .update(schema.meetings)

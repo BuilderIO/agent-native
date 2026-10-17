@@ -28,13 +28,16 @@ fixing it. If A2A delegation is unreliable, fix A2A — file it as a bug in the
 delegation path (timeout handling, retries, typed terminal states), don't
 route around it app by app.
 
-Connecting app A to app B is two independent things, and both must be true:
+Connecting app A to an Agent-Native app B is two independent things, and both
+must be true:
 
 1. **B is registered on A** as a `remote-agents/<id>.json` resource.
 2. **A and B share a secret**, so A's signed JWT verifies on B.
 
 Neither is a code change, and neither is symmetric. Registering B on A does not
-let B call A.
+let B call A. A hosted peer uses provider-specific endpoint and credential
+metadata in place of the shared Agent-Native secret, but it still does not make
+the provider's model or SDK an A2A endpoint.
 
 ## A2A is already mounted
 
@@ -62,19 +65,36 @@ A remote agent is **a row in the resources table, not a file on disk**. Path
   "name": "Analytics",
   "description": "Queries analytics data across providers",
   "url": "https://analytics.example.com",
-  "color": "#6B7280"
+  "color": "#6B7280",
+  "cardUrl": "https://analytics.example.com/.well-known/agent-card.json",
+  "auth": {
+    "type": "bearer",
+    "credentialRef": "ANALYTICS_A2A_TOKEN"
+  }
 }
 ```
 
-`url` is the only required field. `parseRemoteAgentManifest` accepts **only**
-these five keys — there is no `apiKey`, `env`, `skills`, or `token` field, and
-anything else is silently dropped.
+`url` is the only required endpoint field. `cardUrl` is the optional discovery
+URL for providers that do not serve `/.well-known/agent-card.json`. The client
+reads the protocol version from the agent card. Pass `protocolVersion` directly
+to `A2AClient` when a provider's card omits it. The optional `auth` descriptor is
+non-secret connection metadata. Use
+`{ "type": "bearer", "credentialRef": "..." }` for a vault-backed bearer
+credential, or `{ "type": "oauth-client-credentials", "tokenUrl": "...",
+"clientId": "...", "clientSecretRef": "...", "scope": "..." }` when the
+peer issues OAuth client-credentials tokens. `credentialRef` and
+`clientSecretRef` are references, never secret values.
+
+Do not add `apiKey`, `env`, `skills`, or `token` values to a manifest. Resolve
+credentials server-side from the workspace connection or vault. A direct
+`A2AClient` call can pass `cardUrl` and `protocolVersion` while a provider
+adapter is being used, but browser code must never receive the credential.
 
 Four ways to create it, all writing the same row:
 
 | Surface | Where |
 | --- | --- |
-| Settings → Manage agent → Connected Agents (A2A) | any app with the settings panel |
+| Settings → Agent → Sub-agents → Connect agent (owners and admins) | any app with the Settings shell |
 | Agent page → Connections | apps mounting `AgentTabsPage` |
 | Dispatch → Agents → Add external agent | workspace dispatch |
 | The agent itself | `resources` tool, `action: "write"`, `--scope shared` |
@@ -104,25 +124,56 @@ section calls this on add and on open.
 ## Authentication
 
 A2A authenticates with a **short-lived JWT the caller signs**, not a stored
-bearer key. `Authorization: Bearer <jwt>`; claims carry the caller's email and
-org domain; HS256; 15-minute default TTL. There is no per-peer API key
-anywhere in the system, which is why the manifest has no field for one.
+bearer key. `Authorization: Bearer <jwt>`; HS256; 15-minute default TTL.
+There is no per-peer API key anywhere in the system, which is why the manifest
+has no field for one. A user identity assertion carries the authenticated
+caller's email and is signed only with the deployment `A2A_SECRET`. Mint it
+from authenticated request context; never accept an email from message params
+or metadata as identity.
+`verifyA2AToken` rejects MCP connect and OAuth tokens even though they can be
+signed with the same secret: they are long-lived MCP credentials, never A2A
+tokens. Callers bind signed tokens to the receiving endpoint with `aud`; every
+receiver, including a custom JWT verifier, must check that claim against its
+own canonical endpoint URL. Preserve compatibility for old tokens without
+`aud`, but reject an audience-bearing token when the receiver cannot derive or
+match its expected audience. A scoped resource route may require `aud` even
+for legacy callers; document and test that boundary when adding such a route.
 
-Two secrets can sign it:
+The framework supports two credential scopes:
 
 | Secret | Scope | How it is set |
 | --- | --- | --- |
-| `A2A_SECRET` | whole deployment | env var, **never auto-generated** |
-| org `a2a_secret` | one organization | auto-generated on org creation; Team page UI |
+| `A2A_SECRET` | User identity across a deployment | env var, **never auto-generated** |
+| org `a2a_secret` | Organization principal only | auto-generated on org creation; Team page UI |
 
-The org secret is the managed path: **Team page → A2A secret** (owner only)
-reveals, copies, regenerates, and pushes it to every discovered peer. Rotation
-is tolerated — the caller tries both secrets in order and sticks to whichever
-worked.
+An org-secret JWT proves only that the caller holds the organization's shared
+credential. Its `sub` or email claims are ignored; do not use it to read
+person-owned data, claim a user's task, invoke a user-scoped action, or carry a
+human approval. Organization-scoped operations can run with this principal.
+Use an `A2A_SECRET`-signed user identity for user-owned operations and
+approval continuations. MCP applies the same distinction.
+
+Organization IDs are local to each app's database. For calls to a peer app,
+bind the token to the trusted `org_domain` and the peer's canonical audience;
+do not put the caller app's local `org_id` in the token. The receiver resolves
+the domain to its own organization row and binds authorization to that local
+ID. An ID-only token is valid only when both sides intentionally share the same
+local organization ID, such as a credential scoped to one local database.
+
+The org secret is managed at **Team page → A2A secret** (owner only), where it
+can be revealed, copied, regenerated, and pushed to discovered peers. It is a
+fallback for organization-scoped calls, not a fallback user identity.
 
 `A2A_SECRET` is the deploy-level path. `workspace-deploy` refuses a production
 workspace deploy without it and prints the generator command. Peers that must
-trust each other need the *same* value on both sides.
+trust user identity assertions need the *same* value on both sides. Keep it
+different from every org `a2a_secret`; a shared value cannot distinguish a
+user assertion from an organization credential. An org secret equal to
+`A2A_SECRET`, or a user token signed only with the org secret, is verified as an
+organization principal and reaches the caller as the typed
+`permanent_precondition` error ("no verified user"): an admin/ops fix, never a
+retry. Mismatched `A2A_SECRET` values are rejected with `401`
+(`a2a_auth_rejected`).
 
 With no secret configured at all:
 
@@ -139,7 +190,63 @@ request is genuine loopback or `A2A_ALLOW_UNSIGNED_INTERNAL=1`.
 `A2AConfig.apiKeyEnv` still exists for static bearer auth against non-agent-native
 peers, but the framework's own mount never sets it. Do not reach for it when
 debugging a connection between two agent-native apps — the answer there is
-always the shared secret.
+always the shared secret. For a provider that uses OAuth, resolve and refresh
+the access token in a server-side adapter. `A2A_SECRET` is not a substitute for
+the provider's Entra, Google, or other OAuth credential.
+
+## Hosted providers
+
+Foundry, Gemini Enterprise, and other hosted services can be A2A peers only
+when they expose a compatible protocol endpoint. Foundry hosted agents run
+agent code in managed containers and can expose A2A through Agent Service. Keep
+the Agent-Native UI, actions, and PostgreSQL app on its normal host. Foundry
+callers use Microsoft Entra bearer tokens with Foundry Agent Consumer access,
+so configure `cardUrl` and obtain the token through the workspace credential
+provider. Foundry v1.0 is the GA JSON-RPC endpoint; v0.3 is the preview
+endpoint used when no version is selected. Use the v1 card URL
+`.../agents/{agent}/endpoint/protocols/a2a/agentCard/v1.0` when available,
+and pass `protocolVersion` only when the card omits it. Foundry v1 does not
+provide SSE streaming. See the [Foundry hosted agent overview](https://learn.microsoft.com/en-us/azure/foundry/agents/overview)
+and [A2A endpoint guidance](https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/enable-agent-to-agent-endpoint).
+
+Gemini Enterprise managed assistants expose a standard A2A JSON-RPC endpoint
+under the assistant resource, such as
+`.../assistants/default_assistant/agents/{id}/a2a`, and can publish the card at
+a custom URL. Use the generic bearer client with that `cardUrl`; the caller's
+Google OAuth bearer needs the `discoveryengine.assist` permission. Custom A2A
+agent registration is Pre-GA, so verify that it is enabled in the target
+project before exposing it in the workspace picker. A model provider or SDK
+without an A2A endpoint still needs a server-side adapter before an
+Agent-Native app can call it.
+
+Anthropic Managed Agents has no inbound A2A endpoint. Use
+`createAnthropicManagedAgentsHandler()` as the `A2AConfig.handler` when the
+Agent-Native app should own the A2A task, workflow state, and approvals while
+Anthropic owns the session, context, and tools. Its configuration is a native
+provider kind on the existing remote-agent resource:
+
+```json
+{
+  "kind": {
+    "provider": "anthropic-managed-agents",
+    "agentId": "agt_01...",
+    "environmentId": "env_01...",
+    "credentialRef": "ANTHROPIC_API_KEY"
+  }
+}
+```
+
+`credentialRef` is a vault reference, resolved in the caller's user and
+organization scope. The adapter calls `POST /v1/sessions`, sends
+`user.message` or `user.tool_confirmation` events to
+`POST /v1/sessions/{id}/events`, and reads
+`GET /v1/sessions/{id}/events/stream` with the
+`managed-agents-2026-04-01` beta header. A `session.status_idle` event whose
+stop reason is `requires_action` becomes A2A `input-required`; each blocking
+tool also emits the normal `approval-request` runtime event. Continue only
+with structured `{ toolUseId, result: "allow" | "deny" }` confirmations in
+the adapter metadata. Register the `anthropic-managed-agents` workspace
+connection provider to reuse existing per-app grants.
 
 Never hardcode either secret in source, docs, prompts, app state, action
 descriptions, client bundles, or examples. Read them from runtime config; never
@@ -355,8 +462,12 @@ Messages contain typed parts:
 | Part type | Fields                              | Use for                    |
 | --------- | ----------------------------------- | -------------------------- |
 | `text`    | `{ type: "text", text: "..." }`     | Natural language messages  |
-| `file`    | `{ type: "file", file: { ... } }`   | Files (bytes or URI)       |
+| `file`    | `{ type: "file", file: { ... } }`   | Stored file URI            |
 | `data`    | `{ type: "data", data: { ... } }`   | Structured JSON data       |
+
+The receiver rejects inline file bytes and `data:` URLs before creating a task:
+task history, status messages, artifacts, and approval inputs are durable SQL
+records. Upload files to configured storage first, then send the returned URI.
 
 ## Custom mount
 

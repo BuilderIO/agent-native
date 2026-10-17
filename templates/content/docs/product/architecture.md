@@ -3,13 +3,13 @@
 Agent-Native Content is one composable system in which documents, structured
 records, connected data, human collaboration, and agent work share stable
 objects and one Action surface. A person chooses the surface that fits the
-moment: a Page for writing, a Database for governed records, a View for a
+moment: a Page for writing, a Collection for governed records, a View for a
 particular presentation, a Query for derived collections, a Reference for
 reuse, an Expression for computation, or a Template for distributing a whole
 working system.
 
 ```text
-Stable Pages, Blocks, Blocks fields, Databases, and References
+Stable Pages, Blocks, Blocks fields, Collections, and References
                               ↓
               Typed Properties and one expression language
                               ↓
@@ -61,11 +61,11 @@ are configurations of these primitives, not parallel engines.
 - A **Blocks field** owns one editable rich-content body and its attributable
   revision history. Comments and Discussion messages use the same grammar
   without becoming full Pages.
-- A **Database** owns membership, schema, defaults, validation, Rules, and the
+- A **Collection** owns membership, schema, defaults, validation, Rules, and the
   canonical creation route for its records.
-- A **Query** derives a typed collection from Databases, Sources, or other
+- A **Query** derives a typed collection from Collections, Sources, or other
   Queries without owning the source records.
-- A **View** belongs to one Database or Query and owns downstream filtering and
+- A **View** belongs to one Collection or Query and owns downstream filtering and
   presentation. It may be shared or Only me, but it never grants access to its
   input.
 - A **Relationship** is one canonical typed edge. Relation Properties, inline
@@ -73,7 +73,7 @@ are configurations of these primitives, not parallel engines.
   that edge.
 - A **Source** is an adapter with explicit capabilities, provenance, access,
   and synchronization policy. It never becomes a Page's identity or primary
-  Database.
+  Collection.
 
 ## Change and proof boundaries
 

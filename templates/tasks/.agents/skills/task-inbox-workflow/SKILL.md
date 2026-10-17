@@ -49,6 +49,11 @@ and never delete without explicit confirmation in chat.
 - Use `reorder-inbox-items` with the inbox item ids in the desired
   top-to-bottom order.
 
+## AI task routing
+
+- Call `suggest-task-route` for a queue suggestion, choice probability, confidence, and urgency probability. It reads an existing Queue field or uses the default Work, Personal, and Other options without changing the task.
+- After the user accepts the queue, call `apply-task-route` with its name. The action creates the Queue field on first use. Urgency probability is a suggestion, not a stored priority.
+
 ## Deleting
 
 - `delete-task`, `bulk-delete-tasks`, `delete-inbox-item`, and

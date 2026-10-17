@@ -8,10 +8,8 @@ import {
 } from "node:http";
 import type { AddressInfo } from "node:net";
 
-import {
-  assertValidComputerCommandEnvelope,
-  type ComputerCommandEnvelope,
-} from "@agent-native/core/integrations";
+import type { ComputerCommandEnvelope } from "@agent-native/core/integrations";
+import { assertValidComputerCommandEnvelope } from "@agent-native/core/integrations/computer-supervision";
 import { toNodeHandler } from "@modelcontextprotocol/node";
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
@@ -99,11 +97,6 @@ export interface DesktopComputerMcpBridgeOptions {
   };
 }
 
-/**
- * One loopback MCP endpoint for the lifetime of the desktop process. Each child
- * run gets an independent random bearer credential whose server-side record is
- * the sole source of task identity and permission mode.
- */
 export class DesktopComputerMcpBridge {
   private readonly contextsByTokenHash = new Map<string, RunContext>();
   private readonly tokenHashesByRun = new Map<string, Set<string>>();
@@ -1104,8 +1097,6 @@ export class DesktopComputerMcpBridge {
       );
       return this.textResult({ ok: true, observeRequired: true });
     } finally {
-      // One semantic snapshot authorizes at most one mutation. This prevents a
-      // second action from targeting UI that the first action may have changed.
       context.latestSnapshot = undefined;
     }
   }

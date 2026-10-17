@@ -3,14 +3,24 @@ import { cleanup, render, waitFor } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import {
+import SlideRenderer, {
+  applyRemoteSlideContentUnderEdit,
   computeSlideFitTransform,
+  getRenderedSlideSource,
+  isRawHtmlSlide,
   prepareImportedFonts,
   resolveImportedFont,
+  renderRawSlideHtml,
+  SLIDE_CONTENT_REPLACE_EVENT,
   slideDeclaresTextColor,
   SlideInner,
 } from "@/components/deck/SlideRenderer";
 import type { Slide } from "@/context/DeckContext";
+import {
+  captureSlideImageUploadProvenance,
+  registerSlideImageUploadProvenance,
+} from "@/lib/slide-image-replacement";
+import { mergeRenderedEdits, SOURCE_STAMP_ATTR } from "@/lib/slide-source-map";
 
 vi.mock("./MermaidRenderer", () => ({
   MermaidRenderer: () => <div data-mermaid-diagram="true" />,
@@ -40,6 +50,15 @@ function rect(left: number, top: number, width: number, height: number) {
     bottom: top + height,
     toJSON: () => ({}),
   } as DOMRect;
+}
+
+function renderUploadSnapshot(root: HTMLElement, content: string): string {
+  const source = getRenderedSlideSource(root)!;
+  const scopeId = root.getAttribute("data-slide-content-scope")!;
+  return renderRawSlideHtml(content, {
+    scopeSelector: `[data-slide-content-scope="${scopeId}"]`,
+    stampNonce: source.nonce,
+  }).html;
 }
 
 describe("computeSlideFitTransform", () => {
@@ -158,7 +177,504 @@ describe("computeSlideFitTransform", () => {
   });
 });
 
+describe("isRawHtmlSlide", () => {
+  it("treats any stored markup as raw HTML, whatever its layout", () => {
+    expect(
+      isRawHtmlSlide({
+        content: '<div class="fmd-slide fmd-imported-pptx"><div>Hi</div></div>',
+        layout: "content",
+      }),
+    ).toBe(true);
+    expect(
+      isRawHtmlSlide({ content: "# Title\n\n- one", layout: "content" }),
+    ).toBe(false);
+    expect(
+      isRawHtmlSlide({
+        content: '<img data-markdown-image src="https://cdn.test/a.png">',
+        layout: "content",
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("SlideInner source stamps", () => {
+  afterEach(() => cleanup());
+
+  const content =
+    '<div class="fmd-slide"><img src="blob:preview" data-slide-object-id="image-1" style="position:absolute;left:40px;top:24px"><p>Caption</p></div>';
+
+  it("stamps and registers only the editable canvas", () => {
+    const slide = { id: "slide-a", content, layout: "blank" } as Slide;
+    const { unmount } = render(<SlideInner slide={slide} />);
+    const plain = document.querySelector<HTMLElement>(".slide-content")!;
+    expect(plain.innerHTML).not.toContain(SOURCE_STAMP_ATTR);
+    expect(getRenderedSlideSource(plain)).toBeUndefined();
+    unmount();
+
+    render(<SlideInner slide={slide} stampSource />);
+    const root = document.querySelector<HTMLElement>(".slide-content")!;
+    expect(root.querySelector("p")!.getAttribute(SOURCE_STAMP_ATTR)).toMatch(
+      /\.slide-a:2$/,
+    );
+    expect(getRenderedSlideSource(root)?.stored).toBe(content);
+  });
+
+  it("re-registers the new source after an in-place image swap", async () => {
+    const slide = { id: "slide-b", content, layout: "blank" } as Slide;
+    const { rerender } = render(<SlideInner slide={slide} stampSource />);
+    const root = document.querySelector<HTMLElement>(".slide-content")!;
+    const image = root.querySelector("img")!;
+    const uploaded = content.replace("blob:preview", "https://cdn.test/a.png");
+    rerender(
+      <SlideInner slide={{ ...slide, content: uploaded }} stampSource />,
+    );
+    await waitFor(() =>
+      expect(image.getAttribute("src")).toBe("https://cdn.test/a.png"),
+    );
+    expect(root.querySelector("img")).toBe(image);
+    const source = getRenderedSlideSource(root)!;
+    expect(source.stored).toBe(uploaded);
+    image.style.left = "80px";
+    expect(
+      mergeRenderedEdits({
+        ...source,
+        live: root.cloneNode(true) as Element,
+      }).html,
+    ).toBe(
+      uploaded.replace(
+        "position:absolute;left:40px;top:24px",
+        "position:absolute; top:24px; left: 80px",
+      ),
+    );
+  });
+
+  it("restores stored image frame geometry in place across move and undo", async () => {
+    const originalContent =
+      '<div class="fmd-slide"><video src="clip.mp4"></video><div class="fmd-pptx-image" data-slide-object-id="image-1" style="position:absolute;left:40px;top:24px;width:320px;height:180px;"><img src="image.png"></div><div class="fmd-shape" data-slide-object-id="shape-1" style="position:absolute;left:400px;top:24px;width:100px;height:80px;">Text</div></div>';
+    const slide = {
+      id: "slide-undo-image",
+      content: originalContent,
+      layout: "blank",
+    } as Slide;
+    const { rerender } = render(<SlideInner slide={slide} stampSource />);
+    const root = document.querySelector<HTMLElement>(".slide-content")!;
+    const frame = root.querySelector<HTMLElement>(".fmd-pptx-image")!;
+    const image = root.querySelector("img")!;
+    const video = root.querySelector("video")!;
+    const otherObject = root.querySelector(".fmd-shape")!;
+    const moved = originalContent.replace("left:40px", "left:90px");
+    frame.style.left = "90px";
+    rerender(<SlideInner slide={{ ...slide, content: moved }} stampSource />);
+    await waitFor(() =>
+      expect(getRenderedSlideSource(root)?.stored).toBe(moved),
+    );
+    expect(frame.style.left).toBe("90px");
+
+    rerender(<SlideInner slide={slide} stampSource />);
+    await waitFor(() => expect(frame.style.left).toBe("40px"));
+    expect(root.querySelector(".fmd-pptx-image")).toBe(frame);
+    expect(root.querySelector("img")).toBe(image);
+    expect(root.querySelector("video")).toBe(video);
+    expect(root.querySelector(".fmd-shape")).toBe(otherObject);
+  });
+
+  it("keeps sibling media mounted for a normal live image move", async () => {
+    const mediaContent =
+      '<div class="fmd-slide"><video src="clip.mp4"></video><img src="image.png" data-slide-object-id="image-1" style="position:absolute;left:40px;top:24px;width:320px;height:180px;"></div>';
+    const slide = {
+      id: "slide-live-image-move",
+      content: mediaContent,
+      layout: "blank",
+    } as Slide;
+    const { rerender } = render(<SlideInner slide={slide} stampSource />);
+    const root = document.querySelector<HTMLElement>(".slide-content")!;
+    const image = root.querySelector("img")!;
+    const video = root.querySelector("video")!;
+    image.style.left = "90px";
+    const movedContent = mediaContent.replace("left:40px", "left:90px");
+
+    rerender(
+      <SlideInner slide={{ ...slide, content: movedContent }} stampSource />,
+    );
+    await waitFor(() =>
+      expect(getRenderedSlideSource(root)?.stored).toBe(movedContent),
+    );
+
+    expect(root.querySelector("img")).toBe(image);
+    expect(root.querySelector("video")).toBe(video);
+  });
+
+  it("never re-renders a root whose text is being edited", () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const slide = { id: "slide-c", content, layout: "blank" } as Slide;
+    const { rerender } = render(<SlideInner slide={slide} stampSource />);
+    const root = document.querySelector<HTMLElement>(".slide-content")!;
+    const edited = root.querySelector("p")!;
+    edited.setAttribute("contenteditable", "true");
+    edited.textContent = "Caption typed";
+    rerender(
+      <SlideInner
+        slide={{ ...slide, content: content.replace("Caption", "Agent") }}
+        stampSource
+      />,
+    );
+    expect(root.querySelector("p")).toBe(edited);
+    expect(edited.textContent).toBe("Caption typed");
+    expect(errors).toHaveBeenCalled();
+    errors.mockRestore();
+  });
+
+  it("applies an upload's image swap under an open edit and merges the edit onto it", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const slide = { id: "slide-f", content, layout: "blank" } as Slide;
+    const { rerender } = render(<SlideInner slide={slide} stampSource />);
+    const root = document.querySelector<HTMLElement>(".slide-content")!;
+    const image = root.querySelector("img")!;
+    const edited = root.querySelector("p")!;
+    edited.setAttribute("contenteditable", "true");
+    edited.textContent = "Caption typed";
+    const uploaded = content.replace("blob:preview", "https://cdn.test/a.png");
+    const provenance = captureSlideImageUploadProvenance(
+      root,
+      renderUploadSnapshot(root, content),
+    )!;
+    registerSlideImageUploadProvenance(slide.id, uploaded, provenance);
+    rerender(
+      <SlideInner slide={{ ...slide, content: uploaded }} stampSource />,
+    );
+    await waitFor(() =>
+      expect(image.getAttribute("src")).toBe("https://cdn.test/a.png"),
+    );
+    expect(root.querySelector("p")).toBe(edited);
+    expect(errors).not.toHaveBeenCalled();
+    const source = getRenderedSlideSource(root)!;
+    expect(source.stored).toBe(uploaded);
+    expect(
+      mergeRenderedEdits({ ...source, live: root.cloneNode(true) as Element })
+        .html,
+    ).toBe(uploaded.replace("Caption", "Caption typed"));
+
+    const remote = uploaded.replace(
+      "<p>Caption</p>",
+      "<h2>Agent</h2><p>Caption</p>",
+    );
+    const commit = vi.fn((event: Event) => {
+      expect((event as CustomEvent).detail).toEqual({ content: remote });
+      edited.removeAttribute("contenteditable");
+    });
+    document.addEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);
+    rerender(<SlideInner slide={{ ...slide, content: remote }} stampSource />);
+    document.removeEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(getRenderedSlideSource(root)?.stored).toBe(remote);
+    errors.mockRestore();
+  });
+
+  it("commits an open edit with the incoming source, then applies another write to the same slide", () => {
+    const titled = content.replace("<p>", "<h2>Title</h2><p>");
+    const slide = { id: "slide-g", content: titled, layout: "blank" } as Slide;
+    const { rerender } = render(<SlideInner slide={slide} stampSource />);
+    const root = document.querySelector<HTMLElement>(".slide-content")!;
+    const edited = root.querySelector("p")!;
+    edited.setAttribute("contenteditable", "true");
+    const remote = titled.replace("Title", "Agent title");
+    const commit = vi.fn((event: Event) => {
+      expect((event as CustomEvent).detail).toEqual({ content: remote });
+      edited.removeAttribute("contenteditable");
+    });
+    document.addEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);
+    rerender(<SlideInner slide={{ ...slide, content: remote }} stampSource />);
+    document.removeEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(root.querySelector("h2")!.textContent).toBe("Agent title");
+    expect(getRenderedSlideSource(root)?.stored).toBe(remote);
+  });
+
+  it("commits instead of patching images when more than the images changed", () => {
+    const titled = content.replace("<p>", "<h2>Title</h2><p>");
+    const slide = { id: "slide-h", content: titled, layout: "blank" } as Slide;
+    const { rerender } = render(<SlideInner slide={slide} stampSource />);
+    const root = document.querySelector<HTMLElement>(".slide-content")!;
+    const edited = root.querySelector("p")!;
+    edited.setAttribute("contenteditable", "true");
+    const mixed = titled
+      .replace("blob:preview", "https://cdn.test/a.png")
+      .replace("Title", "Agent title");
+    const commit = vi.fn(() => edited.removeAttribute("contenteditable"));
+    document.addEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);
+    rerender(<SlideInner slide={{ ...slide, content: mixed }} stampSource />);
+    document.removeEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(root.querySelector("h2")!.textContent).toBe("Agent title");
+    expect(root.querySelector("img")!.getAttribute("src")).toBe(
+      "https://cdn.test/a.png",
+    );
+    expect(getRenderedSlideSource(root)?.stored).toBe(mixed);
+  });
+
+  it("commits a mixed upload when its edited-node snapshot no longer matches", () => {
+    const slide = { id: "slide-j", content, layout: "blank" } as Slide;
+    const { rerender } = render(<SlideInner slide={slide} stampSource />);
+    const root = document.querySelector<HTMLElement>(".slide-content")!;
+    const edited = root.querySelector("p")!;
+    edited.setAttribute("contenteditable", "true");
+    edited.textContent = "Caption typed";
+    const draft = content.replace("Caption", "Caption ty");
+    const provenance = captureSlideImageUploadProvenance(
+      root,
+      renderUploadSnapshot(root, draft),
+    )!;
+    const remote = content
+      .replace("blob:preview", "https://cdn.test/a.png")
+      .replace("Caption", "Agent caption");
+    registerSlideImageUploadProvenance(slide.id, remote, provenance);
+    const commit = vi.fn((event: Event) => {
+      expect((event as CustomEvent).detail).toEqual({ content: remote });
+      edited.removeAttribute("contenteditable");
+    });
+    document.addEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);
+    rerender(<SlideInner slide={{ ...slide, content: remote }} stampSource />);
+    document.removeEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(root.querySelector("p")!.textContent).toBe("Agent caption");
+    expect(getRenderedSlideSource(root)?.stored).toBe(remote);
+  });
+
+  it("keeps an edit open when an upload carries its captured edited-node snapshot", async () => {
+    const slide = { id: "slide-i", content, layout: "blank" } as Slide;
+    const { rerender } = render(<SlideInner slide={slide} stampSource />);
+    const root = document.querySelector<HTMLElement>(".slide-content")!;
+    const image = root.querySelector("img")!;
+    const edited = root.querySelector("p")!;
+    edited.setAttribute("contenteditable", "true");
+    const draft = content.replace("Caption", "Caption ty");
+    edited.textContent = "Caption typed";
+    const uploaded = draft.replace("blob:preview", "https://cdn.test/a.png");
+    const provenance = captureSlideImageUploadProvenance(
+      root,
+      renderUploadSnapshot(root, draft),
+    )!;
+    const commit = vi.fn();
+    document.addEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);
+    registerSlideImageUploadProvenance(slide.id, uploaded, provenance);
+    rerender(
+      <SlideInner
+        slide={{
+          ...slide,
+          content: uploaded,
+        }}
+        stampSource
+      />,
+    );
+    document.removeEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);
+    await waitFor(() =>
+      expect(image.getAttribute("src")).toBe("https://cdn.test/a.png"),
+    );
+    expect(commit).not.toHaveBeenCalled();
+    expect(root.querySelector("p")).toBe(edited);
+    expect(edited.textContent).toBe("Caption typed");
+  });
+
+  describe("another writer's saved edit under an open text edit", () => {
+    const objects = (a: string, b: string, bLeft = 100) =>
+      `<div class="fmd-slide"><div data-slide-object-id="a" style="left:100px">${a}</div><div data-slide-object-id="b" style="left:${bLeft}px">${b}</div></div>`;
+
+    function openEdit(slideId: string, base: string) {
+      const slide = { id: slideId, content: base, layout: "blank" } as Slide;
+      const view = render(<SlideInner slide={slide} stampSource />);
+      const root = document.querySelector<HTMLElement>(".slide-content")!;
+      const edited = root.querySelector<HTMLElement>(
+        '[data-slide-object-id="a"]',
+      )!;
+      edited.setAttribute("contenteditable", "true");
+      edited.textContent = "Alpha typed";
+      return { slide, view, root, edited };
+    }
+
+    it("shows a change to another object around the edit, which keeps its node and text", () => {
+      const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+      const base = objects("Alpha", "Beta");
+      const remote = objects("Alpha", "Beta by remote", 300);
+      const { slide, view, root, edited } = openEdit("slide-live-a", base);
+      const commit = vi.fn();
+      document.addEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);
+
+      expect(applyRemoteSlideContentUnderEdit(root, base, remote)).toBe(
+        "applied",
+      );
+
+      const other = root.querySelector<HTMLElement>(
+        '[data-slide-object-id="b"]',
+      )!;
+      expect(other.textContent).toBe("Beta by remote");
+      expect(other.style.left).toBe("300px");
+      expect(root.querySelector('[data-slide-object-id="a"]')).toBe(edited);
+      expect(edited.getAttribute("contenteditable")).toBe("true");
+      expect(edited.textContent).toBe("Alpha typed");
+      const source = getRenderedSlideSource(root)!;
+      expect(source.stored).toBe(remote);
+      expect(
+        mergeRenderedEdits({ ...source, live: root.cloneNode(true) as Element })
+          .html,
+      ).toBe(objects("Alpha typed", "Beta by remote", 300));
+
+      // The same content then arrives as the prop: it is already on screen.
+      view.rerender(
+        <SlideInner slide={{ ...slide, content: remote }} stampSource />,
+      );
+      document.removeEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);
+      expect(commit).not.toHaveBeenCalled();
+      expect(errors).not.toHaveBeenCalled();
+      expect(root.querySelector('[data-slide-object-id="a"]')).toBe(edited);
+      expect(edited.textContent).toBe("Alpha typed");
+      errors.mockRestore();
+    });
+
+    it("renders the remote copy the way the canvas was rendered, so a video slide is not replaced", () => {
+      const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+      const withVideo = (b: string) =>
+        objects("Alpha", b).replace(
+          '<div class="fmd-slide">',
+          '<div class="fmd-slide"><video src="https://example.test/v.mp4" autoplay muted></video>',
+        );
+      const base = withVideo("Beta");
+      const remote = withVideo("Beta by remote");
+      const slide = {
+        id: "slide-live-video",
+        content: base,
+        layout: "blank",
+      } as Slide;
+      const view = render(
+        <SlideInner slide={slide} stampSource disableVideoAutoplay />,
+      );
+      const root = document.querySelector<HTMLElement>(".slide-content")!;
+      const edited = root.querySelector<HTMLElement>(
+        '[data-slide-object-id="a"]',
+      )!;
+      edited.setAttribute("contenteditable", "true");
+      const commit = vi.fn();
+      document.addEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);
+
+      expect(applyRemoteSlideContentUnderEdit(root, base, remote)).toBe(
+        "applied",
+      );
+      view.rerender(
+        <SlideInner
+          slide={{ ...slide, content: remote }}
+          stampSource
+          disableVideoAutoplay
+        />,
+      );
+
+      document.removeEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);
+      expect(commit).not.toHaveBeenCalled();
+      expect(errors).not.toHaveBeenCalled();
+      expect(root.querySelector('[data-slide-object-id="a"]')).toBe(edited);
+      errors.mockRestore();
+    });
+
+    it("leaves the canvas alone when the other writer changed the edited object too", () => {
+      const base = objects("Alpha", "Beta");
+      const remote = objects("Alpha by remote", "Beta by remote");
+      const { root, edited } = openEdit("slide-live-b", base);
+
+      expect(applyRemoteSlideContentUnderEdit(root, base, remote)).toBe(
+        "overlap",
+      );
+
+      expect(
+        root.querySelector('[data-slide-object-id="b"]')!.textContent,
+      ).toBe("Beta");
+      expect(edited.textContent).toBe("Alpha typed");
+      expect(getRenderedSlideSource(root)!.stored).toBe(base);
+    });
+  });
+
+  it("asks the editor to commit before another slide replaces an edit", () => {
+    const slide = { id: "slide-d", content, layout: "blank" } as Slide;
+    const { rerender } = render(<SlideInner slide={slide} stampSource />);
+    const root = document.querySelector<HTMLElement>(".slide-content")!;
+    const edited = root.querySelector("p")!;
+    edited.setAttribute("contenteditable", "true");
+    const commit = vi.fn(() => edited.removeAttribute("contenteditable"));
+    document.addEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);
+    rerender(
+      <SlideInner
+        slide={
+          { id: "slide-e", content: "<p>Next</p>", layout: "blank" } as Slide
+        }
+        stampSource
+      />,
+    );
+    document.removeEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(root.textContent).toContain("Next");
+  });
+});
+
 describe("SlideInner autofit", () => {
+  it("centers full-size slides inside their viewport while scaling to contain", () => {
+    render(
+      <SlideRenderer
+        slide={{
+          id: "presentation-slide",
+          layout: "blank",
+          notes: "",
+          content: '<div class="fmd-slide"><h1>Centered</h1></div>',
+        }}
+        aspectRatio="16:9"
+        thumbnail={false}
+      />,
+    );
+
+    const viewport = document.querySelector<HTMLElement>(
+      '[data-slide-canvas="presentation-slide"]',
+    )?.parentElement?.parentElement;
+    expect(viewport?.classList.contains("flex")).toBe(true);
+    expect(viewport?.classList.contains("items-center")).toBe(true);
+    expect(viewport?.classList.contains("justify-center")).toBe(true);
+    expect(viewport?.firstElementChild?.classList.contains("shrink-0")).toBe(
+      true,
+    );
+    expect(
+      viewport?.firstElementChild?.classList.contains("origin-center"),
+    ).toBe(true);
+  });
+
+  it("updates an uploaded image source without replacing its live node", async () => {
+    const previewContent =
+      '<div class="fmd-slide"><img src="blob:preview" data-slide-object-id="image-1" style="position:absolute;left:40px;top:24px;width:320px;height:180px;"></div>';
+    const finalContent = previewContent.replace(
+      "blob:preview",
+      "https://cdn.builder.io/api/v1/image/assets%2Fphoto",
+    );
+    const slide = {
+      id: "slide-image-upload",
+      content: previewContent,
+      layout: "blank",
+    } as Slide;
+    const { rerender } = render(<SlideInner slide={slide} />);
+    const image = document.querySelector<HTMLImageElement>(
+      '[data-slide-object-id="image-1"]',
+    );
+    if (!image) throw new Error("expected preview image");
+    image.style.left = "184px";
+
+    rerender(
+      <SlideInner slide={{ ...slide, content: finalContent } as Slide} />,
+    );
+
+    await waitFor(() => {
+      expect(image.getAttribute("src")).toBe(
+        "https://cdn.builder.io/api/v1/image/assets%2Fphoto",
+      );
+    });
+    expect(document.querySelector('[data-slide-object-id="image-1"]')).toBe(
+      image,
+    );
+    expect(image.style.left).toBe("184px");
+  });
+
   beforeEach(() => {
     vi.stubGlobal(
       "ResizeObserver",
@@ -241,6 +757,9 @@ describe("SlideInner autofit", () => {
         ) {
           return rect(110, 80, 740, 380);
         }
+        if (this.textContent?.includes("Expanded")) {
+          return rect(110, 80, 1200, 500);
+        }
         if (this.textContent?.includes("Horizontally fitted")) {
           return rect(110, 80, 1000, 500);
         }
@@ -281,9 +800,6 @@ describe("SlideInner autofit", () => {
         "[data-fmd-autofit-content]",
       );
       expect(fitLayer).toBeTruthy();
-      // Vertical overflow no longer triggers a uniform scale-down — the slide
-      // renders at native size and the editor surfaces the overflow so the
-      // agent can rewrite the HTML to fit instead.
       expect(fitLayer?.style.getPropertyValue("--fmd-fit-scale")).toBe("1");
       expect(fitLayer?.getAttribute("data-fmd-autofit-active")).toBeNull();
       expect(onOverflowChange).toHaveBeenCalledWith(
@@ -391,7 +907,7 @@ describe("SlideInner autofit", () => {
       document.querySelector<HTMLElement>(
         '[data-slide-canvas="neutral-fallback"]',
       )?.style.background,
-    ).toBe("#F5F2EA");
+    ).toBe("#FFFFFF");
   });
 
   it("reports vertical overflow for markdown slides too", async () => {
@@ -467,11 +983,6 @@ describe("SlideInner autofit", () => {
     expect(slideDeclaresTextColor(html as string)).toBe(expected);
   });
 
-  // The `.slide-content <tag>` palette in global.css is a per-element
-  // declaration, so it beats any color a slide inherits from its own wrapper.
-  // `data-slide-content-scope` turns it off. It reached only the raw-HTML
-  // container, so an agent-recolored slide that renders through a markdown
-  // layout (rehype-raw carries the same HTML) stayed white-on-cream.
   it("turns the palette off for a markdown layout whose slide declares colors", () => {
     const slide: Slide = {
       id: "markdown-authored-colors",
@@ -551,10 +1062,61 @@ describe("SlideInner autofit", () => {
     expect(heading).toBeTruthy();
     heading!.contentEditable = "true";
 
-    // The contenteditable mutation schedules another fit pass. It must retain
-    // the pre-edit transform rather than reset to 1 and visibly shift content.
     await new Promise((resolve) => window.setTimeout(resolve, 20));
     expect(fitLayer?.style.getPropertyValue("--fmd-fit-scale")).toBe("0.74");
+  });
+
+  it("keeps the fit stable while text is edited and refits after editing ends", async () => {
+    const slide: Slide = {
+      id: "raw-editing-growth",
+      layout: "blank",
+      notes: "",
+      content:
+        '<div class="fmd-slide" style="padding: 80px 110px;"><div class="measurement-wrapper"><h2>Horizontally fitted title</h2></div></div>',
+    };
+
+    render(<SlideInner slide={slide} />);
+
+    const fitLayer = await waitFor(() => {
+      const layer = document.querySelector<HTMLElement>(
+        "[data-fmd-autofit-content]",
+      );
+      expect(layer?.style.getPropertyValue("--fmd-fit-scale")).toBe("0.74");
+      return layer;
+    });
+    const wrapper = fitLayer?.querySelector<HTMLElement>(
+      ".measurement-wrapper",
+    );
+    expect(wrapper).toBeTruthy();
+    const getWrapperRect = wrapper!.getBoundingClientRect;
+    const wrapperRect = vi.fn(() => getWrapperRect.call(wrapper));
+    Object.defineProperty(wrapper, "getBoundingClientRect", {
+      configurable: true,
+      value: wrapperRect,
+    });
+    const heading = fitLayer?.querySelector<HTMLElement>("h2");
+    expect(heading?.firstChild?.nodeType).toBe(Node.TEXT_NODE);
+    heading!.contentEditable = "true";
+
+    await new Promise((resolve) => window.setTimeout(resolve, 20));
+    expect(fitLayer?.style.getPropertyValue("--fmd-fit-scale")).toBe("0.74");
+
+    const scheduleFrame = vi.spyOn(globalThis, "requestAnimationFrame");
+    wrapperRect.mockClear();
+    heading!.firstChild!.textContent = "Horizontally fitted title Expanded";
+    await new Promise((resolve) => window.setTimeout(resolve, 20));
+    expect(fitLayer?.style.getPropertyValue("--fmd-fit-scale")).toBe("0.74");
+    expect(wrapperRect).not.toHaveBeenCalled();
+    expect(scheduleFrame).not.toHaveBeenCalled();
+
+    heading!.contentEditable = "false";
+    await waitFor(() => expect(scheduleFrame).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(fitLayer?.style.getPropertyValue("--fmd-fit-scale")).not.toBe(
+        "0.74",
+      ),
+    );
+    expect(wrapperRect).not.toHaveBeenCalled();
   });
 
   it("keeps the live edit node on a mermaid slide across re-renders", () => {
@@ -577,6 +1139,27 @@ describe("SlideInner autofit", () => {
     expect(document.querySelector("h2")).toBe(heading);
   });
 
+  it("renders a mermaid diagram in place inside the slide root", async () => {
+    const slide: Slide = {
+      id: "raw-mermaid-inside",
+      layout: "blank",
+      notes: "",
+      content:
+        '<div class="fmd-slide"><h2>Diagram title</h2><div class="mermaid">graph TD; A--&gt;B;</div><p>Caption below</p></div>',
+    };
+
+    render(<SlideInner slide={slide} />);
+
+    const fmdSlide = document.querySelector(".fmd-slide")!;
+    expect(document.querySelectorAll(".fmd-slide")).toHaveLength(1);
+    expect(fmdSlide.querySelector("p")?.textContent).toBe("Caption below");
+    const placeholder = fmdSlide.querySelector("[data-mermaid-index]")!;
+    expect(placeholder).toBeTruthy();
+    await waitFor(() =>
+      expect(placeholder.querySelector("[data-mermaid-diagram]")).toBeTruthy(),
+    );
+  });
+
   it("does not fit the flow layer around a moved freeform object", async () => {
     const slide: Slide = {
       id: "raw-freeform",
@@ -593,8 +1176,6 @@ describe("SlideInner autofit", () => {
       const fitLayer = document.querySelector<HTMLElement>(
         "[data-fmd-autofit-content]",
       );
-      // The absolute object expands scrollWidth to 786px, but its independent
-      // geometry must not shrink or shift the 740px normal-flow layout.
       expect(fitLayer?.scrollWidth).toBe(786);
       expect(fitLayer?.style.getPropertyValue("--fmd-fit-scale")).toBe("1");
       expect(fitLayer?.style.getPropertyValue("--fmd-fit-x")).toBe("0px");
@@ -648,7 +1229,6 @@ describe("SlideInner autofit", () => {
         disconnect() {}
       },
     );
-    // Far below the viewport, the way most thumbnails in a long deck are.
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
       () => rect(0, 100_000, 740, 380),
     );
@@ -662,8 +1242,6 @@ describe("SlideInner autofit", () => {
     };
     render(<SlideInner slide={slide} />);
 
-    // The fit layer is only ever created by a measure pass, so its absence
-    // proves the expensive per-descendant measurement never ran.
     await new Promise((resolve) => window.setTimeout(resolve, 20));
     expect(document.querySelector("[data-fmd-autofit-content]")).toBeNull();
 
@@ -733,8 +1311,6 @@ describe("imported deck webfonts", () => {
         removeEventListener: () => {},
       },
     });
-    // happy-dom really requests a connected <link rel="stylesheet">, so record
-    // the element instead of connecting it and putting the suite on the network.
     appendedToHead.length = 0;
     vi.spyOn(document.head, "appendChild").mockImplementation(((
       node: HTMLElement,
@@ -758,7 +1334,6 @@ describe("imported deck webfonts", () => {
   });
 
   it("asks a static-weight family for discrete weights, not a variable axis", () => {
-    // The css2 endpoint 400s the whole request when a family has no such axis.
     expect(resolveImportedFont("Open Sans")?.href).toBe(
       "https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,400;0,700;1,400;1,700&display=swap",
     );
@@ -798,7 +1373,6 @@ describe("imported deck webfonts", () => {
 
     expect(html).toContain("font-family:'Work Sans', sans-serif");
     expect(html).not.toContain("Work Sans Medium");
-    // Unservable families stay as authored so a locally installed copy still matches.
     expect(html).toContain("font-family:'Helvetica Neue', sans-serif");
     expect(hrefs).toEqual([
       "https://fonts.googleapis.com/css2?family=Work+Sans:ital,wght@0,100..900;1,100..900&display=swap",

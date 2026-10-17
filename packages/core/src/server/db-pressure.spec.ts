@@ -13,6 +13,14 @@ import {
   probeDbPressure,
 } from "./db-pressure.js";
 
+const CHAT_HEALTH_SCRIPT = readFileSync(
+  resolve(
+    dirname(fileURLToPath(import.meta.url)),
+    "../../../../scripts/chat-health.mjs",
+  ),
+  "utf8",
+);
+
 const HEALTHY = {
   connections: 8,
   idleInTxn: 0,
@@ -63,7 +71,15 @@ describe("probeDbPressure", () => {
   });
 
   it("excludes the probe connection from both activity scans", () => {
-    expect(DB_PRESSURE_SQL.match(/pid <> pg_backend_pid\(\)/g)).toHaveLength(2);
+    for (const sql of [DB_PRESSURE_SQL, CHAT_HEALTH_SCRIPT]) {
+      expect(sql.match(/pid <> pg_backend_pid\(\)/g)).toHaveLength(2);
+    }
+  });
+
+  it("limits both activity scans to the database being probed", () => {
+    for (const sql of [DB_PRESSURE_SQL, CHAT_HEALTH_SCRIPT]) {
+      expect(sql.match(/datname = current_database\(\)/g)).toHaveLength(2);
+    }
   });
 
   it("uses a provided liveness query duration", async () => {
@@ -90,8 +106,6 @@ describe("probeDbPressure", () => {
     expect(result).toMatchObject({ measured: true, connections: 8 });
   });
 
-  // Each of the next three would, if folded into a zeroed "measured" result,
-  // report a database nobody looked at as a healthy one.
   it("reports a throwing query as unmeasured", async () => {
     const result = await probeDbPressure({
       execute: async () => {
@@ -126,20 +140,11 @@ describe("probeDbPressure", () => {
 });
 
 describe("threshold parity with scripts/chat-health.mjs", () => {
-  // Same three signals are measured from a workstation by chat-health.mjs
-  // against every app's database at once, and from inside each app by the code
-  // above for the scheduled fleet audit. Two copies of a number is how the two
-  // start disagreeing about whether production is healthy.
   it("keeps both copies of the outage thresholds equal", () => {
-    const script = readFileSync(
-      resolve(
-        dirname(fileURLToPath(import.meta.url)),
-        "../../../../scripts/chat-health.mjs",
-      ),
-      "utf8",
-    );
     const literal = (name: string) => {
-      const match = new RegExp(`const ${name} = ([0-9_]+);`).exec(script);
+      const match = new RegExp(`const ${name} = ([0-9_]+);`).exec(
+        CHAT_HEALTH_SCRIPT,
+      );
       if (!match)
         throw new Error(`${name} not found in scripts/chat-health.mjs`);
       return Number(match[1].replace(/_/g, ""));
@@ -149,5 +154,12 @@ describe("threshold parity with scripts/chat-health.mjs", () => {
     expect(literal("MAX_SAME_QUERY_CONCURRENCY")).toBe(
       MAX_SAME_QUERY_CONCURRENCY,
     );
+  });
+
+  it("groups full query text so shared prefixes do not look like one query", () => {
+    for (const sql of [DB_PRESSURE_SQL, CHAT_HEALTH_SCRIPT]) {
+      expect(sql).toMatch(/GROUP BY\s+query\b/);
+      expect(sql).not.toMatch(/left\s*\(\s*query\s*,\s*60\s*\)/);
+    }
   });
 });

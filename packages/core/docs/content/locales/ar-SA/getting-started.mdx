@@ -14,12 +14,14 @@ Agent-Native هو إطار عمل TypeScript مفتوح المصدر لبناء 
 في هذا الدليل، ستنشئ وكيلاً بواجهة مستخدم للمحادثة وتستدعي إجراء `hello`
 المضمّن فيه من الوكيل وواجهة المستخدم.
 
+هل تفضّل أن يتولى وكيل ذكاء اصطناعي الإعداد؟ راجع
+[إنشاء تطبيق باستخدام وكيل ذكاء اصطناعي](/docs/create-with-an-agent).
+
 ## المتطلبات الأساسية
 
 - [Node.js](https://nodejs.org) 22.22 أو أحدث
 - [pnpm](https://pnpm.io) مثبت ومتاح في `PATH`
-- اتصال LLM للوكيل: Builder.io، أو مفتاح API من Anthropic أو OpenAI، أو نموذج
-  Ollama محلي
+- اختياري أثناء الإعداد، ومطلوب لتشغيل الوكيل: Builder.io، أو مفتاح Anthropic/OpenAI، أو Ollama محلي
 
 ## إنشاء وكيل
 
@@ -28,12 +30,19 @@ Agent-Native هو إطار عمل TypeScript مفتوح المصدر لبناء 
 ```bash
 npx --yes @agent-native/core@latest create my-app --standalone --template chat
 cd my-app
+corepack enable
 pnpm install
 ```
 
 يوفّر القالب للوكيل واجهة مستخدم في المتصفح، ومصادقة، ومحادثات دائمة، ومزامنة
 مباشرة، وسياقًا للتطبيق، ودليل `actions/`. كما يتضمن إجراء `hello` صغيرًا
 ستستخدمه خلال هذا الدليل.
+
+<Callout tone="info">
+
+إذا فشلت هذه الأوامر بأخطاء في التبعيات النظيرة، فقد يكون السبب نسخة قديمة من حزمة في ذاكرة npx المؤقتة. شغّل `npx clear-npx-cache` لمسح الذاكرة المؤقتة، ثم شغّل الأوامر مرة أخرى.
+
+</Callout>
 
 ## بدء خادم التطوير
 
@@ -53,8 +62,9 @@ pnpm dev
 
 </Callout>
 
-بعد ذلك، صِل LLM. اختر **Connect Builder.io** لاستخدام أرصدة مجانية، أو اختر
-**Custom keys**، ثم اختر موفرًا وأدخل تفاصيل الاتصال المطلوبة.
+## الاتصال بنموذج LLM (اختياري) {#connect-an-llm}
+
+اختياري: اتصل باستخدام **Use Builder.io**، أو أضف مفتاحًا عبر **Custom keys**، أو ضع مفتاح موفّر في `.env` للتطوير المحلي. في عمليات النشر المستضافة ذاتيًا، يمكن استخدام مفتاح من جهة الخادم كخيار احتياطي على مستوى التطبيق. راجع [مفاتيح موفّري LLM](/docs/environment-variables#llm-provider-keys).
 
 ## تشغيل الإجراء من الوكيل
 
@@ -62,7 +72,7 @@ pnpm dev
 للوكلاء استخدامها كأداة. يتضمن قالب Chat إجراء `hello` بسيطًا لتجربة هذا
 النمط قبل كتابة إجراء خاص بك.
 
-في لوحة الوكيل، اطلب:
+في حقل الطلب في صفحة **ابدأ الآن**، اطلب:
 
 > Call the hello action for Alex.
 
@@ -81,6 +91,7 @@ Hello, Alex!
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
+// One action powers every app surface: UI, agent, HTTP, MCP, A2A, and CLI.
 export default defineAction({
   description: "Return a friendly greeting.",
   schema: z.object({
@@ -136,7 +147,7 @@ export default function HelloRoute() {
 }
 ```
 
-<Callout tone="warning">
+<Callout tone="info">
 
 أعد تشغيل خادم التطوير كي يكتشف المسار الجديد، ثم افتح
 `http://localhost:<port>/hello`.

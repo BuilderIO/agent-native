@@ -12,9 +12,13 @@ export interface WorkspaceDefaultsResult {
   canManage: boolean;
 }
 
-export function useWorkspaceDefaults() {
+export function useWorkspaceDefaults(enabled = true) {
   const { data, isLoading, error, refetch } =
-    useActionQuery<WorkspaceDefaultsResult>("get-workspace-defaults");
+    useActionQuery<WorkspaceDefaultsResult>(
+      "get-workspace-defaults",
+      undefined,
+      { enabled },
+    );
 
   return {
     referenceDeck: data?.referenceDeck ?? null,

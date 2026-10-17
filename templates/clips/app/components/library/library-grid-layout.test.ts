@@ -53,6 +53,9 @@ describe("selected library actions layout", () => {
     expect(primaryActionsSource).toContain('triggerIcon="chevron"');
     expect(gridSource).toContain('import { FolderCard } from "./folder-card"');
     expect(gridSource).toContain("visibleFolders");
+    expect(gridSource).toContain("const isEmptyState =");
+    expect(gridSource).toContain("!isEmptyState && extraActions");
+    expect(gridSource).toContain("!isEmptyState && (\n              <SortMenu");
     expect(gridSource).toContain("organizationId: currentOrganizationId");
     expect(folderRouteSource).toContain("useOrganizations()");
     expect(folderRouteSource).toContain(
@@ -89,6 +92,7 @@ describe("selected library actions layout", () => {
     );
     expect(layoutSource).toContain("<AppSidebarHeader");
     expect(layoutSource).toContain("<AppSidebarFooter");
+    expect(layoutSource).toContain("animateDesktop={false}");
     expect(layoutSource).toContain("primaryNavItems.map");
     expect(layoutSource).toContain("lifecycleNavItems.map");
     expect(layoutSource).toContain(
@@ -129,6 +133,7 @@ describe("selected library actions layout", () => {
     expect(layoutSource).not.toContain("searchButton");
     expect(layoutSource).not.toContain("IconSearch");
     expect(layoutSource).toContain('currentAppId="clips"');
+    expect(layoutSource).not.toContain("settingsPath=");
     expect(layoutSource).toContain("utilityLinks={workspaceUtilityLinks}");
     expect(layoutSource).toContain('id: "chrome-extension"');
     expect(layoutSource).toContain('id: "desktop-app"');
@@ -178,10 +183,13 @@ describe("selected library actions layout", () => {
   });
 
   it("keeps Meetings, Dictate, and Trash on the shared app-shell header", () => {
+    const layoutSource = readSource("./library-layout.tsx");
     const meetingsSource = readSource("../../routes/_app.meetings._index.tsx");
     const dictateSource = readSource("../../routes/_app.dictate.tsx");
     const trashSource = readSource("../../routes/_app.trash.tsx");
 
+    expect(layoutSource).toContain("...(meetingsLabEnabled");
+    expect(layoutSource).toContain('to: "/meetings"');
     expect(meetingsSource).toContain("<PageBreadcrumb");
     expect(dictateSource).toContain("<PageBreadcrumb");
     expect(trashSource).toContain("<PageBreadcrumb");
@@ -191,10 +199,19 @@ describe("selected library actions layout", () => {
     );
   });
 
+  it("never lets the toolbar action group shrink behind the search bar", () => {
+    const gridSource = readSource("./library-grid.tsx");
+
+    expect(gridSource).toContain("lg:grid-cols-[minmax(0,1fr)_20rem_auto]");
+    expect(gridSource).toContain(
+      "ms-auto flex shrink-0 items-center gap-2 lg:col-start-3 lg:ms-0 lg:justify-self-end",
+    );
+  });
+
   it("keeps library search before the primary recording action", () => {
     const gridSource = readSource("./library-grid.tsx");
     const searchIndex = gridSource.indexOf("<SearchBar");
-    const actionIndex = gridSource.indexOf("{extraActions}");
+    const actionIndex = gridSource.indexOf("!isEmptyState && extraActions");
 
     expect(searchIndex).toBeGreaterThan(-1);
     expect(actionIndex).toBeGreaterThan(searchIndex);
@@ -227,5 +244,21 @@ describe("selected library actions layout", () => {
     );
     expect(toolbarSource).toContain("onCreateFolder");
     expect(toolbarSource).toContain('t("navigation.newFolder")');
+  });
+
+  it("checks storage before retrying a local upload backup", () => {
+    const gridSource = readSource("./library-grid.tsx");
+    const retryHandler = gridSource
+      .split("const handleRetry = async (rec: RecordingSummary) => {")[1]
+      ?.split("const hasFilesDrag")[0];
+    const storageCheckIndex =
+      retryHandler?.indexOf("fetchVideoStorageStatus()") ?? -1;
+    const retryIndex =
+      retryHandler?.indexOf("retryRecordingUploadFromBackup(rec.id)") ?? -1;
+
+    expect(retryHandler).toBeDefined();
+    expect(storageCheckIndex).toBeGreaterThan(-1);
+    expect(storageCheckIndex).toBeLessThan(retryIndex);
+    expect(retryHandler).toContain('setStorageGateIssue("missing")');
   });
 });

@@ -1,14 +1,17 @@
-import {
-  AgentChatSurface,
-  markAgentChatHomeHandoff,
-} from "@agent-native/core/client/agent-chat";
+import { markAgentChatHomeHandoff } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
-import { useEffect } from "react";
+import { AgentChatSurface } from "@agent-native/toolkit/app/chat";
+import { useEffect, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
 
+import { SlidesComposerContextProvider } from "@/components/editor/SlidesComposerContextProvider";
 import {
-  hasCurrentSlideSelection,
+  buildSlidesAgentContext,
+  getSlidesAgentScopeLabel,
+  haveSameSlidesAgentScope,
   readPublishedSlidesSelection,
+  SLIDES_SELECTION_CHANGED_EVENT,
+  type SlidesAgentSelection,
 } from "@/lib/slide-agent-context";
 import { TAB_ID } from "@/lib/tab-id";
 
@@ -34,16 +37,21 @@ export default function ChatRoute() {
   const navigate = useNavigate();
   const t = useT();
   const deckId = new URLSearchParams(location.search).get("deckId");
+  const [slidesSelection, setSlidesSelection] =
+    useState<SlidesAgentSelection | null>(() => readPublishedSlidesSelection());
+  const scopeLabel = deckId
+    ? getSlidesAgentScopeLabel(slidesSelection, deckId)
+    : null;
   const scope = deckId
     ? {
         type: "deck" as const,
         id: deckId,
-        label: t(
-          hasCurrentSlideSelection(readPublishedSlidesSelection(), deckId)
-            ? "agent.currentSelection"
-            : "agent.thisSlide",
-        ),
+        label:
+          scopeLabel?.key === "agent.slideNumber"
+            ? t(scopeLabel.key, { number: scopeLabel.number })
+            : t(scopeLabel?.key ?? "agent.thisSlide"),
         contextKey: "slides-current-context",
+        ...buildSlidesAgentContext(slidesSelection, deckId),
       }
     : null;
   const scopeQuery = deckId ? `?deckId=${encodeURIComponent(deckId)}` : "";
@@ -67,25 +75,45 @@ export default function ChatRoute() {
       window.removeEventListener("agentNative.chatRunning", handleChatRunning);
   }, []);
 
+  useEffect(() => {
+    const onSelectionChanged = (event: Event) => {
+      const nextSelection =
+        (event as CustomEvent<SlidesAgentSelection | null>).detail ?? null;
+      setSlidesSelection((current) =>
+        haveSameSlidesAgentScope(current, nextSelection)
+          ? current
+          : nextSelection,
+      );
+    };
+    window.addEventListener(SLIDES_SELECTION_CHANGED_EVENT, onSelectionChanged);
+    return () =>
+      window.removeEventListener(
+        SLIDES_SELECTION_CHANGED_EVENT,
+        onSelectionChanged,
+      );
+  }, []);
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
       <AgentChatSurface
+        composerContextProvider={SlidesComposerContextProvider}
         mode="page"
         chatViewTransition
         className="h-full"
         defaultMode="chat"
-        storageKey="slides"
         scope={scope}
         threadUrlSync={threadUrlSync}
         browserTabId={TAB_ID}
         showHeader={false}
         showTabBar={false}
+        showPageHeaderWhenEmpty
         dynamicSuggestions={false}
         suggestions={[
           t("agent.suggestionPitch"),
           t("agent.suggestionBrand"),
           t("agent.suggestionHero"),
         ]}
+        suggestionPlacement="after-composer"
         emptyStateText={t("agent.emptyState")}
         emptyStateDisplay="hidden"
         centerComposerWhenEmpty

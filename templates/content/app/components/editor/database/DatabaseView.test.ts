@@ -12,6 +12,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   acquireDatabaseSourceOperation,
+  defaultDatabaseViewConfig,
+  duplicateDatabaseView,
+  normalizeClientDatabaseViewConfig,
+  updateDatabaseViewIcon,
   createDatabaseViewSaveQueue,
   databaseBuilderBulkUpdateSource,
   databaseBuilderHydrationSourceForItem,
@@ -69,7 +73,25 @@ import {
   previewDraftMissingCasRecovery,
   preparedBuilderReviewMatches,
   requestedDatabaseViewId,
+  exactRequestedDatabaseViewUnavailable,
 } from "./DatabaseView";
+
+describe("database view icons", () => {
+  it("retains a selected icon through normalization, duplication, and removal", () => {
+    const initial = defaultDatabaseViewConfig();
+    const icon = { version: 1, kind: "emoji", emoji: "🚀" } as const;
+    const changed = updateDatabaseViewIcon(initial, initial.activeViewId, icon);
+    expect(changed.views[0].icon).toEqual(icon);
+    expect(normalizeClientDatabaseViewConfig(changed).views[0].icon).toEqual(
+      icon,
+    );
+    const duplicated = duplicateDatabaseView(changed, changed.activeViewId);
+    expect(duplicated.views[1].icon).toEqual(icon);
+    expect(
+      updateDatabaseViewIcon(changed, changed.activeViewId, null).views[0].icon,
+    ).toBeNull();
+  });
+});
 
 describe("database view deep-link selection", () => {
   it("prefers the explicit route view without changing the saved default", () => {
@@ -78,6 +100,23 @@ describe("database view deep-link selection", () => {
     );
     expect(requestedDatabaseViewId(null, " default ")).toBe("default");
     expect(requestedDatabaseViewId("   ", null)).toBeNull();
+  });
+
+  it("keeps a cached exact view available after its refresh fails", () => {
+    const config = defaultDatabaseViewConfig();
+    const data = {
+      database: { viewConfig: config },
+    } as unknown as ContentDatabaseResponse;
+
+    expect(
+      exactRequestedDatabaseViewUnavailable(config.activeViewId, data),
+    ).toBe(false);
+    expect(
+      exactRequestedDatabaseViewUnavailable(config.activeViewId, undefined),
+    ).toBe(false);
+    expect(exactRequestedDatabaseViewUnavailable("missing-view", data)).toBe(
+      true,
+    );
   });
 });
 

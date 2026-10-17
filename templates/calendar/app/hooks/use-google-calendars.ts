@@ -7,9 +7,9 @@ import {
   SHARED_CALENDAR_DEMO_SOURCES,
 } from "@/lib/shared-calendar-demo";
 
-export function useGoogleCalendars() {
+export function useGoogleCalendars(options?: { enabled?: boolean }) {
   const demo = isSharedCalendarDemo();
-  const enabled = true;
+  const enabled = options?.enabled ?? true;
   const live = useActionQuery<{
     calendars: GoogleCalendarSource[];
     errors: Array<{ email: string; error: string }>;

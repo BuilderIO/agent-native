@@ -1,0 +1,11 @@
+{
+  "title": "Emptied heading and nested list",
+  "notes": "A heading whose text was deleted (saved as <br>) must stay enterable; Enter at the end of an item with a nested list opens its own line; a styled link inside a paragraph.",
+  "slides": [
+    {
+      "id": "emptied-nested",
+      "layout": "content",
+      "content": "<div class=\"fmd-slide\" style=\"padding: 56px 72px; background: #ffffff; color: #111827; font-family: 'Inter', sans-serif; display: flex; flex-direction: column; gap: 22px;\"><h1 style=\"font-size: 44px; font-weight: 700; letter-spacing: -0.02em; margin: 0;\"><br></h1><ul style=\"font-size: 22px; line-height: 1.4; margin: 0; padding-left: 28px; list-style: disc;\"><li>Parent item<ul style=\"margin: 4px 0 0; padding-left: 24px; list-style: circle;\"><li>Child one</li><li>Child two</li></ul></li><li>Item three</li></ul><p style=\"font-size: 20px; line-height: 1.5; margin: 0;\">Read the <a href=\"https://example.com/notes\" style=\"color: #047857; font-weight: 600;\">release notes</a> before the review.</p></div>"
+    }
+  ]
+}

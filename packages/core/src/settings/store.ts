@@ -1,22 +1,14 @@
 import type { EventEmitter } from "node:events";
 
-import { getDbExec } from "../db/client.js";
+import { getDbExec, type DbExec } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
+import { captureError } from "../server/capture-error.js";
 import { getRequestContext } from "../server/request-context.js";
+import { assertNoInlineImageBytes } from "../shared/inline-bytes.js";
 import { createEventEmitter } from "../shared/optional-node-builtins.js";
 
-let _initPromise: Promise<void> | undefined;
-
-// Per-request memoization of settings reads, keyed on the active
-// AsyncLocalStorage RequestContext (WeakMap → freed with the request). One
-// action request can read the same setting several times (org resolution,
-// guards, the action body), and each read is a network round trip on
-// serverless Postgres. Mirrors the per-request session/org caches on
-// event.context. The cache holds the raw JSON string and re-parses per hit
-// so callers can't mutate a shared object; writes in the same request are
-// written through, while other in-flight requests keep their snapshot for
-// their own (short) lifetime.
 const _requestSettingsCache = new WeakMap<object, Map<string, string | null>>();
 
 function requestSettingsCache(): Map<string, string | null> | null {
@@ -30,31 +22,6 @@ function requestSettingsCache(): Map<string, string | null> | null {
   return cache;
 }
 
-/**
- * Per-request memo of the WHOLE settings table for `getAllSettings`.
- *
- * The single-key path above was already request-cached; the full-table read was
- * not, and production showed 98,479 of them — an entire `SELECT key, value FROM
- * settings` per call, several times per request via the MCP client routes and
- * org settings.
- *
- * Holds raw JSON strings, like the single-key cache, so callers can't mutate a
- * shared parsed object. Dropped by every write path, because a request that
- * writes a setting and then re-reads all of them must see its own write.
- */
-const _requestAllSettingsCache = new WeakMap<
-  object,
-  Promise<Map<string, string>>
->();
-
-function invalidateRequestAllSettings(): void {
-  const ctx = getRequestContext();
-  if (ctx && typeof ctx === "object") _requestAllSettingsCache.delete(ctx);
-}
-
-// Created lazily so this module can be evaluated in the browser dev graph
-// without a top-level `new EventEmitter()` tripping Vite's externalized
-// `node:events` stub. The emitter drives server-side SSE fan-out only.
 let _emitter: EventEmitter | undefined;
 
 function settingsEmitter(): EventEmitter {
@@ -70,49 +37,61 @@ function settingsTable(): string {
   return "public.settings";
 }
 
-export async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const table = settingsTable();
-      const createSql = `
-        CREATE TABLE IF NOT EXISTS ${table} (
-          key TEXT PRIMARY KEY,
-          value TEXT NOT NULL,
-          updated_at BIGINT NOT NULL
-        )
-      `;
+export const settingsStore = defineStore({
+  id: "settings",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createSql = `
+          CREATE TABLE IF NOT EXISTS ${settingsTable()} (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at BIGINT NOT NULL
+          )
+        `;
+        await ensureTableExists("settings", createSql);
+      },
+    },
+    {
+      name: "widen-bigint",
+      run: async () => {
+        await widenIntColumnsToBigInt("settings", ["updated_at"]);
+      },
+    },
+    {
+      name: "indexes",
+      run: async () => {
+        await ensureIndexExists(
+          "settings_updated_at_idx",
+          `CREATE INDEX IF NOT EXISTS settings_updated_at_idx ON ${settingsTable()} (updated_at)`,
+        );
+      },
+    },
+  ],
+});
 
-      await ensureTableExists("settings", createSql);
-      await widenIntColumnsToBigInt("settings", ["updated_at"]);
-      await ensureIndexExists(
-        "settings_updated_at_idx",
-        `CREATE INDEX IF NOT EXISTS settings_updated_at_idx ON ${table} (updated_at)`,
-      );
-    })().catch((err) => {
-      // Retry init on the next call after a failed startup.
-      _initPromise = undefined;
-      throw err;
-    });
-  }
-  return _initPromise;
+export function ensureTable(): Promise<void> {
+  return settingsStore.ready();
 }
 
 export interface StoreReadOptions {
   /** Skip the per-request snapshot when a cross-request race must be checked. */
   bypassCache?: boolean;
+  transaction?: DbExec;
 }
 
 export async function getSetting(
   key: string,
   options?: StoreReadOptions,
 ): Promise<Record<string, unknown> | null> {
-  const cache = requestSettingsCache();
+  const cache = options?.transaction ? null : requestSettingsCache();
   if (!options?.bypassCache && cache?.has(key)) {
     const cached = cache.get(key);
     return cached == null ? null : JSON.parse(cached);
   }
-  await ensureTable();
-  const client = getDbExec();
+  if (!options?.transaction) await ensureTable();
+  const client = options?.transaction ?? getDbExec();
   const table = settingsTable();
   const { rows } = await client.execute({
     sql: `SELECT value FROM ${table} WHERE key = ?`,
@@ -123,20 +102,72 @@ export async function getSetting(
   return raw == null ? null : JSON.parse(raw);
 }
 
+const SETTINGS_IN_LIST_CHUNK_SIZE = 500;
+
+function parseSettingValue(
+  key: string,
+  raw: string,
+): Record<string, unknown> | null {
+  try {
+    return JSON.parse(raw);
+  } catch (error) {
+    captureError(error, {
+      tags: { source: "settings", op: "getSettings" },
+      extra: { key },
+    });
+    return null;
+  }
+}
+
+export async function getSettings(
+  keys: readonly string[],
+  options?: StoreReadOptions,
+): Promise<Map<string, Record<string, unknown> | null>> {
+  const uniqueKeys = [...new Set(keys)];
+  const result = new Map<string, Record<string, unknown> | null>();
+  if (uniqueKeys.length === 0) return result;
+
+  const cache = options?.transaction ? null : requestSettingsCache();
+  const misses: string[] = [];
+  for (const key of uniqueKeys) {
+    if (!options?.bypassCache && cache?.has(key)) {
+      const cached = cache.get(key);
+      result.set(key, cached == null ? null : parseSettingValue(key, cached));
+    } else {
+      misses.push(key);
+    }
+  }
+  if (misses.length === 0) return result;
+
+  if (!options?.transaction) await ensureTable();
+  const client = options?.transaction ?? getDbExec();
+  const table = settingsTable();
+  const rawByKey = new Map<string, string>();
+  for (let i = 0; i < misses.length; i += SETTINGS_IN_LIST_CHUNK_SIZE) {
+    const chunk = misses.slice(i, i + SETTINGS_IN_LIST_CHUNK_SIZE);
+    const placeholders = chunk.map(() => "?").join(", ");
+    const { rows } = await client.execute({
+      sql: `SELECT key, value FROM ${table} WHERE key IN (${placeholders})`,
+      args: chunk,
+    });
+    for (const row of rows) {
+      rawByKey.set(row.key as string, row.value as string);
+    }
+  }
+  for (const key of misses) {
+    const raw = rawByKey.get(key) ?? null;
+    if (!options?.bypassCache) cache?.set(key, raw);
+    result.set(key, raw == null ? null : parseSettingValue(key, raw));
+  }
+  return result;
+}
+
 export interface StoreWriteOptions {
-  /** Tag identifying who initiated this write (e.g. a tab ID). */
   requestSource?: string;
 }
 
 const SETTINGS_MUTATION_ATTEMPTS = 25;
 
-/**
- * Atomically derive and persist one setting with an optimistic raw-value CAS.
- * This remains safe across
- * horizontally scaled processes where an in-memory mutex would not.
- * The updater may run more than once after contention and must not perform
- * external side effects.
- */
 export async function mutateSetting(
   key: string,
   updater: (
@@ -148,8 +179,6 @@ export async function mutateSetting(
   const client = getDbExec();
   const table = settingsTable();
   for (let attempt = 0; attempt < SETTINGS_MUTATION_ATTEMPTS; attempt += 1) {
-    // Deliberately bypass the request cache: a failed CAS means another
-    // request committed a newer value and the next attempt must reread it.
     const snapshot = await client.execute({
       sql: `SELECT value FROM ${table} WHERE key = ?`,
       args: [key],
@@ -158,7 +187,11 @@ export async function mutateSetting(
       snapshot.rows.length === 0 ? null : (snapshot.rows[0]?.value as string);
     const current = raw == null ? null : JSON.parse(raw);
     const next = await updater(current);
+    assertNoInlineImageBytes(next, `setting "${key}"`);
     const nextRaw = JSON.stringify(next);
+    // An unchanged value is not a write: it would bump updated_at and publish
+    // a settings event that makes every open page refetch for nothing.
+    if (raw !== null && nextRaw === raw) return JSON.parse(raw);
     const timestamp = Date.now();
     const result =
       raw == null
@@ -172,7 +205,6 @@ export async function mutateSetting(
           });
     if (result.rowsAffected === 0) continue;
     requestSettingsCache()?.set(key, nextRaw);
-    invalidateRequestAllSettings();
     settingsEmitter().emit("settings", {
       source: "settings",
       type: "change",
@@ -189,15 +221,16 @@ export async function putSetting(
   value: Record<string, unknown>,
   options?: StoreWriteOptions,
 ): Promise<void> {
+  assertNoInlineImageBytes(value, `setting "${key}"`);
+  const serialized = JSON.stringify(value);
   await ensureTable();
   const client = getDbExec();
   const table = settingsTable();
   await client.execute({
     sql: `INSERT INTO ${table} (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=EXCLUDED.updated_at`,
-    args: [key, JSON.stringify(value), Date.now()],
+    args: [key, serialized, Date.now()],
   });
-  requestSettingsCache()?.set(key, JSON.stringify(value));
-  invalidateRequestAllSettings();
+  requestSettingsCache()?.set(key, serialized);
   settingsEmitter().emit("settings", {
     source: "settings",
     type: "change",
@@ -218,7 +251,6 @@ export async function deleteSetting(
     args: [key],
   });
   requestSettingsCache()?.set(key, null);
-  invalidateRequestAllSettings();
   if (result.rowsAffected > 0) {
     settingsEmitter().emit("settings", {
       source: "settings",
@@ -231,7 +263,6 @@ export async function deleteSetting(
   return false;
 }
 
-/** Delete a setting only when its stored value still matches the inspected value. */
 export async function deleteSettingIfValue(
   key: string,
   expected: Record<string, unknown>,
@@ -247,7 +278,6 @@ export async function deleteSettingIfValue(
   if (result.rowsAffected === 0) return false;
 
   requestSettingsCache()?.set(key, null);
-  invalidateRequestAllSettings();
   settingsEmitter().emit("settings", {
     source: "settings",
     type: "delete",
@@ -257,11 +287,6 @@ export async function deleteSettingIfValue(
   return true;
 }
 
-/**
- * Delete every setting whose key starts with `prefix`. Returns the number of
- * rows removed. Used when an owning entity is deleted (e.g. an organization
- * takes its `o:<orgId>:*` keys with it).
- */
 export async function deleteSettingsByPrefix(
   prefix: string,
   options?: StoreWriteOptions,
@@ -275,7 +300,6 @@ export async function deleteSettingsByPrefix(
     args: [`${escaped}%`],
   });
   requestSettingsCache()?.clear();
-  invalidateRequestAllSettings();
   if (result.rowsAffected > 0) {
     settingsEmitter().emit("settings", {
       source: "settings",
@@ -287,75 +311,27 @@ export async function deleteSettingsByPrefix(
   return result.rowsAffected;
 }
 
-/**
- * Read every setting whose key starts with `prefix`. Callers that only need
- * one namespace must not use {@link getAllSettings} — that loads the whole
- * table.
- */
 export async function listSettingsByPrefix(
   prefix: string,
+  options?: { limit?: number },
 ): Promise<Array<{ key: string; value: Record<string, unknown> }>> {
   await ensureTable();
   const client = getDbExec();
   const table = settingsTable();
   const escaped = prefix.replace(/[!%_]/g, (c) => `!${c}`);
+  const limit = options?.limit;
+  if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 0)) {
+    throw new RangeError(
+      "Settings prefix limit must be a non-negative integer.",
+    );
+  }
   const { rows } = await client.execute({
-    sql: `SELECT key, value FROM ${table} WHERE key LIKE ? ESCAPE '!'`,
-    args: [`${escaped}%`],
+    sql: `SELECT key, value FROM ${table} WHERE key LIKE ? ESCAPE '!'
+      ${limit === undefined ? "" : "ORDER BY key ASC LIMIT ?"}`,
+    args: limit === undefined ? [`${escaped}%`] : [`${escaped}%`, limit],
   });
   return rows.map((row) => ({
     key: String(row.key),
     value: JSON.parse(String(row.value)) as Record<string, unknown>,
   }));
-}
-
-export async function getAllSettings(): Promise<
-  Record<string, Record<string, unknown>>
-> {
-  const raw = await loadAllSettingsRaw();
-  const result: Record<string, Record<string, unknown>> = {};
-  for (const [key, value] of raw) result[key] = JSON.parse(value);
-  return result;
-}
-
-async function loadAllSettingsRaw(): Promise<Map<string, string>> {
-  const ctx = getRequestContext();
-  const cached =
-    ctx && typeof ctx === "object"
-      ? _requestAllSettingsCache.get(ctx)
-      : undefined;
-  if (cached) return cached;
-
-  const load = (async () => {
-    await ensureTable();
-    const client = getDbExec();
-    const table = settingsTable();
-    const { rows } = await client.execute(`SELECT key, value FROM ${table}`);
-    const raw = new Map<string, string>();
-    for (const row of rows) raw.set(row.key as string, row.value as string);
-    // Seed the single-key cache so a `getSetting` after `getAllSettings` in the
-    // same request is free rather than another round trip. Only fills keys it
-    // does not already hold: a value written earlier in this request is already
-    // written through there and must win over this snapshot.
-    const perKey = requestSettingsCache();
-    if (perKey) {
-      for (const [key, value] of raw) {
-        if (!perKey.has(key)) perKey.set(key, value);
-      }
-    }
-    return raw;
-  })();
-
-  if (ctx && typeof ctx === "object") {
-    // Evicted on failure so one transient error is not memoized as the answer
-    // for the rest of the request.
-    _requestAllSettingsCache.set(
-      ctx,
-      load.catch((err) => {
-        _requestAllSettingsCache.delete(ctx);
-        throw err;
-      }),
-    );
-  }
-  return load;
 }

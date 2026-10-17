@@ -16,8 +16,9 @@ import { runAgentLoopDirectWithSoftTimeout } from "../agent/run-loop-with-resume
 import type { AgentChatEvent } from "../agent/types.js";
 import { getAppConfig } from "../app-config/index.js";
 import { createGitHubRepoToolEntries } from "../provider-api/github-repo.js";
+import { loadCliBootstrap } from "../scripts/cli-bootstrap.js";
 import { resolveDevUserEmail } from "../scripts/dev-session.js";
-import { loadEnv } from "../scripts/utils.js";
+import { loadEnv, serializeCliArgs } from "../scripts/utils.js";
 import { autoDiscoverActions } from "../server/action-discovery.js";
 import { captureCliOutput } from "../server/cli-capture.js";
 import {
@@ -159,6 +160,7 @@ export async function runAgent(
 ): Promise<number> {
   loadEnv();
   registerBuiltinEngines();
+  await loadCliBootstrap();
 
   const stdout = io.stdout ?? console.log;
   const stderr = io.stderr ?? console.error;
@@ -290,16 +292,11 @@ function buildHeadlessSystemPrompt(actionNames: string[]): string {
 }
 
 function cliArgsFromToolArgs(args: Record<string, unknown>): string[] {
-  const cliArgs: string[] = [];
-  for (const [key, value] of Object.entries(args)) {
-    if (value === undefined) continue;
-    const normalized =
-      value != null && typeof value === "object"
-        ? JSON.stringify(value)
-        : String(value);
-    cliArgs.push(`--${key}`, normalized);
-  }
-  return cliArgs;
+  return serializeCliArgs(
+    Object.fromEntries(
+      Object.entries(args).filter(([, value]) => value !== undefined),
+    ),
+  );
 }
 
 export async function createHeadlessBuiltinActions(): Promise<

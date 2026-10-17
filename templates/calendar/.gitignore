@@ -1,6 +1,4 @@
-# React Router generated types
 .react-router/
-# Logs
 logs
 *.log
 npm-debug.log*
@@ -15,7 +13,6 @@ build
 dist-ssr
 *.local
 
-# Editor directories and files
 .vscode/*
 !.vscode/extensions.json
 .idea
@@ -31,21 +28,16 @@ dist-ssr
 .output/
 .amplify-hosting/
 
-# Auth sessions (sensitive, never commit)
 data/.sessions.json
 
-# Google OAuth tokens (sensitive, never commit)
 data/google-auth.json
 data/google-accounts/
 
-# PGlite database files (generated at runtime)
 data/pglite/
 data/*.lock
 
-# Event data (generated at runtime)
 data/events/
 
-# Learnings (personal preferences and memory — use learnings.defaults.md for tracked defaults)
 learnings.md
 
 .generated/

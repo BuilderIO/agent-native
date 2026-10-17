@@ -197,8 +197,6 @@ function collectStatementSnippet(lines, lineNumber) {
 function main() {
   const violations = checkHeavyDashboardListReads(REPO_ROOT);
   if (violations === null) {
-    // `checkHeavyDashboardListReads` keeps returning a typed absent so its spec
-    // can assert on it; only the process boundary turns that into an exit code.
     requireAddedLines(REPO_ROOT, "guard-no-heavy-dashboard-list-reads");
   }
 

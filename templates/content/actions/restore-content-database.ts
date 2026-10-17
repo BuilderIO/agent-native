@@ -16,8 +16,10 @@ import {
   refreshAfterSetup,
   setupAuditSummary,
 } from "./_database-setup-mutation.js";
-import { lockDatabasesForTrash } from "./delete-document.js";
-import { restoreDocumentSubtree } from "./delete-document.js";
+import {
+  lockDatabasesForRestore,
+  restoreDocumentSubtree,
+} from "./delete-document.js";
 import pullDocumentAction from "./pull-document.js";
 
 async function shouldClearStaleInlineOwnership(args: {
@@ -44,15 +46,21 @@ async function shouldClearStaleInlineOwnership(args: {
 
 export default defineAction({
   description:
-    "Restore one exact ordinary database from recoverable Trash using its configuration revision and idempotency key; preserve Page, property and view identities and return a receipt.",
+    "Restore one exact ordinary collection from recoverable Trash using its configuration revision and idempotency key; preserve Page, property and view identities and return a receipt.",
   mcpTool: true,
   mcpApp: { structuredContent: true },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: false,
+  },
   agentInputSchema: setupLifecycleSchema,
   schema: z.union([
     setupLifecycleSchema,
     z
       .object({
-        databaseId: z.string().describe("Content database ID"),
+        databaseId: z.string().describe("Content collection ID"),
       })
       .strict(),
   ]),
@@ -73,14 +81,21 @@ export default defineAction({
       const { database } = await assertContentDatabaseLifecycleAccess(
         input.target.databaseId,
       );
+      let lockedDatabaseIds: ReadonlySet<string> | undefined;
       const result = await runDatabaseSetupMutation({
         operation: "restore-content-database",
         input,
         payload: input,
         role: "admin",
         includeDeleted: true,
-        lock: (tx) =>
-          lockDatabasesForTrash(tx, database.documentId, database.ownerEmail),
+        lock: async (tx) => {
+          lockedDatabaseIds = await lockDatabasesForRestore(
+            tx,
+            database.documentId,
+            database.ownerEmail,
+            [database.id],
+          );
+        },
         apply: async (tx, context) => {
           if (context.database.ownerDocumentId)
             setupError(
@@ -101,6 +116,7 @@ export default defineAction({
             tx,
             context.database.documentId,
             context.database.ownerEmail,
+            lockedDatabaseIds,
           );
           return {
             outcome: context.database.deletedAt

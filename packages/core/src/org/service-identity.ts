@@ -25,11 +25,6 @@ import type { OrgRole } from "./types.js";
 
 const SERVICE_IDENTITY_PATTERN = /^svc-([a-z0-9-]+)@service\.(.+)$/;
 
-/**
- * Parse `svc-<name>@service.<orgId>` into its parts, or null when the address
- * is not a service identity. Counterpart to `serviceIdentityEmail()` in
- * `mcp/connect-store.ts`.
- */
 export function parseServiceIdentityEmail(
   email: string | null | undefined,
 ): { serviceName: string; orgId: string } | null {
@@ -42,10 +37,6 @@ export function parseServiceIdentityEmail(
   return { serviceName: match[1], orgId };
 }
 
-/**
- * Resolve the implicit org role for a service-token caller, or null when the
- * caller is not a service identity acting for the org it was minted against.
- */
 export function implicitServiceOrgRole(params: {
   email: string | null | undefined;
   orgId: string | null | undefined;

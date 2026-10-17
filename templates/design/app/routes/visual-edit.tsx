@@ -1,7 +1,7 @@
-import { messagesByLocale } from "@/i18n-data";
+import enUSMessages from "@/i18n/en-US";
 
 export { default } from "../pages/VisualEdit";
 
 export function meta() {
-  return [{ title: messagesByLocale["en-US"].routeTitles.visualEdit }];
+  return [{ title: enUSMessages.routeTitles.visualEdit }];
 }

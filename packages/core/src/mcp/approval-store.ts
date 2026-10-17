@@ -1,30 +1,31 @@
 import { getDbExec } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
 
-let initPromise: Promise<void> | undefined;
-
-export async function ensureApprovalTable(): Promise<void> {
-  if (!initPromise) {
-    initPromise = (async () => {
-      const createSql = `
-        CREATE TABLE IF NOT EXISTS mcp_action_approvals (
-          nonce TEXT PRIMARY KEY,
-          caller_key TEXT NOT NULL,
-          action_name TEXT NOT NULL,
-          arguments_hash TEXT NOT NULL,
-          expires_at BIGINT NOT NULL,
-          consumed_at BIGINT
-        )
-      `;
-      {
+export const mcpApprovalsStore = defineStore({
+  id: "mcp_approvals",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createSql = `
+          CREATE TABLE IF NOT EXISTS mcp_action_approvals (
+            nonce TEXT PRIMARY KEY,
+            caller_key TEXT NOT NULL,
+            action_name TEXT NOT NULL,
+            arguments_hash TEXT NOT NULL,
+            expires_at BIGINT NOT NULL,
+            consumed_at BIGINT
+          )
+        `;
         await ensureTableExists("mcp_action_approvals", createSql);
-      }
-    })().catch((error) => {
-      initPromise = undefined;
-      throw error;
-    });
-  }
-  return initPromise;
+      },
+    },
+  ],
+});
+
+export function ensureApprovalTable(): Promise<void> {
+  return mcpApprovalsStore.ready();
 }
 
 export interface McpApprovalGrant {
@@ -51,9 +52,6 @@ export async function createMcpApprovalGrant(
     ],
   });
 
-  // This is storage hygiene only. A failed cleanup must never turn a failed
-  // grant insert/consume into success, and expired rows remain unusable because
-  // consumeMcpApprovalGrant checks expires_at in the atomic update below.
   try {
     await client.execute({
       sql: `DELETE FROM mcp_action_approvals WHERE expires_at < ?`,
@@ -64,12 +62,6 @@ export async function createMcpApprovalGrant(
   }
 }
 
-/**
- * Atomically consume an exact grant. The UPDATE predicate is the security
- * boundary: only one hosted instance can move a matching, unexpired row from
- * pending to consumed, so an accepted response is at-most-once even when the
- * same signed requestState is replayed concurrently.
- */
 export async function consumeMcpApprovalGrant(
   grant: McpApprovalGrant,
 ): Promise<boolean> {

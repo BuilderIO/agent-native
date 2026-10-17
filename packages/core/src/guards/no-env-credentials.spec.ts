@@ -43,8 +43,6 @@ describe("scanEnvCredentials", () => {
   });
 
   it("does not flag the platform database and Fusion deploy vars the scaffold generates", () => {
-    // The Builder database scaffold writes both of these files verbatim, so
-    // flagging them fails the build of every hosted app that has a database.
     const root = makeTempAppRoot({
       "drizzle.config.ts": [
         'import { defineConfig } from "drizzle-kit";',

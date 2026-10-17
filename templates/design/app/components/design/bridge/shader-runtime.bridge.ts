@@ -52,7 +52,7 @@
  */
 (function () {
   interface AnUniformDef {
-    type?: string; // 'float' | 'vec2' | 'color'
+    type?: string;
     value?: unknown;
     min?: number;
     max?: number;
@@ -65,9 +65,7 @@
     mode: "fill" | "effect";
     glsl: string;
     uniforms: Record<string, AnUniformDef>;
-    /** Raw script-tag text at last collect, to detect DOM-side updates. */
     domText?: string;
-    /** True when updated at runtime (updateShader) and not yet persisted. */
     volatile?: boolean;
   }
 
@@ -116,7 +114,6 @@
     typeof globalThis;
 
   if (W.__anShaders && W.__anShaders.version >= 1) {
-    // Another copy (embedded + injected) already runs — just rescan.
     try {
       W.__anShaders.scan();
     } catch (_err) {
@@ -167,8 +164,6 @@
     /* noop */
   }
 
-  // ── Manifest parsing (keep in sync with shared/shader-fills.ts) ──────────
-
   function parseBlock(text: string): {
     uniforms: Record<string, AnUniformDef>;
     glsl: string;
@@ -202,8 +197,6 @@
     return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
   }
 
-  // ── Definition collection ─────────────────────────────────────────────────
-
   function invalidateMountsFor(defId: string): void {
     for (let i = mounts.length - 1; i >= 0; i--) {
       if (mounts[i].defId === defId) unmount(mounts[i]);
@@ -220,7 +213,7 @@
       if (!id) continue;
       const text = s.textContent || "";
       const prev = registry[id];
-      if (prev && prev.domText === text) continue; // unchanged in DOM
+      if (prev && prev.domText === text) continue;
       if (prev && prev.volatile && prev.domText === undefined) continue;
       const parsed = parseBlock(text);
       registry[id] = {
@@ -234,8 +227,6 @@
       if (prev && prev.glsl !== parsed.glsl) invalidateMountsFor(id);
     }
   }
-
-  // ── WebGL plumbing ────────────────────────────────────────────────────────
 
   function compileProgram(
     gl: WebGLRenderingContext,
@@ -330,9 +321,6 @@
   ): AnShaderMount | null {
     const def = registry[defId];
     if (!def || !def.glsl) return null;
-    // A fill and an effect may coexist on the same element — mount identity
-    // is (element, mode, preview), so replacing a fill never tears down the
-    // element's effect and vice versa.
     for (let i = 0; i < mounts.length; i++) {
       const existing = mounts[i];
       if (
@@ -413,7 +401,6 @@
     gl.useProgram(program);
     const buf = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-    // One oversized triangle covering the viewport — cheaper than a quad.
     gl.bufferData(
       gl.ARRAY_BUFFER,
       new Float32Array([-1, -1, 3, -1, -1, 3]),
@@ -533,8 +520,6 @@
     startLoop();
   }
 
-  // ── Scanning ──────────────────────────────────────────────────────────────
-
   function parseOverrides(
     el: HTMLElement,
     attr: string,
@@ -596,8 +581,6 @@
     }, 100);
   }
 
-  // ── Public API (used by the shader-fill-preview bridge + inspector) ──────
-
   function resolveTarget(target: {
     nodeId?: string;
     selector?: string;
@@ -634,8 +617,6 @@
   ): boolean {
     clearPreview();
     const el = resolveTarget(target || {});
-    // No body fallback: in a multi-screen editor every screen iframe receives
-    // the same message — only the one containing the target should mount.
     if (!el || !def || typeof def.glsl !== "string") return false;
     const resolvedMode: "fill" | "effect" =
       mode === "effect" ? "effect" : "fill";
@@ -711,8 +692,6 @@
     updateShader: updateShader,
   };
 
-  // ── Boot ──────────────────────────────────────────────────────────────────
-
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", function () {
       scan();
@@ -727,7 +706,6 @@
 
   try {
     new MutationObserver(function () {
-      // Debounced; scan() is idempotent so canvas-insert echoes converge.
       scheduleScan();
     }).observe(document.documentElement, {
       childList: true,

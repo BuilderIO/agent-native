@@ -44,8 +44,6 @@ describe("SectionIconButton tooltip reachability", () => {
   }
 
   it("keeps a disabled control's tooltip reachable through a wrapper", async () => {
-    // A disabled Button stops pointer events, so the tooltip explaining WHY it
-    // is disabled would never open if the trigger were the button itself.
     await render(true);
     const button = container.querySelector<HTMLButtonElement>("button");
     expect(button?.disabled).toBe(true);
@@ -64,10 +62,8 @@ describe("SectionIconButton tooltip reachability", () => {
 
 describe("section add-action copy is per-section", () => {
   it("gives fill, stroke, and effects distinct catalog keys", async () => {
-    // One shared "Add layer" label described three different actions: the
-    // Stroke + said "Add layer", and Effects had no tooltip at all.
-    const { messagesByLocale } = await import("@/i18n-data");
-    const labels = (messagesByLocale["en-US"] as any).editPanel.labels;
+    const { default: enUSMessages } = await import("@/i18n/en-US");
+    const labels = enUSMessages.editPanel.labels;
     expect(labels.addFill).toBe("Add fill");
     expect(labels.addStroke).toBe("Add stroke");
     expect(labels.addEffect).toBe("Add effect");

@@ -24,7 +24,7 @@ interface EventCardProps {
   onClick?: () => void;
   compact?: boolean;
   draggable?: boolean;
-  onDragStart?: (id: string) => void;
+  onDragStart?: (event: CalendarEvent) => void;
   onDragEnd?: () => void;
   dimmed?: boolean;
   colorPreferences?: CalendarColorPreferences;
@@ -54,7 +54,7 @@ export function EventCard({
   const handleDragStart = (e: React.DragEvent) => {
     e.dataTransfer.setData("text/plain", event.id);
     e.dataTransfer.effectAllowed = "move";
-    onDragStart?.(event.id);
+    onDragStart?.(event);
   };
 
   const canDrag =

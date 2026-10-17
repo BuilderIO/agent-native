@@ -1,13 +1,3 @@
-/**
- * Start recording for a meeting.
- *
- * Creates a `recordings` row in `uploading` status and links it to the
- * meeting (`meetings.recordingId`). Stamps `actualStart` if not yet set.
- *
- * Like `create-recording`, this only allocates the DB row — actual
- * MediaRecorder/native-capture is a UI/Tauri gesture.
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -19,6 +9,7 @@ import {
   materializeCalendarMeetingFromVirtualId,
   parseCalendarMeetingId,
 } from "../server/lib/calendar-event-meetings.js";
+import { trackRecordingCreated } from "../server/lib/recording-created.js";
 import {
   getCurrentOwnerEmail,
   getActiveOrganizationId,
@@ -60,7 +51,6 @@ export default defineAction({
     if (!meeting) throw new Error(`Meeting not found: ${meetingId}`);
 
     if (meeting.recordingId) {
-      // Already linked — return the existing row instead of creating a duplicate.
       const [existing] = await db
         .select()
         .from(schema.recordings)
@@ -85,12 +75,23 @@ export default defineAction({
       title: recordingTitle,
       hasAudio: args.hasAudio ?? true,
       hasCamera: args.hasCamera ?? false,
+      // Meeting recordings are captured by the desktop app's native macOS
+      // transcript stream; it is this action's only caller.
+      recordingPlatform: "desktop",
       status: "uploading",
       ownerEmail,
       orgId: orgId ?? null,
       visibility: meeting.visibility,
       createdAt: nowIso,
       updatedAt: nowIso,
+    });
+    trackRecordingCreated({
+      recordingId,
+      userId: ownerEmail,
+      platform: "desktop",
+      source: "meeting",
+      hasAudio: args.hasAudio ?? true,
+      hasCamera: args.hasCamera ?? false,
     });
 
     await db
@@ -103,7 +104,6 @@ export default defineAction({
       })
       .where(eq(schema.meetings.id, meetingId));
 
-    // Tell the UI / Tauri tray app to start the actual capture.
     await writeAppState("record-intent", {
       mode: "meeting",
       recordingId,

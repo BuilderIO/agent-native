@@ -6,15 +6,7 @@ import {
   skipUnlessAuthed,
 } from "../lib/authed";
 import { authenticatableSites, originFor } from "../lib/fleet";
-
-/**
- * Signed-in checks that spend no model tokens.
- *
- * This is where a cross-app problem shows up cheaply. "Slides isn't connected
- * to Analytics anymore" is a discovery-and-reachability failure, and reading
- * the registry answers it in a second — whereas finding out through a real
- * delegated turn costs a minute and a few thousand tokens.
- */
+import { BETA_E2E_TEST_TRAFFIC_HEADERS } from "../lib/test-traffic";
 
 skipUnlessAuthed();
 
@@ -50,29 +42,21 @@ for (const site of sites) {
         seedModel: false,
       });
       try {
-        const page = await context.newPage();
-        await page.goto(`${origin}/`, {
-          waitUntil: "domcontentloaded",
-          timeout: 45_000,
-        });
-        const results = await page.evaluate(async () => {
-          const paths = [
-            "/_agent-native/poll",
-            "/_agent-native/agent-engine/status",
-          ];
-          const out: { path: string; status: number }[] = [];
-          for (const path of paths) {
-            const response = await fetch(path, {
-              headers: { accept: "application/json" },
-            });
-            out.push({ path, status: response.status });
-          }
-          return out;
-        });
+        const paths = [
+          "/_agent-native/poll",
+          "/_agent-native/agent-engine/status",
+        ];
+        const results: { path: string; status: number }[] = [];
+        for (const path of paths) {
+          const response = await context.request.get(`${origin}${path}`, {
+            headers: {
+              ...BETA_E2E_TEST_TRAFFIC_HEADERS,
+              accept: "application/json",
+            },
+          });
+          results.push({ path, status: response.status() });
+        }
 
-        // Assert on what success looks like, not on the absence of one status:
-        // filtering for 401 alone made a 500 or a 404 indistinguishable from a
-        // working surface.
         const bad = results.filter((r) => r.status < 200 || r.status >= 400);
         expect(
           bad.map((r) => `${r.path} -> HTTP ${r.status}`),
@@ -90,18 +74,20 @@ for (const site of sites) {
         seedModel: false,
       });
       try {
-        const page = await context.newPage();
-        await page.goto(`${origin}/`, {
-          waitUntil: "domcontentloaded",
-          timeout: 45_000,
-        });
-        const discovery = await page.evaluate(async (appId) => {
-          const response = await fetch(
-            `/_agent-native/agents?selfAppId=${encodeURIComponent(appId)}`,
-            { headers: { accept: "application/json" } },
-          );
-          return { status: response.status, body: await response.text() };
-        }, site.id);
+        const response = await context.request.get(
+          `${origin}/_agent-native/agents`,
+          {
+            params: { selfAppId: site.id },
+            headers: {
+              ...BETA_E2E_TEST_TRAFFIC_HEADERS,
+              accept: "application/json",
+            },
+          },
+        );
+        const discovery = {
+          status: response.status(),
+          body: await response.text(),
+        };
 
         expect(
           discovery.status,
@@ -118,10 +104,6 @@ for (const site of sites) {
           `${site.host} discovered no peer agents at all, so every cross-app request from this app would fail`,
         ).toBeGreaterThan(0);
 
-        // Peers resolve through the first-party template registry, which is
-        // hardcoded to production URLs — a beta app delegates to production
-        // peers. Record it per run so the A2A results are read correctly, and
-        // so the day it changes is visible.
         const lanes = agents.map(
           (agent) => `${agent.id ?? agent.name ?? "?"} -> ${agent.url ?? "?"}`,
         );
@@ -130,8 +112,6 @@ for (const site of sites) {
           description: `${site.id}: ${lanes.join(", ")}`,
         });
 
-        // A peer pointing at localhost can never be reached from a deployed
-        // host; the call fails instantly with a transport error.
         const localhostPeers = agents.filter((agent) =>
           /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)/.test(
             agent.url ?? "",

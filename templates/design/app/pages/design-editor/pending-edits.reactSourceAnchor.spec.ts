@@ -116,3 +116,75 @@ describe("reactSourceAnchorUnavailableReason", () => {
     ).toBe("not-react");
   });
 });
+
+describe("toolkit leaf provenance", () => {
+  it("uses an app-authored owner when the rendered leaf is outside the root", () => {
+    const anchor = reactSourceAnchorForPendingEdit({
+      info: cardButtonInfo({
+        provenance: {
+          sourceFile: "/workspace/toolkit/Button.tsx",
+          line: 71,
+          column: 7,
+          component: "EmptyState",
+          ownerSourceFile: "/workspace/app/src/App.tsx",
+          ownerLine: 42,
+          ownerColumn: 9,
+          ownerComponentName: "EmptyState",
+        },
+      }),
+      id: "target",
+      rootPath: "/workspace/app",
+    })!;
+
+    expect(anchor.relPath).toBeUndefined();
+    expect(anchor.ownerRelPath).toBe("src/App.tsx");
+
+    const built = buildReactSemanticHandoff({
+      operation: "move",
+      desiredChange: "Move the selected runtime element.",
+      sourceAnchors: [anchor],
+      runtimeRelationship: { kind: "after", subjectAnchorIds: ["target"] },
+    });
+    expect(built.ok).toBe(true);
+    if (!built.ok) return;
+    expect(built.handoff.sourceAnchors[0]).toMatchObject({
+      relPath: "src/App.tsx",
+      sourceFile: "src/App.tsx",
+      line: 42,
+      column: 9,
+      component: "EmptyState",
+    });
+  });
+
+  it("refuses a toolkit leaf with no app-authored owner", () => {
+    const anchor = reactSourceAnchorForPendingEdit({
+      info: cardButtonInfo({
+        provenance: {
+          sourceFile: "/workspace/toolkit/Button.tsx",
+          line: 71,
+          column: 7,
+          ownerSourceFile: "/workspace/toolkit/EmptyState.tsx",
+          ownerLine: 12,
+          ownerColumn: 3,
+        },
+      }),
+      id: "target",
+      rootPath: "/workspace/app",
+    })!;
+
+    const built = buildReactSemanticHandoff({
+      operation: "move",
+      desiredChange: "Move the selected runtime element.",
+      sourceAnchors: [anchor],
+      runtimeRelationship: { kind: "after", subjectAnchorIds: ["target"] },
+    });
+    expect(built).toMatchObject({
+      ok: false,
+      rejection: {
+        code: "unsafe-source-path",
+      },
+    });
+    if (built.ok) return;
+    expect(built.rejection.reason).toContain("app-authored owner path");
+  });
+});

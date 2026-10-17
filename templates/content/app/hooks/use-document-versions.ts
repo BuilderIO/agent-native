@@ -1,7 +1,4 @@
-import {
-  useActionMutation,
-  useActionQuery,
-} from "@agent-native/core/client/hooks";
+import { useActionQuery } from "@agent-native/core/client/hooks";
 import type { Document } from "@shared/api";
 import type {
   DocumentHistoryCheckpointDetail,
@@ -10,6 +7,12 @@ import type {
 } from "@shared/document-history";
 import { useQueryClient } from "@tanstack/react-query";
 
+import {
+  contentNavigationBranchFilter,
+  contentNavigationContextFilter,
+  useContentActionMutation,
+} from "./use-content-action-mutation";
+import { contentDatabaseConstrainedQueryFilter } from "./use-content-database";
 import {
   documentQueryFilter,
   patchDocumentCaches,
@@ -77,7 +80,7 @@ export function useDocumentHistoryCheckpoint(
 
 export function useRestoreDocumentVersion(documentId: string) {
   const queryClient = useQueryClient();
-  return useActionMutation<
+  return useContentActionMutation<
     Document,
     { documentId: string; versionId: string; expectedUpdatedAt: string }
   >("restore-document-version", {
@@ -95,33 +98,30 @@ export function useRestoreDocumentVersion(documentId: string) {
         documentId,
         restored.title,
       );
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "list-document-history"],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "list-document-history-checkpoints"],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "get-document-history-checkpoint"],
-      });
-      void queryClient.invalidateQueries(documentQueryFilter(documentId));
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "get-content-database"],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "query-content-database-items"],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "list-content-databases"],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "list-trashed-content-databases"],
-      });
       if (renamedContentSpace) {
         void queryClient.invalidateQueries({
           queryKey: ["action", "list-content-spaces"],
         });
       }
     },
+    // A restored body can bring back or drop inline collections (child
+    // pages) and rewrites blocks-field values.
+    invalidates: [
+      documentQueryFilter(documentId),
+      ["action", "list-document-history"],
+      ["action", "list-document-history-checkpoints"],
+      ["action", "get-document-history-checkpoint"],
+      ["action", "get-content-database"],
+      contentDatabaseConstrainedQueryFilter(),
+      contentNavigationBranchFilter({
+        documentIds: [documentId],
+        parentIds: [documentId],
+      }),
+      contentNavigationContextFilter([documentId]),
+      ["action", "list-document-properties"],
+      ["action", "list-content-databases"],
+      ["action", "list-trashed-content-databases"],
+      ["action", "list-documents"],
+    ],
   });
 }

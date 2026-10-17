@@ -24,11 +24,6 @@ const messages = {
   },
   settings: {
     title: "Settings",
-    description: "Language and workspace preferences for this app.",
-    languageTitle: "Language",
-    languageDescription:
-      "Choose the interface language. This preference is saved for your account.",
-    languageLabel: "Interface language",
     workspaceTitle: "Workspace",
     workspaceDescription:
       "Manage team members, organization access, and shared workspace preferences.",
@@ -44,6 +39,8 @@ const messages = {
     suggestionSurvey: "Build a customer feedback survey",
     suggestionSubmissions: "Show submissions by day",
     suggestionExport: "Export responses to CSV",
+    topSignal: "Top signal",
+    draftFollowUp: "Draft a follow-up",
   },
   sidebar: {
     collapseSidebar: "Collapse sidebar",
@@ -374,6 +371,10 @@ const messages = {
     responseSubmitted: "Response submitted",
     noFields: "This form has no fields yet.",
     failedSubmit: "Failed to submit form",
+    uncheckablePattern:
+      "This form's rule for {label} can't be checked. Ask the form owner to fix it.",
+    patternTooLong:
+      "The value for {label} is too long to check against this form's rule.",
   },
   responseInsights: {
     unavailable: "Insights unavailable",

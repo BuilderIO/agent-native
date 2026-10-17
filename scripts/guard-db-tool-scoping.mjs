@@ -1,19 +1,4 @@
 #!/usr/bin/env node
-/**
- * guard-db-tool-scoping.mjs
- *
- * The agent's raw DB tools (`db-query`, `db-exec`, `db-patch`) can only safely
- * expose tables with an explicit tenant scope (`owner_email` and/or `org_id`)
- * or a known framework-specific scoping rule. The runtime DB layer now fails
- * closed by shadowing unknown-scope tables with empty temp views, but this
- * guard keeps template schema drift visible in CI.
- *
- * If a new template table should be usable through raw DB tools, add
- * `owner_email`/`org_id` plus an additive migration. If it is a join table,
- * public-token table, cache, or implementation detail that should remain
- * hidden from raw DB tools, add it to INTENTIONAL_RAW_DB_DENYLIST below with
- * a short reviewer-readable reason.
- */
 
 import { readFileSync } from "node:fs";
 import { readdir } from "node:fs/promises";
@@ -55,6 +40,8 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
   "analytics:dashboard_views": "view telemetry, scoped by dashboard/action",
   "analytics:dashboard_name_locks":
     "internal dashboard-name serialization rows, never exposed to raw DB tools",
+  "analytics:session_recording_session_associations":
+    "child rows are scoped through authorized session recordings",
   "brain:brain_ingest_queue": "internal ingestion queue scoped by actions",
   "brain:brain_audience_members":
     "internal audience memberships scoped through Brain actions",
@@ -89,11 +76,15 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
   "clips:meeting_participants": "child rows scoped through meetings",
   "clips:organization_settings": "org-level settings accessed by actions",
   "clips:recording_comments": "child rows scoped through recordings",
+  "clips:recording_context_items":
+    "child rows scoped through recordings; every action checks access on the parent recording",
   "clips:recording_ctas": "child rows scoped through recordings",
   "clips:recording_events": "audit/event rows scoped through recordings",
   "clips:recording_playback_positions":
     "viewer playback state scoped through recordings",
   "clips:recording_reactions": "child rows scoped through recordings",
+  "clips:recording_agent_views":
+    "agent telemetry is scoped through authorized parent recordings",
   "clips:recording_tags": "child rows scoped through recordings",
   "clips:recording_views": "append-only child rows scoped through recordings",
   "clips:recording_viewers": "viewer link rows scoped through recordings",
@@ -103,16 +94,29 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
     "internal transactional-email worker configuration and cursors",
   "clips:clips_transactional_email_jobs":
     "internal transactional-email queue and delivery history",
+  "clips:clips_hosted_clip_allowances":
+    "anti-abuse and retained-byte ledger accessed only through atomic allowance actions",
   "clips:workspace_members": "membership join rows scoped through workspaces",
   "plan:plan_comments": "child rows scoped through plans",
+  "plan:plan_edition_stories": "child rows scoped through plans",
   "plan:plan_assets": "child rows scoped through plans",
   "plan:plan_events": "child rows scoped through plans",
   "plan:plan_guest_mints": "internal guest abuse-mitigation counters",
   "plan:plan_reports": "moderation reports scoped through plans/action",
   "plan:plan_sections": "child rows scoped through plans",
   "design:design_files": "child rows scoped through designs",
+  "design:design_access_requests":
+    "access-request rows scoped through the design access action",
   "design:design_template_files": "child rows scoped through design templates",
   "design:design_versions": "version rows scoped through designs",
+  "design:design_visual_edit_snapshot_blob_cleanup":
+    "private snapshot blob cleanup outbox processed by Design actions",
+  "design:design_screen_restore_claims":
+    "one-use restore authorization scoped to a Design and accessed through Design actions",
+  "design:design_motion_bridge_receipt_challenges":
+    "one-use localhost bridge receipt nonces consumed only by scoped Design source actions",
+  "design:design_motion_bridge_relay_chains":
+    "short-lived Motion relay chains consumed only by scoped Design source actions",
   "forms:responses": "public submissions scoped through forms",
   "forms:response_deliveries":
     "internal delivery ledger scoped through form responses",
@@ -206,11 +210,6 @@ function hasRawDbScope(tableBody) {
   );
 }
 
-/**
- * Resolve an `export * from "@agent-native/<pkg>/schema[/<sub>]"` (or relative)
- * specifier in the given source file to one or more on-disk schema files.
- * Returns an empty array when the import doesn't point at an in-repo package.
- */
 async function resolveSchemaReExports(sourceFile) {
   const contents = readFileSync(sourceFile, "utf8");
   const re = /export\s+\*\s+from\s+["']([^"']+)["']/g;
@@ -223,8 +222,6 @@ async function resolveSchemaReExports(sourceFile) {
       const pkg = pkgMatch[1];
       const sub = pkgMatch[2] ?? "schema";
       const pkgRoot = path.join(REPO_ROOT, "packages", pkg, "src", sub);
-      // sub may be "schema" (a directory with index.ts + siblings) or
-      // "schema/<file>"; both resolve to in-repo TS sources.
       try {
         const stat = await readdir(pkgRoot, { withFileTypes: true });
         for (const e of stat) {
@@ -249,14 +246,10 @@ const findings = [];
 const seenAllowed = new Set();
 
 for await (const file of walk(path.join(REPO_ROOT, "templates"))) {
-  if (!file.endsWith("/server/db/schema.ts")) continue;
+  if (!file.replaceAll("\\", "/").endsWith("/server/db/schema.ts")) continue;
   const template = templateNameFromSchemaPath(file);
   if (!template) continue;
 
-  // Scan the template's own schema.ts plus any package schemas it
-  // re-exports. Without the re-export resolution, templates like
-  // scheduling that ship their tables from @agent-native/scheduling/schema
-  // bypass the guard entirely (the file looks empty of `table(...)` calls).
   const filesToScan = [file, ...(await resolveSchemaReExports(file))];
   for (const scanFile of filesToScan) {
     let contents;

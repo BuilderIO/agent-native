@@ -64,8 +64,8 @@ für einen reproduzierbaren Ausgangspunkt. Ohne Referenz versucht die CLI zuerst
 `main`, dann `master`:
 
 ```bash
-npx @agent-native/core@latest create my-app --template community:owner/repo#v1.2.0
-npx @agent-native/core@latest create my-app --template https://github.com/owner/repo#v1.2.0
+npx --yes @agent-native/core@latest create my-app --template community:owner/repo#v1.2.0
+npx --yes @agent-native/core@latest create my-app --template https://github.com/owner/repo#v1.2.0
 ```
 
 Treffen Sie die Quell-App-Auswahl für ein Workspace-Repository mit
@@ -74,8 +74,8 @@ Treffen Sie die Quell-App-Auswahl für ein Workspace-Repository mit
 `?` als Glob behandeln:
 
 ```bash
-npx @agent-native/core@latest create my-app --template 'community:owner/repo?app=analytics#v1.2.0'
-npx @agent-native/core@latest create my-app --template 'https://github.com/owner/repo?app=analytics#v1.2.0'
+npx --yes @agent-native/core@latest create my-app --template 'community:owner/repo?app=analytics#v1.2.0'
+npx --yes @agent-native/core@latest create my-app --template 'https://github.com/owner/repo?app=analytics#v1.2.0'
 ```
 
 Außerhalb eines Workspace erstellt `create` aus der ausgewählten Quell-App eine
@@ -304,10 +304,10 @@ Sie können einem Coding-Agenten, den Sie bereits verwenden, agentennative Funkt
 Um eine neue App aufzusetzen:
 
 ```bash
-npx @agent-native/core@latest create my-platform
+npx --yes @agent-native/core@latest create my-platform
 ```
 
-Die CLI fragt zuerst **Wie möchten Sie beginnen?** Wählen Sie **Chat** für einen minimalen Workspace mit Chat und Dispatch oder **First-party template(s)** für die Mehrfachauswahl. Community und Headless sind die eigenständigen Einstiege. Workspace-Apps teilen Authentifizierung, Marke, Agentenkonfiguration und Datenbank; jede App wird mit allen benötigten Dateien in `apps/<name>/` eingebunden. Für eine Automation ohne Browser-UI anstelle einer App-UI verwenden Sie `npx @agent-native/core@latest create my-agent --headless`.
+Die CLI fragt zuerst **Wie möchten Sie beginnen?** Wählen Sie **Chat** für einen minimalen Workspace mit Chat und Dispatch oder **First-party template(s)** für die Mehrfachauswahl. Community und Headless sind die eigenständigen Einstiege. Workspace-Apps teilen Authentifizierung, Marke, Agentenkonfiguration und Datenbank; jede App wird mit allen benötigten Dateien in `apps/<name>/` eingebunden. Für eine Automation ohne Browser-UI anstelle einer App-UI verwenden Sie `npx --yes @agent-native/core@latest create my-agent --headless`.
 
 Füllen Sie `.env` aus (`ANTHROPIC_API_KEY` und `DATABASE_URL`), und führen Sie dann `pnpm install` und `pnpm dev` aus. Es gibt kein Login zu implementieren und keine Platzhalterrouten.
 

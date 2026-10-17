@@ -190,6 +190,10 @@ describe("RecordingViewsBadge", () => {
       resolve(process.cwd(), "app/components/player/insights-chart.tsx"),
       "utf8",
     );
+    const agentViewCountSource = readFileSync(
+      resolve(process.cwd(), "app/components/player/agent-view-count.tsx"),
+      "utf8",
+    );
     const controlsSource = readFileSync(
       resolve(process.cwd(), "app/components/player/viewer-controls.tsx"),
       "utf8",
@@ -203,7 +207,11 @@ describe("RecordingViewsBadge", () => {
     expect(source).not.toContain("<TabsTrigger");
     expect(source).toContain('value="views"');
     expect(source).toContain('value="insights"');
-    expect(source).toContain("<InsightsChart");
+    expect(source).toContain("<LazyInsightsChart");
+    expect(source).toContain('import("./insights-chart")');
+    expect(source).toContain("onPointerEnter={preloadInsightsChart}");
+    expect(source).toContain("onFocus={preloadInsightsChart}");
+    expect(source).not.toContain('from "./insights-chart"');
     expect(chartSource).toContain("<ChartContainer");
     expect(chartSource).toContain("<RadialBarChart");
     expect(chartSource).toContain("<PolarAngleAxis");
@@ -228,8 +236,51 @@ describe("RecordingViewsBadge", () => {
     expect(source).toContain("<ViewerSection");
     expect(source).toContain("agentViewCount");
     expect(source).not.toContain("<AgentViewCount");
-    expect(source).toContain("<ClaudeLogo");
-    expect(source).toContain("<CodexLogo");
+    expect(agentViewCountSource).toContain("<ClaudeLogo");
+    expect(agentViewCountSource).toContain("<CodexLogo");
+  });
+
+  it("loads the Insights chart only after opening its tab", async () => {
+    render(
+      <RecordingViewsBadge
+        recordingId="recording-1"
+        viewCount={12}
+        canViewDetails
+      />,
+    );
+
+    act(() => container.querySelector("button")?.click());
+    const insightTab = Array.from(
+      document.body.querySelectorAll('[role="tab"]'),
+    ).find((tab) => tab.textContent === "recordingInsights.insightsTab");
+
+    expect(insightTab).not.toBeUndefined();
+    expect(document.body.querySelector("dd")).toBeNull();
+
+    await act(async () => {
+      (insightTab as HTMLElement).focus();
+      for (
+        let attempt = 0;
+        attempt < 100 && !document.body.querySelector("dd");
+        attempt++
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+    });
+    expect(insightTab?.getAttribute("aria-selected")).toBe("true");
+    expect(document.body.querySelector("dd")).not.toBeNull();
+  });
+
+  it("keeps library cards on the lightweight agent-view module", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), "app/components/library/recording-card.tsx"),
+      "utf8",
+    );
+
+    expect(source).toContain('from "@/components/player/agent-view-count"');
+    expect(source).not.toContain(
+      'from "@/components/player/recording-views-badge"',
+    );
   });
 
   it("parks the Analytics handoff outside the visible insights experience", () => {
@@ -297,6 +348,43 @@ describe("RecordingViewsBadge", () => {
     expect(JSON.parse(handoff.context).instructions).toContain(
       "choose an existing dashboard or create a new private dashboard",
     );
+  });
+
+  it("renders no completion percentage when there is no human playback sample", async () => {
+    const { InsightsChart } = await import("./insights-chart");
+    render(
+      <InsightsChart
+        views={8}
+        uniqueViewers={0}
+        reactions={0}
+        completionRate={null}
+        ctaConversionRate={null}
+      />,
+    );
+
+    const rates = Array.from(container.querySelectorAll("dd")).map(
+      (node) => node.textContent,
+    );
+    expect(rates).toContain("—");
+    expect(rates).not.toContain("0%");
+  });
+
+  it("still renders a real zero completion percentage", async () => {
+    const { InsightsChart } = await import("./insights-chart");
+    render(
+      <InsightsChart
+        views={3}
+        uniqueViewers={3}
+        reactions={0}
+        completionRate={0}
+        ctaConversionRate={0}
+      />,
+    );
+
+    const rates = Array.from(container.querySelectorAll("dd")).map(
+      (node) => node.textContent,
+    );
+    expect(rates).toContain("0%");
   });
 
   it("resolves the stored profile image for an identified viewer", () => {

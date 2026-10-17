@@ -1,20 +1,24 @@
 import {
-  AgentSidebar,
-  focusAgentChat,
   isAgentChatHomeHandoffActive,
   isAssistantChatHistoryVersion,
   navigateWithAgentChatViewTransition,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
-  useGuidedQuestionFlow,
-  type AssistantChatHistoryConfig,
   type AssistantChatHistoryVersion,
 } from "@agent-native/core/client/agent-chat";
 import { getBrowserTabId, useSession } from "@agent-native/core/client/hooks";
 import { isEmbedAuthActive } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
-import { CreativeContextComposerChip } from "@agent-native/creative-context/client";
+import { useIsMcpAppWidgetEmbed } from "@agent-native/core/client/mcp-app-host";
+import {
+  CreativeContextComposerChip,
+  useCreativeContextLab,
+} from "@agent-native/creative-context/client";
 import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
+import { AgentSidebar, focusAgentChat } from "@agent-native/toolkit/app/chat";
+import { useGuidedQuestionFlow } from "@agent-native/toolkit/app/chat/agentkit-chat";
+import { type AssistantChatHistoryConfig } from "@agent-native/toolkit/app/chat/chat/history-types";
+import { isSettingsPathname } from "@agent-native/toolkit/app/settings";
 import { IconMenu2 } from "@tabler/icons-react";
 import {
   createContext,
@@ -33,13 +37,15 @@ import {
   designEditorRoute,
   isDesignEditorRoute,
 } from "@/lib/design-editor-route";
+import { isEmbedChromeRequested } from "@/lib/embed-chrome";
 import { cn } from "@/lib/utils";
 
+import { DesignComposerContextProvider } from "../editor/DesignComposerContextProvider";
 import {
   FigmaLinkComposerBubble,
   useDetectedFigmaComposerLink,
 } from "../editor/FigmaLinkComposerBubble";
-import { Header, MobileHeaderActions } from "./Header";
+import { Header, isDesignHomeRoute, MobileHeaderActions } from "./Header";
 import { Sidebar } from "./Sidebar";
 
 interface LayoutProps {
@@ -52,31 +58,32 @@ export function useOpenMobileSidebar() {
   return useContext(MobileSidebarContext);
 }
 
-/** Routes that render with no app shell at all (no sidebar, no header). */
 const BARE_PREFIXES = ["/present/"];
 
-/**
- * Routes where the page renders its own toolbar instead of the global Header
- * on a standalone page. Embedded app surfaces keep the global shell so the
- * host-provided chat rail can still be reopened from the app header.
- */
 const EDITOR_PREFIXES = ["/design/", "/visual-edit/", "/extensions"];
 
 type DesignLayoutMode = "host-bare" | "standalone-editor" | "app-shell";
 
 function resolveDesignLayoutMode(input: {
   builderHostEmbed: boolean;
+  embedChromeRequested: boolean;
   embedded: boolean;
   hasSession: boolean;
   isDesignEditor: boolean;
+  mcpAppWidgetEmbed: boolean;
 }): DesignLayoutMode {
+  // The MCP App host (ChatGPT, Codex, Claude) owns navigation and chat, so the
+  // widget gets no app chrome for any route or session state.
   if (
     input.builderHostEmbed ||
+    input.mcpAppWidgetEmbed ||
     (input.isDesignEditor && !input.hasSession && !input.embedded)
   ) {
     return "host-bare";
   }
-  if (input.isDesignEditor && !input.embedded) return "standalone-editor";
+  if (input.isDesignEditor && (!input.embedded || input.embedChromeRequested)) {
+    return "standalone-editor";
+  }
   return "app-shell";
 }
 
@@ -84,11 +91,14 @@ export function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const t = useT();
+  const creativeContextEnabled = useCreativeContextLab();
   const isChatRoute =
     location.pathname === "/chat" || location.pathname.startsWith("/chat/");
   const { session } = useSession();
   const hasSession = Boolean(session?.email);
   const builderHostEmbed = isBuilderHostEmbed();
+  const mcpAppWidgetEmbed = useIsMcpAppWidgetEmbed();
+  const embedChromeRequested = isEmbedChromeRequested();
   // The shell canvas is embedded without a session, so this cannot be the token
   // check alone or it renders Design's own nav inside Builder.
   const embedded = builderHostEmbed || isEmbedAuthActive();
@@ -98,36 +108,52 @@ export function Layout({ children }: LayoutProps) {
   const isDesignEditor = isDesignEditorRoute(location.pathname);
   const layoutMode = resolveDesignLayoutMode({
     builderHostEmbed,
+    embedChromeRequested,
     embedded,
     hasSession,
     isDesignEditor,
+    mcpAppWidgetEmbed,
   });
   const standaloneEditor = layoutMode === "standalone-editor";
-  const showMobileTopBar = !standaloneEditor;
+  // Settings brings its own navigation, header, and agent toggle, so it
+  // renders full width.
+  const isSettingsRoute = isSettingsPathname(location.pathname);
+  const showAppNav = !standaloneEditor && !isSettingsRoute;
+  const showMobileTopBar = showAppNav && !isDesignHomeRoute(location.pathname);
   const browserTabId = getBrowserTabId();
   const {
     link: detectedFigmaComposerLink,
     onComposerTextChange: handleComposerTextChange,
   } = useDetectedFigmaComposerLink();
 
-  // Bind chat to the currently-open design. Same pattern as slides — the
-  // route is `/design/:id` for the editor and `/present/:id` for preview
-  // (which we already short-circuit as BARE). Anywhere else (list,
-  // design-systems, settings) leaves scope null so general chats keep working.
   const designScope = useMemo(() => {
     const designId = designEditorRoute(location.pathname)?.designId;
     if (!designId) return null;
     return { type: "design" as const, id: designId };
   }, [location.pathname]);
+  const flushDesignEditorSaves = useCallback(async () => {
+    const flushes: Promise<void>[] = [];
+    window.dispatchEvent(
+      new CustomEvent("agent-native:design-flush-pending-saves", {
+        detail: flushes,
+      }),
+    );
+    await Promise.all(flushes);
+  }, []);
   const designChatHistory = useMemo<
     AssistantChatHistoryConfig | undefined
   >(() => {
     if (!designScope) return undefined;
     const designId = designScope.id;
     return {
+      beforeStart: flushDesignEditorSaves,
       list: {
         action: "list-design-versions",
-        args: { designId, limit: 100 },
+        args: (threadId) => ({
+          designId,
+          limit: 100,
+          ...(threadId ? { threadId } : {}),
+        }),
         getVersions: (result: unknown) => {
           const versions =
             result && typeof result === "object"
@@ -135,7 +161,7 @@ export function Layout({ children }: LayoutProps) {
               : undefined;
           return Array.isArray(versions)
             ? versions.filter(isAssistantChatHistoryVersion)
-            : [];
+            : null;
         },
       },
       restore: {
@@ -144,9 +170,10 @@ export function Layout({ children }: LayoutProps) {
           designId,
           versionId: version.id,
         }),
+        beforeRestore: flushDesignEditorSaves,
       },
     };
-  }, [designScope]);
+  }, [designScope, flushDesignEditorSaves]);
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
     storageKey: DESIGN_CHAT_STORAGE_KEY,
     activePath: location.pathname,
@@ -189,14 +216,18 @@ export function Layout({ children }: LayoutProps) {
 
   const hideHeader =
     isChatRoute ||
+    isSettingsRoute ||
     (!embedded && EDITOR_PREFIXES.some((p) => location.pathname.startsWith(p)));
 
-  function openAgentChatFullscreen() {
+  function openAgentChatFullscreen(threadId?: string) {
     focusAgentChat();
     const designQuery = designScope
       ? `?designId=${encodeURIComponent(designScope.id)}`
       : "";
-    navigateWithAgentChatViewTransition(navigate, `/chat${designQuery}`);
+    const chatPath = threadId
+      ? `/chat/${encodeURIComponent(threadId)}`
+      : "/chat";
+    navigateWithAgentChatViewTransition(navigate, `${chatPath}${designQuery}`);
   }
 
   if (layoutMode === "host-bare") {
@@ -204,14 +235,18 @@ export function Layout({ children }: LayoutProps) {
       <HeaderActionsProvider>
         <MobileSidebarContext.Provider value={null}>
           <div className="flex h-[100dvh] w-full overflow-hidden bg-background text-foreground">
-            <main
-              className={cn(
-                "min-w-0 flex-1",
-                isDesignEditor ? "overflow-hidden" : "overflow-y-auto",
-              )}
-            >
-              {children}
-            </main>
+            {/* Matches the standalone editor's depth: a resolving session
+                switches modes, and a different tree remounts the editor. */}
+            <div className="contents">
+              <main
+                className={cn(
+                  "min-w-0 flex-1",
+                  isDesignEditor ? "overflow-hidden" : "overflow-y-auto",
+                )}
+              >
+                {children}
+              </main>
+            </div>
           </div>
         </MobileSidebarContext.Provider>
       </HeaderActionsProvider>
@@ -236,13 +271,13 @@ export function Layout({ children }: LayoutProps) {
 
   const shell = (
     <div className="agent-layout-shell flex h-dvh w-full overflow-hidden bg-background text-foreground">
-      {!standaloneEditor && mobileSidebarOpen && (
+      {showAppNav && mobileSidebarOpen && (
         <div
           className="fixed inset-0 z-40 bg-foreground/50 md:hidden"
           onClick={() => setMobileSidebarOpen(false)}
         />
       )}
-      {!standaloneEditor && (
+      {showAppNav && (
         <div
           className={cn(
             "agent-layout-left-drawer fixed inset-y-0 start-0 z-50 transition-transform duration-200 ease-out md:static md:z-auto md:transition-none motion-reduce:transition-none",
@@ -272,14 +307,16 @@ export function Layout({ children }: LayoutProps) {
         )}
         {!hideHeader && (
           <>
-            <MobileHeaderActions />
-            <Header />
+            {!isDesignHomeRoute(location.pathname) ? (
+              <MobileHeaderActions />
+            ) : null}
+            <Header onOpenNavigation={openMobileSidebar} />
           </>
         )}
         <main
           className={cn(
             "agent-native-app-main min-h-0 flex-1",
-            isDesignEditor || isChatRoute
+            isDesignEditor || isChatRoute || isSettingsRoute
               ? "overflow-hidden"
               : "overflow-y-auto",
           )}
@@ -299,6 +336,7 @@ export function Layout({ children }: LayoutProps) {
           shell
         ) : (
           <AgentSidebar
+            composerContextProvider={DesignComposerContextProvider}
             position="right"
             chatViewTransition
             chatViewTransitionHandoff={chatHomeHandoffPending}
@@ -315,12 +353,17 @@ export function Layout({ children }: LayoutProps) {
             scope={designScope}
             chatHistory={designChatHistory}
             showScopeBadge={false}
+            setupCardOwner={
+              isDesignHomeRoute(location.pathname) ? "host" : "chat"
+            }
             browserTabId={browserTabId}
             threadFooterSlot={designQuestionsWaitingSlot}
             onComposerTextChange={handleComposerTextChange}
             composerSlot={
               <>
-                <CreativeContextComposerChip />
+                {creativeContextEnabled ? (
+                  <CreativeContextComposerChip />
+                ) : null}
                 {detectedFigmaComposerLink ? (
                   <FigmaLinkComposerBubble link={detectedFigmaComposerLink} />
                 ) : null}

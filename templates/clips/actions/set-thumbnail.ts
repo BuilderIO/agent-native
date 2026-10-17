@@ -1,49 +1,31 @@
-/**
- * Set a recording's thumbnail.
- *
- * Three modes:
- *   1. `upload` — caller passes a base64 data URL (usually from the UI file
- *      picker). We decode and push it through the framework `uploadFile`.
- *   2. `frame` — caller passes a `timeMs`. This stores the time in editsJson
- *      (so the player can show a freeze-frame overlay). The UI is responsible
- *      for also capturing the frame bitmap client-side and calling this action
- *      again in `upload` mode to replace the stored image.
- *   3. `gif` — caller passes a pre-encoded animated GIF data URL (generated
- *      client-side via ffmpeg.wasm). Stored as `animatedThumbnailUrl`.
- *
- * The source-of-truth spec also lives in `editsJson.thumbnail` so the editor
- * UI can round-trip the chosen mode.
- *
- * Usage:
- *   pnpm action set-thumbnail --recordingId=<id> --kind=frame --timeMs=12000
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
-import { uploadFile } from "@agent-native/core/file-upload";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, isNull } from "drizzle-orm";
+import { isImageRecording } from "@shared/recording-kind";
+import { and, eq, isNull, ne, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { parseEdits, serializeEdits } from "../app/lib/timestamp-mapping.js";
 import { getDb, schema } from "../server/db/index.js";
+import { deleteSupersededHostedMedia } from "../server/lib/recording-media-cleanup.js";
 import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
+import { uploadRecordingMedia } from "../server/lib/upload-recording-media.js";
 import { requiresConfiguredVideoStorage } from "../server/lib/video-storage.js";
+import { decodeDataUrl } from "./lib/data-url.js";
 import { assertNativeRecordingMedia } from "./lib/native-media.js";
 
 const MAX_CAS_ATTEMPTS = 5;
+const TAKEN_DOWN_FAILURE_CODE = "taken_down";
+const TAKEN_DOWN_REASON =
+  "This recording was removed from hosted Clips storage.";
 const THUMBNAIL_STORAGE_REQUIRED_REASON =
-  "Thumbnail storage is not connected yet. Connect Builder.io (free tier available) or configure S3-compatible storage to save thumbnails.";
+  "No object storage is connected. Use Builder.io (free) or configure your own S3-compatible storage keys in Settings → File uploads.";
 
-function decodeDataUrl(dataUrl: string): { bytes: Uint8Array; mime: string } {
-  const match = /^data:([^;]+);base64,(.+)$/.exec(dataUrl);
-  if (!match) throw new Error("dataUrl must be base64-encoded data: URL");
-  const mime = match[1];
-  const base64 = match[2];
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return { bytes, mime };
+function notTakenDown() {
+  return or(
+    isNull(schema.recordings.failureCode),
+    ne(schema.recordings.failureCode, TAKEN_DOWN_FAILURE_CODE),
+  );
 }
 
 export default defineAction({
@@ -97,22 +79,38 @@ export default defineAction({
     if (!existing) {
       throw new Error(`Recording not found: ${args.recordingId}`);
     }
+    if (existing.failureCode === TAKEN_DOWN_FAILURE_CODE) {
+      throw new Error(TAKEN_DOWN_REASON);
+    }
+    // A screenshot's thumbnail is the picture itself: the viewer and share
+    // page serve `thumbnailUrl`, so a custom one would replace the screenshot.
+    if (isImageRecording(existing)) {
+      throw new Error(
+        "A screenshot uses its own picture as its thumbnail. Edit the screenshot instead.",
+      );
+    }
     if (args.kind !== "upload") {
       assertNativeRecordingMedia(existing);
     }
 
-    // Do the (potentially slow) upload side-effect once, up front — it does
-    // not depend on the current editsJson, so it must not be repeated on
-    // every CAS retry below.
     const basePatch: Record<string, unknown> = {};
     let thumbnailPatch: { kind: "url"; value: string } | undefined;
     let gifPatch: { kind: "gif"; value: string; url: string } | undefined;
     let framePatch: { kind: "frame"; value: string } | undefined;
+    // The object this call uploaded, so a write that cannot land can remove it.
+    let uploadedUrl: string | null = null;
+    const discardUpload = () =>
+      uploadedUrl && existing.storageMode === "hosted"
+        ? deleteSupersededHostedMedia(uploadedUrl, {
+            recordingId: args.recordingId,
+          })
+        : Promise.resolve();
 
     if (args.kind === "upload") {
       if (!args.dataUrl) throw new Error("dataUrl is required for kind=upload");
       const { bytes, mime } = decodeDataUrl(args.dataUrl);
-      const uploaded = await uploadFile({
+      const uploaded = await uploadRecordingMedia({
+        recordingId: args.recordingId,
         data: bytes,
         mimeType: mime,
         filename:
@@ -124,7 +122,8 @@ export default defineAction({
       if (!uploaded?.url && requiresConfiguredVideoStorage()) {
         throw new Error(THUMBNAIL_STORAGE_REQUIRED_REASON);
       }
-      const url = uploaded?.url ?? args.dataUrl; // Local SQL fallback only.
+      const url = uploaded?.url ?? args.dataUrl;
+      if (uploaded?.url) uploadedUrl = uploaded.url;
       basePatch.thumbnailUrl = url;
       thumbnailPatch = { kind: "url", value: url };
     } else if (args.kind === "frame") {
@@ -136,7 +135,8 @@ export default defineAction({
     } else if (args.kind === "gif") {
       if (!args.dataUrl) throw new Error("dataUrl is required for kind=gif");
       const { bytes, mime } = decodeDataUrl(args.dataUrl);
-      const uploaded = await uploadFile({
+      const uploaded = await uploadRecordingMedia({
+        recordingId: args.recordingId,
         data: bytes,
         mimeType: mime || "image/gif",
         filename: args.filename ?? `thumb-${args.recordingId}.gif`,
@@ -146,7 +146,8 @@ export default defineAction({
       if (!uploaded?.url && requiresConfiguredVideoStorage()) {
         throw new Error(THUMBNAIL_STORAGE_REQUIRED_REASON);
       }
-      const url = uploaded?.url ?? args.dataUrl; // Local SQL fallback only.
+      const url = uploaded?.url ?? args.dataUrl;
+      if (uploaded?.url) uploadedUrl = uploaded.url;
       basePatch.animatedThumbnailUrl = url;
       basePatch.animatedThumbnailEnabled = true;
       gifPatch = {
@@ -169,7 +170,12 @@ export default defineAction({
               .from(schema.recordings)
               .where(eq(schema.recordings.id, args.recordingId));
       if (!current) {
+        await discardUpload();
         throw new Error(`Recording not found: ${args.recordingId}`);
+      }
+      if (current.failureCode === TAKEN_DOWN_FAILURE_CODE) {
+        await discardUpload();
+        throw new Error(TAKEN_DOWN_REASON);
       }
 
       const previousEditsJson = current.editsJson;
@@ -192,6 +198,7 @@ export default defineAction({
         .where(
           and(
             eq(schema.recordings.id, args.recordingId),
+            notTakenDown(),
             previousEditsJson == null
               ? isNull(schema.recordings.editsJson)
               : eq(schema.recordings.editsJson, previousEditsJson),
@@ -200,6 +207,14 @@ export default defineAction({
         .returning({ id: schema.recordings.id });
 
       if (result.length > 0) {
+        if (current.storageMode === "hosted" && uploadedUrl) {
+          await deleteSupersededHostedMedia(
+            basePatch.thumbnailUrl
+              ? current.thumbnailUrl
+              : current.animatedThumbnailUrl,
+            { recordingId: args.recordingId, replacementUrl: uploadedUrl },
+          );
+        }
         await writeAppState("refresh-signal", { ts: Date.now() });
         console.log(`Set ${args.kind} thumbnail for ${args.recordingId}`);
         return {
@@ -216,6 +231,7 @@ export default defineAction({
       // valid; only the editsJson merge is recomputed.
     }
 
+    await discardUpload();
     throw new Error(
       `Could not set thumbnail on recording ${args.recordingId} after ${MAX_CAS_ATTEMPTS} concurrent attempts.`,
     );

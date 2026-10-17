@@ -1,6 +1,15 @@
+import { useT } from "@agent-native/core/client/i18n";
+
 import { cn } from "@/lib/utils";
 
-type PillTone =
+export type InboxPillData = {
+  key: string;
+  labelKey: string;
+  tone: PillTone;
+  hintKey?: string;
+};
+
+export type PillTone =
   | "muted"
   | "success"
   | "warning"
@@ -10,7 +19,7 @@ type PillTone =
   | "progress";
 
 const TONE_CLASS: Record<PillTone, string> = {
-  muted: "bg-muted text-muted-foreground",
+  muted: "bg-secondary text-secondary-foreground",
   success: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
   warning: "bg-amber-500/15 text-amber-600 dark:text-amber-400",
   danger: "bg-destructive/10 text-destructive",
@@ -21,6 +30,8 @@ const TONE_CLASS: Record<PillTone, string> = {
 
 function riskTone(risk?: string | null): PillTone {
   switch (risk?.toLowerCase()) {
+    case "negligible":
+      return "muted";
     case "low":
       return "success";
     case "medium":
@@ -28,6 +39,19 @@ function riskTone(risk?: string | null): PillTone {
     case "high":
       return "high";
     case "critical":
+      return "danger";
+    default:
+      return "muted";
+  }
+}
+
+function confidenceTone(confidence?: string | null): PillTone {
+  switch (confidence?.toLowerCase()) {
+    case "high":
+      return "success";
+    case "medium":
+      return "warning";
+    case "low":
       return "danger";
     default:
       return "muted";
@@ -55,7 +79,13 @@ function statusTone(status?: string | null): PillTone {
   }
 }
 
-function Pill({ value, tone }: { value?: string | null; tone: PillTone }) {
+export function Pill({
+  value,
+  tone,
+}: {
+  value?: string | null;
+  tone: PillTone;
+}) {
   return (
     <span
       className={cn(
@@ -72,6 +102,31 @@ export function TriageRiskPill({ risk }: { risk?: string | null }) {
   return <Pill value={risk} tone={riskTone(risk)} />;
 }
 
+export function TriageConfidencePill({
+  confidence,
+}: {
+  confidence?: string | null;
+}) {
+  return <Pill value={confidence} tone={confidenceTone(confidence)} />;
+}
+
 export function TriageStatusPill({ status }: { status?: string | null }) {
   return <Pill value={status} tone={statusTone(status)} />;
+}
+
+export function InboxPill({ pill }: { pill: InboxPillData }) {
+  const t = useT();
+  const label = t(pill.labelKey);
+  const hint = pill.hintKey ? t(pill.hintKey) : null;
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-xs font-medium",
+        TONE_CLASS[pill.tone],
+      )}
+      title={hint ?? undefined}
+    >
+      {label}
+    </span>
+  );
 }

@@ -14,7 +14,13 @@ const mocks = vi.hoisted(() => ({
       updatedAt: "connections.updatedAt",
     },
     designs: { id: "designs.id", data: "designs.data" },
-    designFiles: { id: "files.id", designId: "files.designId" },
+    designFiles: {
+      id: "files.id",
+      designId: "files.designId",
+      filename: "files.filename",
+      fileType: "files.fileType",
+      content: "files.content",
+    },
   },
   state: {
     connection: {} as Record<string, unknown>,
@@ -35,15 +41,8 @@ const mocks = vi.hoisted(() => ({
       where: unknown;
     }>,
     updatedDesignData: null as Record<string, unknown> | null,
-    // Forces the next insert() to throw a unique-constraint-violation error
-    // once, simulating a concurrent request winning the insert race for the
-    // same (design_id, filename) pair.
     insertConflictOnce: false,
-    // The row a concurrent request is simulated to have already committed —
-    // returned by the conflict-recovery lookup after insertConflictOnce fires.
     winnerFile: null as Record<string, unknown> | null,
-    // Forces the next insert() to throw a non-constraint error once, to prove
-    // the conflict recovery path doesn't swallow unrelated failures.
     insertGenericErrorOnce: false,
   },
 }));
@@ -61,6 +60,7 @@ vi.mock("@agent-native/core/server", () => ({
   buildDeepLink: ({ to }: { to: string }) => to,
 }));
 vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestAuthCapability: () => undefined,
   getRequestUserEmail: () => "user@example.com",
   getRequestOrgId: () => "org_1",
 }));
@@ -78,9 +78,8 @@ vi.mock("drizzle-orm", () => ({
   sql: (...values: unknown[]) => values,
 }));
 
-vi.mock("../server/db/index.js", () => ({
-  schema: mocks.schema,
-  getDb: () => ({
+vi.mock("../server/db/index.js", () => {
+  const db = {
     select: () => {
       mocks.state.selectCount += 1;
       return {
@@ -104,13 +103,29 @@ vi.mock("../server/db/index.js", () => ({
               }),
             };
           }
-          const rows = Object.assign(Promise.resolve(mocks.state.files), {
-            limit: () =>
-              Promise.resolve(
-                mocks.state.winnerFile ? [mocks.state.winnerFile] : [],
-              ),
-          });
-          return { where: () => rows };
+          return {
+            where: (condition: unknown) => {
+              const conditions = Array.isArray(condition)
+                ? condition
+                : [condition];
+              const matches = (file: Record<string, unknown>) =>
+                conditions.every((entry) => {
+                  const comparison = entry as {
+                    left?: unknown;
+                    right?: unknown;
+                  };
+                  const column = String(comparison.left).split(".").pop();
+                  return column ? file[column] === comparison.right : true;
+                });
+              const matchedFiles = mocks.state.files.filter(matches);
+              const candidates = mocks.state.winnerFile
+                ? [mocks.state.winnerFile].filter(matches)
+                : matchedFiles;
+              return Object.assign(Promise.resolve(matchedFiles), {
+                limit: () => Promise.resolve(candidates.slice(0, 1)),
+              });
+            },
+          };
         },
       };
     },
@@ -147,8 +162,19 @@ vi.mock("../server/db/index.js", () => ({
         },
       }),
     }),
-  }),
-}));
+  };
+  return {
+    schema: mocks.schema,
+    getDb: () => ({
+      ...db,
+      transaction: async (
+        callback: (
+          tx: typeof db & { execute: () => Promise<unknown> },
+        ) => Promise<unknown>,
+      ) => callback({ ...db, execute: async () => ({ rows: [] }) }),
+    }),
+  };
+});
 
 import { makeLocalhostRouteId } from "../shared/source-mode.js";
 import action from "./add-localhost-screens.js";
@@ -218,6 +244,92 @@ describe("add-localhost-screens refresh behavior", () => {
     mocks.state.files = [];
   });
 
+  it("places separately added screens beside existing frames by default", async () => {
+    const placements: Array<{ x?: number; y?: number }> = [];
+    for (const path of ["/registration", "/schedule", "/instructions"]) {
+      const result = await action.run({
+        designId: "design_1",
+        connectionId: "conn_1",
+        paths: [path],
+      });
+      placements.push(result.placedFrames[0]!.frame);
+    }
+
+    expect(placements.map(({ x, y }) => ({ x, y }))).toEqual([
+      { x: 0, y: 0 },
+      { x: 1440, y: 0 },
+      { x: 2880, y: 0 },
+    ]);
+  });
+
+  it("places new screens beside legacy overview files without saved geometry", async () => {
+    mocks.state.files = [
+      {
+        id: "legacy_1",
+        designId: "design_1",
+        filename: "legacy-home.html",
+        fileType: "html",
+        content: "<main>Home</main>",
+      },
+      {
+        id: "legacy_2",
+        designId: "design_1",
+        filename: "legacy-about.html",
+        fileType: "html",
+        content: "<main>About</main>",
+      },
+    ];
+
+    const result = await action.run({
+      designId: "design_1",
+      connectionId: "conn_1",
+      paths: ["/new"],
+    });
+
+    expect(result.placedFrames[0]?.frame).toMatchObject({ x: 856, y: 0 });
+  });
+
+  it("places new routes beyond responsive breakpoint frames", async () => {
+    mocks.state.files = [
+      {
+        id: "mobile",
+        designId: "design_1",
+        filename: "localhost-settings.html",
+        fileType: "html",
+        content: "http://localhost:5173/settings",
+      },
+    ];
+    mocks.state.designData = {
+      canvasFrames: {
+        mobile: { x: 0, y: 0, width: 390, height: 844 },
+      },
+      screenMetadata: {
+        mobile: {
+          width: 390,
+          height: 844,
+          connectionId: "conn_1",
+          routeId: "route-settings",
+          path: "/settings",
+          url: "http://localhost:5173/settings",
+        },
+      },
+      breakpointSet: {
+        breakpoints: [
+          { id: "tablet", widthPx: 768 },
+          { id: "desktop", widthPx: 1440 },
+        ],
+      },
+    };
+
+    const result = await action.run({
+      designId: "design_1",
+      connectionId: "conn_1",
+      paths: ["/new"],
+    });
+
+    expect(result.placedFrames[0]?.frame).toMatchObject({ x: 2806, y: 0 });
+  });
+
   it("refreshes a URL without moving/resizing its arranged frame or dropping metadata", async () => {
     mocks.state.files = [
       {
@@ -225,7 +337,7 @@ describe("add-localhost-screens refresh behavior", () => {
         designId: "design_1",
         filename: "localhost-settings.html",
         fileType: "html",
-        content: "http://localhost:5173/settings?old=1",
+        content: "http://localhost:5173/settings",
       },
     ];
     mocks.state.designData = {
@@ -239,7 +351,7 @@ describe("add-localhost-screens refresh behavior", () => {
           connectionId: "conn_1",
           routeId: "route-settings",
           path: "/settings",
-          url: "http://localhost:5173/settings?old=1",
+          url: "http://localhost:5173/settings",
           stateRef: "state-selected-tab",
           routeMetadata: { stateName: "selected-tab" },
         },
@@ -294,6 +406,191 @@ describe("add-localhost-screens refresh behavior", () => {
     expect(metadata).not.toHaveProperty("bridgeToken");
   });
 
+  it("places new routes below an existing screen when their defaults overlap it", async () => {
+    mocks.state.files = [
+      {
+        id: "home_file",
+        designId: "design_1",
+        filename: "localhost-home.html",
+        fileType: "html",
+        content: "http://localhost:5173/",
+      },
+    ];
+    mocks.state.designData = {
+      canvasFrames: {
+        home_file: { x: 0, y: 0, width: 1280, height: 900, z: 0 },
+      },
+      screenMetadata: {
+        home_file: {
+          sourceType: "localhost",
+          connectionId: "conn_1",
+          routeId: "route-home",
+          path: "/",
+          width: 1280,
+          height: 900,
+        },
+      },
+    };
+
+    const result = await action.run({
+      designId: "design_1",
+      connectionId: "conn_1",
+      paths: ["/schedule", "/instructions"],
+      startX: 0,
+      startY: 0,
+    });
+
+    expect(result.placedFrames).toHaveLength(2);
+    expect(result.placedFrames.map(({ frame }) => frame.y)).toEqual([
+      1060, 1060,
+    ]);
+    expect(result.placedFrames.map(({ frame }) => frame.x)).toEqual([0, 1440]);
+  });
+
+  it("preserves explicit y while relocating default-coordinate placements", async () => {
+    mocks.state.files = [
+      {
+        id: "home_file",
+        designId: "design_1",
+        filename: "localhost-home.html",
+        fileType: "html",
+        content: "http://localhost:5173/",
+      },
+    ];
+    mocks.state.designData = {
+      canvasFrames: {
+        home_file: { x: 0, y: 0, width: 1280, height: 900, z: 0 },
+      },
+      screenMetadata: {
+        home_file: {
+          sourceType: "localhost",
+          connectionId: "conn_1",
+          routeId: "route-home",
+          path: "/",
+          width: 1280,
+          height: 900,
+        },
+      },
+    };
+
+    const result = await action.run({
+      designId: "design_1",
+      connectionId: "conn_1",
+      routes: [
+        { path: "/manual-position", x: 0, y: 40, width: 390, height: 844 },
+        { path: "/default-position", x: 0, width: 390, height: 844 },
+      ],
+    });
+
+    expect(result.placedFrames.map(({ frame }) => frame.y)).toEqual([40, 1060]);
+  });
+
+  it("preserves an explicitly requested y position when it overlaps an existing screen", async () => {
+    mocks.state.files = [
+      {
+        id: "home_file",
+        designId: "design_1",
+        filename: "localhost-home.html",
+        fileType: "html",
+        content: "http://localhost:5173/",
+      },
+    ];
+    mocks.state.designData = {
+      canvasFrames: {
+        home_file: { x: 0, y: 0, width: 1280, height: 900, z: 0 },
+      },
+      screenMetadata: {
+        home_file: {
+          sourceType: "localhost",
+          connectionId: "conn_1",
+          routeId: "route-home",
+          path: "/",
+          width: 1280,
+          height: 900,
+        },
+      },
+    };
+
+    const result = await action.run({
+      designId: "design_1",
+      connectionId: "conn_1",
+      routes: [{ path: "/schedule", y: 48 }],
+    });
+
+    expect(result.placedFrames[0]?.frame.y).toBe(48);
+  });
+
+  it("keeps existing frame positions when a repeated viewport grid supplies new coordinates", async () => {
+    mocks.state.files = [
+      {
+        id: "file_1",
+        designId: "design_1",
+        filename: "localhost-settings.html",
+        fileType: "html",
+        content: "http://localhost:5173/settings",
+      },
+    ];
+    mocks.state.designData = {
+      canvasFrames: {
+        file_1: { x: 620, y: 340, width: 1280, height: 900, z: 7 },
+      },
+      screenMetadata: {
+        file_1: {
+          sourceType: "localhost",
+          connectionId: "conn_1",
+          routeId: "route-settings",
+          path: "/settings",
+          url: "http://localhost:5173/settings",
+        },
+      },
+      localhostScreens: {},
+    };
+
+    const result = await action.run({
+      designId: "design_1",
+      connectionId: "conn_1",
+      routes: [
+        { path: "/settings", width: 1280, height: 900, x: 2800, y: -20 },
+      ],
+      preserveExistingFramePositions: true,
+    });
+
+    expect(result.placedFrames[0]?.frame).toMatchObject({
+      x: 620,
+      y: 340,
+      width: 1280,
+      height: 900,
+      z: 7,
+    });
+    expect(mocks.state.updatedDesignData?.canvasFrames).toMatchObject({
+      file_1: { x: 620, y: 340, width: 1280, height: 900, z: 7 },
+    });
+  });
+
+  it("places each new route after the previous screen's responsive group", async () => {
+    mocks.state.files = [];
+    mocks.state.designData = {
+      breakpointSet: {
+        breakpoints: [
+          { id: "mobile", widthPx: 390 },
+          { id: "tablet", widthPx: 768 },
+          { id: "desktop", widthPx: 1440 },
+        ],
+      },
+    };
+
+    const result = await action.run({
+      designId: "design_1",
+      connectionId: "conn_1",
+      paths: ["/one", "/two"],
+      defaultWidth: 1280,
+      defaultHeight: 900,
+      gap: 160,
+    });
+
+    expect(result.placedFrames.map(({ frame }) => frame.x)).toEqual([0, 4110]);
+  });
+
   it("refreshes a legacy primary screen when its URL content identifies the route", async () => {
     mocks.state.files = [
       {
@@ -301,7 +598,7 @@ describe("add-localhost-screens refresh behavior", () => {
         designId: "design_1",
         filename: "localhost-settings.html",
         fileType: "html",
-        content: "http://localhost:5173/settings?old=1",
+        content: "http://localhost:5173/settings",
       },
     ];
     mocks.state.designData = {
@@ -322,6 +619,102 @@ describe("add-localhost-screens refresh behavior", () => {
     expect(mocks.state.insertedFile).toBeNull();
     expect(mocks.state.updatedFiles).toHaveLength(1);
     expect(result.screens[0]?.id).toBe("legacy_file");
+  });
+
+  it("refreshes a legacy localhost screen when its content is inline HTML", async () => {
+    mocks.state.files = [
+      {
+        id: "legacy_file",
+        designId: "design_1",
+        filename: "localhost-settings.html",
+        fileType: "html",
+        content: "<main>Existing screen</main>",
+      },
+    ];
+    mocks.state.designData = {
+      screenMetadata: {
+        legacy_file: {
+          sourceType: "localhost",
+          connectionId: "conn_1",
+          routeId: "route-settings",
+          path: "/settings",
+        },
+      },
+    };
+
+    const result = await action.run({
+      designId: "design_1",
+      connectionId: "conn_1",
+      paths: ["/settings"],
+      startX: 0,
+      startY: 0,
+      gap: 160,
+    });
+
+    expect(result.screens[0]?.id).toBe("legacy_file");
+    expect(mocks.state.insertedFile).toBeNull();
+    expect(mocks.state.updatedFiles).toHaveLength(1);
+  });
+
+  it("keeps query-backed routes distinct from the same pathname", async () => {
+    mocks.state.files = [
+      {
+        id: "base_file",
+        designId: "design_1",
+        filename: "localhost-settings.html",
+        fileType: "html",
+        content: "http://localhost:5173/settings",
+      },
+    ];
+    mocks.state.designData = {
+      screenMetadata: {
+        base_file: {
+          sourceType: "localhost",
+          connectionId: "conn_1",
+          routeId: "route-settings",
+          path: "/settings",
+          url: "http://localhost:5173/settings",
+        },
+      },
+    };
+
+    const result = await action.run({
+      designId: "design_1",
+      connectionId: "conn_1",
+      paths: ["/settings?onboarding=preview"],
+      startX: 0,
+      startY: 0,
+      gap: 160,
+    });
+
+    expect(result.screens[0]?.id).not.toBe("base_file");
+    expect(mocks.state.insertedFile).toMatchObject({
+      content: "http://localhost:5173/settings?onboarding=preview",
+    });
+  });
+
+  it("keeps query variants distinct within one request", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      connectionId: "conn_1",
+      routes: [
+        { routeId: "route-settings", path: "/settings" },
+        {
+          routeId: "route-settings",
+          url: "http://localhost:5173/settings?onboarding=preview",
+        },
+      ],
+      startX: 0,
+      startY: 0,
+      gap: 160,
+    });
+
+    expect(result.screens).toHaveLength(2);
+    expect(result.screens.map((screen) => screen.url)).toEqual([
+      "http://localhost:5173/settings",
+      "http://localhost:5173/settings?onboarding=preview",
+    ]);
+    expect(mocks.state.insertedFiles).toHaveLength(2);
   });
 
   it("never overwrites an unrelated inline file that uses the generated localhost filename", async () => {
@@ -365,11 +758,6 @@ describe("add-localhost-screens refresh behavior", () => {
   });
 
   it("never inserts two design_files rows for the same route requested twice in one call", async () => {
-    // `existingFiles`/route-candidate matching is snapshotted once above the
-    // per-route loop and never refreshed mid-loop, so two entries resolving
-    // to the same route (repeated `paths`, or a `path` duplicating a
-    // `routeId`-addressed entry) used to each see "no existing match" and
-    // each insert their own design_files row for the identical route.
     const result = await action.run({
       designId: "design_1",
       connectionId: "conn_1",
@@ -387,9 +775,6 @@ describe("add-localhost-screens refresh behavior", () => {
   });
 
   it("still creates distinct screens when the same route is requested twice with different explicit viewports", async () => {
-    // A duplicate route request is only collapsed when its explicit
-    // width/height also match — an intentional multi-viewport request for
-    // the same route must still create its own variant per viewport.
     const result = await action.run({
       designId: "design_1",
       connectionId: "conn_1",
@@ -822,7 +1207,7 @@ describe("add-localhost-screens refresh behavior", () => {
       designId: "design_1",
       filename: "localhost-settings.html",
       fileType: "html",
-      content: "http://localhost:5173/settings?winner=1",
+      content: "http://localhost:5173/settings",
     };
 
     const result = await action.run({
@@ -869,9 +1254,6 @@ describe("add-localhost-screens refresh behavior", () => {
   });
 
   it("rethrows a non-conflict insert error instead of silently swallowing it", async () => {
-    // isUniqueConstraintViolation must only catch the specific
-    // unique/primary-key-violation error class it's meant to recover from —
-    // any other insert failure (e.g. a connection error) must still surface.
     mocks.state.insertGenericErrorOnce = true;
 
     await expect(

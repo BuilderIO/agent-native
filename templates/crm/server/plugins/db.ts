@@ -416,17 +416,10 @@ const dashboardsSchema = [
   `CREATE INDEX IF NOT EXISTS crm_dashboard_shares_principal_idx ON crm_dashboard_shares (resource_id, principal_type, principal_id)`,
 ].join(";\n");
 
-/** Add an idempotent PostgreSQL column migration. */
 function addColumn(table: string, definition: string): string {
   return `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ${definition}`;
 }
 
-// Typed, bitemporal attribute model. Every statement is additive except the drop
-// of crm_record_fields_record_name_idx: that unique index spans ALL rows for a
-// (record_id, field_name) pair, so a second history row for the same field
-// cannot exist while it stands. Its guarantee — one CURRENT value per record and
-// field — is preserved exactly by the partial unique index that replaces it.
-// Dropping an index removes no column, row, or value.
 const typedAttributesSchema = [
   addColumn(
     "crm_field_policies",
@@ -498,8 +491,6 @@ const typedAttributesSchema = [
   addColumn("crm_record_fields", `domain_root TEXT`),
   addColumn("crm_record_fields", `name_first TEXT`),
   addColumn("crm_record_fields", `name_last TEXT`),
-  // Existing rows are the current value of their field as of when they were
-  // created; none of them has ever been superseded, so active_until stays null.
   `UPDATE crm_record_fields SET active_from = created_at WHERE active_from IS NULL`,
   `UPDATE crm_record_fields SET attribute_id = field_policy_id WHERE attribute_id IS NULL`,
   `DROP INDEX IF EXISTS crm_record_fields_record_name_idx`,
@@ -558,7 +549,6 @@ const typedAttributesSchema = [
   ),
 ].join(";\n");
 
-// Gated enrichment runs. Purely additive: one new table plus its shares table.
 const enrichmentSchema = [
   ownableTable(
     "crm_enrichment_runs",
@@ -582,29 +572,18 @@ const enrichmentSchema = [
   updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)`,
   ),
   sharesTable("crm_enrichment_run_shares"),
-  // The duplicate-run guard's query: one in-flight run per scope and phase.
   `CREATE INDEX IF NOT EXISTS crm_enrichment_runs_scope_status_idx ON crm_enrichment_runs (scope_kind, scope_id, phase, status)`,
-  // Period-to-date spend is summed per actor over a month window.
   `CREATE INDEX IF NOT EXISTS crm_enrichment_runs_owner_started_idx ON crm_enrichment_runs (owner_email, org_id, started_at)`,
   `CREATE INDEX IF NOT EXISTS crm_enrichment_runs_source_idx ON crm_enrichment_runs (source_run_id)`,
   `CREATE INDEX IF NOT EXISTS crm_enrichment_run_shares_principal_idx ON crm_enrichment_run_shares (resource_id, principal_type, principal_id)`,
 ].join(";\n");
 
-// Backfill for a boundary bug: `ensureNativeObject` (native-adapter.ts) and
-// `persistSchema` (crm-mirror.ts) never set `attribute_type`/`authority` on
-// insert OR update, so every native field kept the column defaults
-// (`text`/`provider`) forever, no matter its real type. Scoped to NATIVE
-// connections only — a HubSpot/Salesforce field legitimately still defaults
-// to `text`/`provider` until it has its own discovered typing, and this
-// backfill has no way to know a mirrored field's true type retroactively.
 const nativeAttributeTypeBackfill = [
   `UPDATE crm_field_policies SET authority = 'local-authoritative' WHERE connection_id IN (SELECT id FROM crm_connections WHERE provider = 'native')`,
   `UPDATE crm_field_policies SET attribute_type = 'domain' WHERE object_type = 'accounts' AND field_name = 'domain' AND connection_id IN (SELECT id FROM crm_connections WHERE provider = 'native')`,
   `UPDATE crm_field_policies SET attribute_type = 'email-address' WHERE object_type = 'people' AND field_name = 'email' AND connection_id IN (SELECT id FROM crm_connections WHERE provider = 'native')`,
   `UPDATE crm_field_policies SET attribute_type = 'record-reference' WHERE field_name = 'accountId' AND object_type IN ('people', 'opportunities') AND connection_id IN (SELECT id FROM crm_connections WHERE provider = 'native')`,
   `UPDATE crm_field_policies SET attribute_type = 'currency', config_json = '{"currency":{"code":"USD"}}' WHERE object_type = 'opportunities' AND field_name = 'amount' AND connection_id IN (SELECT id FROM crm_connections WHERE provider = 'native')`,
-  // `stage` is the one field whose legacy `value_type` was also wrong ('string'
-  // instead of 'enum') — every other field's legacy column was already correct.
   `UPDATE crm_field_policies SET attribute_type = 'status', value_type = 'enum' WHERE object_type = 'opportunities' AND field_name = 'stage' AND connection_id IN (SELECT id FROM crm_connections WHERE provider = 'native')`,
   `UPDATE crm_field_policies SET attribute_type = 'date' WHERE object_type = 'opportunities' AND field_name = 'closeDate' AND connection_id IN (SELECT id FROM crm_connections WHERE provider = 'native')`,
   `UPDATE crm_field_policies SET attribute_type = 'number' WHERE field_name = 'desiredCadenceDays' AND connection_id IN (SELECT id FROM crm_connections WHERE provider = 'native')`,
@@ -635,11 +614,6 @@ export const runCrmMigrations = runMigrations(
     {
       version: 7,
       name: "backfill-native-stage-options",
-      // Run-only: a Drizzle join plus per-policy writes that SQL alone cannot
-      // express. It used to sit in the plugin body, so every cold start paid
-      // the lookup before the app could serve even though it is a one-time
-      // backfill of historical policies. A throw leaves it unrecorded and it
-      // retries on the next boot.
       sql: {},
       run: backfillNativeStageOptions,
     },

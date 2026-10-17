@@ -5,6 +5,7 @@ import type { ClipboardContentMutationPublication } from "@/lib/clipboard-conten
 import {
   extractLayerPosition,
   insertClonedHtmlLayers,
+  portableStyleSnapshotForPasteTarget,
 } from "@/pages/design-editor/clone-and-pen-edit";
 import type { CanvasLayerClipboardEntry } from "@/pages/design-editor/command-types";
 import {
@@ -51,10 +52,6 @@ function offsetPasteOverPositions(
   }));
 }
 
-/** Paste-over must use document-root CSS. Clones insert at the document
- * root, so containing-block computed left/top is composed with the nearest
- * inline-positioned ancestor unless the selection is `position:fixed`
- * (viewport/root-relative). Never write iframe boundingRect as CSS. */
 export function resolvePasteOverPositions(
   entries: CanvasLayerClipboardEntry[],
   selectedElement: ElementInfo | null,
@@ -120,6 +117,15 @@ export function runPasteOverSelection({
 }: PasteOverSelectionArgs) {
   const entries = getCanvasClipboardEntries();
   if (!activeFile || entries.length === 0) return;
+  const styleSnapshots = entries.map((entry) =>
+    portableStyleSnapshotForPasteTarget(entry, activeFile.id),
+  );
+  if (styleSnapshots.some((snapshot) => snapshot === null)) {
+    toast.error(t("designEditor.toasts.layerMoveFailed"), {
+      duration: 4000,
+    });
+    return;
+  }
   const positions = resolvePasteOverPositions(
     entries,
     selectedElement,
@@ -133,8 +139,11 @@ export function runPasteOverSelection({
     getFreshActiveContent(),
     entries.map((entry) => entry.html),
     {
-      positions,
-      styleSnapshots: entries.map((entry) => entry.portableStyleSnapshot),
+      positions: positions.map((position) => ({
+        ...position,
+        space: "layout" as const,
+      })),
+      styleSnapshots,
       managedStyleSnapshots: entries.map((entry) => entry.managedStyleSnapshot),
     },
   );

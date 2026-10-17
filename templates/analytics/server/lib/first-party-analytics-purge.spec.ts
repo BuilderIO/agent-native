@@ -28,12 +28,15 @@ beforeEach(() => {
 
 describe("countFirstPartyAnalyticsPostgresRows", () => {
   it("uses bounded parameterized counts for each scoped source", async () => {
+    execute.mockResolvedValueOnce({
+      rows: [{ table_name: "analytics_bigquery_delivery_queue" }],
+    });
     await expect(
       countFirstPartyAnalyticsPostgresRows(scope, false, window),
     ).resolves.toEqual({ eventRows: 1, dailyRollupRows: 1, userDayRows: 1 });
 
     expect(execute).toHaveBeenNthCalledWith(
-      1,
+      2,
       expect.objectContaining({
         sql: expect.stringMatching(
           /FROM analytics_events[\s\S]*event_name IS DISTINCT FROM 'http\.response'/,
@@ -44,22 +47,31 @@ describe("countFirstPartyAnalyticsPostgresRows", () => {
       }),
     );
     expect(execute).toHaveBeenNthCalledWith(
-      2,
+      3,
       expect.objectContaining({
         sql: expect.stringContaining("FROM analytics_event_daily_rollups"),
         args: ["org-1", "2026-07-01"],
       }),
     );
     expect(execute).toHaveBeenNthCalledWith(
-      3,
+      4,
       expect.objectContaining({
         sql: expect.stringContaining("FROM analytics_user_days"),
         args: ["org-1", "2026-07-01"],
       }),
     );
+    expect(execute.mock.calls[1]?.[0]?.sql).toContain(
+      "delivery_queue.delivered_at IS NULL",
+    );
+    expect(execute.mock.calls[1]?.[0]?.sql).not.toContain(
+      "delivery_queue.attempt_count <",
+    );
   });
 
   it("keeps legacy-owner rows explicitly scoped when requested", async () => {
+    execute.mockResolvedValueOnce({
+      rows: [{ table_name: "analytics_bigquery_delivery_queue" }],
+    });
     await countFirstPartyAnalyticsPostgresRows(scope, true, window);
 
     expect(execute).toHaveBeenCalledWith(
@@ -73,17 +85,40 @@ describe("countFirstPartyAnalyticsPostgresRows", () => {
   });
 
   it("rejects an unreadable count instead of treating it as zero", async () => {
-    execute.mockResolvedValue({ rows: [{}] });
+    execute
+      .mockResolvedValueOnce({
+        rows: [{ table_name: "analytics_bigquery_delivery_queue" }],
+      })
+      .mockResolvedValue({ rows: [{}] });
 
     await expect(
       countFirstPartyAnalyticsPostgresRows(scope, false, window),
     ).rejects.toThrow("invalid value");
+  });
+
+  it("protects fallback markers before migration 151", async () => {
+    execute
+      .mockResolvedValueOnce({ rows: [{ table_name: null }] })
+      .mockResolvedValue({ rows: [{ row_count: "1" }] });
+
+    await expect(
+      countFirstPartyAnalyticsPostgresRows(scope, false, window),
+    ).resolves.toEqual({ eventRows: 1, dailyRollupRows: 1, userDayRows: 1 });
+    expect(execute.mock.calls[1]?.[0]?.sql).not.toContain(
+      "analytics_bigquery_delivery_queue",
+    );
+    expect(execute.mock.calls[1]?.[0]?.sql).toContain(
+      "FROM settings AS fallback_marker",
+    );
   });
 });
 
 describe("purgeFirstPartyAnalyticsPostgresRows", () => {
   it("deletes each scoped table in bounded batches", async () => {
     execute
+      .mockResolvedValueOnce({
+        rows: [{ table_name: "analytics_bigquery_delivery_queue" }],
+      })
       .mockResolvedValueOnce({ rows: [{ row_count: "5" }] })
       .mockResolvedValueOnce({ rows: [{ row_count: "1" }] })
       .mockResolvedValueOnce({ rows: [{ row_count: "1" }] })
@@ -96,9 +131,9 @@ describe("purgeFirstPartyAnalyticsPostgresRows", () => {
       purgeFirstPartyAnalyticsPostgresRows(scope, false, window),
     ).resolves.toEqual({ eventRows: 5, dailyRollupRows: 1, userDayRows: 1 });
 
-    expect(execute).toHaveBeenCalledTimes(7);
+    expect(execute).toHaveBeenCalledTimes(8);
     expect(execute).toHaveBeenNthCalledWith(
-      4,
+      5,
       expect.objectContaining({
         sql: expect.stringMatching(
           /WITH candidates[\s\S]*LIMIT \$3[\s\S]*DELETE FROM analytics_events/,
@@ -107,6 +142,9 @@ describe("purgeFirstPartyAnalyticsPostgresRows", () => {
         timeoutMs: 60_000,
         maxAttempts: 1,
       }),
+    );
+    expect(execute.mock.calls[4]?.[0]?.sql).toContain(
+      "analytics_bigquery_delivery_queue",
     );
   });
 });

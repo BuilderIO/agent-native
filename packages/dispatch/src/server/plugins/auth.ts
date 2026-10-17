@@ -1,4 +1,4 @@
-import { createAuthPlugin } from "@agent-native/core/server";
+import { createToolkitAuthPlugin } from "@agent-native/toolkit/app/auth/server";
 
 import { getDispatchConfig } from "../index.js";
 
@@ -13,23 +13,22 @@ const DEFAULT_MARKETING = {
   ],
 } as const;
 
-/**
- * Defer config + plugin construction until the Nitro plugin actually fires.
- * This way `setupDispatch(config)` can run after plugin module-load order
- * (Nitro doesn't guarantee load order across plugin files) and still feed
- * `googleOnly` / `marketing` into `createAuthPlugin`.
- */
 const dispatchAuthPlugin = async (nitroApp: any) => {
   const { auth: authConfig = {} } = getDispatchConfig();
   const googleOnly = authConfig.googleOnly ?? false;
   const marketing = authConfig.marketing
     ? { ...DEFAULT_MARKETING, ...authConfig.marketing }
     : DEFAULT_MARKETING;
-  const plugin = createAuthPlugin({
+  const plugin = createToolkitAuthPlugin({
     googleOnly,
     marketing: marketing as any,
     workspaceAppPublicPaths: ["/"],
-    publicPaths: authConfig.publicPaths,
+    // This route authenticates its own audience-bound service bearer before any
+    // asset lookup; the session guard cannot authenticate peer services.
+    publicPaths: [
+      ...(authConfig.publicPaths ?? []),
+      "/_agent-native/private-icons",
+    ],
   });
   return plugin(nitroApp);
 };

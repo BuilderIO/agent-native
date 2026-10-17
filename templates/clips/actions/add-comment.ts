@@ -1,12 +1,3 @@
-/**
- * Add a comment to a recording at a specific video timestamp.
- *
- * For new threads, omit threadId/parentId. For replies, pass both.
- *
- * Usage:
- *   pnpm action add-comment --recordingId=<id> --content="Nice moment" --videoTimestampMs=12345
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import {
@@ -14,7 +5,7 @@ import {
   getRequestUserName,
 } from "@agent-native/core/server/request-context";
 import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -42,13 +33,19 @@ export default defineAction({
       .int()
       .min(0)
       .default(0)
-      .describe("Video time (ms) the comment is attached to"),
+      .describe(
+        "Video time (ms) of the frame the comment is about, stored as given",
+      ),
     threadId: z
       .string()
+      .trim()
+      .min(1)
       .optional()
       .describe("Thread ID (for replies). Omit to start a new thread."),
     parentId: z
       .string()
+      .trim()
+      .min(1)
       .optional()
       .describe("Parent comment ID (for replies)."),
     authorName: z
@@ -61,9 +58,6 @@ export default defineAction({
       .describe("Organization members mentioned in the comment"),
   }),
   run: async (args) => {
-    // Commenting is open to any signed-in viewer with access to the
-    // recording, not just an explicitly-granted "commenter" role — the
-    // `authorEmail` check below is what actually requires an account.
     const access = await assertAccess("recording", args.recordingId, "viewer");
     if (
       isRecordingExpiredForViewer({
@@ -83,11 +77,20 @@ export default defineAction({
 
     const db = getDb();
     const id = nanoid();
-    const threadId = args.threadId ?? id;
-    const parentId = args.parentId ?? null;
+    const hasParentId = args.parentId !== undefined;
+    const hasThreadId = args.threadId !== undefined;
+    if (
+      hasParentId !== hasThreadId ||
+      (hasParentId && (!args.parentId?.trim() || !args.threadId?.trim()))
+    ) {
+      throw new Error(
+        "Replies must include non-empty threadId and parentId values.",
+      );
+    }
+    const threadId = args.threadId?.trim() ?? id;
+    const parentId = args.parentId?.trim() ?? null;
     const now = new Date().toISOString();
 
-    // Look up recording's organization so the comment denormalizes it.
     const [rec] = await db
       .select({ organizationId: schema.recordings.organizationId })
       .from(schema.recordings)
@@ -96,14 +99,34 @@ export default defineAction({
 
     if (!rec) throw new Error(`Recording not found: ${args.recordingId}`);
 
+    if (parentId) {
+      const [parent] = await db
+        .select({
+          id: schema.recordingComments.id,
+          recordingId: schema.recordingComments.recordingId,
+          organizationId: schema.recordingComments.organizationId,
+          threadId: schema.recordingComments.threadId,
+        })
+        .from(schema.recordingComments)
+        .where(
+          and(
+            eq(schema.recordingComments.id, parentId),
+            eq(schema.recordingComments.recordingId, args.recordingId),
+            eq(schema.recordingComments.organizationId, rec.organizationId),
+            eq(schema.recordingComments.threadId, threadId),
+          ),
+        )
+        .limit(1);
+
+      if (!parent) {
+        throw new Error("Parent comment does not belong to this recording.");
+      }
+    }
+
     const mentions = await resolveCommentMentions(
       args.mentions,
       rec.organizationId,
     );
-
-    // Floor to the nearest second so nearby comments land on the same
-    // timestamp bucket for scrubber grouping and the playback overlay.
-    const videoTimestampMs = Math.floor(args.videoTimestampMs / 1000) * 1000;
 
     await db.insert(schema.recordingComments).values({
       id,
@@ -115,7 +138,7 @@ export default defineAction({
       authorName,
       content: args.content,
       mentionsJson: mentions.length > 0 ? JSON.stringify(mentions) : null,
-      videoTimestampMs,
+      videoTimestampMs: args.videoTimestampMs,
       createdAt: now,
       updatedAt: now,
     });
@@ -134,7 +157,7 @@ export default defineAction({
     await writeAppState("refresh-signal", { ts: Date.now() });
 
     console.log(
-      `Added comment to recording ${args.recordingId} @ ${videoTimestampMs}ms (thread: ${threadId})`,
+      `Added comment to recording ${args.recordingId} @ ${args.videoTimestampMs}ms (thread: ${threadId})`,
     );
 
     return { id, threadId, notified };

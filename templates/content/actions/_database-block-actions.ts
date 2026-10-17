@@ -44,6 +44,7 @@ import {
   assertSchema,
   databaseMutationTargetSchema,
   digest,
+  isUniqueConstraintError,
   loadContext,
   revisionPropertyIds,
   rowSnapshot,
@@ -72,7 +73,7 @@ const placementSchema = z.discriminatedUnion("placement", [
 ]);
 
 export const databaseBlockTargetSchema = databaseMutationTargetSchema.extend({
-  itemId: z.string().min(1).describe("Exact database membership row ID"),
+  itemId: z.string().min(1).describe("Exact collection membership row ID"),
   rowDocumentId: z.string().min(1).describe("Exact row page ID"),
   propertyId: z.string().min(1).describe("Exact Blocks property ID"),
 });
@@ -121,8 +122,6 @@ const mutateDatabaseBlockOperationSchema = z.discriminatedUnion("operation", [
 
 type MutationInput = z.infer<typeof mutateDatabaseBlockOperationSchema>;
 
-// Agent tool registration requires a top-level object schema. Keep the
-// discriminated union as the exact validator for operation-specific fields.
 export const mutateDatabaseBlockSchema = z
   .object({
     ...mutationEnvelopeSchema.shape,
@@ -162,22 +161,6 @@ function contractError(
   statusCode = 409,
 ): never {
   throw new ActionContractError(message, { errorCode, details, statusCode });
-}
-
-function isUniqueConstraintError(error: unknown): boolean {
-  const candidate = error as { code?: unknown; message?: unknown };
-  const code =
-    typeof candidate?.code === "string"
-      ? candidate.code
-      : (JSON.stringify(candidate?.code) ?? "");
-  const message =
-    typeof candidate?.message === "string"
-      ? candidate.message
-      : (JSON.stringify(candidate?.message) ?? "");
-  return (
-    code === "23505" ||
-    /unique constraint|primary key constraint|duplicate key/i.test(message)
-  );
 }
 
 function databaseTarget(target: BlockTarget): DatabaseMutationTarget {

@@ -17,7 +17,6 @@ const utc: ScheduleInput = {
 
 describe("computeAvailableSlots", () => {
   it("enumerates 30-minute slots across a single day", () => {
-    // Mon 2026-04-06 09:00Z → 17:00Z → 16 slots of 30 min
     const slots = computeAvailableSlots({
       duration: 30,
       minimumBookingNotice: 0,
@@ -50,7 +49,6 @@ describe("computeAvailableSlots", () => {
       rangeEnd: new Date("2026-04-07T00:00:00Z"),
       now: new Date("2026-04-06T10:00:00Z"),
     });
-    // now=10:00, +3h → earliest bookable is 13:00
     expect(slots[0].start).toBe("2026-04-06T13:00:00.000Z");
   });
 
@@ -74,7 +72,6 @@ describe("computeAvailableSlots", () => {
         s.start < "2026-04-06T11:30:00.000Z",
     );
     expect(busy.length).toBe(0);
-    // 11:30 slot should still be available (not overlapping)
     expect(
       slots.find((s) => s.start === "2026-04-06T11:30:00.000Z"),
     ).toBeTruthy();
@@ -94,15 +91,12 @@ describe("computeAvailableSlots", () => {
       rangeEnd: new Date("2026-04-07T00:00:00Z"),
       now: new Date("2026-04-06T00:00:00Z"),
     });
-    // 10:30 slot + afterBuffer=15 → conflict with 11:00 busy
     expect(
       slots.find((s) => s.start === "2026-04-06T10:30:00.000Z"),
     ).toBeFalsy();
-    // 11:30 slot - beforeBuffer=15 → 11:15, conflicts with busy end at 11:30
     expect(
       slots.find((s) => s.start === "2026-04-06T11:30:00.000Z"),
     ).toBeFalsy();
-    // 12:00 slot - 15 → 11:45, fully clear of busy interval [11:00, 11:30)
     expect(
       slots.find((s) => s.start === "2026-04-06T12:00:00.000Z"),
     ).toBeTruthy();
@@ -118,7 +112,6 @@ describe("computeAvailableSlots", () => {
       periodType: "unlimited",
       schedule: utc,
       busy: [],
-      // 2026-04-04 is a Saturday
       rangeStart: new Date("2026-04-04T00:00:00Z"),
       rangeEnd: new Date("2026-04-05T00:00:00Z"),
       now: new Date("2026-04-04T00:00:00Z"),
@@ -141,7 +134,6 @@ describe("computeAvailableSlots", () => {
       rangeEnd: new Date("2026-04-10T00:00:00Z"),
       now: new Date("2026-04-06T08:00:00Z"),
     });
-    // All slots must fall within [now, now+1d]
     for (const s of slots) {
       expect(new Date(s.end).getTime()).toBeLessThanOrEqual(
         new Date("2026-04-07T08:00:00Z").getTime(),
@@ -150,7 +142,6 @@ describe("computeAvailableSlots", () => {
   });
 
   it("handles DST transition (spring forward) in America/Los_Angeles", () => {
-    // 2026-03-08 is the spring-forward date in US; 2am→3am.
     const tz: ScheduleInput = {
       timezone: "America/Los_Angeles",
       weeklyAvailability: [
@@ -171,9 +162,8 @@ describe("computeAvailableSlots", () => {
       rangeEnd: new Date("2026-03-09T00:00:00Z"),
       now: new Date("2026-03-08T00:00:00Z"),
     });
-    // 9-17 PDT on 2026-03-08 = 16:00 UTC to 00:00 UTC next day → 16 30-min slots
     expect(slots.length).toBeGreaterThanOrEqual(15);
-    expect(slots[0].start).toBe("2026-03-08T16:00:00.000Z"); // 9am PDT = 16:00 UTC
+    expect(slots[0].start).toBe("2026-03-08T16:00:00.000Z");
   });
 
   it("respects seats-per-time-slot", () => {

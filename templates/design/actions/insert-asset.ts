@@ -78,18 +78,6 @@ function escapeHtml(value: string): string {
     .replace(/"/g, "&quot;");
 }
 
-/**
- * Prepare a URL for embedding inside a single-quoted CSS `url('...')` value
- * that itself lives inside an HTML attribute. A literal `'` in the URL would
- * otherwise close the CSS string early — and depending on whether the
- * surrounding HTML attribute is single- or double-quoted, everything after it
- * becomes live CSS or, worse, live HTML/JS in the script-enabled preview
- * iframe. Percent-encoding the quote/backslash characters that are meaningful
- * to the CSS string-literal grammar keeps the URL functionally identical
- * (browsers resolve %27/%22/%5C the same as the raw characters) while making
- * it impossible to break out of the `url('...')` string. HTML-escape on top
- * so the value is also safe as an HTML attribute (covers the "..." case).
- */
 function cssUrlValue(value: string): string {
   const cssSafe = value
     .replace(/\\/g, "%5C")
@@ -146,7 +134,6 @@ function appendAssetMarkup(
   );
 }
 
-/** Find the raw tag string for the element carrying the given node id. */
 function findTagByNodeId(html: string, nodeId: string): string | null {
   const escapedId = nodeId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const pattern = new RegExp(
@@ -156,7 +143,6 @@ function findTagByNodeId(html: string, nodeId: string): string | null {
   return match ? match[0] : null;
 }
 
-/** Replace the src attribute of the <img>/<video> tag at targetNodeId. */
 function replaceSrcAtNode(
   html: string,
   args: z.infer<typeof schemaInput>,
@@ -199,7 +185,6 @@ function replaceSrcAtNode(
   return html.replace(tag, nextTag);
 }
 
-/** Set a background-image inline style on the element at targetNodeId. */
 function backgroundFillAtNode(
   html: string,
   args: z.infer<typeof schemaInput>,
@@ -269,8 +254,6 @@ async function resolveTarget(args: z.infer<typeof schemaInput>) {
   const selectionOwnerId = stringFromState(selection, "ownerId");
   const selectionMatchesOwner =
     Boolean(args.ownerId) && selectionOwnerId === args.ownerId;
-  // Prefer the owner-matched selection over generic navigation so a tab-scoped
-  // picker handoff lands in the design that produced it.
   const designId =
     args.designId ??
     (selectionMatchesOwner ? selectionDesignId : undefined) ??
@@ -356,18 +339,6 @@ export default defineAction({
     await assertAccess("design", file.designId, "editor");
     await snapshotDesignBeforeAgentEdit(file.designId, context);
 
-    // Read the LIVE base (collab text when present, else the SQL row) right
-    // before transforming, and carry its versionHash through to the write
-    // below. writeInlineSourceFile re-reads the live text immediately before
-    // its own applyText/DB write and rejects if it no longer matches this
-    // hash — closing the race window where a concurrent editor/agent write
-    // lands between this read and the persist (the same stale-diff-base bug
-    // fixed for update-file: a diff computed from a stale base, char-diffed
-    // into a collab doc that has since moved on, corrupts or drops the
-    // other writer's change). See update-file.ts and apply-source-edit.ts
-    // for the identical pattern. writeInlineSourceFile/readLiveSourceFile
-    // only ever dereference file.id (and content/filename for the read); the
-    // createdAt/updatedAt fields aren't selected above and aren't needed.
     const workspaceFile: SourceWorkspaceFile = {
       id: file.id,
       designId: file.designId,

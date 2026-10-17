@@ -33,10 +33,6 @@ function isOpaqueEvidenceRef(value: unknown): value is string {
   );
 }
 
-/**
- * Narrows a Clips evidence artifact to the small, SQL-safe shape signals may use.
- * Unknown payload-like keys fail closed so callers cannot accidentally pass a transcript.
- */
 export function parseCallEvidenceExcerpt(
   value: unknown,
 ): CallEvidenceExcerpt | null {

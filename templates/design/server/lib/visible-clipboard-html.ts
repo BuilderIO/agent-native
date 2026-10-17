@@ -21,6 +21,18 @@ function removeHiddenClipboardData(html: string): string {
     .trim();
 }
 
+const RENDERED_MEDIA_RE = /<(?:img|svg|video|canvas|picture|iframe)\b/i;
+
+function hasVisibleContent(html: string): boolean {
+  if (RENDERED_MEDIA_RE.test(html)) return true;
+  const text = html
+    .replace(/<(style|script)\b[\s\S]*?<\/\1>/gi, "")
+    .replace(/<[^>]*>/g, "")
+    // guard:allow-raw-color — "&#160;" is an HTML entity, not a colour.
+    .replace(/&nbsp;|&#160;/g, " ");
+  return text.trim().length > 0;
+}
+
 export function parseVisibleClipboardHtml(html: string): {
   fallbackHtml?: string;
 } {
@@ -37,6 +49,6 @@ export function parseVisibleClipboardHtml(html: string): {
     );
   }
   return {
-    fallbackHtml: fallbackHtml || undefined,
+    fallbackHtml: hasVisibleContent(fallbackHtml) ? fallbackHtml : undefined,
   };
 }

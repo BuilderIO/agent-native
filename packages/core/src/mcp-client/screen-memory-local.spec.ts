@@ -330,7 +330,7 @@ describe("local Screen Memory helpers", () => {
       { ...options, now: () => now },
     );
 
-    expect(result.items).toHaveLength(2); // Legacy context remains bounded too.
+    expect(result.items).toHaveLength(2);
     expect(result.evidence).toHaveLength(2);
     expect(result.evidence[0]?.excerpt).toHaveLength(1_200);
     expect(result.evidence[0]?.excerptTruncated).toBe(true);

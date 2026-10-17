@@ -1,12 +1,4 @@
 #!/usr/bin/env node
-/**
- * dev-electron.ts — Start the Electron shell together with the template apps it loads.
- *
- * Usage:  node scripts/dev-electron.ts [--apps calendar,content] [--dry-run]
- *
- * By default starts the core template set (mail, calendar, slides, etc.).
- * Pass --apps to override, e.g.: --apps calendar,slides
- */
 import { execFileSync, execSync, spawn } from "child_process";
 import fs from "fs";
 import path from "path";
@@ -53,11 +45,6 @@ if (hasFlag("--help") || hasFlag("-h")) {
 const dryRun = hasFlag("--dry-run");
 const FRAME_PORT = 3334;
 
-// ── App port assignments ───────────────────────────────────────
-// Parsed from packages/shared-app-config/templates.ts (same approach
-// as scripts/dev-all.ts) so this script can never drift from the
-// canonical port registry. We can't `import` the .ts file directly
-// from a node-run script without compiling, hence the regex.
 const configPath = path.resolve("packages/shared-app-config/templates.ts");
 const configSrc = fs.readFileSync(configPath, "utf8");
 const PORT_MAP: Record<string, number> = {};
@@ -72,7 +59,6 @@ while ((portMatch = coreRe.exec(configSrc)) !== null) {
   CORE_APPS.push(portMatch[1]);
 }
 
-// ── Parse --apps flag ──────────────────────────────────────────
 const appsArg = flagValue("--apps");
 const requestedApps = appsArg
   ? appsArg
@@ -81,7 +67,6 @@ const requestedApps = appsArg
       .filter(Boolean)
   : CORE_APPS;
 
-// ── Ports that may need cleanup before starting ────────────────
 const portsToUse = requestedApps
   .map((a) => PORT_MAP[a])
   .filter(Boolean) as number[];
@@ -129,15 +114,12 @@ function tryKillPort(port: number) {
   try {
     pids = listeningPidsForPort(port);
   } catch {
-    // Port not in use — fine
     return;
   }
 
   for (const pid of pids) {
     try {
       if (process.platform === "win32") {
-        // Vite is launched through pnpm/concurrently, so kill the full tree;
-        // terminating only the listener leaves its wrapper alive for relaunch.
         execFileSync("taskkill", ["/pid", String(pid), "/t", "/f"], {
           stdio: "ignore",
           windowsHide: true,
@@ -184,16 +166,12 @@ function ensureElectronBinary() {
   }
 }
 
-// ── Build concurrently command list ───────────────────────────
 const names: string[] = [];
 const commands: string[] = [];
 const colors: string[] = [];
 
 const appColors = ["blue", "green", "cyan", "magenta", "white"];
 
-// Keep cold-start SSR imports from racing one another. Nitro's Vite worker
-// reports a transient 503 while its entry is still being compiled; starting
-// every template at once turns that expected warm-up into a visible app error.
 const STAGGER_DELAY_S = 0.25;
 
 requestedApps.forEach((appName, i) => {
@@ -203,12 +181,6 @@ requestedApps.forEach((appName, i) => {
     return;
   }
   names.push(appName);
-  // Run the Vite dev server directly.
-  // The templates' vite.config.ts uses @agent-native/core/vite which integrates
-  // the Express API server as Vite middleware — so this single command starts
-  // both the frontend and all /api/* routes on the one port.
-  // PORT pins the dev server port (Nitro's vite plugin reads process.env.PORT
-  // first when resolving the dev server port).
   const delayMs = Math.round(i * STAGGER_DELAY_S * 1000);
   commands.push(
     `node scripts/dev-electron-template.ts ${JSON.stringify(appName)} ${port} ${delayMs}`,
@@ -220,7 +192,6 @@ names.push("frame");
 commands.push("pnpm --filter @agent-native/frame dev");
 colors.push("magenta");
 
-// Electron shell dev (starts electron-vite which starts renderer + main + Electron)
 names.push("electron");
 commands.push("pnpm --filter @agent-native/desktop-app dev");
 colors.push("yellow");
@@ -244,13 +215,6 @@ if (dryRun) {
 
 ensureElectronBinary();
 
-// The desktop shell resolves @agent-native/core, /shared-app-config, /toolkit,
-// and /code-agents-ui through their built `dist/`, not their source. A dist left
-// behind by an older checkout still loads, so the shell boots against last
-// week's code and fails in ways that look like app bugs — a missing export
-// reads as `undefined` at the call site (a dropped `workspaceSso` turns into a
-// re-login prompt; a missing host map throws on every app URL it resolves).
-// dev-lazy already prebuilds for this reason; this entry point must too.
 console.log(`\x1b[36m[dev-electron]\x1b[0m Prebuilding workspace packages...`);
 execSync("node scripts/prebuild-workspace-packages.ts dev", {
   stdio: "inherit",
@@ -287,7 +251,6 @@ const proc = spawn(
 
 proc.on("exit", (code) => process.exit(code ?? 0));
 
-// Forward signals to concurrently so Cmd+C doesn't leave zombie processes holding ports
 for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
   process.on(sig, () => {
     proc.kill(sig);

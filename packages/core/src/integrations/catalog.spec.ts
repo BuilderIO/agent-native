@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 
+import { googleDocsAdapter } from "./adapters/google-docs.js";
 import {
   BUILT_IN_INTEGRATION_CATALOG,
   getIntegrationCatalogEntry,
   listBuiltInChannelIntegrations,
   listIntegrationCatalog,
 } from "./catalog.js";
+import { BUILT_IN_INTEGRATION_ADAPTER_IDS } from "./plugin.js";
 
 describe("integration catalog", () => {
   it("only seeds runtime-backed messaging channels as built-in", () => {
@@ -16,6 +18,7 @@ describe("integration catalog", () => {
       "telegram",
       "whatsapp",
       "email",
+      "google-docs",
     ]);
     expect(BUILT_IN_INTEGRATION_CATALOG).toEqual(
       expect.arrayContaining([
@@ -81,6 +84,28 @@ describe("integration catalog", () => {
         )
         .map((credential) => credential.key),
     ).toEqual(["RESEND_API_KEY", "SENDGRID_API_KEY"]);
+  });
+
+  it("lists every channel adapter the integrations plugin mounts", () => {
+    expect(
+      listBuiltInChannelIntegrations()
+        .map((entry) => entry.id)
+        .sort(),
+    ).toEqual([...BUILT_IN_INTEGRATION_ADAPTER_IDS].sort());
+  });
+
+  it("describes Google Docs with the adapter's service account key", () => {
+    const googleDocs = getIntegrationCatalogEntry("google-docs");
+    expect(googleDocs?.categories).toEqual(["channel"]);
+    expect(
+      googleDocs?.credentialRequirements.map((credential) => credential.key),
+    ).toEqual(
+      googleDocsAdapter()
+        .getRequiredEnvKeys()
+        .map((envKey) => envKey.key),
+    );
+    // Nobody pastes a Google Docs webhook URL; the poller finds comments.
+    expect(googleDocs?.channelCapabilities?.webhookSetup).toBeUndefined();
   });
 
   it("filters taxonomy without exposing mutable catalog state", () => {

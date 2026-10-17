@@ -15,12 +15,15 @@ import {
   buildRawHandoffUrl,
   normalizeHandoffFormat,
 } from "../server/lib/coding-handoff.js";
+import {
+  trackDesignExported,
+  withDesignExportFailureTracking,
+} from "../server/lib/design-export-tracking.js";
 import { buildDesignSnapshot } from "../server/lib/design-snapshot.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 
 const HANDOFF_TTL_SECONDS = 7 * 24 * 60 * 60;
 
-/** Editor deep link so external agents can surface "Open design". */
 function designDeepLink(designId: string): string {
   return buildDeepLink({
     app: "design",
@@ -64,13 +67,17 @@ export default defineAction({
       height: 680,
     }),
   },
-  run: async ({ id, origin, format }) => {
+  run: withDesignExportFailureTracking<{
+    id: string;
+    origin?: string;
+    format: "markdown" | "json";
+  }>("coding_handoff")(async ({ id, origin, format }, ctx, facts) => {
     const access = await assertAccess("design", id, "viewer");
     const design = access.resource as typeof schema.designs.$inferSelect;
+    facts.designId = id;
 
-    // Build from the same snapshot logic as get-design-snapshot: live collab
-    // content where a file is being edited, plus resolved tweak tokens.
     const snapshot = await buildDesignSnapshot(id, design.data);
+    facts.fileCount = snapshot.files.length;
 
     if (snapshot.files.length === 0) {
       throw new Error("This design has no files to hand off yet");
@@ -81,15 +88,6 @@ export default defineAction({
       ttlSeconds: HANDOFF_TTL_SECONDS,
     });
     const handoffFormat = normalizeHandoffFormat(format);
-    // External agents (MCP / A2A) that don't pass `origin` would otherwise get
-    // a relative URL they can't fetch. Resolution order:
-    //   1. explicit `origin` arg (caller knows best),
-    //   2. the live request origin from the request context (set by the MCP
-    //      layer from the inbound request — the actual local-workspace app
-    //      origin, e.g. http://127.0.0.1:8085, so the signed raw-code URL is
-    //      fetchable in dev/workspace setups), then
-    //   3. the canonical first-party app origin (env override → registry
-    //      prodUrl → platform URL → localhost) for deployed apps.
     const resolvedOrigin =
       origin || getRequestContext()?.requestOrigin || getAppProductionUrl();
     const rawUrl = buildRawHandoffUrl({
@@ -110,6 +108,11 @@ export default defineAction({
       fileCount: snapshot.files.length,
     });
 
+    trackDesignExported(
+      { ...facts, exportFormat: "coding_handoff", status: "completed" },
+      ctx,
+    );
+
     return {
       designId: id,
       rawUrl,
@@ -125,7 +128,7 @@ export default defineAction({
         Date.now() + HANDOFF_TTL_SECONDS * 1000,
       ).toISOString(),
     };
-  },
+  }),
   link: ({ result }) => {
     if (!result || typeof result !== "object") return null;
     const designId = (result as { designId?: string }).designId;

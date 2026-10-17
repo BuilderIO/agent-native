@@ -1,0 +1,445 @@
+<!--
+  Clips desktop app prototype. Build with: node prototypes/kit/build.ts clips-desktop
+  Mirrors templates/clips/desktop: the menu bar tray icon and its menu, the recorder popover
+  (app.tsx), the countdown, camera bubble, recording control bar and its completion card
+  (overlays/record-pill.tsx), and the meeting notification, on a fake macOS desktop.
+  Layout of this file:
+    <style>   desktop tokens, fake desktop and menu bar, popover, overlays
+    markup    review strip, then #desk (rendered by script)
+    <script>  banners "/* ───────── name ───────── */": state, desktop, popover, overlays, events, clock
+  The review strip (Scenario, Theme, Changes) exists only in the prototype.
+-->
+<title>Clips Desktop</title>
+__KIT_HEAD__
+<style>
+/* The desktop's own tokens, light and dark, come from templates/clips/desktop/src (prototype.json "tokens").
+   The .record-pill-scope tokens in tailwind.css are scoped to the pill, so they're repeated here under the code's names. */
+:root {
+  --kit-menu-font: 12px; --kit-menu-line: 16px; --kit-menu-row: 28px; --kit-menu-padding: 4px; --kit-menu-item-radius: 6px;
+  --pill-chrome: #1e1e1e; --pill-control: rgba(255, 255, 255, 0.1); --pill-rec: #e0473f; --pill-on-chrome: #fff;
+  --pill-soft: rgba(255, 255, 255, 0.15); --pill-ghost-ink: rgba(255, 255, 255, 0.72); --pill-ease: cubic-bezier(0.3, 0, 0, 1);
+  --pill-card-surface: rgba(252, 252, 252, 0.98); --pill-card-ink: #1c1c1e; --pill-card-ink-2: #6b6b70; --pill-card-ink-3: #a3a3a8;
+  --pill-card-badge: #3e9b4f; --pill-card-badge-bg: #e9f4ea; --pill-card-badge-warn: #a9701a; --pill-card-badge-warn-bg: #f8efdd;
+  --pill-card-border: rgba(0, 0, 0, 0.15); --pill-card-border-strong: rgba(0, 0, 0, 0.2); --pill-card-well: rgba(0, 0, 0, 0.05);
+  /* Not in the code yet: the fake desktop around the app (wallpaper, menu bar, a window being recorded). */
+  --desk-wall-a: #d9dce1; --desk-wall-b: #b9bfc8; --desk-bar: rgba(246, 246, 246, 0.72); --desk-bar-fg: #1d1d1f; --desk-window: #ffffff; --desk-window-line: #e8e8e8; --desk-block: #f1f1f1; --desk-ink: #c9c9c9;
+  --kit-accent: var(--brand);
+  --font: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  /* Not in the code yet: the fake desktop in dark. */
+  --desk-wall-a: #2b2f36; --desk-wall-b: #1b1e23; --desk-bar: rgba(30, 30, 30, 0.6); --desk-bar-fg: #f5f5f7; --desk-window: #1e1e1e; --desk-window-line: #333; --desk-block: #2a2a2a; --desk-ink: #444;
+} }
+:root[data-theme="dark"] {
+  --desk-wall-a: #2b2f36; --desk-wall-b: #1b1e23; --desk-bar: rgba(30, 30, 30, 0.6); --desk-bar-fg: #f5f5f7; --desk-window: #1e1e1e; --desk-window-line: #333; --desk-block: #2a2a2a; --desk-ink: #444;
+}
+body { font-family: var(--font); font-size: 13px; line-height: 1.4; }
+.review select { font: inherit; background: none; border: 0; color: inherit; }
+svg.i.s18 { width: 18px; height: 18px; } svg.i.s20 { width: 20px; height: 20px; } svg.i.s22 { width: 22px; height: 22px; } svg.i.s28 { width: 28px; height: 28px; } svg.i.s30 { width: 30px; height: 30px; }
+.menu .lbl { font-size: 11px; font-weight: 600; }
+.toast { background: var(--brand); color: var(--bg); bottom: 96px; }
+
+/* ───────── desktop ───────── */
+.desk { position: fixed; inset: 36px 0 0 0; overflow: hidden; background: radial-gradient(120% 90% at 30% 10%, var(--desk-wall-a), var(--desk-wall-b)); color: var(--fg); user-select: none; }
+.mbar { position: absolute; inset: 0 0 auto 0; height: 24px; display: flex; align-items: center; gap: 18px; padding: 0 10px 0 16px; background: var(--desk-bar); backdrop-filter: blur(20px); color: var(--desk-bar-fg); font-size: 13px; z-index: 30; }
+.mbar b { font-weight: 700; }
+.mbar .r { margin-left: auto; display: flex; align-items: center; gap: 4px; }
+.mbar .r > * { height: 22px; min-width: 26px; padding: 0 6px; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.tray[aria-expanded="true"], .tray:hover { background: color-mix(in srgb, var(--desk-bar-fg) 16%, transparent); }
+.tray svg { width: 20px; height: 12px; }
+.tray .stopsq { width: 11px; height: 11px; border-radius: 3px; border: 1.6px solid currentColor; }
+.tray .tt { font: 500 13px var(--font); font-variant-numeric: tabular-nums; }
+.win { position: absolute; left: 50%; top: 92px; width: 880px; height: 540px; transform: translateX(-50%); border-radius: 10px; background: var(--desk-window); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25), 0 0 0 0.5px rgba(0, 0, 0, 0.2); overflow: hidden; }
+.win .tb { height: 36px; display: flex; align-items: center; gap: 8px; padding: 0 14px; border-bottom: 1px solid var(--desk-window-line); }
+.win .tb i { width: 12px; height: 12px; border-radius: 50%; background: var(--desk-ink); }
+.win .tb .url { margin: 0 auto; width: 320px; height: 22px; border-radius: 6px; background: var(--desk-block); font-size: 11px; display: grid; place-items: center; color: var(--fg-subtle); }
+.win .bd { position: absolute; inset: 36px 0 0 0; }
+.win .bd i { position: absolute; display: block; border-radius: 6px; background: var(--desk-block); }
+.win .bd i.ln { height: 8px; border-radius: 99px; background: var(--desk-ink); }
+
+/* ───────── popover ───────── */
+.pop { position: absolute; top: 30px; z-index: 40; width: 320px; display: flex; flex-direction: column; background: var(--bg); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow-md); overflow: hidden; animation: popin .14s ease-out; }
+@keyframes popin { from { opacity: 0; transform: translateY(-4px); } }
+.home { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.mhead { display: flex; justify-content: center; align-items: center; min-height: 36px; position: relative; }
+.mode-toggle { display: inline-flex; background: var(--surface); border-radius: var(--recorder-mode-toggle-radius); padding: 3px; border: 1px solid var(--border); }
+.mode-toggle button { width: 64px; height: 28px; display: grid; place-items: center; border-radius: var(--recorder-mode-option-radius); color: var(--fg-muted); transition: background-color .12s, color .12s; position: relative; }
+.mode-toggle button:hover { color: var(--fg); }
+.mode-toggle button.active { background: var(--brand); color: var(--bg); box-shadow: var(--shadow-sm); }
+.tip { position: absolute; top: calc(100% + 8px); left: 50%; transform: translateX(-50%); z-index: 5; pointer-events: none; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--fg); color: var(--bg); box-shadow: var(--shadow-md); font-size: 11px; font-weight: 500; line-height: 1; padding: 6px 8px; white-space: nowrap; opacity: 0; transition: opacity .12s; }
+[data-tip]:hover > .tip { opacity: 1; }
+.panel { display: flex; flex-direction: column; }
+.row { display: grid; grid-template-columns: 20px minmax(0, 1fr) 44px; align-items: center; column-gap: 10px; min-height: 30px; padding: 5px 10px; border-radius: 6px; transition: background .12s; color: var(--fg); }
+.row:hover { background: hsl(var(--ui-muted) / 0.55); }
+.row.off { color: var(--fg-subtle); }
+.row.src { grid-template-columns: 20px minmax(0, 1fr); }
+.row .ri { width: 20px; height: 20px; display: grid; place-items: center; }
+.rb { min-width: 0; display: flex; align-items: center; gap: 6px; font-size: 13px; text-align: left; color: inherit; }
+.rb .lab { flex: 0 0 auto; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rb .grow { flex: 1; }
+.rb .chev { color: var(--fg-subtle); display: inline-flex; }
+.wave { flex: 1; height: 18px; margin: 0 4px; -webkit-mask-image: linear-gradient(to right, transparent 0, #000 12%, #000 88%, transparent 100%); mask-image: linear-gradient(to right, transparent 0, #000 12%, #000 88%, transparent 100%); }
+.wave path { fill: none; stroke: rgba(74, 222, 128, 0.95); stroke-width: 1.25; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.tr { display: flex; justify-content: flex-end; }
+.sw { position: relative; width: 44px; height: 24px; border-radius: 99px; background: hsl(var(--ui-input)); transition: background .15s; }
+.sw::after { content: ""; position: absolute; left: 2px; top: 2px; width: 20px; height: 20px; border-radius: 50%; background: var(--bg); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2); transition: transform .15s; }
+.sw[aria-checked="true"] { background: hsl(var(--ui-primary)); }
+.sw[aria-checked="true"]::after { transform: translateX(20px); }
+.primary { width: 100%; height: 44px; margin-top: 2px; border-radius: var(--radius); padding: 12px 16px; background: var(--brand); color: var(--bg); font-size: 14px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 10px; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2); transition: background .12s; }
+.primary:hover { background: var(--brand-hover); }
+.rec-dot { width: 8px; height: 8px; border-radius: 50%; background: hsl(var(--ui-destructive)); transform: translateY(1px); }
+.recov { display: flex; align-items: center; gap: 10px; min-height: 30px; padding: 5px 10px; border-radius: 8px; color: var(--fg); text-align: left; }
+.recov:hover { background: var(--surface-hover); }
+.recov .w { color: var(--status-warn); display: inline-flex; }
+.recov .grow { flex: 1; }
+.banner { display: flex; gap: 10px; align-items: flex-start; padding: 10px; border-radius: 8px; background: var(--surface); border: 1px solid var(--border); }
+.banner b { display: block; font-size: 13px; font-weight: 600; }
+.banner small { display: block; font-size: 12px; color: var(--fg-muted); }
+.banner .grow { flex: 1; }
+.bbtn { height: 32px; padding: 0 10px; border-radius: 6px; background: hsl(var(--ui-primary)); color: hsl(var(--ui-primary-foreground)); font-size: 12px; font-weight: 500; }
+.obtn { height: 32px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); font-size: 12px; font-weight: 500; color: var(--fg); }
+.obtn:hover { background: var(--surface-hover); }
+.bottom { padding: 7px 14px 10px; border-top: 1px solid var(--border); display: flex; flex-direction: column; }
+.bot { display: flex; align-items: center; gap: 10px; min-height: 30px; padding: 5px 10px; border-radius: var(--radius-sm); color: var(--fg); text-align: left; font-size: 13px; transition: background .12s; }
+.bot:hover { background: var(--surface-hover); }
+.bot .bi { width: 20px; display: inline-flex; justify-content: center; color: var(--fg-muted); }
+.bot:hover .bi { color: var(--fg); }
+.bot .grow { flex: 1; }
+.bot .ext { color: var(--fg-subtle); display: inline-flex; }
+.signin { padding: 22px 18px 14px; display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; }
+.signin .mark { width: 26px; color: var(--fg); }
+.signin h1 { margin: 4px 0 0; font-size: 15px; font-weight: 650; }
+.signin p { margin: 0 0 6px; font-size: 12px; color: var(--fg-muted); }
+.google { width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 8px 10px; border-radius: 8px; background: var(--surface); border: 1px solid var(--border); font-size: 13px; font-weight: 500; }
+.google:hover { background: var(--surface-hover); }
+.or { width: 100%; display: flex; align-items: center; gap: 8px; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--fg-subtle); }
+.or::before, .or::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+.signin input { width: 100%; height: 36px; border-radius: 8px; border: 1px solid var(--border-strong); background: var(--bg); padding: 0 12px; font-size: 13px; outline: none; color: var(--fg); }
+.signin input:focus { box-shadow: 0 0 0 2px var(--brand-ring); }
+.signin .lnk { font-size: 11px; color: var(--fg-muted); text-decoration: underline; }
+.signin .foot { margin-top: 6px; font-size: 11px; color: var(--fg-subtle); display: flex; gap: 6px; }
+
+/* ───────── overlays ───────── */
+.dim { position: absolute; inset: 0; z-index: 50; background: rgba(0, 0, 0, 0.42); display: grid; place-items: center; }
+.cd-num { font-size: 240px; font-weight: 800; line-height: 1; color: #fff; font-variant-numeric: tabular-nums; animation: cdpop 1s ease-out; }
+@keyframes cdpop { 0% { transform: scale(.6); opacity: 0; } 40% { transform: scale(1.1); opacity: 1; } 100% { transform: scale(1); } }
+.cd-btn { position: absolute; top: 50%; width: 64px; height: 64px; margin-top: -32px; border-radius: 50%; display: grid; place-items: center; color: #fff; background: rgba(10, 12, 16, 0.42); border: 1px solid rgba(255, 255, 255, 0.22); backdrop-filter: blur(8px); transition: background .12s, color .12s; }
+.cd-btn:hover { background: rgba(255, 255, 255, 0.92); color: #111; }
+.cd-btn.l { left: calc(50% - 232px - 64px); } .cd-btn.r { left: calc(50% + 168px); }
+.cd-btn svg { stroke-width: 2.4; }
+.bubble { position: absolute; left: 24px; bottom: 24px; z-index: 45; border-radius: 50%; background: #000; display: grid; place-items: center; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35); transition: width .2s, height .2s; }
+.bubble .face { width: 100%; height: 100%; border-radius: 50%; background: radial-gradient(60% 60% at 50% 40%, #6b6f76, #2a2c30 70%); display: grid; place-items: center; color: rgba(255, 255, 255, 0.82); font-size: 40px; font-weight: 600; }
+.bubble .bc { position: absolute; left: 50%; top: -48px; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; padding: 6px 10px; border-radius: 999px; background: rgba(20, 20, 20, 0.85); color: #fff; opacity: 0; transition: opacity .12s; }
+.bubble .bx { position: absolute; right: 8%; top: 8%; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; background: rgba(20, 20, 20, 0.7); color: #fff; opacity: 0; transition: opacity .12s; }
+.bubble:hover .bc, .bubble:hover .bx { opacity: 1; }
+.bubble .dot { border-radius: 50%; background: rgba(255, 255, 255, 0.55); }
+.bubble .dot.on { background: #fff; }
+.bubble .dotb { width: 22px; height: 22px; display: grid; place-items: center; }
+.rpill { position: absolute; left: 50%; bottom: 20px; z-index: 46; transform: translateX(-50%); height: 42px; padding: 6px; border-radius: 9999px; background: var(--pill-chrome); color: var(--pill-on-chrome); display: flex; align-items: center; gap: 2px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35); }
+.pb { width: 30px; height: 30px; border-radius: 999px; display: grid; place-items: center; color: var(--pill-ghost-ink); }
+.pb:hover { color: var(--pill-on-chrome); background: var(--pill-control); }
+.pb .sq { width: 13px; height: 13px; border-radius: 3px; background: var(--pill-rec); }
+.timer { padding: 0 6px; font: 500 14px ui-monospace, "SF Mono", Menlo, monospace; color: var(--pill-rec); font-variant-numeric: tabular-nums; min-width: 44px; text-align: center; }
+.paused .timer { color: var(--pill-on-chrome); }
+.meter { width: 18px; height: 18px; display: flex; align-items: center; justify-content: center; gap: 1.5px; margin: 0 4px; }
+.meter i { width: 2px; border-radius: 2px; background: var(--waveform); height: 4px; transition: height .12s; }
+.micoff { width: 18px; height: 18px; border-radius: 50%; background: var(--status-warn); color: #fff; display: grid; place-items: center; margin: 0 4px; }
+.pdiv { width: 1px; height: 18px; background: var(--pill-soft); margin: 0 4px; }
+.extra { display: flex; align-items: center; gap: 2px; overflow: hidden; max-width: 0; transition: max-width .12s var(--pill-ease); }
+.rpill:hover .extra, .rpill.keep .extra { max-width: 80px; }
+.pq { padding: 0 8px; font-size: 12px; font-weight: 600; color: rgba(255, 255, 255, 0.82); white-space: nowrap; }
+.pa { height: 28px; padding: 0 14px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.pa.white { background: #fff; color: #1c1c1e; }
+.pa.red { background: var(--pill-rec); color: #fff; }
+.pa.soft { background: rgba(255, 255, 255, 0.15); color: #fff; }
+.ptip { position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%); padding: 5px 8px; border-radius: 6px; background: var(--pill-chrome); color: #fff; font-size: 11px; white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity .12s; }
+.pb:hover .ptip { opacity: 1; }
+.pb { position: relative; }
+.card { position: absolute; left: 50%; bottom: 20px; z-index: 46; transform: translateX(-50%); width: 340px; padding: 16px; border-radius: 14px; border: 0.5px solid var(--pill-card-border); background: var(--pill-card-surface); color: var(--pill-card-ink); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25); animation: cardin .22s var(--pill-ease); }
+@keyframes cardin { from { opacity: 0; transform: translate(-50%, 8px); } }
+.card .h { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.badge { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; flex: none; background: var(--pill-card-well); color: var(--pill-card-ink-2); }
+.badge.ok { background: var(--pill-card-badge-bg); color: var(--pill-card-badge); }
+.badge.warn { background: var(--pill-card-badge-warn-bg); color: var(--pill-card-badge-warn); }
+.card .h b { display: block; font-size: 14px; font-weight: 600; }
+.card .h small { display: block; font-size: 12px; color: var(--pill-card-ink-2); }
+.card .x { margin-left: auto; width: 24px; height: 24px; display: grid; place-items: center; border-radius: 4px; color: var(--pill-card-ink-3); }
+.card .x:hover { color: var(--pill-card-ink); }
+.well { margin-bottom: 12px; display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; background: var(--pill-card-well); font-size: 12px; color: var(--pill-card-ink-2); }
+.well .u { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; font-family: ui-monospace, "SF Mono", Menlo, monospace; color: inherit; }
+.well button:last-child { width: 20px; height: 20px; display: grid; place-items: center; color: inherit; }
+.card .acts { display: flex; gap: 8px; }
+.card .open { flex: 1; height: 34px; border-radius: 8px; background: var(--pill-card-ink); color: var(--pill-on-chrome); font-size: 13px; font-weight: 600; }
+.card .copy { flex: 1; height: 34px; border-radius: 8px; border: 1px solid var(--pill-card-border-strong); color: var(--pill-card-ink); font-size: 13px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.spin { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.notif { position: absolute; right: 16px; top: 36px; z-index: 47; width: 380px; padding: 14px; border-radius: 14px; background: rgba(20, 22, 28, 0.94); color: #fff; box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35); display: flex; align-items: center; gap: 12px; animation: popin .2s ease-out; }
+.notif .t { flex: 1; min-width: 0; }
+.notif b { display: block; font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.notif small { font-size: 12px; color: rgba(255, 255, 255, 0.62); }
+.split { display: flex; border-radius: 10px; overflow: hidden; background: rgba(255, 255, 255, 0.12); }
+.split button { color: #fff; }
+.split .main { display: flex; align-items: center; gap: 8px; padding: 6px 10px; text-align: left; }
+.split .main span { display: flex; flex-direction: column; font-size: 13px; font-weight: 600; line-height: 1.2; }
+.split .main small { font-size: 10px; font-weight: 400; color: rgba(255, 255, 255, 0.62); }
+.split .chev { width: 28px; border-left: 1px solid rgba(255, 255, 255, 0.15); display: grid; place-items: center; }
+.split button:hover { background: rgba(255, 255, 255, 0.08); }
+.notif .nx { position: absolute; left: -6px; top: -6px; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; background: rgba(20, 22, 28, 0.94); color: #fff; border: 1px solid rgba(255, 255, 255, 0.2); opacity: 0; }
+.notif:hover .nx { opacity: 1; }
+.mpill { position: absolute; right: 24px; top: 48px; z-index: 46; height: 38px; padding: 0 12px 0 10px; border-radius: 999px; background: rgba(26, 26, 26, 0.95); color: #fff; display: flex; align-items: center; gap: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35); }
+.mpill svg.logo { width: 18px; height: 11px; }
+.mpill .t { font: 500 12px ui-monospace, "SF Mono", Menlo, monospace; }
+.mpill .stop { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: #ef4444; }
+.mpill .stop i { width: 10px; height: 10px; border-radius: 2px; background: #fff; }
+.dlg { position: absolute; inset: 0; z-index: 60; display: grid; place-items: center; }
+.dlg .box { width: 300px; padding: 16px; border-radius: 12px; background: var(--bg); border: 1px solid var(--border); box-shadow: var(--shadow-md); }
+.dlg h2 { margin: 0; font-size: 15px; font-weight: 600; }
+.dlg p { margin: 6px 0 0; font-size: 12px; color: var(--fg-muted); }
+.dlg .ft { margin-top: 14px; display: flex; justify-content: flex-end; gap: 8px; }
+</style>
+
+<div class="review" role="toolbar" aria-label="Prototype controls">
+  <span class="name">Clips Desktop</span><span class="ver">Prototype</span>
+  <span class="grow"></span>
+  <label class="chip" title="Show states the app reaches in use">Scenario <select id="scenario"><option value="default">Default</option><option value="signedout">Signed out</option><option value="meeting">Meeting starting</option><option value="update">Update ready</option><option value="recovery">Clip needs attention</option></select></label>
+  <button class="chip" id="theme-btn">Theme</button>
+  <button class="chip" id="changes-btn" aria-pressed="false">Changes</button>
+</div>
+<div class="desk" id="desk"></div>
+
+__KIT_SCRIPT__
+<script>
+/* ───────── state ───────── */
+const SOURCES = ["Full screen", "Region"];
+const WINDOWS = ["Acme dashboard", "Release notes"];
+const CAMERAS = ["Built-in camera", "Studio camera"];
+const MICS = ["Built-in microphone", "USB microphone"];
+const S = {
+  scenario: "default", pop: false, mode: "screen-camera", source: "Full screen", camera: "Default camera", mic: "Default mic",
+  camOn: true, micOn: true, sysAudio: false, bubbleSize: "small",
+  phase: "idle", // idle | countdown | recording | done
+  count: 3, ms: 0, paused: false, confirm: null, done: null, copied: false, guides: false,
+  meeting: false, notes: false, notesMs: 0, signin: "email",
+};
+try { const t = localStorage.getItem("clips-desktop-theme"); if (t) document.documentElement.dataset.theme = t; } catch {}
+const fmt = (ms) => { const s = Math.floor(ms / 1000); return s >= 6000 ? `${Math.floor(s / 3600)}:${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}h` : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
+const dur = (ms) => { const s = Math.max(1, Math.round(ms / 1000)); return s < 60 ? `${s} sec` : `${Math.round(s / 60)} min`; };
+const hasCam = () => S.mode !== "screen";
+
+/* ───────── desktop ───────── */
+function menuBar() {
+  const rec = S.phase === "recording";
+  return `<div class="mbar"><b>Finder</b><span>File</span><span>Edit</span><span>View</span><span>Go</span><span>Window</span><span>Help</span>
+    <div class="r"><button class="tray" id="tray" aria-label="${rec ? "Clips — Recording (click to stop)" : "Clips"}" title="${rec ? "Clips — Recording (click to stop)" : "Clips"}" aria-expanded="${S.pop}">${rec ? `<span class="stopsq"></span><span class="tt">${S.paused ? "⏸ " : ""}${fmt(S.ms)}</span>` : '__LOGO_SMALL__'}</button>
+    <span>${ic("wifi", "s14")}</span><span>${ic("battery-3", "s18")}</span><span>${ic("search", "s14")}</span><span>${new Date(2026, 9, 12, 9, 41).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span></div></div>`;
+}
+const appWindow = () => `<div class="win" aria-hidden="true"><div class="tb"><i></i><i></i><i></i><span class="url">acme.example.com/dashboard</span></div><div class="bd">
+  <i style="left:0;top:0;width:180px;bottom:0;border-radius:0"></i><i class="ln" style="left:24px;top:28px;width:96px"></i><i class="ln" style="left:24px;top:60px;width:120px"></i><i class="ln" style="left:24px;top:84px;width:88px"></i><i class="ln" style="left:24px;top:108px;width:110px"></i>
+  <i class="ln" style="left:212px;top:28px;width:220px;height:14px"></i>
+  <i style="left:212px;top:70px;width:196px;height:96px"></i><i style="left:424px;top:70px;width:196px;height:96px"></i><i style="left:636px;top:70px;width:212px;height:96px"></i>
+  <i style="left:212px;top:186px;width:636px;height:300px"></i>
+  ${[60, 110, 80, 150, 130, 190, 170, 220, 160, 240].map((h, n) => `<i style="left:${244 + n * 58}px;top:${462 - h}px;width:28px;height:${h}px;background:var(--desk-ink)"></i>`).join("")}
+</div></div>`;
+
+/* ───────── popover ───────── */
+const MODES = [["screen", "Screen", "screen-mode"], ["screen-camera", "Screen and camera", "screen-camera-mode"], ["camera", "Camera", "camera-mode"]];
+function wave() {
+  const t = Date.now() / 160;
+  const pts = Array.from({ length: 40 }, (_, i) => `${i * 2.5},${9 + Math.sin(i * 0.9 + t) * (S.micOn ? 2 + 4 * Math.abs(Math.sin(i * 0.31 + t / 3)) : 0)}`).join(" L");
+  return `<svg class="wave" viewBox="0 0 100 18" preserveAspectRatio="none"><path d="M${pts}"/></svg>`;
+}
+function popover() {
+  if (S.scenario === "signedout") return `<div class="pop" style="right:${popRight()}px"><div class="signin">
+    <svg class="mark" viewBox="0 0 114 66" aria-hidden="true"><path d="M24.5537 65.7695H0L15.0859 39.4619L37.708 0L60.4912 39.4619H39.6396L24.5537 65.7695Z" fill="currentColor"/><path d="M89.446 0H114L76.2921 65.7704H51.7383L89.446 0Z" fill="currentColor"/></svg>
+    <h1>Welcome to Clips</h1><p>Record your screen, camera, and mic. Share a link the moment you stop.</p>
+    <button class="google" data-act="google" title="Comes back to Clips to finish sign-in">${ic("brand-google", "s14")}Sign in with Google</button>
+    <div class="or">or</div>
+    <input id="email" placeholder="you@example.com" aria-label="Email">${S.signin === "password" ? `<input type="password" placeholder="Password" aria-label="Password">` : ""}
+    <button class="primary" data-act="signin">${S.signin === "password" ? "Sign in" : "Continue"}</button>
+    <button class="lnk" data-act="signin-mode">${S.signin === "password" ? "Use a sign-in link instead" : "Use a password instead"}</button>
+    <div class="foot"><span>clips.example.com</span><button class="lnk" data-act="server">Change server</button></div>
+  </div></div>`;
+  const camRow = `<div class="row ${S.camOn ? "" : "off"}"><span class="ri">${ic("camera", "s18")}</span><button class="rb" id="cam-btn"><span class="lab">${S.camOn ? S.camera : "Camera"}</span><span class="chev">${ic("chevron-down")}</span><span class="grow"></span></button><span class="tr" data-tip><button class="sw" role="switch" aria-checked="${S.camOn}" data-act="cam" aria-label="${S.camOn ? "Turn off camera" : "Turn on camera"}"></button><span class="tip">${S.camOn ? "Turn off camera" : "Turn on camera"}</span></span></div>`;
+  return `<div class="pop" style="right:${popRight()}px" role="dialog" aria-label="Clips">
+    <div class="home">
+      <div class="mhead"><div class="mode-toggle" role="radiogroup" aria-label="Recording mode">${MODES.map(([k, t, i]) => `<button role="radio" aria-checked="${S.mode === k}" aria-label="${t}" class="${S.mode === k ? "active" : ""}" data-mode="${k}" data-tip>${ic(i, k === "screen-camera" ? "s18" : "")}<span class="tip">${t}</span></button>`).join("")}</div></div>
+      ${S.scenario === "update" ? `<div class="banner"><span class="grow"><b>Update ready</b></span><button class="bbtn" data-act="update">Update</button></div>` : ""}
+      <div class="panel">
+        ${S.mode === "camera" ? "" : `<div class="row src"><span class="ri">${ic("device-desktop", "s20")}</span><button class="rb" id="src-btn"><span class="lab">${S.source}</span><span class="chev">${ic("chevron-down")}</span></button></div>`}
+        ${hasCam() ? camRow : ""}
+        <div class="row ${S.micOn ? "" : "off"}"><span class="ri">${ic("microphone", "s18")}</span><button class="rb" id="mic-btn"><span class="lab">${S.micOn ? S.mic : "Microphone"}</span><span class="chev">${ic("chevron-down")}</span>${S.micOn ? `<span id="wave" style="flex:1;display:flex">${wave()}</span>` : `<span class="grow"></span>`}</button><span class="tr" data-tip><button class="sw" role="switch" aria-checked="${S.micOn}" data-act="mic" aria-label="${S.micOn ? "Turn off microphone" : "Turn on microphone"}"></button><span class="tip">${S.micOn ? "Turn off microphone" : "Turn on microphone"}</span></span></div>
+        ${S.mode === "camera" ? "" : `<div class="row ${S.sysAudio ? "" : "off"}"><span class="ri">${ic("volume-2", "s18")}</span><span style="font-size:13px">Record system audio</span><span class="tr" data-tip><button class="sw" role="switch" aria-checked="${S.sysAudio}" data-act="sys" aria-label="${S.sysAudio ? "Turn off system audio" : "Turn on system audio"}"></button><span class="tip">${S.sysAudio ? "Turn off system audio" : "Turn on system audio"}</span></span></div>`}
+      </div>
+      <button class="primary" data-act="start"><span class="rec-dot"></span><span>${S.mode === "camera" ? "Start camera recording" : "Start recording"}</span></button>
+      ${S.scenario === "recovery" ? `<button class="recov" data-act="recovery"><span class="w">${ic("alert-triangle")}</span><span class="grow">1 clip needs attention</span>${ic("chevron-right", "muted")}</button>` : ""}
+    </div>
+    <div class="bottom">
+      <button class="bot" data-act="library" title="Open library"><span class="bi">${ic("library", "s18")}</span><span class="grow">Library</span><span class="ext">${ic("external-link")}</span></button>
+      <button class="bot" data-act="settings" title="Open settings"><span class="bi">${ic("settings-sliders", "s18")}</span><span class="grow">Settings</span></button>
+    </div>
+  </div>`;
+}
+const popRight = () => { const t = $("#tray"); return t ? Math.max(8, innerWidth - t.getBoundingClientRect().right - 8) : 160; };
+
+/* ───────── overlays ───────── */
+function bubble() {
+  const show = hasCam() && S.camOn && S.scenario !== "signedout" && (S.pop || S.phase === "countdown" || S.phase === "recording");
+  if (!show) return "";
+  const size = S.mode === "camera" ? 400 : S.bubbleSize === "small" ? 264 : 400;
+  return `<div class="bubble" style="width:${size}px;height:${size}px"><div class="face">AR</div>
+    <div class="bc"><button data-act="cam" aria-label="Turn camera off" title="Turn camera off">${ic("camera-off", "s22")}</button><button class="dotb" data-size="small" aria-label="Small" title="Small"><span class="dot ${S.bubbleSize === "small" ? "on" : ""}" style="width:10px;height:10px"></span></button><button class="dotb" data-size="medium" aria-label="Medium" title="Medium"><span class="dot ${S.bubbleSize === "medium" ? "on" : ""}" style="width:16px;height:16px"></span></button></div>
+    <button class="bx" data-act="cam" aria-label="Close camera" title="Close camera">${ic("x", "s12")}</button></div>`;
+}
+function countdown() {
+  return `<div class="dim"><button class="cd-btn l" data-act="cd-cancel" aria-label="Cancel recording" title="Cancel recording">${ic("x", "s30")}</button><div class="cd-num" id="cd-num">${S.count}</div><button class="cd-btn r" data-act="cd-skip" aria-label="Skip countdown and start recording now" title="Skip countdown and start recording now">${ic("player-skip-forward-filled", "s28")}</button></div>`;
+}
+function meterBars() { return `<span class="meter" id="meter">${Array.from({ length: 5 }, () => `<i></i>`).join("")}</span>`; }
+function recPill() {
+  if (S.confirm) {
+    const restart = S.confirm === "restart";
+    return `<div class="rpill keep"><span class="pq">${restart ? "Start a new recording?" : `Discard ${dur(S.ms)}?`}</span><button class="pa soft" data-act="resume-confirm">Resume</button><button class="pa ${restart ? "white" : "red"}" data-act="${restart ? "do-restart" : "do-discard"}">${restart ? "Restart" : "Discard"}</button></div>`;
+  }
+  return `<div class="rpill ${S.paused ? "paused" : ""}" role="toolbar" aria-label="Recording controls">
+    <button class="pb" data-act="stop" aria-label="Stop and save"><span class="sq"></span><span class="ptip">Stop and save</span></button>
+    <span class="timer" id="timer">${fmt(S.ms)}</span>
+    ${S.micOn ? meterBars() : `<span class="micoff" title="Microphone is off">${ic("exclamation-mark", "s12")}</span>`}
+    <button class="pb" data-act="pause" aria-label="${S.paused ? "Resume" : "Pause"}">${ic(S.paused ? "player-play-filled" : "player-pause-filled", "s14")}<span class="ptip">${S.paused ? "Resume (⌥⇧P)" : "Pause (⌥⇧P)"}</span></button>
+    <span class="extra"><span class="pdiv"></span><button class="pb" data-act="restart" aria-label="Restart">${ic("refresh", "s14")}<span class="ptip">Restart (⌥⇧R)</span></button><button class="pb" data-act="discard" aria-label="Discard">${ic("trash", "s14")}<span class="ptip">Discard (⌥⇧C)</span></button></span>
+  </div>`;
+}
+function doneCard() {
+  const d = S.done;
+  const url = "clips.example.com/r/k7f2qm";
+  const title = { finishing: "Finishing up", uploading: "Uploading", saved: "Recording saved" }[d.stage];
+  return `<div class="card" role="status"><div class="h"><span class="badge ${d.stage === "saved" ? "ok" : ""}">${d.stage === "saved" ? ic("check", "s14") : ic("loader-2", "s14 spin")}</span><span style="min-width:0"><b>${title}</b><small>${dur(d.ms)}</small></span><button class="x" data-act="dismiss" aria-label="Dismiss">${ic("x", "s14")}</button></div>
+    ${d.stage === "saved" ? `<div class="well">${ic("link", "s14")}<button class="u" data-act="copy" aria-label="Copy link">${url}</button><button data-act="copy" aria-label="Copy link">${ic(S.copied ? "check" : "copy", "s14")}</button></div><div class="acts"><button class="open" data-act="open">Open</button><button class="copy" data-act="copy">${S.copied ? `Copied${ic("check", "s14")}` : "Copy"}</button></div>` : ""}
+  </div>`;
+}
+function meetingNotif() {
+  return `<div class="notif" role="alert"><button class="nx" data-act="notif-x" aria-label="Dismiss">${ic("x", "s12")}</button><span class="t"><b>Design sync</b><small>Starts in 2 min</small></span>
+    <span class="split"><button class="main" data-act="join">${ic("calendar-event", "s22")}<span>Join meeting<small>&amp; open Clips</small></span></button><button class="chev" id="notif-menu" aria-label="More options">${ic("chevron-down", "s14")}</button></span></div>`;
+}
+function meetingPill() {
+  return `<div class="mpill" role="status" aria-label="Meeting notes">__LOGO_SMALL__<span class="meter" id="mmeter">${Array.from({ length: 4 }, () => `<i></i>`).join("")}</span><span class="t" id="mtime">${fmt(S.notesMs)}</span><button class="stop" data-act="stop-notes" aria-label="Stop transcription" title="Stop transcription"><i></i></button></div>`;
+}
+function micDialog() {
+  return `<div class="dlg"><div class="box" role="alertdialog" aria-label="Microphone is off"><h2>Microphone is off</h2><p>This recording won't include your voice.</p><div class="ft"><button class="obtn" data-act="mic-back">Go back</button><button class="bbtn" data-act="mic-anyway">Record anyway</button></div></div></div>`;
+}
+
+/* ───────── render ───────── */
+function render() {
+  $("#desk").innerHTML = `${menuBar()}${appWindow()}
+    ${S.pop ? popover() : ""}
+    ${bubble()}
+    ${S.phase === "countdown" ? countdown() : ""}
+    ${S.phase === "recording" ? recPill() : ""}
+    ${S.phase === "done" ? doneCard() : ""}
+    ${S.meeting ? meetingNotif() : ""}
+    ${S.notes ? meetingPill() : ""}
+    ${S.micDialog ? micDialog() : ""}`;
+  if (S.pop) $(".pop").style.right = popRight() + "px";
+}
+
+/* ───────── flows ───────── */
+let cdTimer = null;
+function start() {
+  if (!S.micOn && !S.micDialog) { S.micDialog = true; render(); return; }
+  S.micDialog = false; S.pop = false; S.phase = "countdown"; S.count = 3; render();
+  cdTimer = setInterval(() => { S.count -= 1; if (S.count === 0) beginRecording(); else render(); }, 1000);
+}
+function beginRecording() { clearInterval(cdTimer); S.phase = "recording"; S.ms = 0; S.paused = false; S.confirm = null; render(); }
+function stop() {
+  S.done = { ms: S.ms, stage: "finishing" }; S.phase = "done"; S.copied = false; render();
+  setTimeout(() => { if (S.done) { S.done.stage = "uploading"; render(); } }, 900);
+  setTimeout(() => { if (S.done) { S.done.stage = "saved"; render(); } }, 2200);
+}
+function trayMenu(anchor) {
+  const rec = S.phase === "recording";
+  openMenu(anchor, [
+    { t: "New recording…", run: () => { S.pop = true; render(); } },
+    { t: "Start Meeting Notes", sub: S.scenario === "meeting" ? [{ t: "Design sync — Today at 10:00 AM", run: startNotes }] : [{ t: "No meetings ready", disabled: true }] },
+    "-",
+    rec ? { t: "Stop recording", run: stop } : S.notes ? { t: "Stop meeting notes", run: stopNotes } : { t: "No active recording", disabled: true },
+    { t: "Paste Last Dictation", k: "⌃⌘V", toast: "Pasted last dictation" },
+    { t: "Show region guides on screen", toggle: true, on: S.guides, run: (on) => (S.guides = on) },
+    { t: "Toggle DevTools", k: "⌥⌘I", toast: "DevTools" },
+    "-",
+    { t: "Clips v0.9.4", disabled: true },
+    "-",
+    { t: "Quit Clips", toast: "Quit Clips" },
+  ], { align: "right", minWidth: 248 });
+}
+function startNotes() { S.meeting = false; S.notes = true; S.notesMs = 0; render(); }
+function stopNotes() { S.notes = false; render(); toast("Meeting notes saved"); }
+
+/* ───────── events ───────── */
+document.addEventListener("click", (e) => {
+  const t = e.target.closest("button");
+  if (!t) { if (S.pop && !e.target.closest(".pop, .menu, .bubble") && e.target.closest("#desk")) { S.pop = false; render(); } return; }
+  if (t.closest(".menu, .review")) return;
+  const d = t.dataset;
+  if (t.id === "tray") { if (S.phase === "recording") { stop(); return; } S.pop = !S.pop; render(); return; }
+  if (d.mode) { S.mode = d.mode; render(); return; }
+  if (d.size) { S.bubbleSize = d.size; render(); return; }
+  if (t.id === "src-btn") { openMenu(t, [...SOURCES.map((s) => ({ t: s, radio: true, on: S.source === s, run: () => { S.source = s; render(); } })), "-", { label: "Windows" }, ...WINDOWS.map((w) => ({ t: w, icon: "window", radio: true, on: S.source === w, run: () => { S.source = w; render(); } })), { t: "Window", toast: "Choose a window" }], { minWidth: 216 }); return; }
+  if (t.id === "cam-btn") { openMenu(t, [{ t: "Default camera", radio: true, on: S.camera === "Default camera", run: () => { S.camera = "Default camera"; S.camOn = true; render(); } }, ...CAMERAS.map((c) => ({ t: c, radio: true, on: S.camera === c, run: () => { S.camera = c; S.camOn = true; render(); } })), "-", { t: "Refresh cameras", icon: "refresh", toast: "Refreshed cameras" }], { minWidth: 216 }); return; }
+  if (t.id === "mic-btn") { openMenu(t, [{ t: "Default mic", radio: true, on: S.mic === "Default mic", run: () => { S.mic = "Default mic"; S.micOn = true; render(); } }, ...MICS.map((c) => ({ t: c, radio: true, on: S.mic === c, run: () => { S.mic = c; S.micOn = true; render(); } })), "-", { t: "Refresh microphones", icon: "refresh", toast: "Refreshed microphones" }], { minWidth: 216 }); return; }
+  if (t.id === "notif-menu") { openMenu(t, [{ t: "Join only", run: () => { S.meeting = false; render(); toast("Joining meeting"); } }, { t: "Start notes only", run: startNotes }, { t: "Snooze 5 min", run: () => { S.meeting = false; render(); } }], { align: "right" }); return; }
+  switch (d.act) {
+    case "cam": S.camOn = !S.camOn; render(); break;
+    case "mic": S.micOn = !S.micOn; render(); break;
+    case "sys": S.sysAudio = !S.sysAudio; render(); break;
+    case "start": start(); break;
+    case "mic-back": S.micDialog = false; render(); break;
+    case "mic-anyway": start(); break;
+    case "cd-cancel": clearInterval(cdTimer); S.phase = "idle"; render(); break;
+    case "cd-skip": beginRecording(); break;
+    case "stop": stop(); break;
+    case "pause": S.paused = !S.paused; render(); break;
+    case "restart": S.confirm = "restart"; S.paused = true; render(); break;
+    case "discard": S.confirm = "discard"; S.paused = true; render(); break;
+    case "resume-confirm": S.confirm = null; S.paused = false; render(); break;
+    case "do-restart": S.confirm = null; start(); break;
+    case "do-discard": S.confirm = null; S.phase = "idle"; render(); toast("Recording discarded"); break;
+    case "copy": S.copied = true; render(); setTimeout(() => { S.copied = false; S.phase === "done" && render(); }, 1400); break;
+    case "open": toast("Opens the clip in your browser"); break;
+    case "dismiss": S.done = null; S.phase = "idle"; render(); break;
+    case "library": S.pop = false; render(); toast("Opens the library in your browser"); break;
+    case "settings": toast("Opens Settings"); break;
+    case "update": toast("Restarting to update"); break;
+    case "recovery": toast("Opens recovery"); break;
+    case "google": toast("Sign in from your browser"); break;
+    case "signin": toast("Check your email"); break;
+    case "signin-mode": S.signin = S.signin === "password" ? "email" : "password"; render(); break;
+    case "server": toast("Change server"); break;
+    case "join": S.meeting = false; S.notes = true; S.notesMs = 0; render(); toast("Joining meeting"); break;
+    case "notif-x": S.meeting = false; render(); break;
+    case "stop-notes": stopNotes(); break;
+  }
+});
+document.addEventListener("contextmenu", (e) => { const t = e.target.closest("#tray"); if (t) { e.preventDefault(); if (S.pop) { S.pop = false; render(); } trayMenu($("#tray")); } });
+document.addEventListener("keydown", (e) => {
+  if (S.phase === "countdown" && e.key === "Escape") { clearInterval(cdTimer); S.phase = "idle"; render(); }
+  if (S.phase === "countdown" && e.key === "Enter") beginRecording();
+  if (S.pop && e.key === "Escape" && !document.querySelector(".menu")) { S.pop = false; render(); }
+});
+
+/* ───────── clock ───────── */
+setInterval(() => {
+  if (S.phase === "recording" && !S.paused) { S.ms += 250; const tm = $("#timer"); if (tm) tm.textContent = fmt(S.ms); const tt = $(".tray .tt"); if (tt) tt.textContent = fmt(S.ms); }
+  if (S.notes) { S.notesMs += 250; const m = $("#mtime"); if (m) m.textContent = fmt(S.notesMs); }
+  document.querySelectorAll("#meter i, #mmeter i").forEach((b) => (b.style.height = (S.paused ? 3 : 3 + Math.random() * 13) + "px"));
+  const w = $("#wave"); if (w && S.pop) w.innerHTML = wave();
+}, 250);
+
+/* ───────── review strip ───────── */
+$("#theme-btn").onclick = () => { const cur = document.documentElement.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"); const nx = cur === "dark" ? "light" : "dark"; document.documentElement.dataset.theme = nx; try { localStorage.setItem("clips-desktop-theme", nx); } catch {} };
+$("#scenario").onchange = (e) => {
+  S.scenario = e.target.value; clearInterval(cdTimer); S.phase = "idle"; S.done = null; S.notes = false; S.micDialog = false;
+  S.meeting = S.scenario === "meeting"; S.pop = S.scenario !== "meeting"; render();
+};
+addEventListener("resize", () => S.pop && render());
+kitChangesInit($("#changes-btn"));
+render();
+S.pop = true; render();
+</script>

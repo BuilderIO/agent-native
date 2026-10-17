@@ -18,8 +18,6 @@ export const forms = table("forms", {
     .default("draft"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
-  // ISO timestamp when soft-deleted, NULL while live. Soft delete keeps
-  // responses queryable from the Archive view; restore-form clears this.
   deletedAt: text("deleted_at"),
   ...ownableColumns(),
 });
@@ -35,22 +33,11 @@ export const responses = table(
     submittedAt: text("submitted_at").notNull(),
     ip: text("ip"),
     submitterEmail: text("submitter_email"),
-    // URL of the page the respondent was on, forwarded by trusted embeds (e.g.
-    // the framework FeedbackButton) as a hidden pass-through field. Client-scrubbed
-    // of sensitive query params. NULL for direct fills that send no page context.
     pageUrl: text("page_url"),
-    // Runtime shell the feedback was sent from: "web", "electron", or "tauri".
-    // Hidden pass-through field forwarded by trusted embeds. NULL when unknown.
     clientSurface: text("client_surface"),
-    // Client-generated key used to make retried public submissions idempotent.
     idempotencyKey: text("idempotency_key"),
-    // JSON map of side-effect destination keys to pending/succeeded/failed.
     deliveryStatus: text("delivery_status"),
-    // Immutable form/schema/integration snapshot used when an idempotent
-    // response needs to replay delivery after the form has changed.
     deliverySnapshot: text("delivery_snapshot"),
-    // Community app review/promotion state. Uploaded screenshots remain in
-    // blob storage; this row only records the Builder publication result.
     promotionStatus: text("promotion_status", {
       enum: ["publishing", "published", "failed", "unknown"],
     }),

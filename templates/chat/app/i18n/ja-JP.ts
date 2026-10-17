@@ -1,11 +1,10 @@
 const messages = {
+  composer: {
+    removeAttachment: "{{name}} を削除",
+    removeReference: "{{name}} の参照を削除",
+  },
   settings: {
     title: "設定",
-    description: "このアプリの言語とワークスペース設定。",
-    languageTitle: "言語",
-    languageDescription:
-      "インターフェース言語を選択します。この設定はアカウントに保存されます。",
-    languageLabel: "インターフェース言語",
     workspaceTitle: "ワークスペース",
     workspaceDescription:
       "チームメンバー、組織アクセス、共有ワークスペース設定を管理します。",
@@ -31,6 +30,16 @@ const messages = {
     newChat: "新しいチャット",
     optionsFor: "オプション:",
     pinChat: "チャットをピン留め",
+    pinned: "ピン留め",
+    recents: "最近",
+    retryPreviousRequest:
+      "モデルプロバイダーに接続できたので、前のリクエストを再試行してください。",
+    invalidHandoffOptions:
+      "プロンプトは下書きとして保存されましたが、チャット設定を復元できませんでした。再送信する前に、プロンプト、コンテキスト、モデルを確認してください。",
+    recoveryDraftUnsaved:
+      "下書きの変更は保存されていません。このチャットを再読み込みすると失われる可能性があります。",
+    retryAttachmentUnavailable:
+      "Chat ではこの添付ファイルを再試行のために開けません。アクセス可能なファイル URL を追加して、もう一度お試しください。",
     renameChat: "チャット名を変更",
     renameFailed: "名前の変更に失敗しました",
     renameThread: "スレッド名を変更",
@@ -38,6 +47,23 @@ const messages = {
     suggestionCapabilities: "このアプリで何ができますか？",
     suggestionCustomize: "このアプリのカスタマイズを手伝って",
     unpinChat: "チャットのピン留めを解除",
+    untitledChat: "無題のチャット",
+  },
+  home: {
+    communityDescription: "Agent-Native コミュニティに参加",
+    composerPlaceholder: "Alex に対して hello アクションを呼び出して",
+    communityTitle: "コミュニティ",
+    docsAddAction: "アクションを追加",
+    docsAddPage: "ページを追加",
+    docsDescription: "アクション、ページ、エージェントのガイド",
+    docsGettingStarted: "はじめに",
+    docsKeyConcepts: "主要な概念",
+    docsTitle: "ドキュメント",
+    editHint:
+      "{{file}} を編集して保存し、もう一度頼むと新しいあいさつが表示されます。",
+    lead: "アプリの UI とエージェントは同じアクションを共有しています。",
+    leadTry: "エージェントに hello アクションを呼び出してもらいましょう。",
+    title: "はじめに",
   },
   navigation: {
     chat: "チャット",
@@ -45,6 +71,7 @@ const messages = {
     database: "データベース",
     expandSidebar: "サイドバーを展開",
     extensions: "拡張機能",
+    home: "ホーム",
     navigation: "ナビゲーション",
     navigationDescription: "メインナビゲーション",
     observability: "可観測性",

@@ -1,6 +1,3 @@
-/**
- * Conflict detection — does a proposed interval overlap any busy interval?
- */
 import type { BusyInterval } from "../shared/index.js";
 import { overlaps } from "./time.js";
 
@@ -21,7 +18,6 @@ export function hasConflict(
   return false;
 }
 
-/** Merge overlapping busy intervals into a canonical, non-overlapping set. */
 export function mergeBusy(busy: BusyInterval[]): BusyInterval[] {
   if (busy.length === 0) return [];
   const sorted = busy

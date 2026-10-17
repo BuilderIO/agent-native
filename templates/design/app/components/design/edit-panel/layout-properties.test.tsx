@@ -4,9 +4,12 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { ElementInfo } from "../types";
 import { inferElementSizing } from "./element-classification";
+import { patchAuthoredInlineStyles } from "./interaction-state-helpers";
 import {
   autoLayoutStylesForFlow,
+  gridChangePatch,
   gridTemplateForTracks,
+  gridTemplatePatchForChange,
   gridValueForElement,
   justifyContentForGapMode,
   LayoutContextProperties,
@@ -91,6 +94,68 @@ describe("LayoutContextProperties", () => {
     });
   });
 
+  it("leaves an untouched grid axis alone so stylesheet-authored tracks survive", () => {
+    const previous = gridValueForElement(
+      element({
+        isGridContainer: true,
+        inlineStyles: {
+          gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+        },
+        computedStyles: {
+          display: "grid",
+          gridTemplateColumns: "50px 50px",
+          gridTemplateRows: "40px 60px",
+          columnGap: "0px",
+          rowGap: "0px",
+          width: "100px",
+          height: "100px",
+        },
+      }),
+    );
+    expect(
+      gridTemplatePatchForChange(previous, { ...previous, columnGap: 16 }),
+    ).toEqual({});
+    expect(
+      gridTemplatePatchForChange(previous, { ...previous, columns: 3 }),
+    ).toEqual({ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" });
+    expect(gridTemplatePatchForChange(undefined, previous)).toEqual({
+      gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+      gridTemplateRows: "repeat(2, minmax(0, 1fr))",
+    });
+  });
+
+  it("marks an unauthored grid axis unknown — never reads track sizing off a computed template", () => {
+    const grid = gridValueForElement(
+      element({
+        isGridContainer: true,
+        inlineStyles: {},
+        computedStyles: {
+          display: "grid",
+          gridTemplateColumns: "50px 50px",
+          gridTemplateRows: "40px 60px",
+          columnGap: "16px",
+          rowGap: "16px",
+          width: "100px",
+          height: "100px",
+        },
+      }),
+    );
+    expect(grid).toMatchObject({
+      columns: 2,
+      columnSizing: "custom",
+      columnSizingUnknown: true,
+      columnTemplate: "",
+      rows: 2,
+      rowSizing: "custom",
+      rowSizingUnknown: true,
+      rowTemplate: "",
+    });
+    expect(grid.columnSizing).not.toBe("fixed");
+    expect(grid.rowSizing).not.toBe("fixed");
+    expect(grid.columnSize).not.toBe(50);
+    expect(grid.rowSize).not.toBe(50);
+  });
+
   it("detects real grid tracks without rewriting authored custom templates", () => {
     expect(parseGridTemplate("repeat(3, minmax(0, 1fr))")).toEqual({
       count: 3,
@@ -153,14 +218,10 @@ describe("LayoutContextProperties", () => {
     expect(markup).toContain("Flow");
     expect(markup).toContain("Normal flow");
     expect(markup).toContain("Padding");
-    // Clipping belongs to containers. A rectangle has nothing to clip, so the
-    // control is not offered here — see the frame case below.
     expect(markup).not.toContain("Clip content");
   });
 
   it("offers Clip content on a frame, not on a drawn shape or text", () => {
-    // Clipping is a container's decision. A screen is clipped from birth (see
-    // blankScreenHtml) rather than through this toggle.
     const shown = (info: Parameters<typeof element>[0]) =>
       renderToStaticMarkup(
         createElement(LayoutContextProperties, {
@@ -173,17 +234,11 @@ describe("LayoutContextProperties", () => {
     expect(shown({ primitiveKind: "rectangle", sourceId: "rect-1" })).toBe(
       false,
     );
-    // What a board-drawn rectangle actually looks like here: no primitiveKind,
-    // so a container-tag test cannot tell it apart from a generated `div`.
     expect(shown({ tagName: "div", sourceId: "draft-rect-1" })).toBe(false);
     expect(shown({ primitiveKind: "text", sourceId: "text-1" })).toBe(false);
   });
 
   it("maps gap-mode Auto to space-between and restores the last packed alignment on Fixed", () => {
-    // Auto gap mode IS justify-content:space-between. Switching back to
-    // Fixed must restore whatever packed (start/center/end) alignment was
-    // in effect before Auto was turned on, not hard-reset to flex-start —
-    // see the lastPackedJustifyRef comment in FlexContainerControls.
     expect(justifyContentForGapMode("auto", "center")).toBe("space-between");
     expect(justifyContentForGapMode("fixed", "center")).toBe("center");
     expect(justifyContentForGapMode("fixed", "flex-end")).toBe("flex-end");
@@ -218,8 +273,6 @@ describe("LayoutContextProperties", () => {
       createElement(LayoutContextProperties, {
         element: element({
           tagName: "div",
-          // A frame, so the mixed overflow this asserts on has a control to
-          // render into — clipping is offered on containers only.
           primitiveKind: "frame",
           computedStyles: {
             display: "Mixed",
@@ -245,5 +298,336 @@ describe("LayoutContextProperties", () => {
     expect(markup).toContain("Gap mode: Mixed");
     expect(markup).toContain('aria-checked="mixed"');
     expect(markup).toContain('aria-label="top left" aria-pressed="false"');
+  });
+
+  it("marks an unauthored grid axis unknown and refuses a bare count edit on it", () => {
+    const previous = gridValueForElement(
+      element({
+        isGridContainer: true,
+        inlineStyles: {},
+        computedStyles: {
+          display: "grid",
+          gridTemplateColumns: "80px 80px",
+          width: "160px",
+          height: "80px",
+        },
+      }),
+    );
+    expect(previous).toMatchObject({
+      columns: 2,
+      columnSizing: "custom",
+      columnSizingUnknown: true,
+    });
+
+    expect(
+      gridTemplatePatchForChange(previous, { ...previous, columns: 3 }),
+    ).toEqual({});
+    expect(
+      gridTemplatePatchForChange(previous, { ...previous, columnGap: 16 }),
+    ).toEqual({});
+
+    expect(
+      gridTemplatePatchForChange(previous, {
+        ...previous,
+        columns: 3,
+        columnSizing: "fill",
+      }),
+    ).toEqual({ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" });
+    expect(
+      gridTemplatePatchForChange(previous, {
+        ...previous,
+        columns: 3,
+        columnSizing: "hug",
+      }),
+    ).toEqual({ gridTemplateColumns: "repeat(3, max-content)" });
+  });
+
+  it("keeps the fill default for a non-grid element with no inline template", () => {
+    const grid = gridValueForElement(
+      element({
+        computedStyles: { display: "flex", width: "160px", height: "80px" },
+      }),
+    );
+    expect(grid.columnSizing).toBe("fill");
+    expect(grid.columnSizingUnknown).toBeUndefined();
+  });
+
+  it("omits display and gridAutoFlow for an already-grid element, includes both converting from flex", () => {
+    const gridElement = element({
+      isGridContainer: true,
+      inlineStyles: {},
+      computedStyles: {
+        display: "grid",
+        gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+        gridTemplateRows: "repeat(1, max-content)",
+        gridAutoFlow: "dense",
+        columnGap: "0px",
+        rowGap: "0px",
+        width: "160px",
+        height: "80px",
+      },
+    });
+    const gridValue = gridValueForElement(gridElement);
+    const gridPatch = gridChangePatch(gridElement, gridValue, {
+      ...gridValue,
+      columnGap: 8,
+    });
+    expect(gridPatch).not.toHaveProperty("display");
+    expect(gridPatch).not.toHaveProperty("gridAutoFlow");
+
+    const inlineGridElement = element({
+      isGridContainer: true,
+      inlineStyles: {},
+      computedStyles: {
+        display: "inline-grid",
+        gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+        gridTemplateRows: "repeat(1, max-content)",
+        columnGap: "0px",
+        rowGap: "0px",
+        width: "160px",
+        height: "80px",
+      },
+    });
+    const inlineGridValue = gridValueForElement(inlineGridElement);
+    expect(
+      gridChangePatch(inlineGridElement, inlineGridValue, {
+        ...inlineGridValue,
+        columnGap: 8,
+      }),
+    ).not.toHaveProperty("display");
+
+    const flexElement = element({
+      isFlexContainer: true,
+      computedStyles: { display: "flex", width: "160px", height: "80px" },
+    });
+    const newGridValue = {
+      columns: 2,
+      rows: 1,
+      columnSizing: "fill" as const,
+      rowSizing: "fill" as const,
+      columnGap: 0,
+      rowGap: 0,
+    };
+    const flexPatch = gridChangePatch(flexElement, undefined, newGridValue);
+    expect(flexPatch.display).toBe("grid");
+    expect(flexPatch.gridAutoFlow).toBe("row");
+  });
+
+  it("keeps an authored grid-auto-flow readable across a grid write", () => {
+    const denseGrid = element({
+      isGridContainer: true,
+      inlineStyles: {
+        gridAutoFlow: "dense",
+        gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+        gridTemplateRows: "repeat(1, max-content)",
+      },
+      computedStyles: {
+        display: "grid",
+        gridTemplateColumns: "60px 60px",
+        gridTemplateRows: "40px",
+        gridAutoFlow: "row dense",
+        columnGap: "0px",
+        rowGap: "0px",
+        width: "120px",
+        height: "40px",
+      },
+    });
+    const denseValue = gridValueForElement(denseGrid);
+    const rowWrite = gridChangePatch(denseGrid, denseValue, {
+      ...denseValue,
+      rows: 2,
+    });
+    expect(rowWrite).not.toHaveProperty("gridAutoFlow");
+    expect(rowWrite).not.toHaveProperty("gridTemplateColumns");
+    expect(rowWrite.gridTemplateRows).toBe("repeat(2, max-content)");
+    expect(
+      patchAuthoredInlineStyles(denseGrid.inlineStyles, rowWrite),
+    ).toMatchObject({
+      gridAutoFlow: "dense",
+      gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+      gridTemplateRows: "repeat(2, max-content)",
+    });
+
+    const convertedBack = element({
+      isFlexContainer: true,
+      inlineStyles: { gridAutoFlow: "column" },
+      computedStyles: { display: "flex", width: "120px", height: "40px" },
+    });
+    const conversion = gridChangePatch(convertedBack, undefined, {
+      columns: 2,
+      rows: 1,
+      columnSizing: "fill" as const,
+      rowSizing: "fill" as const,
+      columnGap: 0,
+      rowGap: 0,
+    });
+    expect(conversion.gridAutoFlow).toBe("row");
+    expect(
+      patchAuthoredInlineStyles(convertedBack.inlineStyles, conversion),
+    ).toMatchObject({ gridAutoFlow: "row" });
+  });
+
+  it("re-committing Grid on an existing grid is a pure no-op, applies full defaults only when converting", () => {
+    expect(
+      autoLayoutStylesForFlow(
+        "grid",
+        { display: "grid", gridTemplateColumns: "80px 80px" },
+        true,
+      ),
+    ).toEqual({});
+    expect(
+      autoLayoutStylesForFlow(
+        "grid",
+        { display: "grid", gridAutoFlow: "dense" },
+        true,
+      ),
+    ).toEqual({});
+    expect(
+      autoLayoutStylesForFlow(
+        "grid",
+        {
+          display: "grid",
+          gridTemplateColumns: "Mixed",
+          gridAutoFlow: "Mixed",
+        },
+        true,
+      ),
+    ).toEqual({});
+
+    expect(autoLayoutStylesForFlow("grid", { display: "flex" }, false)).toEqual(
+      {
+        display: "grid",
+        gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+        gridTemplateRows: "repeat(1, max-content)",
+        gridAutoFlow: "row",
+      },
+    );
+    expect(autoLayoutStylesForFlow("grid")).toMatchObject({ display: "grid" });
+  });
+
+  it("marks a mixed grid axis unknown from the sentinel, not a plain unauthored one", () => {
+    const previous = gridValueForElement(
+      element({
+        isGridContainer: true,
+        inlineStyles: {
+          gridTemplateColumns: "Mixed",
+          gridTemplateRows: "repeat(2, max-content)",
+        },
+        computedStyles: {
+          display: "grid",
+          gridTemplateColumns: "80px 80px",
+          gridTemplateRows: "40px 40px",
+          columnGap: "0px",
+          rowGap: "0px",
+          width: "160px",
+          height: "80px",
+        },
+      }),
+    );
+    expect(previous).toMatchObject({
+      columnsMixed: true,
+      columnSizingUnknown: true,
+      columnSizing: "custom",
+    });
+    expect(previous.rowsMixed).toBeFalsy();
+    expect(previous.rowSizingUnknown).toBeFalsy();
+    expect(previous.rowSizing).toBe("hug");
+
+    expect(
+      gridTemplatePatchForChange(previous, {
+        ...previous,
+        columns: 3,
+        columnSizing: "fill",
+      }),
+    ).toEqual({});
+    expect(
+      gridTemplatePatchForChange(previous, { ...previous, rows: 3 }),
+    ).toEqual({ gridTemplateRows: "repeat(3, max-content)" });
+  });
+
+  it("trusts isGridContainer over a Mixed computed display", () => {
+    const grid = gridValueForElement(
+      element({
+        isGridContainer: true,
+        inlineStyles: {},
+        computedStyles: {
+          display: "Mixed",
+          gridTemplateColumns: "80px 80px",
+          width: "160px",
+          height: "80px",
+        },
+      }),
+    );
+    expect(grid.columnSizing).toBe("custom");
+    expect(grid.columnSizingUnknown).toBe(true);
+    expect(grid.columnSizing).not.toBe("fill");
+  });
+
+  it("trusts a shared inline template over differing computed templates across a multi-selection", () => {
+    const merged = gridValueForElement(
+      element({
+        isGridContainer: true,
+        inlineStyles: {
+          gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+          gridTemplateRows: "repeat(2, minmax(0, 1fr))",
+        },
+        computedStyles: {
+          display: "grid",
+          gridTemplateColumns: "Mixed",
+          gridTemplateRows: "Mixed",
+          columnGap: "0px",
+          rowGap: "0px",
+          width: "100px",
+          height: "100px",
+        },
+      }),
+    );
+    expect(merged).toMatchObject({
+      columns: 2,
+      columnSizing: "fill",
+      columnsMixed: undefined,
+      columnSizingUnknown: undefined,
+    });
+    expect(
+      gridTemplatePatchForChange(merged, { ...merged, columns: 3 }),
+    ).toEqual({ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" });
+  });
+
+  it("refuses a bare count edit on a known non-uniform custom template, writes with an explicit sizing pick", () => {
+    const previous = gridValueForElement(
+      element({
+        isGridContainer: true,
+        inlineStyles: {
+          gridTemplateColumns: "96px 1fr minmax(0, 200px)",
+        },
+        computedStyles: {
+          display: "grid",
+          gridTemplateColumns: "96px 292px 200px",
+          columnGap: "0px",
+          rowGap: "0px",
+          width: "588px",
+          height: "80px",
+        },
+      }),
+    );
+    expect(previous).toMatchObject({
+      columns: 3,
+      columnSizing: "custom",
+      columnSizingUnknown: undefined,
+    });
+
+    expect(
+      gridTemplatePatchForChange(previous, { ...previous, columns: 4 }),
+    ).toEqual({});
+    expect(
+      gridTemplatePatchForChange(previous, {
+        ...previous,
+        columns: 4,
+        columnSizing: "fill",
+      }),
+    ).toEqual({ gridTemplateColumns: "repeat(4, minmax(0, 1fr))" });
+    expect(
+      gridTemplatePatchForChange(previous, { ...previous, columnGap: 8 }),
+    ).toEqual({});
   });
 });

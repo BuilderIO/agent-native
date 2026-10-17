@@ -95,13 +95,13 @@ search: "エージェントアプリ リッチチャット ネイティブチャ
 フルアプリの出発点として、[Chat template](/docs/template-chat) を使用してください：
 
 ```bash
-npx @agent-native/core@latest create my-chat-app --template chat
+npx --yes @agent-native/core@latest create my-chat-app --template chat
 ```
 
 最もシンプルなフルページチャット：
 
 ```tsx
-import { AgentChatSurface } from "@agent-native/core/client/chat";
+import { AgentChatSurface } from "@agent-native/toolkit/app/chat";
 
 export default function ChatRoute() {
   return <AgentChatSurface mode="page" className="h-screen" />;
@@ -111,12 +111,11 @@ export default function ChatRoute() {
 アプリにフルページのチャットタブと `AgentSidebar` の両方がある場合は、両方のサーフェスで同じ `storageKey` を使用し、`chatViewTransition` を有効にして、レイアウトにチャットホームハンドオフヘルパーをインストールしてください。チャットページからの通常のアプリ内リンクは、アクティブなスレッドを維持しながら、フルチャットをサイドバーに変形させることができます：
 
 ```tsx
+import { AgentChatSurface, AgentSidebar } from "@agent-native/toolkit/app/chat";
 import {
-  AgentChatSurface,
-  AgentSidebar,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
-} from "@agent-native/core/client/chat";
+} from "@agent-native/core/client/agent-chat";
 import { useLocation } from "react-router";
 
 function ChatRoute() {
@@ -149,7 +148,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
 独自のクロームを持つ最もシンプルな埋め込みチャット：
 
 ```tsx
-import { AssistantChat } from "@agent-native/core/client/chat";
+import { AssistantChat } from "@agent-native/toolkit/app/chat";
 
 export function ProjectChat({ threadId }: { threadId: string }) {
   return <AssistantChat threadId={threadId} />;
@@ -195,6 +194,76 @@ A2A、ジョブ、トリガーには影響しません。既定のフレーム�
 起動したサブエージェントも同じサーフェスを継承します。無制限の shell では
 厳格なアクション境界を強制できないため、trusted shell ツールはリクエストで
 フィルタされた sandbox に自動的に制限されます。
+
+### リクエスト単位の追加アクション
+
+呼び出し元が使えるアクションがリクエスト時にしか分からない場合（サーバーの実行中
+にユーザーが登録するツールなど）は、`resolveAdditionalActions` を使用します。コ
+ールバックは、認証済みのインタラクティブなチャット実行（本番と開発）ごとに一度、
+`tool-search` と `resolveActionSurface` の前に実行されるため、どちらも返されたエ
+ントリーを参照できます。エントリーは、その実行に限り、その呼び出し元のレジストリ
+ーに加わります。A2A タスクと MCP の `ask_app` 呼び出しがエントリーを受け取るのは、
+それらのサーフェスを `additionalActionSurfaces` に列挙した場合のみです。
+`surface` は、どのサーフェスが要求しているかをコールバックに伝えます。
+
+```ts
+createAgentChatPlugin({
+  actions,
+  additionalActionSurfaces: ["a2a"],
+  resolveAdditionalActions: async ({ surface, ownerEmail, orgId }) =>
+    loadUserTools(ownerEmail, orgId, {
+      includeEditorTools: surface === "chat",
+    }),
+});
+```
+
+返されたエントリーは信頼できない入力として扱ってください。フレームワークは、名前
+が 1～64 文字の英字、数字、`_`、`-` でない場合、名前がテンプレート、フレームワー
+ク、dev、MCP のいずれかのアクション（エージェントから隠されたアクションを含む）
+のものである場合、呼び出し元から見えない `mcp__` 名である場合、またはツール定義
+が使用できない場合に、そのエントリーを無視し、警告を一度だけログに出力します。説
+明文からは隠れた制御文字が取り除かれて長さが制限されます。`parameters` は、
+`object` をルートとする、プレーンな JSON データのサイズの制限されたスキーマでなければならず、一般的な検証キーワードと注釈キーワードのみを使用できます。不明なキーワード、`pattern`、`patternProperties`、`uniqueItems`、`$async`、`$id`、アンカー、および再帰的な `$ref` やスキーマ外を指す `$ref` は拒否されます。モデルにはチェック済みのスキーマのコピーが提示され、引数が大きすぎてそのスキーマに対して検証できない呼び出しは拒否されます。`readOnly` や `access` などのフラグはアプリ自身の宣言であり、フレーム
+ワークは `run` と同じようにそれらを信頼します。これらはコードが実際に行うことに
+基づいて設定し、ユーザーが登録したメタデータから設定してはなりません。
+
+各エントリーは、解決された呼び出し元に紐づけられます。どのディスパッチャーが行う
+呼び出しも、別のユーザーまたは組織に対しては実行を拒否し、エントリーの `access`
+ポリシーを適用し、型の強制変換を行わずにスキーマに照らして引数を検証します。
+
+名前が固定されるのは、ホスト型のチャットのターンが永続的なバックグラウンド実行と
+して続く場合だけです。コールバックは再度実行され、ターンはこれらのエントリーと呼
+び出し元の MCP ツールの両方について元の名前を保持します。新しいエントリーは含まれ
+ず、消えた名前は呼び出すとエラーを返し、残っている名前は現在の定義を実行します。
+それ以外のリクエストは、ローカルのサイドカーでの各継続も含めてすべて新たに解決さ
+れ、切断されたストリームが自分の実行に再接続しても何も解決されません。
+
+ウィンドウ ID やスコープなど、バインディングの識別情報を名前に含めてください
+（`notes_window_42_insert`）。そうすれば、再バインドは 1 つのツールが消えて別のツ
+ールが現れたように読めます。「常に許可」の承認はツール名に従うため、同じ名前が後
+で別のものを意味するようになっても引き継がれます。
+
+エントリーに `revision` を設定すると、これを防げます。1 回限りの承認と「常に許
+可」は承認時のリビジョンを記録し、別のリビジョンでは再度ユーザーに確認します。
+カスタムの「常に許可」ハンドラーは、承認の `askId` を `approvalId` として
+`set-tool-approval-policy` に渡してください。渡さない場合、この許可はリビジョンの
+ないエントリーにのみ適用されます。
+
+会話が以前に使用または読み込んだツールのうち、この実行にはもうないものを呼び出
+すと、`Unknown tool` ではなく `Error: Tool no longer available` で失敗し、読み込
+み済みのツールが消えた後に始まる実行は、どれが消えたかをモデルに伝えます。ユー
+ザーがその呼び出しを承認していた場合、実行はモデルをそのまま続行させず停止しま
+す。チャットでは、コールバックは `threadId`、`requestedTurnId`、
+`internalContinuation` も受け取るため、ターン全体で 1 つのツールセットを使いたい
+アプリは独自のスナップショットを保持できます。
+
+これらのエントリーは、エージェントループ専用のネイティブツールです。呼び出し元の
+MCP ツールと同様に、`run-code` や `tool-orchestration` からは到達できません。
+
+`event` は `chat` と `a2a` で設定され、`ask_app` 呼び出しにはありません。匿名リ
+クエスト、スケジュールされたジョブ、オートメーション、エージェントチームのサブエ
+ージェントでは、コールバックは呼ばれません。コールバックが投げたエラーはリクエス
+トを失敗させます。
 
 ## ネイティブインラインUI {#native-inline-ui}
 
@@ -252,10 +321,10 @@ A2A、ジョブ、トリガーには影響しません。既定のフレーム�
 
 すべてのAgent-Nativeアプリは最終的に、ユーザーがエージェントを設定できる場所が必要になります。常時指示の設定、実行内容の確認、MCPサーバーの接続、自動化の管理、アクセスの制御などです。そのUIをゼロから構築するのは大変な作業です。Agent-Nativeには、12タブにわたってすべてをカバーする事前構築済みのフルページコンポーネント `AgentTabsPage` が搭載されています。
 
-アプリの `/settings/agent` にマウントしてください。現在のテンプレートはこれを正規ルートとして使用し、`AgentSidebar` に `agentPageHref="/settings/agent"` を渡します。`/agent` は従来のリダイレクトとして残されています。
+ファーストパーティのテンプレートはこれをマウントしません。Settings が同じ範囲 (Agent › Model、Instructions、Memory、Skills、Files、Sub-agents と、アプリの Automations および MCP server ページ) をカバーし、`/agent` は Settings にリダイレクトされ、`AgentSidebar` の `agentPageHref="/settings/agent"` は Settings › Agent › Model を開きます。エージェントの画面全体を 1 ページで見せたいアプリでは、`AgentTabsPage` を専用のルートにマウントしてください。
 
-```tsx filename="app/routes/settings.agent.tsx"
-import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
+```tsx filename="app/routes/agent.tsx"
+import { AgentTabsPage } from "@agent-native/toolkit/app/agent-page";
 export default function AgentRoute() {
   return <AgentTabsPage />;
 }
@@ -263,20 +332,20 @@ export default function AgentRoute() {
 
 共有ページは現在、2つのグループにわたって12タブを提供しています：
 
-| グループ  | タブ              | 表示内容                                                                                                                                                                                                                                                       |
-| --------- | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Resources | **Files**         | 個人またはorganizationファイル用の既存の `ResourcesPanel`                                                                                                                                                                                                      |
-| Resources | **Instructions**  | 常時有効なAGENTS.mdスタイルのルール                                                                                                                                                                                                                            |
-| Resources | **Agents**        | カスタムサブエージェントプロファイル                                                                                                                                                                                                                           |
-| Resources | **Memory**        | 長期記憶ノート                                                                                                                                                                                                                                                 |
-| Resources | **Skills**        | 再利用可能なワークフロー                                                                                                                                                                                                                                       |
-| Resources | **Learnings**     | 時間をかけて記録された修正とパターン                                                                                                                                                                                                                           |
-| Resources | **Remote agents** | 他のagent-nativeアプリへのA2A接続（Connectionsタブに表示されていたものを置き換え）                                                                                                                                                                             |
-| Agent     | **Snapshots**     | スコーププレビュー、トークンバジェット、出所/ガバナンス/ソース別にグループ化された順序付きシステムセクション、および最新のライブスレッドスナップショット。「Context」から改名。古い `#context` リンクはここにリダイレクト。                                    |
-| Agent     | **Connections**   | MCPサーバー管理のみ                                                                                                                                                                                                                                            |
-| Agent     | **Automations**   | 一時停止/再開、詳細、削除フローを備えた個人およびorganizationのスケジュール/イベント自動化。安定した互換性URLは `/agent#jobs` のまま。                                                                                                                         |
-| Agent     | **Settings**      | エージェントモデル、APIキー、制限、音声、自動化設定                                                                                                                                                                                                            |
-| Agent     | **MCP**           | アプリのMCP URL、利用可能な場合のA2Aエージェントカード、Claude、ChatGPT、Cursor、Claude Code、Codex、その他のクライアントの共有セットアップガイド。**Settings → MCP** で見つけるか、完全な接続フローとトークンフォールバックには `/mcp/connect` を使用します。 |
+| グループ  | タブ              | 表示内容                                                                                                                                                                                                                                                              |
+| --------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Resources | **Files**         | 個人またはorganizationファイル用の既存の `ResourcesPanel`                                                                                                                                                                                                             |
+| Resources | **Instructions**  | 常時有効なAGENTS.mdスタイルのルール                                                                                                                                                                                                                                   |
+| Resources | **Agents**        | カスタムサブエージェントプロファイル                                                                                                                                                                                                                                  |
+| Resources | **Memory**        | 長期記憶ノート                                                                                                                                                                                                                                                        |
+| Resources | **Skills**        | 再利用可能なワークフロー                                                                                                                                                                                                                                              |
+| Resources | **Learnings**     | 時間をかけて記録された修正とパターン                                                                                                                                                                                                                                  |
+| Resources | **Remote agents** | 他のagent-nativeアプリへのA2A接続（Connectionsタブに表示されていたものを置き換え）                                                                                                                                                                                    |
+| Agent     | **Snapshots**     | スコーププレビュー、トークンバジェット、出所/ガバナンス/ソース別にグループ化された順序付きシステムセクション、および最新のライブスレッドスナップショット。「Context」から改名。古い `#context` リンクはここにリダイレクト。                                           |
+| Agent     | **Connections**   | MCPサーバー管理のみ                                                                                                                                                                                                                                                   |
+| Agent     | **Automations**   | 一時停止/再開、詳細、削除フローを備えた個人およびorganizationのスケジュール/イベント自動化。安定した互換性URLは `/agent#jobs` のまま。                                                                                                                                |
+| Agent     | **Settings**      | エージェントモデル、APIキー、制限、音声、自動化設定                                                                                                                                                                                                                   |
+| Agent     | **MCP**           | アプリのMCP URL、利用可能な場合のA2Aエージェントカード、Claude、ChatGPT、Cursor、Claude Code、Codex、その他のクライアントの共有セットアップガイド。**Settings → MCP server** で見つけるか、完全な接続フローとトークンフォールバックには `/mcp/connect` を使用します。 |
 
 このページは個人（`user`スコープ）データのみを表示します。現時点ではorgレベルのトグルはありません。既存のコンポーネントとアクセスチェックの薄いシェルであり、新しい管理コンソールではありません。Connectionsはアプリが呼び出せるものを示し、MCPは外部クライアントがどのように接続するかを示します。
 
@@ -413,7 +482,7 @@ export function AppShell({ children }) {
 最小のブラウザなしローカルパスは、スキャフォールドと1つのアクションです：
 
 ```bash
-npx @agent-native/core@latest create my-agent --headless
+npx --yes @agent-native/core@latest create my-agent --headless
 cd my-agent
 pnpm install
 ```
@@ -424,6 +493,7 @@ pnpm install
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
+// One action powers every app surface: UI, agent, HTTP, MCP, A2A, and CLI.
 export default defineAction({
   description: "Summarize this week's submissions.",
   readOnly: true,
@@ -517,10 +587,8 @@ VMクローンや長期間のサンドボックスチェックアウトをプラ
 エージェントが別のフレームワークまたはランタイムで既に構築されており、その周りにAgent-NativeのチャットUIを使いたい場合は、このパスを使用してください。`AgentChatRuntime` が境界です。あなたのランタイムが正規化されたイベントをストリームし、Agent-Nativeがコンポーザー、トランスクリプト、ツールコール、承認、ネイティブウィジェット、アプリレイアウトをレンダリングします。
 
 ```tsx
-import {
-  AssistantChat,
-  createHttpAgentChatRuntime,
-} from "@agent-native/core/client/chat";
+import { AssistantChat } from "@agent-native/toolkit/app/chat";
+import { createHttpAgentChatRuntime } from "@agent-native/core/client/agent-chat";
 
 const runtime = createHttpAgentChatRuntime({
   endpoint: "/api/support-agent/chat",

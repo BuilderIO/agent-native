@@ -9,8 +9,8 @@ Descriptions are stable semantic guidance, not generated summaries of current
 content. Preserve this distinction when reading or writing them:
 
 - A page description explains why the page exists and what belongs there.
-- A database description explains the collection's purpose and inclusion
-  boundary. Inline and full-page views of one database share the same
+- A collection description explains the collection's purpose and inclusion
+  boundary. Inline and full-page views of one collection share the same
   description.
 - A property description explains what the field means and what value
   belongs there.

@@ -1,22 +1,17 @@
 import { TEMPLATE_APPS } from "@agent-native/shared-app-config";
 import { fetch as expoFetch } from "expo/fetch";
+import { DeviceEventEmitter } from "react-native";
 
 import { getMobileAnalyticsHeaders } from "@/lib/analytics";
 import { getSessionToken } from "@/lib/session-token-store";
 
 import type { NavigateCommand } from "./navigate-command";
-import { nextLocalId } from "./reducer";
 import { readJsonEventStream } from "./stream";
 import type {
-  ActiveRunInfo,
-  ChatContentPart,
-  ChatMessage,
   ChatModelCatalog,
   ChatModelGroup,
-  ChatSendOptions,
   ChatThreadSummary,
   MentionItem,
-  WireEvent,
 } from "./types";
 
 const chatApp = TEMPLATE_APPS.find((app) => app.id === "chat");
@@ -24,6 +19,8 @@ export const DEFAULT_CHAT_BASE_URL =
   chatApp?.url || "https://chat.agent-native.com";
 
 const CHAT_PATH = "/_agent-native/agent-chat";
+export const AGENT_ENGINE_CONFIGURED_CHANGED_EVENT =
+  "agent-engine:configured-changed";
 
 export class AgentChatError extends Error {
   readonly status: number;
@@ -33,11 +30,13 @@ export class AgentChatError extends Error {
     super(message);
     this.name = "AgentChatError";
     this.status = status;
-    this.authRequired = status === 401 || status === 403;
+    this.authRequired = status === 401;
   }
 }
 
-async function authHeaders(): Promise<Record<string, string>> {
+export async function getMobileAgentChatHeaders(): Promise<
+  Record<string, string>
+> {
   const token = await getSessionToken();
   if (!token) throw new AgentChatError("Sign in to use chat", 401);
   return {
@@ -48,7 +47,11 @@ async function authHeaders(): Promise<Record<string, string>> {
   };
 }
 
-async function readErrorMessage(response: {
+async function authHeaders(): Promise<Record<string, string>> {
+  return getMobileAgentChatHeaders();
+}
+
+export async function readErrorMessage(response: {
   text(): Promise<string>;
   status: number;
 }): Promise<string> {
@@ -65,13 +68,14 @@ async function readErrorMessage(response: {
 
 async function jsonRequest<T>(
   path: string,
-  init: { method?: string; body?: unknown } = {},
+  init: { method?: string; body?: unknown; signal?: AbortSignal } = {},
   baseUrl = DEFAULT_CHAT_BASE_URL,
 ): Promise<T> {
   const headers = await authHeaders();
   const response = await fetch(`${baseUrl}${path}`, {
     method: init.method ?? "GET",
     headers,
+    ...(init.signal ? { signal: init.signal } : {}),
     ...(init.body !== undefined ? { body: JSON.stringify(init.body) } : {}),
   });
   if (!response.ok) {
@@ -80,97 +84,52 @@ async function jsonRequest<T>(
   return (await response.json()) as T;
 }
 
-export interface ChatTurnHandle {
-  turnId: string;
-  runId: string | null;
-  events: AsyncGenerator<WireEvent>;
-  abort: () => void;
-}
-
-/**
- * POST the user message and stream wire events back. Uses expo/fetch, whose
- * response body is a real ReadableStream on iOS and Android (RN's built-in
- * fetch buffers the whole body).
- */
-export async function sendChatTurn(
-  message: string,
-  options: ChatSendOptions & {
-    approvedToolCalls?: string[];
-    signal?: AbortSignal;
-  } = {},
+async function fetchAgentEngineStatus(
   baseUrl = DEFAULT_CHAT_BASE_URL,
-): Promise<ChatTurnHandle> {
-  const headers = await authHeaders();
+): Promise<unknown> {
   const controller = new AbortController();
-  if (options.signal) {
-    if (options.signal.aborted) controller.abort();
-    else options.signal.addEventListener("abort", () => controller.abort());
-  }
-  const turnId = options.turnId ?? nextLocalId("turn");
-  const response = await expoFetch(`${baseUrl}${CHAT_PATH}`, {
-    method: "POST",
-    headers,
-    signal: controller.signal,
-    body: JSON.stringify({
-      message,
-      displayMessage: message,
-      history: options.history ?? [],
-      turnId,
-      ...(options.threadId ? { threadId: options.threadId } : {}),
-      ...(options.model ? { model: options.model } : {}),
-      ...(options.engine ? { engine: options.engine } : {}),
-      ...(options.effort ? { effort: options.effort } : {}),
-      ...(options.mode ? { mode: options.mode } : {}),
-      ...(options.attachments?.length
-        ? { attachments: options.attachments }
-        : {}),
-      ...(options.references?.length ? { references: options.references } : {}),
-      ...(options.approvedToolCalls?.length
-        ? { approvedToolCalls: options.approvedToolCalls }
-        : {}),
-    }),
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const request = jsonRequest<unknown>(
+    "/_agent-native/agent-engine/status",
+    { signal: controller.signal },
+    baseUrl,
+  );
+  const timedOut = new Promise<never>((_, reject) => {
+    timeout = setTimeout(() => {
+      controller.abort();
+      reject(new AgentChatError("Agent engine status request timed out"));
+    }, 10_000);
   });
-  if (!response.ok) {
-    throw new AgentChatError(await readErrorMessage(response), response.status);
+  try {
+    return await Promise.race([request, timedOut]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
   }
-  // Some proxies/middleware return failures as 200 JSON instead of an event
-  // stream — surface them instead of parsing an empty stream as success.
-  const contentType = response.headers.get("Content-Type") ?? "";
-  if (
-    contentType.includes("application/json") &&
-    !contentType.includes("text/event-stream")
-  ) {
-    throw new AgentChatError(await readErrorMessage(response), response.status);
-  }
-  const runId = response.headers.get("X-Run-Id");
-  const body = response.body;
-  if (!body) throw new AgentChatError("Empty response stream");
-
-  const events = (async function* () {
-    for await (const raw of readJsonEventStream(
-      body as ReadableStream<Uint8Array>,
-    )) {
-      if (raw && typeof raw === "object" && "type" in raw) {
-        yield raw as WireEvent;
-      }
-    }
-  })();
-
-  return { turnId, runId, events, abort: () => controller.abort() };
 }
 
-/** Server-side cancel — stops the agent run, not just the connection. */
-export async function abortRun(
-  runId: string,
+export type MobileChatEligibility =
+  | "checking"
+  | "eligible"
+  | "missing"
+  | "unavailable";
+
+export function parseMobileChatEligibility(value: unknown): boolean {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    typeof (value as { chatEligible?: unknown }).chatEligible !== "boolean"
+  ) {
+    throw new AgentChatError("Chat setup status could not be confirmed.");
+  }
+  return (value as { chatEligible: boolean }).chatEligible;
+}
+
+/** Uses the strict server-owned chat gate; broad engine `configured` is not enough. */
+export async function fetchMobileChatEligibility(
   baseUrl = DEFAULT_CHAT_BASE_URL,
-): Promise<void> {
-  await jsonRequest(
-    `${CHAT_PATH}/runs/${encodeURIComponent(runId)}/abort`,
-    { method: "POST", body: {} },
-    baseUrl,
-  ).catch(() => {
-    // Run may already be finished; the UI treats abort as best-effort.
-  });
+): Promise<boolean> {
+  return parseMobileChatEligibility(await fetchAgentEngineStatus(baseUrl));
 }
 
 export async function listChatThreads(
@@ -353,99 +312,6 @@ function toThreadSummary(raw: unknown): ChatThreadSummary | null {
   };
 }
 
-/**
- * Thread history is stored as the web client's serialized message repository:
- * `{ messages: [{ message: { id, role, content: [...] }, parentId }] }`.
- * Parse defensively — only text/reasoning/tool-call parts render natively.
- */
-export async function fetchThreadMessages(
-  threadId: string,
-  baseUrl = DEFAULT_CHAT_BASE_URL,
-): Promise<ChatMessage[]> {
-  const data = await jsonRequest<{ threadData?: unknown }>(
-    `${CHAT_PATH}/threads/${encodeURIComponent(threadId)}`,
-    {},
-    baseUrl,
-  );
-  if (typeof data.threadData !== "string" || !data.threadData) return [];
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(data.threadData);
-  } catch {
-    return [];
-  }
-  const rows =
-    parsed &&
-    typeof parsed === "object" &&
-    Array.isArray((parsed as any).messages)
-      ? ((parsed as { messages: unknown[] }).messages as unknown[])
-      : [];
-  const messages: ChatMessage[] = [];
-  for (const row of rows) {
-    const message = parseRepositoryMessage(row);
-    if (message) messages.push(message);
-  }
-  return messages;
-}
-
-function parseRepositoryMessage(row: unknown): ChatMessage | null {
-  if (!row || typeof row !== "object") return null;
-  const wrapped = (row as { message?: unknown }).message;
-  const m = (wrapped && typeof wrapped === "object" ? wrapped : row) as Record<
-    string,
-    unknown
-  >;
-  const role = m.role === "user" || m.role === "assistant" ? m.role : null;
-  if (!role) return null;
-  const id = typeof m.id === "string" ? m.id : nextLocalId("hist");
-  const createdAt =
-    typeof m.createdAt === "number"
-      ? m.createdAt
-      : typeof m.createdAt === "string"
-        ? Date.parse(m.createdAt) || Date.now()
-        : Date.now();
-
-  const parts: ChatContentPart[] = [];
-  const content = Array.isArray(m.content)
-    ? m.content
-    : typeof m.content === "string"
-      ? [{ type: "text", text: m.content }]
-      : [];
-  for (const rawPart of content) {
-    if (!rawPart || typeof rawPart !== "object") continue;
-    const part = rawPart as Record<string, unknown>;
-    if (part.type === "text" && typeof part.text === "string" && part.text) {
-      parts.push({ type: "text", text: part.text });
-    } else if (part.type === "reasoning" && typeof part.text === "string") {
-      parts.push({ type: "reasoning", text: part.text });
-    } else if (part.type === "tool-call") {
-      parts.push({
-        type: "tool-call",
-        toolCallId:
-          typeof part.toolCallId === "string"
-            ? part.toolCallId
-            : nextLocalId("tool"),
-        toolName: typeof part.toolName === "string" ? part.toolName : "tool",
-        inputText:
-          typeof part.argsText === "string"
-            ? part.argsText
-            : part.args !== undefined
-              ? JSON.stringify(part.args)
-              : "",
-        status: "completed",
-        resultText:
-          typeof part.result === "string"
-            ? part.result
-            : part.result !== undefined
-              ? JSON.stringify(part.result)
-              : undefined,
-      });
-    }
-  }
-  if (parts.length === 0) return null;
-  return { id, role, parts, createdAt };
-}
-
 export function newThreadId(): string {
   return `thread-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
@@ -584,60 +450,32 @@ export async function fetchModelCatalog(
   };
 }
 
-export async function getActiveRun(
-  threadId: string,
+export async function getAgentEngineStatus(
   baseUrl = DEFAULT_CHAT_BASE_URL,
-): Promise<ActiveRunInfo> {
-  const data = await jsonRequest<{
-    active?: boolean;
-    runId?: string;
-    turnId?: string;
-    status?: string;
-  }>(
-    `${CHAT_PATH}/runs/active?threadId=${encodeURIComponent(threadId)}`,
+): Promise<"configured" | "missing"> {
+  const result = await fetchAgentEngineStatus(baseUrl);
+  if (!result || typeof result !== "object" || Array.isArray(result)) {
+    throw new AgentChatError("Agent engine status response was incomplete");
+  }
+  const configured = (result as { configured?: unknown }).configured;
+  if (typeof configured !== "boolean") {
+    throw new AgentChatError("Agent engine status response was incomplete");
+  }
+  return configured ? "configured" : "missing";
+}
+
+export async function getFileUploadStatus(
+  baseUrl = DEFAULT_CHAT_BASE_URL,
+): Promise<"configured" | "missing"> {
+  const result = await jsonRequest<{ configured?: unknown }>(
+    "/_agent-native/file-upload/status",
     {},
     baseUrl,
   );
-  return {
-    active: data.active === true,
-    runId: typeof data.runId === "string" ? data.runId : undefined,
-    turnId: typeof data.turnId === "string" ? data.turnId : undefined,
-    status: typeof data.status === "string" ? data.status : undefined,
-  };
-}
-
-/** Reconnect to a live run's event stream (SSE) from a seq cursor. */
-export async function resumeRunEvents(
-  runId: string,
-  after = 0,
-  signal?: AbortSignal,
-  baseUrl = DEFAULT_CHAT_BASE_URL,
-): Promise<Pick<ChatTurnHandle, "events" | "abort">> {
-  const headers = await authHeaders();
-  const controller = new AbortController();
-  if (signal) {
-    if (signal.aborted) controller.abort();
-    else signal.addEventListener("abort", () => controller.abort());
+  if (typeof result.configured !== "boolean") {
+    throw new AgentChatError("File storage status response was incomplete");
   }
-  const response = await expoFetch(
-    `${baseUrl}${CHAT_PATH}/runs/${encodeURIComponent(runId)}/events?after=${after}`,
-    { headers, signal: controller.signal },
-  );
-  if (!response.ok) {
-    throw new AgentChatError(await readErrorMessage(response), response.status);
-  }
-  const body = response.body;
-  if (!body) throw new AgentChatError("Empty resume stream");
-  const events = (async function* () {
-    for await (const raw of readJsonEventStream(
-      body as ReadableStream<Uint8Array>,
-    )) {
-      if (raw && typeof raw === "object" && "type" in raw) {
-        yield raw as WireEvent;
-      }
-    }
-  })();
-  return { events, abort: () => controller.abort() };
+  return result.configured ? "configured" : "missing";
 }
 
 export async function forkChatThread(
@@ -749,4 +587,5 @@ export async function saveProviderApiKey(
   if (!response.ok) {
     throw new AgentChatError(await readErrorMessage(response), response.status);
   }
+  DeviceEventEmitter.emit(AGENT_ENGINE_CONFIGURED_CHANGED_EVENT);
 }

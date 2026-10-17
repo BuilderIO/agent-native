@@ -8,6 +8,7 @@ import { SettingsPanel } from "./settings-panel";
 
 const mocks = vi.hoisted(() => ({
   createCta: vi.fn(),
+  updateRecording: vi.fn(),
   toastError: vi.fn(),
   createOutcome: "success" as "success" | "error",
 }));
@@ -27,15 +28,23 @@ vi.mock("@agent-native/core/client/hooks", async () => {
         onSuccess?: () => void;
         onError?: (error: Error) => void;
       },
-    ) => ({
-      isPending: false,
-      mutate: (payload: unknown) => {
-        if (name !== "create-cta") return;
-        mocks.createCta(payload);
-        if (mocks.createOutcome === "success") options?.onSuccess?.();
-        else options?.onError?.(new Error("Create failed"));
-      },
-    }),
+    ) => {
+      const [updatePending, setUpdatePending] = ReactModule.useState(false);
+      return {
+        isPending: name === "update-recording" ? updatePending : false,
+        mutate: (payload: unknown) => {
+          if (name === "update-recording") {
+            mocks.updateRecording(payload);
+            setUpdatePending(true);
+            return;
+          }
+          if (name !== "create-cta") return;
+          mocks.createCta(payload);
+          if (mocks.createOutcome === "success") options?.onSuccess?.();
+          else options?.onError?.(new Error("Create failed"));
+        },
+      };
+    },
   };
 });
 
@@ -142,5 +151,22 @@ describe("SettingsPanel CTA draft", () => {
 
     expect(container.querySelector('input[type="url"]')).not.toBeNull();
     expect(mocks.toastError).toHaveBeenCalledWith("Create failed");
+  });
+
+  it("disables every viewer switch while a setting update is pending", () => {
+    const switches = Array.from(
+      container.querySelectorAll<HTMLButtonElement>('[role="switch"]'),
+    );
+    expect(switches).toHaveLength(4);
+
+    act(() => switches[0]?.click());
+
+    expect(mocks.updateRecording).toHaveBeenCalledWith({
+      id: "recording_1",
+      enableComments: false,
+    });
+    expect(switches.every((switchControl) => switchControl.disabled)).toBe(
+      true,
+    );
   });
 });

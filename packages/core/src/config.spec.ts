@@ -4,10 +4,12 @@ import {
   agentNativeConfigEnvName,
   defineAgentNativeConfig,
   inferAgentNativeDeploymentEnvironment,
+  isFirstRunOnboardingModeActive,
   mergeAgentNativeConfigs,
   normalizeAgentNativeConfig,
   readAgentNativeConfigEnv,
   resolveAgentNativeConfig,
+  resolveEffectiveFirstRunOnboardingMode,
   type AgentNativeConfigContext,
 } from "./config.js";
 
@@ -96,6 +98,46 @@ describe("agent-native app config", () => {
     ).toEqual({ deployment: { environment: "beta" } });
   });
 
+  it("supports an alternate workspace app root and isolated auth", () => {
+    expect(
+      normalizeAgentNativeConfig({
+        deployment: {
+          workspace: {
+            appsDirectory: ".",
+            authMode: "isolated",
+            rootPage: "directory",
+          },
+        },
+      }),
+    ).toEqual({
+      deployment: {
+        workspace: {
+          appsDirectory: ".",
+          authMode: "isolated",
+          rootPage: "directory",
+        },
+      },
+    });
+    expect(
+      mergeAgentNativeConfigs(
+        { deployment: { workspace: { appsDirectory: "apps" } } },
+        {
+          deployment: {
+            workspace: { authMode: "isolated", rootPage: "directory" },
+          },
+        },
+      ),
+    ).toEqual({
+      deployment: {
+        workspace: {
+          appsDirectory: "apps",
+          authMode: "isolated",
+          rootPage: "directory",
+        },
+      },
+    });
+  });
+
   it.each([
     [
       {
@@ -175,6 +217,7 @@ describe("agent-native app config", () => {
     { translations: { locales: ["en-US", 42] } },
     { changelog: { enabled: "yes" } },
     { deployment: { environment: "staging" } },
+    { deployment: { workspace: { rootPage: "landing" } } },
     { harness: { runtimes: ["shell"] } },
     { harness: { enabled: true } },
     { harness: { ui: "desktop" } },
@@ -216,6 +259,67 @@ describe("agent-native app config", () => {
       },
       diagnostics: { failOnBuild: true },
     });
+  });
+
+  it("validates the public framework route prefix", () => {
+    expect(
+      resolveAgentNativeConfig(
+        { runtime: { frameworkRoutePrefix: " /_platform " } },
+        devContext,
+      ).runtime?.frameworkRoutePrefix,
+    ).toBe("/_platform");
+    expect(
+      resolveAgentNativeConfig(
+        { runtime: { auth: { enabled: true } } },
+        devContext,
+      ).runtime?.frameworkRoutePrefix,
+    ).toBeUndefined();
+    expect(() =>
+      resolveAgentNativeConfig(
+        { runtime: { frameworkRoutePrefix: "/api" } },
+        devContext,
+      ),
+    ).toThrow(
+      /runtime\.frameworkRoutePrefix must not use the reserved namespace/,
+    );
+    expect(() =>
+      resolveAgentNativeConfig(
+        { runtime: { frameworkRoutePrefix: "/a/b" } },
+        devContext,
+      ),
+    ).toThrow(
+      /runtime\.frameworkRoutePrefix must be one absolute path segment/,
+    );
+    expect(() =>
+      resolveAgentNativeConfig(
+        { runtime: { frameworkRoutePrefix: 7 as unknown as string } },
+        devContext,
+      ),
+    ).toThrow("runtime.frameworkRoutePrefix must be a string");
+  });
+
+  it("keeps the framework route prefix through runtime merges", () => {
+    const merged = mergeAgentNativeConfigs(
+      {
+        runtime: {
+          frameworkRoutePrefix: "/_platform",
+          auth: { enabled: true },
+        },
+      },
+      { runtime: { database: { required: true } } },
+    );
+    expect(merged.runtime).toEqual({
+      frameworkRoutePrefix: "/_platform",
+      auth: { enabled: true },
+      database: { required: true },
+      environment: undefined,
+    });
+    expect(
+      mergeAgentNativeConfigs(
+        { runtime: { frameworkRoutePrefix: "/_platform" } },
+        { runtime: { frameworkRoutePrefix: "/_gateway" } },
+      ).runtime?.frameworkRoutePrefix,
+    ).toBe("/_gateway");
   });
 
   it("validates non-secret runtime requirements", () => {
@@ -269,6 +373,25 @@ describe("agent-native app config", () => {
 });
 
 describe("agent-native config environment aliases", () => {
+  it("reads the framework route prefix from its deployment alias", () => {
+    expect(agentNativeConfigEnvName(["runtime", "frameworkRoutePrefix"])).toBe(
+      "AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX",
+    );
+    expect(
+      readAgentNativeConfigEnv({
+        AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX: "/_platform",
+      }).runtime?.frameworkRoutePrefix,
+    ).toBe("/_platform");
+    expect(() =>
+      resolveAgentNativeConfig(
+        readAgentNativeConfigEnv({
+          AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX: "/",
+        }),
+        devContext,
+      ),
+    ).toThrow(/frameworkRoutePrefix must be a single absolute path segment/);
+  });
+
   it("maps config paths to deterministic environment names", () => {
     expect(agentNativeConfigEnvName([])).toBe("AGENT_NATIVE_CONFIG");
     expect(agentNativeConfigEnvName(["runtime"])).toBe(
@@ -311,6 +434,7 @@ describe("agent-native config environment aliases", () => {
         AGENT_NATIVE_CONFIG_INSTRUCTIONS_RUNTIME: JSON.stringify(
           "app-agent/AGENTS.md",
         ),
+        AGENT_NATIVE_CONFIG_DEPLOYMENT_WORKSPACE_AUTH_MODE: "isolated",
       }),
     ).toEqual({
       version: 1,
@@ -324,6 +448,7 @@ describe("agent-native config environment aliases", () => {
       },
       instructions: { runtime: "app-agent/AGENTS.md" },
       translations: { locales: ["en-US", "es-ES"] },
+      deployment: { workspace: { authMode: "isolated" } },
     });
   });
 
@@ -385,4 +510,59 @@ describe("agent-native config environment aliases", () => {
       "unsupported Agent-Native config path",
     );
   });
+});
+
+describe("isFirstRunOnboardingModeActive", () => {
+  it("is true only for the modes that actually show onboarding", () => {
+    expect(isFirstRunOnboardingModeActive("connect")).toBe(true);
+    expect(isFirstRunOnboardingModeActive("connect-and-integrations")).toBe(
+      true,
+    );
+    expect(isFirstRunOnboardingModeActive("off")).toBe(false);
+    expect(isFirstRunOnboardingModeActive(undefined)).toBe(false);
+  });
+});
+
+describe("resolveEffectiveFirstRunOnboardingMode", () => {
+  it("defaults to off with no override and no configured mode", () => {
+    expect(resolveEffectiveFirstRunOnboardingMode(undefined, undefined)).toBe(
+      "off",
+    );
+  });
+
+  it("uses the configured mode when it is active and there is no override", () => {
+    expect(resolveEffectiveFirstRunOnboardingMode(undefined, "connect")).toBe(
+      "connect",
+    );
+    expect(
+      resolveEffectiveFirstRunOnboardingMode(
+        undefined,
+        "connect-and-integrations",
+      ),
+    ).toBe("connect-and-integrations");
+  });
+
+  it("treats a configured 'off' the same as unconfigured", () => {
+    expect(resolveEffectiveFirstRunOnboardingMode(undefined, "off")).toBe(
+      "off",
+    );
+  });
+
+  it.each(["true", "TRUE", "1", true])(
+    "an env override of %s wins as 'connect' even over a configured 'off'",
+    (value) => {
+      expect(resolveEffectiveFirstRunOnboardingMode(value, "off")).toBe(
+        "connect",
+      );
+    },
+  );
+
+  it.each(["false", "0", "", false])(
+    "an env override of %s wins as 'off' even over an active configured mode",
+    (value) => {
+      expect(resolveEffectiveFirstRunOnboardingMode(value, "connect")).toBe(
+        "off",
+      );
+    },
+  );
 });

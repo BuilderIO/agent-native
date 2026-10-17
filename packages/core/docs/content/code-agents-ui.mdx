@@ -156,16 +156,16 @@ codex login status
 Desktop and the CLI read `codex login status` and run `codex exec`, so they
 reuse whatever ChatGPT subscription or API-key auth your installed Codex CLI
 reports. This is separate from the `@ai-sdk/harness-codex` package used by
-[Harness Agents](/docs/harness-agents); the harness adapter can copy local
-Codex CLI auth into a trusted sandbox only when `codexCliAuth: true` is
-explicitly enabled.
+[Harness Agents](/docs/harness-agents); that adapter now resolves supported
+native subscription credentials on the host without copying the local auth
+file into the sandbox.
 
 ## Browser Host
 
 The old hidden `code` template has been removed. To build a browser-hosted Code surface, create a normal app and mount the shared UI package with a host implementation:
 
 ```bash
-npx @agent-native/core@latest create my-code-ui --template chat
+npx --yes @agent-native/core@latest create my-code-ui --template chat
 cd my-code-ui
 pnpm add @agent-native/code-agents-ui
 pnpm install
@@ -316,7 +316,7 @@ corresponding controls when a method isn't implemented. See
 ## Shared Composer
 
 Agent-Native Code uses the same `AgentComposerFrame` + `PromptComposer` /
-`TiptapComposer` stack exported from `@agent-native/core/client/composer` as the
+`TiptapComposer` stack exported from `@agent-native/toolkit/app/chat/composer` as the
 framework agent sidebar. Do not fork a separate
 textarea, coding-tool picker, upload picker, voice button, model picker, or Enter-to-submit
 implementation for Code-like surfaces. If a host needs one extra control, pass

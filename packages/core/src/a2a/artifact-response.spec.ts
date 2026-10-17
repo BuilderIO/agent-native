@@ -888,8 +888,6 @@ describe("appendA2AArtifactLinks", () => {
   });
 
   it("verifies a deck built through actions outside the deck allow-list", () => {
-    // The documented live-generation flow creates an empty deck and fills it in
-    // with a follow-up write, so neither call looks like a populated create.
     const text = appendA2AArtifactLinks(
       "Your deck is ready: https://slides.agent.test/deck/deck_123",
       [

@@ -5,13 +5,23 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
+  trackDesignExported,
+  withDesignExportFailureTracking,
+} from "../server/lib/design-export-tracking.js";
+import {
   buildStandaloneHtml,
   buildSvgForeignObject,
   exportFilename,
   trySaveExportFile,
 } from "../server/lib/design-export.js";
 import { isBoardFile } from "../shared/board-file.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
+
+const trackSvgExportFailures = withDesignExportFailureTracking<{
+  id: string;
+  width: number;
+  height: number;
+}>("svg");
 
 export default defineAction({
   description:
@@ -35,9 +45,10 @@ export default defineAction({
       .describe("SVG viewport height in pixels"),
   }),
   readOnly: true,
-  run: async ({ id, width, height }) => {
+  run: trackSvgExportFailures(async ({ id, width, height }, ctx, facts) => {
     const access = await resolveAccess("design", id);
     if (!access) throw new Error(`Design not found: ${id}`);
+    facts.designId = id;
 
     const row = access.resource;
     const db = getDb();
@@ -47,8 +58,13 @@ export default defineAction({
       .from(schema.designFiles)
       .where(eq(schema.designFiles.designId, id));
     const exportFiles = files.filter((file) => !isBoardFile(file.filename));
+    facts.fileCount = exportFiles.length;
 
-    const html = buildStandaloneHtml({ title: row.title, files: exportFiles });
+    const html = buildStandaloneHtml({
+      title: row.title,
+      files: exportFiles,
+      screenLayout: "merged",
+    });
     const svg = buildSvgForeignObject({
       html,
       width,
@@ -58,6 +74,11 @@ export default defineAction({
     const filename = exportFilename(row.title, "svg");
     const saveResult = await trySaveExportFile(filename, svg);
 
+    trackDesignExported(
+      { ...facts, exportFormat: "svg", status: "completed" },
+      ctx,
+    );
+
     return { svg, filename, ...saveResult, fileCount: exportFiles.length };
-  },
+  }),
 });

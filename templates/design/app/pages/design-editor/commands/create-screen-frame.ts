@@ -11,15 +11,16 @@ import {
   blankScreenHtml,
   nextBlankScreenFilename,
 } from "@/pages/design-editor/canvas-primitive-insert";
+import { getCanvasFrameGeometry } from "@/pages/design-editor/design-data-geometry-utils";
 import type { FileCreationHistoryEntry } from "@/pages/design-editor/history";
 import type { DesignFile } from "@/pages/design-editor/types";
 
 export interface CreateScreenFrameArgs {
   canEditDesign: boolean;
-  canvasFrameGeometryById: CanvasFrameGeometryById;
   createFileMutation: ReturnType<
     typeof useActionMutation<undefined, undefined, "create-file">
   >;
+  designDataJsonRef: RefObject<Record<string, unknown>>;
   files: DesignFile[];
   focusCreatedScreen: (screenId: string, geometry: FrameGeometry) => void;
   id: string | undefined;
@@ -43,8 +44,8 @@ export interface CreateScreenFrameArgs {
 export function runCreateScreenFrame(
   {
     canEditDesign,
-    canvasFrameGeometryById,
     createFileMutation,
+    designDataJsonRef,
     files,
     focusCreatedScreen,
     id,
@@ -90,11 +91,9 @@ export function runCreateScreenFrame(
             height: nextGeometry.height,
             why: "a drawn size is deliberate; without this the device floor and content-fit pass override it",
           });
-          // The drawn height is a deliberate size, so pin it: otherwise
-          // the device floor and content-fit pass immediately override it.
           writeFrameGeometrySnapshot(
             {
-              ...canvasFrameGeometryById,
+              ...getCanvasFrameGeometry(designDataJsonRef.current),
               [nextId]: nextGeometry,
             },
             {
@@ -110,9 +109,6 @@ export function runCreateScreenFrame(
             geometry: nextGeometry,
           });
         }
-        // Refetch only when there is no created id to insert optimistically:
-        // a whole-design refetch re-downloads every screen's HTML, which is
-        // what made adding a frame feel slow.
         if (!nextId) {
           void queryClient.invalidateQueries({
             queryKey: ["action", "get-design"],

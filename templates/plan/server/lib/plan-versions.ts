@@ -13,14 +13,7 @@ import { parsePlanContent } from "../plan-content.js";
 
 const SNAPSHOT_INTERVAL_MS = 5 * 60 * 1000;
 
-/**
- * When `force: true` is set and the latest version for this plan carries the
- * exact same label and was created within this window, we coalesce rather than
- * append a new identical-label row.  The earliest snapshot of a burst already
- * captures the pre-burst state, which is the meaningful restore point.
- * A different label, or a gap longer than this window, always starts a new row.
- */
-const BURST_COALESCE_WINDOW_MS = 90 * 1000; // 90 seconds
+const BURST_COALESCE_WINDOW_MS = 90 * 1000;
 
 export interface PlanVersionChatContext {
   threadId?: string;
@@ -206,8 +199,6 @@ export function summarizePlanVersion(row: VersionRow): PlanVersionSummary {
   };
 }
 
-/** Derived summary fields computed from a snapshot, stored alongside the row at
- * write time so list reads don't need to parse snapshot_json. */
 function summaryColumnsFromSnapshot(snapshot: PlanVersionSnapshot) {
   return {
     status: snapshot.plan.status,
@@ -220,10 +211,6 @@ function summaryColumnsFromSnapshot(snapshot: PlanVersionSnapshot) {
   };
 }
 
-/** Row shape needed by `summarizePlanVersionRow`: the small always-selected
- * columns, the denormalized summary columns, and `snapshotJson` only as a
- * fallback for legacy rows (see below). Callers project just this shape
- * instead of the full `VersionRow` in the common case. */
 type SummaryRow = Pick<
   VersionRow,
   | "id"
@@ -241,13 +228,6 @@ type SummaryRow = Pick<
   | "previewText"
 > & { snapshotJson?: string | null };
 
-/**
- * Like `summarizePlanVersion`, but reads the denormalized summary columns
- * instead of parsing `snapshotJson` when they're populated. Only rows written
- * before this column set existed have `blockCount === null`; for those,
- * `snapshotJson` must be provided so this can fall back to the legacy
- * parse-on-read path.
- */
 export function summarizePlanVersionRow(row: SummaryRow): PlanVersionSummary {
   const base = {
     id: row.id,
@@ -327,19 +307,10 @@ export async function createPlanVersionSnapshot(
     .orderBy(desc(schema.planVersions.createdAt))
     .limit(1);
 
-  // Identical-content dedupe: skip regardless of label.
   if (latestVersion?.snapshotJson === snapshotJson) {
     return { created: false, reason: "duplicate" };
   }
 
-  // Burst coalescing: when force is set (inline-edit path) and the latest
-  // snapshot for this plan already carries the same label and was written
-  // within BURST_COALESCE_WINDOW_MS, skip. The earliest snapshot of the burst
-  // already preserves the pre-burst state; appending more identical-label rows
-  // floods version history without adding restore value.
-  // Explicit safety snapshots ("Before restore", "Before source import", etc.)
-  // are never coalesced: they are created before destructive/import/restore
-  // operations and are the actual restore point.
   if (
     options.force &&
     canCoalesceBurstLabel(options.label) &&

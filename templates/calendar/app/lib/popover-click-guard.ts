@@ -2,11 +2,6 @@ const CALENDAR_CREATE_SURFACE_SELECTOR =
   "[data-calendar-create-surface='true']";
 const OUTSIDE_CLICK_SUPPRESSION_MS = 500;
 
-/**
- * Tracks event detail popovers and outside clicks into empty calendar space.
- * Calendar views use this to turn the first empty-space click into a dismiss
- * action instead of creating a new event underneath the closing popover.
- */
 const openPopoverTokens = new Set<symbol>();
 let popoverInteractOutsideAt = 0;
 let pendingEmptySpaceSuppression = false;

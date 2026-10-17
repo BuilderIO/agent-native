@@ -2,8 +2,8 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-// These compute on the host and never patch the live iframe, so they cannot
-// satisfy what `skipPreview` promises.
+import { readDesignEditorSource } from "./read-design-editor-source";
+
 const HOST_COMPUTED_COMMANDS = [
   "add-auto-layout",
   "change-selected-z-index",
@@ -17,7 +17,6 @@ const CALLER_OWNS_PREVIEW_COMMANDS = [
   "overview-primitive-reparent",
   "screen-text-content-change",
   "screen-visual-duplicate-change",
-  "screen-visual-structure-change",
   "screen-visual-style-change",
   "text-content-change",
   "visual-structure-change",
@@ -50,19 +49,19 @@ describe("host-computed edits must not suppress the canvas repaint", () => {
       ),
       "utf8",
     );
+    expect(bridge).toMatch(
+      /var requiresFullDocumentMorph =\s*Boolean\(forceFullDocument\) \|\| hasSourceProvenance;/,
+    );
     expect(bridge).toContain(
-      "!forceFullDocument &&\n      nextHeadHtml === currentHeadHtml &&",
+      "!requiresFullDocumentMorph &&\n      nextHeadHtml === currentHeadHtml &&",
     );
   });
 
   it("align, distribute and tidy repaint after committing positions", () => {
-    const editorSource = readFileSync(
-      new URL("../DesignEditor.tsx", import.meta.url),
-      "utf8",
-    );
+    const editorSource = readDesignEditorSource();
     const commit = editorSource.slice(
       editorSource.indexOf("const commitNodePositions"),
-      editorSource.indexOf("// Item 3: Figma's Alignment row"),
+      editorSource.indexOf("const handleApplyLayoutFlow = useCallback("),
     );
     expect(commit).toContain(
       "applyLocalContentUpdate(content, { forcePreviewFullDocument: true })",
@@ -76,6 +75,15 @@ describe("host-computed edits must not suppress the canvas repaint", () => {
       expect(commandSource(name)).toContain("skipPreview: true");
     },
   );
+
+  it("keeps the screen structure wrapper on the shared caller-owned preview path", () => {
+    expect(commandSource("screen-visual-structure-change")).toContain(
+      "runVisualStructureChange",
+    );
+    expect(commandSource("visual-structure-change")).toContain(
+      "skipPreview: true",
+    );
+  });
 
   it("reports a skipped preview as skipped rather than applied", () => {
     const applySource = commandSource("apply-local-content-update");

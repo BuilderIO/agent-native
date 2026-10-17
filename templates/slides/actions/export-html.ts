@@ -10,8 +10,16 @@ import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
-import "../server/db/index.js"; // ensure registerShareableResource runs
-import { sanitizeCssValue } from "../app/lib/sanitize-slide-html.js";
+import "../server/db/index.js";
+import {
+  sanitizeCssValue,
+  sanitizeSlideHtml,
+} from "../app/lib/sanitize-slide-html.js";
+import {
+  trackDeckExported,
+  withExportFailureTracking,
+} from "../server/lib/deck-export-tracking.js";
+import { generationAttemptIdOf } from "../server/lib/slides-tracking.js";
 import {
   safeGeneratedFilename,
   tenantExportDir,
@@ -27,26 +35,14 @@ import {
   DEFAULT_SLIDE_BACKGROUND,
   resolveSlideBackground,
 } from "../shared/slide-background.js";
-
-/**
- * Minimal server-side HTML sanitizer for exported slide content.
- * DOMParser is not available in Node/Nitro, so we use a regex pass to strip
- * scripts, event handlers, and dangerous URL schemes before embedding slide
- * HTML into the standalone export file.
- */
-function sanitizeSlideContent(html: string): string {
-  return html
-    .replace(
-      /<(script|iframe|object|embed|form|meta|base|link)\b[\s\S]*?<\/\1>/gi,
-      "",
-    )
-    .replace(
-      /<(script|iframe|object|embed|form|meta|base|link)\b[^>]*\/?>/gi,
-      "",
-    )
-    .replace(/\s+on[a-z][\w:-]*\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-    .replace(/\s+srcdoc\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "");
-}
+import {
+  SLIDE_NUMBER_CSS,
+  slideNumberInlineStyle,
+} from "../shared/slide-number.js";
+import {
+  projectRenderingDesignSystemData,
+  readDeckLinkedDesignSystem,
+} from "./_linked-design-system.js";
 
 function safeCssToken(
   value: unknown,
@@ -243,25 +239,36 @@ function standaloneDesignSystemVars(
     builderTokenValues,
   );
   const darkBackground = isDarkStandaloneBackground(safeBackground);
+  // Must match SlideRenderer: publishing a token an unlinked deck never chose
+  // overrides the theme baked into its slide HTML.
+  const token = (name: string, value: unknown): string | null => {
+    if (typeof value !== "string" || !value.trim()) return null;
+    const resolved = safeCssToken(value, "", builderTokenValues);
+    return resolved ? `${name}: ${resolved}` : null;
+  };
+  const designSystemTokens = designSystem
+    ? [
+        token("--ds-text", colors?.text),
+        token("--ds-text-muted", colors?.textMuted),
+        token("--ds-accent", colors?.accent),
+        token("--ds-primary", colors?.primary),
+        token("--ds-secondary", colors?.secondary),
+        token("--ds-surface", colors?.surface),
+        token("--ds-heading-font", typography?.headingFont),
+        token("--ds-body-font", typography?.bodyFont),
+        token("--ds-radius", borders?.radius),
+      ].filter((entry): entry is string => entry !== null)
+    : [];
+  const needsDarkTextOverride =
+    darkBackground &&
+    (!colors?.text || isDarkStandaloneBackground(colors.text));
   return [
     `--ds-bg: ${safeBackground}`,
-    // guard:allow-raw-color - standalone export fallback palette
-    // guard:allow-raw-color - standalone export dark-background fallback
-    `--ds-text: ${safeCssToken(colors?.text, darkBackground ? "#FFFFFF" : "#1F2933", builderTokenValues)}`,
-    // guard:allow-raw-color - standalone export fallback palette
-    // guard:allow-raw-color - standalone export dark-background fallback
-    `--ds-text-muted: ${safeCssToken(colors?.textMuted, darkBackground ? "rgba(255, 255, 255, 0.72)" : "#667085", builderTokenValues)}`,
-    // guard:allow-raw-color - standalone export fallback palette
-    `--ds-accent: ${safeCssToken(colors?.accent, "#2457D6", builderTokenValues)}`,
-    // guard:allow-raw-color - standalone export fallback palette
-    `--ds-primary: ${safeCssToken(colors?.primary, "#2457D6", builderTokenValues)}`,
-    // guard:allow-raw-color - standalone export fallback palette
-    `--ds-secondary: ${safeCssToken(colors?.secondary, "#C85C3A", builderTokenValues)}`,
-    // guard:allow-raw-color - standalone export fallback palette
-    `--ds-surface: ${safeCssToken(colors?.surface, "#FFFFFF", builderTokenValues)}`,
-    `--ds-heading-font: ${safeCssToken(typography?.headingFont, "Inter, sans-serif", builderTokenValues)}`,
-    `--ds-body-font: ${safeCssToken(typography?.bodyFont, "Inter, sans-serif", builderTokenValues)}`,
-    `--ds-radius: ${safeCssToken(borders?.radius, "14px", builderTokenValues)}`,
+    ...designSystemTokens,
+    ...(needsDarkTextOverride
+      ? // guard:allow-raw-color - readable defaults on explicit dark backgrounds
+        [`--ds-text: #FFFFFF`, `--ds-text-muted: rgba(255, 255, 255, 0.72)`]
+      : []),
     ...Object.entries(builderTokenValues ?? {})
       .filter(
         ([name, value]) =>
@@ -274,7 +281,7 @@ function standaloneDesignSystemVars(
   ].join("; ");
 }
 
-function buildStandaloneHtml(
+export function buildStandaloneHtml(
   title: string,
   slides: Array<{
     id: string;
@@ -293,8 +300,9 @@ function buildStandaloneHtml(
         slide.background,
         designSystem,
       );
-      const style = `display: ${i === 0 ? "flex" : "none"}; background: ${safeCssToken(standaloneBackgroundCssValue(slideBackground), DEFAULT_SLIDE_BACKGROUND, builderTokenValues)}; ${standaloneDesignSystemVars(designSystem, slideBackground, builderTokenValues)}`;
-      return `<section class="slide" data-index="${i}" style="${escapeHtml(style)}">${sanitizeSlideContent(slide.content)}</section>`;
+      const position = { number: i + 1, count: slides.length };
+      const style = `display: ${i === 0 ? "flex" : "none"}; background: ${safeCssToken(standaloneBackgroundCssValue(slideBackground), DEFAULT_SLIDE_BACKGROUND, builderTokenValues)}; ${standaloneDesignSystemVars(designSystem, slideBackground, builderTokenValues)}; ${slideNumberInlineStyle(position)}`;
+      return `<section class="slide" data-index="${i}" data-slide-index="${position.number}" data-slide-count="${position.count}" style="${escapeHtml(style)}">${sanitizeSlideHtml(slide.content)}</section>`;
     })
     .join("\n");
 
@@ -359,6 +367,8 @@ function buildStandaloneHtml(
       height: 100%;
     }
 
+    ${SLIDE_NUMBER_CSS}
+
     .fmd-slide {
       width: 100%;
       height: 100%;
@@ -411,7 +421,8 @@ function buildStandaloneHtml(
     }
 
     .viewport:hover .bottom-bar,
-    .bottom-bar:hover {
+    .bottom-bar:hover,
+    .bottom-bar:focus-within {
       opacity: 1;
     }
 
@@ -425,8 +436,23 @@ function buildStandaloneHtml(
       align-items: center;
     }
 
-    .controls span {
-      opacity: 0.6;
+    .controls button {
+      border: 0;
+      background: transparent;
+      color: inherit;
+      font: inherit;
+      cursor: pointer;
+      min-height: 32px;
+      padding: 0 4px;
+    }
+
+    .controls button:hover,
+    .controls button:focus-visible { text-decoration: underline; }
+    .controls button:focus-visible { outline: 2px solid currentColor; }
+    .controls button:disabled { opacity: 0.4; cursor: default; }
+
+    @media (hover: none), (any-pointer: coarse) {
+      .bottom-bar { opacity: 1; }
     }
 
     kbd {
@@ -446,8 +472,9 @@ function buildStandaloneHtml(
     <div class="bottom-bar">
       <div class="slide-counter" id="counter">1 / ${slides.length}</div>
       <div class="controls">
-        <span><kbd>&larr;</kbd> <kbd>&rarr;</kbd> navigate</span>
-        <span><kbd>F</kbd> fullscreen</span>
+        <button type="button" id="previousSlide" aria-label="Previous slide"><kbd>&larr;</kbd></button>
+        <button type="button" id="nextSlide" aria-label="Next slide"><kbd>&rarr;</kbd></button>
+        <button type="button" id="fullscreenButton"><kbd>F</kbd> fullscreen</button>
         <span><kbd>Esc</kbd> exit</span>
       </div>
     </div>
@@ -459,14 +486,34 @@ function buildStandaloneHtml(
       var slides = document.querySelectorAll('.slide');
       var counter = document.getElementById('counter');
       var container = document.getElementById('slideContainer');
+      var previousButton = document.getElementById('previousSlide');
+      var nextButton = document.getElementById('nextSlide');
+      var fullscreenButton = document.getElementById('fullscreenButton');
 
       function showSlide(index) {
         if (index < 0 || index >= totalSlides) return;
+        slides[currentSlide].querySelectorAll('video').forEach(function(video) { video.pause(); });
         slides[currentSlide].style.display = 'none';
         currentSlide = index;
         slides[currentSlide].style.display = 'flex';
         counter.textContent = (currentSlide + 1) + ' / ' + totalSlides;
+        previousButton.disabled = currentSlide === 0;
+        nextButton.disabled = currentSlide === totalSlides - 1;
       }
+
+      previousButton.addEventListener('click', function() { showSlide(currentSlide - 1); });
+      nextButton.addEventListener('click', function() { showSlide(currentSlide + 1); });
+      fullscreenButton.addEventListener('click', function() {
+        if (document.fullscreenElement) {
+          if (document.exitFullscreen) {
+            document.exitFullscreen().catch(function(error) { console.error('Fullscreen exit failed', error); });
+          }
+        } else if (document.documentElement.requestFullscreen) {
+          document.documentElement.requestFullscreen().catch(function(error) { console.error('Fullscreen request failed', error); });
+        }
+      });
+      previousButton.disabled = true;
+      nextButton.disabled = totalSlides < 2;
 
       function fitSlide() {
         var vw = window.innerWidth;
@@ -478,11 +525,34 @@ function buildStandaloneHtml(
       window.addEventListener('resize', fitSlide);
       fitSlide();
 
+      function isMediaKeyboardEvent(e) {
+        if (e.target instanceof Element && e.target.closest('video, audio')) return true;
+        if (typeof e.composedPath === 'function' && e.composedPath().some(function(node) {
+          return node instanceof Element && node.closest('video, audio');
+        })) return true;
+        var active = document.activeElement;
+        return active instanceof Element && !!active.closest('video, audio');
+      }
+
+      function isMediaPlaybackKey(key) {
+        return (
+          key === ' ' ||
+          key === 'ArrowRight' ||
+          key === 'ArrowDown' ||
+          key === 'ArrowLeft' ||
+          key === 'ArrowUp' ||
+          key === 'Home' ||
+          key === 'End'
+        );
+      }
+
       document.addEventListener('keydown', function(e) {
+        if (isMediaKeyboardEvent(e) && isMediaPlaybackKey(e.key)) return;
         switch (e.key) {
           case 'ArrowRight':
           case 'ArrowDown':
           case ' ':
+            if (e.key === ' ' && e.target instanceof Element && e.target.closest('button')) break;
             e.preventDefault();
             showSlide(currentSlide + 1);
             break;
@@ -502,13 +572,15 @@ function buildStandaloneHtml(
           case 'f':
           case 'F':
             if (!document.fullscreenElement) {
-              document.documentElement.requestFullscreen().catch(function() {});
-            } else {
-              document.exitFullscreen().catch(function() {});
+              if (document.documentElement.requestFullscreen) {
+                document.documentElement.requestFullscreen().catch(function(error) { console.error('Fullscreen request failed', error); });
+              }
+            } else if (document.exitFullscreen) {
+              document.exitFullscreen().catch(function(error) { console.error('Fullscreen exit failed', error); });
             }
             break;
           case 'Escape':
-            if (document.fullscreenElement) {
+            if (document.fullscreenElement && document.exitFullscreen) {
               document.exitFullscreen().catch(function() {});
             }
             break;
@@ -518,6 +590,7 @@ function buildStandaloneHtml(
       // Click to advance (left third = back, right two-thirds = forward)
       document.getElementById('viewport').addEventListener('click', function(e) {
         if (e.target.closest('.bottom-bar')) return;
+        if (e.target instanceof Element && e.target.closest('video, audio')) return;
         var rect = this.getBoundingClientRect();
         var x = e.clientX - rect.left;
         if (x < rect.width / 3) {
@@ -554,13 +627,17 @@ function parseStoredDesignSystem(
   }
 }
 
+const trackHtmlExportFailures = withExportFailureTracking<{
+  deckId: string;
+}>("html");
+
 export default defineAction({
   description:
     "Export a deck as a standalone HTML file with built-in keyboard navigation. Returns a download URL for the generated file.",
   schema: z.object({
     deckId: z.string().describe("Deck ID to export"),
   }),
-  run: async ({ deckId }) => {
+  run: trackHtmlExportFailures(async ({ deckId }, ctx, facts) => {
     const userEmail = getRequestUserEmail();
     if (!userEmail)
       fail("no authenticated user", {
@@ -575,9 +652,14 @@ export default defineAction({
         statusCode: 404,
       });
 
+    facts.deckId = deckId;
     const row = access.resource;
     const deckData = JSON.parse(row.data);
     const slides = deckData.slides || [];
+    facts.slideCount = slides.length;
+    facts.generationAttemptId = generationAttemptIdOf(
+      deckData.generationContext,
+    );
     const rawAspectRatio = deckData.aspectRatio;
     const aspectRatio: AspectRatio | undefined = ASPECT_RATIO_VALUES.includes(
       rawAspectRatio,
@@ -596,15 +678,20 @@ export default defineAction({
     let designSystem: DesignSystemData | undefined;
     let builderTokenValues: Record<string, string> | undefined;
     if (typeof designSystemId === "string" && designSystemId.trim()) {
-      const designSystemAccess = await resolveAccess(
-        "design-system",
+      const designSystemAccess = await readDeckLinkedDesignSystem(
+        row,
         designSystemId,
       );
-      const rawData = designSystemAccess?.resource?.data;
+      // Deck-only readers get the rendering projection and no Builder token
+      // hydration: the token map is emitted whole into the exported HTML.
+      const rawData = designSystemAccess?.viaDeck
+        ? projectRenderingDesignSystemData(designSystemAccess.resource.data)
+        : designSystemAccess?.resource?.data;
       if (typeof rawData === "string") {
         designSystem = parseStoredDesignSystem(rawData);
-        const builderReference =
-          parseBuilderDesignSystemProxyReference(rawData);
+        const builderReference = designSystemAccess?.viaDeck
+          ? null
+          : parseBuilderDesignSystemProxyReference(rawData);
         if (builderReference) {
           try {
             builderTokenValues = (
@@ -629,13 +716,6 @@ export default defineAction({
     );
     const filename = safeGeneratedFilename(row.title, ".html");
 
-    // Disk write is only useful when the same process can later serve the
-    // file. On serverless (Netlify / Vercel / Lambda), the function filesystem
-    // vanishes between invocations, so `/api/exports/:filename` requests land
-    // on a different container that doesn't have the file — the user sees
-    // "file doesn't exist on site". Skip the disk write entirely on those
-    // hosts; the route handler streams `html` directly. CLI and local-dev
-    // still get a real file path.
     let filePath: string | undefined;
     if (!isServerless()) {
       const exportDir = tenantExportDir(userEmail);
@@ -644,8 +724,19 @@ export default defineAction({
       fs.writeFileSync(filePath, html);
     }
 
+    trackDeckExported(
+      {
+        ...facts,
+        deckId,
+        exportFormat: "html",
+        renderLocation: "server",
+        status: "completed",
+      },
+      ctx,
+    );
+
     return { html, filePath, filename, slideCount: slides.length };
-  },
+  }),
 });
 
 function isServerless(): boolean {

@@ -69,7 +69,11 @@ import {
 } from "@/lib/recorder-preferences";
 import { cn } from "@/lib/utils";
 
-import { CameraVisualizer, type CameraTestStatus } from "./camera-visualizer";
+import {
+  CameraVisualizer,
+  type CameraTestStatus,
+  type CameraVisualizerHandle,
+} from "./camera-visualizer";
 import {
   MicrophoneVisualizer,
   friendlyMicError,
@@ -338,8 +342,6 @@ export function PreRecordPanel({
     () => supportsBrowserTabCapture(),
     [],
   );
-  // Saved selections from the last visit. A `?mode=`/`?surface=` deep link
-  // (initialMode/initialDisplaySurface) still takes precedence over them.
   const savedPrefs = useMemo(() => loadRecorderPreferences(), []);
   const initialCaptureSetup = useMemo(() => {
     const requestedMode = initialMode ?? savedPrefs.mode ?? "screen+camera";
@@ -390,6 +392,7 @@ export function PreRecordPanel({
   const [cameraPickerOpen, setCameraPickerOpen] = useState(false);
   const [microphonePickerOpen, setMicrophonePickerOpen] = useState(false);
   const cameraMenuTriggerRef = useRef<HTMLButtonElement>(null);
+  const cameraVisualizerRef = useRef<CameraVisualizerHandle>(null);
   const microphoneMenuTriggerRef = useRef<HTMLButtonElement>(null);
   const dropdownInputModalityRef = useRef<"keyboard" | "pointer">("pointer");
   const [enumError, setEnumError] = useState<string | null>(null);
@@ -479,8 +482,6 @@ export function PreRecordPanel({
 
   useEffect(() => {
     if (!screenCaptureSupported) {
-      // This capability fallback is session-only so an unsupported device
-      // cannot overwrite the user's preferred desktop recording mode.
       setCaptureSetup(recorderSetupForMode("camera"));
       return;
     }
@@ -561,8 +562,6 @@ export function PreRecordPanel({
     }
   }, [micId, mics]);
 
-  // A temporarily missing device falls back to the runtime default without
-  // changing whether the camera is on.
   useEffect(() => {
     if (cameraId === "default") return;
     if (
@@ -573,8 +572,6 @@ export function PreRecordPanel({
     }
   }, [cameraId, cameras]);
 
-  // Persist deliberate picks only (not the resets above), so an unavailable
-  // device on load can't clobber the stored preference.
   const chooseMode = useCallback((value: RecordingMode) => {
     const next = recorderSetupForMode(recorderSetupModeFromBrowser(value));
     const nextMode = recorderSetupModeToBrowser(next.mode);
@@ -1077,6 +1074,15 @@ export function PreRecordPanel({
                       </DropdownMenuItem>
                     </>
                   ) : null}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    disabled={busy || cameraTest.status === "starting"}
+                    onSelect={() => cameraVisualizerRef.current?.startTest()}
+                  >
+                    {cameraTest.status === "starting"
+                      ? t("cameraVisualizer.opening")
+                      : t("cameraVisualizer.test")}
+                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : (
@@ -1104,6 +1110,7 @@ export function PreRecordPanel({
 
           {needsCamera ? (
             <CameraVisualizer
+              ref={cameraVisualizerRef}
               deviceId={cameraId === "default" ? null : cameraId}
               disabled={busy}
               size="sm"

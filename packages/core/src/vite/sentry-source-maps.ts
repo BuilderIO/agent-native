@@ -1,16 +1,10 @@
-/**
- * The release name here MUST match what `client/analytics.ts` sends as
- * `event.release` at runtime, or uploaded source maps never resolve against
- * captured events. Both derive it from the same `resolveAgentNativeBuildId()`
- * identifier so they can't drift apart independently.
- */
-import { readdir, rm } from "node:fs/promises";
+import { rm } from "node:fs/promises";
 import path from "node:path";
 
-import { sentryVitePlugin } from "@sentry/vite-plugin";
-import type { Plugin } from "vite";
+import type { Plugin, ResolvedConfig } from "vite";
 
 import { resolveAgentNativeBuildId } from "../shared/build-id.js";
+import { loadOptionalPeer } from "../shared/optional-peer.js";
 
 function firstNonEmpty(
   ...values: Array<string | undefined>
@@ -24,30 +18,30 @@ function firstNonEmpty(
 
 export function resolveSentryClientRelease(
   env: Record<string, string | undefined>,
-): string {
-  return `agent-native-client@${resolveAgentNativeBuildId(env, "development")}`;
+): string | null {
+  const buildId = resolveAgentNativeBuildId(env, "");
+  return buildId ? `agent-native-client@${buildId}` : null;
 }
 
-export interface SentrySourceMapUploadConfig {
+interface SentrySourceMapUploadCredentials {
   authToken: string;
   org: string;
   project: string;
   url?: string;
+}
+
+export interface SentrySourceMapUploadConfig extends SentrySourceMapUploadCredentials {
   release: string;
 }
 
 // A token alone can't safely guess org/project, and a half-configured plugin
 // would fail every build rather than cleanly no-op.
-export function resolveSentrySourceMapUploadConfig(
-  env: Record<string, string | undefined> = process.env,
-): SentrySourceMapUploadConfig | null {
+function resolveSentrySourceMapUploadCredentials(
+  env: Record<string, string | undefined>,
+): SentrySourceMapUploadCredentials | null {
   const authToken = firstNonEmpty(env.SENTRY_AUTH_TOKEN);
   if (!authToken) return null;
   const org = firstNonEmpty(env.SENTRY_ORG, env.SENTRY_ORG_SLUG);
-  // SENTRY_PROJECT_ID is the numeric DSN project id used elsewhere in this
-  // repo (sentry-config.ts) — not a valid value for the plugin's `project`
-  // option, which wants the project slug. Passing the numeric id would
-  // silently target the wrong project instead of cleanly no-oping.
   const project = firstNonEmpty(env.SENTRY_PROJECT, env.SENTRY_CLIENT_PROJECT);
   if (!org || !project) return null;
   return {
@@ -55,28 +49,21 @@ export function resolveSentrySourceMapUploadConfig(
     org,
     project,
     url: firstNonEmpty(env.SENTRY_URL),
-    release: resolveSentryClientRelease(env),
   };
+}
+
+export function resolveSentrySourceMapUploadConfig(
+  env: Record<string, string | undefined> = process.env,
+): SentrySourceMapUploadConfig | null {
+  const credentials = resolveSentrySourceMapUploadCredentials(env);
+  const release = resolveSentryClientRelease(env);
+  return credentials && release ? { ...credentials, release } : null;
 }
 
 export function isSentrySourceMapUploadEnabled(
   env: Record<string, string | undefined> = process.env,
 ): boolean {
-  return resolveSentrySourceMapUploadConfig(env) !== null;
-}
-
-async function removeSourceMaps(directory: string): Promise<void> {
-  const entries = await readdir(directory, { withFileTypes: true });
-  await Promise.all(
-    entries.map(async (entry) => {
-      const filePath = path.join(directory, entry.name);
-      if (entry.isDirectory()) {
-        await removeSourceMaps(filePath);
-      } else if (entry.name.endsWith(".map")) {
-        await rm(filePath, { force: true });
-      }
-    }),
-  );
+  return resolveSentrySourceMapUploadCredentials(env) !== null;
 }
 
 function createUploadedSourceMapCleanupPlugin(): Plugin {
@@ -86,36 +73,48 @@ function createUploadedSourceMapCleanupPlugin(): Plugin {
     writeBundle: {
       order: "post",
       sequential: true,
-      async handler(outputOptions) {
-        if (outputOptions.dir) {
-          await removeSourceMaps(outputOptions.dir);
-        } else if (outputOptions.file) {
-          await rm(`${outputOptions.file}.map`, { force: true });
-        }
+      async handler(outputOptions, bundle) {
+        const outputDirectory = outputOptions.dir
+          ? outputOptions.dir
+          : path.dirname(outputOptions.file!);
+        const sourceMapFileNames = Object.values(bundle).flatMap((output) => {
+          if (output.type === "asset") {
+            return output.fileName.endsWith(".map") ? [output.fileName] : [];
+          }
+          return output.map ? [`${output.fileName}.map`] : [];
+        });
+        await Promise.all(
+          sourceMapFileNames.map((fileName) =>
+            rm(path.join(outputDirectory, fileName), { force: true }),
+          ),
+        );
       },
     },
   };
 }
 
-// Safe to always include in the plugins array regardless of `vite build` vs
-// `vite dev` — `@sentry/vite-plugin`'s hooks only act during a real Rollup
-// build.
-export function createSentrySourceMapUploadPlugin(
-  env: Record<string, string | undefined> = process.env,
-): Plugin[] {
-  const config = resolveSentrySourceMapUploadConfig(env);
-  if (!config) return [];
-  const uploadPlugins = sentryVitePlugin({
-    org: config.org,
-    project: config.project,
-    authToken: config.authToken,
-    url: config.url,
+function resolvedClientBuildId(config: ResolvedConfig): string | null {
+  const definedBuildId = config.define?.__AGENT_NATIVE_BUILD_ID__;
+  if (typeof definedBuildId !== "string") return null;
+  const buildId: unknown = JSON.parse(definedBuildId);
+  return typeof buildId === "string" && buildId.trim() ? buildId.trim() : null;
+}
+
+async function loadSentryUploadPlugin(
+  uploadConfig: SentrySourceMapUploadConfig,
+): Promise<Plugin> {
+  const { sentryVitePlugin } = await loadOptionalPeer(
+    "@sentry/vite-plugin",
+    () => import("@sentry/vite-plugin"),
+  );
+  const sentryPlugin = sentryVitePlugin({
+    org: uploadConfig.org,
+    project: uploadConfig.project,
+    authToken: uploadConfig.authToken,
+    url: uploadConfig.url,
     telemetry: false,
     release: {
-      // inject: false — client/analytics.ts already sets `release` itself;
-      // letting the plugin also inject its own git-SHA-based release would
-      // create a second, divergent source of truth for the same field.
-      name: config.release,
+      name: uploadConfig.release,
       inject: false,
     },
     // A source-map upload is optional observability work. The cleanup plugin
@@ -124,12 +123,86 @@ export function createSentrySourceMapUploadPlugin(
     errorHandler: (error) => {
       const message = (
         error instanceof Error ? error.message : String(error)
-      ).replaceAll(config.authToken, "[redacted]");
+      ).replaceAll(uploadConfig.authToken, "[redacted]");
       console.warn(
         `Sentry source map upload failed; continuing without publishing source maps: ${message}`,
       );
     },
-  }) as Plugin[];
+  }) as Plugin | Plugin[];
+  return Array.isArray(sentryPlugin) ? sentryPlugin[0] : sentryPlugin;
+}
 
-  return [...uploadPlugins, createUploadedSourceMapCleanupPlugin()];
+// Nitro bundles the server in its own rolldown pass after Vite, so the client
+// plugins never see the deployed server chunks. Callers must enable server
+// source maps exactly when this returns plugins, or the upload has no maps and
+// the cleanup has nothing to remove.
+export async function createSentryServerSourceMapUploadPlugins(
+  env: Record<string, string | undefined> = process.env,
+): Promise<Plugin[]> {
+  const credentials = resolveSentrySourceMapUploadCredentials(env);
+  if (!credentials) return [];
+  const buildId = resolveAgentNativeBuildId(env, "");
+  if (!buildId) {
+    console.warn(
+      "Sentry server source map upload skipped because the build ID is missing.",
+    );
+    return [];
+  }
+  const { enforce: _enforce, ...uploadPlugin } = await loadSentryUploadPlugin({
+    ...credentials,
+    release: `agent-native-server@${buildId}`,
+  });
+  return [uploadPlugin, createUploadedSourceMapCleanupPlugin()];
+}
+
+export function createSentrySourceMapUploadPlugin(
+  env: Record<string, string | undefined> = process.env,
+): Plugin[] {
+  const credentials = resolveSentrySourceMapUploadCredentials(env);
+  if (!credentials) return [];
+
+  let uploadPlugin: Plugin | undefined;
+  const proxyPlugin: Plugin = {
+    name: "sentry-vite-plugin",
+    enforce: "pre",
+    // The SSR bundle is re-bundled by Nitro, which injects its own debug IDs.
+    // A second snippet inlined from SSR output would point server frames at a
+    // map whose positions no longer match.
+    applyToEnvironment(environment) {
+      return environment.name === "client";
+    },
+    async configResolved(config) {
+      if (config.command !== "build") return;
+      const buildId = resolvedClientBuildId(config);
+      if (!buildId) {
+        console.warn(
+          "Sentry source map upload skipped because the client build ID is missing; generated source maps will still be removed.",
+        );
+        return;
+      }
+      const uploadConfig: SentrySourceMapUploadConfig = {
+        ...credentials,
+        release: `agent-native-client@${buildId}`,
+      };
+      uploadPlugin = await loadSentryUploadPlugin(uploadConfig);
+    },
+    buildStart(options) {
+      const hook = uploadPlugin?.buildStart;
+      if (typeof hook === "function") return hook.call(this, options);
+    },
+    renderChunk(code, chunk, outputOptions, meta) {
+      const hook = uploadPlugin?.renderChunk;
+      if (typeof hook === "function") {
+        return hook.call(this, code, chunk, outputOptions, meta);
+      }
+    },
+    writeBundle(outputOptions, bundle) {
+      const hook = uploadPlugin?.writeBundle;
+      if (typeof hook === "function") {
+        return hook.call(this, outputOptions, bundle);
+      }
+    },
+  };
+
+  return [proxyPlugin, createUploadedSourceMapCleanupPlugin()];
 }

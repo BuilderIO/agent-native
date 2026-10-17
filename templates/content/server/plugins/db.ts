@@ -1,42 +1,8 @@
-import {
-  ensureAdditiveColumns,
-  getDbExec,
-  runMigrations,
-} from "@agent-native/core/db";
+import { runMigrations } from "@agent-native/core/db";
+import { searchIndexMigration } from "@agent-native/core/search";
 
-import { repairFilesSystemPropertyDefinitions } from "../../actions/_files-system-properties.js";
-import { repairUnseededBlocksFields } from "../../actions/_property-utils.js";
-import * as schema from "../db/schema.js";
-
-/**
- * Every Drizzle table exported from schema.ts. Filters out type-only and
- * helper exports the same way db.spec.ts's `isDrizzleTable` regression guard
- * does: a real table carries a Symbol-keyed drizzle metadata bag, plain
- * exports don't.
- */
-function isDrizzleTable(value: unknown): value is object {
-  return (
-    !!value &&
-    typeof value === "object" &&
-    Object.getOwnPropertySymbols(value).some((s) =>
-      s.toString().includes("drizzle"),
-    )
-  );
-}
-
-const schemaTables = Object.values(schema).filter(isDrizzleTable);
-
-function scheduleBlocksRepairRetry(attempt = 1): void {
-  const delayMs = Math.min(30_000 * attempt, 5 * 60_000);
-  const timeout = setTimeout(() => {
-    repairUnseededBlocksFields().catch(() => {
-      if (attempt < 5) scheduleBlocksRepairRetry(attempt + 1);
-    });
-  }, delayMs);
-  if (typeof timeout === "object" && "unref" in timeout) {
-    timeout.unref();
-  }
-}
+import { documentSearchIndex } from "../db/index.js";
+import { scheduleStartupMaintenance } from "../lib/startup-maintenance.js";
 
 // Convention: every new migration below MUST set a unique `name:` slug (see
 // packages/core/src/db/migrations.ts for the full rationale). Version numbers
@@ -115,9 +81,6 @@ const contentMigrations = [
       updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
   },
-  // v5-v8: add owner_email to tables that may have been created before the
-  // column was part of the initial CREATE TABLE (v1-v4 now include it, but
-  // databases created with older schema versions still need the ALTER).
   {
     version: 5,
     sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS owner_email TEXT NOT NULL DEFAULT 'local@localhost'`,
@@ -154,7 +117,6 @@ const contentMigrations = [
     // guard:allow-localhost-fallback — one-time migration backfilling legacy null owner_email values for dev-mode upgrade path
     sql: `UPDATE document_comments SET owner_email = 'local@localhost' WHERE owner_email IS NULL OR owner_email = ''`,
   },
-  // v13-v14: add sharing columns (org_id, visibility) to documents.
   {
     version: 13,
     sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS org_id TEXT`,
@@ -163,7 +125,6 @@ const contentMigrations = [
     version: 14,
     sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'private'`,
   },
-  // v15: companion shares table for per-principal grants.
   {
     version: 15,
     sql: `CREATE TABLE IF NOT EXISTS document_shares (
@@ -184,7 +145,6 @@ const contentMigrations = [
     version: 17,
     sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS hide_from_search INTEGER NOT NULL DEFAULT 0`,
   },
-  // v18: content-hash baseline for drift-free conflict detection.
   {
     version: 18,
     sql: `ALTER TABLE document_sync_links ADD COLUMN IF NOT EXISTS last_synced_content_hash TEXT`,
@@ -257,24 +217,16 @@ const contentMigrations = [
     version: 25,
     sql: `ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS view_config_json TEXT NOT NULL DEFAULT '{}'`,
   },
-  // v26 repeats v18 idempotently for databases that previously ran this
-  // feature branch's old v18 property migration before merging main.
   {
     version: 26,
     sql: `ALTER TABLE document_sync_links ADD COLUMN IF NOT EXISTS last_synced_content_hash TEXT`,
   },
-  // v27: performance indexes. The list/tree path filters documents by owner +
-  // org and orders by position/updated_at, walks the tree via parent_id, and
-  // resolves per-principal grants from document_shares — none of which had any
-  // index. Plain CREATE INDEX IF NOT EXISTS so the same DDL applies on both
-  // Postgres and PGlite (no DESC, partial, or PG-only syntax).
   {
     version: 27,
     sql: `CREATE INDEX IF NOT EXISTS documents_owner_org_updated_idx ON documents (owner_email, org_id, updated_at);
         CREATE INDEX IF NOT EXISTS documents_parent_idx ON documents (parent_id);
         CREATE INDEX IF NOT EXISTS document_shares_resource_idx ON document_shares (resource_id, principal_type, principal_id)`,
   },
-  // v28-v31: robust text-anchor + @mention metadata for document comments.
   {
     version: 28,
     sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS anchor_prefix TEXT`,
@@ -291,7 +243,6 @@ const contentMigrations = [
     version: 31,
     sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS mentions_json TEXT`,
   },
-  // v32-v36: source metadata for database-mode local Markdown imports.
   {
     version: 32,
     sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS source_mode TEXT`,
@@ -312,7 +263,6 @@ const contentMigrations = [
     version: 36,
     sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS source_updated_at TEXT`,
   },
-  // v37-v45: source-aware Builder database foundation tables (additive).
   {
     version: 37,
     sql: `CREATE TABLE IF NOT EXISTS content_database_sources (
@@ -463,10 +413,6 @@ const contentMigrations = [
         CREATE INDEX IF NOT EXISTS content_database_source_executions_idempotency_idx ON content_database_source_executions (idempotency_key)`,
   },
   {
-    // Independent backing store for ADDITIONAL "Blocks" property fields. The
-    // primary "Content" Blocks field is backed by documents.content; every
-    // other Blocks field on a row stores its own content here, keyed by
-    // (document_id, property_id), so no two Blocks fields ever share content.
     version: 48,
     sql: `CREATE TABLE IF NOT EXISTS document_block_field_contents (
       id TEXT PRIMARY KEY,
@@ -496,15 +442,6 @@ const contentMigrations = [
     version: 51,
     sql: `ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS blocks_seeded INTEGER NOT NULL DEFAULT 0`,
   },
-  // v52: one-time backfill for LEGACY databases that already had a primary
-  // "Content" Blocks definition (seeded by the previous read-path safety net)
-  // before these columns existed. Point primary_blocks_property_id at that
-  // definition and mark the database seeded. Idempotent: only fills rows that
-  // are still NULL, and re-running is a no-op. Databases with NO primary
-  // definition are intentionally left unseeded — the startup repair seeds them
-  // exactly once via the authenticated path. The correlated subquery picks the
-  // primary definition by its options JSON marker (`"primary":true`); the
-  // simple `%...%` LIKE works in Postgres and PGlite.
   {
     version: 52,
     sql: `UPDATE content_databases
@@ -524,8 +461,6 @@ const contentMigrations = [
                 AND d.options_json LIKE '%"primary":true%'
             )`,
   },
-  // v53-v54: ownership metadata for inline databases. Nullable by design:
-  // full-page databases and non-owning references leave these empty.
   {
     version: 53,
     sql: `ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS owner_document_id TEXT`,
@@ -534,16 +469,10 @@ const contentMigrations = [
     version: 54,
     sql: `ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS owner_block_id TEXT`,
   },
-  // v55: soft-delete marker for inline database lifecycle. Nullable keeps
-  // existing databases active; cleanup remains a later explicit path.
   {
     version: 55,
     sql: `ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS deleted_at TEXT`,
   },
-  // v56-v57: DB-backed Builder MDX documents keep their raw sidecar files in a
-  // document-scoped cache. Local-file Builder MDX still uses in-repo sidecars
-  // as the portable source of truth; these rows only make pulled SQL documents
-  // round-trip through the visual editor and push validator.
   {
     version: 56,
     sql: `CREATE TABLE IF NOT EXISTS builder_doc_sidecars (
@@ -599,21 +528,11 @@ const contentMigrations = [
   {
     version: 61,
     name: "document-sync-links-claim-column",
-    // Best-effort cross-instance serialization for Notion pull/push: a
-    // conditional UPDATE claims this column before making Notion API calls
-    // so two concurrent syncs for the same document (different tabs,
-    // different serverless instances) don't race Notion mutations against
-    // each other. See server/lib/notion-sync.ts's use of this column.
     sql: `ALTER TABLE document_sync_links ADD COLUMN IF NOT EXISTS sync_claimed_at TEXT`,
   },
   {
     version: 62,
     name: "document-comments-notion-discussion-id-column",
-    // Notion groups a top-level comment and its replies under one
-    // discussion_id. Storing it locally lets sync-notion-comments create
-    // replies with `discussion_id` (instead of `parent`) so they thread
-    // under the existing Notion discussion in both directions instead of
-    // becoming unrelated top-level comments. See actions/sync-notion-comments.ts.
     sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS notion_discussion_id TEXT`,
   },
   {
@@ -669,9 +588,6 @@ const contentMigrations = [
   {
     version: 68,
     name: "builder-source-execution-claims",
-    // Non-destructive concurrency fence. Existing duplicate execution rows
-    // remain intact as ambiguity evidence; the claim chooses one canonical
-    // row for every future prepare/execute path.
     sql: `CREATE TABLE IF NOT EXISTS content_database_source_execution_claims (
         id TEXT PRIMARY KEY,
         owner_email TEXT NOT NULL DEFAULT 'local@localhost',
@@ -998,9 +914,6 @@ const contentMigrations = [
       CREATE INDEX IF NOT EXISTS document_blocks_parent_idx
         ON document_blocks (parent_id)`,
   },
-  // The current schema uses BOOLEAN while the legacy INTEGER migration above
-  // is stored as BIGINT. Convert the stored column before Drizzle sends
-  // boolean values.
   {
     version: 83,
     name: "content-block-addressable-postgres-boolean",
@@ -1136,6 +1049,416 @@ export const runContentMigrations = runMigrations(
       CREATE UNIQUE INDEX IF NOT EXISTS content_database_setup_receipts_actor_operation_key
         ON content_database_setup_receipts (actor_email, operation, scope_id, idempotency_key)`,
     },
+    {
+      version: 92,
+      name: "content-document-collab-body-revision",
+      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS collab_body_revision INTEGER`,
+    },
+    {
+      version: 93,
+      name: "content-comment-ai-requests-and-actor",
+      sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS actor_kind TEXT;
+      CREATE TABLE IF NOT EXISTS comment_ai_requests (
+        id TEXT PRIMARY KEY, owner_email TEXT NOT NULL, requester_email TEXT NOT NULL,
+        document_id TEXT NOT NULL, thread_id TEXT NOT NULL, root_comment_id TEXT NOT NULL,
+        field_id TEXT NOT NULL, intent TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'queued',
+        thread_digest TEXT NOT NULL, snapshot_json TEXT NOT NULL, base_revision TEXT NOT NULL,
+        suggestion_revision TEXT NOT NULL, run_id TEXT, agent_thread_id TEXT,
+        result_json TEXT, payload_json TEXT, error TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS comment_ai_requests_document_requester_idx
+        ON comment_ai_requests (document_id, requester_email)`,
+    },
+    {
+      version: 94,
+      name: "content-comment-ai-active-thread-index",
+      sql: `CREATE UNIQUE INDEX IF NOT EXISTS comment_ai_requests_active_thread_idx
+        ON comment_ai_requests (document_id, thread_id, requester_email)
+        WHERE status IN ('queued', 'running')`,
+    },
+    {
+      version: 95,
+      name: "content-trash-attribution-and-query-indexes",
+      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS trashed_by TEXT;
+        ALTER TABLE documents ADD COLUMN IF NOT EXISTS trash_origin TEXT;
+        ALTER TABLE documents ADD COLUMN IF NOT EXISTS trash_parent_id TEXT;
+        CREATE INDEX IF NOT EXISTS documents_trash_order_idx ON documents (trashed_at, id);
+        CREATE INDEX IF NOT EXISTS documents_trash_group_idx ON documents (trash_root_id, parent_id)`,
+    },
+    {
+      version: 96,
+      name: "content-trash-purge-ledger",
+      sql: `CREATE TABLE IF NOT EXISTS content_trash_purge_plans (
+        id TEXT PRIMARY KEY, actor_email TEXT NOT NULL, org_id TEXT, mode TEXT NOT NULL,
+        space_id TEXT, filters_json TEXT NOT NULL DEFAULT '{}', state TEXT NOT NULL DEFAULT 'ready',
+        scope_token_hash TEXT NOT NULL, eligible_count INTEGER NOT NULL DEFAULT 0,
+        blocked_count INTEGER NOT NULL DEFAULT 0, expires_at TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS content_trash_purge_plans_actor_idx ON content_trash_purge_plans (actor_email);
+      CREATE TABLE IF NOT EXISTS content_trash_purge_plan_items (
+        id TEXT PRIMARY KEY, plan_id TEXT NOT NULL, unit_id TEXT NOT NULL,
+        root_document_id TEXT NOT NULL, document_id TEXT NOT NULL, owner_email TEXT NOT NULL,
+        title TEXT NOT NULL, expected_trashed_at TEXT NOT NULL, eligibility TEXT NOT NULL,
+        blocker TEXT, outcome TEXT NOT NULL DEFAULT 'pending', outcome_detail TEXT,
+        completed_at TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_trash_purge_plan_items_plan_document_unique ON content_trash_purge_plan_items (plan_id, document_id);
+      CREATE INDEX IF NOT EXISTS content_trash_purge_plan_items_plan_unit_idx ON content_trash_purge_plan_items (plan_id, unit_id);
+      CREATE TABLE IF NOT EXISTS content_trash_purge_operations (
+        id TEXT PRIMARY KEY, plan_id TEXT NOT NULL, actor_email TEXT NOT NULL, org_id TEXT,
+        idempotency_key TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'queued',
+        eligible_count INTEGER NOT NULL DEFAULT 0, deleted_count INTEGER NOT NULL DEFAULT 0,
+        blocked_count INTEGER NOT NULL DEFAULT 0, conflicted_count INTEGER NOT NULL DEFAULT 0,
+        lease_token TEXT, lease_expires_at TEXT, last_error TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        completed_at TEXT
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_trash_purge_operations_actor_key_unique ON content_trash_purge_operations (actor_email, idempotency_key);
+      CREATE UNIQUE INDEX IF NOT EXISTS content_trash_purge_operations_plan_unique ON content_trash_purge_operations (plan_id);
+      CREATE INDEX IF NOT EXISTS content_trash_purge_operations_plan_idx ON content_trash_purge_operations (plan_id)`,
+    },
+    {
+      version: 97,
+      name: "content-trash-purge-frozen-dependencies",
+      sql: `ALTER TABLE content_trash_purge_plan_items ADD COLUMN IF NOT EXISTS expected_parent_id TEXT;
+        ALTER TABLE content_trash_purge_plan_items ADD COLUMN IF NOT EXISTS space_id TEXT;
+        ALTER TABLE content_trash_purge_plan_items ADD COLUMN IF NOT EXISTS ancestor_unit_ids_json TEXT NOT NULL DEFAULT '[]';
+        ALTER TABLE content_trash_purge_plan_items ADD COLUMN IF NOT EXISTS survivor_effect TEXT`,
+    },
+    {
+      version: 98,
+      name: "content-trash-purge-scope-fingerprint",
+      sql: `ALTER TABLE content_trash_purge_plan_items ADD COLUMN IF NOT EXISTS expected_scope_fingerprint TEXT NOT NULL DEFAULT ''`,
+    },
+    {
+      version: 99,
+      name: "content-document-actor-attribution",
+      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS created_by TEXT;
+        ALTER TABLE documents ADD COLUMN IF NOT EXISTS updated_by TEXT;
+        CREATE INDEX IF NOT EXISTS documents_trash_deleted_at_idx ON documents (trashed_at, id) WHERE trashed_at IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS documents_trash_created_by_idx ON documents (lower(created_by), trashed_at, id) WHERE trashed_at IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS documents_trash_updated_by_idx ON documents (lower(updated_by), trashed_at, id) WHERE trashed_at IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS documents_trash_name_idx ON documents (lower(title), id) WHERE trashed_at IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS documents_trash_created_at_idx ON documents (created_at, id) WHERE trashed_at IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS documents_trash_updated_at_idx ON documents (updated_at, id) WHERE trashed_at IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS content_databases_trash_deleted_at_idx ON content_databases (deleted_at, document_id, id) WHERE deleted_at IS NOT NULL`,
+    },
+    {
+      version: 100,
+      name: "content-files-navigation-indexes",
+      sql: `CREATE INDEX IF NOT EXISTS documents_parent_title_id_idx ON documents (parent_id, title, id);
+        CREATE INDEX IF NOT EXISTS documents_parent_created_id_idx ON documents (parent_id, created_at, id);
+        CREATE INDEX IF NOT EXISTS documents_parent_updated_id_idx ON documents (parent_id, updated_at, id);
+        CREATE INDEX IF NOT EXISTS content_database_items_database_position_id_idx ON content_database_items (database_id, position, id)`,
+    },
+    {
+      version: 101,
+      name: "content-preview-draft-edit-settlements",
+      sql: `ALTER TABLE document_preview_drafts ADD COLUMN IF NOT EXISTS editor_session_id TEXT;
+        ALTER TABLE document_preview_drafts ADD COLUMN IF NOT EXISTS edit_generation INTEGER;
+        CREATE TABLE IF NOT EXISTS document_preview_draft_settlements (
+          id TEXT PRIMARY KEY,
+          owner_email TEXT NOT NULL,
+          org_id TEXT NOT NULL DEFAULT '',
+          document_id TEXT NOT NULL,
+          editor_session_id TEXT NOT NULL,
+          settled_generation INTEGER NOT NULL,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS document_preview_draft_settlements_scope_unique
+          ON document_preview_draft_settlements (owner_email, org_id, document_id, editor_session_id);
+        CREATE INDEX IF NOT EXISTS document_preview_draft_settlements_document_idx
+          ON document_preview_draft_settlements (owner_email, org_id, document_id)`,
+    },
+    {
+      version: 102,
+      name: "content-property-icons",
+      sql: `ALTER TABLE document_property_definitions ADD COLUMN IF NOT EXISTS icon TEXT`,
+    },
+    {
+      version: 103,
+      name: "content-browser-save-attempt-receipts",
+      sql: `CREATE TABLE IF NOT EXISTS document_browser_save_attempts (
+          id TEXT PRIMARY KEY,
+          owner_email TEXT NOT NULL,
+          org_id TEXT NOT NULL DEFAULT '',
+          document_id TEXT NOT NULL,
+          actor_email TEXT NOT NULL,
+          attempt_id TEXT NOT NULL,
+          payload_digest TEXT NOT NULL,
+          result_json TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS document_browser_save_attempts_scope_unique
+          ON document_browser_save_attempts (document_id, actor_email, org_id, attempt_id);
+        CREATE INDEX IF NOT EXISTS document_browser_save_attempts_owner_document_idx
+          ON document_browser_save_attempts (owner_email, document_id)`,
+    },
+    {
+      version: 104,
+      name: "content-document-body-intent-order",
+      sql: `CREATE TABLE IF NOT EXISTS document_body_intents (
+          id TEXT PRIMARY KEY,
+          owner_email TEXT NOT NULL,
+          org_id TEXT NOT NULL DEFAULT '',
+          document_id TEXT NOT NULL,
+          writer_id TEXT NOT NULL,
+          operation_id TEXT NOT NULL,
+          generation INTEGER,
+          authored_base_revision INTEGER NOT NULL,
+          committed_revision INTEGER NOT NULL,
+          displaced_checkpoint_id TEXT,
+          affected_block_indexes_json TEXT NOT NULL DEFAULT '[]',
+          canonical_changed BOOLEAN NOT NULL DEFAULT FALSE,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS document_body_intents_document_writer_operation_unique
+          ON document_body_intents (document_id, writer_id, operation_id);
+        CREATE INDEX IF NOT EXISTS document_body_intents_owner_document_revision_idx
+          ON document_body_intents (owner_email, document_id, committed_revision)`,
+    },
+    {
+      version: 105,
+      name: "content-history-body-revision-provenance",
+      sql: `ALTER TABLE document_versions ADD COLUMN IF NOT EXISTS body_revision INTEGER;
+        CREATE INDEX IF NOT EXISTS document_versions_owner_document_body_revision_idx
+          ON document_versions (owner_email, document_id, body_revision)`,
+    },
+    {
+      version: 106,
+      name: "content-document-body-intent-candidate-hash",
+      sql: `ALTER TABLE document_body_intents ADD COLUMN IF NOT EXISTS candidate_hash TEXT`,
+    },
+    {
+      version: 107,
+      name: "content-document-body-intent-metadata-hash",
+      sql: `ALTER TABLE document_body_intents ADD COLUMN IF NOT EXISTS metadata_hash TEXT`,
+    },
+    {
+      version: 108,
+      name: "content-preview-draft-discarded-generation",
+      sql: `ALTER TABLE document_preview_draft_settlements ADD COLUMN IF NOT EXISTS discarded_generation INTEGER`,
+    },
+    {
+      version: 109,
+      name: "content-legacy-body-intent-checkpoints-optional",
+      sql: `ALTER TABLE document_body_intents ADD COLUMN IF NOT EXISTS before_checkpoint_id TEXT;
+        ALTER TABLE document_body_intents ADD COLUMN IF NOT EXISTS candidate_checkpoint_id TEXT;
+        ALTER TABLE document_body_intents ALTER COLUMN before_checkpoint_id DROP NOT NULL;
+        ALTER TABLE document_body_intents ALTER COLUMN candidate_checkpoint_id DROP NOT NULL`,
+    },
+    {
+      version: 110,
+      name: "content-comment-ai-durable-concurrency",
+      sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS author_model TEXT;
+      ALTER TABLE comment_ai_requests ADD COLUMN IF NOT EXISTS thread_digest TEXT;
+      ALTER TABLE comment_ai_requests ADD COLUMN IF NOT EXISTS snapshot_json TEXT;
+      ALTER TABLE comment_ai_requests ADD COLUMN IF NOT EXISTS base_revision TEXT;
+      ALTER TABLE comment_ai_requests ADD COLUMN IF NOT EXISTS suggestion_revision TEXT;
+      ALTER TABLE comment_ai_requests ADD COLUMN IF NOT EXISTS payload_json TEXT;
+      ALTER TABLE comment_ai_requests ADD COLUMN IF NOT EXISTS agent_turn_id TEXT;
+      ALTER TABLE comment_ai_requests ADD COLUMN IF NOT EXISTS submitted_thread_digest TEXT;
+      ALTER TABLE comment_ai_requests ADD COLUMN IF NOT EXISTS submitted_snapshot_json TEXT;
+      ALTER TABLE comment_ai_requests ADD COLUMN IF NOT EXISTS model TEXT;
+      ALTER TABLE comment_ai_requests ADD COLUMN IF NOT EXISTS engine TEXT;
+      ALTER TABLE comment_ai_requests ADD COLUMN IF NOT EXISTS active_attempt_id TEXT;
+      ALTER TABLE comment_ai_requests ADD COLUMN IF NOT EXISTS attempt_count INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE comment_ai_requests ADD COLUMN IF NOT EXISTS error_code TEXT;
+      CREATE TABLE IF NOT EXISTS comment_ai_attempts (
+        id TEXT PRIMARY KEY, owner_email TEXT NOT NULL, request_id TEXT NOT NULL,
+        attempt_number INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'reasoning',
+        source_revision TEXT NOT NULL, suggestion_revision TEXT NOT NULL,
+        thread_digest TEXT NOT NULL, snapshot_json TEXT NOT NULL, payload_json TEXT,
+        run_id TEXT, model TEXT, error_code TEXT, error TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      ALTER TABLE comment_ai_attempts ADD COLUMN IF NOT EXISTS payload_json TEXT;
+      ALTER TABLE comment_ai_attempts ADD COLUMN IF NOT EXISTS run_id TEXT;
+      ALTER TABLE comment_ai_attempts ADD COLUMN IF NOT EXISTS model TEXT;
+      ALTER TABLE comment_ai_attempts ADD COLUMN IF NOT EXISTS error_code TEXT;
+      ALTER TABLE comment_ai_attempts ADD COLUMN IF NOT EXISTS error TEXT;
+      UPDATE comment_ai_requests AS request
+      SET thread_digest = COALESCE(
+            request.thread_digest,
+            request.submitted_thread_digest,
+            (SELECT attempt.thread_digest FROM comment_ai_attempts AS attempt
+              WHERE attempt.request_id = request.id
+              ORDER BY attempt.attempt_number ASC LIMIT 1)
+          ),
+          snapshot_json = COALESCE(
+            request.snapshot_json,
+            request.submitted_snapshot_json,
+            (SELECT attempt.snapshot_json FROM comment_ai_attempts AS attempt
+              WHERE attempt.request_id = request.id
+              ORDER BY attempt.attempt_number ASC LIMIT 1)
+          ),
+          base_revision = COALESCE(
+            request.base_revision,
+            (SELECT attempt.source_revision FROM comment_ai_attempts AS attempt
+              WHERE attempt.request_id = request.id
+              ORDER BY attempt.attempt_number ASC LIMIT 1)
+          ),
+          suggestion_revision = COALESCE(
+            request.suggestion_revision,
+            (SELECT attempt.suggestion_revision FROM comment_ai_attempts AS attempt
+              WHERE attempt.request_id = request.id
+              ORDER BY attempt.attempt_number ASC LIMIT 1)
+          );
+      UPDATE comment_ai_requests SET submitted_thread_digest = thread_digest
+        WHERE submitted_thread_digest IS NULL;
+      UPDATE comment_ai_requests SET submitted_snapshot_json = snapshot_json
+        WHERE submitted_snapshot_json IS NULL;
+      WITH ranked_active AS (
+        SELECT id, ROW_NUMBER() OVER (
+          PARTITION BY document_id, root_comment_id
+          ORDER BY created_at ASC, id ASC
+        ) AS active_rank
+        FROM comment_ai_requests
+        WHERE status IN ('queued', 'running', 'refreshing')
+      )
+      UPDATE comment_ai_requests AS request
+      SET status = 'needs-review',
+          error_code = 'operation_failed',
+          error = 'Another Ask AI operation was already active for this comment during the concurrency upgrade',
+          updated_at = CURRENT_TIMESTAMP
+      FROM ranked_active
+      WHERE request.id = ranked_active.id AND ranked_active.active_rank > 1;
+      CREATE UNIQUE INDEX IF NOT EXISTS comment_ai_requests_active_comment_idx
+        ON comment_ai_requests (document_id, root_comment_id)
+        WHERE status IN ('queued', 'running', 'refreshing');
+      CREATE UNIQUE INDEX IF NOT EXISTS comment_ai_attempts_request_number_unique
+        ON comment_ai_attempts (request_id, attempt_number);
+      CREATE INDEX IF NOT EXISTS comment_ai_attempts_request_idx
+        ON comment_ai_attempts (request_id)`,
+    },
+    {
+      version: 111,
+      name: "content-comment-ai-submitted-mode",
+      sql: `ALTER TABLE comment_ai_requests ADD COLUMN IF NOT EXISTS submitted_mode TEXT NOT NULL DEFAULT 'reply';
+      ALTER TABLE comment_ai_requests ADD COLUMN IF NOT EXISTS instructions TEXT NOT NULL DEFAULT '';
+      ALTER TABLE comment_ai_requests ADD COLUMN IF NOT EXISTS submitted_model TEXT;
+      ALTER TABLE comment_ai_requests ADD COLUMN IF NOT EXISTS submitted_engine TEXT;
+      ALTER TABLE comment_ai_requests ADD COLUMN IF NOT EXISTS classification_thread_id TEXT;
+      ALTER TABLE comment_ai_requests ADD COLUMN IF NOT EXISTS classification_turn_id TEXT;
+      DROP INDEX IF EXISTS comment_ai_requests_active_thread_idx;
+      DROP INDEX IF EXISTS comment_ai_requests_active_comment_idx;
+      CREATE UNIQUE INDEX comment_ai_requests_active_thread_idx
+        ON comment_ai_requests (document_id, thread_id, requester_email)
+        WHERE status IN ('classifying', 'classified', 'queued', 'running');
+      CREATE UNIQUE INDEX comment_ai_requests_active_comment_idx
+        ON comment_ai_requests (document_id, root_comment_id)
+        WHERE status IN ('classifying', 'classified', 'queued', 'running', 'refreshing')`,
+    },
+    {
+      version: 112,
+      name: "content-comment-ai-continuation",
+      sql: `ALTER TABLE comment_ai_requests ADD COLUMN IF NOT EXISTS continuation_of_request_id TEXT`,
+    },
+    {
+      version: 113,
+      name: "content-comment-ai-submitted-provider",
+      sql: `ALTER TABLE comment_ai_requests ADD COLUMN IF NOT EXISTS submitted_provider TEXT`,
+    },
+    {
+      version: 114,
+      name: "content-comment-reactions",
+      sql: `CREATE TABLE IF NOT EXISTS document_comment_reactions (
+          id TEXT PRIMARY KEY,
+          owner_email TEXT NOT NULL,
+          document_id TEXT NOT NULL,
+          comment_id TEXT NOT NULL,
+          actor_email TEXT NOT NULL,
+          reaction TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS document_comment_reactions_actor_unique
+          ON document_comment_reactions (comment_id, actor_email, reaction);
+        CREATE INDEX IF NOT EXISTS document_comment_reactions_document_idx
+          ON document_comment_reactions (owner_email, document_id)`,
+    },
+    {
+      version: 115,
+      name: "content-access-and-page-link-indexes",
+      // Built CONCURRENTLY so writes to these large shared tables continue
+      // during the build. The runner executes each statement on its own over
+      // the unpooled migration connection, which CONCURRENTLY requires. A
+      // failed build leaves an invalid index and no migration record, so the
+      // rerun drops it first rather than letting IF NOT EXISTS keep it.
+      sql: {
+        postgres: `DROP INDEX CONCURRENTLY IF EXISTS documents_owner_email_lower_idx;
+        CREATE INDEX CONCURRENTLY documents_owner_email_lower_idx ON documents (lower(owner_email));
+        DROP INDEX CONCURRENTLY IF EXISTS document_shares_principal_lower_idx;
+        CREATE INDEX CONCURRENTLY document_shares_principal_lower_idx ON document_shares (principal_type, lower(principal_id), resource_id);
+        DROP INDEX CONCURRENTLY IF EXISTS document_sync_links_remote_page_idx;
+        CREATE INDEX CONCURRENTLY document_sync_links_remote_page_idx ON document_sync_links (remote_page_id)`,
+      },
+    },
+    {
+      version: 116,
+      name: "content-private-icon-references",
+      sql: `CREATE TABLE IF NOT EXISTS content_private_icon_references (
+        element_type TEXT NOT NULL,
+        element_id TEXT NOT NULL,
+        asset_id TEXT NOT NULL,
+        document_id TEXT NOT NULL,
+        owner_email TEXT NOT NULL,
+        org_id TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_private_icon_reference_element_unique
+        ON content_private_icon_references (element_type, element_id);
+      CREATE INDEX IF NOT EXISTS content_private_icon_reference_asset_idx
+        ON content_private_icon_references (asset_id);
+      CREATE INDEX IF NOT EXISTS content_private_icon_reference_document_idx
+        ON content_private_icon_references (document_id)`,
+    },
+    // Creates the core search tables and installs the triggers that keep
+    // the document index fresh (docs/search-architecture.md).
+    searchIndexMigration(documentSearchIndex, {
+      version: 117,
+      name: "search-index-documents",
+    }),
+    {
+      version: 118,
+      name: "content-document-create-request-digest",
+      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS creation_request_digest TEXT`,
+    },
+    {
+      version: 119,
+      name: "content-document-create-context-snapshot",
+      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS creation_creative_context TEXT`,
+    },
+    {
+      version: 120,
+      name: "content-document-imports",
+      sql: `CREATE TABLE IF NOT EXISTS document_imports (
+          document_id TEXT PRIMARY KEY,
+          owner_email TEXT NOT NULL,
+          import_id TEXT NOT NULL,
+          request_sha256 TEXT NOT NULL,
+          source_name TEXT NOT NULL,
+          source_format TEXT NOT NULL,
+          source_bytes INTEGER NOT NULL,
+          source_sha256 TEXT NOT NULL,
+          original_blob TEXT NOT NULL,
+          imported_title TEXT NOT NULL,
+          imported_state_sha256 TEXT NOT NULL,
+          report_json TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS document_imports_import_idx
+          ON document_imports (import_id)`,
+    },
+    {
+      version: 121,
+      name: "content-comment-ai-run-identity",
+      sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS author_effort TEXT;
+        ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS submission_thread_id TEXT`,
+    },
   ],
   { table: "content_migrations" },
 );
@@ -1168,55 +1491,17 @@ export const runContentSourceMigrations = runMigrations(
 
 /**
  * The migration lists above are the authoritative source for tables, indexes,
- * and data transforms. `ensureAdditiveColumns` runs after they complete as a
- * belt-and-braces safety net for the failure mode where a column is added to
- * schema.ts without a matching hand-written ALTER migration, which silently
- * 500s every query touching a pre-existing production table. It only ever
- * adds missing columns — never drops, renames, or retypes anything — and any
- * failure here is logged and swallowed so it can never fail boot.
+ * and data transforms. Boot awaits only them. `ensureAdditiveColumns` and the
+ * one-time data repairs moved to server/lib/startup-maintenance.ts, which
+ * schedules them once per isolate right after boot instead of blocking the
+ * first response — steady-state boots no longer pay for a schema probe and
+ * repairs that are usually no-ops. Failures there log loudly and retry; they
+ * are never silently dropped.
  */
 export default async function contentDatabasePlugin(
   nitroApp: Parameters<typeof runContentMigrations>[0],
 ) {
   await runContentMigrations(nitroApp);
   await runContentSourceMigrations(nitroApp);
-  try {
-    const summary = await ensureAdditiveColumns({
-      db: getDbExec(),
-      tables: schemaTables,
-    });
-    if (summary.errors.length > 0) {
-      console.warn(
-        "[db] ensureAdditiveColumns completed with errors:",
-        summary.errors,
-      );
-    }
-  } catch (err) {
-    // Never fail boot over the safety net itself — the authoritative
-    // migrations above already ran.
-    console.warn(
-      "[db] ensureAdditiveColumns failed (non-fatal):",
-      err instanceof Error ? err.message : err,
-    );
-  }
-  // One-time, boot-time repair: seed the primary "Content" Blocks field for any
-  // legacy database that has never been seeded (blocks_seeded = 0). Idempotent —
-  // the atomic claim in seedDefaultBlocksField makes re-runs no-ops, and it
-  // never runs from a read path, so opening a shared/legacy row stays a pure
-  // read. Failures here must not crash boot; migrations themselves succeeded.
-  try {
-    await repairUnseededBlocksFields();
-  } catch {
-    // Retry in-process so a transient boot-time repair failure does not leave
-    // legacy databases without their primary Blocks field until a full reboot.
-    scheduleBlocksRepairRetry();
-  }
-  try {
-    await repairFilesSystemPropertyDefinitions();
-  } catch (err) {
-    console.warn(
-      "[db] Files system-property repair failed (non-fatal):",
-      err instanceof Error ? err.message : err,
-    );
-  }
+  void scheduleStartupMaintenance();
 }

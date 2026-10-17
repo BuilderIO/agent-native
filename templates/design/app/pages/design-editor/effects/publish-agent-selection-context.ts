@@ -1,11 +1,15 @@
 import { setClientAppState } from "@agent-native/core/client/hooks";
+import { stripInlineBytes } from "@agent-native/core/shared";
 import type { LayoutGridById } from "@shared/layout-grid";
+import type { MotionPlaybackMode } from "@shared/motion-timeline";
+import type { InteractThemeMode } from "@shared/preview-color-scheme";
 import type { RefObject } from "react";
 
 import type { CodeWorkbenchActiveFile } from "@/components/design/code-workbench/CodeWorkbench";
-import type { InspectorTab } from "@/components/design/EditPanel";
+import type { MotionDockLiveState } from "@/components/design/MotionDock";
 import type { ElementInfo } from "@/components/design/types";
 import type { ResponsiveEditScope } from "@/pages/design-editor/command-types";
+import { KEEPALIVE_ACTION_MAX_BYTES } from "@/pages/design-editor/data-operations";
 import { DESIGN_SELECTION_ZOOM_SAVE_DELAY_MS } from "@/pages/design-editor/editor-constants";
 import { designSelectionStateKeys } from "@/pages/design-editor/editor-helpers";
 import type {
@@ -16,12 +20,86 @@ import type {
   EditorMode,
 } from "@/pages/design-editor/types";
 
+export class DesignSelectionPublishError extends Error {
+  constructor(
+    readonly key: string,
+    readonly cause: unknown,
+  ) {
+    super(`Could not publish the editor selection to "${key}"`);
+    this.name = "DesignSelectionPublishError";
+  }
+}
+
+const AGENT_SELECTION_STYLE_KEYS = [
+  "display",
+  "position",
+  "width",
+  "height",
+  "color",
+  "backgroundColor",
+  "backgroundImage",
+  "fontFamily",
+  "fontSize",
+  "fontWeight",
+  "lineHeight",
+  "textAlign",
+  "flexDirection",
+  "gap",
+  "borderRadius",
+  "opacity",
+  "objectFit",
+] as const;
+const MAX_SUMMARY_CLASSES = 40;
+const MAX_SUMMARY_CLASS_LENGTH = 200;
+const MAX_SUMMARY_TEXT_LENGTH = 200;
+const SELECTION_PUBLISH_RETRY_DELAYS_MS = [1_000, 2_000, 4_000];
+
+// The agent targets an element by these ids; its subtree style snapshot stays
+// in the frame, where copy reads it on demand.
+function summarizeSelectedElement(element: ElementInfo) {
+  const computedStyles: Record<string, string> = {};
+  for (const key of AGENT_SELECTION_STYLE_KEYS) {
+    const value = element.computedStyles[key];
+    if (value) computedStyles[key] = value;
+  }
+  const text = element.textContent;
+  return {
+    tagName: element.tagName,
+    id: element.id,
+    sourceId: element.sourceId,
+    selector: element.selector,
+    runtimeSelector: element.runtimeSelector,
+    runtimeSourceId: element.runtimeSourceId,
+    sourceLayerIdentity: element.sourceLayerIdentity,
+    pendingNodeId: element.pendingNodeId,
+    componentName: element.componentName,
+    provenance: element.provenance,
+    repeat: element.repeat,
+    primitiveKind: element.primitiveKind,
+    isGroup: element.isGroup,
+    classes: element.classes
+      .filter((name) => name.length <= MAX_SUMMARY_CLASS_LENGTH)
+      .slice(0, MAX_SUMMARY_CLASSES),
+    classCount: element.classes.length,
+    textContent: text?.slice(0, MAX_SUMMARY_TEXT_LENGTH),
+    textContentTruncated:
+      element.textContentTruncated ||
+      (text !== undefined && text.length > MAX_SUMMARY_TEXT_LENGTH) ||
+      undefined,
+    imageSource: element.imageSource,
+    boundingRect: element.boundingRect,
+    childElementCount: element.childElementCount,
+    isFlexContainer: element.isFlexContainer,
+    isGridContainer: element.isGridContainer,
+    parentDisplay: element.parentDisplay,
+    computedStyles,
+  };
+}
+
 export interface PublishAgentSelectionContextArgs {
   activeBreakpointWidthState: number | undefined;
   activeCodeFile: CodeWorkbenchActiveFile | null;
-  /** Undefined before any screen is active — every read below must guard. */
   activeFile: DesignFile | undefined;
-  activeInspectorTab: InspectorTab;
   activeLeftPanel: DesignLeftPanel | null;
   activeTool: DesignTool;
   design: DesignData | null;
@@ -31,9 +109,17 @@ export interface PublishAgentSelectionContextArgs {
   files: DesignFile[];
   hoveredElement: ElementInfo | null;
   id: string | undefined;
+  interactDevice: { name: string; width: number; height: number };
+  interactTheme: InteractThemeMode;
   isSignedIn: boolean;
   mode: EditorMode;
+  motionAutoKeyframeEnabled: boolean;
   motionDockOpen: boolean;
+  motionDockLiveState: MotionDockLiveState;
+  motionDurationMs: number;
+  motionPlayhead: number;
+  motionPlaybackMode: MotionPlaybackMode;
+  motionTimelineId: string | null;
   pendingPersistedSelectionWriteRef: RefObject<{
     key: string;
     contextKey: string;
@@ -54,7 +140,6 @@ export function runPublishAgentSelectionContext({
   activeBreakpointWidthState,
   activeCodeFile,
   activeFile,
-  activeInspectorTab,
   activeLeftPanel,
   activeTool,
   design,
@@ -64,9 +149,17 @@ export function runPublishAgentSelectionContext({
   files,
   hoveredElement,
   id,
+  interactDevice,
+  interactTheme,
   isSignedIn,
   mode,
+  motionAutoKeyframeEnabled,
   motionDockOpen,
+  motionDockLiveState,
+  motionDurationMs,
+  motionPlayhead,
+  motionPlaybackMode,
+  motionTimelineId,
   pendingPersistedSelectionWriteRef,
   persistedSelectionContextRef,
   persistedSelectionStateRef,
@@ -96,7 +189,13 @@ export function runPublishAgentSelectionContext({
     hoveredElement,
     mode,
     activeTool,
-    inspectorTab: activeInspectorTab,
+    // Only meaningful while previewing; null elsewhere so a stale default
+    // device is never read as the user's choice. The theme is the mode picked
+    // (light, dark or system); system means no scheme is forced.
+    interact:
+      mode === "interact"
+        ? { device: interactDevice, theme: interactTheme }
+        : null,
     leftPanel: activeLeftPanel,
     codeWorkspace: {
       open: activeLeftPanel === "code",
@@ -106,16 +205,23 @@ export function runPublishAgentSelectionContext({
       dirty: activeCodeFile?.dirty ?? false,
       versionHash: activeCodeFile?.versionHash ?? null,
     },
-    // §8 DesignNavigationState additions — dock + breakpoint context
     dock: { kind: "motion" as const, open: motionDockOpen },
     motion: {
-      previewing: false,
-      playheadMs: 0,
-      timelineId: undefined as string | undefined,
-      selectedTrackId: undefined as string | undefined,
-      selectedKeyframeId: undefined as string | undefined,
+      previewing: motionDockLiveState.previewing,
+      playheadMs: Math.round(
+        Math.max(0, Math.min(1, motionPlayhead)) * motionDurationMs,
+      ),
+      durationMs: motionDurationMs,
+      timelineId: motionTimelineId,
+      playbackMode: motionPlaybackMode,
+      autoKeyframe: motionAutoKeyframeEnabled,
+      selectedTrackId: motionDockLiveState.selectedTrackId,
+      selectedKeyframeId:
+        motionDockLiveState.selectedKeyframeIds.length === 1
+          ? motionDockLiveState.selectedKeyframeIds[0]
+          : null,
+      selectedKeyframeIds: motionDockLiveState.selectedKeyframeIds,
     },
-    // §8 breakpoint fields — "auto" = no specific breakpoint focused.
     breakpoint: (activeBreakpointWidthState != null
       ? activeBreakpointWidthState < 500
         ? "mobile"
@@ -156,10 +262,7 @@ export function runPublishAgentSelectionContext({
       }
       return undefined;
     })(),
-    // §8 — active design state (null = Default / live view)
     selectedStateId,
-    // The grid the active screen's positions snap to, so the agent authors
-    // left/top on the same multiples dragging produces. null = no grid.
     layoutGrid: activeFile ? (layoutGrids[activeFile.id] ?? null) : null,
   };
   (window as any).__designSelection = selection;
@@ -172,10 +275,15 @@ export function runPublishAgentSelectionContext({
     zoom: selection.zoom,
     screens: selection.screens,
     selectedScreenIds: selection.selectedScreenIds,
-    selectedElement: selection.selectedElement,
+    selectedElement: selectedElement
+      ? stripInlineBytes(
+          summarizeSelectedElement(selectedElement),
+          "placeholder",
+        )
+      : null,
     mode: selection.mode,
     activeTool: selection.activeTool,
-    inspectorTab: selection.inspectorTab,
+    interact: selection.interact,
     leftPanel: selection.leftPanel,
     codeWorkspace: selection.codeWorkspace,
     dock: selection.dock,
@@ -191,30 +299,60 @@ export function runPublishAgentSelectionContext({
   const persistedKey = JSON.stringify(persistedSelection);
   const { zoom: _zoom, ...persistedContext } = persistedSelection;
   const persistedContextKey = JSON.stringify(persistedContext);
-  const writePersistedSelection = (pending: {
-    key: string;
-    contextKey: string;
-    value: Record<string, unknown>;
-  }) => {
+  const writePersistedSelection = (
+    pending: {
+      key: string;
+      contextKey: string;
+      value: Record<string, unknown>;
+    },
+    attempt = 0,
+  ) => {
     persistedSelectionStateRef.current = pending.key;
     persistedSelectionContextRef.current = pending.contextKey;
-    for (const key of designSelectionStateKeys()) {
-      setClientAppState(key, pending.value, { keepalive: true }).catch(
-        () => {},
-      );
-    }
+    const keys = designSelectionStateKeys();
+    // Every key's write shares the browser's in-flight keepalive budget.
+    const keepalive =
+      new TextEncoder().encode(pending.key).length * keys.length <=
+      KEEPALIVE_ACTION_MAX_BYTES;
+    void Promise.all(
+      keys.map((key) =>
+        setClientAppState(key, pending.value, { keepalive }).then(
+          () => true,
+          (cause: unknown) => {
+            console.error(new DesignSelectionPublishError(key, cause));
+            return false;
+          },
+        ),
+      ),
+    ).then((written) => {
+      if (
+        written.every(Boolean) ||
+        persistedSelectionStateRef.current !== pending.key
+      ) {
+        return;
+      }
+      persistedSelectionStateRef.current = null;
+      persistedSelectionContextRef.current = null;
+      const delay = SELECTION_PUBLISH_RETRY_DELAYS_MS[attempt];
+      if (
+        delay === undefined ||
+        persistedSelectionWriteTimerRef.current !== null
+      ) {
+        return;
+      }
+      persistedSelectionWriteTimerRef.current = window.setTimeout(() => {
+        persistedSelectionWriteTimerRef.current = null;
+        writePersistedSelection(pending, attempt + 1);
+      }, delay);
+    });
   };
   if (persistedSelectionStateRef.current === persistedKey) {
-    // A zoom gesture can return to the last persisted value before its
-    // trailing write fires. Cancel that now-stale queued intermediate.
     if (persistedSelectionWriteTimerRef.current !== null) {
       window.clearTimeout(persistedSelectionWriteTimerRef.current);
       persistedSelectionWriteTimerRef.current = null;
     }
     pendingPersistedSelectionWriteRef.current = null;
   } else if (persistedSelectionContextRef.current !== persistedContextKey) {
-    // Screen/selection/tool/panel changes are agent context and stay
-    // immediate. Only zoom-only churn is coalesced below.
     if (persistedSelectionWriteTimerRef.current !== null) {
       window.clearTimeout(persistedSelectionWriteTimerRef.current);
       persistedSelectionWriteTimerRef.current = null;
@@ -226,10 +364,6 @@ export function runPublishAgentSelectionContext({
       value: persistedSelection,
     });
   } else if (pendingPersistedSelectionWriteRef.current?.key !== persistedKey) {
-    // Wheel/pinch zoom can render at 60+ Hz. Writing both scoped and global
-    // application-state keys for every tick creates an avoidable request +
-    // sync-event storm; keep the immediate in-memory context above and
-    // persist only the settled zoom after a short trailing delay.
     pendingPersistedSelectionWriteRef.current = {
       key: persistedKey,
       contextKey: persistedContextKey,

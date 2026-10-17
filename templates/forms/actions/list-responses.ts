@@ -1,13 +1,16 @@
 import { defineAction, fail } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import { eq, desc, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { requireFormsPermission } from "../server/lib/app-roles.js";
 import { publicSubmitterEmail } from "../shared/submitter-email.js";
 import type { FormResponse } from "../shared/types.js";
 
 export default defineAction({
+  authorize: requireFormsPermission("forms.review", "formId"),
   description:
     "List response data for a form when you need rows for reasoning or export. If the user asks to see, open, or view all responses, use navigate with view=responses instead.",
   schema: z
@@ -24,7 +27,7 @@ export default defineAction({
       message: "formId is required",
     }),
   http: { method: "GET" },
-  run: async (args) => {
+  run: async (args, ctx) => {
     const formId = args.formId ?? args.form;
     if (!formId) fail("formId is required", { errorCode: "form_id_required" });
 
@@ -43,6 +46,20 @@ export default defineAction({
       .select({ count: sql<number>`count(*)` })
       .from(schema.responses)
       .where(eq(schema.responses.formId, formId));
+
+    track(
+      "submissions_viewed",
+      {
+        app_name: "forms",
+        template_name: "forms",
+        output_id: formId,
+        output_type: "form",
+        form_id: formId,
+        view_type: "list",
+        response_count: Number((total as any)?.count ?? 0),
+      },
+      ctx,
+    );
 
     return {
       responses: rows.map((r) => ({

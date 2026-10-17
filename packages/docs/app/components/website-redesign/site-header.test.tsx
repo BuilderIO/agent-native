@@ -5,16 +5,10 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const getGithubStarCount = vi.hoisted(() => vi.fn());
-
-// The real modal pulls the docs search index; the header only owns the open
-// state, so the lazy chunk is stubbed with a probe.
 vi.mock("../SearchModal", () => ({
   SearchModal: ({ open }: { open: boolean }) =>
     open ? <div data-testid="search-modal" /> : null,
 }));
-vi.mock("../../../lib/github-star-count", () => ({ getGithubStarCount }));
-
 import { docsI18nCatalog } from "../../i18n";
 import { SnackbarProvider } from "./ds/snackbar";
 import { SiteHeader } from "./site-header";
@@ -25,7 +19,6 @@ function LocationProbe() {
 }
 
 beforeEach(() => {
-  getGithubStarCount.mockResolvedValue(null);
   Object.defineProperty(window, "matchMedia", {
     configurable: true,
     value: vi.fn().mockImplementation((query: string) => ({
@@ -43,13 +36,12 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
-  getGithubStarCount.mockReset();
   vi.clearAllMocks();
 });
 
-function renderHeader(starCount: number | null = 1234) {
+function renderHeader(starCount: number | null = 1234, path = "/") {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[path]}>
       <AgentNativeI18nProvider
         catalog={docsI18nCatalog}
         initialLocale="en-US"
@@ -66,24 +58,41 @@ function renderHeader(starCount: number | null = 1234) {
 }
 
 describe("SiteHeader search", () => {
-  it("fills in the GitHub star count after hydration", async () => {
-    getGithubStarCount.mockResolvedValue(4647);
+  it("keeps the mobile docs navigation in the sticky header stack", () => {
+    const { container } = renderHeader(1234, "/docs/");
 
-    renderHeader(null);
+    const stickyHeader = container.querySelector(".sticky.top-0.z-50");
+    expect(stickyHeader?.querySelector(".mobile-docs-nav")).toBeTruthy();
+  });
 
+  it("layers the open mobile header menu above the docs bar", () => {
+    const { container } = renderHeader(1234, "/docs/");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Toggle navigation menu" }),
+    );
+
+    const header = container.querySelector("header");
+    const docsBar = container.querySelector<HTMLDivElement>(".mobile-docs-nav");
+    const zIndexUtility = (element: HTMLElement | null) =>
+      Number(element?.className.match(/(?:^|\s)z-(\d+)(?:\s|$)/)?.[1]);
+
+    expect(zIndexUtility(header)).toBeGreaterThan(zIndexUtility(docsBar));
+    expect(header?.querySelector(".absolute.top-full")).toBeTruthy();
+  });
+
+  it("renders the server-provided GitHub star count", () => {
+    renderHeader(4647);
     expect(
-      await screen.findAllByRole("link", { name: "GitHub — 4.6k stars" }),
+      screen.getAllByRole("link", { name: "GitHub — 4.6k stars" }),
     ).toHaveLength(1);
   });
 
-  it("keeps the rendered star count when refresh has no value", async () => {
-    getGithubStarCount.mockResolvedValue(null);
-
-    renderHeader();
-
-    expect(
-      await screen.findAllByRole("link", { name: "GitHub — 1.2k stars" }),
-    ).toHaveLength(1);
+  it("reserves the GitHub button width without a server count", () => {
+    renderHeader(null);
+    expect(screen.getByRole("link", { name: "GitHub" }).className).toContain(
+      "min-w-[96px]",
+    );
   });
 
   it("does not mount the search modal until it is asked for", () => {

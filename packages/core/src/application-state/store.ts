@@ -1,54 +1,63 @@
 import { getDbExec, isLocalDatabase, type DbExec } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import type { StoreWriteOptions } from "../settings/store.js";
+import { assertNoInlineImageBytes } from "../shared/inline-bytes.js";
 import { emitAppStateChange, emitAppStateDelete } from "./emitter.js";
 
-let _initPromise: Promise<void> | undefined;
 const MAX_HOSTED_APP_STATE_VALUE_BYTES = 1024 * 1024;
 
 function utf8ByteLength(value: string): number {
   return new TextEncoder().encode(value).byteLength;
 }
 
-// Escapes LIKE wildcards (`%`, `_`) and the escape char itself so a caller's
-// literal prefix is matched verbatim. Used with `ESCAPE '!'` in prefix queries
-// below; without this, a prefix such as `user_settings` would treat `_` as a
-// single-char wildcard and over-match (e.g. delete `userXsettings`).
 function escapeLike(s: string): string {
   return s.replace(/[!%_]/g, (match) => `!${match}`);
 }
 
-export async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const createSql = `
-        CREATE TABLE IF NOT EXISTS application_state (
-          session_id TEXT NOT NULL,
-          key TEXT NOT NULL,
-          value TEXT NOT NULL,
-          updated_at BIGINT NOT NULL,
-          PRIMARY KEY (session_id, key)
-        )
-      `;
+export const applicationStateStore = defineStore({
+  id: "application_state",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createSql = `
+          CREATE TABLE IF NOT EXISTS application_state (
+            session_id TEXT NOT NULL,
+            key TEXT NOT NULL,
+            value TEXT NOT NULL,
+            updated_at BIGINT NOT NULL,
+            PRIMARY KEY (session_id, key)
+          )
+        `;
+        await ensureTableExists("application_state", createSql);
+      },
+    },
+    {
+      name: "widen-bigint",
+      run: async () => {
+        await widenIntColumnsToBigInt("application_state", ["updated_at"]);
+      },
+    },
+    {
+      name: "indexes",
+      run: async () => {
+        await ensureIndexExists(
+          "app_state_updated_at_idx",
+          `CREATE INDEX IF NOT EXISTS app_state_updated_at_idx ON application_state (updated_at)`,
+        );
+        await ensureIndexExists(
+          "app_state_key_updated_idx",
+          `CREATE INDEX IF NOT EXISTS app_state_key_updated_idx ON application_state (key, updated_at)`,
+        );
+      },
+    },
+  ],
+});
 
-      await ensureTableExists("application_state", createSql);
-      await widenIntColumnsToBigInt("application_state", ["updated_at"]);
-      await ensureIndexExists(
-        "app_state_updated_at_idx",
-        `CREATE INDEX IF NOT EXISTS app_state_updated_at_idx ON application_state (updated_at)`,
-      );
-      await ensureIndexExists(
-        "app_state_key_updated_idx",
-        `CREATE INDEX IF NOT EXISTS app_state_key_updated_idx ON application_state (key, updated_at)`,
-      );
-    })().catch((err) => {
-      // Retry init on the next call after a failed startup.
-      _initPromise = undefined;
-      throw err;
-    });
-  }
-  return _initPromise;
+export function ensureTable(): Promise<void> {
+  return applicationStateStore.ready();
 }
 
 export async function appStateGet(
@@ -65,13 +74,6 @@ export async function appStateGet(
   return JSON.parse(rows[0].value as string);
 }
 
-/**
- * Read several application-state keys for one session in a single SQL query,
- * returning ONLY the rows that exist. A key absent from the result has no row;
- * a key present with a `null` value has a row that stores `null`. Callers that
- * must not conflate the two (the batched HTTP read) depend on that difference,
- * so this deliberately does not pad missing keys.
- */
 export async function appStateGetManyEntries(
   sessionId: string,
   keys: readonly string[],
@@ -91,11 +93,6 @@ export async function appStateGetManyEntries(
   }));
 }
 
-/**
- * Read several application-state keys for one session in a single SQL query.
- * Missing keys are returned as `null` so callers can preserve the requested
- * shape without issuing one fallback query per key.
- */
 export async function appStateGetMany(
   sessionId: string,
   keys: readonly string[],
@@ -115,17 +112,9 @@ export async function appStatePut(
   value: Record<string, unknown>,
   options?: StoreWriteOptions,
 ): Promise<void> {
+  const serialized = serializeAppStateValue(key, value);
   await ensureTable();
   const client = getDbExec();
-  const serialized = JSON.stringify(value);
-  if (
-    !isLocalDatabase() &&
-    utf8ByteLength(serialized) > MAX_HOSTED_APP_STATE_VALUE_BYTES
-  ) {
-    throw new Error(
-      `application_state value "${key}" is too large for hosted SQL storage. Store large files, base64, or blobs in file storage and write only a URL or handle.`,
-    );
-  }
   await client.execute({
     sql: `INSERT INTO application_state (session_id, key, value, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT (session_id, key) DO UPDATE SET value=EXCLUDED.value, updated_at=EXCLUDED.updated_at`,
     args: [sessionId, key, serialized, Date.now()],
@@ -156,6 +145,7 @@ export async function appStateCompareAndSet(
   nextValue: Record<string, unknown> | null,
   options?: StoreWriteOptions,
 ): Promise<boolean> {
+  if (nextValue !== null) serializeAppStateValue(key, nextValue);
   await ensureTable();
   const client = getDbExec();
   const changed = await executeAppStateCompareAndSet(
@@ -238,6 +228,7 @@ function serializeAppStateValue(
   key: string,
   value: Record<string, unknown>,
 ): string {
+  assertNoInlineImageBytes(value, `application_state value "${key}"`);
   const serialized = JSON.stringify(value);
   if (
     !isLocalDatabase() &&
@@ -316,6 +307,26 @@ export async function appStateList(
   }));
 }
 
+export async function appStateListByKeyPrefix(
+  keyPrefix: string,
+  limit = 100,
+): Promise<
+  Array<{ sessionId: string; key: string; value: Record<string, unknown> }>
+> {
+  await ensureTable();
+  const client = getDbExec();
+  const boundedLimit = Math.max(1, Math.min(Math.floor(limit), 2_048));
+  const { rows } = await client.execute({
+    sql: `SELECT session_id, key, value FROM application_state WHERE key LIKE ? ESCAPE '!' ORDER BY updated_at ASC LIMIT ?`,
+    args: [escapeLike(keyPrefix) + "%", boundedLimit],
+  });
+  return rows.map((row) => ({
+    sessionId: row.session_id as string,
+    key: row.key as string,
+    value: JSON.parse(row.value as string),
+  }));
+}
+
 export async function appStateDeleteByPrefix(
   sessionId: string,
   keyPrefix: string,
@@ -324,7 +335,6 @@ export async function appStateDeleteByPrefix(
   await ensureTable();
   const client = getDbExec();
 
-  // Get keys first so we can emit events
   const { rows } = await client.execute({
     sql: `SELECT key FROM application_state WHERE session_id = ? AND key LIKE ? ESCAPE '!'`,
     args: [sessionId, escapeLike(keyPrefix) + "%"],

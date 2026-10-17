@@ -2,13 +2,10 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-/**
- * The composer used to host an always-visible design system picker. That
- * chrome is gone — systems are still choosable from the prompt dialog and
- * first-run flows, just not above the chat input.
- */
+import { readDesignEditorSource } from "./design-editor/read-design-editor-source";
+
 describe("DesignEditor composer design system picker", () => {
-  const source = readFileSync("app/pages/DesignEditor.tsx", "utf8");
+  const source = readDesignEditorSource();
   const slot = source.slice(
     source.indexOf("composerSlot={"),
     source.indexOf("composerSlot={") >= 0

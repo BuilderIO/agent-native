@@ -3,7 +3,7 @@ record_type: "capability"
 spec_version: 2
 id: "content.template.graph"
 name: "Multi-object Templates"
-user_promise: "Start from a reusable system of Pages, Databases, Views, Properties, Rules, expressions, and bodies, then own the result."
+user_promise: "Start from a reusable system of Pages, Collections, Views, Properties, Rules, expressions, and bodies, then own the result."
 primary_user_job: "Create an owned system from a reusable object graph."
 kind: "primitive"
 state: "approved_shape"
@@ -37,7 +37,7 @@ A working system spans more than one page, yet copying a folder of loose objects
 
 ## Example workflow
 
-Kai installs a research Template graph, edits its new database and view freely, and traces the owned instance to the source version.
+Kai installs a research Template graph, edits its new collection and view freely, and traces the owned instance to the source version.
 
 ## Product contract
 
@@ -47,14 +47,14 @@ Kai installs a research Template graph, edits its new database and view freely, 
 
 ## Boundaries and non-goals
 
-- Pages, Databases, Views, Properties, Rules, Expressions, and Blocks remain the canonical objects; the Template records their portable graph and provenance.
+- Pages, Collections, Views, Properties, Rules, Expressions, and Blocks remain the canonical objects; the Template records their portable graph and provenance.
 - Templates fork rather than possess; they do not create a parallel datastore, fixed singleton, or hidden live synchronization channel.
 
 ## Acceptance stories
 
 ### Fork, do not possess
 
-Given two teams adopt the Template, when one team edits its local database, then one local database edit does not affect the other or source.
+Given two teams adopt the Template, when one team edits its local collection, then one local collection edit does not affect the other or source.
 
 ### Remap internal identity
 
@@ -62,7 +62,7 @@ Given internal links and an external reference, when the graph instantiates, the
 
 ## Current evidence
 
-`docs/product/architecture.md` defines graph snapshots; Page, Database, and Reference records are donors, not graph serialization/instance recovery.
+`docs/product/architecture.md` defines graph snapshots; Page, Collection, and Reference records are donors, not graph serialization/instance recovery.
 
 ## Proof plan
 

@@ -8,6 +8,7 @@ export interface DesignVersionChatContext {
   runId?: string;
   turnId?: string;
   actionName?: string;
+  surface?: "editor";
 }
 
 export interface DesignVersionListEntry {
@@ -15,7 +16,7 @@ export interface DesignVersionListEntry {
   designId: string;
   label: string | null;
   createdAt: string | null;
-  source: "chat" | "legacy";
+  source: "chat" | "editor" | "legacy";
   fileCount: number;
   chatContext: DesignVersionChatContext | null;
   editable?: boolean;
@@ -40,10 +41,9 @@ export interface DesignVersionDetail {
   designId: string;
   label: string | null;
   createdAt: string | null;
-  source: "chat" | "legacy";
+  source: "chat" | "editor" | "legacy";
   fileCount: number;
   chatContext: DesignVersionChatContext | null;
-  /** Present on list entries; optional on detail until the action always returns it. */
   editable?: boolean;
   designTitle: string | null;
   files: DesignVersionFile[];
@@ -65,8 +65,6 @@ export function useDesignVersions(designId: string | null) {
     designId ? { designId } : undefined,
     {
       enabled: !!designId,
-      // Keep prior checkpoints only for the same design — otherwise navigating
-      // A→B while History stays mounted briefly shows A's versions under B.
       placeholderData: (prev: DesignVersionListResponse | undefined) =>
         prev && designId && prev.designId === designId ? prev : undefined,
     } as Record<string, unknown>,

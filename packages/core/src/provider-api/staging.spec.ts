@@ -1,22 +1,9 @@
-/**
- * Tests for the provider-api staging layer (P0: stageAs, P1: fetchAll).
- *
- * Covers:
- *  - Auto-detection of items shape
- *  - Staging caps (row count + byte size)
- *  - fetchAll cursor loop with mocked 429 + Retry-After
- *  - Scoping: dataset from app A not readable from app B
- */
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
-
-// ---------------------------------------------------------------------------
-// DB mock — use in-memory Maps instead of a live database
-// ---------------------------------------------------------------------------
 
 const _metaStore = new Map<string, Record<string, unknown>>();
 const _rowStore = new Map<string, Record<string, unknown>[]>();
 const _executedSql: string[] = [];
+const _int4Columns = new Map<string, string[]>();
 
 vi.mock("../db/client.js", () => ({
   isProductionServerlessFunctionRuntime: () => false,
@@ -26,26 +13,30 @@ vi.mock("../db/client.js", () => ({
       const args = typeof sql === "string" ? [] : (sql.args as unknown[]);
       _executedSql.push(rawSql);
 
-      // CREATE TABLE — no-op
+      if (/information_schema\.columns/i.test(rawSql)) {
+        const columns = _int4Columns.get(args[0] as string) ?? [];
+        return {
+          rows: columns.map((column_name) => ({ column_name })),
+          rowsAffected: 0,
+        };
+      }
       if (/CREATE TABLE/i.test(rawSql)) return { rows: [], rowsAffected: 0 };
-      // CREATE INDEX — no-op
       if (/CREATE INDEX/i.test(rawSql)) return { rows: [], rowsAffected: 0 };
 
-      // staged_dataset_rows DELETE
       if (/DELETE FROM staged_dataset_rows WHERE dataset_id/i.test(rawSql)) {
         _rowStore.delete(args[0] as string);
         return { rows: [], rowsAffected: 1 };
       }
-      // staged_dataset_rows INSERT
       if (/INSERT INTO staged_dataset_rows/i.test(rawSql)) {
-        const id = args[0] as string;
-        const idx = args[1] as number;
-        const data = args[2] as string;
-        if (!_rowStore.has(id)) _rowStore.set(id, []);
-        _rowStore.get(id)![idx] = JSON.parse(data) as Record<string, unknown>;
-        return { rows: [], rowsAffected: 1 };
+        for (let i = 0; i < args.length; i += 3) {
+          const id = args[i] as string;
+          const idx = args[i + 1] as number;
+          const data = args[i + 2] as string;
+          if (!_rowStore.has(id)) _rowStore.set(id, []);
+          _rowStore.get(id)![idx] = JSON.parse(data) as Record<string, unknown>;
+        }
+        return { rows: [], rowsAffected: args.length / 3 };
       }
-      // staged_dataset_rows SELECT
       if (
         /SELECT row_data FROM staged_dataset_rows WHERE dataset_id/i.test(
           rawSql,
@@ -59,7 +50,6 @@ vi.mock("../db/client.js", () => ({
         };
       }
 
-      // staged_datasets SELECT (scope check)
       if (
         /SELECT id FROM staged_datasets WHERE id.*AND app_id.*AND owner_email/i.test(
           rawSql,
@@ -75,7 +65,6 @@ vi.mock("../db/client.js", () => ({
             : [];
         return { rows: found, rowsAffected: 0 };
       }
-      // staged_datasets SELECT (full meta)
       if (
         /SELECT id, app_id, owner_email, name, columns, row_count, byte_size, created_at, updated_at FROM staged_datasets WHERE id/i.test(
           rawSql,
@@ -91,7 +80,6 @@ vi.mock("../db/client.js", () => ({
             : [];
         return { rows: found, rowsAffected: 0 };
       }
-      // staged_datasets SELECT (list)
       if (
         /SELECT id, app_id, owner_email.*FROM staged_datasets WHERE app_id.*AND owner_email.*ORDER/i.test(
           rawSql,
@@ -104,7 +92,6 @@ vi.mock("../db/client.js", () => ({
         );
         return { rows: entries, rowsAffected: 0 };
       }
-      // staged_datasets SELECT row_count (cap check)
       if (
         /SELECT.*COALESCE.*SUM.*row_count.*FROM staged_datasets WHERE app_id/i.test(
           rawSql,
@@ -116,7 +103,6 @@ vi.mock("../db/client.js", () => ({
           .reduce((sum, e) => sum + Number(e.row_count), 0);
         return { rows: [{ total }], rowsAffected: 0 };
       }
-      // staged_datasets SELECT byte_size (cap check)
       if (
         /SELECT.*COALESCE.*SUM.*byte_size.*FROM staged_datasets WHERE app_id/i.test(
           rawSql,
@@ -128,7 +114,6 @@ vi.mock("../db/client.js", () => ({
           .reduce((sum, e) => sum + Number(e.byte_size), 0);
         return { rows: [{ total }], rowsAffected: 0 };
       }
-      // staged_datasets SELECT (check existing)
       if (
         /SELECT id FROM staged_datasets WHERE id = \?$/i.test(rawSql.trim())
       ) {
@@ -136,7 +121,6 @@ vi.mock("../db/client.js", () => ({
         const found = _metaStore.has(id) ? [{ id }] : [];
         return { rows: found, rowsAffected: 0 };
       }
-      // staged_datasets row_count SELECT (for append)
       if (/SELECT row_count FROM staged_datasets WHERE id/i.test(rawSql)) {
         const id = args[0] as string;
         const entry = _metaStore.get(id);
@@ -145,7 +129,6 @@ vi.mock("../db/client.js", () => ({
           rowsAffected: 0,
         };
       }
-      // staged_datasets byte_size SELECT (for append)
       if (/SELECT byte_size FROM staged_datasets WHERE id/i.test(rawSql)) {
         const id = args[0] as string;
         const entry = _metaStore.get(id);
@@ -154,7 +137,6 @@ vi.mock("../db/client.js", () => ({
           rowsAffected: 0,
         };
       }
-      // staged_datasets INSERT ... ON CONFLICT
       if (
         /INSERT INTO staged_datasets/i.test(rawSql) &&
         /ON CONFLICT/i.test(rawSql)
@@ -183,7 +165,6 @@ vi.mock("../db/client.js", () => ({
         });
         return { rows: [], rowsAffected: 1 };
       }
-      // staged_datasets UPDATE
       if (/UPDATE staged_datasets SET/i.test(rawSql)) {
         const [name, columns, rowCount, byteSize, updatedAt, id] = args;
         const entry = _metaStore.get(id as string);
@@ -196,7 +177,6 @@ vi.mock("../db/client.js", () => ({
         }
         return { rows: [], rowsAffected: 1 };
       }
-      // staged_datasets DELETE
       if (
         /DELETE FROM staged_datasets WHERE id.*AND app_id.*AND owner_email/i.test(
           rawSql,
@@ -212,10 +192,6 @@ vi.mock("../db/client.js", () => ({
   }),
 }));
 
-// ---------------------------------------------------------------------------
-// Credential context mock
-// ---------------------------------------------------------------------------
-
 vi.mock("../server/request-context.js", () => ({
   getCredentialContext: () => ({
     userEmail: "ada@example.com",
@@ -223,26 +199,14 @@ vi.mock("../server/request-context.js", () => ({
   }),
 }));
 
-// ---------------------------------------------------------------------------
-// SSRF mock (needed by executeProviderApiRequest)
-// ---------------------------------------------------------------------------
-
 vi.mock("../extensions/url-safety.js", () => ({
   createSsrfSafeDispatcher: vi.fn().mockResolvedValue(null),
   isBlockedExtensionUrlWithDns: vi.fn().mockResolvedValue(false),
 }));
 
-// ---------------------------------------------------------------------------
-// Credentials mock
-// ---------------------------------------------------------------------------
-
 vi.mock("../credentials/index.js", () => ({
   resolveCredential: vi.fn().mockResolvedValue("test-token"),
 }));
-
-// ---------------------------------------------------------------------------
-// Imports (after mocks)
-// ---------------------------------------------------------------------------
 
 const { extractItemsArray } = await import("./staging.js");
 const { stagingExecuteRequest } = await import("./staging.js");
@@ -253,15 +217,14 @@ const {
   _resetInitPromiseForTests,
 } = await import("./staged-datasets-store.js");
 const { createProviderApiRuntime } = await import("./index.js");
+const { createProviderApiRequestAction } =
+  await import("./actions/provider-api.js");
 import type { ProviderApiRequestArgs } from "./index.js";
 
 beforeEach(() => {
   _executedSql.length = 0;
+  _int4Columns.clear();
 });
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function makeExecutor(_appId = "testapp") {
   const runtime = createProviderApiRuntime({
@@ -282,10 +245,6 @@ function makeExecutor(_appId = "testapp") {
   });
   return (args: ProviderApiRequestArgs) => runtime.executeRequest(args);
 }
-
-// ---------------------------------------------------------------------------
-// 1. Auto-detection of items shape
-// ---------------------------------------------------------------------------
 
 describe("extractItemsArray", () => {
   it("returns top-level array unchanged", () => {
@@ -339,13 +298,9 @@ describe("extractItemsArray", () => {
   it("returns [] for empty / non-object bodies", () => {
     expect(extractItemsArray(null)).toEqual([]);
     expect(extractItemsArray("string")).toEqual([]);
-    expect(extractItemsArray({ meta: { cursor: "abc" } })).toEqual([]); // no array values
+    expect(extractItemsArray({ meta: { cursor: "abc" } })).toEqual([]);
   });
 });
-
-// ---------------------------------------------------------------------------
-// 2. Staging caps
-// ---------------------------------------------------------------------------
 
 describe("staging caps", () => {
   beforeEach(() => {
@@ -354,36 +309,19 @@ describe("staging caps", () => {
     _resetInitPromiseForTests();
   });
 
-  it("rejects when row count would exceed MAX_ROWS_PER_APP", async () => {
-    // Fake an existing dataset using most of the row budget
-    const existingRows = Array.from(
-      { length: MAX_ROWS_PER_APP - 1 },
-      (_, i) => ({
-        id: i,
-      }),
-    );
-    await upsertStagedDataset({
-      id: "ds_existing",
-      appId: "cappedapp",
-      ownerEmail: "ada@example.com",
-      name: "existing",
-      rows: existingRows,
-      columns: ["id"],
-    });
-
-    // A new dataset with 5 rows should push over the limit
+  it("rejects a single dataset larger than MAX_ROWS_PER_APP and names that cause", async () => {
     await expect(
       upsertStagedDataset({
-        id: "ds_new",
+        id: "ds_huge",
         appId: "cappedapp",
         ownerEmail: "ada@example.com",
-        name: "new",
-        rows: Array.from({ length: 5 }, (_, i) => ({
-          id: i + MAX_ROWS_PER_APP,
+        name: "huge",
+        rows: Array.from({ length: MAX_ROWS_PER_APP + 1 }, (_, i) => ({
+          id: i,
         })),
         columns: ["id"],
       }),
-    ).rejects.toThrow(/cap exceeded/i);
+    ).rejects.toThrow(/cap exceeded: this dataset alone has/i);
   });
 });
 
@@ -395,6 +333,8 @@ describe("staged dataset DDL", () => {
   });
 
   it("uses 64-bit integer columns and widens existing Postgres tables", async () => {
+    _int4Columns.set("staged_datasets", ["created_at"]);
+    _int4Columns.set("staged_dataset_rows", ["row_index"]);
     await upsertStagedDataset({
       id: "ds_postgres_ddl",
       appId: "analytics",
@@ -424,12 +364,13 @@ describe("staged dataset DDL", () => {
         ),
       ),
     ).toBe(true);
+    expect(
+      _executedSql.some((sql) =>
+        /ALTER TABLE staged_datasets ALTER COLUMN row_count/i.test(sql),
+      ),
+    ).toBe(false);
   });
 });
-
-// ---------------------------------------------------------------------------
-// 3. fetchAll cursor loop + 429 + Retry-After
-// ---------------------------------------------------------------------------
 
 describe("stagingExecuteRequest — cursor pagination + 429", () => {
   beforeEach(() => {
@@ -437,6 +378,97 @@ describe("stagingExecuteRequest — cursor pagination + 429", () => {
     _rowStore.clear();
     _resetInitPromiseForTests();
     vi.restoreAllMocks();
+  });
+
+  it.each([
+    { status: 200, laterPage: false, code: "provider_api_rejected" },
+    { status: 503, laterPage: false, code: "http_503" },
+    { status: 200, laterPage: true, code: "provider_api_rejected" },
+    { status: 503, laterPage: true, code: "http_503" },
+  ])(
+    "rejects failed staged provider pages: %j",
+    async ({ status, laterPage, code }) => {
+      const executeRequest = vi.fn();
+      if (laterPage) {
+        executeRequest.mockResolvedValueOnce({
+          response: {
+            ok: true,
+            status: 200,
+            json: { data: [{ id: "first" }], next_cursor: "second" },
+          },
+        });
+      }
+      executeRequest.mockResolvedValue({
+        response: { ok: false, status, json: { error: "provider_rejected" } },
+      });
+      const action = createProviderApiRequestAction(
+        { executeRequest },
+        { appId: "testapp", getOwnerEmail: () => "ada@example.com" },
+      );
+      await expect(
+        action.run({
+          provider: "example",
+          path: "/records",
+          stageAs: "failed_pages",
+          pagination: { nextCursorPath: "next_cursor", cursorParam: "cursor" },
+        }),
+      ).rejects.toMatchObject({
+        errorCode: code,
+        statusCode: status >= 400 ? status : 400,
+      });
+      expect(executeRequest).toHaveBeenCalledTimes(laterPage ? 2 : 1);
+      expect(_metaStore.size).toBe(0);
+      expect(_rowStore.size).toBe(0);
+    },
+  );
+
+  it("preserves a quota cooldown code without retrying or staging", async () => {
+    const executeRequest = vi.fn(async () => ({
+      response: {
+        ok: false,
+        status: 429,
+        json: { error: "provider_quota_exhausted" },
+      },
+    }));
+    const action = createProviderApiRequestAction(
+      { executeRequest },
+      { appId: "testapp", getOwnerEmail: () => "ada@example.com" },
+    );
+    await expect(
+      action.run({ provider: "example", path: "/records", stageAs: "quota" }),
+    ).rejects.toMatchObject({ errorCode: "http_429", statusCode: 429 });
+    expect(executeRequest).toHaveBeenCalledTimes(1);
+    expect(_metaStore.size).toBe(0);
+  });
+
+  it("preserves the exhausted retry code after six rate-limited attempts", async () => {
+    vi.useFakeTimers();
+    try {
+      const executeRequest = vi.fn(async () => ({
+        response: {
+          ok: false,
+          status: 429,
+          headers: { "retry-after": "0.01" },
+        },
+      }));
+      const action = createProviderApiRequestAction(
+        { executeRequest },
+        { appId: "testapp", getOwnerEmail: () => "ada@example.com" },
+      );
+      const rejected = expect(
+        action.run({
+          provider: "example",
+          path: "/records",
+          stageAs: "rate_limited",
+        }),
+      ).rejects.toMatchObject({ errorCode: "http_429", statusCode: 429 });
+      await vi.runAllTimersAsync();
+      await rejected;
+      expect(executeRequest).toHaveBeenCalledTimes(6);
+      expect(_metaStore.size).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("fetches two pages via cursor and stages combined rows", async () => {
@@ -485,6 +517,32 @@ describe("stagingExecuteRequest — cursor pagination + 429", () => {
     expect(result.pages).toBe(2);
     expect(result.truncated).toBe(false);
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("refuses to stage a page that was cut at the response size limit", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ data: [{ id: "ch_1", note: "x".repeat(5_000) }] }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      ),
+    );
+
+    await expect(
+      stagingExecuteRequest(
+        {
+          provider: "stripe",
+          path: "/charges",
+          stageAs: "stripe_charges",
+          maxBytes: 1_000,
+          pagination: { maxPages: 2 },
+        },
+        makeExecutor(),
+        { appId: "testapp", ownerEmail: "ada@example.com" },
+      ),
+    ).rejects.toThrow(/cut at the response size limit/);
   });
 
   it("can send next cursors through a POST body path", async () => {
@@ -542,7 +600,6 @@ describe("stagingExecuteRequest — cursor pagination + 429", () => {
   it("handles 429 with Retry-After and retries successfully", async () => {
     vi.useFakeTimers();
 
-    // Use mockImplementation so each call gets a fresh Response (body is consume-once)
     let callCount = 0;
     const fetchMock = vi
       .spyOn(globalThis, "fetch")
@@ -573,7 +630,6 @@ describe("stagingExecuteRequest — cursor pagination + 429", () => {
       { appId: "testapp", ownerEmail: "ada@example.com" },
     );
 
-    // Advance timers to cover the back-off sleep
     await vi.runAllTimersAsync();
     const result = await stagePromise;
 
@@ -586,7 +642,6 @@ describe("stagingExecuteRequest — cursor pagination + 429", () => {
   it("throws after max retry attempts on persistent 429", async () => {
     vi.useFakeTimers();
 
-    // Each call must return a FRESH Response — body is consume-once
     vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
       return new Response("Too Many Requests", {
         status: 429,
@@ -594,7 +649,6 @@ describe("stagingExecuteRequest — cursor pagination + 429", () => {
       });
     });
 
-    // Attach a .catch immediately to prevent unhandled rejection before we await
     let caughtError: Error | null = null;
     const stagePromise = stagingExecuteRequest(
       {
@@ -613,14 +667,14 @@ describe("stagingExecuteRequest — cursor pagination + 429", () => {
 
     expect(caughtError).not.toBeNull();
     expect(caughtError!.message).toMatch(/429/);
+    expect(caughtError).toMatchObject({
+      errorCode: "http_429",
+      statusCode: 429,
+    });
 
     vi.useRealTimers();
   });
 });
-
-// ---------------------------------------------------------------------------
-// 4. Scoping: dataset from app A not readable from app B
-// ---------------------------------------------------------------------------
 
 describe("staged dataset scoping", () => {
   beforeEach(() => {
@@ -639,7 +693,6 @@ describe("staged dataset scoping", () => {
       columns: ["val"],
     });
 
-    // App B tries to read app A's dataset
     const rows = await getStagedDatasetRows({
       id: "ds_scope_test",
       appId: "app_b",

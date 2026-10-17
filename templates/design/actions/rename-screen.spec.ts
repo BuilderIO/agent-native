@@ -1,9 +1,3 @@
-/**
- * Real-SQL coverage for the all-or-nothing screen rename mutation. These tests
- * exercise the framework's async PGlite transaction patch so a failure
- * after the target row updates proves the earlier write is actually rolled
- * back, not merely hidden by a mocked Drizzle chain.
- */
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const localDb = vi.hoisted(() => ({
@@ -165,11 +159,13 @@ async function insertFile(
     .run(id, DESIGN_ID, filename, content, fileType, BASE_TIME, BASE_TIME);
 }
 
-async function persistedFiles(): Array<{
-  id: string;
-  filename: string;
-  content: string;
-}> {
+async function persistedFiles(): Promise<
+  Array<{
+    id: string;
+    filename: string;
+    content: string;
+  }>
+> {
   return localDb.pglite
     ?.prepare(
       `SELECT id, filename, content FROM design_files
@@ -288,7 +284,7 @@ describe("rename-screen with real PostgreSQL", () => {
   });
 
   it("rejects rendered HTML overrides for URL-backed localhost markers", async () => {
-    const before = persistedFiles();
+    const before = await persistedFiles();
 
     await expect(
       rename("Dashboard", [
@@ -301,17 +297,17 @@ describe("rename-screen with real PostgreSQL", () => {
         },
       ]),
     ).rejects.toThrow(/URL-backed screen.*cannot be replaced with inline HTML/);
-    expect(persistedFiles()).toEqual(before);
+    expect(await persistedFiles()).toEqual(before);
   });
 
   it("rejects duplicate filenames without changing any row", async () => {
     await insertFile("duplicate", "Dashboard.html", "<main>duplicate</main>");
-    const before = persistedFiles();
+    const before = await persistedFiles();
 
     await expect(rename("Dashboard")).rejects.toThrow(
       /Dashboard\.html.*already exists/,
     );
-    expect(persistedFiles()).toEqual(before);
+    expect(await persistedFiles()).toEqual(before);
     expect(collab.applyText).not.toHaveBeenCalled();
   });
 
@@ -329,12 +325,12 @@ describe("rename-screen with real PostgreSQL", () => {
     await localDb.pglite?.exec(`CREATE TRIGGER fail_other_screen_update
       BEFORE UPDATE OF content ON design_files
       FOR EACH ROW EXECUTE FUNCTION fail_other_screen_update_fn()`);
-    const before = persistedFiles();
+    const before = await persistedFiles();
 
     await expect(rename("Dashboard")).rejects.toThrow(
       /forced cross-screen update failure|Failed query/,
     );
-    expect(persistedFiles()).toEqual(before);
+    expect(await persistedFiles()).toEqual(before);
     expect(collab.applyText).not.toHaveBeenCalled();
   });
 });

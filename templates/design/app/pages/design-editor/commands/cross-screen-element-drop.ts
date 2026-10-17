@@ -3,40 +3,65 @@ import {
   applyVisualEdit,
   buildCodeLayerProjection,
   moveNodeBetweenDocuments,
+  resolveCodeLayerTarget,
 } from "@shared/code-layer";
+import { resolveSourceNodeProvenance } from "@shared/preview-source-provenance";
+import { isRunningAppSourceType } from "@shared/source-mode";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 
 import { trace } from "@/components/design/design-trace";
 import { dndHostLog } from "@/components/design/dnd-debug";
+import { isShaderWriteInFlight } from "@/components/design/inspector/GlslShaderPanel";
 import { validateCrossScreenSourceHtmlSnapshot } from "@/components/design/multi-screen/cross-screen-drop";
 import { getPrimaryIframeId } from "@/components/design/multi-screen/iframe-targeting";
 import type {
   ElementInfo,
   PortableStyleSnapshot,
+  RuntimeStructureDeleteRequest,
   RuntimeStructureInsertRequest,
+  RuntimeStructureRollbackRequest,
 } from "@/components/design/types";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
 import {
   bridgeSourceIdForCodeLayerNode,
+  codeLayerSelectorAliases,
+  codeLayerSelectorMatches,
   codeLayerPatchMessage,
   elementInfoFromCodeLayerNode,
   resolveCodeLayerNodeFromBridge,
 } from "@/pages/design-editor/code-layer-state";
 import { adaptAutoTextColorForCrossScreenNode } from "@/pages/design-editor/cross-screen-text-color";
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
-import { DESIGN_EDITOR_DEBUG_LOGS } from "@/pages/design-editor/editor-constants";
-import type { ContentHistoryEntry } from "@/pages/design-editor/history";
+import {
+  captureContentUndoStackTop,
+  stampContentHistorySelectionAfter,
+  type ContentHistoryEntry,
+  type ContentHistorySelectionAfterMap,
+} from "@/pages/design-editor/history";
 import {
   removeAbsolutePositioningFromNodeInHtml,
   setAbsolutePositioningForNodeInHtml,
 } from "@/pages/design-editor/html-layer-positioning";
 import { resolveOverviewScreenSourceType } from "@/pages/design-editor/pending-edits";
 import { applyPortableStyleSnapshotToHtml } from "@/pages/design-editor/portable-style";
-import { resolveRuntimeStructureMoveExecutionMode } from "@/pages/design-editor/react-semantic-handoff";
+import {
+  resolveRuntimeStructureMoveExecutionMode,
+  type ReactGridPlacement,
+} from "@/pages/design-editor/react-semantic-handoff";
 
-/** Empty generated screens strip absolute positioning, so a flow-insert
- * into an empty body parks the node at 0,0. Drop at the pointer instead. */
+import {
+  insertClonedHtmlLayers,
+  prepareClonedHtmlLayersForLiveInsert,
+} from "../clone-and-pen-edit";
+import { prepareAcceptedSourceContent } from "../source-publication";
+import type { ApplyFileContentUpdateResult } from "./apply-file-content-update";
+import type { FileContentSaveCompletion } from "./save-file-content";
+import {
+  mapAcceptedSelectionNode,
+  projectAcceptedSource,
+} from "./selection-publication";
+
 export function shouldAbsolutePlaceOnEmptyScreen({
   destHtml,
   targetLocalPoint,
@@ -46,7 +71,6 @@ export function shouldAbsolutePlaceOnEmptyScreen({
 }): boolean {
   if (!targetLocalPoint) return false;
   if (typeof DOMParser === "undefined") return false;
-  // Live-app destinations store a URL, not HTML — do not treat that as empty.
   if (!/<body[\s>]/i.test(destHtml)) return false;
   const doc = new DOMParser().parseFromString(destHtml, "text/html");
   return (doc.body?.children.length ?? 0) === 0;
@@ -54,27 +78,178 @@ export function shouldAbsolutePlaceOnEmptyScreen({
 
 function absoluteDropPoint(
   targetLocalPoint: { x: number; y: number },
-  targetAnchorRect?: { left: number; top: number } | null,
+  targetAbsoluteOrigin?: { left: number; top: number } | null,
 ): { x: number; y: number } {
-  if (!targetAnchorRect) return targetLocalPoint;
+  if (!targetAbsoluteOrigin) return targetLocalPoint;
   return {
-    x: targetLocalPoint.x - targetAnchorRect.left,
-    y: targetLocalPoint.y - targetAnchorRect.top,
+    x: targetLocalPoint.x - targetAbsoluteOrigin.left,
+    y: targetLocalPoint.y - targetAbsoluteOrigin.top,
   };
 }
 
-/** Empty-screen drops must keep pointer coords. A leftover hit-test rect
- * would subtract the previous screen's origin and park the layer at 0,0. */
+function applyGridPlacementToHtml(
+  content: string,
+  nodeId: string | undefined,
+  placement:
+    | { column: number; columnEnd: number; row: number; rowEnd: number }
+    | undefined,
+): string | null {
+  if (!placement) return content;
+  if (!nodeId) return null;
+  let nextContent = content;
+  for (const [property, value] of [
+    ["grid-column", `${placement.column} / ${placement.columnEnd}`],
+    ["grid-row", `${placement.row} / ${placement.rowEnd}`],
+  ]) {
+    const patch = applyVisualEdit(nextContent, {
+      kind: "style",
+      target: { nodeId },
+      property,
+      value,
+    });
+    if (patch.result.status !== "applied") return null;
+    nextContent = patch.content;
+  }
+  return nextContent;
+}
+
 export function absolutePlacePointForDrop(args: {
   placeAbsoluteOnEmptyScreen: boolean;
-  targetAnchorRect?: { left: number; top: number } | null;
+  targetAbsoluteOrigin?: { left: number; top: number } | null;
   targetLocalPoint: { x: number; y: number };
 }): { x: number; y: number } {
   if (args.placeAbsoluteOnEmptyScreen) return args.targetLocalPoint;
-  return absoluteDropPoint(args.targetLocalPoint, args.targetAnchorRect);
+  return absoluteDropPoint(args.targetLocalPoint, args.targetAbsoluteOrigin);
+}
+
+export function authoredTargetPointForDrop(args: {
+  boardFileId?: string;
+  targetScreenId: string;
+  targetOutsideBoardContentBounds?: boolean;
+  targetAnchorNodeId?: string;
+  targetAnchorPendingNodeId?: string;
+  targetAnchorSelector?: string;
+  targetCanvasPoint?: { x: number; y: number };
+  targetLocalPoint?: { x: number; y: number };
+}): { x: number; y: number } | undefined {
+  const hasAnchor = Boolean(
+    args.targetAnchorNodeId ||
+    args.targetAnchorPendingNodeId ||
+    args.targetAnchorSelector,
+  );
+  if (
+    !hasAnchor &&
+    args.boardFileId &&
+    args.targetScreenId === args.boardFileId &&
+    args.targetOutsideBoardContentBounds === true &&
+    args.targetCanvasPoint
+  ) {
+    return args.targetCanvasPoint;
+  }
+  return args.targetLocalPoint;
+}
+
+export function releaseCrossScreenDropAdmission(
+  pendingTransactionRef: RefObject<string | null> | undefined,
+  transactionId: string | undefined,
+): boolean {
+  if (
+    !transactionId ||
+    !pendingTransactionRef ||
+    pendingTransactionRef.current !== transactionId
+  ) {
+    return false;
+  }
+  pendingTransactionRef.current = null;
+  return true;
+}
+
+export function resolveCrossScreenMoveFailureRecovery(args: {
+  reason: string;
+  transactionId: string;
+  insertRequest: (RuntimeStructureInsertRequest & { screenId: string }) | null;
+  sourceDeleteRequest:
+    | (RuntimeStructureDeleteRequest & { screenId: string })
+    | null;
+  rollbackRequestId: string;
+  pendingTransactionRef?: RefObject<string | null>;
+}): {
+  rollbackRequest:
+    | (RuntimeStructureRollbackRequest & { screenId: string })
+    | null;
+  sourceDeleteRequest:
+    | (RuntimeStructureDeleteRequest & { screenId: string })
+    | null
+    | undefined;
+} {
+  const insertRequest =
+    args.insertRequest?.transactionId === args.transactionId
+      ? args.insertRequest
+      : null;
+  const sourceDeleteRequest =
+    args.sourceDeleteRequest?.transactionId === args.transactionId
+      ? args.sourceDeleteRequest
+      : null;
+  const destinationDocumentLost =
+    args.reason === "target-canvas-unmounted" ||
+    args.reason === "target-document-replaced";
+  const needsRollback =
+    !destinationDocumentLost &&
+    (args.reason === "board-drop-timeout" ||
+      args.reason === "cross-screen-insert-timeout" ||
+      Boolean(sourceDeleteRequest?.rollbackSelector));
+  const rollbackScreenId =
+    sourceDeleteRequest?.rollbackScreenId ?? insertRequest?.screenId;
+  const sourceDeleteMayHaveApplied = Boolean(
+    sourceDeleteRequest &&
+    (sourceDeleteRequest.cancelRequested ||
+      sourceDeleteRequest.waitForInsertTransaction !== true ||
+      sourceDeleteRequest.rollbackSelector),
+  );
+  const sourceRestorationMustPrecedeRollback =
+    needsRollback && sourceDeleteMayHaveApplied;
+  const rollbackRequest =
+    needsRollback && !sourceRestorationMustPrecedeRollback && rollbackScreenId
+      ? {
+          screenId: rollbackScreenId,
+          requestId: args.rollbackRequestId,
+          transactionId: args.transactionId,
+          selector: sourceDeleteRequest?.rollbackSelector ?? "",
+          sourceId: sourceDeleteRequest?.rollbackSourceId,
+          idempotent: true,
+        }
+      : null;
+  const recoveredSourceDeleteRequest = sourceDeleteRequest
+    ? sourceDeleteMayHaveApplied
+      ? {
+          ...sourceDeleteRequest,
+          cancelRequested: true,
+          ...(sourceRestorationMustPrecedeRollback
+            ? {}
+            : { rollbackSelector: undefined, rollbackSourceId: undefined }),
+        }
+      : null
+    : undefined;
+
+  if (!rollbackRequest && !recoveredSourceDeleteRequest?.cancelRequested) {
+    releaseCrossScreenDropAdmission(
+      args.pendingTransactionRef,
+      args.transactionId,
+    );
+  }
+
+  return {
+    rollbackRequest,
+    sourceDeleteRequest: recoveredSourceDeleteRequest,
+  };
 }
 
 export interface CrossScreenElementDropArgs {
+  clearExplicitOverviewScreenSelection?: () => void;
+  getCurrentFileSnapshot?: (fileId: string) => {
+    content: string;
+    updatedAt?: string | null;
+  };
   applyFileContentUpdate: (
     fileId: string,
     nextContent: string,
@@ -82,17 +257,23 @@ export interface CrossScreenElementDropArgs {
       refreshPreview?: boolean;
       skipPreview?: boolean;
       forcePreviewFullDocument?: boolean;
+      immediateSave?: boolean;
+      awaitSave?: boolean;
       persist?: boolean;
       recordHistory?: boolean;
+      historyBeforeContent?: string;
+      sourceBaseContent?: string;
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
     },
-  ) => void;
+  ) => ApplyFileContentUpdateResult;
   boardFileId: string | undefined;
   canEditDesign: boolean;
+  canEditLiveScreen?: (screenId: string) => boolean;
+  canEditLiveBoard?: boolean;
   clearPendingOverviewLayerSelectionTimer: () => void;
   codeLayerOwnerByNodeIdRef: RefObject<
-    Map<
+    ReadonlyMap<
       string,
       {
         fileId: string;
@@ -103,17 +284,26 @@ export interface CrossScreenElementDropArgs {
     >
   >;
   designSourceType: "inline" | "localhost" | "fusion";
+  fileSaveOperationRevisionRef?: RefObject<Record<string, number>>;
+  fileHistoryMutationPendingRef?: RefObject<boolean>;
   getScreenContent: (screenId: string) => string;
+  getCurrentSelectionFingerprint?: () => string;
   id: string | undefined;
   overviewScreens: OverviewScreen[];
   pendingOverviewLayerSelectionRef: RefObject<string | null>;
   pendingOverviewScreenSelectionRef: RefObject<string | null>;
+  contentUndoStackRef?: RefObject<ContentHistoryEntry[]>;
+  contentHistorySelectionAfterRef?: RefObject<ContentHistorySelectionAfterMap>;
   recordContentHistoryEntry: (entry: ContentHistoryEntry) => void;
+  clearPendingHistory?: () => void;
+  syncUndoRedoState?: () => void;
   runtimeStructureInsertRevisionRef: RefObject<number>;
+  runtimeStructurePendingTransactionRef?: RefObject<string | null>;
   sendRuntimeLayerMoveSemanticHandoff: (
     subjectLayerId: string,
     targetLayerId: string,
     placement: "before" | "after" | "inside",
+    gridPlacement?: ReactGridPlacement,
   ) => boolean;
   setActiveFileId: Dispatch<SetStateAction<string | null>>;
   setCreatedOverviewLayerSelection: Dispatch<
@@ -123,6 +313,11 @@ export interface CrossScreenElementDropArgs {
   setRuntimeStructureInsertRequest: Dispatch<
     SetStateAction<
       (RuntimeStructureInsertRequest & { screenId: string }) | null
+    >
+  >;
+  setRuntimeStructureDeleteRequest?: Dispatch<
+    SetStateAction<
+      (RuntimeStructureDeleteRequest & { screenId: string }) | null
     >
   >;
   setSelectedElement: Dispatch<SetStateAction<ElementInfo | null>>;
@@ -136,21 +331,34 @@ export function runCrossScreenElementDrop(
     applyFileContentUpdate,
     boardFileId,
     canEditDesign,
+    canEditLiveScreen,
+    canEditLiveBoard = false,
+    clearExplicitOverviewScreenSelection,
     clearPendingOverviewLayerSelectionTimer,
     codeLayerOwnerByNodeIdRef,
     designSourceType,
+    fileHistoryMutationPendingRef,
+    getCurrentFileSnapshot,
+    fileSaveOperationRevisionRef,
     getScreenContent,
+    getCurrentSelectionFingerprint,
     id,
     overviewScreens,
     pendingOverviewLayerSelectionRef,
     pendingOverviewScreenSelectionRef,
+    contentUndoStackRef,
+    contentHistorySelectionAfterRef,
     recordContentHistoryEntry,
+    clearPendingHistory,
+    syncUndoRedoState,
     runtimeStructureInsertRevisionRef,
+    runtimeStructurePendingTransactionRef,
     sendRuntimeLayerMoveSemanticHandoff,
     setActiveFileId,
     setCreatedOverviewLayerSelection,
     setOverviewSelectedScreenIds,
     setRuntimeStructureInsertRequest,
+    setRuntimeStructureDeleteRequest,
     setSelectedElement,
     setSelectedLayerIdsState,
     t,
@@ -159,6 +367,7 @@ export function runCrossScreenElementDrop(
   {
     sourceSelector,
     sourceNodeId,
+    sourceDeleteRequestId,
     sourceScreenId,
     targetScreenId,
     targetAnchorNodeId,
@@ -166,14 +375,24 @@ export function runCrossScreenElementDrop(
     targetAnchorSelector,
     targetAnchorPlacement,
     targetDropMode,
-    targetAnchorRect,
+    targetGridPlacement,
+    targetAbsoluteOrigin,
+    targetCanvasPoint,
+    targetOutsideBoardContentBounds,
     targetLocalPoint,
     sourcePointerOffset,
+    sourceComputedSize,
     sourceHtmlSnapshot,
+    sourceProvenance,
+    targetAnchorProvenance,
+    duplicate,
+    sourceCloneHtml,
     styleSnapshot,
+    styleSnapshotCaptureFailed,
   }: {
     sourceSelector: string;
     sourceNodeId?: string;
+    sourceDeleteRequestId?: string;
     sourceScreenId: string;
     targetScreenId: string;
     targetAnchorNodeId?: string;
@@ -181,17 +400,25 @@ export function runCrossScreenElementDrop(
     targetAnchorSelector?: string;
     targetAnchorPlacement?: "before" | "after" | "inside";
     targetDropMode?: "flow-insert" | "absolute-container";
-    targetAnchorRect?: {
-      left: number;
-      top: number;
-      width: number;
-      height: number;
+    targetGridPlacement?: {
+      column: number;
+      columnEnd: number;
+      row: number;
+      rowEnd: number;
     };
+    targetAbsoluteOrigin?: { left: number; top: number };
     targetCanvasPoint?: { x: number; y: number };
+    targetOutsideBoardContentBounds?: boolean;
     targetLocalPoint?: { x: number; y: number };
     sourcePointerOffset?: { x: number; y: number };
+    sourceComputedSize?: { width?: number; height?: number };
     sourceHtmlSnapshot?: string;
+    sourceProvenance?: unknown;
+    targetAnchorProvenance?: unknown;
+    duplicate?: boolean;
+    sourceCloneHtml?: string;
     styleSnapshot?: PortableStyleSnapshot;
+    styleSnapshotCaptureFailed?: boolean;
   },
 ) {
   dndHostLog("persist:cross-screen", {
@@ -200,6 +427,32 @@ export function runCrossScreenElementDrop(
     targetAnchorPlacement,
     targetDropMode,
   });
+  const targetPositionPoint = authoredTargetPointForDrop({
+    boardFileId,
+    targetScreenId,
+    targetAnchorNodeId,
+    targetAnchorPendingNodeId,
+    targetAnchorSelector,
+    targetCanvasPoint,
+    targetOutsideBoardContentBounds,
+    targetLocalPoint,
+  });
+  if (styleSnapshotCaptureFailed) {
+    trace("drop", "refused", {
+      reason:
+        "portable style capture failed — refusing to lose class-only appearance",
+      from: sourceScreenId,
+      to: targetScreenId,
+      node: sourceNodeId ?? sourceSelector,
+    });
+    dndHostLog("persist:cross-screen-refused", {
+      reason: "style-capture-failed",
+      sourceScreenId,
+      targetScreenId,
+    });
+    toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });
+    return;
+  }
   trace("drop", "cross-screen-persist", {
     from: sourceScreenId,
     to: targetScreenId,
@@ -209,26 +462,43 @@ export function runCrossScreenElementDrop(
     node: sourceNodeId ?? sourceSelector,
     blocked: !canEditDesign
       ? "read-only design"
-      : sourceScreenId === targetScreenId
+      : sourceScreenId === targetScreenId && !duplicate
         ? "same screen — nothing to move"
         : null,
   });
-  if (!canEditDesign) return;
-  if (sourceScreenId === targetScreenId) return;
+  if (sourceScreenId === targetScreenId && !duplicate) return;
 
   const findLayerOwner = (
     screenId: string,
     nodeId: string | undefined,
     selector: string | undefined,
-  ) =>
-    Array.from(codeLayerOwnerByNodeIdRef.current.entries()).find(
-      ([candidateId, owner]) =>
-        owner.fileId === screenId &&
-        ((nodeId &&
-          (candidateId === nodeId ||
-            bridgeSourceIdForCodeLayerNode(owner.node) === nodeId)) ||
-          (selector && owner.node.selector === selector)),
-    );
+  ) => {
+    const screenOwners = Array.from(
+      codeLayerOwnerByNodeIdRef.current.entries(),
+    ).filter(([, owner]) => owner.fileId === screenId);
+    const idMatches = nodeId
+      ? screenOwners.filter(
+          ([candidateId, owner]) =>
+            candidateId === nodeId ||
+            bridgeSourceIdForCodeLayerNode(owner.node) === nodeId,
+        )
+      : [];
+    if (idMatches.length === 1) return idMatches[0];
+    if (idMatches.length > 1) {
+      const selectorMatches = selector
+        ? idMatches.filter(([, owner]) =>
+            codeLayerSelectorMatches(owner.node, selector),
+          )
+        : [];
+      return selectorMatches.length === 1 ? selectorMatches[0] : undefined;
+    }
+    const selectorMatches = selector
+      ? screenOwners.filter(([, owner]) =>
+          codeLayerSelectorMatches(owner.node, selector),
+        )
+      : [];
+    return selectorMatches.length === 1 ? selectorMatches[0] : undefined;
+  };
   const sourceOwnerEntry = findLayerOwner(
     sourceScreenId,
     sourceNodeId,
@@ -239,74 +509,469 @@ export function runCrossScreenElementDrop(
     targetAnchorNodeId,
     targetAnchorSelector,
   );
-  // A live localhost destination has no editable stored document — its
-  // stored "content" is the bridge URL — so the source-edit path below
-  // would write a whole HTML document over that URL and never reach the
-  // running app. Key off the destination SCREEN's source type: a live
-  // anchor normally has no stored layer owner at all, so both runtimeOnly
-  // flags read false and the drop looks like an ordinary source move.
-  const crossScreenExecutionMode = resolveRuntimeStructureMoveExecutionMode({
-    subjectRuntimeOnly: Boolean(sourceOwnerEntry?.[1].runtimeOnly),
-    targetRuntimeOnly: Boolean(targetOwnerEntry?.[1].runtimeOnly),
-    sourceScreenId,
-    targetScreenId,
-    // Only a board primitive may be reinterpreted as an insert; a real
-    // screen's element dropped into a live app is a move, and inserting it
-    // would leave a duplicate behind in its own screen.
-    sourceScreenIsBoard: Boolean(boardFileId) && sourceScreenId === boardFileId,
-    targetScreenIsLive: (() => {
-      // overviewScreens deliberately excludes the board file, and
-      // resolveOverviewScreenSourceType answers with the DESIGN-level
-      // fallback for an unknown screen. Trusting that fallback would
-      // route a live→board drop into the board's own preview DOM, where
-      // nothing is persisted and the node disappears on next render.
-      // An unresolved screen is not a live screen.
-      const targetScreen = overviewScreens.find(
-        (screen) => screen.id === targetScreenId,
-      );
-      return (
-        Boolean(targetScreen) &&
-        resolveOverviewScreenSourceType(targetScreen, designSourceType) ===
-          "localhost"
-      );
-    })(),
-  });
-  if (crossScreenExecutionMode === "screen-bridge-insert") {
-    const boardContent = getScreenContent(sourceScreenId);
-    if (!boardContent) return;
-    const boardProjection = buildCodeLayerProjection(boardContent);
-    const subjectNode = sourceNodeId
-      ? (boardProjection.nodes.find(
-          (node) =>
-            node.dataAttributes["data-agent-native-node-id"] === sourceNodeId ||
-            node.id === sourceNodeId,
-        ) ??
-        resolveCodeLayerNodeFromBridge(
-          boardProjection,
-          sourceSelector,
-          sourceNodeId,
-        ))
-      : resolveCodeLayerNodeFromBridge(boardProjection, sourceSelector);
+  const targetScreen = overviewScreens.find(
+    (screen) => screen.id === targetScreenId,
+  );
+  const sourceScreen = overviewScreens.find(
+    (screen) => screen.id === sourceScreenId,
+  );
+  const componentLinks =
+    id && targetScreen
+      ? {
+          sourceFileIds: [sourceScreenId],
+          targetSource: {
+            kind: "design-file" as const,
+            designId: id,
+            fileId: targetScreen.id,
+            filename: targetScreen.filename,
+          },
+          documents: [
+            ...overviewScreens.map((screen) => ({
+              id: screen.id,
+              filename: screen.filename,
+            })),
+            ...(boardFileId &&
+            !overviewScreens.some((screen) => screen.id === boardFileId)
+              ? [{ id: boardFileId, filename: "__board__.html" }]
+              : []),
+          ].map((file) => ({
+            source: {
+              kind: "design-file" as const,
+              designId: id,
+              fileId: file.id,
+              filename: file.filename,
+            },
+            content: getScreenContent(file.id),
+          })),
+        }
+      : undefined;
+  const targetScreenIsLive =
+    Boolean(targetScreen) &&
+    isRunningAppSourceType(
+      resolveOverviewScreenSourceType(targetScreen, designSourceType),
+    );
+  const targetScreenIsBoard =
+    Boolean(boardFileId) && targetScreenId === boardFileId;
+  const sourceScreenIsBoard =
+    Boolean(boardFileId) && sourceScreenId === boardFileId;
+  const sourceScreenIsLive =
+    Boolean(sourceScreen) &&
+    isRunningAppSourceType(
+      resolveOverviewScreenSourceType(sourceScreen, designSourceType),
+    );
+  const canEditLiveCrossScreen =
+    sourceScreenIsLive &&
+    targetScreenIsLive &&
+    Boolean(canEditLiveScreen?.(sourceScreenId)) &&
+    Boolean(canEditLiveScreen?.(targetScreenId));
+  const canEditLiveBoardDrop =
+    canEditLiveBoard &&
+    ((sourceScreenIsLive &&
+      targetScreenIsBoard &&
+      Boolean(canEditLiveScreen?.(sourceScreenId))) ||
+      (sourceScreenIsBoard &&
+        targetScreenIsLive &&
+        Boolean(canEditLiveScreen?.(targetScreenId))));
+  const canEditLiveBoardMove =
+    canEditLiveBoard &&
+    sourceScreenIsLive &&
+    targetScreenIsBoard &&
+    Boolean(canEditLiveScreen?.(sourceScreenId));
+  if (!canEditDesign && !canEditLiveCrossScreen && !canEditLiveBoardDrop)
+    return;
+
+  const beginRuntimeStructureTransaction = () => {
+    if (runtimeStructurePendingTransactionRef?.current) {
+      toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });
+      return null;
+    }
+    const transactionId = `cross-screen-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    if (runtimeStructurePendingTransactionRef) {
+      runtimeStructurePendingTransactionRef.current = transactionId;
+    }
+    return transactionId;
+  };
+
+  if ((canEditLiveCrossScreen || canEditLiveBoardMove) && !duplicate) {
     const subjectNodeId =
-      subjectNode?.dataAttributes["data-agent-native-node-id"];
+      sourceNodeId ??
+      (sourceProvenance as { uniqueNodeId?: string } | undefined)?.uniqueNodeId;
+    const sourceOwner = sourceOwnerEntry?.[1];
+    const sourceHtml = sourceHtmlSnapshot ?? sourceCloneHtml;
     const validatedSourceHtmlSnapshot =
-      subjectNodeId && sourceHtmlSnapshot
-        ? validateCrossScreenSourceHtmlSnapshot(
-            sourceHtmlSnapshot,
-            subjectNodeId,
-          )
+      subjectNodeId && sourceHtml
+        ? validateCrossScreenSourceHtmlSnapshot(sourceHtml, subjectNodeId)
         : undefined;
-    if (sourceHtmlSnapshot && !validatedSourceHtmlSnapshot) {
+    if (!sourceOwner || !subjectNodeId || !validatedSourceHtmlSnapshot) {
       toast.error(t("designEditor.toasts.layerMoveFailed"), {
         duration: 4000,
       });
       return;
     }
-    // Reuse the stored-document transforms instead of slicing the source
-    // span: they already own absolute/flow semantics. The portable style
-    // snapshot is always inlined (no sourceContent argument) — a live app
-    // never shares the board's stylesheet head, so the node would land
-    // unstyled otherwise.
+    const hasAnchor = Boolean(
+      targetAnchorNodeId || targetAnchorPendingNodeId || targetAnchorSelector,
+    );
+    const placeAbsolute =
+      Boolean(targetPositionPoint) &&
+      (!hasAnchor || targetDropMode === "absolute-container");
+    const absolutePosition =
+      placeAbsolute && targetPositionPoint
+        ? absolutePlacePointForDrop({
+            placeAbsoluteOnEmptyScreen: false,
+            targetAbsoluteOrigin,
+            targetLocalPoint: targetPositionPoint,
+          })
+        : undefined;
+    const prepared = prepareClonedHtmlLayersForLiveInsert(
+      targetScreenIsBoard
+        ? "http://agent-native-board.local/"
+        : getScreenContent(targetScreenId),
+      [validatedSourceHtmlSnapshot],
+      {
+        preserveIncomingNodeIds: true,
+        positions: absolutePosition
+          ? [
+              {
+                x: absolutePosition.x - (sourcePointerOffset?.x ?? 0),
+                y: absolutePosition.y - (sourcePointerOffset?.y ?? 0),
+                space: "visual",
+              },
+            ]
+          : undefined,
+        stripRootPosition:
+          hasAnchor &&
+          !placeAbsolute &&
+          targetDropMode !== "absolute-container",
+        styleSnapshots: [styleSnapshot],
+      },
+    );
+    const insertedHtml = prepared?.htmlFragments[0];
+    if (!insertedHtml) {
+      toast.error(t("designEditor.toasts.layerMoveFailed"), {
+        duration: 4000,
+      });
+      return;
+    }
+    if (!setRuntimeStructureDeleteRequest) {
+      toast.error(t("designEditor.toasts.layerMoveFailed"), {
+        duration: 4000,
+      });
+      return;
+    }
+    const transactionId = beginRuntimeStructureTransaction();
+    if (!transactionId) return;
+    const deleteRequestId = sourceDeleteRequestId ?? `${transactionId}:source`;
+    const deleteSelectorCandidates = Array.from(
+      new Set([sourceSelector, ...codeLayerSelectorAliases(sourceOwner.node)]),
+    ).filter(Boolean);
+    runtimeStructureInsertRevisionRef.current += 1;
+    setRuntimeStructureInsertRequest({
+      requestId: runtimeStructureInsertRevisionRef.current,
+      transactionId,
+      screenId: targetScreenId,
+      sourceScreenId,
+      remintCollidingNodeIds: true,
+      html: insertedHtml,
+      anchor: {
+        selector: targetAnchorSelector ?? "",
+        sourceId: targetAnchorNodeId,
+        pendingNodeId: targetAnchorPendingNodeId,
+      },
+      placement: targetAnchorPlacement ?? "inside",
+      dropMode: targetDropMode,
+      gridPlacement: targetGridPlacement,
+    });
+    setRuntimeStructureDeleteRequest({
+      requestId: deleteRequestId,
+      transactionId,
+      screenId: sourceScreenId,
+      selector: sourceSelector,
+      waitForInsertTransaction: true,
+      rollbackScreenId: targetScreenId,
+      selectorCandidates: deleteSelectorCandidates,
+    });
+    return;
+  }
+
+  if (duplicate) {
+    if (!sourceCloneHtml) {
+      toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });
+      return;
+    }
+    if (targetScreenIsLive || (targetScreenIsBoard && canEditLiveBoardDrop)) {
+      const liveDestinationContent = getScreenContent(targetScreenId);
+      const hasAnchor = Boolean(
+        targetAnchorNodeId || targetAnchorPendingNodeId || targetAnchorSelector,
+      );
+      const placeAbsolute =
+        Boolean(targetPositionPoint) &&
+        (!hasAnchor || targetDropMode === "absolute-container");
+      const absolutePosition =
+        placeAbsolute && targetPositionPoint
+          ? absolutePlacePointForDrop({
+              placeAbsoluteOnEmptyScreen: false,
+              targetAbsoluteOrigin,
+              targetLocalPoint: targetPositionPoint,
+            })
+          : undefined;
+      const prepared = prepareClonedHtmlLayersForLiveInsert(
+        targetScreenIsBoard
+          ? "http://agent-native-board.local/"
+          : liveDestinationContent,
+        [sourceCloneHtml],
+        {
+          positions: absolutePosition
+            ? [
+                {
+                  x: absolutePosition.x - (sourcePointerOffset?.x ?? 0),
+                  y: absolutePosition.y - (sourcePointerOffset?.y ?? 0),
+                  space: "visual",
+                },
+              ]
+            : undefined,
+          stripRootPosition:
+            hasAnchor &&
+            !placeAbsolute &&
+            targetDropMode !== "absolute-container",
+          styleSnapshots: [styleSnapshot],
+        },
+      );
+      const insertedHtml = prepared?.htmlFragments[0];
+      if (!insertedHtml) {
+        toast.error(t("designEditor.toasts.layerMoveFailed"), {
+          duration: 4000,
+        });
+        return;
+      }
+      const transactionId = beginRuntimeStructureTransaction();
+      if (!transactionId) return;
+      runtimeStructureInsertRevisionRef.current += 1;
+      setRuntimeStructureInsertRequest({
+        requestId: runtimeStructureInsertRevisionRef.current,
+        transactionId,
+        screenId: targetScreenId,
+        sourceScreenId,
+        remintCollidingNodeIds: true,
+        html: insertedHtml,
+        anchor: {
+          selector: targetAnchorSelector ?? "",
+          sourceId: targetAnchorNodeId,
+          pendingNodeId: targetAnchorPendingNodeId,
+        },
+        placement: targetAnchorPlacement ?? "inside",
+        dropMode: targetDropMode,
+        gridPlacement: targetGridPlacement,
+      });
+      return;
+    }
+    const sourceContent = getScreenContent(sourceScreenId);
+    const rawDestContent = getScreenContent(targetScreenId);
+    if (!sourceContent || !rawDestContent) return;
+    const anchorWasRequested = Boolean(
+      targetAnchorNodeId || targetAnchorPendingNodeId || targetAnchorSelector,
+    );
+    const anchorProvenance = anchorWasRequested
+      ? resolveSourceNodeProvenance(rawDestContent, targetAnchorProvenance)
+      : undefined;
+    if (anchorWasRequested && !anchorProvenance) {
+      toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });
+      return;
+    }
+    const provenTargetAnchorNodeId =
+      anchorProvenance?.uniqueNodeId ??
+      (anchorProvenance?.allowSelector ? targetAnchorNodeId : undefined);
+    const provenTargetAnchorSelector =
+      !anchorProvenance?.uniqueNodeId && anchorProvenance?.allowSelector
+        ? targetAnchorSelector
+        : undefined;
+    const targetResolution = anchorWasRequested
+      ? resolveCodeLayerTarget(
+          rawDestContent,
+          {
+            nodeId: provenTargetAnchorNodeId,
+            selector: provenTargetAnchorSelector,
+          },
+          { source: { kind: "design-file", fileId: targetScreenId } },
+        ).resolution
+      : undefined;
+    const targetAnchor =
+      targetResolution?.status === "resolved" ? targetResolution.node : null;
+    if (anchorWasRequested && !targetAnchor) {
+      toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });
+      return;
+    }
+    const anchorSelectors = provenTargetAnchorSelector
+      ? [provenTargetAnchorSelector]
+      : targetAnchor
+        ? codeLayerSelectorAliases(targetAnchor)
+        : [];
+    const sourceNodeIds = [
+      ...buildCodeLayerProjection(sourceContent)
+        .nodes.map((node) => node.dataAttributes["data-agent-native-node-id"])
+        .filter((value): value is string => Boolean(value)),
+      ...Array.from(
+        new DOMParser()
+          .parseFromString(
+            `<template>${sourceCloneHtml}</template>`,
+            "text/html",
+          )
+          .querySelector("template")
+          ?.content.querySelectorAll("[data-agent-native-node-id]") ?? [],
+      )
+        .map((node) => node.getAttribute("data-agent-native-node-id"))
+        .filter((value): value is string => Boolean(value)),
+    ];
+    const hasAnchor = anchorSelectors.length > 0;
+    const placeAbsolute =
+      Boolean(targetPositionPoint) &&
+      (!hasAnchor || targetDropMode === "absolute-container");
+    const absolutePosition =
+      placeAbsolute && targetPositionPoint
+        ? absolutePlacePointForDrop({
+            placeAbsoluteOnEmptyScreen: false,
+            targetAbsoluteOrigin,
+            targetLocalPoint: targetPositionPoint,
+          })
+        : undefined;
+    const nextContent = insertClonedHtmlLayers(
+      rawDestContent,
+      [sourceCloneHtml],
+      {
+        targetSelectors: anchorSelectors,
+        anchorSelectors,
+        placement: targetAnchorPlacement ?? "inside",
+        positions: absolutePosition
+          ? [
+              {
+                x: absolutePosition.x - (sourcePointerOffset?.x ?? 0),
+                y: absolutePosition.y - (sourcePointerOffset?.y ?? 0),
+                space: "visual",
+              },
+            ]
+          : undefined,
+        stripRootPosition:
+          hasAnchor &&
+          !placeAbsolute &&
+          targetDropMode !== "absolute-container",
+        styleSnapshots: [styleSnapshot],
+        preserveIncomingNodeIds: true,
+        additionalReservedNodeIds: sourceNodeIds,
+        componentLinks,
+      },
+    );
+    if (!nextContent) {
+      toast.error(t("designEditor.toasts.layerMoveFailed"), {
+        duration: 4000,
+      });
+      return;
+    }
+    const nextDestContent = applyGridPlacementToHtml(
+      nextContent.content,
+      nextContent.rootNodeIds[0],
+      targetGridPlacement,
+    );
+    if (!nextDestContent) {
+      toast.error(t("designEditor.toasts.layerMoveFailed"), {
+        duration: 4000,
+      });
+      return;
+    }
+    if (isShaderWriteInFlight(targetScreenId)) {
+      toast.error(t("designEditor.toasts.saveConflict"));
+      return;
+    }
+    const publication = applyFileContentUpdate(
+      targetScreenId,
+      nextDestContent,
+      {
+        recordHistory: false,
+        refreshPreview: false,
+        forcePreviewFullDocument: true,
+        historyBeforeContent: rawDestContent,
+      },
+    );
+    if (publication.status !== "accepted") return;
+    recordContentHistoryEntry({
+      changes: [
+        {
+          fileId: targetScreenId,
+          before: rawDestContent,
+          after: publication.content,
+        },
+      ],
+    });
+    pendingOverviewScreenSelectionRef.current =
+      targetScreenId === boardFileId ? null : targetScreenId;
+    pendingOverviewLayerSelectionRef.current =
+      nextContent.rootNodeIds[0] ?? null;
+    clearPendingOverviewLayerSelectionTimer();
+    setActiveFileId(targetScreenId);
+    const submittedProjection = buildCodeLayerProjection(nextDestContent, {
+      source: { kind: "design-file", fileId: targetScreenId },
+    });
+    const copiedNodeCandidate = submittedProjection.nodes.find(
+      (node) =>
+        node.id === nextContent.rootNodeIds[0] ||
+        node.dataAttributes["data-agent-native-node-id"] ===
+          nextContent.rootNodeIds[0],
+    );
+    const copiedNode = mapAcceptedSelectionNode(
+      publication,
+      projectAcceptedSource(publication, {
+        kind: "design-file",
+        fileId: targetScreenId,
+      }),
+      copiedNodeCandidate,
+    );
+    if (copiedNode) {
+      clearExplicitOverviewScreenSelection?.();
+      setCreatedOverviewLayerSelection({
+        screenId: targetScreenId,
+        layerId: copiedNode.id,
+      });
+      setSelectedLayerIdsState([copiedNode.id]);
+      setSelectedElement(elementInfoFromCodeLayerNode(copiedNode));
+      if (viewModeRef.current === "overview") {
+        setOverviewSelectedScreenIds(
+          targetScreenId === boardFileId ? [] : [targetScreenId],
+        );
+      }
+    }
+    return;
+  }
+
+  const crossScreenExecutionMode = resolveRuntimeStructureMoveExecutionMode({
+    subjectRuntimeOnly: Boolean(sourceOwnerEntry?.[1].runtimeOnly),
+    targetRuntimeOnly: Boolean(targetOwnerEntry?.[1].runtimeOnly),
+    sourceScreenId,
+    targetScreenId,
+    sourceScreenIsBoard,
+    targetScreenIsLive,
+  });
+  if (crossScreenExecutionMode === "screen-bridge-insert") {
+    const boardContent = getScreenContent(sourceScreenId);
+    const sourceHtml = sourceHtmlSnapshot ?? sourceCloneHtml;
+    if (!boardContent && !sourceHtml) return;
+    const boardProjection = buildCodeLayerProjection(boardContent, {
+      source: { kind: "design-file", fileId: sourceScreenId },
+    });
+    const subjectNode = resolveCodeLayerNodeFromBridge(
+      boardProjection,
+      sourceSelector,
+      sourceNodeId,
+    );
+    const subjectNodeId =
+      sourceNodeId ?? subjectNode?.dataAttributes["data-agent-native-node-id"];
+    const validatedSourceHtmlSnapshot =
+      subjectNodeId && sourceHtml
+        ? validateCrossScreenSourceHtmlSnapshot(sourceHtml, subjectNodeId)
+        : undefined;
+    if (sourceHtml && !validatedSourceHtmlSnapshot) {
+      toast.error(t("designEditor.toasts.layerMoveFailed"), {
+        duration: 4000,
+      });
+      return;
+    }
     const insertedHtml = subjectNodeId
       ? (() => {
           const styled = applyPortableStyleSnapshotToHtml(
@@ -317,21 +982,22 @@ export function runCrossScreenElementDrop(
           const destHtml = getScreenContent(targetScreenId);
           const placeAbsoluteOnEmptyScreen = shouldAbsolutePlaceOnEmptyScreen({
             destHtml,
-            targetLocalPoint,
+            targetLocalPoint: targetPositionPoint,
           });
           const positioned =
-            targetLocalPoint &&
+            targetPositionPoint &&
             (placeAbsoluteOnEmptyScreen ||
-              (targetDropMode === "absolute-container" && targetAnchorRect))
+              (targetDropMode === "absolute-container" && targetAbsoluteOrigin))
               ? setAbsolutePositioningForNodeInHtml(
                   styled,
                   subjectNodeId,
                   absolutePlacePointForDrop({
                     placeAbsoluteOnEmptyScreen,
-                    targetAnchorRect,
-                    targetLocalPoint,
+                    targetAbsoluteOrigin,
+                    targetLocalPoint: targetPositionPoint,
                   }),
                   sourcePointerOffset,
+                  sourceComputedSize,
                 )
               : removeAbsolutePositioningFromNodeInHtml(styled, subjectNodeId);
           return new DOMParser()
@@ -347,10 +1013,15 @@ export function runCrossScreenElementDrop(
       });
       return;
     }
+    const transactionId = beginRuntimeStructureTransaction();
+    if (!transactionId) return;
     runtimeStructureInsertRevisionRef.current += 1;
     setRuntimeStructureInsertRequest({
       requestId: runtimeStructureInsertRevisionRef.current,
+      transactionId,
       screenId: targetScreenId,
+      sourceScreenId,
+      remintCollidingNodeIds: true,
       html: insertedHtml,
       anchor: {
         selector: targetAnchorSelector ?? "",
@@ -358,21 +1029,13 @@ export function runCrossScreenElementDrop(
         pendingNodeId: targetAnchorPendingNodeId,
       },
       placement: targetAnchorPlacement ?? "inside",
+      dropMode: targetDropMode,
+      gridPlacement: targetGridPlacement,
     });
-    // The board keeps its copy until the pending live edit is applied.
-    // Removing it here would commit the board file immediately while the
-    // destination is still only a pending live edit, and undo pops whichever
-    // stack is newer — one Cmd+Z would revert half the gesture, and a drop
-    // that is never applied would lose the primitive entirely.
     return;
   }
   if (crossScreenExecutionMode === "semantic-handoff") {
     if (!sourceOwnerEntry || !targetOwnerEntry) {
-      // A runtime/source cross-screen drop without an exact target (for
-      // example, dropping on the bare screen root) cannot satisfy the
-      // semantic handoff's two-anchor contract. Do not fall through to a
-      // selector guess or mutate stored wrapper HTML that does not own the
-      // runtime React node.
       toast.error(t("designEditor.toasts.reactSourceAnchorsLoading"));
       return;
     }
@@ -380,6 +1043,7 @@ export function runCrossScreenElementDrop(
       sourceOwnerEntry[0],
       targetOwnerEntry[0],
       targetAnchorPlacement ?? "inside",
+      targetGridPlacement,
     );
     return;
   }
@@ -388,32 +1052,55 @@ export function runCrossScreenElementDrop(
   const rawDestContent = getScreenContent(targetScreenId);
   if (!sourceContent || !rawDestContent) return;
 
-  // Id-on-demand handshake (two-step, mirroring the element-select
-  // persist-on-select path above): AI-generated/duplicated screens often
-  // carry ZERO data-agent-native-node-id attributes, so the hit-test
-  // bridge can't return an anchor id — it mints a pendingNodeId (stamped
-  // on the LIVE dest DOM as data-an-pending-node-id) plus a
-  // source-equivalent structural anchorSelector. Persist that pending id
-  // as the anchor's real node id in the STORED dest document first, then
-  // resolve the drop against it — otherwise every flow-insert into an
-  // id-less screen silently degrades to absolute placement even though
-  // the hit-test found a valid before/after/inside slot. applyVisualEdit
-  // resolves the selector STRICTLY (unique match or conflict), so a
-  // selector that can't be honestly mapped to one source element (e.g.
-  // Alpine template instances) leaves the absolute fallback untouched
-  // rather than ever stamping the wrong node.
+  const sourceProvenanceForContent = resolveSourceNodeProvenance(
+    sourceContent,
+    sourceProvenance,
+  );
+  if (!sourceProvenanceForContent) {
+    toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });
+    return;
+  }
+  const targetAnchorWasRequested = Boolean(
+    targetAnchorNodeId || targetAnchorPendingNodeId || targetAnchorSelector,
+  );
+  const targetProvenanceForContent = targetAnchorWasRequested
+    ? resolveSourceNodeProvenance(rawDestContent, targetAnchorProvenance)
+    : undefined;
+  if (targetAnchorWasRequested && !targetProvenanceForContent) {
+    toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });
+    return;
+  }
+  const provenSourceNodeId =
+    sourceProvenanceForContent.uniqueNodeId ??
+    (sourceProvenanceForContent.allowSelector ? sourceNodeId : undefined);
+  const provenSourceSelector =
+    !sourceProvenanceForContent.uniqueNodeId &&
+    sourceProvenanceForContent.allowSelector
+      ? sourceSelector
+      : undefined;
+  const provenTargetAnchorNodeId =
+    targetProvenanceForContent?.uniqueNodeId ??
+    (targetProvenanceForContent?.allowSelector
+      ? targetAnchorNodeId
+      : undefined);
+  const provenTargetAnchorSelector =
+    !targetProvenanceForContent?.uniqueNodeId &&
+    targetProvenanceForContent?.allowSelector
+      ? targetAnchorSelector
+      : undefined;
+
   let destContent = rawDestContent;
-  let effectiveAnchorNodeId = targetAnchorNodeId;
+  let effectiveAnchorNodeId = provenTargetAnchorNodeId;
   if (
-    !targetAnchorNodeId &&
+    !effectiveAnchorNodeId &&
     targetAnchorPendingNodeId &&
-    targetAnchorSelector
+    provenTargetAnchorSelector
   ) {
     const stamped = applyVisualEdit(
       rawDestContent,
       {
         kind: "attribute",
-        target: { selector: targetAnchorSelector },
+        target: { selector: provenTargetAnchorSelector },
         name: "data-agent-native-node-id",
         value: targetAnchorPendingNodeId,
       },
@@ -432,67 +1119,70 @@ export function runCrossScreenElementDrop(
       destContent = stamped.content;
       effectiveAnchorNodeId = targetAnchorPendingNodeId;
     } else {
-      // Silent degradation: the hit-test found a valid before/after/
-      // inside slot, but the pending anchor id couldn't be honestly
-      // persisted (e.g. targetAnchorSelector resolved to an Alpine
-      // template instance or no longer matches uniquely) — this drop
-      // falls through to absolute placement below with no anchor at
-      // all. Surface it instead of failing quietly; fallback behavior
-      // itself is intentionally unchanged. Dev-only: this is a known,
-      // handled degraded path (not a correctness bug), so keep
-      // production consoles quiet — see DESIGN_EDITOR_DEBUG_LOGS.
-      if (DESIGN_EDITOR_DEBUG_LOGS) {
-        console.warn(
-          "[design] cross-screen drop: could not stamp pending anchor node id — falling back to absolute placement",
-          {
-            targetScreenId,
-            targetAnchorSelector,
-            targetAnchorPendingNodeId,
-            status: stamped.result.status,
-          },
-        );
-      }
+      toast.error(t("designEditor.toasts.layerMoveFailed"), {
+        duration: 4000,
+      });
+      return;
     }
   }
 
-  // Resolve the data-agent-native-node-id that moveNodeBetweenDocuments
-  // uses as a stable key.  Prefer the bridge-supplied sourceNodeId when it
-  // looks like a node-attr id; otherwise look up via selector projection.
-  const sourceProjection = buildCodeLayerProjection(sourceContent);
-  const resolvedSourceNode = sourceNodeId
-    ? (sourceProjection.nodes.find(
-        (n) =>
-          n.dataAttributes["data-agent-native-node-id"] === sourceNodeId ||
-          n.id === sourceNodeId,
-      ) ??
-      resolveCodeLayerNodeFromBridge(
-        sourceProjection,
-        sourceSelector,
-        sourceNodeId,
-      ))
-    : resolveCodeLayerNodeFromBridge(sourceProjection, sourceSelector);
+  const sourceResolution = resolveCodeLayerTarget(
+    sourceContent,
+    { nodeId: provenSourceNodeId, selector: provenSourceSelector },
+    { source: { kind: "design-file", fileId: sourceScreenId } },
+  ).resolution;
+  const resolvedSourceNode =
+    sourceResolution.status === "resolved" ? sourceResolution.node : null;
+  if (!resolvedSourceNode) {
+    toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });
+    return;
+  }
   const nodeAttrId =
+    sourceProvenanceForContent.uniqueNodeId ??
     resolvedSourceNode?.dataAttributes["data-agent-native-node-id"] ??
-    sourceNodeId ??
-    sourceSelector;
-  const destProjection = buildCodeLayerProjection(destContent);
-  const resolvedTargetAnchor = effectiveAnchorNodeId
-    ? resolveCodeLayerNodeFromBridge(
-        destProjection,
-        undefined,
-        effectiveAnchorNodeId,
-      )
-    : null;
+    provenSourceNodeId ??
+    provenSourceSelector ??
+    resolvedSourceNode.path;
+  const targetResolution =
+    effectiveAnchorNodeId || provenTargetAnchorSelector
+      ? resolveCodeLayerTarget(
+          destContent,
+          {
+            nodeId: effectiveAnchorNodeId,
+            selector: provenTargetAnchorSelector,
+          },
+          { source: { kind: "design-file", fileId: targetScreenId } },
+        ).resolution
+      : undefined;
+  const resolvedTargetAnchor =
+    targetResolution?.status === "resolved" ? targetResolution.node : null;
   const targetAnchorAttrId =
     resolvedTargetAnchor?.dataAttributes["data-agent-native-node-id"];
+  const resolvedSourceSelector =
+    provenSourceSelector ?? resolvedSourceNode.path;
+  const anchorWasRequested = Boolean(
+    effectiveAnchorNodeId ||
+    (targetProvenanceForContent?.allowSelector && targetAnchorPendingNodeId) ||
+    provenTargetAnchorSelector,
+  );
+  const resolvedAnchorNodeId =
+    targetAnchorAttrId ?? effectiveAnchorNodeId ?? targetAnchorPendingNodeId;
+  const resolvedAnchorSelector =
+    provenTargetAnchorSelector ?? resolvedTargetAnchor?.path;
 
-  // Use hit-test anchor when the canvas supplied one; fall back to
-  // top-level body append ("inside" with no anchor = existing behaviour).
   const result = moveNodeBetweenDocuments(sourceContent, destContent, {
     nodeId: nodeAttrId,
-    ...(targetAnchorAttrId
+    ...(resolvedSourceSelector
+      ? { sourceSelector: resolvedSourceSelector }
+      : {}),
+    ...(anchorWasRequested
       ? {
-          anchorNodeId: targetAnchorAttrId,
+          ...(resolvedAnchorNodeId
+            ? { anchorNodeId: resolvedAnchorNodeId }
+            : {}),
+          ...(resolvedAnchorSelector
+            ? { anchorSelector: resolvedAnchorSelector }
+            : {}),
           placement: targetAnchorPlacement ?? "inside",
         }
       : { placement: "inside" }),
@@ -502,39 +1192,24 @@ export function runCrossScreenElementDrop(
       codeLayerPatchMessage(
         result.message,
         t("designEditor.toasts.layerMoveFailed"),
+        t,
       ),
       { duration: 4000 },
     );
     return;
   }
-  // Finding 8: see the same-screen move's identical handling above —
-  // the anchor placement was redirected out of a <template> interior to
-  // right after the enclosing template's close instead of failing or
-  // teleporting to doc end.
   if (result.anchorRedirected) {
     toast(t("designEditor.toasts.layerMoveRedirected"), {
       duration: 4000,
     });
   }
 
-  // Hit-test anchors are emitted only for auto-layout insertion targets. If
-  // there is no anchor, preserve absolute mode and rebase left/top to the
-  // release point so screen↔board moves behave like Figma absolute layers.
   const destNodeAttrId = result.movedNodeId ?? nodeAttrId;
   const styleSnapshotDest = applyPortableStyleSnapshotToHtml(
     result.destHtml,
     destNodeAttrId,
     styleSnapshot,
-    sourceContent,
   );
-  // Finding 8: board/screen text carrying the auto-applied white default
-  // (see BOARD_TEXT_AUTO_COLOR_MARKER / defaultCanvasTextColor) must not
-  // keep that forced white when it lands cross-screen in a light
-  // destination — otherwise it renders invisible white-on-white. The
-  // in-screen drag path already adapts via the bridge's
-  // adaptAutoTextColorForNest; this is the cross-screen mirror, applied
-  // host-side now that the node has actually been re-parented into
-  // destContent.
   const liveDestIframe = document.querySelector<HTMLIFrameElement>(
     `[data-screen-iframe-id="${CSS.escape(getPrimaryIframeId(targetScreenId))}"]`,
   );
@@ -545,10 +1220,8 @@ export function runCrossScreenElementDrop(
   );
   const placeAbsoluteOnEmptyScreen = shouldAbsolutePlaceOnEmptyScreen({
     destHtml: destContent,
-    targetLocalPoint,
+    targetLocalPoint: targetPositionPoint,
   });
-  // One decision, one label: the branch name in the trace is the branch that
-  // ran, so a bug report cannot disagree with the code.
   const placed = ((): { content: string; branch: string } => {
     const absolute = (point: { x: number; y: number }, branch: string) => ({
       content: setAbsolutePositioningForNodeInHtml(
@@ -556,6 +1229,7 @@ export function runCrossScreenElementDrop(
         destNodeAttrId,
         point,
         sourcePointerOffset,
+        sourceComputedSize,
       ),
       branch,
     });
@@ -566,22 +1240,20 @@ export function runCrossScreenElementDrop(
       ),
       branch: "anchored-flow-insert",
     };
-    if (!targetLocalPoint) {
-      // No release point: nothing can be placed. Keeping the layer's previous
-      // position beats writing it with none, which read as lost.
+    if (!targetPositionPoint) {
       if (targetAnchorAttrId && targetDropMode !== "absolute-container") {
         return flowInsert;
       }
       return { content: stylePreservedDest, branch: "rooted-no-point" };
     }
     if (placeAbsoluteOnEmptyScreen) {
-      return absolute(targetLocalPoint, "empty-screen-absolute");
+      return absolute(targetPositionPoint, "empty-screen-absolute");
     }
     if (!targetAnchorAttrId) {
-      return absolute(targetLocalPoint, "rooted-absolute");
+      return absolute(targetPositionPoint, "rooted-absolute");
     }
     if (targetDropMode === "absolute-container") {
-      if (!targetAnchorRect) {
+      if (!targetAbsoluteOrigin) {
         return {
           content: stylePreservedDest,
           branch: "anchored-absolute-missing-geometry",
@@ -590,8 +1262,8 @@ export function runCrossScreenElementDrop(
       return absolute(
         absolutePlacePointForDrop({
           placeAbsoluteOnEmptyScreen,
-          targetAnchorRect,
-          targetLocalPoint,
+          targetAbsoluteOrigin,
+          targetLocalPoint: targetPositionPoint,
         }),
         "anchored-absolute",
       );
@@ -600,66 +1272,406 @@ export function runCrossScreenElementDrop(
   })();
   const point = (value: { x: number; y: number } | undefined) =>
     value ? `${Math.round(value.x)},${Math.round(value.y)}` : "none";
-  // Flat string, not an object: a console paste collapses objects to "{…}".
   trace(
     "drop",
     "placement",
     `${placed.branch} node=${destNodeAttrId} target=${targetScreenId}` +
       ` anchor=${targetAnchorAttrId ?? "none"} mode=${targetDropMode ?? "none"}` +
       ` local=${point(targetLocalPoint)}` +
-      ` anchorRect=${targetAnchorRect ? `${Math.round(targetAnchorRect.left)},${Math.round(targetAnchorRect.top)}` : "none"}` +
+      ` authored=${point(targetPositionPoint)}` +
+      ` origin=${targetAbsoluteOrigin ? `${Math.round(targetAbsoluteOrigin.left)},${Math.round(targetAbsoluteOrigin.top)}` : "none"}` +
       ` grab=${point(sourcePointerOffset)}`,
   );
-  const nextDestContent = placed.content;
-
-  recordContentHistoryEntry({
-    changes: [
-      {
-        fileId: sourceScreenId,
-        before: sourceContent,
-        after: result.sourceHtml,
-      },
-      {
-        fileId: targetScreenId,
-        before: destContent,
-        after: nextDestContent,
-      },
-    ],
-  });
-
-  applyFileContentUpdate(sourceScreenId, result.sourceHtml, {
-    recordHistory: false,
-    refreshPreview: false,
-    forcePreviewFullDocument: true,
-  });
-  applyFileContentUpdate(targetScreenId, nextDestContent, {
-    recordHistory: false,
-    refreshPreview: false,
-    forcePreviewFullDocument: true,
-  });
-
-  // Switch active screen to the target and select the moved node; viewMode
-  // stays "overview" (no setViewMode call).
-  pendingOverviewScreenSelectionRef.current =
-    targetScreenId === boardFileId ? null : targetScreenId;
-  pendingOverviewLayerSelectionRef.current = destNodeAttrId;
-  clearPendingOverviewLayerSelectionTimer();
-  setActiveFileId(targetScreenId);
-  const finalProjection = buildCodeLayerProjection(nextDestContent);
-  const movedNodeFinal = finalProjection.nodes.find(
-    (n) => n.dataAttributes["data-agent-native-node-id"] === destNodeAttrId,
+  const nextDestContent = applyGridPlacementToHtml(
+    placed.content,
+    destNodeAttrId,
+    targetGridPlacement,
   );
-  if (movedNodeFinal) {
-    setCreatedOverviewLayerSelection({
-      screenId: targetScreenId,
-      layerId: movedNodeFinal.id,
+  if (!nextDestContent) {
+    toast.error(t("designEditor.toasts.layerMoveFailed"), {
+      duration: 4000,
     });
-    setSelectedLayerIdsState([movedNodeFinal.id]);
-    setSelectedElement(elementInfoFromCodeLayerNode(movedNodeFinal));
-    if (viewModeRef.current === "overview") {
-      setOverviewSelectedScreenIds(
-        targetScreenId === boardFileId ? [] : [targetScreenId],
+    return;
+  }
+
+  try {
+    prepareAcceptedSourceContent(result.sourceHtml, {
+      fileId: sourceScreenId,
+      previousContent: sourceContent,
+    });
+    prepareAcceptedSourceContent(nextDestContent, {
+      fileId: targetScreenId,
+      previousContent: rawDestContent,
+    });
+  } catch {
+    toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });
+    return;
+  }
+
+  const publicationFileIds = new Set<string>();
+  if (result.sourceHtml !== sourceContent) {
+    publicationFileIds.add(sourceScreenId);
+  }
+  if (nextDestContent !== rawDestContent) {
+    publicationFileIds.add(targetScreenId);
+  }
+  if ([...publicationFileIds].some(isShaderWriteInFlight)) {
+    toast.error(t("designEditor.toasts.saveConflict"));
+    return;
+  }
+
+  const contentUndoStackTopBeforeMove = contentUndoStackRef
+    ? captureContentUndoStackTop(contentUndoStackRef.current)
+    : undefined;
+  const crossScreenHistoryChanges = [
+    {
+      fileId: sourceScreenId,
+      before: sourceContent,
+      after: result.sourceHtml,
+    },
+    {
+      fileId: targetScreenId,
+      before: destContent,
+      after: nextDestContent,
+    },
+  ];
+  if (fileHistoryMutationPendingRef?.current) return;
+  const releasePendingHistory = () => {
+    if (!fileHistoryMutationPendingRef) return;
+    fileHistoryMutationPendingRef.current = false;
+    syncUndoRedoState?.();
+  };
+  if (fileHistoryMutationPendingRef) {
+    fileHistoryMutationPendingRef.current = true;
+    syncUndoRedoState?.();
+  }
+  const targetPublication = applyFileContentUpdate(
+    targetScreenId,
+    nextDestContent,
+    {
+      recordHistory: false,
+      refreshPreview: false,
+      forcePreviewFullDocument: true,
+      immediateSave: true,
+      historyBeforeContent: rawDestContent,
+      awaitSave: true,
+    },
+  );
+  if (targetPublication.status !== "accepted") {
+    releasePendingHistory();
+    return;
+  }
+
+  const sourcePublication = applyFileContentUpdate(
+    sourceScreenId,
+    result.sourceHtml,
+    {
+      recordHistory: false,
+      refreshPreview: false,
+      forcePreviewFullDocument: true,
+      immediateSave: true,
+      historyBeforeContent: sourceContent,
+      awaitSave: true,
+    },
+  );
+  if (sourcePublication.status !== "accepted") {
+    const rollback = applyFileContentUpdate(targetScreenId, rawDestContent, {
+      recordHistory: false,
+      refreshPreview: false,
+      forcePreviewFullDocument: true,
+      historyBeforeContent: targetPublication.content,
+      awaitSave: true,
+    });
+    if (rollback.status !== "accepted") {
+      toast.error(t("designEditor.toasts.saveConflict"));
+      clearPendingHistory?.();
+      releasePendingHistory();
+      return;
+    }
+    if (!rollback.saveCompletion) {
+      clearPendingHistory?.();
+      releasePendingHistory();
+      return;
+    }
+    void rollback.saveCompletion.then(
+      (status) => {
+        if (status !== "persisted") {
+          toast.error(t("designEditor.toasts.saveConflict"));
+        }
+        clearPendingHistory?.();
+        releasePendingHistory();
+      },
+      () => {
+        toast.error(t("designEditor.toasts.saveConflict"));
+        clearPendingHistory?.();
+        releasePendingHistory();
+      },
+    );
+    return;
+  }
+
+  const selectionFingerprintAtPublication = getCurrentSelectionFingerprint?.();
+  const saveOperationRevisionsAtPublication = {
+    [targetScreenId]: fileSaveOperationRevisionRef?.current[targetScreenId],
+    [sourceScreenId]: fileSaveOperationRevisionRef?.current[sourceScreenId],
+  };
+  const serverSnapshotsAtPublication = getCurrentFileSnapshot
+    ? {
+        [targetScreenId]: getCurrentFileSnapshot(targetScreenId),
+        [sourceScreenId]: getCurrentFileSnapshot(sourceScreenId),
+      }
+    : undefined;
+  const isCurrentPublication = (
+    fileId: string,
+    publication: Extract<ApplyFileContentUpdateResult, { status: "accepted" }>,
+  ) => {
+    const expectedRevision = saveOperationRevisionsAtPublication[fileId];
+    if (expectedRevision !== undefined && fileSaveOperationRevisionRef) {
+      if (fileSaveOperationRevisionRef.current[fileId] !== expectedRevision) {
+        return false;
+      }
+    }
+    const serverSnapshot = getCurrentFileSnapshot?.(fileId);
+    const initialServerSnapshot = serverSnapshotsAtPublication?.[fileId];
+    const currentContent = getScreenContent(fileId);
+    if (
+      serverSnapshot &&
+      initialServerSnapshot &&
+      serverSnapshot.updatedAt !== initialServerSnapshot.updatedAt &&
+      serverSnapshot.content !== publication.content
+    ) {
+      return false;
+    }
+    return (
+      currentContent === publication.content ||
+      serverSnapshot?.content === publication.content ||
+      Boolean(
+        serverSnapshot &&
+        initialServerSnapshot &&
+        serverSnapshot.updatedAt === initialServerSnapshot.updatedAt,
+      )
+    );
+  };
+  const canFinalizePublication = () => {
+    const targetCurrent = isCurrentPublication(
+      targetScreenId,
+      targetPublication,
+    );
+    const sourceCurrent = isCurrentPublication(
+      sourceScreenId,
+      sourcePublication,
+    );
+    return targetCurrent && sourceCurrent;
+  };
+
+  const finalizePublication = () => {
+    if (!canFinalizePublication()) return;
+    crossScreenHistoryChanges[0].after = sourcePublication.content;
+    crossScreenHistoryChanges[1].after = targetPublication.content;
+    recordContentHistoryEntry({ changes: crossScreenHistoryChanges });
+
+    const selectionStillCurrent =
+      selectionFingerprintAtPublication === undefined ||
+      selectionFingerprintAtPublication === getCurrentSelectionFingerprint?.();
+    if (!selectionStillCurrent) return;
+
+    pendingOverviewScreenSelectionRef.current =
+      targetScreenId === boardFileId ? null : targetScreenId;
+    pendingOverviewLayerSelectionRef.current = destNodeAttrId;
+    clearPendingOverviewLayerSelectionTimer();
+    setActiveFileId(targetScreenId);
+    const submittedProjection = buildCodeLayerProjection(nextDestContent, {
+      source: { kind: "design-file", fileId: targetScreenId },
+    });
+    const movedNodeCandidate = submittedProjection.nodes.find(
+      (n) => n.dataAttributes["data-agent-native-node-id"] === destNodeAttrId,
+    );
+    const movedNodeFinal = mapAcceptedSelectionNode(
+      targetPublication,
+      projectAcceptedSource(targetPublication, {
+        kind: "design-file",
+        fileId: targetScreenId,
+      }),
+      movedNodeCandidate,
+    );
+    if (movedNodeFinal) {
+      clearExplicitOverviewScreenSelection?.();
+      setCreatedOverviewLayerSelection({
+        screenId: targetScreenId,
+        layerId: movedNodeFinal.id,
+      });
+      setSelectedLayerIdsState([movedNodeFinal.id]);
+      setSelectedElement(elementInfoFromCodeLayerNode(movedNodeFinal));
+      if (viewModeRef.current === "overview") {
+        setOverviewSelectedScreenIds(
+          targetScreenId === boardFileId ? [] : [targetScreenId],
+        );
+      }
+      if (contentUndoStackRef && contentHistorySelectionAfterRef) {
+        stampContentHistorySelectionAfter(
+          contentUndoStackRef.current,
+          contentHistorySelectionAfterRef.current,
+          contentUndoStackTopBeforeMove,
+          {
+            activeFileId: targetScreenId,
+            overviewSelectedScreenIds:
+              targetScreenId === boardFileId ? [] : [targetScreenId],
+            selectedLayerIds: [movedNodeFinal.id],
+          },
+        );
+      }
+    }
+  };
+
+  const rollbackAfterSaveConflict = (
+    publication: typeof targetPublication,
+    fileId: string,
+    content: string,
+  ): Promise<FileContentSaveCompletion> => {
+    if (!isCurrentPublication(fileId, publication)) {
+      return Promise.resolve<FileContentSaveCompletion>("failed");
+    }
+    const rollback = applyFileContentUpdate(fileId, content, {
+      recordHistory: false,
+      refreshPreview: false,
+      forcePreviewFullDocument: true,
+      historyBeforeContent: publication.content,
+      sourceBaseContent: publication.content,
+      immediateSave: true,
+      awaitSave: true,
+    });
+    if (rollback.status !== "accepted") {
+      return Promise.resolve<FileContentSaveCompletion>("failed");
+    }
+    return (
+      rollback.saveCompletion ??
+      Promise.resolve<FileContentSaveCompletion>("persisted")
+    );
+  };
+
+  const restoreRetryablePublication = (
+    publication: typeof targetPublication,
+    fileId: string,
+    content: string,
+  ): boolean => {
+    if (!isCurrentPublication(fileId, publication)) return true;
+    return (
+      applyFileContentUpdate(fileId, content, {
+        recordHistory: false,
+        refreshPreview: false,
+        forcePreviewFullDocument: true,
+        persist: false,
+        historyBeforeContent: publication.content,
+      }).status === "accepted"
+    );
+  };
+
+  const targetSave = targetPublication.saveCompletion;
+  const sourceSave = sourcePublication.saveCompletion;
+  if (!targetSave && !sourceSave) {
+    finalizePublication();
+    releasePendingHistory();
+    return;
+  }
+
+  void Promise.allSettled([
+    targetSave ?? Promise.resolve<FileContentSaveCompletion>("persisted"),
+    sourceSave ?? Promise.resolve<FileContentSaveCompletion>("persisted"),
+  ]).then(async ([targetResult, sourceResult]) => {
+    const targetSaved =
+      targetResult.status === "fulfilled" && targetResult.value === "persisted";
+    const sourceSaved =
+      sourceResult.status === "fulfilled" && sourceResult.value === "persisted";
+    const targetRetryable =
+      targetResult.status === "fulfilled" && targetResult.value === "retryable";
+    const sourceRetryable =
+      sourceResult.status === "fulfilled" && sourceResult.value === "retryable";
+    const retryableSave = targetRetryable || sourceRetryable;
+    const saveConflict =
+      (targetResult.status === "fulfilled" &&
+        targetResult.value === "conflict") ||
+      (sourceResult.status === "fulfilled" &&
+        sourceResult.value === "conflict");
+    const saveFailed =
+      targetResult.status === "rejected" || sourceResult.status === "rejected";
+    if (targetSaved && sourceSaved) {
+      finalizePublication();
+      releasePendingHistory();
+      return;
+    }
+    if (retryableSave) {
+      const rollbackResults: Promise<FileContentSaveCompletion>[] = [];
+      const localRestores: boolean[] = [];
+      if (targetSaved) {
+        rollbackResults.push(
+          rollbackAfterSaveConflict(
+            targetPublication,
+            targetScreenId,
+            rawDestContent,
+          ),
+        );
+      } else if (targetRetryable) {
+        localRestores.push(
+          restoreRetryablePublication(
+            targetPublication,
+            targetScreenId,
+            rawDestContent,
+          ),
+        );
+      }
+      if (sourceSaved) {
+        rollbackResults.push(
+          rollbackAfterSaveConflict(
+            sourcePublication,
+            sourceScreenId,
+            sourceContent,
+          ),
+        );
+      } else if (sourceRetryable) {
+        localRestores.push(
+          restoreRetryablePublication(
+            sourcePublication,
+            sourceScreenId,
+            sourceContent,
+          ),
+        );
+      }
+      const rollbackFailed = (await Promise.all(rollbackResults)).some(
+        (status) => status !== "persisted",
+      );
+      if (rollbackFailed || localRestores.some((restored) => !restored)) {
+        toast.error(t("designEditor.toasts.saveConflict"));
+      }
+      clearPendingHistory?.();
+      releasePendingHistory();
+      return;
+    }
+    const rollbackResults: Promise<FileContentSaveCompletion>[] = [];
+    if (targetSaved && !sourceSaved) {
+      rollbackResults.push(
+        rollbackAfterSaveConflict(
+          targetPublication,
+          targetScreenId,
+          rawDestContent,
+        ),
       );
     }
-  }
+    if (sourceSaved && !targetSaved) {
+      rollbackResults.push(
+        rollbackAfterSaveConflict(
+          sourcePublication,
+          sourceScreenId,
+          sourceContent,
+        ),
+      );
+    }
+    const rollbackFailed = (await Promise.all(rollbackResults)).some(
+      (status) => status !== "persisted",
+    );
+    if (saveFailed || saveConflict || rollbackFailed) {
+      toast.error(t("designEditor.toasts.saveConflict"));
+    }
+    clearPendingHistory?.();
+    releasePendingHistory();
+  });
 }

@@ -194,7 +194,7 @@ export function MembersList({
                           handleRoleChange(m, v as MemberRole)
                         }
                       >
-                        <SelectTrigger className="h-8 w-36">
+                        <SelectTrigger size="sm" className="w-36">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -221,8 +221,8 @@ export function MembersList({
                       {!isSelf ? (
                         <Button
                           variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-muted-foreground hover:text-red-600"
+                          size="icon-sm"
+                          className="text-muted-foreground hover:text-destructive"
                           onClick={() => setPendingRemove(m)}
                           aria-label={t("membersList.removeMemberLabel", {
                             email: m.email,

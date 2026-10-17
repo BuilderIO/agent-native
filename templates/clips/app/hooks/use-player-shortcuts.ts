@@ -17,22 +17,6 @@ export interface UsePlayerShortcutsOpts {
   enabled?: boolean;
 }
 
-/**
- * Wires up Clips' player-page keyboard shortcuts.
- *
- *  Space / K      → play/pause
- *  J / ←          → back 6s
- *  L / →          → forward 6s
- *  Shift+← / →   → previous/next chapter
- *  ↑ / ↓          → volume up/down 10%
- *  F              → fullscreen
- *  M              → mute
- *  > / .          → speed up
- *  < / ,          → speed down
- *  C              → toggle captions
- *
- * Ignores events when focus is inside an input/textarea/contenteditable.
- */
 export function usePlayerShortcuts(opts: UsePlayerShortcutsOpts) {
   const { playerRef, chapters = [], enabled = true } = opts;
 
@@ -73,7 +57,6 @@ export function usePlayerShortcuts(opts: UsePlayerShortcutsOpts) {
         case "ArrowLeft":
           e.preventDefault();
           if (e.shiftKey) {
-            // Previous chapter
             const currentMs = v.currentTime * 1000;
             const prev = [...chapters]
               .reverse()
@@ -86,7 +69,6 @@ export function usePlayerShortcuts(opts: UsePlayerShortcutsOpts) {
         case "ArrowRight":
           e.preventDefault();
           if (e.shiftKey) {
-            // Next chapter
             const currentMs = v.currentTime * 1000;
             const next = chapters.find((c) => c.startMs > currentMs + 500);
             if (next) player.seek(next.startMs);
@@ -122,8 +104,15 @@ export function usePlayerShortcuts(opts: UsePlayerShortcutsOpts) {
           e.preventDefault();
           player.toggleCaptions();
           break;
-        case ">":
-        case ".": {
+        case ",":
+          e.preventDefault();
+          player.stepFrame(-1, e.repeat);
+          break;
+        case ".":
+          e.preventDefault();
+          player.stepFrame(1, e.repeat);
+          break;
+        case ">": {
           e.preventDefault();
           const speed = parsePlaybackSpeed(v.playbackRate) ?? 1.2;
           const idx = PLAYBACK_SPEED_OPTIONS.indexOf(speed);
@@ -136,8 +125,7 @@ export function usePlayerShortcuts(opts: UsePlayerShortcutsOpts) {
           player.setSpeed(next);
           break;
         }
-        case "<":
-        case ",": {
+        case "<": {
           e.preventDefault();
           const speed = parsePlaybackSpeed(v.playbackRate) ?? 1.2;
           const idx = PLAYBACK_SPEED_OPTIONS.indexOf(speed);

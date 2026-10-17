@@ -31,8 +31,6 @@ export interface DesignHandoffPayload {
     fileType: string;
     content: string;
   }>;
-  /** The user's tuned tweak knob values, resolved to CSS custom properties.
-   *  Empty when the design has no tweaks or none have been adjusted. */
   appliedDesignTokens?: Record<string, string>;
 }
 
@@ -119,12 +117,6 @@ function sortHandoffFiles(files: HandoffFile[]) {
   });
 }
 
-/**
- * Inject the user's resolved tweak tokens into an HTML file's `:root` block so
- * an external agent that only consumes the file content still gets the *tuned*
- * design. Appends a sentinel-marked override block to the last `:root { … }`;
- * if none exists, prepends a `<style>` block. Idempotent via the marker.
- */
 function injectResolvedTokensIntoHtml(
   content: string,
   resolvedCssVars: Record<string, string>,
@@ -140,14 +132,10 @@ function injectResolvedTokensIntoHtml(
     .map(([name, value]) => `  ${name}: ${value}; /* applied-design-tokens */`)
     .join("\n");
 
-  // Override the last :root declaration block (closest to the cascade end).
   const rootOpen = content.lastIndexOf(":root");
   if (rootOpen !== -1) {
     const braceOpen = content.indexOf("{", rootOpen);
     if (braceOpen !== -1) {
-      // Walk forward with a brace-depth counter so values containing `}`
-      // (e.g. url("}"), attr() fallbacks) don't fool us into injecting inside
-      // the value rather than at the end of the :root block.
       let depth = 0;
       let braceClose = -1;
       let inSingle = false;
@@ -192,8 +180,6 @@ export function buildDesignHandoffPayload({
 }: {
   design: HandoffDesign;
   files: HandoffFile[];
-  /** Resolved tweak tokens (`--var` -> value). When present, injected into
-   *  HTML files' `:root` and surfaced as an explicit tokens block. */
   resolvedCssVars?: Record<string, string>;
   exportedAt?: string;
 }): DesignHandoffPayload {

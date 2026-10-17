@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, globSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -8,14 +8,15 @@ const REPO_ROOT = path.resolve(
 );
 const BETA_PREBUILT_WORKFLOW = ".github/workflows/deploy-netlify-prebuilt.yml";
 const BETA_SCHEMA_OWNER_RUNTIME_FILES = [
-  "packages/core/src/db/migrations.ts",
+  "packages/core/src/db/migration-policy.ts",
   "packages/core/src/vite/client.ts",
   "packages/core/src/deploy/build.ts",
 ] as const;
 const BETA_SCHEMA_OWNER_MARKER = "AGENT_NATIVE_BETA_SCHEMA_OWNER";
 const BETA_SCHEMA_OWNER_CONFIG_CONSUMER = "migration.betaSchemaOwner";
+const MIGRATION_POLICY_FILE = "packages/core/src/db/migration-policy.ts";
 const MANAGED_DRIZZLE_SKILL_FILE = ".agents/skills/storing-data/SKILL.md";
-const FRAMEWORK_ONLY_RELEASE_SCRIPT_FILES = [
+const STARTER_RELEASE_SCRIPT_FILES = [
   "packages/core/src/templates/default/scripts/migrate-production.ts",
   "templates/chat/scripts/migrate-production.ts",
 ] as const;
@@ -27,14 +28,25 @@ const BETA_SCHEMA_OWNER_EXPORT =
   "export AGENT_NATIVE_BETA_SCHEMA_OWNER=production";
 const CLIPS_PREBUILT_MIGRATION_SKIP =
   /agentNativePrebuiltBuild:-\}.*!= \\\"true\\\".*migrate:production/;
+const RELEASE_MIGRATION_SCRIPT_GLOBS = [
+  "packages/**/scripts/migrate-production.ts",
+  "templates/**/scripts/migrate-production.ts",
+] as const;
 
-const FRAMEWORK_ONLY_RELEASE_SCRIPT = `
+const STARTER_RELEASE_SCRIPT = `
 import { closeDbExec, withMigrationRuntime } from "@agent-native/core/db";
-import { runFrameworkReleaseMigrations } from "@agent-native/core/server";
+import { loadEnv } from "@agent-native/core/scripts";
+import {
+  runAppReleaseMigrations,
+  runFrameworkReleaseMigrations,
+} from "@agent-native/core/server";
+
+loadEnv();
 
 async function main(): Promise<void> {
   await withMigrationRuntime(async () => {
     await runFrameworkReleaseMigrations(null);
+    await runAppReleaseMigrations();
   });
 }
 
@@ -75,12 +87,6 @@ export function validateNetlifyReleaseMigrationConfig(
   return [];
 }
 
-/**
- * Published sites have two build lanes in this repository: production and the
- * automatic beta prebuilt lane. A production-only command/flag is not enough
- * when beta builds use branch-deploy context, because that leaves the request
- * runtime doing schema probes on every cold function.
- */
 export function validatePublishedNetlifyReleaseMigrationConfig(
   source: string,
   file = "netlify.toml",
@@ -204,7 +210,7 @@ export function validateBetaSchemaOwnerRuntimeContract(
     }
     const source = readFileSync(file, "utf8");
     const consumesConfigBackedMarker =
-      relativeFile === "packages/core/src/db/migrations.ts" &&
+      relativeFile === MIGRATION_POLICY_FILE &&
       source.includes("getAppConfig") &&
       source.includes(BETA_SCHEMA_OWNER_CONFIG_CONSUMER);
     if (
@@ -212,7 +218,9 @@ export function validateBetaSchemaOwnerRuntimeContract(
       !consumesConfigBackedMarker
     ) {
       issues.push(
-        `${relativeFile}: must consume or embed ${BETA_SCHEMA_OWNER_MARKER} instead of treating it as a config-only marker`,
+        relativeFile === MIGRATION_POLICY_FILE
+          ? `${relativeFile}: must consume or embed ${BETA_SCHEMA_OWNER_MARKER} instead of treating it as a config-only marker`
+          : `${relativeFile}: must embed ${BETA_SCHEMA_OWNER_MARKER} in the release build configuration`,
       );
     }
   }
@@ -226,17 +234,52 @@ function executableSource(source: string): string {
     .replace(/\s+/g, "");
 }
 
-export function validateFrameworkOnlyReleaseScript(
+export function validateStarterReleaseScript(
+  source: string,
+  file: string,
+): string[] {
+  if (executableSource(source) === executableSource(STARTER_RELEASE_SCRIPT)) {
+    return [];
+  }
+  return [
+    `${file}: must contain only the starter release migration entrypoint (framework tables, then the app's server/plugins/db.ts)`,
+  ];
+}
+
+export function validateReleaseMigrationLoadsEnv(
   source: string,
   file: string,
 ): string[] {
   if (
-    executableSource(source) === executableSource(FRAMEWORK_ONLY_RELEASE_SCRIPT)
+    source.includes('import { loadEnv } from "@agent-native/core/scripts";') &&
+    /\bloadEnv\(\);/.test(executableSource(source))
+  ) {
+    return [];
+  }
+  return [`${file}: must load app and workspace environment before migrating`];
+}
+
+/**
+ * Release-owned apps skip request-time migrations, so a plugin that migrates
+ * its own tables at boot never migrates in production unless the release
+ * script runs the same migration list.
+ */
+export function validateReleaseMigrationCoversPlugins(
+  pluginSources: string[],
+  releaseSource: string,
+  file: string,
+): string[] {
+  const mountsCreativeContext = pluginSources.some((source) =>
+    executableSource(source).includes("setupCreativeContext("),
+  );
+  if (
+    !mountsCreativeContext ||
+    executableSource(releaseSource).includes("awaitcreativeContextDbPlugin(")
   ) {
     return [];
   }
   return [
-    `${file}: must contain only the framework release migration entrypoint`,
+    `${file}: server plugins mount setupCreativeContext, so the release script must await creativeContextDbPlugin(null)`,
   ];
 }
 
@@ -254,28 +297,25 @@ export function validateManagedDrizzleMigrationOwnership(
     if (
       !source.includes("drizzle/schema.ts") ||
       !source.includes("db:generate") ||
-      !source.includes("scripts/migrate-production.ts` is framework-only") ||
+      !source.includes("runAppReleaseMigrations") ||
       !source.includes("do not create a parallel `runMigrations([...])` list")
     ) {
       issues.push(
-        `${MANAGED_DRIZZLE_SKILL_FILE}: must keep managed app migrations in generated Drizzle files and the release script framework-only`,
+        `${MANAGED_DRIZZLE_SKILL_FILE}: must keep managed app migrations in generated Drizzle files and explain what the release script applies`,
       );
     }
   }
 
-  for (const relativeFile of FRAMEWORK_ONLY_RELEASE_SCRIPT_FILES) {
+  for (const relativeFile of STARTER_RELEASE_SCRIPT_FILES) {
     const file = path.join(repoRoot, relativeFile);
     if (!existsSync(file)) {
       issues.push(
-        `${relativeFile}: framework release migration script is missing`,
+        `${relativeFile}: starter release migration script is missing`,
       );
       continue;
     }
     issues.push(
-      ...validateFrameworkOnlyReleaseScript(
-        readFileSync(file, "utf8"),
-        relativeFile,
-      ),
+      ...validateStarterReleaseScript(readFileSync(file, "utf8"), relativeFile),
     );
   }
 
@@ -313,6 +353,37 @@ export function findNetlifyReleaseMigrationIssues(
         readFileSync(file, "utf8"),
         relativeFile,
         sourceTemplate,
+      ),
+    );
+  }
+  for (const relativeFile of globSync(RELEASE_MIGRATION_SCRIPT_GLOBS, {
+    cwd: repoRoot,
+    exclude: (file) => /^corpus(?:\.tmp-|$)/.test(path.basename(file)),
+  })) {
+    const releaseSource = readFileSync(
+      path.join(repoRoot, relativeFile),
+      "utf8",
+    );
+    issues.push(
+      ...validateReleaseMigrationLoadsEnv(releaseSource, relativeFile),
+    );
+    const pluginSources = globSync("server/plugins/*.ts", {
+      cwd: path.join(repoRoot, path.dirname(path.dirname(relativeFile))),
+    }).map((pluginFile) =>
+      readFileSync(
+        path.join(
+          repoRoot,
+          path.dirname(path.dirname(relativeFile)),
+          pluginFile,
+        ),
+        "utf8",
+      ),
+    );
+    issues.push(
+      ...validateReleaseMigrationCoversPlugins(
+        pluginSources,
+        releaseSource,
+        relativeFile,
       ),
     );
   }

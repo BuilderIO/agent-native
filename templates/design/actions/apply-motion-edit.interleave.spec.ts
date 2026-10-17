@@ -25,11 +25,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 
-// ---------------------------------------------------------------------------
-// Fake @agent-native/core/collab backed by a real per-docId Y.Doc registry,
-// with a real deterministic prefix/suffix-trim diff for applyText — same
-// approach as insert-design-native-asset.interleave.spec.ts.
-// ---------------------------------------------------------------------------
+import { createMotionNativeStyleInstance } from "../shared/motion-native-style-runtime.js";
+import { readMotionTextDocument } from "../shared/motion-text-code.js";
+
 const collabDocs = vi.hoisted(() => ({ docs: new Map<string, unknown>() }));
 
 function getOrCreateDoc(docId: string): InstanceType<typeof Y.Doc> {
@@ -67,6 +65,7 @@ function applyTextDiff(doc: InstanceType<typeof Y.Doc>, newText: string): void {
 }
 
 vi.mock("@agent-native/core/collab", () => ({
+  CollabBaseVersionConflictError: class CollabBaseVersionConflictError extends Error {},
   agentEnterDocument: vi.fn(),
   agentLeaveDocument: vi.fn(),
   hasCollabState: async (docId: string) => collabDocs.docs.has(docId),
@@ -80,6 +79,42 @@ vi.mock("@agent-native/core/collab", () => ({
   seedFromText: async (docId: string, text: string) => {
     if (collabDocs.docs.has(docId)) return;
     getOrCreateDoc(docId).getText("content").insert(0, text);
+  },
+  applyTextToYDoc: (
+    doc: InstanceType<typeof Y.Doc>,
+    _fieldName: string,
+    text: string,
+  ) => applyTextDiff(doc, text),
+  withPreparedYDocMutation: async (
+    docId: string,
+    _requestSource: string | undefined,
+    run: (lease: {
+      doc: InstanceType<typeof Y.Doc>;
+      baseVersion: number | null;
+      persist: (_tx: unknown, text: string) => Promise<void>;
+    }) => Promise<unknown>,
+  ) => {
+    const base = collabDocs.docs.get(docId) as
+      | InstanceType<typeof Y.Doc>
+      | undefined;
+    const doc = new Y.Doc();
+    if (base) Y.applyUpdate(doc, Y.encodeStateAsUpdate(base));
+    let persisted = false;
+    try {
+      const result = await run({
+        doc,
+        baseVersion: base ? 0 : null,
+        persist: async (_tx, _text) => {
+          collabDocs.docs.set(docId, doc);
+          persisted = true;
+        },
+      });
+      if (!persisted) doc.destroy();
+      return result;
+    } catch (error) {
+      doc.destroy();
+      throw error;
+    }
   },
 }));
 
@@ -95,18 +130,6 @@ vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestOrgId: () => undefined,
 }));
 
-// ---------------------------------------------------------------------------
-// Minimal fake Drizzle app-DB layer backing a single design_files row and a
-// single motion_timeline row store. Only supports the exact query shapes
-// apply-motion-edit.ts issues:
-//   - select({id, designId, filename, fileType, content}).from(designFiles)
-//       .innerJoin(designs).where(and(eq(designId), eq(id|filename))).limit(1)
-//   - select({id}).from(motionTimeline).where(and(eq(id), eq(designId))).limit(1)
-//   - select({id}).from(motionTimeline)
-//       .where(and(eq(designId), eq(sourceRef))).orderBy(desc(updatedAt)).limit(1)
-//   - db.transaction(tx => tx.update(motionTimeline)... | tx.insert(motionTimeline)...)
-//   - designFiles/designs updates performed internally by writeInlineSourceFile
-// ---------------------------------------------------------------------------
 interface FileRow {
   id: string;
   designId: string;
@@ -171,7 +194,6 @@ function matchesFileRow(row: FileRow, predicate: Predicate): boolean {
 
 function matchesTimelineRow(row: TimelineRow, predicate: Predicate): boolean {
   const asString = predicateString(predicate);
-  // Narrow by id first (most specific), then designId, then sourceRef.
   for (const row2 of motionTimelineStore.rows.values()) {
     if (asString.includes(row2.id) && row.id !== row2.id) return false;
   }
@@ -249,7 +271,6 @@ vi.mock("../server/db/index.js", () => {
         if (matchesTimelineRow(row, predicate)) Object.assign(row, values);
       }
     }
-    // designs table updates are no-ops for this fake DB — no rows tracked.
     return Promise.resolve({ rowsAffected: 1 });
   }
 
@@ -278,6 +299,7 @@ vi.mock("../server/db/index.js", () => {
         return Promise.resolve(undefined);
       },
     }),
+    execute: () => Promise.resolve({ rows: [] }),
     transaction: async (fn: (tx: typeof db) => Promise<void>) => fn(db),
   };
   return { getDb: () => db, schema };
@@ -291,6 +313,7 @@ import {
 
 import { readLiveSourceFile } from "../server/source-workspace.js";
 import action from "./apply-motion-edit.js";
+import getMotionTimeline from "./get-motion-timeline.js";
 
 function currentFileRef(): FileRow {
   const row = designFilesStore.rows.get(FILE_ID);
@@ -335,7 +358,478 @@ beforeEach(() => {
   seedFile(baseDoc());
 });
 
+const captionTextDocument = {
+  version: 1 as const,
+  animations: [
+    {
+      targetNodeId: "node-caption",
+      unit: "word" as const,
+      direction: "forward" as const,
+      staggerMs: 40,
+      property: "opacity" as const,
+      durationMs: 320,
+      keyframes: [
+        { t: 0, value: "0", ease: "ease-out" },
+        { t: 1, value: "1" },
+      ],
+    },
+  ],
+};
+
+function upgradeLegacyTextDocument(document: {
+  version: 1;
+  animations: Array<{
+    direction: "forward" | "reverse";
+    [key: string]: unknown;
+  }>;
+}) {
+  return {
+    version: 2 as const,
+    animations: document.animations.map((animation) => ({
+      ...animation,
+      animationDirection: "in" as const,
+      order:
+        animation.direction === "reverse" ? "right-to-left" : "left-to-right",
+      ignoreSpaces: true,
+      delayMs: 0,
+    })),
+  };
+}
+
+const animationStyles = [
+  {
+    id: "fade-in",
+    name: "Fade In",
+    category: "enter" as const,
+    tracks: [
+      {
+        property: "opacity",
+        keyframes: [
+          { t: 0, value: "0", ease: "ease-out" },
+          { t: 1, value: "1" },
+        ],
+      },
+    ],
+  },
+];
+
 describe("apply-motion-edit collab-aware persist (contract-bypass fix)", () => {
+  it("saves the filter Text property and hidden style tracks through the action schema", async () => {
+    const textDocument = {
+      ...captionTextDocument,
+      animations: [
+        {
+          ...captionTextDocument.animations[0],
+          property: "filter" as const,
+          keyframes: [
+            { t: 0, value: "blur(4px)", ease: "ease-out" },
+            { t: 1, value: "blur(0px)" },
+          ],
+        },
+      ],
+    };
+    const hiddenStyles = [
+      {
+        ...animationStyles[0],
+        id: "hidden-fade",
+        tracks: [
+          {
+            ...animationStyles[0].tracks[0],
+            enabled: false,
+          },
+        ],
+      },
+    ];
+    const input = action.schema.parse({
+      designId: DESIGN_ID,
+      fileId: FILE_ID,
+      tracks: [],
+      textDocument,
+      animationStyles: hiddenStyles,
+      durationMs: 600,
+    });
+
+    const saved = await action.run(input);
+    const readback = await getMotionTimeline.run({
+      designId: DESIGN_ID,
+      sourceRef: FILE_ID,
+    } as never);
+
+    expect(saved).toMatchObject({
+      textAnimationCount: 1,
+      animationStyleCount: 1,
+    });
+    expect(readback.timelines[0]).toMatchObject({
+      textDocument: upgradeLegacyTextDocument(textDocument),
+      animationStyles: hiddenStyles,
+    });
+  });
+
+  it("persists and reads a text-only timeline from managed inline HTML source", async () => {
+    const saved = await action.run({
+      designId: DESIGN_ID,
+      fileId: FILE_ID,
+      tracks: [],
+      textDocument: captionTextDocument,
+      durationMs: 600,
+    } as never);
+    const readback = await getMotionTimeline.run({
+      designId: DESIGN_ID,
+      sourceRef: FILE_ID,
+    } as never);
+
+    expect(saved.trackCount).toBe(0);
+    expect(saved.textAnimationCount).toBe(1);
+    expect(readback.timelines).toHaveLength(1);
+    expect(readback.timelines[0]).toMatchObject({
+      tracks: [],
+      textDocument: upgradeLegacyTextDocument(captionTextDocument),
+      durationMs: 600,
+      compiledHash: saved.compiledHash,
+      cssHash: saved.compiledHash,
+    });
+    expect(currentFileRef().content).toContain(
+      'data-agent-native-motion-text-source="v2"',
+    );
+    expect(currentFileRef().content).toContain(
+      'data-agent-native-motion-text-runtime="v2"',
+    );
+  });
+
+  it("renders native TextStagger while reading authored text tracks separately", async () => {
+    const baseStyle = createMotionNativeStyleInstance({
+      styleKey: "TextStagger",
+      targetNodeId: "node-caption",
+    });
+    const nativeStyle = {
+      ...baseStyle,
+      props: {
+        ...baseStyle.props,
+        textDelayGrouping: "WORD",
+        presetStaggerOverlap: 92,
+        blurEnabled: true,
+      },
+    };
+    const textDocument = {
+      version: 2 as const,
+      animations: captionTextDocument.animations.map((animation) => ({
+        ...animation,
+        animationDirection: "in" as const,
+        order: "left-to-right" as const,
+        overlapPercent: 92,
+        ignoreSpaces: false,
+        delayMs: 0,
+      })),
+    };
+    const saved = await action.run({
+      designId: DESIGN_ID,
+      fileId: FILE_ID,
+      tracks: [],
+      textDocument,
+      nativeStyles: [nativeStyle],
+      durationMs: 600,
+    } as never);
+    const sourceText = readMotionTextDocument(currentFileRef().content);
+    const readback = await getMotionTimeline.run({
+      designId: DESIGN_ID,
+      sourceRef: FILE_ID,
+    } as never);
+
+    expect(saved).toMatchObject({
+      textAnimationCount: 1,
+      sourcePatched: false,
+      persisted: true,
+    });
+    expect(sourceText.status).toBe("valid");
+    if (sourceText.status === "valid") {
+      expect(sourceText.document.animations).toHaveLength(3);
+      expect(
+        sourceText.document.animations.map(({ property }) => property),
+      ).toEqual(["opacity", "filter", "translate"]);
+    }
+    expect(readback.timelines[0]).toMatchObject({
+      textDocument,
+      nativeStyles: [nativeStyle],
+    });
+  });
+
+  it("seeds a new TextStagger from an authored v2 whitespace default", async () => {
+    const textDocument = {
+      version: 2 as const,
+      animations: [
+        {
+          targetNodeId: "node-caption",
+          unit: "character" as const,
+          direction: "forward" as const,
+          staggerMs: 250,
+          animationDirection: "in" as const,
+          order: "left-to-right" as const,
+          overlapPercent: 50,
+          property: "opacity" as const,
+          durationMs: 500,
+          keyframes: [
+            { t: 0, value: "0" },
+            { t: 1, value: "1" },
+          ],
+        },
+      ],
+    };
+    const nativeStyle = createMotionNativeStyleInstance({
+      styleKey: "TextStagger",
+      targetNodeId: "node-caption",
+    });
+    expect(nativeStyle.props.ignoreSpaces).toBe(false);
+
+    await action.run({
+      designId: DESIGN_ID,
+      fileId: FILE_ID,
+      tracks: [],
+      textDocument,
+      nativeStyles: [nativeStyle],
+      durationMs: 600,
+    } as never);
+
+    const sourceText = readMotionTextDocument(currentFileRef().content);
+    expect(sourceText.status).toBe("valid");
+    if (sourceText.status === "valid") {
+      expect(sourceText.document.animations[0]?.ignoreSpaces).toBe(true);
+    }
+    const readback = await getMotionTimeline.run({
+      designId: DESIGN_ID,
+      sourceRef: FILE_ID,
+    } as never);
+    expect(readback.timelines[0]?.nativeStyles[0]?.props.ignoreSpaces).toBe(
+      true,
+    );
+  });
+
+  it("rejects an existing TextStagger when authored whitespace semantics change", async () => {
+    const textDocument = {
+      version: 2 as const,
+      animations: [
+        {
+          targetNodeId: "node-caption",
+          unit: "character" as const,
+          direction: "forward" as const,
+          staggerMs: 250,
+          animationDirection: "in" as const,
+          order: "left-to-right" as const,
+          overlapPercent: 50,
+          ignoreSpaces: false,
+          property: "opacity" as const,
+          durationMs: 500,
+          keyframes: [
+            { t: 0, value: "0" },
+            { t: 1, value: "1" },
+          ],
+        },
+      ],
+    };
+    const nativeStyle = createMotionNativeStyleInstance({
+      styleKey: "TextStagger",
+      targetNodeId: "node-caption",
+    });
+    await action.run({
+      designId: DESIGN_ID,
+      fileId: FILE_ID,
+      tracks: [],
+      textDocument,
+      nativeStyles: [nativeStyle],
+      durationMs: 600,
+    } as never);
+    const savedContent = currentFileRef().content;
+
+    await expect(
+      action.run({
+        designId: DESIGN_ID,
+        fileId: FILE_ID,
+        tracks: [],
+        textDocument: {
+          ...textDocument,
+          animations: textDocument.animations.map((animation) => ({
+            ...animation,
+            ignoreSpaces: true,
+          })),
+        },
+        nativeStyles: [nativeStyle],
+        durationMs: 600,
+      } as never),
+    ).rejects.toThrow("grouping or timing settings differ");
+    expect(currentFileRef().content).toBe(savedContent);
+  });
+
+  it("source-backs audio clips, preserves them when omitted, and clears them explicitly", async () => {
+    const audioClips = [
+      {
+        id: "ambient-track",
+        name: "ambient.mp3",
+        sourceUrl: "/_agent-native/file-upload/audio/ambient.mp3",
+        timelineStartMs: 900,
+        sourceTrimStartMs: 120,
+        durationMs: 600,
+        volume: 0.65,
+        muted: false,
+      },
+    ];
+    const saved = await action.run({
+      designId: DESIGN_ID,
+      fileId: FILE_ID,
+      tracks: [],
+      audioClips,
+      durationMs: 500,
+    } as never);
+    const firstRead = await getMotionTimeline.run({
+      designId: DESIGN_ID,
+      sourceRef: FILE_ID,
+    } as never);
+
+    expect(saved).toMatchObject({ audioClipCount: 1, audioClips });
+    expect(firstRead.timelines[0]).toMatchObject({
+      audioClips,
+      durationMs: 1500,
+    });
+    expect(currentFileRef().content).toContain(
+      encodeURIComponent(audioClips[0].sourceUrl),
+    );
+    expect(currentFileRef().content).not.toContain("ID3");
+
+    await action.run({
+      designId: DESIGN_ID,
+      fileId: FILE_ID,
+      tracks: oneTrack(),
+      durationMs: 500,
+    } as never);
+    const preserved = await getMotionTimeline.run({
+      designId: DESIGN_ID,
+      sourceRef: FILE_ID,
+    } as never);
+    expect(preserved.timelines[0].audioClips).toEqual(audioClips);
+
+    const clearedSave = await action.run({
+      designId: DESIGN_ID,
+      fileId: FILE_ID,
+      tracks: oneTrack(),
+      audioClips: [],
+      durationMs: 500,
+    } as never);
+    const cleared = await getMotionTimeline.run({
+      designId: DESIGN_ID,
+      sourceRef: FILE_ID,
+    } as never);
+    expect(clearedSave.audioClipCount).toBe(0);
+    expect(cleared.timelines[0].audioClips).toEqual([]);
+  });
+
+  it("preserves a source style library in an empty-tracks inline timeline", async () => {
+    const saved = await action.run({
+      designId: DESIGN_ID,
+      fileId: FILE_ID,
+      tracks: oneTrack(),
+      animationStyles,
+      durationMs: 500,
+    } as never);
+
+    const cleared = await action.run({
+      designId: DESIGN_ID,
+      fileId: FILE_ID,
+      tracks: [],
+      durationMs: 500,
+    } as never);
+    const readback = await getMotionTimeline.run({
+      designId: DESIGN_ID,
+      sourceRef: FILE_ID,
+    } as never);
+
+    expect(saved.animationStyleCount).toBe(1);
+    expect(cleared).toMatchObject({ trackCount: 0, animationStyleCount: 1 });
+    expect(motionTimelineStore.rows.size).toBe(1);
+    expect(readback.timelines[0]).toMatchObject({
+      tracks: [],
+      animationStyles,
+      source: "stored",
+    });
+  });
+
+  it("preserves or removes text source explicitly without dropping CSS tracks", async () => {
+    const saved = await action.run({
+      designId: DESIGN_ID,
+      fileId: FILE_ID,
+      tracks: oneTrack(),
+      textDocument: captionTextDocument,
+      durationMs: 600,
+    } as never);
+
+    await action.run({
+      designId: DESIGN_ID,
+      fileId: FILE_ID,
+      tracks: oneTrack(),
+      durationMs: 800,
+    } as never);
+    const preserved = await getMotionTimeline.run({
+      designId: DESIGN_ID,
+      sourceRef: FILE_ID,
+    } as never);
+    expect(preserved.timelines[0]).toMatchObject({
+      tracks: oneTrack(),
+      textDocument: upgradeLegacyTextDocument(captionTextDocument),
+    });
+
+    const cleared = await action.run({
+      designId: DESIGN_ID,
+      fileId: FILE_ID,
+      tracks: oneTrack(),
+      textDocument: null,
+      durationMs: 800,
+    } as never);
+    const readback = await getMotionTimeline.run({
+      designId: DESIGN_ID,
+      sourceRef: FILE_ID,
+    } as never);
+
+    expect(saved.trackCount).toBe(1);
+    expect(cleared.trackCount).toBe(1);
+    expect(cleared.textAnimationCount).toBe(0);
+    expect(readback.timelines[0]).toMatchObject({
+      tracks: oneTrack(),
+      textDocument: null,
+    });
+    expect(currentFileRef().content).not.toContain(
+      "data-agent-native-motion-text-",
+    );
+    expect(currentFileRef().content).toContain("data-agent-native-motion");
+  });
+
+  it("rejects an empty CSS-only timeline rather than persisting a no-op", async () => {
+    await expect(
+      action.run({
+        designId: DESIGN_ID,
+        fileId: FILE_ID,
+        tracks: [],
+      } as never),
+    ).rejects.toThrow(
+      /must contain a Text animation, a saved Motion style, or a native style instance/,
+    );
+    expect(motionTimelineStore.rows.size).toBe(0);
+    expect(currentFileRef().content).not.toContain("data-agent-native-motion");
+  });
+
+  it("keeps React/JSX source writes unavailable", async () => {
+    const file = designFilesStore.rows.get(FILE_ID);
+    if (!file) throw new Error("file not seeded");
+    file.filename = "src/App.tsx";
+    file.fileType = "tsx";
+
+    await expect(
+      action.run({
+        designId: DESIGN_ID,
+        fileId: FILE_ID,
+        tracks: oneTrack(),
+      } as never),
+    ).rejects.toThrow(/React and JSX source writes are unavailable/);
+    expect(motionTimelineStore.rows.size).toBe(0);
+    expect(currentFileRef().content).not.toContain("data-agent-native-motion");
+  });
+
   it("persists the managed motion <style> block through writeInlineSourceFile (collab doc updated, not just SQL)", async () => {
     const result = await action.run({
       designId: DESIGN_ID,
@@ -347,25 +841,105 @@ describe("apply-motion-edit collab-aware persist (contract-bypass fix)", () => {
     expect(result.contentPatched).toBe(true);
     expect(result.persisted).toBe(true);
 
-    // The collab doc must actually reflect the patched HTML, not just SQL —
-    // proving the write went through writeInlineSourceFile/seedFromText
-    // rather than a raw designFiles.content db.update bypassing collab.
     expect(await hasCollabState(FILE_ID)).toBe(true);
     const collabContent = await (
       await import("@agent-native/core/collab")
     ).getText(FILE_ID, "content");
     expect(collabContent).toContain("data-agent-native-motion");
 
-    // SQL mirrors the converged collab content.
     const sqlRow = currentFileRef();
     expect(sqlRow.content).toBe(collabContent);
   });
 
+  it("reads the exact timeline back from source after saving it", async () => {
+    const tracks = [
+      {
+        targetNodeId: "node-hero",
+        property: "opacity",
+        delayMs: 125,
+        durationMs: 750,
+        keyframes: [
+          { t: 0, value: "0", ease: "ease-out" },
+          { t: 0.5, value: "0.65", ease: "linear" },
+          { t: 1, value: "1" },
+        ],
+      },
+    ];
+
+    const saved = await action.run({
+      designId: DESIGN_ID,
+      fileId: FILE_ID,
+      tracks,
+      durationMs: 2400,
+      playbackMode: "ping-pong",
+      defaultEase: "ease-in-out",
+    } as never);
+    const readback = await getMotionTimeline.run({
+      designId: DESIGN_ID,
+      sourceRef: FILE_ID,
+    } as never);
+
+    expect(readback.count).toBe(1);
+    expect(readback.timelines[0]).toMatchObject({
+      id: saved.timelineId,
+      sourceRef: FILE_ID,
+      tracks: [
+        {
+          targetNodeId: "node-hero",
+          property: "opacity",
+          delayMs: 125,
+          durationMs: 750,
+          timelinePlaybackMode: "ping-pong",
+          keyframes: tracks[0].keyframes,
+        },
+      ],
+      durationMs: 2400,
+      playbackMode: "ping-pong",
+      defaultEase: "ease-in-out",
+      compiledHash: saved.compiledHash,
+      cssHash: saved.compiledHash,
+      source: "stored",
+    });
+  });
+
+  it("prefers newer collaboration source metadata over a stale SQL snapshot", async () => {
+    const saved = await action.run({
+      designId: DESIGN_ID,
+      fileId: FILE_ID,
+      tracks: oneTrack(),
+      durationMs: 500,
+    } as never);
+
+    const savedSqlContent = currentFileRef().content;
+    const newerLiveContent = savedSqlContent.replace(
+      "%22durationMs%22%3A500",
+      "%22durationMs%22%3A750",
+    );
+    expect(newerLiveContent).not.toBe(savedSqlContent);
+    await applyText(FILE_ID, newerLiveContent, "content", "agent");
+
+    const readback = await getMotionTimeline.run({
+      designId: DESIGN_ID,
+      sourceRef: FILE_ID,
+    } as never);
+
+    expect(readback.timelines[0]).toMatchObject({
+      durationMs: 750,
+      source: "stored-css-drift",
+    });
+
+    const readbackById = await getMotionTimeline.run({
+      designId: DESIGN_ID,
+      timelineId: saved.timelineId,
+    } as never);
+    expect(readbackById.timeline).toMatchObject({
+      durationMs: 750,
+      source: "stored-css-drift",
+    });
+    expect(currentFileRef().content).toBe(savedSqlContent);
+  });
+
   it("a concurrent sibling collab write landing between the base read and the persist is NOT silently dropped — both changes survive", async () => {
-    // Simulate a live editor already having an open collab doc for this file
-    // (e.g. from a prior edit in the same session) with a sibling style edit
-    // baked in, so apply-motion-edit's readLiveSourceFile call observes it as
-    // the base.
     const preEditLive = await readLiveSourceFile(currentFileRef());
     await (
       await import("@agent-native/core/collab")
@@ -375,7 +949,7 @@ describe("apply-motion-edit collab-aware persist (contract-bypass fix)", () => {
       "opacity: 1; border-radius: 12px;",
     );
     await applyText(FILE_ID, siblingEdited, "content", "agent");
-    seedFile(siblingEdited); // mirror SQL the way a guarded write would
+    seedFile(siblingEdited);
 
     const result = await action.run({
       designId: DESIGN_ID,
@@ -386,7 +960,6 @@ describe("apply-motion-edit collab-aware persist (contract-bypass fix)", () => {
 
     expect(result.persisted).toBe(true);
     const finalLive = await readLiveSourceFile(currentFileRef());
-    // BOTH changes present: the sibling's style edit AND the new motion CSS.
     expect(finalLive.content).toContain("border-radius: 12px;");
     expect(finalLive.content).toContain("data-agent-native-motion");
   });
@@ -413,16 +986,8 @@ describe("apply-motion-edit collab-aware persist (contract-bypass fix)", () => {
   });
 
   it("rejects (loud, not silent) when a concurrent write lands using a caller-supplied stale currentContent base", async () => {
-    // The action supports a caller-supplied `currentContent` param used
-    // instead of the live read as the patch base. If that base has gone
-    // stale relative to the live doc by the time the write happens, the
-    // write must be rejected rather than silently clobbering the concurrent
-    // change — mirroring the same guarantee writeInlineSourceFile gives
-    // every other caller-supplied-base action.
     const staleBase = baseDoc();
 
-    // A concurrent writer changes the live collab doc AFTER staleBase was
-    // captured by the (hypothetical) caller but BEFORE this action runs.
     await (
       await import("@agent-native/core/collab")
     ).seedFromText(FILE_ID, staleBase);
@@ -433,14 +998,9 @@ describe("apply-motion-edit collab-aware persist (contract-bypass fix)", () => {
     await applyText(FILE_ID, concurrentContent, "content", "agent");
     seedFile(concurrentContent);
 
-    // Sanity: the live doc has already diverged from staleBase.
     const liveNow = await readLiveSourceFile(currentFileRef());
     expect(liveNow.content).not.toBe(staleBase);
 
-    // Directly exercise writeInlineSourceFile with the stale base's hash to
-    // prove the guard rejects it — the same seam apply-motion-edit's
-    // persistFileContent helper goes through when currentContentInput is
-    // supplied and has gone stale by write time.
     const { writeInlineSourceFile } =
       await import("../server/source-workspace.js");
     const { sourceContentHash } = await import("../shared/source-workspace.js");
@@ -453,26 +1013,141 @@ describe("apply-motion-edit collab-aware persist (contract-bypass fix)", () => {
       }),
     ).rejects.toThrow(/changed since it was read/);
 
-    // The concurrent edit must survive untouched.
     const finalLive = await readLiveSourceFile(currentFileRef());
     expect(finalLive.content).toContain("Caption text (edited concurrently)");
   });
 
-  it("does not write HTML content when the motion_timeline row already reflects the same tracks and contentPatched is false (no managed style seam present)", async () => {
-    // canPatchManagedMotionCss requires an HTML document shape; feed content
-    // that doesn't look like HTML to exercise the contentPatched=false branch
-    // and confirm persistFileContent (and therefore collab) is never invoked.
-    seedFile("just some opaque non-HTML content blob");
+  it("rejects unsupported source content before persisting a timeline row", async () => {
+    const original = "just some opaque non-HTML content blob";
+    seedFile(original);
 
-    const result = await action.run({
+    await expect(
+      action.run({
+        designId: DESIGN_ID,
+        fileId: FILE_ID,
+        tracks: oneTrack(),
+        durationMs: 500,
+      } as never),
+    ).rejects.toThrow(/^motion_source_write_unavailable:/);
+
+    expect(motionTimelineStore.rows.size).toBe(0);
+    expect(currentFileRef().content).toBe(original);
+    expect(await hasCollabState(FILE_ID)).toBe(false);
+    expect(agentEnterDocument).not.toHaveBeenCalled();
+  });
+
+  it("keeps legacy managed HTML writes fail-closed for dynamic target styles", async () => {
+    const legacySource = baseDoc()
+      .replace(
+        'data-agent-native-node-id="node-hero" style="opacity: 1;"',
+        'data-agent-native-node-id="node-hero" style="opacity: 1;" x-transition.opacity',
+      )
+      .replace(
+        "</head>",
+        "<style data-agent-native-motion>@keyframes legacy { from { opacity: 0; } to { opacity: 1; } }</style>\n</head>",
+      );
+    seedFile(legacySource);
+
+    await expect(
+      action.run({
+        designId: DESIGN_ID,
+        fileId: FILE_ID,
+        tracks: oneTrack(),
+        durationMs: 500,
+      } as never),
+    ).rejects.toMatchObject({
+      errorCode: "motion_html_source_unsupported_target",
+      statusCode: 422,
+    });
+
+    expect(currentFileRef().content).toBe(legacySource);
+    expect(motionTimelineStore.rows.size).toBe(0);
+    expect(await hasCollabState(FILE_ID)).toBe(false);
+  });
+
+  it("adopts authored inline animations when migrating legacy managed HTML", async () => {
+    const legacySource = baseDoc()
+      .replace(
+        '<section data-agent-native-node-id="node-hero"',
+        '<section class="hero" data-agent-native-node-id="node-hero"',
+      )
+      .replace(
+        "</head>",
+        `<style>
+.hero { color: rebeccapurple; animation-name: hero-fade; animation-duration: 900ms; animation-fill-mode: both; }
+@keyframes hero-fade { from { color: red; } to { color: blue; } }
+</style>
+<style data-agent-native-motion>@keyframes legacy { from { opacity: 0; } to { opacity: 1; } }</style>
+</head>`,
+      );
+    seedFile(legacySource);
+
+    const saved = await action.run({
       designId: DESIGN_ID,
       fileId: FILE_ID,
       tracks: oneTrack(),
-      durationMs: 500,
+      durationMs: 900,
+      includeContent: true,
     } as never);
 
-    expect(result.contentPatched).toBe(false);
-    expect(await hasCollabState(FILE_ID)).toBe(false);
-    expect(agentEnterDocument).not.toHaveBeenCalled();
+    expect(saved.patchedContent).not.toContain("animation-name: hero-fade");
+    expect(saved.patchedContent).toContain("@keyframes hero-fade");
+    expect(saved.patchedContent).toContain("color: rebeccapurple;");
+    expect(saved.patchedContent).not.toContain("@keyframes legacy");
+
+    const readback = await getMotionTimeline.run({
+      designId: DESIGN_ID,
+      sourceRef: FILE_ID,
+    } as never);
+    expect(readback.timelines).toHaveLength(1);
+    expect(readback.timelines[0]).toMatchObject({
+      durationMs: 900,
+    });
+    expect(readback.timelines[0]?.tracks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          targetNodeId: "node-hero",
+          property: "color",
+        }),
+        expect.objectContaining({
+          targetNodeId: "node-hero",
+          property: "opacity",
+        }),
+      ]),
+    );
+    expect(readback.timelines[0]?.tracks).toHaveLength(2);
+  });
+
+  it("preserves legacy HTML when authored and managed tracks overlap", async () => {
+    const legacySource = baseDoc()
+      .replace(
+        '<section data-agent-native-node-id="node-hero"',
+        '<section class="hero" data-agent-native-node-id="node-hero"',
+      )
+      .replace(
+        "</head>",
+        `<style>
+.hero { animation-name: hero-fade; animation-duration: 900ms; animation-fill-mode: both; }
+@keyframes hero-fade { from { opacity: 0; } to { opacity: 1; } }
+</style>
+<style data-agent-native-motion>@keyframes legacy { from { opacity: 0; } to { opacity: 1; } }</style>
+</head>`,
+      );
+    seedFile(legacySource);
+
+    await expect(
+      action.run({
+        designId: DESIGN_ID,
+        fileId: FILE_ID,
+        tracks: oneTrack(),
+        durationMs: 900,
+      } as never),
+    ).rejects.toMatchObject({
+      errorCode: "motion_html_source_unsupported_authored_motion",
+      statusCode: 422,
+    });
+
+    expect(currentFileRef().content).toBe(legacySource);
+    expect(motionTimelineStore.rows.size).toBe(0);
   });
 });

@@ -19,6 +19,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const toastErrorMock = vi.hoisted(() => vi.fn());
 const toastSuccessMock = vi.hoisted(() => vi.fn());
 const contentDatabaseQueryMock = vi.hoisted(() => vi.fn());
+const databaseItemsState = vi.hoisted(() => ({ settled: true, failed: false }));
+const databaseQueryState = vi.hoisted(() => ({
+  isError: false,
+  unanswered: false,
+}));
+const databaseRetryItemsMock = vi.hoisted(() => vi.fn());
+const databaseRefetchMock = vi.hoisted(() =>
+  vi.fn(
+    async (): Promise<{
+      data: ContentDatabaseResponse | undefined;
+      isError?: boolean;
+    }> => ({ data: undefined }),
+  ),
+);
 const updateViewMutation = vi.hoisted(() => ({
   mutate: vi.fn(),
   mutateAsync: vi.fn(),
@@ -36,10 +50,6 @@ vi.mock("sonner", async (importOriginal) => {
   };
 });
 
-// A single shared, stable stub for every mutation/query hook this render path
-// touches but that neither test drives or asserts on. Reusing one object
-// (rather than a fresh object per call) keeps its identity stable across
-// re-renders so effects/memos that depend on it don't refire or loop.
 const benignMutation = vi.hoisted(() => ({
   mutate: vi.fn(),
   mutateAsync: vi.fn().mockResolvedValue(undefined),
@@ -47,6 +57,12 @@ const benignMutation = vi.hoisted(() => ({
 }));
 
 const addItemMutation = vi.hoisted(() => ({
+  mutate: vi.fn(),
+  mutateAsync: vi.fn(),
+  isPending: false,
+}));
+
+const createDocumentMutation = vi.hoisted(() => ({
   mutate: vi.fn(),
   mutateAsync: vi.fn(),
   isPending: false,
@@ -98,8 +114,31 @@ const builderCmsModelsQuery = vi.hoisted(() => ({
   refetch: vi.fn(),
 }));
 
-vi.mock("@agent-native/core/client/agent-chat", () => ({
+vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/agent-chat")
+  >()),
   generateTabId: () => "database-error-toasts-test",
+  fetchAgentEngineConfiguredState: vi.fn(async () => "configured"),
+  useAgentEngineConfigured: () => ({
+    canChat: true,
+    missing: false,
+    state: "configured",
+  }),
+  useChatModels: () => ({
+    availableModels: [],
+    configuredModels: [],
+    defaultModel: "",
+    selectedModel: "",
+    selectedEngine: "",
+    selectedEffort: "medium",
+    isLoading: false,
+    selectionReady: true,
+    unavailableSelection: null,
+    onModelChange: vi.fn(),
+    onEffortChange: vi.fn(),
+    refreshEngines: vi.fn(),
+  }),
   useCodeMode: () => ({
     isCodeMode: false,
     canToggle: false,
@@ -108,11 +147,16 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
   }),
 }));
 
-vi.mock("@agent-native/core/client/i18n", () => ({
+vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
   useT: () => (key: string) => key,
 }));
 
-vi.mock("@agent-native/core/client/settings", () => ({
+vi.mock("@agent-native/toolkit/app/settings", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/toolkit/app/settings")
+  >()),
+  BuilderConnectPopover: () => null,
   useBuilderStatus: () => ({
     status: {
       configured: true,
@@ -152,13 +196,21 @@ vi.mock("@/hooks/use-content-database", () => ({
     contentDatabaseQueryMock(documentId, limit, tableQuery);
     const response = databaseResponseForDocument(documentId);
     return {
-      data: response,
+      data: databaseQueryState.unanswered ? undefined : response,
       isLoading: false,
+      isError: databaseQueryState.isError,
       isFetching: limit !== response.pagination?.limit || Boolean(tableQuery),
+      itemsSettled: databaseItemsState.settled,
+      itemsFailed: databaseItemsState.failed,
+      itemsRetrying: false,
+      retryItems: () => databaseRetryItemsMock(),
+      refetch: () => databaseRefetchMock(),
     };
   },
   useAddDatabaseItem: () => addItemMutation,
+  useUpdateDatabaseItem: () => benignMutation,
   useAddContentDatabaseSourceFieldProperty: () => benignMutation,
+  useContentDatabases: () => ({ data: undefined, isLoading: false }),
   useAttachContentDatabaseSource: () => attachSourceMutation,
   useBuilderCmsAttachPreview: () => ({
     data: undefined,
@@ -183,6 +235,11 @@ vi.mock("@/hooks/use-content-database", () => ({
   useSetContentDatabaseSourceWriteMode: () => benignMutation,
   useContentDatabasePersonalView: () => ({ data: undefined, isLoading: false }),
   useUpdateContentDatabasePersonalView: () => benignMutation,
+  contentPersonalViewSaveKey: (databaseId: string | null) => [
+    "content-personal-view-save",
+    databaseId,
+  ],
+  refreshAfterPersonalViewSave: vi.fn(),
   useUpdateContentDatabaseView: () => updateViewMutation,
   useRemoveDatabaseItems: () => benignMutation,
   useDuplicateDatabaseItem: () => benignMutation,
@@ -200,6 +257,7 @@ vi.mock("@/hooks/use-content-database", () => ({
 
 vi.mock("@/hooks/use-document-properties", () => ({
   useSetDocumentProperty: () => benignMutation,
+  useContentDatabaseRowSearch: () => ({ data: undefined, isLoading: false }),
   useConfigureDocumentProperty: () => benignMutation,
   useUpdateDatabaseItems: () => benignMutation,
 }));
@@ -212,11 +270,13 @@ vi.mock("@/hooks/use-content-spaces", () => ({
   useDeleteContentSpace: () => benignMutation,
 }));
 
-vi.mock("@/hooks/use-documents", () => ({
+vi.mock("@/hooks/use-documents", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/hooks/use-documents")>()),
   useDocument: (documentId: string) => ({
     data: documentForId(documentId),
   }),
   seedDatabaseItemDocumentCaches: vi.fn(),
+  useCreateDocument: () => createDocumentMutation,
   useDeleteDocument: () => benignMutation,
   useUpdateDocument: () => benignMutation,
 }));
@@ -311,14 +371,52 @@ const secondFakeDocument = {
   database: secondDatabaseResponse.database,
 };
 
+const workspaceFilesResponse: ContentDatabaseResponse = {
+  ...databaseResponse,
+  database: {
+    ...databaseResponse.database,
+    id: "database-3",
+    documentId: "document-3",
+    spaceId: "space-foobar",
+    title: "Foobar",
+    systemRole: "files",
+    viewConfig: defaultDatabaseViewConfig(),
+  },
+  mutationContract: undefined,
+};
+
+const workspaceFilesDocument = {
+  ...fakeDocument,
+  id: "document-3",
+  title: "Foobar",
+  database: workspaceFilesResponse.database,
+};
+
+function workspaceFilesItem(documentId: string): ContentDatabaseItem {
+  return {
+    id: `item-${documentId}`,
+    databaseId: "database-3",
+    position: 0,
+    properties: [],
+    document: {
+      ...fakeDocument,
+      id: documentId,
+      title: "",
+      database: undefined,
+    },
+  };
+}
+
 function databaseResponseForDocument(documentId: string) {
-  return documentId === "document-2"
-    ? secondDatabaseResponse
-    : databaseResponse;
+  if (documentId === "document-2") return secondDatabaseResponse;
+  if (documentId === "document-3") return workspaceFilesResponse;
+  return databaseResponse;
 }
 
 function documentForId(documentId: string) {
-  return documentId === "document-2" ? secondFakeDocument : fakeDocument;
+  if (documentId === "document-2") return secondFakeDocument;
+  if (documentId === "document-3") return workspaceFilesDocument;
+  return fakeDocument;
 }
 
 const failedToCreateRow = messagesByLocale["en-US"].database.failedToCreateRow;
@@ -335,10 +433,6 @@ function RouteProbe() {
   return null;
 }
 
-// `DatabaseSettingsRow` renders a label plus an optional trailing value in a
-// second `<span>` right next to it with no separator (e.g. "Sources" +
-// "None" both land in the button's textContent as "SourcesNone"), so fall
-// back to a prefix match for those rows once an exact match comes up empty.
 function findButtonByText(container: HTMLElement, text: string) {
   const buttons = [...container.querySelectorAll("button")];
   return (
@@ -359,7 +453,14 @@ describe("DatabaseView UI regressions", () => {
     toastErrorMock.mockReset();
     toastSuccessMock.mockReset();
     contentDatabaseQueryMock.mockReset();
+    databaseItemsState.settled = true;
+    databaseItemsState.failed = false;
+    databaseQueryState.isError = false;
+    databaseQueryState.unanswered = false;
+    databaseRetryItemsMock.mockReset();
     addItemMutation.mutateAsync.mockReset();
+    createDocumentMutation.mutateAsync.mockReset();
+    databaseRefetchMock.mockReset().mockResolvedValue({ data: undefined });
     attachSourceMutation.mutateAsync.mockReset();
     changeSourceRoleMutation.mutateAsync
       .mockReset()
@@ -381,9 +482,6 @@ describe("DatabaseView UI regressions", () => {
     currentRoute = "";
     navigateRoute = null;
 
-    // DatabaseTable fire-and-forgets a `fetch(...).catch(() => {})` navigation
-    // state PUT on every relevant render; stub it out so the test doesn't make
-    // a real network call (and doesn't print connection-refused noise).
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(new Response("{}", { status: 200 })),
@@ -412,7 +510,7 @@ describe("DatabaseView UI regressions", () => {
     ).IS_REACT_ACT_ENVIRONMENT = false;
   });
 
-  async function renderDatabaseView() {
+  async function renderDatabaseView(viewId?: string) {
     const { QueryClientProvider } = await import("@tanstack/react-query");
     act(() => {
       root.render(
@@ -424,6 +522,28 @@ describe("DatabaseView UI regressions", () => {
                 <DatabaseView
                   databaseId="database-1"
                   databaseDocumentId="document-1"
+                  viewId={viewId}
+                />
+              </TooltipProvider>
+            </MemoryRouter>
+          </AppToolkitProvider>
+        </QueryClientProvider>,
+      );
+    });
+  }
+
+  async function renderWorkspaceFilesView() {
+    const { QueryClientProvider } = await import("@tanstack/react-query");
+    act(() => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <AppToolkitProvider>
+            <MemoryRouter>
+              <RouteProbe />
+              <TooltipProvider>
+                <DatabaseView
+                  databaseId="database-3"
+                  databaseDocumentId="document-3"
                 />
               </TooltipProvider>
             </MemoryRouter>
@@ -590,6 +710,176 @@ describe("DatabaseView UI regressions", () => {
     expect(document.querySelector("[role=menu]")).toBeTruthy();
   });
 
+  it("holds the placeholder until the first rows land, then keeps the view through later reads", async () => {
+    databaseItemsState.settled = false;
+    await renderDatabaseView();
+    expect(findButtonByText(container, "New")).toBeUndefined();
+    expect(
+      container.querySelector('[data-startup-anchor="database-table"]'),
+    ).toBeTruthy();
+
+    databaseItemsState.settled = true;
+    await renderDatabaseView();
+    expect(findButtonByText(container, "New")).toBeTruthy();
+
+    databaseItemsState.settled = false;
+    await renderDatabaseView();
+    expect(findButtonByText(container, "New")).toBeTruthy();
+  });
+
+  it("shows a retryable error instead of rows when the view's rows cannot be read", async () => {
+    databaseItemsState.failed = true;
+    await renderDatabaseView();
+    expect(
+      container.querySelector('[data-startup-anchor="database-table"]'),
+    ).toBeNull();
+    const retry = findButtonByText(container, "database.retry");
+    expect(retry).toBeTruthy();
+    await act(async () => retry!.click());
+    expect(databaseRetryItemsMock).toHaveBeenCalledOnce();
+  });
+
+  it("keeps an exact saved-view URL on the retryable collection error", async () => {
+    databaseItemsState.failed = true;
+    databaseQueryState.isError = true;
+    const exactViewId = databaseResponse.database.viewConfig.views[0]!.id;
+
+    await renderDatabaseView(exactViewId);
+
+    const retry = findButtonByText(container, "database.retry");
+    expect(retry).toBeTruthy();
+    await act(async () => retry!.click());
+    expect(databaseRetryItemsMock).toHaveBeenCalledOnce();
+  });
+
+  it.each(["calendar", "timeline"] as const)(
+    "draws a %s view's frame around the retryable error when its first read fails",
+    async (type) => {
+      const view = createDatabaseView("Schedule", "schedule", {}, type);
+      databaseResponse.database.viewConfig = {
+        activeViewId: view.id,
+        views: [view],
+        sorts: view.sorts,
+        filters: view.filters,
+        columnWidths: view.columnWidths,
+      };
+      databaseItemsState.failed = true;
+      databaseQueryState.isError = true;
+      databaseQueryState.unanswered = true;
+
+      await renderDatabaseView();
+
+      expect(
+        container.querySelector('[data-startup-anchor="database-tabs"]'),
+      ).toBeTruthy();
+      expect(findButtonByText(container, "database.retry")).toBeTruthy();
+    },
+  );
+
+  it("offers retry when an exact view the page read does not list cannot be read", async () => {
+    databaseItemsState.failed = true;
+    databaseQueryState.isError = true;
+    databaseQueryState.unanswered = true;
+
+    await renderDatabaseView("view-added-after-page-read");
+
+    const retry = findButtonByText(container, "database.retry");
+    expect(retry).toBeTruthy();
+    await act(async () => retry!.click());
+    expect(databaseRetryItemsMock).toHaveBeenCalledOnce();
+  });
+
+  it("creates a workspace page from the Files table New button", async () => {
+    createDocumentMutation.mutateAsync.mockResolvedValue({
+      id: "created-document",
+      spaceId: "space-foobar",
+    });
+    await renderWorkspaceFilesView();
+
+    const newButton = findButtonByText(container, "New");
+    expect(newButton).toBeTruthy();
+
+    await act(async () => {
+      newButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(createDocumentMutation.mutateAsync).toHaveBeenCalledTimes(1);
+    expect(createDocumentMutation.mutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ spaceId: "space-foobar" }),
+    );
+    expect(addItemMutation.mutateAsync).not.toHaveBeenCalled();
+    expect(toastErrorMock).not.toHaveBeenCalled();
+  });
+
+  it("opens the created page in the preview from the Files table New button", async () => {
+    createDocumentMutation.mutateAsync.mockResolvedValue({
+      id: "created-document",
+      spaceId: "space-foobar",
+    });
+    const createdItem = workspaceFilesItem("created-document");
+    databaseRefetchMock.mockResolvedValue({
+      data: { ...workspaceFilesResponse, items: [createdItem] },
+      isError: false,
+    });
+    await renderWorkspaceFilesView();
+
+    const newButton = findButtonByText(container, "New");
+    await act(async () => {
+      newButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(toastErrorMock).not.toHaveBeenCalled();
+    expect(
+      window.document.body.querySelector('[aria-label^="Preview actions for"]'),
+    ).toBeTruthy();
+  });
+
+  it("reports a failed collection refresh after the page was created", async () => {
+    createDocumentMutation.mutateAsync.mockResolvedValue({
+      id: "created-document",
+      spaceId: "space-foobar",
+    });
+    databaseRefetchMock.mockResolvedValue({ data: undefined, isError: true });
+    await renderWorkspaceFilesView();
+
+    const newButton = findButtonByText(container, "New");
+    await act(async () => {
+      newButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(createDocumentMutation.mutateAsync).toHaveBeenCalledTimes(1);
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      messagesByLocale["en-US"].database.pageCreatedCollectionRefreshFailed,
+    );
+  });
+
+  it("surfaces a create failure from the Files table instead of a bare toast", async () => {
+    createDocumentMutation.mutateAsync.mockRejectedValue(
+      new Error("network down"),
+    );
+    await renderWorkspaceFilesView();
+
+    const newButton = findButtonByText(container, "New");
+    await act(async () => {
+      newButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      failedToCreateRow,
+      expect.objectContaining({ description: "network down" }),
+    );
+  });
+
   it("shows a toast and does not create a row when addItem.mutateAsync rejects", async () => {
     addItemMutation.mutateAsync.mockRejectedValue(new Error("network down"));
     await renderDatabaseView();
@@ -599,7 +889,6 @@ describe("DatabaseView UI regressions", () => {
 
     await act(async () => {
       newButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      // Flush the rejected mutateAsync + catch handler.
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -669,7 +958,7 @@ describe("DatabaseView UI regressions", () => {
     await renderDatabaseView();
 
     const settingsButton = container.querySelector<HTMLButtonElement>(
-      '[aria-label="Database settings"]',
+      '[aria-label="Collection settings"]',
     );
     expect(settingsButton).toBeTruthy();
     await act(async () => {
@@ -716,10 +1005,6 @@ describe("DatabaseView UI regressions", () => {
       expect.objectContaining({ description: "attach failed" }),
     );
 
-    // The success-only follow-up (`onNavReplace([])`) must not have run: the
-    // nav stack should still be on the model leaf (its Attach button and the
-    // model's display name are still showing), not reset back to the Sources
-    // root.
     expect(findButtonByText(document.body, "Attach")).toBeTruthy();
     expect(document.body.textContent).toContain("Article");
   });
@@ -950,7 +1235,7 @@ describe("DatabaseView UI regressions", () => {
       await Promise.resolve();
     });
 
-    expect(document.body.textContent).not.toContain("Database settings");
+    expect(document.body.textContent).not.toContain("Collection settings");
     expect(attachSourceMutation.mutateAsync).toHaveBeenCalledTimes(1);
 
     await act(async () => {

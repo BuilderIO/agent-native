@@ -6,7 +6,7 @@ name: "Suggestions"
 user_promise: "Suggested changes remain authored pending Revisions until an authorized person accepts, rejects, defers, or supersedes them."
 primary_user_job: "Propose reversible human or agent work without mutating the canonical Page before review."
 kind: "primitive"
-state: "approved_shape"
+state: "in_progress"
 publicness: "public"
 availability: "universal"
 dependencies: ["content.diff.in-place", "content.history.queryable"]
@@ -20,9 +20,14 @@ proof_requirements:
     "Permission, author edit window, stale basis, and conflict behavior",
     "Human/agent parity, concurrent review, recovery, and notification coverage",
   ]
-evidence: []
+evidence:
+  [
+    "templates/content/app/components/editor/DocumentEditor.tsx",
+    "templates/content/app/components/editor/ThreadSuggestion.tsx",
+    "packages/core/src/review/suggestions/actions.ts",
+  ]
 superseded_by: null
-last_reviewed: "2026-07-29"
+last_reviewed: "2026-10-12"
 ---
 
 # Suggestions
@@ -62,7 +67,19 @@ Given an editor changes a target after a suggestion's observed basis, when anoth
 
 ## Current evidence
 
-Current document snapshots and source-review machinery provide useful proposed-change donors. The repository does not yet prove generic authored pending Revisions, typed suggestion review, or conflict semantics across Content; this remains `approved_shape`.
+Suggestions now ship for document text in the ordinary editor, including Suggesting-mode autosave, nested-block edits, grouped phrase replacements, explicit failure when an accept cannot be placed, and comment-thread AI review (#6627, #6661, #6716, #6720, #6729, #7258, #7372). This is `in_progress`: the repository does not yet prove the full pending-Revision contract, typed Property and Block review, durable disposition, or conflict behavior across Content.
+
+The document-markdown slice now supports amendments through the shared `update-resource-suggestion` Action. The author must still have commenter access, the suggestion must remain pending, and its canonical basis and observed proposal revision must match. An amendment preserves the suggestion and discussion identities and records its before/after state in durable history without writing canonical content. Acceptance checks the viewed proposal revision so an author cannot change what a reviewer accepts after the reviewer has read it. The editor's reopen path is limited to the author's own human-authored, single-operation markdown suggestions.
+
+Focused core amendment and Content adapter tests cover author/access checks, stale basis and proposal revisions, amendment/decision races, exact retry receipts, additive schema preservation, and unchanged canonical content. These checks do not establish generic typed Revision support, a user-visible amendment-history viewer, Notifications, or deployment acceptance.
+
+In Suggesting mode, the editor saves as the author types: after a short pause, and when the window blurs or the page is hidden, the author's drafted changes become pending suggestions. Continued typing amends the same suggestion; deleting a saved suggestion's text withdraws it. Its author can do that with commenter access, and a withdrawn suggestion leaves review entirely, unlike one a reviewer rejects. A comment made on draft-only suggested text joins that suggestion's thread instead of anchoring a Page comment to text the canonical Page does not contain.
+
+Saving never ends Suggesting mode; only the author's own switch does. Reloading a tab reopens the Page in the mode that tab left it in. While the author suggests, the editor never writes the canonical Page or replaces the author's draft with it, even when another tab or an agent changes the Page mid-session.
+
+Agents propose body suggestions through `suggest-document-edit` (Content action, `mcpTool` with a fully typed agent input schema): the agent supplies the document id, its `baseRevision` from `get-document`, an `idempotencyKey`, and exact find/replace text; the action resolves the match, builds the full before/after Markdown payload and the contextual anchor, and delegates to `create-resource-suggestion` so access, idempotent replay, threads, and notifications stay in one path. Malformed or stale calls fail with errors that name the fix (`SUGGESTION_FIND_NOT_FOUND`, `SUGGESTION_FIND_AMBIGUOUS`, `SUGGESTION_EDIT_PROTOCOL_REQUIRED`). The generic action's Markdown payload errors also state the expected object shape. Focused Content db tests cover creation, idempotent replay, missing and ambiguous finds, the external-caller protocol, and proposals on ordinary database-item Pages. Acceptance tests cover primary Blocks-field reconciliation across multiple collection memberships.
+
+`create-resource-suggestion` accepts `supersedes`: the author's own earlier pending suggestions on the same resource become `superseded`, with a durable decision record and resolved discussion, in the same transaction that creates the replacement. Already decided suggestions are left alone, another author's or another resource's suggestion is refused, and an exact retry replays without superseding twice (`supersede.spec.ts`). Content uses it so a revised Comment AI proposal replaces the requester's earlier pending one from that thread.
 
 ## Proof plan
 
@@ -73,4 +90,4 @@ Current document snapshots and source-review machinery provide useful proposed-c
 
 ## Open questions
 
-The exact author edit window and rebase UX remain open. Pending identity, durable disposition, and no-silent-overwrite behavior are settled.
+The document-markdown author edit window is pending status plus current commenter access and an unchanged basis. Author editing across other target types, the amendment-history presentation, and rebase UX remain open. Pending identity, durable disposition, and no-silent-overwrite behavior are settled.

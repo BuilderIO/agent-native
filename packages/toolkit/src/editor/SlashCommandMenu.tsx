@@ -13,31 +13,15 @@ import { createPortal } from "react-dom";
 import { cn } from "../utils.js";
 import { pickAndInsertImage, type ImageUploadFn } from "./ImageExtension.js";
 
-/** A single slash-menu block command. Apps can extend the default list. */
 export interface SlashCommandItem {
   title: string;
   description: string;
-  /**
-   * Optional hidden search text. Use this for raw block types and aliases that
-   * should match slash queries without making the visible description verbose.
-   */
   searchText?: string;
-  /** Short text glyph shown in the menu (T, H1, tbl, …). */
   icon: string;
-  /** Hide this command when the shared editor feature is disabled. */
   requires?: "tables" | "tasks" | "codeBlock";
   action: (editor: Editor) => void;
 }
 
-/**
- * Put the caret inside the block a slash command just created or transformed.
- *
- * Tiptap commands usually preserve a text selection, but commands that replace
- * the current paragraph (notably code blocks and horizontal rules) can leave a
- * node selection or a caret at the following block. Resolving from the slash
- * range keeps the behavior consistent for built-in and app-provided block
- * commands: after selecting a block, typing starts in that block immediately.
- */
 export function focusEditorInInsertedBlock(
   editor: Editor,
   anchorPosition?: number,
@@ -104,10 +88,6 @@ export function filterSlashCommandItems(
   );
 }
 
-/**
- * The default block commands — Plan's current set. Apps pass their own `items`
- * (typically `[...DEFAULT_SLASH_COMMANDS, ...extra]`) to extend it.
- */
 export const DEFAULT_SLASH_COMMANDS: SlashCommandItem[] = [
   {
     title: "Text",
@@ -188,13 +168,6 @@ export const DEFAULT_SLASH_COMMANDS: SlashCommandItem[] = [
   },
 ];
 
-/**
- * Build the `/image` slash command for the shared image block. Requires the
- * editor to mount the shared image extension (`features.image`) and an
- * {@link ImageUploadFn}; the command opens a native file picker and uploads +
- * inserts the chosen image(s). Add it to the list an app passes to
- * {@link SlashCommandMenu} (e.g. `[...DEFAULT_SLASH_COMMANDS, createImageSlashCommand(upload)]`).
- */
 export function createImageSlashCommand(
   upload: ImageUploadFn,
 ): SlashCommandItem {
@@ -208,16 +181,9 @@ export function createImageSlashCommand(
 
 export interface SlashCommandMenuProps {
   editor: Editor;
-  /** Block command list. Defaults to {@link DEFAULT_SLASH_COMMANDS}. */
   items?: SlashCommandItem[];
 }
 
-/**
- * The shared "/" block-insert menu. Detects a `/query` at the caret, filters the
- * provided command list, and renders a fixed-position picker with keyboard
- * navigation. Extracted from the inline plan menu so apps share one
- * implementation and only swap the command list.
- */
 export function SlashCommandMenu({
   editor,
   items = DEFAULT_SLASH_COMMANDS,

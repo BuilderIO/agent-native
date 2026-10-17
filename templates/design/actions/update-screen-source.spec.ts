@@ -1,0 +1,47 @@
+import { describe, expect, it } from "vitest";
+
+import { routeUrl } from "./add-localhost-screens.js";
+import {
+  screenSourceMetadataForStatic,
+  screenUrlMatchesConnection,
+} from "./update-screen-source.js";
+
+describe("update-screen-source metadata", () => {
+  it("clears URL transport fields without dropping unrelated screen metadata", () => {
+    expect(
+      screenSourceMetadataForStatic({
+        sourceType: "localhost",
+        previewState: "live",
+        url: "http://127.0.0.1:5173/plans",
+        previewUrl: "http://127.0.0.1:5173/plans",
+        path: "/plans",
+        connectionId: "conn_1",
+        bridgeUrl: "http://127.0.0.1:7331",
+        previewToken: "example-preview-token",
+        stateRef: "onboarding-step-2",
+      }),
+    ).toEqual({
+      sourceType: "inline",
+      previewState: "static",
+      stateRef: "onboarding-step-2",
+    });
+  });
+
+  it("canonicalizes equivalent loopback aliases to the registered connection", () => {
+    expect(
+      routeUrl("http://localhost:5173", {
+        url: "http://127.0.0.1:5173/plans",
+      }),
+    ).toBe("http://localhost:5173/plans");
+  });
+
+  it("rejects an unregistered loopback origin after route canonicalization", () => {
+    const routed = routeUrl("http://localhost:5173", {
+      url: "http://127.0.0.2:5173/plans",
+    });
+
+    expect(screenUrlMatchesConnection("http://localhost:5173", routed)).toBe(
+      false,
+    );
+  });
+});

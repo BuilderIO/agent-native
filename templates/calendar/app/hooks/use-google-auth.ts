@@ -43,8 +43,6 @@ interface DesktopGlobals {
 }
 
 const DESKTOP_AUTH_POLL_INTERVAL_MS = 1500;
-// Bounds each poll tick's fetches so a hung request can't leave
-// pollInFlightRef stuck and stall the interval forever.
 const DESKTOP_AUTH_POLL_ABORT_MS = Math.max(
   10_000,
   DESKTOP_AUTH_POLL_INTERVAL_MS * 4,
@@ -110,8 +108,6 @@ async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
     const cause = err instanceof Error ? err.message : String(err);
     throw new Error(`Network error: ${cause}`);
   }
-  // Track read failures separately from "no body" so a transport hiccup on a
-  // 2xx response doesn't silently turn into a `null` success.
   let raw = "";
   let readFailed = false;
   let readError: unknown;
@@ -127,15 +123,12 @@ async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
     try {
       body = JSON.parse(raw);
     } catch {
-      // not JSON — leave body undefined
       parseFailed = true;
     }
   }
   if (!res.ok) {
     throw bodyError(body, raw, res, "Request failed");
   }
-  // 2xx but the body couldn't be read (stream interruption, decode failure,
-  // etc.). Surface the failure rather than treating it as "no data".
   if (readFailed) {
     const cause =
       readError instanceof Error ? readError.message : String(readError);
@@ -143,10 +136,6 @@ async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
     (error as any).status = res.status;
     throw error;
   }
-  // 2xx with a non-empty, non-JSON body — almost always a misconfigured proxy
-  // or server returning an HTML page with status 200. Throw so callers (status
-  // checks, auth URL hooks) surface the failure instead of silently treating
-  // the response as "no data" / disconnected.
   if (parseFailed) {
     throw bodyError(body, raw, res, "Unexpected non-JSON response");
   }
@@ -183,7 +172,6 @@ export function useGoogleAuthUrl(enabled = false) {
     retry: false,
   });
 
-  // Clear cached error when disabled so next enable triggers a fresh fetch
   useEffect(() => {
     if (!enabled && query.isError) {
       void queryClient.resetQueries({ queryKey: ["google-auth-url"] });
@@ -193,7 +181,6 @@ export function useGoogleAuthUrl(enabled = false) {
   return query;
 }
 
-/** Hook for adding an additional Google account (user is already logged in). */
 export function useGoogleAddAccountUrl(enabled = false) {
   const queryClient = useQueryClient();
   const query = useQuery<{ url: string }>({

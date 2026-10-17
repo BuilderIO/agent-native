@@ -1,18 +1,20 @@
-/**
- * Core script: db-query
- *
- * Run a read-only SQL query against the configured PostgreSQL database. Local
- * execution uses PGlite and hosted execution uses PostgreSQL.
- */
-
 import path from "node:path";
 
-import { getDatabaseUrl, toPostgresParams } from "../../db/client.js";
+import {
+  assertHostedRuntimeDatabase,
+  getLocalDatabaseUrl,
+} from "../../db/client.js";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "../../server/request-context.js";
 import { parseArgs, fail } from "../utils.js";
+import { tryForwardDbQueryToDevServer } from "./dev-query-proxy.js";
 import { createPostgresScriptClient } from "./postgres-client.js";
 import {
-  assertNoSchemaQualifiedTables,
-  assertNoSensitiveFrameworkTables,
+  finalRawDbSql,
+  readRawDbReadStatement,
+  verifyRawDbStatement,
 } from "./safety.js";
 import { buildScopingPostgres } from "./scoping.js";
 
@@ -68,6 +70,70 @@ function printTable(
   }
 }
 
+export interface RunDbQueryOptions {
+  sql: string;
+  sqlArgs?: unknown[];
+  limit?: number;
+  databaseUrl?: string;
+}
+
+export interface RunDbQueryResult {
+  rows: Record<string, unknown>[];
+  sql: string;
+}
+
+// Thrown to end db-query's transaction with a rollback. The per-user views
+// are created inside it, and the read-only switch blocks dropping them.
+const READ_ONLY_ROLLBACK = Symbol("db-query rollback");
+
+export async function runDbQuery(
+  options: RunDbQueryOptions,
+): Promise<RunDbQueryResult> {
+  const sqlArgs = options.sqlArgs ?? [];
+  const statement = readRawDbReadStatement(options.sql);
+
+  let query = statement.sql;
+  if (
+    options.limit &&
+    (statement.keyword === "select" || statement.keyword === "with") &&
+    !statement.tokens.some(
+      (token) => token.kind === "word" && token.value === "limit",
+    )
+  ) {
+    query = `${statement.sql}\nLIMIT ${options.limit}`;
+  }
+  const executed = finalRawDbSql(query, "read");
+
+  if (!options.databaseUrl) assertHostedRuntimeDatabase();
+
+  const url =
+    options.databaseUrl ?? getLocalDatabaseUrl("pglite:./data/pglite");
+  const client = await createPostgresScriptClient(url);
+  try {
+    let rows: Record<string, unknown>[] = [];
+    try {
+      await client.begin(async (tx) => {
+        const scoping = await buildScopingPostgres(tx);
+        for (const setup of scoping.setup) await tx.unsafe(setup);
+        // From here on the transaction cannot write, so a data-modifying CTE,
+        // SELECT INTO, or EXPLAIN ANALYZE of a write fails instead of running.
+        await tx.unsafe("SET TRANSACTION READ ONLY");
+        await verifyRawDbStatement(tx, executed.statement);
+        const result = await tx.unsafe(executed.sql, sqlArgs, {
+          singleStatement: true,
+        });
+        rows = Array.from(result);
+        throw READ_ONLY_ROLLBACK;
+      });
+    } catch (error) {
+      if (error !== READ_ONLY_ROLLBACK) throw error;
+    }
+    return { rows, sql: executed.sql };
+  } finally {
+    await client.end();
+  }
+}
+
 export default async function dbQuery(args: string[]): Promise<void> {
   const parsed = parseArgs(args);
   if (parsed.help === "true") {
@@ -86,57 +152,36 @@ Options:
   const sql = parsed.sql;
   if (!sql) fail('--sql is required. Example: --sql "SELECT * FROM forms"');
   const sqlArgs = parseSqlArgs(parsed.args);
-  const stripped = sql
-    .replace(/^\s*--[^\n]*\n/gm, "")
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .trim();
-  const upper = stripped.toUpperCase();
-  if (
-    !upper.startsWith("SELECT") &&
-    !upper.startsWith("WITH") &&
-    !upper.startsWith("EXPLAIN")
-  ) {
-    fail(
-      "Only SELECT, WITH, and EXPLAIN queries are allowed. Use db-exec for writes.",
-    );
-  }
-  assertNoSensitiveFrameworkTables(stripped, "read");
-  assertNoSchemaQualifiedTables(stripped, "read");
 
-  let query = sql;
-  if (
-    parsed.limit &&
-    (upper.startsWith("SELECT") || upper.startsWith("WITH")) &&
-    !/\bLIMIT\b/i.test(stripped)
-  ) {
-    const limit = Number.parseInt(parsed.limit, 10);
+  let limit: number | undefined;
+  if (parsed.limit) {
+    limit = Number.parseInt(parsed.limit, 10);
     if (!Number.isInteger(limit) || limit < 1) {
       fail("--limit must be a positive integer");
     }
-    query = `${sql} LIMIT ${limit}`;
   }
 
-  const url = parsed.db
-    ? `pglite:${path.resolve(parsed.db)}`
-    : getDatabaseUrl("pglite:./data/pglite");
-  const client = await createPostgresScriptClient(url);
-  try {
-    let rows: Record<string, unknown>[] = [];
-    const finalSql = toPostgresParams(query);
-    await client.begin(async (tx) => {
-      const scoping = await buildScopingPostgres(tx);
-      for (const statement of scoping.setup) await tx.unsafe(statement);
-      try {
-        const result = await tx.unsafe(finalSql, sqlArgs);
-        rows = Array.from(result);
-      } finally {
-        for (const statement of scoping.teardown) {
-          await tx.unsafe(statement).catch(() => {});
-        }
-      }
+  if (!parsed.db) {
+    const forwarded = await tryForwardDbQueryToDevServer({
+      sql,
+      params: sqlArgs,
+      limit,
+      format: parsed.format,
+      userEmail: getRequestUserEmail(),
+      orgId: getRequestOrgId() ?? undefined,
+      print: printTable,
     });
-    printTable(rows, finalSql, parsed.format);
-  } finally {
-    await client.end();
+    if (forwarded) return;
   }
+
+  const databaseUrl = parsed.db
+    ? `pglite:${path.resolve(parsed.db)}`
+    : undefined;
+  const { rows, sql: finalSql } = await runDbQuery({
+    sql,
+    sqlArgs,
+    limit,
+    databaseUrl,
+  });
+  printTable(rows, finalSql, parsed.format);
 }

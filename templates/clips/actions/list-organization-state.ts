@@ -1,13 +1,3 @@
-/**
- * Return a summary of the active organization — org row, members, spaces,
- * and personal-library folders. Useful for orienting the agent at the start
- * of a session when the user asks "who's in my org?" or "what spaces do I
- * have?".
- *
- * Usage:
- *   pnpm action list-organization-state
- */
-
 import { defineAction } from "@agent-native/core/action";
 import {
   organizations,
@@ -23,7 +13,7 @@ import {
   eq,
   isNotNull,
   isNull,
-  notInArray,
+  notExists,
   or,
   sql,
 } from "drizzle-orm";
@@ -35,10 +25,23 @@ import {
   isAgentRecordingCaller,
 } from "../server/lib/agent-recording-access.js";
 import {
+  getActiveOrganizationId,
   getCurrentOwnerEmail,
   ownerEmailMatches,
   requireOrganizationAccess,
 } from "../server/lib/recordings.js";
+
+function emptyOrganizationState(currentUserEmail: string) {
+  return {
+    currentUserEmail,
+    organization: null,
+    members: [],
+    spaces: [],
+    folders: [],
+    personalFolders: [],
+    invitations: [],
+  };
+}
 
 export default defineAction({
   description:
@@ -53,107 +56,94 @@ export default defineAction({
   }),
   http: { method: "GET" },
   run: async (args, ctx) => {
-    const db = getDb();
+    const db = await Promise.resolve(getDb());
     const ownerEmail = getCurrentOwnerEmail();
 
-    const { organizationId } = await requireOrganizationAccess(
-      args.organizationId,
-    );
+    const activeOrganizationId =
+      args.organizationId ?? (await getActiveOrganizationId());
+    if (!activeOrganizationId) return emptyOrganizationState(ownerEmail);
 
-    const [org] = await db
-      .select({
-        id: organizations.id,
-        name: organizations.name,
-        createdAt: organizations.createdAt,
-      })
-      .from(organizations)
-      .where(eq(organizations.id, organizationId))
-      .limit(1);
-    if (!org) {
-      return {
-        organization: null,
-        members: [],
-        spaces: [],
-        folders: [],
-        personalFolders: [],
-        invitations: [],
-      };
-    }
+    const { organizationId } =
+      await requireOrganizationAccess(activeOrganizationId);
 
-    const [settings] = await db
-      .select({
-        brandColor: schema.organizationSettings.brandColor,
-        brandLogoUrl: schema.organizationSettings.brandLogoUrl,
-        defaultVisibility: schema.organizationSettings.defaultVisibility,
-      })
-      .from(schema.organizationSettings)
-      .where(eq(schema.organizationSettings.organizationId, organizationId))
-      .limit(1);
-
-    const memberRows = await db
-      .select({
-        id: orgMembers.id,
-        email: orgMembers.email,
-        role: orgMembers.role,
-        joinedAt: orgMembers.joinedAt,
-      })
-      .from(orgMembers)
-      .where(eq(orgMembers.orgId, organizationId))
-      .orderBy(asc(orgMembers.joinedAt));
-    const members = memberRows.map((m) => ({
-      id: m.id,
-      email: m.email,
-      role: m.role,
-      joinedAt: Number(m.joinedAt),
-    }));
-    const profiles = await getUserProfiles(
-      members.map((member) => member.email),
-    );
-    const membersWithProfiles = members.map((member) => {
-      const name = profiles.get(member.email.toLowerCase())?.name;
-      return {
-        ...member,
-        ...(name && !isEmailDerivedName(name, member.email) ? { name } : {}),
-      };
-    });
-
-    const inviteRows = await db
-      .select({
-        id: orgInvitations.id,
-        email: orgInvitations.email,
-        role: orgInvitations.role,
-        status: orgInvitations.status,
-        createdAt: orgInvitations.createdAt,
-      })
-      .from(orgInvitations)
-      .where(
-        and(
-          eq(orgInvitations.orgId, organizationId),
-          eq(orgInvitations.status, "pending"),
-        ),
-      )
-      .orderBy(desc(orgInvitations.createdAt));
-    const invitations = inviteRows.map((i) => ({
-      id: i.id,
-      email: i.email,
-      role: i.role ?? "member",
-      status: i.status,
-      createdAt: Number(i.createdAt),
-    }));
-
-    const resolvedDb = await Promise.resolve(db);
-    const meetingRecordingIds = resolvedDb
-      .select({ id: schema.meetings.recordingId })
-      .from(schema.meetings)
-      .where(isNotNull(schema.meetings.recordingId));
-    const [spaces, folders, folderRecordingCountRows] = await Promise.all([
+    const memberRowsPromise = Promise.resolve(
       db
-        .select()
+        .select({
+          id: orgMembers.id,
+          email: orgMembers.email,
+          role: orgMembers.role,
+          joinedAt: orgMembers.joinedAt,
+        })
+        .from(orgMembers)
+        .where(eq(orgMembers.orgId, organizationId))
+        .orderBy(asc(orgMembers.joinedAt)),
+    );
+
+    const [
+      [org],
+      memberRows,
+      profiles,
+      inviteRows,
+      spaces,
+      folders,
+      folderRecordingCountRows,
+    ] = await Promise.all([
+      db
+        .select({
+          id: organizations.id,
+          name: organizations.name,
+          createdAt: organizations.createdAt,
+          brandColor: schema.organizationSettings.brandColor,
+          brandLogoUrl: schema.organizationSettings.brandLogoUrl,
+          defaultVisibility: schema.organizationSettings.defaultVisibility,
+        })
+        .from(organizations)
+        .leftJoin(
+          schema.organizationSettings,
+          eq(schema.organizationSettings.organizationId, organizations.id),
+        )
+        .where(eq(organizations.id, organizationId))
+        .limit(1),
+      memberRowsPromise,
+      memberRowsPromise.then((rows) =>
+        getUserProfiles(rows.map((member) => member.email)),
+      ),
+      db
+        .select({
+          id: orgInvitations.id,
+          email: orgInvitations.email,
+          role: orgInvitations.role,
+          status: orgInvitations.status,
+          createdAt: orgInvitations.createdAt,
+        })
+        .from(orgInvitations)
+        .where(
+          and(
+            eq(orgInvitations.orgId, organizationId),
+            eq(orgInvitations.status, "pending"),
+          ),
+        )
+        .orderBy(desc(orgInvitations.createdAt)),
+      db
+        .select({
+          id: schema.spaces.id,
+          name: schema.spaces.name,
+          color: schema.spaces.color,
+          iconEmoji: schema.spaces.iconEmoji,
+          isAllCompany: schema.spaces.isAllCompany,
+        })
         .from(schema.spaces)
         .where(eq(schema.spaces.organizationId, organizationId))
         .orderBy(asc(schema.spaces.name)),
       db
-        .select()
+        .select({
+          id: schema.folders.id,
+          name: schema.folders.name,
+          parentId: schema.folders.parentId,
+          spaceId: schema.folders.spaceId,
+          ownerEmail: schema.folders.ownerEmail,
+          position: schema.folders.position,
+        })
         .from(schema.folders)
         .where(
           and(
@@ -165,7 +155,7 @@ export default defineAction({
           ),
         )
         .orderBy(asc(schema.folders.position)),
-      resolvedDb
+      db
         .select({
           folderId: schema.recordings.folderId,
           recordingCount: sql<number>`COUNT(1)`,
@@ -186,11 +176,37 @@ export default defineAction({
             isNotNull(schema.recordings.folderId),
             isNull(schema.recordings.archivedAt),
             isNull(schema.recordings.trashedAt),
-            notInArray(schema.recordings.id, meetingRecordingIds),
+            notExists(
+              db
+                .select({ one: sql`1` })
+                .from(schema.meetings)
+                .where(eq(schema.meetings.recordingId, schema.recordings.id)),
+            ),
           ),
         )
         .groupBy(schema.recordings.folderId),
     ]);
+    if (!org) return emptyOrganizationState(ownerEmail);
+
+    const membersWithProfiles = memberRows.map((m) => {
+      const name = profiles.get(m.email.toLowerCase())?.name;
+      return {
+        id: m.id,
+        email: m.email,
+        role: m.role,
+        joinedAt: Number(m.joinedAt),
+        ...(name && !isEmailDerivedName(name, m.email) ? { name } : {}),
+      };
+    });
+
+    const invitations = inviteRows.map((i) => ({
+      id: i.id,
+      email: i.email,
+      role: i.role ?? "member",
+      status: i.status,
+      createdAt: Number(i.createdAt),
+    }));
+
     const recordingCountByFolder = new Map(
       folderRecordingCountRows.flatMap((row) =>
         row.folderId
@@ -204,9 +220,10 @@ export default defineAction({
       organization: {
         id: org.id,
         name: org.name,
-        brandColor: settings?.brandColor ?? "#18181B",
-        brandLogoUrl: settings?.brandLogoUrl ?? null,
-        defaultVisibility: settings?.defaultVisibility ?? "public",
+        // guard:allow-raw-color — stored brand data; mirrors the brand_color column default.
+        brandColor: org.brandColor ?? "#18181B",
+        brandLogoUrl: org.brandLogoUrl ?? null,
+        defaultVisibility: org.defaultVisibility ?? "public",
         createdAt: Number(org.createdAt),
       },
       members: membersWithProfiles,

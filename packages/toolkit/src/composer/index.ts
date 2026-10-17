@@ -1,4 +1,36 @@
 export { FileReference } from "./extensions/FileReference.js";
+export {
+  useComposerDefaultActions,
+  mergeComposerMenuItems,
+} from "./ComposerPlusMenu.js";
+export {
+  ComposerContextMenu,
+  ComposerContextSearchInput,
+  type ComposerContextSearchInputProps,
+  type ComposerContextPageControls,
+  getComposerContextMenuEntries,
+  type ComposerContextMenuProps,
+  type ComposerContextMenuItem,
+  type ComposerContextMenuAction,
+  type ComposerContextMenuCategory,
+  type ComposerContextPickerConfig,
+  type ComposerContextPickerItem,
+  type ComposerContextPickerRequest,
+  type ComposerContextPickerResult,
+  type ComposerContextPickerSelection,
+  type ComposerContextPickerFooterAction,
+} from "./ComposerContextMenu.js";
+export { ComposerContextPickerDialog } from "./ComposerContextPickerDialog.js";
+export {
+  areComposerContextItemsReady,
+  composerContextFits,
+  snapshotComposerContextItems,
+  ComposerContextError,
+  COMPOSER_CONTEXT_MAX_ITEMS,
+  COMPOSER_CONTEXT_MAX_BYTES,
+  type ComposerContextSnapshot,
+} from "./context-items.js";
+export type { AgentChatContextItem } from "./runtime-adapters.js";
 export { SkillReference } from "./extensions/SkillReference.js";
 export { MentionReference } from "./extensions/MentionReference.js";
 export {
@@ -6,14 +38,30 @@ export {
   type AgentComposerFrameProps,
 } from "./AgentComposerFrame.js";
 export {
+  AgentSuggestionBar,
+  agentSuggestionPrompt,
+  normalizeAgentSuggestion,
+  type AgentSuggestionBarProps,
+  type AgentSuggestionInput,
+  type AgentSuggestionItem,
+} from "./AgentSuggestionBar.js";
+export {
   TiptapComposer,
   canSubmitComposerContent,
   displayableComposerModeMessage,
   getComposerSubmitIntentForEnterKey,
+  findExactMentionItem,
   handleComposerFileDrop,
+  isLocalRuntimeEngine,
+  getOversizedDocumentAttachmentError,
   insertComposerHardBreakAndScrollIntoView,
+  composerDraftSnapshot,
+  sameComposerDraft,
+  type ComposerDraftSnapshot,
   type ComposerSubmitIntent,
   type TiptapComposerHandle,
+  type ComposerTextReference,
+  type ComposerTextSelection,
   type TiptapComposerProps,
   type TiptapComposerSubmitOptions,
 } from "./TiptapComposer.js";
@@ -29,6 +77,19 @@ export {
   type PromptComposerFile,
   type PromptComposerSubmitOptions,
 } from "./PromptComposer.js";
+export {
+  PromptBar,
+  type PromptBarProps,
+  type PromptBarSection,
+} from "./PromptBar.js";
+export {
+  MessageQueueDrawer,
+  type MessageQueueDrawerProps,
+  type MessageQueueDrawerLabels,
+  type MessageQueueDrawerVariant,
+  type MessageQueueItem,
+  type MessageQueueItemAction,
+} from "./MessageQueueDrawer.js";
 export { useEagerFileUploads } from "./use-eager-file-uploads.js";
 export type { ComposerTerminalModeControl } from "./ComposerPlusMenu.js";
 export {
@@ -69,6 +130,7 @@ export {
   type AgentPromptAttachment,
   type ReadAgentPromptAttachmentOptions,
 } from "./prompt-attachments.js";
+export { MentionChip, type MentionChipProps } from "./MentionChip.js";
 export { MentionPopover } from "./MentionPopover.js";
 export { useMentionSearch } from "./use-mention-search.js";
 export {

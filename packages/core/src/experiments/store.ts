@@ -1,39 +1,37 @@
+import { getLabDefinition } from "../labs/registry.js";
 import {
-  getUserSetting,
-  mutateUserSetting,
-} from "../settings/user-settings.js";
-import { getExperimentDefinition, listExperiments } from "./registry.js";
+  getUserLabs,
+  normalizeLabValues,
+  setUserLabStates,
+} from "../labs/store.js";
 
+/** @deprecated Import the Labs store instead. */
 export const EXPERIMENTS_SETTING_KEY = "experiments";
+export const normalizeExperimentValues = normalizeLabValues;
+export const getUserExperiments = getUserLabs;
 
-export function normalizeExperimentValues(
-  stored: Record<string, unknown> | null | undefined,
-): Record<string, boolean> {
-  return Object.fromEntries(
-    listExperiments().map(({ key }) => [key, stored?.[key] === true]),
-  );
-}
-
-export async function getUserExperiments(
-  email: string,
-): Promise<Record<string, boolean>> {
-  return normalizeExperimentValues(
-    await getUserSetting(email, EXPERIMENTS_SETTING_KEY),
-  );
-}
-
+/** @deprecated Use setUserLab instead. */
 export async function setUserExperiment(
   email: string,
   key: string,
   enabled: boolean,
 ): Promise<Record<string, boolean>> {
-  if (!getExperimentDefinition(key)) {
+  if (!getLabDefinition(key)) {
     throw new Error(`Unknown experiment: ${key}`);
   }
-  const stored = await mutateUserSetting(
-    email,
-    EXPERIMENTS_SETTING_KEY,
-    (current) => ({ ...(current ?? {}), [key]: enabled }),
+  const states = await setUserLabStates(email, key, enabled);
+  const target = states[key];
+  if (!target) throw new Error(`Unknown lab: ${key}`);
+  if ("error" in target) {
+    throw new Error(
+      target.error === "invalid-choice"
+        ? `Invalid saved lab choice: ${key}`
+        : `Could not resolve saved lab state: ${key}`,
+    );
+  }
+  return Object.fromEntries(
+    Object.entries(states).flatMap(([labKey, state]) =>
+      "error" in state ? [] : [[labKey, state.enabled]],
+    ),
   );
-  return normalizeExperimentValues(stored);
 }

@@ -13,7 +13,6 @@ function concat(...chunks: Uint8Array[]): Uint8Array {
   return out;
 }
 
-/** Shortest definite-length EBML size vint (mirrors the module's encoder). */
 function encodeSize(value: number): Uint8Array {
   for (let len = 1; len <= 8; len++) {
     const max = Math.pow(2, 7 * len) - 1;
@@ -37,7 +36,7 @@ function el(
   opts: { unknownSize?: boolean } = {},
 ): Uint8Array {
   const size = opts.unknownSize
-    ? new Uint8Array([0xff]) // 1-byte "unknown size"
+    ? new Uint8Array([0xff])
     : encodeSize(data.byteLength);
   return concat(new Uint8Array(idBytes), size, data);
 }
@@ -49,7 +48,6 @@ const TIMECODE_SCALE_ID = [0x2a, 0xd7, 0xb1];
 const DURATION_ID = [0x44, 0x89];
 const CLUSTER_ID = [0x1f, 0x43, 0xb6, 0x75];
 
-/** Big-endian minimal-length unsigned int bytes. */
 function uintBytes(n: number): Uint8Array {
   const bytes: number[] = [];
   let v = n;
@@ -66,14 +64,10 @@ function timecodeScaleEl(scale: number): Uint8Array {
 
 const CLUSTER = el(CLUSTER_ID, new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]));
 
-/** Walk the patched file and pull the Duration float out of Info. */
 function readDuration(buf: Uint8Array): number {
-  // EBML header is element 0; Segment is element 1 (unknown size → rest).
-  const ebmlLen = buf[5] & 0x7f; // 1-byte size for our fixture header
-  let offset = 4 /*ebml id*/ + 1 /*size*/ + ebmlLen;
-  // Segment: 4-byte id + 1-byte unknown size, children follow.
+  const ebmlLen = buf[5] & 0x7f;
+  let offset = 4 + 1 + ebmlLen;
   offset += 4 + 1;
-  // First Segment child is Info (4-byte id).
   offset += 4;
   const infoSizeFirst = buf[offset];
   const infoSizeLen = infoSizeFirst & 0x80 ? 1 : infoSizeFirst & 0x40 ? 2 : 3;
@@ -88,8 +82,6 @@ function readDuration(buf: Uint8Array): number {
       const dv = new DataView(buf.buffer, buf.byteOffset + p + 3, 8);
       return dv.getFloat64(0, false);
     }
-    // Skip: 2-byte id (Duration/TimecodeScale share this nibble in fixture)
-    // — fall back to a generic single-byte-size skip.
     const idLen = buf[p] & 0x80 ? 1 : buf[p] & 0x40 ? 2 : buf[p] & 0x20 ? 3 : 4;
     const szFirst = buf[p + idLen];
     const szLen = szFirst & 0x80 ? 1 : szFirst & 0x40 ? 2 : 3;
@@ -112,7 +104,6 @@ describe("injectWebmDuration", () => {
 
     expect(out).not.toBe(file);
     expect(readDuration(out)).toBeCloseTo(12_345, 3);
-    // The cluster (and its bytes) must survive verbatim at the tail.
     const tail = out.slice(out.length - CLUSTER.length);
     expect([...tail]).toEqual([...CLUSTER]);
   });
@@ -133,7 +124,6 @@ describe("injectWebmDuration", () => {
   });
 
   it("honors a non-default TimecodeScale", () => {
-    // 500_000 ns ticks → Duration is expressed in 0.5ms units.
     const info = el(INFO_ID, timecodeScaleEl(500_000));
     const segment = el(SEGMENT_ID, concat(info, CLUSTER), {
       unknownSize: true,
@@ -141,7 +131,6 @@ describe("injectWebmDuration", () => {
     const file = concat(el(EBML_ID, new Uint8Array([0x01])), segment);
 
     const out = injectWebmDuration(file, 10_000);
-    // 10_000ms * 1e6 / 500_000 = 20_000 ticks
     expect(readDuration(out)).toBeCloseTo(20_000, 3);
   });
 

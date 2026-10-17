@@ -2,20 +2,23 @@ import { defineAction, fail } from "@agent-native/core/action";
 import { uploadFile } from "@agent-native/core/file-upload";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import { eq, desc } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { requireFormsPermission } from "../server/lib/app-roles.js";
 import { publicSubmitterEmail } from "../shared/submitter-email.js";
 
 export default defineAction({
+  authorize: requireFormsPermission("forms.review", "formId"),
   description: "Export form responses to CSV or JSON file.",
   schema: z.object({
     form: z.string().describe("Form ID (required)"),
     format: z.enum(["csv", "json"]).optional().describe("Export format"),
   }),
   http: false,
-  run: async (args) => {
+  run: async (args, ctx) => {
     const formId = args.form;
     const { resource: form } = await assertAccess("form", formId, "editor");
     const db = getDb();
@@ -67,10 +70,6 @@ export default defineAction({
         ];
       });
 
-      // Neutralize CSV/formula injection: a cell that begins with =,+,-,@,tab,
-      // or CR is interpreted as a formula by Excel/LibreOffice/Sheets. Response
-      // values come from anonymous public submitters, so prefix any such cell
-      // with a single quote so spreadsheets treat it as literal text.
       const neutralize = (cell: string) =>
         /^[=+\-@\t\r]/.test(cell) ? `'${cell}` : cell;
       fileBody = [headers, ...rows]
@@ -92,10 +91,38 @@ export default defineAction({
     if (!uploaded) {
       fail(
         "Export was generated but not saved because file storage is not configured. " +
-          "Connect or reconnect Builder.io (free tier available) in Settings → File uploads, or register a custom provider.",
+          "Use Builder.io (free tier available) in Settings → File uploads, or register a custom provider.",
         { errorCode: "file_storage_not_configured" },
       );
     }
+
+    track(
+      "submissions_viewed",
+      {
+        app_name: "forms",
+        template_name: "forms",
+        output_id: formId,
+        output_type: "form",
+        form_id: formId,
+        view_type: "export",
+        export_format: fmt,
+        response_count: responses.length,
+      },
+      ctx,
+    );
+    track(
+      "form_exported",
+      {
+        app_name: "forms",
+        template_name: "forms",
+        output_id: formId,
+        output_type: "form",
+        form_id: formId,
+        format: fmt,
+        response_count: responses.length,
+      },
+      ctx,
+    );
 
     return `Exported ${responses.length} responses to ${uploaded.url}`;
   },

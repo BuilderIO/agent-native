@@ -172,10 +172,6 @@ describe("embedded Agent-Native host fixture", () => {
       )
     `);
 
-    // This embedded host fixture doesn't run the org module's migrations, so
-    // `org_members` doesn't exist yet — create it directly, the same way the
-    // share rows below are seeded straight through `getDbExec()` rather than
-    // through a real join/signup flow.
     await getDbExec().execute(`
       CREATE TABLE IF NOT EXISTS org_members (
         id TEXT PRIMARY KEY,

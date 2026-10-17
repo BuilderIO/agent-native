@@ -20,6 +20,7 @@ vi.mock("drizzle-orm", () => ({
   and: (...args: unknown[]) => args,
   desc: (value: unknown) => value,
   eq: (...args: unknown[]) => args,
+  like: (...args: unknown[]) => args,
 }));
 
 import { getDb } from "../db/index.js";
@@ -168,6 +169,67 @@ describe("deck version snapshot deduplication", () => {
     expect(insertedVersions).toHaveLength(0);
   });
 
+  it("forces the beginning checkpoint when the saved content is unchanged", async () => {
+    latestVersion = {
+      title: "Deck",
+      data: JSON.stringify({ slides: [{ id: "s1", content: "same" }] }),
+      createdAt: "2026-09-03T00:00:00.000Z",
+      chatContext: JSON.stringify({ threadId: "thread-1", runId: "run-1" }),
+    };
+
+    await expect(
+      createDeckVersionSnapshot(
+        {
+          id: "deck-1",
+          title: "Deck",
+          data: JSON.stringify({ slides: [{ id: "s1", content: "same" }] }),
+          ownerEmail: "owner@example.com",
+        },
+        {
+          force: true,
+          chatContext: {
+            threadId: "thread-2",
+            runId: "run-2",
+            phase: "start",
+          },
+          db: db as unknown as ReturnType<typeof getDb>,
+        },
+      ),
+    ).resolves.toMatchObject({ created: true });
+    expect(insertedVersions).toHaveLength(1);
+    expect(insertedVersions[0]).toEqual(
+      expect.objectContaining({
+        changeGroup: "start:thread:thread-2",
+        chatContext: JSON.stringify({
+          threadId: "thread-2",
+          runId: "run-2",
+          phase: "start",
+        }),
+      }),
+    );
+  });
+
+  it("separates the beginning checkpoint from the end snapshot group", async () => {
+    const threadId = 'thread "%_\\path';
+    await createDeckVersionSnapshot(
+      {
+        id: "deck-1",
+        title: "Deck",
+        data: JSON.stringify({ slides: [{ id: "s1", content: "same" }] }),
+        ownerEmail: "owner@example.com",
+      },
+      {
+        force: true,
+        chatContext: { threadId, runId: "run-1", phase: "start" },
+        db: db as unknown as ReturnType<typeof getDb>,
+      },
+    );
+
+    expect(insertedVersions).toEqual([
+      expect.objectContaining({ changeGroup: `start:thread:${threadId}` }),
+    ]);
+  });
+
   it("uses an atomic change-group insert for concurrent agent turns", async () => {
     conflictInsert = true;
 
@@ -189,5 +251,34 @@ describe("deck version snapshot deduplication", () => {
     expect(insertedVersions).toEqual([
       expect.objectContaining({ changeGroup: "turn-1" }),
     ]);
+  });
+
+  it("keeps retried start snapshots idempotent across runs in one thread", async () => {
+    const source = {
+      id: "deck-1",
+      title: "Deck",
+      data: JSON.stringify({ slides: [{ id: "s1", content: "same" }] }),
+      ownerEmail: "owner@example.com",
+    };
+
+    await createDeckVersionSnapshot(source, {
+      force: true,
+      chatContext: { threadId: "thread-1", runId: "run-1", phase: "start" },
+      db: db as unknown as ReturnType<typeof getDb>,
+    });
+    conflictInsert = true;
+    await expect(
+      createDeckVersionSnapshot(source, {
+        force: true,
+        chatContext: { threadId: "thread-1", runId: "run-2", phase: "start" },
+        db: db as unknown as ReturnType<typeof getDb>,
+      }),
+    ).resolves.toEqual({ created: false, reason: "same-agent-turn" });
+
+    expect(
+      insertedVersions.map(
+        (version) => (version as { changeGroup: string }).changeGroup,
+      ),
+    ).toEqual(["start:thread:thread-1", "start:thread:thread-1"]);
   });
 });

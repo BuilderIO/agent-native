@@ -235,9 +235,6 @@ export function documentContentPreview(content: string) {
   };
 }
 
-/** Shape written by the editor's `content-selection.ts` client helper. Kept
- *  as a local structural type (rather than imported from `app/`) since
- *  actions are server-only and app-state values are untrusted input anyway. */
 interface ContentSelectionAppState {
   documentId?: unknown;
   collapsed?: unknown;
@@ -247,12 +244,6 @@ interface ContentSelectionAppState {
   heading?: unknown;
 }
 
-/**
- * Build the `selection` screen section from the raw `content-selection`
- * app-state value, or return null when there is nothing usable — no value,
- * malformed value, or a selection left over from a document that isn't the
- * one currently open (the tab navigated away without clearing it in time).
- */
 export function buildSelectionScreenSection(
   selection: unknown,
   openDocumentId: string | undefined,
@@ -816,18 +807,24 @@ interface NavigationState {
 
 export default defineAction({
   description:
-    "See what the user is currently looking at on screen. Returns bounded navigation, document previews, the current database window, and the editor's current text selection (if any); use get-document for full page content.",
+    "See what the user is currently looking at on screen. Returns bounded navigation, document previews, the current collection window, and the editor's current text selection (if any); use get-document for full page content.",
   deferLoading: false,
   schema: z.object({}),
   http: false,
   run: async () => {
     const navigation = await readAppStateForCurrentTab("navigation");
+    const suggestionMode = await readAppStateForCurrentTab(
+      "content-suggestion-mode",
+    );
     const localFilesState = await readAppState("local-files");
     const contentSpaceState = await readAppState("content-space");
     const selectionState = await readAppStateForCurrentTab("content-selection");
+    const importState = await readAppStateForCurrentTab("content-import");
 
     const screen: Record<string, unknown> = {};
     if (navigation) screen.navigation = navigation;
+    if (importState) screen.contentImport = importState;
+    if (suggestionMode) screen.suggestionMode = suggestionMode;
     if (contentSpaceState) screen.contentSpace = contentSpaceState;
 
     const nav = navigation as NavigationState | null;

@@ -37,7 +37,6 @@ export function isDirectScreenHoverTarget(
   return !!element && !element.closest("[data-screen-content]");
 }
 
-/** True only for native OS file drags, not internal HTML drag operations. */
 export function isOsFileDrag(event: {
   dataTransfer: { types: readonly string[] | DOMStringList } | null;
 }): boolean {

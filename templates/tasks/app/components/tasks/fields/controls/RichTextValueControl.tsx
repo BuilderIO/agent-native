@@ -97,12 +97,11 @@ export function RichTextValueControl({
               key={tool.label}
               type="button"
               variant="ghost"
-              size="icon"
+              size="icon-sm"
               disabled={disabled}
               onClick={tool.action}
               aria-label={tool.label}
               title={tool.label}
-              className="size-8"
             >
               <Icon className="size-4" />
             </Button>

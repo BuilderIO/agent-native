@@ -6,14 +6,11 @@ import {
   smoothStreamingPunctuationDelayMs,
   smoothStreamingRevealCount,
   splitStreamingTextGraphemes,
-  SMOOTH_STREAMING_LONG_TEXT_TAIL_GRAPHEMES,
   SMOOTH_STREAMING_LONG_TEXT_THRESHOLD_GRAPHEMES,
 } from "./streaming-text-smoothing.js";
 
 describe("streaming text smoothing helpers", () => {
   beforeEach(() => {
-    // Reset the incremental segmentation cache between tests so they are
-    // independent of execution order.
     resetSegmenterCache();
   });
 
@@ -31,13 +28,11 @@ describe("streaming text smoothing helpers", () => {
     expect(initialSmoothStreamingGraphemeCount(graphemes)).toBe(0);
   });
 
-  it("keeps only a tail buffered for long restored streams", () => {
+  it("starts long responses from the beginning instead of dumping a tail", () => {
     const text = "x".repeat(SMOOTH_STREAMING_LONG_TEXT_THRESHOLD_GRAPHEMES + 1);
     const graphemes = splitStreamingTextGraphemes(text);
 
-    expect(initialSmoothStreamingGraphemeCount(graphemes)).toBe(
-      graphemes.length - SMOOTH_STREAMING_LONG_TEXT_TAIL_GRAPHEMES,
-    );
+    expect(initialSmoothStreamingGraphemeCount(graphemes)).toBe(0);
   });
 
   it("reveals at least one grapheme while respecting backlog and burst limits", () => {
@@ -64,9 +59,6 @@ describe("streaming text smoothing helpers", () => {
   });
 
   it("reveals backlog faster when inputDone is true (post-tab-return fast-forward path)", () => {
-    // After a tab returns from background and we jump near the tail, the
-    // smoothStreamingRevealCount is called with inputDone=true to drain the
-    // remaining ~200 graphemes quickly without animating the full backlog.
     const normalRate = smoothStreamingRevealCount({
       backlog: 150,
       elapsedMs: 100,
@@ -79,8 +71,6 @@ describe("streaming text smoothing helpers", () => {
     expect(fastRate).toBeGreaterThan(normalRate);
   });
 
-  // ─── Incremental segmentation ────────────────────────────────────────────────
-
   describe("incremental segmentation", () => {
     it("returns the same graphemes as full segmentation when text grows by appending", () => {
       const base = "Hello, world!";
@@ -89,7 +79,7 @@ describe("streaming text smoothing helpers", () => {
       const fullResult = splitStreamingTextGraphemes(extended);
 
       resetSegmenterCache();
-      splitStreamingTextGraphemes(base); // prime the cache
+      splitStreamingTextGraphemes(base);
       const incrementalResult = splitStreamingTextGraphemes(extended);
 
       expect(incrementalResult).toEqual(fullResult);
@@ -97,7 +87,7 @@ describe("streaming text smoothing helpers", () => {
 
     it("handles emoji appended to ascii text correctly", () => {
       const base = "Hi ";
-      const extended = base + "\u{1F680}"; // rocket emoji
+      const extended = base + "\u{1F680}";
 
       const fullResult = splitStreamingTextGraphemes(extended);
 
@@ -110,7 +100,6 @@ describe("streaming text smoothing helpers", () => {
     });
 
     it("handles ZWJ sequence appended incrementally", () => {
-      // Family emoji: man + ZWJ + woman + ZWJ + girl
       const zwjSeq = "\u{1F468}‍\u{1F469}‍\u{1F467}";
       const base = "Family: ";
       const extended = base + zwjSeq;
@@ -142,9 +131,6 @@ describe("streaming text smoothing helpers", () => {
     });
 
     it("keeps a surrogate pair intact when the overlap boundary lands inside it", () => {
-      // The overlap window starts SEGMENTER_OVERLAP characters back from the
-      // end of the cached text. Streaming one character at a time walks that
-      // boundary through the emoji, so it lands mid-cluster on some step.
       const text = `${"x".repeat(20)}\u{1F600}${"y".repeat(20)}`;
 
       resetSegmenterCache();
@@ -179,7 +165,6 @@ describe("streaming text smoothing helpers", () => {
 
     it("falls back to full segmentation when text is not an append of cached text", () => {
       splitStreamingTextGraphemes("Some text");
-      // Different text entirely (not an append)
       const result = splitStreamingTextGraphemes("Completely different.");
       const expected = (() => {
         resetSegmenterCache();
@@ -192,15 +177,12 @@ describe("streaming text smoothing helpers", () => {
       const text = "Repeat me.";
       const first = splitStreamingTextGraphemes(text);
       const second = splitStreamingTextGraphemes(text);
-      expect(second).toBe(first); // referential equality — same array
+      expect(second).toBe(first);
     });
-
-    // ─── CJK ─────────────────────────────────────────────────────────────────
 
     it("counts CJK characters as individual graphemes", () => {
       const text = "日本語テスト";
       const graphemes = splitStreamingTextGraphemes(text);
-      // Each CJK ideograph / kana is a single grapheme cluster
       expect(graphemes).toEqual(["日", "本", "語", "テ", "ス", "ト"]);
     });
 

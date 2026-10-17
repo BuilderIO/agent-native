@@ -57,7 +57,6 @@ function openImageInNewTab(src: string, filename: string): void {
   anchor.remove();
 }
 
-/** Download the selected image, proxying external sources when CORS blocks the browser. */
 export async function downloadImage(src: string): Promise<void> {
   const normalizedSrc = src.trim();
   if (!normalizedSrc || typeof document === "undefined") return;

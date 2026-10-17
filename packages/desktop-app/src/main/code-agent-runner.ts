@@ -13,7 +13,6 @@ export interface CodeAgentRunnerInvocationOptions {
   resourcesPath: string;
   electronPath: string;
   repoRoot: string;
-  /** The checkout that the agent process must treat as its working directory. */
   cwd?: string;
   environment?: NodeJS.ProcessEnv;
 }
@@ -162,6 +161,7 @@ export function resolveCodeAgentRunnerInvocation(
 export function resolveExecutable(
   executable: string,
   environment: NodeJS.ProcessEnv | undefined,
+  platform: NodeJS.Platform = process.platform,
 ): string | null {
   if (!environment) return null;
 
@@ -195,14 +195,20 @@ export function resolveExecutable(
     "/usr/local/bin",
   ].filter((value): value is string => Boolean(value));
 
+  const names =
+    platform === "win32" && !path.extname(executable)
+      ? [`${executable}.exe`, `${executable}.com`]
+      : [executable];
   for (const directory of [...new Set(searchDirectories)]) {
-    const candidate = path.join(directory, executable);
-    try {
-      fs.accessSync(candidate, fs.constants.X_OK);
-      return candidate;
-    } catch {
-      // coercion-ok: an unreadable candidate is an expected search miss.
-      // Continue through the standard package-manager locations.
+    for (const name of names) {
+      const candidate = path.join(directory, name);
+      try {
+        fs.accessSync(candidate, fs.constants.X_OK);
+        return candidate;
+      } catch {
+        // coercion-ok: an unreadable candidate is an expected search miss.
+        // Continue through the standard package-manager locations.
+      }
     }
   }
   return null;

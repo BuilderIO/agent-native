@@ -1,17 +1,24 @@
 import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail, buildDeepLink } from "@agent-native/core/server";
 import { getUserSetting } from "@agent-native/core/settings";
-import { emailMessageMatchesSearch } from "@shared/search.js";
+import { track } from "@agent-native/core/tracking";
+import {
+  emailMessageMatchesSearch,
+  searchQueryNeedsAttachmentMetadata,
+} from "@shared/search.js";
 import { z } from "zod";
 
 import { buildGmailEmailSearchQuery } from "../server/lib/gmail-query.js";
+import { assertGmailNotCoolingDown } from "../server/lib/gmail-quota.js";
+import { GmailQuotaCooldownError } from "../server/lib/google-api.js";
 import {
   listGmailMessages,
   gmailToEmailMessage,
   fetchGmailLabelMap,
-  getClients,
+  getClientsWithErrors,
   isConnected,
 } from "../server/lib/google-auth.js";
+import { retryAfterSecondsFromErrors } from "../server/lib/list-inbox-emails.js";
 
 const cliBoolean = z
   .union([z.boolean(), z.enum(["true", "false"])])
@@ -104,7 +111,13 @@ export default defineAction({
       ])
       .optional()
       .describe("Limit search to a view (default: all)"),
-    limit: z.coerce.number().optional().describe("Max results (default: 25)"),
+    limit: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(500)
+      .optional()
+      .describe("Max results (default: 25, max: 500)"),
     account: z
       .string()
       .optional()
@@ -128,7 +141,7 @@ export default defineAction({
       view: "all",
     };
   },
-  run: async (args) => {
+  run: async (args, ctx) => {
     if (!args.q) throw new Error("--q is required");
     const view = args.view ?? "all";
     const limit = args.limit ?? 25;
@@ -137,6 +150,15 @@ export default defineAction({
     const accountFilter = args.account?.toLowerCase();
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
+    track(
+      "smart_search_used",
+      {
+        app_name: "mail",
+        template_name: "mail",
+        view,
+      },
+      ctx,
+    );
 
     if (!(await isConnected(ownerEmail))) {
       const data = await getUserSetting(ownerEmail, "local-emails");
@@ -200,8 +222,19 @@ export default defineAction({
       return JSON.stringify(payload, null, 2);
     }
 
-    const clients = await getClients(ownerEmail);
+    const { clients, errors: clientErrors } = await getClientsWithErrors(
+      ownerEmail,
+      accountFilter ? [accountFilter] : undefined,
+    );
+    if (clientErrors.length > 0) {
+      throw new Error(
+        clientErrors
+          .map((error) => `${error.email}: ${error.error}`)
+          .join("; "),
+      );
+    }
     if (clients.length === 0) throw new Error("No Google account connected.");
+    await assertGmailNotCoolingDown(clients.map((client) => client.email));
 
     const gmailQuery = buildGmailEmailSearchQuery({ view, q: args.q });
 
@@ -220,10 +253,25 @@ export default defineAction({
       limit,
       ownerEmail,
       undefined,
-      { mode: "threads", threadCandidateLimit: 500 },
+      {
+        mode: "threads",
+        threadFormat:
+          !compact || searchQueryNeedsAttachmentMetadata(args.q)
+            ? "full"
+            : "metadata",
+        threadCandidateLimit: Math.min(500, Math.max(40, limit + 1)),
+        ...(accountFilter && { accountEmails: [accountFilter] }),
+      },
     );
-    if (errors.length > 0 && messages.length === 0) {
-      throw new Error(errors.map((e) => `${e.email}: ${e.error}`).join("; "));
+    if (errors.length > 0) {
+      if (errors.every((error) => error.isQuotaError)) {
+        throw new GmailQuotaCooldownError(
+          retryAfterSecondsFromErrors(errors) * 1000,
+        );
+      }
+      throw new Error(
+        errors.map((error) => `${error.email}: ${error.error}`).join("; "),
+      );
     }
 
     let emails = messages

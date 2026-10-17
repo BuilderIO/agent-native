@@ -40,7 +40,6 @@ const comment: PlaybackComment = {
   content: "Please take a look at this.",
   videoTimestampMs: 12_000,
   parentId: null,
-  resolved: false,
 };
 
 describe("playback comment timing", () => {
@@ -71,11 +70,13 @@ describe("playback comment timing", () => {
     );
   });
 
-  it("does not surface replies or resolved comments over playback", () => {
+  it("does not surface replies while showing every root comment over playback", () => {
     const reply = { ...comment, id: "reply-1", parentId: comment.id };
     const resolved = { ...comment, id: "resolved-1", resolved: true };
 
-    expect(getActivePlaybackComments([reply, resolved], 12_500)).toEqual([]);
+    expect(getActivePlaybackComments([reply, resolved], 12_500)).toEqual([
+      resolved,
+    ]);
   });
 });
 

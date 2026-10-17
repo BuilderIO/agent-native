@@ -11,11 +11,6 @@ import type {
   AltHoverMeasurementLine,
 } from "./types";
 
-// Snap/guide recompute runs every rAF-coalesced mousemove during a drag and
-// always returns a freshly-allocated array, so referential-equality bail in
-// setState never fires even when the guides are unchanged frame-to-frame
-// (e.g. holding steady mid-drag, or dragging along an axis with no new
-// alignment). Shallow field-compare avoids the wasted re-render (PF15).
 export function alignmentGuidesEqual(a: AlignmentGuide[], b: AlignmentGuide[]) {
   if (a === b) return true;
   if (a.length !== b.length) return false;
@@ -108,13 +103,6 @@ export function altHoverMeasurementEqual(
   );
 }
 
-/** Computes the Figma-style alt-hover measurement lines between a selection's
- *  bounding box and a hovered object's bounding box: one horizontal gap (x
- *  axis) and one vertical gap (y axis), each with the px distance and the
- *  line's placement. Pure/testable — no DOM, no React state. Returns null for
- *  an axis where the two boxes overlap (nothing meaningful to measure there),
- *  matching Figma's behavior of only showing the line(s) that represent real
- *  empty space. */
 export function computeAltHoverMeasurement(
   selectionBounds: FrameBounds,
   hoveredBounds: FrameBounds,

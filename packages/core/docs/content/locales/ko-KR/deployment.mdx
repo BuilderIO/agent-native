@@ -1,51 +1,278 @@
 ---
 title: "배포"
-description: "영구 PostgreSQL 데이터베이스를 사용해 Agent-Native 앱 또는 워크스페이스를 Nitro 호환 플랫폼에 배포합니다."
+description: "영구 PostgreSQL 데이터베이스를 사용해 Agent-Native 앱 또는 작업 공간을 Nitro 호환 플랫폼에 배포합니다."
 ---
 
-<!-- i18n-docs-ignore -->
-
 # 배포
+
+Agent-Native 앱은 [Nitro](https://nitro.build)에서 실행되므로, 같은 앱을 Node.js,
+서버리스 함수, 엣지 워커, 관리형 호스트 중 어디에나 배포할 수 있습니다. 배포하려는 대상에
+맞는 경로를 선택하세요.
+
+<Cards columns={2}>
+
+### :server: [앱 배포](/docs/deploy-an-app)
+
+독립 실행형 앱 하나를 빌드하고 Node.js, Docker, Vercel, Netlify 또는
+Cloudflare Workers에서 실행합니다.
+
+### :network: [작업 공간 배포](/docs/workspace-deployment)
+
+여러 앱을 하나의 오리진 뒤에서 빌드하고, 공유 로그인과 동일 오리진 앱 간 통신을
+사용합니다.
+
+</Cards>
+
+## 배포 전: 영구 데이터베이스 선택하기 {#persistent-database}
+
+배포된 모든 앱에는 영구 PostgreSQL 데이터베이스가 필요합니다. 로컬 개발에서는
+`data/pglite`의 PGlite 데이터베이스를 사용할 수 있지만, 컨테이너, 미리 보기, 서버리스
+파일 시스템은 언제든 초기화될 수 있습니다.
+
+<Steps>
+
+### 제공업체 선택하기
+
+[Neon](/docs/neon), [Supabase](/docs/supabase), Railway, Render, [Amazon RDS for PostgreSQL](/docs/aws-rds),
+[Cloud SQL for PostgreSQL](/docs/cloud-sql), [Azure Database for PostgreSQL](/docs/azure-postgresql) 같은
+호스팅된 PostgreSQL 제공업체를 사용하세요. 다른 관리형 서비스와 셀프 호스팅 PostgreSQL 서버는
+[Plain Postgres](/docs/postgres) 가이드를 참조하세요. 프레임워크는 연결 URL을 바탕으로
+PostgreSQL을 구성합니다.
+
+### 연결 문자열 설정하기
+
+첫 프로덕션 배포 전에 호스팅 제공업체의 환경 변수 또는 시크릿 설정에 `DATABASE_URL`을
+설정하세요. 로컬 `.env`는 내 컴퓨터만 구성하며 배포 명령으로 업로드되지 않습니다.
+
+### 프로덕션 시크릿 추가하기
+
+`openssl rand -hex 32`로 안정적인 서명 시크릿을 생성한 다음, 독립 실행형 앱에서는
+`BETTER_AUTH_SECRET`으로 설정하세요. 서명된 앱 간 요청이나 백그라운드 인계를 사용하는
+작업 공간에는 `A2A_SECRET`도 필요합니다. 나머지 프로덕션 설정은 [배포 환경 변수
+레퍼런스](/docs/deployment-environment-variables)에서 다룹니다.
+
+### 마이그레이션 실행하기
+
+첫 방문 전에 프로덕션 데이터베이스를 대상으로 `pnpm migrate:production`을 실행하세요.
+이 명령은 앱에 필요한 테이블을 만듭니다. 업그레이드할 때마다 새 버전이 공개되기 전에 다시
+실행하세요. 각 호스팅 가이드에서 이 단계를 어디에서 수행하는지 보여 줍니다.
+
+</Steps>
+
+<Callout tone="info">
+
+작업 공간에서는 모든 앱이 기본적으로 루트의 `DATABASE_URL`을 상속합니다. 한 앱에만
+다른 데이터베이스가 필요할 때만 `<APP_NAME>_DATABASE_URL`을 설정하세요.
+
+</Callout>
+
+## 이메일 전송은 선택 사항이지만 권장됩니다 {#email-provider}
+
+이메일 제공업체는 이메일/비밀번호 인증에 필수가 아닙니다. 제공업체가 없으면 배포된 앱은
+이메일/비밀번호로 가입 및 로그인을 사용하고, 가입 이메일 인증을 건너뛰며, 매직 링크 인증을
+제공하지 않습니다.
+
+Agent-Native에는 이메일 전송 계정이 포함되어 있지 않습니다. 매직 링크, 이메일 인증,
+비밀번호 재설정, 초대 또는 공유 알림이 필요하면 배포 전에 Resend 또는 SendGrid를
+연결하세요. 배포 환경에 `RESEND_API_KEY` 또는 `SENDGRID_API_KEY`를 설정하고,
+SendGrid에는 `EMAIL_FROM`도 필요합니다. 사용할 수 있는 인증 방식은
+[인증](/docs/authentication)을 참조하세요.
+
+### 프레임워크 이메일 사용자 지정 {#email-templates}
+
+프레임워크가 보내는 모든 이메일에는 기본 템플릿이 있습니다. 직접 만든 디자인을 쓰려면 서버
+플러그인에서 override를 등록하세요. 수신자와 발신자를 정하고 메시지를 전달하는 일은 계속
+프레임워크가 담당합니다. 메시지의 내용과 모양은 override가 결정합니다.
+
+```ts
+// server/plugins/email-templates.ts
+import {
+  escapeEmailHtml,
+  overrideTransactionalEmail,
+} from "@agent-native/core/server";
+
+export default function registerEmailTemplates(): void {
+  overrideTransactionalEmail("core.resource-shared", (props) => ({
+    subject: `${props.sender.name} shared "${props.resource.title}"`,
+    html: `<p>${escapeEmailHtml(props.sender.name)} invited you to
+      <a href="${escapeEmailHtml(props.resource.url)}">${escapeEmailHtml(props.resource.title)}</a>
+      in ${escapeEmailHtml(props.app.name)}.</p>`,
+  }));
+}
+```
+
+| 이메일 ID                        | Props                                                                              |
+| -------------------------------- | ---------------------------------------------------------------------------------- |
+| `core.verify-signup`             | `email`, `verifyUrl`                                                               |
+| `core.reset-password`            | `email`, `resetUrl`                                                                |
+| `core.magic-link`                | `email`, `magicLinkUrl`                                                            |
+| `core.change-email-confirmation` | `email`, `newEmail`, `confirmationUrl`                                             |
+| `core.change-email-verification` | `email`, `verifyUrl`                                                               |
+| `core.organization-invite`       | `invitee`, `orgName`, `inviter`, `acceptUrl`                                       |
+| `core.builder-credit-limit`      | `subject`, `heading`, `body`, `upgradeLabel`, `upgradeUrl`                         |
+| `core.resource-shared`           | `recipientEmail`, `sender`, `resource` (`type`, `title`, `url`), `role`, `message` |
+
+모든 override는 `app`(`name`, `logoUrl`)도 받습니다. 두 번째 인수에는 기본 렌더링 결과가
+들어 있어 그 제목이나 텍스트를 재사용할 수 있습니다.
+
+- Props는 이스케이프되지 않은 값입니다. HTML 문자열에 넣기 전에 `escapeEmailHtml`로
+  이스케이프하세요.
+- 컴포넌트를 렌더링하려면 `html` 대신 React 요소와 함께 `react`를 반환하세요.
+  React가 props를 이스케이프합니다.
+- 기본 제목을 유지하려면 `subject`를 생략하세요. HTML에서 일반 텍스트 본문을 만들려면
+  `text`를 생략하세요.
+- override가 오류를 던지면 전송이 실패합니다. 프레임워크는 기본 디자인으로 돌아가지
+  않습니다. 트랜잭션 이메일 미리보기가 override를 렌더링하므로 그곳에서 확인하세요.
+
+## 지원되는 배포 대상 {#supported-deployment-targets}
+
+각 대상마다 단계별 가이드가 있습니다. 어떤 대상을 선택하든 앱 코드와 데이터베이스는
+그대로입니다. 바뀌는 것은 빌드 프리셋과 배포 명령뿐입니다.
+
+<!-- i18n-copy-ignore: renderer-only Diagram attributes keep this shared UI block in clean mode. -->
+
+<Diagram id="doc-block-deployment-targets" title="지원되는 배포 대상" summary="Agent-Native 앱은 Node.js, Docker, Vercel, Netlify, Cloudflare Workers에 배포할 수 있습니다." frame="hide" renderMode="design">
+
+```html
+<!-- i18n-copy-ignore: deployment target logo markup is visual-only; labels are unchanged. -->
+<div class="deployment-target-grid">
+  <a class="deployment-target" href="/docs/node-js">
+    <span class="deployment-target-mark">
+      <img
+        class="deployment-target-logo"
+        src="/integration-logos/nodejs.svg"
+        alt=""
+      />
+    </span>
+    <strong>Node.js</strong>
+  </a>
+  <a class="deployment-target" href="/docs/docker">
+    <span class="deployment-target-mark">
+      <img
+        class="deployment-target-logo"
+        src="/integration-logos/docker.svg"
+        alt=""
+      />
+    </span>
+    <strong>Docker</strong>
+  </a>
+  <a class="deployment-target" href="/docs/vercel">
+    <span class="deployment-target-mark">
+      <img
+        class="deployment-target-logo deployment-target-logo-light"
+        src="/integration-logos/vercel.svg"
+        alt=""
+      />
+      <img
+        class="deployment-target-logo deployment-target-logo-dark"
+        src="/integration-logos/vercel-white.svg"
+        alt=""
+        aria-hidden="true"
+      />
+    </span>
+    <strong>Vercel</strong>
+  </a>
+  <a class="deployment-target" href="/docs/netlify">
+    <span class="deployment-target-mark">
+      <!-- i18n-copy-ignore: Netlify's light/dark logo pair is image markup; localized deployment pages have no logo grid. -->
+      <img
+        class="deployment-target-logo deployment-target-logo-light"
+        src="/integration-logos/netlify.svg"
+        alt=""
+      />
+      <img
+        class="deployment-target-logo deployment-target-logo-dark"
+        src="/integration-logos/netlify-darkmode.svg"
+        alt=""
+        aria-hidden="true"
+      />
+    </span>
+    <strong>Netlify</strong>
+  </a>
+  <a class="deployment-target" href="/docs/cloudflare#cloudflare-workers">
+    <span class="deployment-target-mark">
+      <img src="/integration-logos/cloudflare.svg" alt="" />
+    </span>
+    <strong>Cloudflare Workers</strong>
+  </a>
+</div>
+```
+
+```css
+.deployment-target-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.deployment-target {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 58px;
+  padding: 10px 12px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 10px;
+  color: inherit;
+  text-decoration: none;
+}
+.deployment-target:hover {
+  border-color: hsl(var(--primary));
+}
+.deployment-target-mark {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  flex: 0 0 auto;
+}
+.deployment-target-logo {
+  display: block;
+  width: 26px;
+  height: 26px;
+  object-fit: contain;
+}
+.deployment-target-logo-dark {
+  display: none;
+}
+[data-theme="dark"] .deployment-target-logo-light {
+  display: none;
+}
+[data-theme="dark"] .deployment-target-logo-dark {
+  display: block;
+}
+@media (max-width: 640px) {
+  .deployment-target-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+```
+
+</Diagram>
+
+## 고급 배포 {#advanced-deployment}
+
+위의 경로로 시작하세요. 제공업체별 설정이나 프로덕션 제어가 필요할 때는 다음 페이지를
+참조하세요.
+
+- [**Node.js**](/docs/node-js) - 기본 Nitro 서버 프리셋을 실행합니다
+- [**Docker**](/docs/docker) - Node.js 서버를 컨테이너로 패키징합니다
+- [**Vercel**](/docs/vercel), [**Netlify**](/docs/netlify), [**Cloudflare Workers**](/docs/cloudflare#cloudflare-workers) - 호스팅 대상을 구성합니다
+- [**SSR 캐싱**](/docs/ssr-caching) - 공개 셸 캐시를 구성합니다
+- [**배포 환경 변수**](/docs/deployment-environment-variables) - 프로덕션 시크릿, 런타임 플래그, 작업 공간 상속
+- [**프로덕션 에이전트 접근**](/docs/actions-agent-tools) - 프레임워크 도구와 코드 실행을 제어합니다
+- [**프로덕션에서 UI 업데이트하기**](/docs/updating-ui-in-production) - 관리형 시각적 편집 워크플로를 이해합니다
 
 <a id="self-host-quickstart"></a>
 <a id="skip-ensure-tables"></a>
 
-Agent-Native 앱은 Nitro에서 실행됩니다. 배포 대상에 맞는 경로를 선택하세요.
+이 앵커는 이전 링크가 계속 동작하도록 남겨 둔 것입니다. 컨테이너를 사용한 셀프 호스팅은
+[Docker 가이드](/docs/docker)에서 다룹니다. 스키마 설정과 콜드 스타트 안내는
+[배포 환경 변수 레퍼런스](/docs/deployment-environment-variables#skip-ensure-tables)에 있습니다.
 
-<Cards columns={2}>
+## 다음 단계 {#whats-next}
 
-### [앱 배포](/docs/deploy-an-app)
-
-하나의 앱을 빌드하고 자체 도메인에서 실행합니다.
-
-### [워크스페이스 배포](/docs/workspace-deployment)
-
-공유 로그인으로 여러 앱을 하나의 오리진 뒤에서 실행합니다.
-
-</Cards>
-
-## 배포 전: 영구 데이터베이스 선택 {#persistent-database}
-
-배포된 모든 앱에는 영구 PostgreSQL 데이터베이스가 필요합니다. 첫 프로덕션 배포 전에 배포 환경에 `DATABASE_URL`을 설정하세요. 호스팅된 PostgreSQL 제공업체로는 [Neon](/docs/neon), [Supabase](/docs/supabase), Railway, Render, [Amazon RDS for PostgreSQL](/docs/aws-rds), [Cloud SQL for PostgreSQL](/docs/cloud-sql), [Azure Database for PostgreSQL](/docs/azure-postgresql) 등이 있습니다. 다른 관리형 서비스와 셀프 호스팅 PostgreSQL 서버는 [Plain Postgres](/docs/postgres) 가이드를 참조하세요.
-
-독립 앱에는 안정적인 `BETTER_AUTH_SECRET`이 필요합니다. 서명된 앱 간 요청을 사용하는 워크스페이스에는 `A2A_SECRET`이 필요합니다.
-
-이 값은 로컬 `.env`뿐 아니라 호스팅 제공업체의 환경 설정에 저장하세요. 인증 시크릿은 `openssl rand -hex 32`로 생성합니다. Agent-Native에는 이메일 전송 계정이 포함되지 않으므로 Resend 또는 SendGrid를 별도로 연결하세요.
-
-## 이메일 전송은 선택 사항이지만 권장됩니다 {#email-provider}
-
-이메일 제공업체는 이메일/비밀번호 인증에 필수가 아닙니다. 제공업체가 없으면 배포된 앱은 이메일/비밀번호로 가입 및 로그인을 사용하고, 가입 이메일 인증을 건너뛰며, 매직 링크 인증을 제공하지 않습니다.
-
-매직 링크, 이메일 인증, 비밀번호 재설정, 초대 또는 공유 알림이 필요하면 배포 전에 Resend 또는 SendGrid를 연결하세요. 배포 환경에 `RESEND_API_KEY` 또는 `SENDGRID_API_KEY`를 설정하고, SendGrid에는 `EMAIL_FROM`도 필요합니다. 인증 방식은 [인증](/docs/authentication)을 참조하세요.
-
-## 지원되는 대상
-
-Agent-Native는 [Node.js](/docs/node-js), [Docker](/docs/docker), [Vercel](/docs/vercel), [Netlify](/docs/netlify), [Cloudflare Pages](/docs/cloudflare#cloudflare-pages), [Cloudflare Workers](/docs/cloudflare#cloudflare-workers), [AWS Amplify](/docs/aws-amplify), [AWS Lambda](/docs/aws-lambda), [Deno Deploy](/docs/deno-deploy), [Azure Static Web Apps](/docs/azure-static-web-apps), [Koyeb](/docs/koyeb), [Render](/docs/render)를 지원합니다.
-
-고급 설정, 시크릿, 프로덕션 값은 [배포 환경 변수 참조](/docs/deployment-environment-variables)에서 확인하세요.
-
-## 다음 단계
-
-- [앱 배포](/docs/deploy-an-app)
-- [워크스페이스 배포](/docs/workspace-deployment)
-- [데이터베이스](/docs/server-database#production)
+- [**앱 배포**](/docs/deploy-an-app)
+- [**작업 공간 배포**](/docs/workspace-deployment)
+- [**데이터베이스**](/docs/server-database#production)
+- [**보안**](/docs/security)
+- [**인증**](/docs/authentication)

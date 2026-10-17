@@ -143,6 +143,58 @@ Each step is a `###` heading followed by the body content. Steps work best for 3
 
 ---
 
+## Sequence
+
+<Sequence>
+
+### A webhook **arrives** at the endpoint
+
+### The payload is **verified** against its signature
+
+### A job is **queued** for processing
+
+---
+
+### The queued job **runs** and updates the record
+
+</Sequence>
+
+```mdx
+<Sequence>
+
+### A webhook **arrives** at the endpoint
+
+### The payload is **verified** against its signature
+
+### A job is **queued** for processing
+
+---
+
+### The queued job **runs** and updates the record
+
+</Sequence>
+```
+
+Each card is a `###` heading with a short phrase, not a paragraph — unlike `Steps`, there's no body content below the heading. Rows cap at three cards; a fourth wraps automatically into a new row connected by an elbow instead of an arrow, with no `---` required. A lone `---` line between two cards forces an earlier break, e.g. an intentional 2-then-2 split instead of waiting for the automatic three-card cap.
+
+Prefix a card's heading with `:blue:`, `:green:`, `:red:`, or `:yellow:` — the same shortcode `Comparison` uses — to accent the one card that matters, e.g. which app handles a step:
+
+```mdx
+<Sequence>
+
+### A support message arrives in Slack
+
+### :blue: Dispatch recognizes it as a billing question
+
+### The ticket is filed in the billing app
+
+</Sequence>
+```
+
+Reserve the accent for the single card that matters; leaving every card unaccented keeps the chain reading as one even flow. A short 1–3 card sequence with no wrap stretches to fill the full width; a trailing row after a wrap (like the fourth card above) stays naturally sized instead of stretching.
+
+---
+
 ## Cards
 
 <Cards>
@@ -828,6 +880,7 @@ Like `TabsBlock`, `Columns` is self-closing with a single JSON `columns` attribu
 | Deprecated/beta/version notice at page or section top | `Banner`                             |
 | Status or version tag at page or section top          | `Badge`                              |
 | Sequential procedure with titled steps                | `Steps`                              |
+| Ordered chain of short connected event cards          | `Sequence`                           |
 | FAQ-style content, one answer at a time               | `Accordion`                          |
 | Navigation or feature overview grid                   | `Cards`                              |
 | Before vs. after, old vs. new (prose)                 | `Comparison`                         |

@@ -9,7 +9,6 @@ import {
   type H3Event,
 } from "h3";
 
-// POST /api/gong/validate — verify a key without saving it
 export const gongValidate = defineEventHandler(async (event: H3Event) => {
   const body = await readBody(event).catch(() => ({}));
   const apiKey = (body as { apiKey?: unknown })?.apiKey;
@@ -17,7 +16,6 @@ export const gongValidate = defineEventHandler(async (event: H3Event) => {
     setResponseStatus(event, 400);
     return { valid: false, error: "apiKey is required" };
   }
-  // Gong accepts either Bearer (access token) or Basic (accessKey:secret) auth
   const authHeaders = [
     `Bearer ${apiKey}`,
     `Basic ${Buffer.from(apiKey).toString("base64")}`,
@@ -61,7 +59,6 @@ async function getGongKey(event: H3Event): Promise<string | undefined> {
   return (data as any)?.apiKey || undefined;
 }
 
-// GET /api/gong/calls?email=...
 export const gongCallsLookup = defineEventHandler(async (event: H3Event) => {
   const { email } = getQuery(event);
   if (!email || typeof email !== "string") {

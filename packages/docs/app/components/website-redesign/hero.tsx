@@ -29,7 +29,7 @@ export function Hero() {
 
         <div className="flex flex-col items-center gap-[var(--b-hero-inner-gap)]">
           <StartCtas location="hero" />
-          <InstallCommand />
+          <InstallCommand location="hero" />
         </div>
       </GridInner>
     </PageSection>

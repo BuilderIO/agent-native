@@ -26,6 +26,16 @@ export function humanizeToolName(toolName: string | undefined): string {
   return (name || "tool").toLowerCase();
 }
 
+export function toolLabel(
+  translate: (key: string, options?: Record<string, unknown>) => string,
+  toolName: string | undefined,
+): string {
+  const humanized = humanizeToolName(toolName);
+  const raw = (toolName ?? "").trim();
+  if (!raw) return humanized;
+  return translate(`agentChat.toolLabels.${raw}`, { defaultValue: humanized });
+}
+
 export function runningToolLabel(toolName: string | undefined): string {
   return `Running ${humanizeToolName(toolName)}`;
 }
@@ -38,6 +48,57 @@ export function humanizeToolLabelText(
   const tool = (toolName ?? "").trim();
   if (!tool) return text;
   return text.split(tool).join(humanizeToolName(tool));
+}
+
+export interface ToolCallRowContext {
+  text: string;
+  mono: boolean;
+  kind: "file" | "data" | "url";
+}
+
+const TOOL_CALL_CONTEXT_KEYS = [
+  "cmd",
+  "command",
+  "script",
+  "sql",
+  "query",
+  "pattern",
+  "path",
+  "filePath",
+  "filename",
+  "url",
+] as const;
+
+export function resolveToolCallRowContext(
+  args: Record<string, unknown> | undefined,
+): ToolCallRowContext | null {
+  if (!args) return null;
+
+  for (const key of TOOL_CALL_CONTEXT_KEYS) {
+    const value = args[key];
+    if (typeof value !== "string") continue;
+    const text = value.trim().replace(/\s*\n\s*/g, " ");
+    if (!text) continue;
+    return {
+      text,
+      kind:
+        key === "path" || key === "filePath" || key === "filename"
+          ? "file"
+          : key === "url"
+            ? "url"
+            : "data",
+      mono:
+        key === "cmd" ||
+        key === "command" ||
+        key === "script" ||
+        key === "sql" ||
+        key === "path" ||
+        key === "filePath" ||
+        key === "filename",
+    };
+  }
+
+  return null;
 }
 
 type ToolDisplayPart = {
@@ -90,14 +151,12 @@ function hasActiveDelegatedAgentActivity(part: ToolDisplayPart): boolean {
   );
 }
 
-/** True when a tool has not reported a result and the stream did not mark it unknown. */
 export function isToolCallInFlight(part: ToolDisplayPart): boolean {
   if (part.type !== "tool-call") return false;
   if (part.result !== undefined || part.outcome === "unknown") return false;
   return part.activity !== true || isDelegatedAgentToolCall(part);
 }
 
-/** True when the UI must not present this tool as finished. */
 export function isToolCallActive(part: ToolDisplayPart): boolean {
   if (isToolCallInFlight(part)) return true;
   return (
@@ -127,12 +186,6 @@ function callAgentTarget(part: ToolDisplayPart): string | null {
   }
 }
 
-/**
- * `call-agent` emits both its ordinary tool row and a richer `agent:<name>`
- * progress row. Keep the ordinary part in message state for tool completion
- * and history, but let presentation code suppress it once the richer row is
- * available.
- */
 export function isCallAgentToolCallShadowed(
   parts: readonly ToolDisplayPart[],
   index: number,

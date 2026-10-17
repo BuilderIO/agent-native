@@ -1,5 +1,3 @@
-// View config CRUD: create, normalize, update, add, rename, duplicate, delete, move views.
-// Pure logic — no React, no icons.
 import type {
   ContentDatabaseView,
   ContentDatabaseViewConfig,
@@ -38,6 +36,7 @@ export function createDatabaseView(
     id,
     name: name.trim() || databaseViewDefaultName(normalizedType),
     type: normalizedType,
+    icon: values.icon,
     sorts: values.sorts ?? [],
     filters: values.filters ?? [],
     filterMode: normalizeClientDatabaseFilterMode(values.filterMode),
@@ -200,6 +199,7 @@ export function duplicateDatabaseView(
     uniqueDatabaseViewName(normalized.views, `${view.name} copy`),
     createDatabaseViewId(),
     {
+      icon: view.icon,
       sorts: view.sorts,
       filters: view.filters,
       filterMode: view.filterMode,
@@ -323,6 +323,7 @@ function normalizeClientDatabaseView(
       : databaseViewDefaultName(type),
     value.id,
     {
+      icon: value.icon,
       sorts: Array.isArray(value.sorts)
         ? value.sorts.filter(isDatabaseSort)
         : [],
@@ -528,7 +529,6 @@ export function uniqueDatabaseViewName(
   }
 }
 
-// Normalize helpers used by normalizeClientDatabaseView and createDatabaseView.
 export function normalizeClientDatabaseFilterMode(
   value: unknown,
 ): import("./types").DatabaseFilterMode {

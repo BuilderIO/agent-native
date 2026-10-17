@@ -25,8 +25,6 @@ describe("shouldSuppressLineupRecenter (duplicate commits keep the camera still)
   });
 
   it("suppresses every intermediate transition of a multi-frame Cmd+D", () => {
-    // 3 selected frames duplicated from a 5-screen board: 6, 7, 8 all land
-    // one create-file round-trip at a time — every arrival keeps the camera.
     for (const screenCount of [6, 7, 8]) {
       expect(
         shouldSuppressLineupRecenter({
@@ -37,7 +35,6 @@ describe("shouldSuppressLineupRecenter (duplicate commits keep the camera still)
         }),
       ).toBe(true);
     }
-    // A 9th screen is NOT part of the armed duplicate — recenter runs.
     expect(
       shouldSuppressLineupRecenter({
         armed: arm(1_000, 5, 3),
@@ -71,7 +68,6 @@ describe("shouldSuppressLineupRecenter (duplicate commits keep the camera still)
   });
 
   it("only suppresses counts inside the armed (fromCount, fromCount+addedCount] window", () => {
-    // Count went DOWN (delete while armed) — not this helper's transition.
     expect(
       shouldSuppressLineupRecenter({
         armed: arm(1_000, 5),
@@ -80,7 +76,6 @@ describe("shouldSuppressLineupRecenter (duplicate commits keep the camera still)
         deviceFrameChanged: false,
       }),
     ).toBe(false);
-    // Same count (id swap, no footprint change) — nothing to suppress.
     expect(
       shouldSuppressLineupRecenter({
         armed: arm(1_000, 5),
@@ -89,8 +84,6 @@ describe("shouldSuppressLineupRecenter (duplicate commits keep the camera still)
         deviceFrameChanged: false,
       }),
     ).toBe(false);
-    // Two screens appeared but only one was armed (concurrent collaborator
-    // add) — past the window, recenter runs.
     expect(
       shouldSuppressLineupRecenter({
         armed: arm(1_000, 5, 1),
@@ -110,7 +103,6 @@ describe("shouldSuppressLineupRecenter (duplicate commits keep the camera still)
         deviceFrameChanged: false,
       }),
     ).toBe(false);
-    // Boundary: exactly at max age still counts as fresh.
     expect(
       shouldSuppressLineupRecenter({
         armed: arm(1_000, 5),

@@ -1,22 +1,293 @@
 ---
 title: "AWS Amplify"
-description: "Localized pointer to the Nitro aws_amplify preset."
+description: "从 Git 仓库将独立的 Agent-Native 应用部署到 AWS Amplify Hosting。"
 ---
-
-<!-- i18n-docs-ignore -->
 
 # AWS Amplify
 
-Read the [English AWS Amplify guide](/docs/aws-amplify) for build steps,
-persistent database configuration, and CloudFront caching.
+<Badge label="Beta" color="orange" icon="rocket" />
 
-The deployment must use a persistent PostgreSQL database. Configure `DATABASE_URL`
-and `BETTER_AUTH_SECRET` in the provider environment. The Nitro preset is
-`aws_amplify`.
+AWS Amplify Hosting 会从 Git 仓库构建你的应用并为你托管，因此无需搭建或维护服务器。
+Amplify 通过 CloudFront 提供应用的静态文件，运行应用的服务器来处理页面和 API，
+并为应用提供一个支持 HTTPS 的公共地址。
 
-The framework uses Nitro's Node.js 24 compute runtime and
-`AMPLIFY_MONOREPO_APP_ROOT=templates/calendar` for the calendar monorepo build.
+本指南将从零开始演示如何部署一个独立应用。你将创建应用并把它推送到 Git 仓库，
+为它配置生产数据库和身份验证密钥，准备好数据库，添加 Amplify 的构建设置，然后
+创建 Amplify 应用。
 
-The English guide also documents generated runtime environment handling, safe
-CLI map merging, AWS CLI commands, the optional response-streaming Lambda
-origin, and streaming keepalive behavior.
+<Callout tone="info">
+
+需要 Node.js `22.22+`。
+
+</Callout>
+
+你还需要一个 AWS 账户，以及一个位于 GitHub、GitLab、Bitbucket 或 AWS CodeCommit
+上的仓库。请在你自己的电脑上运行本指南中的命令。Amplify 会从你的仓库构建并运行应用。
+
+## 第 1 步：创建应用 {#step-1-create-the-app}
+
+创建新的独立应用。下面的示例基于 Chat 模板创建应用，但你可以从任何模板开始。
+进入应用的文件夹并安装依赖。`corepack enable` 会启用应用所需的 `pnpm` 版本，
+因此你无需自己安装 `pnpm`。
+
+```bash
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
+cd my-app
+
+corepack enable
+
+pnpm install
+```
+
+如果愿意，可以把 `my-app` 替换为你自己的应用名称。本指南的其余部分假定你位于
+应用的文件夹中。
+
+Amplify 会从 Git 仓库构建应用，因此在继续之前，请把应用的文件夹推送到一个新的
+仓库。你会在第 4 步中再添加一个文件并再次推送。
+
+<Callout tone="info">
+
+如果这些命令因对等依赖错误而失败，原因可能是 npx 缓存中有过时的软件包副本。运行 `npx clear-npx-cache` 清除缓存，然后重新运行这些命令。
+
+</Callout>
+
+## 第 2 步：配置环境密钥 {#step-2-configure-environment-secrets}
+
+应用从环境变量中读取其生产设置：
+
+| 变量                 | 必填 | 用途                                 |
+| -------------------- | ---- | ------------------------------------ |
+| `DATABASE_URL`       | 是   | 将应用连接到它的 PostgreSQL 数据库   |
+| `BETTER_AUTH_SECRET` | 是   | 为用户会话签名                       |
+| `BETTER_AUTH_URL`    | 否   | 设置用户访问你的应用时使用的公共地址 |
+
+下面的 export 命令让后续命令能在当前 shell 中正常运行。部署之前，请把这些变量
+同样保存到主机的项目或服务环境设置中。第 5 步会介绍如何在 Amplify 中保存它们。
+
+<Callout tone="warning">
+
+Amplify 会把环境变量传递给构建，但不会传递给正在运行的服务器。为了让服务器能够
+使用它们，Agent-Native 构建会把应用声明的变量写入服务器包中的 `.env` 文件。任何
+能够访问应用部署产物的人都可以读取该文件，因此请在你的 AWS 账户中限制可以访问
+这些产物的人员。
+
+</Callout>
+
+### 数据库 URL {#database-url}
+
+在本地开发期间，如果未设置 `DATABASE_URL`，应用会把数据存储在本地数据库中。
+已部署的应用需要一个真正的 PostgreSQL 数据库，在各次部署之间保留数据。Amplify
+不会在各次请求之间保留文件，因此数据库必须位于 Amplify 之外。从你的提供商处复制
+连接字符串并导出它：
+
+```bash
+export DATABASE_URL='your-postgres-url-string'
+```
+
+[数据库提供商指南](/docs/neon)介绍了在每个提供商处查找连接字符串的位置，其中包括
+[Amazon RDS for PostgreSQL](/docs/aws-rds)。
+
+<Callout tone="warning">
+
+请选择持久的 PostgreSQL 提供商，例如 Neon、Supabase、Amazon RDS 等。
+
+</Callout>
+
+### 身份验证密钥 {#auth-secret}
+
+只需生成一次，并在各次部署之间保持不变。
+
+应用使用 `BETTER_AUTH_SECRET` 为用户会话签名。如果它发生变化，所有已登录的用户
+都会被登出。下面的命令会生成一个随机值：
+
+```bash
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
+```
+
+请把生成的值保存在安全的地方，例如密码管理器。每次部署时都使用相同的值。
+
+### 公共 URL {#public-url}
+
+可选。在使用自定义域名、反向代理，或需要固定公共源的身份验证/OAuth 流程时设置它。
+
+`BETTER_AUTH_URL` 是用户访问你的应用时使用的公共地址。如果不设置，应用会根据
+每个传入请求推断自己的地址。在 Amplify 为你提供的地址上，这通常没有问题，但当你
+连接自定义域名时，请设置它，以便登录链接和 OAuth 重定向使用该域名。
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## 第 3 步：迁移 {#step-3-migrate}
+
+迁移会在你的数据库中创建和更新应用所需的表。请在首次部署之前运行此命令：
+
+```bash
+pnpm migrate:production
+```
+
+该命令在你的电脑上运行，并使用你在第 2 步中导出的 `DATABASE_URL` 连接到生产
+数据库。升级应用之后、部署新版本之前，请再次运行它。
+
+## 第 4 步：添加 Amplify 的构建设置 {#step-4-add-amplifys-build-settings}
+
+在应用的根文件夹中，在 `package.json` 旁边创建一个名为 `amplify.yml` 的文件，
+并复制以下内容：
+
+```yaml filename="amplify.yml"
+version: 1
+frontend:
+  phases:
+    preBuild:
+      commands:
+        - nvm install 24
+        - corepack enable
+        - pnpm install
+    build:
+      commands:
+        - NITRO_PRESET=aws_amplify pnpm build
+  artifacts:
+    baseDirectory: .amplify-hosting
+    files:
+      - "**/*"
+```
+
+该文件告诉 Amplify 如何构建应用：
+
+- **preBuild** 把构建切换到 Node.js 24，启用应用的 `pnpm` 版本，并安装依赖。
+- **build** 使用 `NITRO_PRESET=aws_amplify` 构建应用，这是 Amplify Hosting 所需的
+  格式。
+- **artifacts** 告诉 Amplify 部署构建所创建的 `.amplify-hosting` 文件夹。
+
+构建会把 Amplify 所需的一切写入该文件夹：
+
+<FileTree
+  id="aws-amplify-build-output"
+  entries={[
+    {
+      path: ".amplify-hosting/static/",
+      note: "应用的静态文件，通过 CloudFront 提供。",
+    },
+    {
+      path: ".amplify-hosting/compute/default/server.js",
+      note: "在 Amplify 的计算资源上启动应用的服务器。",
+    },
+    {
+      path: ".amplify-hosting/compute/default/.env",
+      note: "应用声明的变量，在构建期间复制进来。",
+    },
+    {
+      path: ".amplify-hosting/deploy-manifest.json",
+      note: "把静态文件发送到静态主机，把其他所有请求发送到服务器。",
+    },
+  ]}
+/>
+
+提交 `amplify.yml` 并把它推送到你的仓库。
+
+## 第 5 步：创建 Amplify 应用 {#step-5-create-the-amplify-app}
+
+在 [Amplify 控制台](https://console.aws.amazon.com/amplify/)中创建应用：
+
+<Steps>
+
+### 连接仓库
+
+选择 **Deploy an app**。在 **Start building with Amplify** 页面上，选择你的 Git
+提供商，然后选择 **Next**。第一次操作时，Amplify 会请求读取你的仓库的权限。
+
+### 选择分支
+
+在 **Add repository branch** 页面上，选择第 1 步中的仓库和分支，然后选择
+**Next**。
+
+### 检查构建设置
+
+在 **App settings** 页面上，Amplify 会从 `amplify.yml` 读取构建设置。确认
+**Build output directory** 为 `.amplify-hosting`。选择
+**Create and use a new service role**。
+
+### 添加环境变量
+
+在 **Advanced settings** 下，添加 `DATABASE_URL` 和 `BETTER_AUTH_SECRET`，并使用
+你在第 2 步中导出的值。如果你设置了 `BETTER_AUTH_URL`，请用同样的方式添加它。
+然后选择 **Next**。
+
+### 部署
+
+在 **Review** 页面上，选择 **Save and deploy**。
+
+</Steps>
+
+## 第 6 步：打开应用 {#step-6-open-the-app}
+
+首次构建需要几分钟，你可以在 Amplify 控制台中跟踪进度。构建完成后，打开应用的
+地址，形如 `https://main.d1m7bkiki6tdw1.amplifyapp.com`，并创建第一个账户。
+
+然后检查以下几点：
+
+- 首页能够加载。
+- `/assets/` 下的文件能够加载，这表明静态文件已正常提供。
+- 你可以登录，并且你创建的数据在重新加载后仍然存在。
+
+## 部署更新 {#deploy-updates}
+
+每次你推送到第 5 步中选择的分支时，Amplify 都会重新构建和部署。要发布新版本，
+请先运行迁移，然后推送：
+
+```bash
+pnpm migrate:production
+
+git push
+```
+
+构建会把环境变量复制到服务器包中，因此变量的更改只会在下一次构建后生效。在
+Amplify 控制台中更改变量后，请推送一个提交，或重新部署最新的构建。
+
+## 缓存 {#caching}
+
+Amplify 通过 CloudFront 提供应用。应用的公共页面外壳会发送以下 `Cache-Control`
+标头，Amplify 会遵循它：
+
+```txt
+public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600
+```
+
+CloudFront 会让外壳在十分钟内保持新鲜，在获取新副本时可以提供较旧的副本，并且在
+出错时也可以提供它。个人数据会在页面打开后在浏览器中加载，因此绝不会进入共享的
+外壳。静态文件最多缓存一年，每次新的部署都会清除 Amplify 的缓存。
+
+请保持 Amplify 默认的 **Remove cookies from cache key** 设置为开启状态。不要在
+`customHttp.yml` 中添加全局 `Cache-Control` 规则，因为它可能会覆盖私有路由上的
+`no-store` 标头。要缩短或关闭外壳缓存，请设置 `AGENT_NATIVE_SSR_CACHE`。
+[SSR 缓存](/docs/ssr-caching)介绍了完整的策略。
+
+## 流式传输智能体响应 {#stream-agent-responses}
+
+Amplify 的 CloudFront 路径可能会暂存响应中的小数据块，因此智能体的聊天回复可能会
+成批到达，而不是逐字显示。为了直接流式传输这些回复，Agent-Native 可以添加一个单独
+的 Lambda 函数，专门提供聊天流：
+
+```bash
+npx agent-native amplify-stream \
+  --amplify-app-id your-amplify-app-id \
+  --branch main \
+  --region us-east-1 \
+  --env-file .env
+```
+
+该命令会把聊天流构建为一个 Node.js 24 Lambda 函数，带有流式函数 URL 和 15 分钟的
+超时时间。它会把函数的地址保存到 Amplify 分支上，并启动一次新的发布。浏览器的其他
+所有请求仍然使用 Amplify 应用，只有聊天请求会发送到该函数。
+
+该命令从你通过 `--env-file` 传入的文件中读取应用的变量，因此该文件需要包含与
+Amplify 应用相同的 `DATABASE_URL`、`BETTER_AUTH_SECRET` 和其他值。它还需要能够管理
+Lambda、IAM 和 Amplify 的 AWS CLI 凭据。添加 `--skip-release` 可以只保存地址而不
+启动发布。如果流式函数不可用，聊天会回退到普通的 Amplify 路由。
+
+## 下一步 {#whats-next}
+
+- [**SSR 缓存**](/docs/ssr-caching) - 默认缓存策略以及如何更改它
+- [**部署环境变量**](/docs/deployment-environment-variables) - 生产设置的完整列表
+- [**部署**](/docs/deployment) - 比较各个托管目标及其前提条件

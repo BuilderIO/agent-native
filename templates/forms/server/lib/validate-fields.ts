@@ -1,8 +1,5 @@
-// Restrict every persisted FormField id (and conditional.fieldId reference)
-// to a safe character set. Field ids are interpolated into raw HTML attributes
-// by the public form SSR renderer and into CSS/JS selectors by the inline
-// runtime — an unrestricted id like `x" onfocus="alert(1)` would otherwise
-// stored-XSS every anonymous submitter of a published form.
+import { compileUserRegex } from "@agent-native/core/shared";
+
 import {
   DEFAULT_FORM_FILE_MAX_BYTES,
   isValidFileAccept,
@@ -27,16 +24,6 @@ export const FIELD_TYPES = [
 const FIELD_TYPE_SET = new Set(FIELD_TYPES);
 const CONDITIONAL_OPERATORS = new Set(["equals", "not_equals", "contains"]);
 
-/**
- * Generates a safe id for a whole-array field replacement (create-form,
- * update-form) when the model omits one — the #1 create-form failure in
- * the 2026-07-25 reliability sweep ("field #1 has an invalid id undefined").
- * Never used by patch-form-fields: there a missing id on an upsert op is
- * ambiguous (new field vs. a forgotten reference to an existing one), so it
- * must keep failing loud rather than risk silently creating a duplicate.
- * Ids are slugified from `label` through the same FIELD_ID_PATTERN charset
- * `assertValidFields` enforces, so a generated id can never fail that check.
- */
 export function normalizeFieldIds(fields: unknown): unknown {
   if (!Array.isArray(fields)) return fields;
   const usedIds = new Set(
@@ -70,12 +57,6 @@ export function normalizeFieldIds(fields: unknown): unknown {
   });
 }
 
-/**
- * Keeps granular edits compatible with fields written before the current
- * schema. The UI already renders unknown types as text and treats a missing
- * required flag as false, so patch reads must make the same repair before the
- * strict persistence check runs.
- */
 export function normalizePersistedFields(fields: unknown): unknown {
   if (!Array.isArray(fields)) return fields;
   return fields.map((field) => {
@@ -95,7 +76,10 @@ export function normalizePersistedFields(fields: unknown): unknown {
   });
 }
 
-export function assertValidFields(fields: unknown): void {
+export function assertValidFields(
+  fields: unknown,
+  { patternSafety = true }: { patternSafety?: boolean } = {},
+): void {
   if (!Array.isArray(fields)) {
     throw new Error("fields must be an array");
   }
@@ -205,8 +189,6 @@ export function assertValidFields(fields: unknown): void {
       }
     }
 
-    // validation.min / .max are interpolated into HTML attributes (min="..."
-    // max="...") by the SSR renderer — must be numeric to prevent XSS.
     const validation = f.validation;
     if (validation != null && typeof validation === "object") {
       const v = validation as Record<string, unknown>;
@@ -222,11 +204,29 @@ export function assertValidFields(fields: unknown): void {
             `field #${idx + 1} validation.pattern must be a string`,
           );
         }
-        try {
-          new RegExp(v.pattern);
-        } catch {
+        const compiled = compileUserRegex(v.pattern);
+        if (compiled.status === "invalid-syntax") {
           throw new Error(
             `field #${idx + 1} validation.pattern must be a valid regular expression`,
+          );
+        }
+        if (compiled.status === "too-long" && !patternSafety) {
+          try {
+            new RegExp(v.pattern);
+          } catch {
+            throw new Error(
+              `field #${idx + 1} validation.pattern must be a valid regular expression`,
+            );
+          }
+        }
+        if (patternSafety && compiled.status === "too-long") {
+          throw new Error(
+            `field #${idx + 1} validation.pattern is too long: ${compiled.message}`,
+          );
+        }
+        if (patternSafety && compiled.status === "unsafe") {
+          throw new Error(
+            `field #${idx + 1} validation.pattern can hang the browser and the server: ${compiled.message}. Rewrite it without overlapping repetition - for example use \`^\\S+(\\s+\\S+)+$\` for "at least two words".`,
           );
         }
       }

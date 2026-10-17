@@ -5,6 +5,10 @@ import type {
   SetStateAction,
 } from "react";
 
+import {
+  resolveLeftSidebarWidth,
+  snapLeftSidebarDragWidth,
+} from "@/pages/design-editor/left-sidebar-width";
 import type { DesignLeftPanel } from "@/pages/design-editor/types";
 
 export interface StartSidebarResizeArgs {
@@ -34,16 +38,11 @@ export function runStartSidebarResize(
   event.stopPropagation();
   event.currentTarget.setPointerCapture?.(event.pointerId);
   const startX = event.clientX;
-  const codePanelOpen = side === "left" && activeLeftPanel === "code";
   const startWidth =
     side === "left"
-      ? codePanelOpen
-        ? Math.max(leftSidebarWidth, 640)
-        : Math.min(leftSidebarWidth, 420)
+      ? resolveLeftSidebarWidth(leftSidebarWidth, activeLeftPanel)
       : rightSidebarWidth;
   const setWidth = side === "left" ? setLeftSidebarWidth : setRightSidebarWidth;
-  const minWidth = side === "left" ? (codePanelOpen ? 520 : 220) : 240;
-  const maxWidth = side === "left" ? (codePanelOpen ? 1100 : 420) : 390;
   const target =
     side === "left"
       ? leftSidebarContentRef.current
@@ -70,15 +69,15 @@ export function runStartSidebarResize(
     moveEvent.preventDefault();
     const delta =
       side === "left" ? moveEvent.clientX - startX : startX - moveEvent.clientX;
-    const next = Math.min(maxWidth, Math.max(minWidth, startWidth + delta));
+    const next =
+      side === "left"
+        ? snapLeftSidebarDragWidth(startWidth + delta, activeLeftPanel)
+        : Math.min(390, Math.max(240, startWidth + delta));
     if (next === latestWidth) return;
     latestWidth = next;
     if (target) {
       target.style.width = `${next}px`;
     }
-    // Width-dependent Inspector grids need the live state during the gesture;
-    // the imperative write keeps the panel edge pinned to the pointer between
-    // React renders.
     if (pendingFrame !== null) {
       window.cancelAnimationFrame(pendingFrame);
     }
@@ -99,7 +98,6 @@ export function runStartSidebarResize(
     document.body.style.cursor = previousCursor;
     document.body.style.userSelect = previousUserSelect;
     if (target) target.style.transition = previousTransition;
-    // Ensure the final clamped width is represented after the gesture.
     setWidth(latestWidth);
   };
 

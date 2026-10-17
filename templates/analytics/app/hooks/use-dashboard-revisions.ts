@@ -3,6 +3,7 @@ import {
   useSession,
   useActionMutation,
 } from "@agent-native/core/client/hooks";
+import type { DashboardChange } from "@shared/dashboard-change-summary";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
@@ -10,14 +11,21 @@ import {
   sqlDashboardPrefetchKey,
 } from "@/lib/prefetch-keys";
 
-export interface DashboardRevision {
+export type DashboardRevision = {
   id: string;
   dashboardId: string;
   kind: "explorer" | "sql";
   title: string;
   createdAt: string;
   createdBy: string | null;
-}
+} & (
+  | { changesStatus: "absent" | "unreadable" }
+  | {
+      changesStatus: "valid";
+      changes: DashboardChange[];
+      omittedChanges: number;
+    }
+);
 
 export function useDashboardRevisions(
   dashboardId: string | null,

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const mockSignScopedAgentAccessToken = vi.hoisted(() =>
+const mockSignShortLivedToken = vi.hoisted(() =>
   vi.fn(() => "signed-job-token"),
 );
 
@@ -14,7 +14,8 @@ vi.mock("@agent-native/core/server", () => ({
     process.env.NETLIFY === "true"
       ? "/.netlify/functions/server-agent-background"
       : fallbackPath,
-  signScopedAgentAccessToken: mockSignScopedAgentAccessToken,
+  scopedAgentAccessResourceId: (kind: string, id: string) => `${kind}:${id}`,
+  signShortLivedToken: mockSignShortLivedToken,
 }));
 
 import {
@@ -44,9 +45,8 @@ describe("post-finalize dispatch", () => {
       kind: "transcript",
     });
 
-    expect(mockSignScopedAgentAccessToken).toHaveBeenCalledWith({
-      resourceKind: POST_FINALIZE_JOB_TOKEN_KIND,
-      resourceId: postFinalizeJobResourceId("rec-1", "transcript"),
+    expect(mockSignShortLivedToken).toHaveBeenCalledWith({
+      resourceId: `${POST_FINALIZE_JOB_TOKEN_KIND}:${postFinalizeJobResourceId("rec-1", "transcript")}`,
       ttlSeconds: 600,
     });
     expect(fetch).toHaveBeenCalledWith(
@@ -85,6 +85,7 @@ describe("post-finalize dispatch", () => {
       delayMs: 5_000,
       retryAttempt: 1,
       regenerate: true,
+      replaceImportId: "import-1",
     });
 
     expect(fetch).toHaveBeenCalledWith(
@@ -96,6 +97,7 @@ describe("post-finalize dispatch", () => {
           delayMs: 5_000,
           retryAttempt: 1,
           regenerate: true,
+          replaceImportId: "import-1",
           token: "signed-job-token",
         }),
       }),
@@ -108,6 +110,8 @@ describe("post-finalize dispatch", () => {
       kind: "media-ready",
       delayMs: 5_000,
       retryAttempt: 1,
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
       requireAccepted: true,
     });
 
@@ -119,6 +123,8 @@ describe("post-finalize dispatch", () => {
           kind: "media-ready",
           delayMs: 5_000,
           retryAttempt: 1,
+          uploadAttemptId: "attempt-1",
+          uploadGenerationId: "generation-1",
           token: "signed-job-token",
         }),
       }),

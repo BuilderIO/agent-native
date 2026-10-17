@@ -1,13 +1,9 @@
+import { SelfDispatchHttpError } from "../../server/self-dispatch.js";
 import type {
   ChainServerDrivenContinuationDeps,
   ContinuationDispatchBudget,
 } from "../production-agent.js";
 
-/**
- * The subset of `ChainServerDrivenContinuationDeps` this stage needs,
- * already resolved to their non-optional defaults (mirrors how
- * `chainServerDrivenContinuation` builds its local `d` object).
- */
 export type ContinuationDispatchRetryDeps = Required<
   Pick<
     ChainServerDrivenContinuationDeps,
@@ -18,21 +14,37 @@ export type ContinuationDispatchRetryDeps = Required<
   >
 >;
 
-/**
- * Attempts to deliver one background-continuation dispatch, retrying with
- * backoff up to `dispatchBudget.maxDispatchAttempts` times.
- *
- * Moved verbatim out of `chainServerDrivenContinuation`'s "TRANSACTIONAL
- * HANDOFF" section — behavior, ordering, and error handling unchanged. The
- * caller is still responsible for: minting `nextRunId`, inserting the
- * successor row, building `dispatchBody`, and handling the
- * deferred-recovery / fatal-error paths after this returns.
- *
- * `isLoopProtectionDispatchError` and `maxNestedSelfDispatchDepth` are
- * passed in (rather than imported) so this module has no runtime import
- * back on `production-agent.js` — only the type-only import above, which
- * TypeScript erases.
- */
+// These statuses mean the endpoint is shedding load, not that the handoff is
+// dead. They are waited out with jittered backoff instead of spending the short
+// fixed attempt cap, which deferred the chunk to the sweep's multi-minute gap.
+const OVERLOAD_STATUSES = new Set([429, 502, 503, 504, 520]);
+const OVERLOAD_BACKOFF_BASE_MS = 1_000;
+const OVERLOAD_BACKOFF_CAP_MS = 30_000;
+const RETRY_AFTER_CLAMP_MS = 60_000;
+// Full jitter can draw ~0 forever, so the wait budget alone never drains.
+const MAX_OVERLOAD_RETRIES = 8;
+
+/** Delay before the next try, or null when waiting any longer is pointless. */
+function overloadBackoffMs(
+  err: SelfDispatchHttpError,
+  retriesSoFar: number,
+  waitedMs: number,
+  budgetMs: number,
+  random: () => number,
+): number | null {
+  if (retriesSoFar >= MAX_OVERLOAD_RETRIES) return null;
+  const remainingMs = budgetMs - waitedMs;
+  if (remainingMs <= 0) return null;
+  const retryAfterMs = Math.min(err.retryAfterMs ?? 0, RETRY_AFTER_CLAMP_MS);
+  // The server asked for longer than this run can wait; the sweep owns it.
+  if (retryAfterMs > remainingMs) return null;
+  const ceilingMs = Math.min(
+    OVERLOAD_BACKOFF_CAP_MS,
+    OVERLOAD_BACKOFF_BASE_MS * 2 ** retriesSoFar,
+  );
+  return Math.min(Math.max(random() * ceilingMs, retryAfterMs), remainingMs);
+}
+
 export async function attemptContinuationDispatch(params: {
   event: unknown;
   chainViaDurableBackground: boolean;
@@ -45,6 +57,9 @@ export async function attemptContinuationDispatch(params: {
   isLoopProtectionDispatchError: (err: unknown) => boolean;
   maxNestedSelfDispatchDepth: number;
   deps: ContinuationDispatchRetryDeps;
+  random?: () => number;
+  /** Wall clock for the overload budget; injectable so specs need no timers. */
+  now?: () => number;
 }): Promise<{
   dispatched: boolean;
   lastDispatchErr: unknown;
@@ -61,19 +76,15 @@ export async function attemptContinuationDispatch(params: {
     isLoopProtectionDispatchError,
     maxNestedSelfDispatchDepth,
     deps: d,
+    random = Math.random,
+    now = Date.now,
   } = params;
   const maxDispatchAttempts = dispatchBudget.maxDispatchAttempts;
   const dispatchResponseTimeoutMs = dispatchBudget.dispatchResponseTimeoutMs;
+  const overloadWaitBudgetMs = dispatchBudget.overloadWaitBudgetMs;
 
   let dispatched = false;
   let lastDispatchErr: unknown;
-  // Proactive nested-chain safety margin — see `MAX_NESTED_SELF_DISPATCH_DEPTH`.
-  // Skip the nested dispatch attempt entirely once this segment's hop count
-  // reaches the cap; a nested attempt at this depth is expected to trip
-  // Netlify's loop protection, so there is nothing to gain by trying it and
-  // burning this worker's remaining wall clock on a doomed call. Falls
-  // straight into the same deferred-recovery path below as an exhausted
-  // retry budget.
   const nestedDepthExceeded =
     backgroundContinuationCount >= maxNestedSelfDispatchDepth;
   if (nestedDepthExceeded) {
@@ -81,42 +92,28 @@ export async function attemptContinuationDispatch(params: {
       `proactive nested-dispatch depth cap reached (backgroundContinuationCount=${backgroundContinuationCount} >= MAX_NESTED_SELF_DISPATCH_DEPTH=${maxNestedSelfDispatchDepth}) — deferring to the unclaimed-background-run sweep instead of risking Netlify loop protection`,
     );
   }
+  const startedAt = now();
+  // Overload retries are paid for by the wait budget, not the attempt cap.
+  let overloadRetries = 0;
+  let overloadWaitedMs = 0;
+  let failedAttempts = 0;
+  let nextBackoffMs = 0;
   for (
     let attempt = 0;
-    !nestedDepthExceeded && attempt < maxDispatchAttempts && !dispatched;
+    !nestedDepthExceeded &&
+    attempt < maxDispatchAttempts + overloadRetries &&
+    !dispatched;
     attempt++
   ) {
     try {
       if (attempt > 0) {
-        // Uncapped budgets (durable-background and true-foreground) keep
-        // the original `500 * 2 ** attempt` schedule unchanged. The capped
-        // budget (proven-in-background-function) instead uses a schedule
-        // starting at 500ms and doubling per gap, capped at
-        // `backoffCapMs` — see `resolveContinuationDispatchBudget` for why
-        // this stays well inside the worker's remaining wall clock even
-        // with 5 attempts.
-        const backoffMs = Number.isFinite(dispatchBudget.backoffCapMs)
-          ? Math.min(500 * 2 ** (attempt - 1), dispatchBudget.backoffCapMs)
-          : 500 * 2 ** attempt;
-        await d.sleep(backoffMs);
-        // Keep the pre-inserted successor row visibly alive while we
-        // retry: the awaited attempts + backoff can outlast
-        // UNCLAIMED_BACKGROUND_RUN_GRACE_MS (25s), and without a fresh
-        // heartbeat the unclaimed-run reaper / sweep could error a handoff
-        // we are still delivering.
+        await d.sleep(nextBackoffMs);
         if (nextRowInserted) {
           await d.updateRunHeartbeat(nextRunId).catch(() => {});
         }
       }
       await d.fireInternalDispatch({
         event,
-        // Durable chain: same path resolution as the initial dispatch —
-        // on hosted Netlify the background function's DEFAULT url (no
-        // custom config.path; async via background:true; never shadowed
-        // because /.netlify/* is excluded from the /* catch-all) so each
-        // chunk keeps the 15-min budget; off-Netlify the in-process
-        // framework route. Foreground self-chain: always the framework
-        // `_process-run` route on the regular function (see the fn doc).
         path: continuationDispatchPath,
         taskId: nextRunId,
         body: dispatchBody,
@@ -126,15 +123,6 @@ export async function attemptContinuationDispatch(params: {
       dispatched = true;
     } catch (dispatchErr) {
       lastDispatchErr = dispatchErr;
-      // A failed dispatch never proves a dead handoff, on ANY target: the
-      // request can land while the response is lost (observed in prod as a
-      // connection-level `fetch failed` against a background function that
-      // had already started the successor). The successor's ATOMIC CLAIM is
-      // authoritative — a row that left `dispatch_mode='background'`
-      // (claimed) or is already terminal means the handoff landed, so stop
-      // retrying. A duplicate delivery would lose the claim and no-op anyway;
-      // skipping it saves wall-clock this close to the invocation deadline
-      // and keeps the parent chunk from reporting a false `deferred`.
       if (nextRowInserted) {
         const claim = await d
           .readBackgroundRunClaim(nextRunId)
@@ -152,16 +140,33 @@ export async function attemptContinuationDispatch(params: {
         `[agent-chat] background continuation dispatch attempt ${attempt + 1} failed:`,
         dispatchErr instanceof Error ? dispatchErr.message : dispatchErr,
       );
-      // Netlify loop protection (see `isLoopProtectionDispatchError`) is a
-      // property of this same live, nested call chain — retrying the exact
-      // same nested self-dispatch within the next few seconds will not
-      // change that, so further attempts are a guaranteed-doomed use of
-      // this worker's remaining wall clock. Stop immediately (instead of
-      // burning the full `maxDispatchAttempts` budget) and fall into the
-      // same deferred-recovery path below, which hands the successor to the
-      // sweep — a genuinely different, non-nested invocation.
       if (isLoopProtectionDispatchError(dispatchErr)) {
         break;
+      }
+      if (
+        dispatchErr instanceof SelfDispatchHttpError &&
+        OVERLOAD_STATUSES.has(dispatchErr.httpStatus)
+      ) {
+        const backoffMs = overloadBackoffMs(
+          dispatchErr,
+          overloadRetries,
+          // Slow overload responses spend the same host time as the sleeps.
+          Math.max(overloadWaitedMs, now() - startedAt),
+          overloadWaitBudgetMs,
+          random,
+        );
+        if (backoffMs === null) break;
+        overloadRetries++;
+        overloadWaitedMs += backoffMs;
+        nextBackoffMs = backoffMs;
+      } else {
+        failedAttempts++;
+        nextBackoffMs = Number.isFinite(dispatchBudget.backoffCapMs)
+          ? Math.min(
+              500 * 2 ** (failedAttempts - 1),
+              dispatchBudget.backoffCapMs,
+            )
+          : 500 * 2 ** failedAttempts;
       }
     }
   }

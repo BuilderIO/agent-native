@@ -2,32 +2,13 @@ import { getAppConfig } from "../app-config/index.js";
 import { type DbExec } from "../db/client.js";
 import { getSetting, mutateSetting } from "../settings/store.js";
 
-/**
- * Which app owns this database, recorded once and never overwritten.
- *
- * `beta.<app>` and `<app>` production intentionally share one database — the
- * split is the app slug, not the site/host. Nothing else records that axis,
- * which is how a copy-pasted repair once pointed three betas' real Postgres
- * URL at a fourth app's production database for twelve days: every layer
- * involved (env vars, deploy config, the DB itself) was silent about which
- * app it belonged to. The setting written here is that missing source of
- * truth — read on every health probe and compared against the app actually
- * running.
- */
 export const DATABASE_IDENTITY_SETTING_KEY = "framework.database_identity";
 
 export interface DatabaseIdentityRecord {
-  /** `app.slug` (falls back to `app.id`) of the app that first recorded this database. */
   app: string;
-  /** ISO timestamp of that first write. Never updated by a later call. */
   recordedAt: string;
 }
 
-/**
- * `"unrecorded"` (checked, no row yet) and `"unreadable"` (the check itself
- * failed) are deliberately distinct — coercing a failed read into "no
- * identity recorded" is exactly the silent-success bug this exists to catch.
- */
 export type DatabaseIdentityReadResult =
   | ({ state: "recorded" } & DatabaseIdentityRecord)
   | { state: "unrecorded" }
@@ -37,12 +18,6 @@ export type DatabaseIdentityRecordResult =
   | ({ state: "recorded" } & DatabaseIdentityRecord)
   | { state: "skipped"; reason: "no-app-identity" };
 
-/**
- * The identity axis for a shared database: the template/deployment slug, or
- * the bare app id when no slug was derived. Never the site name or `CONTEXT`
- * — those vary between `beta.<app>` and `<app>` on purpose, for a database
- * the two are meant to share.
- */
 export function resolveRunningAppIdentity(): string | null {
   const app = getAppConfig().app;
   return app?.slug ?? app?.id ?? null;
@@ -96,12 +71,6 @@ export async function recordDatabaseIdentity(): Promise<DatabaseIdentityRecordRe
   return { state: "recorded", app: stored.app, recordedAt: stored.recordedAt };
 }
 
-/**
- * `getSetting()` always opens its own client via `getDbExec()` — the settings
- * store has no exec parameter. Mirrors its exact query so a caller already
- * holding a bounded connection (the health probe's `SELECT 1`) reads through
- * it instead of paying for a second one.
- */
 async function readRawViaExec(
   exec: DbExec,
 ): Promise<Record<string, unknown> | null> {
@@ -114,12 +83,6 @@ async function readRawViaExec(
   return raw == null ? null : JSON.parse(raw);
 }
 
-/**
- * Read the recorded database identity. Never throws — a failed read reports
- * `"unreadable"` with its cause, never `"unrecorded"`; callers (the health
- * probe, monitors) must be able to tell "nothing recorded yet" apart from
- * "could not check".
- */
 export async function readDatabaseIdentity(
   exec?: DbExec,
 ): Promise<DatabaseIdentityReadResult> {

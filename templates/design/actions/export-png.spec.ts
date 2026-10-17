@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
 const takeDesignScreenshotRun = vi.hoisted(() => vi.fn());
+const getScreenshotPngData = vi.hoisted(() => vi.fn());
 
 vi.mock("./take-design-screenshot.js", () => ({
   default: { run: takeDesignScreenshotRun },
+  getScreenshotPngData,
 }));
 
 import action from "./export-png.js";
@@ -23,6 +25,14 @@ describe("export-png", () => {
 
   it("exports one selected screen through the screenshot renderer", async () => {
     const diagnostics = { horizontalOverflowPx: 0 };
+    const agentImages = [
+      {
+        data: "aGVsbG8=",
+        mediaType: "image/png",
+        label: "Quarterly results.html (desktop-900)",
+      },
+    ];
+    getScreenshotPngData.mockReturnValueOnce(Buffer.from("hello"));
     takeDesignScreenshotRun.mockResolvedValueOnce({
       ok: true,
       designId: "design_1",
@@ -40,12 +50,15 @@ describe("export-png", () => {
       ],
     });
 
-    const result = await action.run({
-      fileId: "file_2",
-      filename: "index.html",
-      width: 900,
-      height: 600,
-    });
+    const result = await action.run(
+      {
+        fileId: "file_2",
+        filename: "index.html",
+        width: 900,
+        height: 600,
+      },
+      { caller: "mcp" },
+    );
 
     expect(takeDesignScreenshotRun).toHaveBeenCalledWith(
       {
@@ -54,7 +67,7 @@ describe("export-png", () => {
         widths: [900],
         heights: [600],
       },
-      undefined,
+      { caller: "mcp" },
     );
     expect(result).toMatchObject({
       ok: true,
@@ -64,6 +77,7 @@ describe("export-png", () => {
       url: "https://files.example.test/screen.png",
       mimeType: "image/png",
       diagnostics,
+      _agentImages: agentImages,
     });
   });
 
@@ -95,6 +109,76 @@ describe("export-png", () => {
       },
       undefined,
     );
+  });
+
+  it("keeps the durable URL and explains when an inline PNG is too large", async () => {
+    const png = Buffer.alloc(1_500_001);
+    const toString = vi.spyOn(png, "toString");
+    getScreenshotPngData.mockReturnValueOnce(png);
+    takeDesignScreenshotRun.mockResolvedValueOnce({
+      ok: true,
+      designId: "design_1",
+      fileId: "file_1",
+      filename: "index.html",
+      capturedAt: "2026-09-09T00:00:00.000Z",
+      screenshots: [
+        {
+          viewport: { label: "desktop-1440", widthPx: 1440, heightPx: 900 },
+          url: "https://files.example.test/index.png",
+          persisted: true,
+          bytes: 2_000_001,
+          diagnostics: {},
+        },
+      ],
+    });
+
+    const result = await action.run(
+      {
+        designId: "design_1",
+        filename: "index.html",
+      },
+      { caller: "mcp" },
+    );
+
+    expect(result).toMatchObject({
+      url: "https://files.example.test/index.png",
+      message:
+        "The PNG exceeds the inline image limit; use its durable URL to view it.",
+    });
+    expect(result._agentImages).toBeUndefined();
+    expect(toString).not.toHaveBeenCalled();
+  });
+
+  it("does not return inline image data or fallback messages to HTTP callers", async () => {
+    getScreenshotPngData.mockClear();
+    takeDesignScreenshotRun.mockResolvedValueOnce({
+      ok: true,
+      designId: "design_1",
+      fileId: "file_1",
+      filename: "index.html",
+      capturedAt: "2026-09-09T00:00:00.000Z",
+      screenshots: [
+        {
+          viewport: { label: "desktop-1440", widthPx: 1440, heightPx: 900 },
+          url: "https://files.example.test/index.png",
+          persisted: true,
+          bytes: 10,
+          diagnostics: {},
+        },
+      ],
+    });
+
+    const result = await action.run(
+      { designId: "design_1", filename: "index.html" },
+      { caller: "http" },
+    );
+
+    expect(result).toMatchObject({
+      url: "https://files.example.test/index.png",
+    });
+    expect(result._agentImages).toBeUndefined();
+    expect(result.message).toBeUndefined();
+    expect(getScreenshotPngData).not.toHaveBeenCalled();
   });
 
   it("preserves a structured Chromium-unavailable result", async () => {

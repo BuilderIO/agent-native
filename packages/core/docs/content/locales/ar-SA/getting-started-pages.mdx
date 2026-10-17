@@ -14,8 +14,8 @@ description: "أنشئ مسار React يستدعي الإجراء ويعرض ن�
 
 يقرأ خادم التطوير ملفات المسارات عند بدء تشغيله. أنشئ
 `app/routes/text-analyses.tsx`، وأعد تشغيل `pnpm dev` إذا كان قيد التشغيل بالفعل.
-سيصبح المسار متاحاً على
-`http://localhost:8080/text-analyses`.
+افتح عنوان URL المحلي الذي يعرضه `pnpm dev` وأضف إليه `/text-analyses`؛ قد يتغير
+المنفذ إذا كان 8080 مستخدماً بالفعل.
 
 ```tsx filename="app/routes/text-analyses.tsx"
 import { useActionQuery } from "@agent-native/core/client/hooks";
@@ -61,7 +61,7 @@ export default function TextAnalysesRoute() {
 يستدعي `useActionQuery` الإجراء نفسه للقراءة فقط الذي يستخدمه الوكيل. لا تحتاج
 الصفحة إلى مسار API مخصص أو طبقة بيانات ثانية أو SQL في هذه المرحلة.
 
-افتح `http://localhost:8080/text-analyses`، أو اطلب من الوكيل:
+افتح عنوان URL المحلي المعروض وأضف إليه `/text-analyses`، أو اطلب من الوكيل:
 
 > Navigate to `/text-analyses`.
 

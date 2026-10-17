@@ -1,4 +1,6 @@
+import type { WriteReceipt } from "@agent-native/core/action";
 import type { AgentLoopFinalResponseGuardContext } from "@agent-native/core/server";
+import { appendAgentChatContextToMessage } from "@agent-native/core/shared";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("../../.generated/actions-registry.js", () => ({
@@ -15,7 +17,14 @@ vi.mock("../../.generated/actions-registry.js", () => ({
   },
 }));
 
+import { GENERIC_NO_DATA_FALLBACK_MESSAGE } from "../lib/real-data-actions";
 import { realDataFinalGuard } from "./agent-chat";
+
+const SAVED_RECEIPT: WriteReceipt = {
+  changed: true,
+  verified: true,
+  summary: 'Saved 1 op(s) to "growth"; 1 panel(s) verified rendering.',
+};
 
 function userMessage(
   text: string,
@@ -43,6 +52,593 @@ function guardContext(params: {
 }
 
 describe("realDataFinalGuard dashboard edits", () => {
+  it("still requires a source query for analytics after an automation clause", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText:
+          "Create an automation to send the weekly summary. What was the conversion rate last week?",
+        draftText: "The conversion rate was 92 percent.",
+      }),
+    );
+
+    expect(result?.retryMessage).toContain("real source query");
+  });
+
+  it("does not retry a successful dashboard automation as a dashboard build", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText:
+          "Create an automation for the Revenue dashboard and run it every morning",
+        draftText: 'Created automation "revenue-morning".',
+        toolResults: [
+          {
+            name: "manage-automations",
+            isError: false,
+            content: JSON.stringify({
+              created: true,
+              name: "revenue-morning",
+              triggerType: "schedule",
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("does not retry a qualified dashboard automation as a dashboard build", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText:
+          "Create a daily automation for the Revenue dashboard and email it every morning",
+        draftText: 'Created automation "revenue-morning".',
+        toolResults: [
+          {
+            name: "manage-automations",
+            isError: false,
+            content: JSON.stringify({
+              created: true,
+              name: "revenue-morning",
+              triggerType: "schedule",
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("keeps dashboard recovery for compound dashboard and automation requests", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText:
+          "Create a dashboard for the sales team and schedule an automation to email it every morning",
+        draftText: 'Created automation "sales-morning".',
+        toolResults: [
+          {
+            name: "manage-automations",
+            isError: false,
+            content: JSON.stringify({
+              created: true,
+              name: "sales-morning",
+              triggerType: "schedule",
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).not.toBeNull();
+  });
+
+  it("does not retry a dashboard automation compound as a dashboard build", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "Build a dashboard automation to email it every morning",
+        draftText: 'Created automation "sales-morning".',
+        toolResults: [
+          {
+            name: "manage-automations",
+            isError: false,
+            content: JSON.stringify({
+              created: true,
+              name: "sales-morning",
+              triggerType: "schedule",
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toBeNull();
+
+    const nestedResult = realDataFinalGuard(
+      guardContext({
+        userText:
+          "Create a dashboard automation to refresh the Revenue dashboard every morning",
+        draftText: 'Created automation "revenue-morning".',
+        toolResults: [
+          {
+            name: "manage-automations",
+            isError: false,
+            content: JSON.stringify({
+              created: true,
+              name: "revenue-morning",
+              triggerType: "schedule",
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(nestedResult).toBeNull();
+  });
+
+  it("keeps recovery for an automation-themed dashboard request", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "Build an automation dashboard tracking Zapier failure rates",
+        draftText: 'Created automation "zapier-failures".',
+        toolResults: [
+          {
+            name: "manage-automations",
+            isError: false,
+            content: JSON.stringify({
+              created: true,
+              name: "zapier-failures",
+              triggerType: "schedule",
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).not.toBeNull();
+  });
+
+  it("keeps recovery for a separate dashboard beside dashboard automation", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText:
+          "Create a sales dashboard and a dashboard automation to email it each morning",
+        draftText: 'Created automation "sales-morning".',
+        toolResults: [
+          {
+            name: "manage-automations",
+            isError: false,
+            content: JSON.stringify({
+              created: true,
+              name: "sales-morning",
+              triggerType: "schedule",
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).not.toBeNull();
+  });
+
+  it("does not retry a named dashboard-targeting automation as a dashboard build", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText:
+          "Create a daily lead summary automation for the Sales dashboard",
+        draftText: 'Created automation "sales-lead-summary".',
+        toolResults: [
+          {
+            name: "manage-automations",
+            isError: false,
+            content: JSON.stringify({
+              created: true,
+              name: "sales-lead-summary",
+              triggerType: "schedule",
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("keeps recovery for a qualified automation-themed dashboard", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "Create a workflow performance dashboard",
+        draftText: 'Created automation "workflow-health".',
+        toolResults: [
+          {
+            name: "manage-automations",
+            isError: false,
+            content: JSON.stringify({
+              created: true,
+              name: "workflow-health",
+              triggerType: "schedule",
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).not.toBeNull();
+  });
+
+  it("keeps recovery for template-based dashboard construction beside automation", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText:
+          "Use the existing dashboard as a template and update the dashboard automation",
+        draftText: 'Updated automation "dashboard-refresh".',
+        toolResults: [
+          {
+            name: "manage-automations",
+            isError: false,
+            content: JSON.stringify({
+              updated: true,
+              name: "dashboard-refresh",
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).not.toBeNull();
+  });
+
+  it("does not retry a nested dashboard action as a dashboard build", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText:
+          "Create an automation to refresh the Revenue dashboard every morning",
+        draftText: 'Created automation "revenue-morning".',
+        toolResults: [
+          {
+            name: "manage-automations",
+            isError: false,
+            content: JSON.stringify({
+              created: true,
+              name: "revenue-morning",
+              triggerType: "schedule",
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("does not retry a template lookup nested inside an automation", () => {
+    for (const userText of [
+      "Create an automation to clone the Revenue dashboard template every morning",
+      "Create an automation using the Revenue dashboard template every morning",
+      "Create an automation for the Revenue dashboard using a template",
+      "Use the existing dashboard template for an automation",
+    ]) {
+      const result = realDataFinalGuard(
+        guardContext({
+          userText,
+          draftText: 'Created automation "revenue-morning".',
+          toolResults: [
+            {
+              name: "manage-automations",
+              isError: false,
+              content: JSON.stringify({
+                created: true,
+                name: "revenue-morning",
+                triggerType: "schedule",
+              }),
+            },
+          ],
+        }),
+      );
+
+      expect(result).toBeNull();
+    }
+  });
+
+  it("keeps recovery for a long dashboard title with automation", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText:
+          "Create a quarterly revenue retention forecast dashboard and schedule an automation to email it",
+        draftText: 'Created automation "revenue-morning".',
+        toolResults: [
+          {
+            name: "manage-automations",
+            isError: false,
+            content: JSON.stringify({
+              created: true,
+              name: "revenue-morning",
+              triggerType: "schedule",
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).not.toBeNull();
+  });
+
+  it("keeps recovery for an automation-first dashboard request", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "Create an automation and a dashboard",
+        draftText: 'Created automation "daily-summary".',
+        toolResults: [
+          {
+            name: "manage-automations",
+            isError: false,
+            content: JSON.stringify({
+              created: true,
+              name: "daily-summary",
+              triggerType: "schedule",
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).not.toBeNull();
+  });
+
+  it("keeps recovery for a comma-separated dashboard request", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "Create an automation, build a sales dashboard",
+        draftText: 'Created automation "sales-morning".',
+        toolResults: [
+          {
+            name: "manage-automations",
+            isError: false,
+            content: JSON.stringify({
+              created: true,
+              name: "sales-morning",
+              triggerType: "schedule",
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).not.toBeNull();
+  });
+
+  it("keeps recovery for a separate dashboard after nested automation actions", () => {
+    for (const userText of [
+      "Create an automation to refresh the Revenue dashboard, build a Sales dashboard",
+      "Create an automation to refresh the Revenue dashboard and build a Sales dashboard",
+      "Create an automation to refresh the Revenue dashboard but build a Sales dashboard",
+    ]) {
+      const result = realDataFinalGuard(
+        guardContext({
+          userText,
+          draftText: 'Created automation "sales-morning".',
+          toolResults: [
+            {
+              name: "manage-automations",
+              isError: false,
+              content: JSON.stringify({
+                created: true,
+                name: "sales-morning",
+                triggerType: "schedule",
+              }),
+            },
+          ],
+        }),
+      );
+
+      expect(result).not.toBeNull();
+    }
+  });
+
+  it("does not retry bare cron automation as a dashboard build", () => {
+    for (const userText of [
+      "Create a cron to email the Revenue dashboard daily",
+      "Set up cron to refresh the Revenue dashboard daily",
+      "Schedule the Revenue dashboard refresh via cron",
+      "Refresh the Revenue dashboard via cron every morning",
+      "Run the Revenue dashboard refresh on a cron schedule",
+      "Schedule a dashboard refresh",
+      "Schedule a dashboard refresh every morning",
+      "Schedule the dashboard to refresh daily",
+      "Schedule a refresh of the Revenue dashboard every morning",
+      "Schedule a daily refresh of the dashboard",
+      "Could you schedule a dashboard refresh every morning?",
+      "Can you schedule the Revenue dashboard to refresh daily?",
+      "Create a scheduled refresh of the Revenue dashboard",
+      "Configure a scheduled refresh for the Revenue dashboard",
+      "Update the Revenue dashboard on a cron schedule",
+    ]) {
+      const result = realDataFinalGuard(
+        guardContext({
+          userText,
+          draftText: 'Created cron "revenue-morning".',
+          toolResults: [
+            {
+              name: "manage-automations",
+              isError: false,
+              content: JSON.stringify({
+                created: true,
+                name: "revenue-morning",
+                triggerType: "schedule",
+              }),
+            },
+          ],
+        }),
+      );
+
+      expect(result).toBeNull();
+    }
+  });
+
+  it("does not steer report-framed refresh-rate queries into dashboard construction", () => {
+    for (const userText of [
+      "Create a report showing the dashboard refresh rate",
+      "What is the refresh rate of the dashboard?",
+      "How often does the Revenue dashboard refresh?",
+    ]) {
+      const result = realDataFinalGuard(
+        guardContext({
+          userText,
+          draftText: "The dashboard refresh rate is 92 percent.",
+        }),
+      );
+
+      expect(result).not.toBeNull();
+      expect(result?.retryMessage).toContain("real source query");
+      expect(result?.retryMessage).not.toContain(
+        "dashboard construction/template-clone",
+      );
+    }
+  });
+
+  it("keeps dashboard recovery after a comma-then refresh-rate report", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText:
+          "Create a report showing the dashboard refresh rate, then build a Sales dashboard",
+        draftText: "The report is ready.",
+      }),
+    );
+
+    expect(result?.retryMessage).toContain(
+      "dashboard construction/template-clone",
+    );
+  });
+
+  it("still requires a source query for a refresh-rate report beside a dashboard build", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText:
+          "Create a report showing the dashboard refresh rate, then build a Sales dashboard",
+        draftText:
+          "The dashboard refresh rate is 92 percent and the Sales dashboard is ready.",
+      }),
+    );
+
+    expect(result?.retryMessage).toContain("real source query");
+  });
+
+  it("keeps recovery for an automation dashboard using a template", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "Create an automation dashboard using a template",
+        draftText: 'Created automation "automation-health".',
+        toolResults: [
+          {
+            name: "manage-automations",
+            isError: false,
+            content: JSON.stringify({
+              created: true,
+              name: "automation-health",
+              triggerType: "schedule",
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).not.toBeNull();
+  });
+
+  it("does not retry a dashboard template input as a dashboard build", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "Use a dashboard template to create an automation",
+        draftText: 'Created automation "template-based".',
+        toolResults: [
+          {
+            name: "manage-automations",
+            isError: false,
+            content: JSON.stringify({
+              created: true,
+              name: "template-based",
+              triggerType: "schedule",
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("does not retry compound automation actions as a dashboard build", () => {
+    for (const userText of [
+      "Create an automation to refresh and update the Revenue dashboard",
+      "Create a workflow to update, refresh, and rename the Revenue dashboard",
+    ]) {
+      const result = realDataFinalGuard(
+        guardContext({
+          userText,
+          draftText: 'Created automation "revenue-refresh".',
+          toolResults: [
+            {
+              name: "manage-automations",
+              isError: false,
+              content: JSON.stringify({
+                created: true,
+                name: "revenue-refresh",
+                triggerType: "schedule",
+              }),
+            },
+          ],
+        }),
+      );
+
+      expect(result).toBeNull();
+    }
+  });
+
+  it("keeps recovery for a named dashboard", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "Create a dashboard called Automation Health",
+        draftText: 'Created automation "automation-health".',
+        toolResults: [
+          {
+            name: "manage-automations",
+            isError: false,
+            content: JSON.stringify({
+              created: true,
+              name: "automation-health",
+              triggerType: "schedule",
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).not.toBeNull();
+  });
+
+  it("keeps dashboard recovery for a named dashboard and automation request", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText:
+          "Create the Revenue dashboard and schedule an automation to email it daily",
+        draftText: 'Created automation "revenue-morning".',
+        toolResults: [
+          {
+            name: "manage-automations",
+            isError: false,
+            content: JSON.stringify({
+              created: true,
+              name: "revenue-morning",
+              triggerType: "schedule",
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).not.toBeNull();
+  });
+
   it("accepts a dashboard edit that saved a mutation without a data query", () => {
     const result = realDataFinalGuard(
       guardContext({
@@ -52,7 +648,12 @@ describe("realDataFinalGuard dashboard edits", () => {
           "Updated both panels to use only DUAL_TRACK and IMPLEMENTATION classifications as requested.",
         toolResults: [
           { name: "get-sql-dashboard", isError: false, content: "ok" },
-          { name: "mutate-dashboard", isError: false, content: "ok" },
+          {
+            name: "mutate-dashboard",
+            isError: false,
+            content: "ok",
+            receipt: SAVED_RECEIPT,
+          },
         ],
       }),
     );
@@ -69,12 +670,256 @@ describe("realDataFinalGuard dashboard edits", () => {
           "Done. DUAL_TRACK deals now have a 62 percent win rate versus 41 percent for IMPLEMENTATION.",
         toolResults: [
           { name: "get-sql-dashboard", isError: false, content: "ok" },
-          { name: "mutate-dashboard", isError: false, content: "ok" },
+          {
+            name: "mutate-dashboard",
+            isError: false,
+            content: "ok",
+            receipt: SAVED_RECEIPT,
+          },
         ],
       }),
     );
 
     expect(result).not.toBeNull();
+  });
+
+  describe("a mutate-dashboard write counts as a completed save only through its receipt", () => {
+    const editRequest = {
+      userText: "Edit the Growth dashboard to change the time range default",
+      draftText: "I changed the default time range.",
+    };
+    const guardAfter = (receipt?: WriteReceipt) =>
+      realDataFinalGuard(
+        guardContext({
+          ...editRequest,
+          toolResults: [
+            {
+              name: "mutate-dashboard",
+              isError: false,
+              content: "{}",
+              ...(receipt ? { receipt } : {}),
+            },
+          ],
+        }),
+      );
+
+    it("accepts a saved write, verified or not (the receipt guard owns the honesty retry)", () => {
+      expect(guardAfter(SAVED_RECEIPT)).toBeNull();
+      expect(
+        guardAfter({
+          ...SAVED_RECEIPT,
+          verified: false,
+          summary: "Unchecked.",
+        }),
+      ).toBeNull();
+    });
+
+    it("does not accept a write the receipt says changed nothing", () => {
+      expect(guardAfter({ ...SAVED_RECEIPT, changed: false })).not.toBeNull();
+    });
+
+    it("does not accept a result with no receipt, such as a dry run", () => {
+      expect(guardAfter()).not.toBeNull();
+    });
+  });
+
+  describe("on a dashboard page, whose chat context names the open dashboard", () => {
+    // The sidebar appends every chat context item to the message, and the
+    // dashboard page publishes the open dashboard as one
+    // (use-dashboard-chat-context).
+    const dashboardPageItem = [
+      "## Dashboard: Product signups",
+      "The user currently has this Analytics dashboard selected: Product signups.",
+      "Dashboard id: product-signups",
+      "Dashboard kind: sql",
+      "Panel count: 6",
+      "User can edit: yes",
+      "Current URL: /adhoc/product-signups",
+      "Use the Analytics dashboard actions to inspect, edit, or restore this dashboard.",
+    ].join("\n");
+    const onDashboardPage = (message: string) =>
+      appendAgentChatContextToMessage(message, dashboardPageItem);
+    const markerTurns = [
+      {
+        userText:
+          "Add a note to Signups per day: signups were counted twice on Oct 6 and 7.",
+        draftText:
+          "Done. I added a note to Signups per day for October 6 and 7.",
+        toolResults: [
+          {
+            name: "save-data-note",
+            isError: false,
+            content: JSON.stringify({
+              id: "note-1",
+              kind: "data",
+              title: "Signups double-counted",
+              startDate: "2026-10-06",
+              endDate: "2026-10-07",
+              dashboard: {
+                dashboardId: "product-signups",
+                shownOn: [{ id: "signups-per-day", title: "Signups per day" }],
+              },
+            }),
+          },
+        ],
+      },
+      {
+        userText: "Mark the Product Hunt launch on Oct 3 at 00:01 Pacific.",
+        draftText:
+          'Added "Product Hunt live" on October 3 to the Launches set. It shows on this dashboard\'s time charts.',
+        toolResults: [
+          { name: "list-key-dates", isError: false, content: '{"sets":[]}' },
+          {
+            name: "save-key-date",
+            isError: false,
+            content: JSON.stringify({
+              id: "date-1",
+              setId: "launches",
+              date: "2026-10-03",
+              label: "Product Hunt live",
+              dashboard: { dashboardId: "product-signups", setShown: true },
+            }),
+          },
+        ],
+      },
+      {
+        userText: "Hide the setup incident on Setup completions per day.",
+        draftText:
+          "Done. Setup completions per day no longer shows the setup incident.",
+        toolResults: [
+          {
+            name: "mutate-dashboard",
+            isError: false,
+            content: "{}",
+            receipt: SAVED_RECEIPT,
+          },
+        ],
+      },
+    ];
+
+    it("accepts a marker the agent saved, judging the request by the user's own words", () => {
+      expect(
+        markerTurns.map((turn) =>
+          realDataFinalGuard(
+            guardContext({ ...turn, userText: onDashboardPage(turn.userText) }),
+          ),
+        ),
+      ).toEqual([null, null, null]);
+    });
+
+    it("judges a marker draft that states figures as it does off the dashboard page", () => {
+      const [noteTurn] = markerTurns;
+      const draftText =
+        "Done. Signups per day doubled to 1,240 on October 6, so I added a note.";
+      const offPage = realDataFinalGuard(
+        guardContext({ ...noteTurn, draftText }),
+      );
+      const onPage = realDataFinalGuard(
+        guardContext({
+          ...noteTurn,
+          userText: onDashboardPage(noteTurn.userText),
+          draftText,
+        }),
+      );
+
+      expect(offPage?.retryMessage).toContain("real source query");
+      expect(onPage).toEqual(offPage);
+    });
+
+    it("still steers a dashboard build or clone to its template", () => {
+      for (const userText of [
+        "Build a dashboard like the Growth dashboard for Acme",
+        "Clone the Revenue dashboard for the EMEA team",
+      ]) {
+        const result = realDataFinalGuard(
+          guardContext({
+            userText: onDashboardPage(userText),
+            draftText: "On it.",
+          }),
+        );
+
+        expect(result?.retryMessage).toContain(
+          "dashboard construction/template-clone",
+        );
+      }
+    });
+
+    it("still reads a build request an app sends as REAL_DATA_REQUIRED context", () => {
+      const result = realDataFinalGuard(
+        guardContext({
+          userText: appendAgentChatContextToMessage(
+            "Signups by source over the last 30 days",
+            "The user wants to create a new analytics dashboard. REAL_DATA_REQUIRED: run at least one real data-source query action before presenting numbers.",
+          ),
+          draftText: "On it.",
+        }),
+      );
+
+      expect(result?.retryMessage).toContain(
+        "dashboard construction/template-clone",
+      );
+    });
+
+    it("judges a panel-editor request as it does off the dashboard page", () => {
+      const ask = "Signups by plan";
+      const panelRequest =
+        'The user wants to add a new panel to SQL dashboard "product-signups". REAL_DATA_REQUIRED: run at least one real data-source query action for this panel.';
+      const judge = (userText: string) =>
+        realDataFinalGuard(guardContext({ userText, draftText: "On it." }));
+      const offPage = judge(appendAgentChatContextToMessage(ask, panelRequest));
+
+      expect(offPage?.retryMessage ?? "").not.toContain(
+        "dashboard construction/template-clone",
+      );
+      expect([
+        // As the panel editor submits it: the sidebar wraps it in the page's items.
+        judge(
+          onDashboardPage(appendAgentChatContextToMessage(ask, panelRequest)),
+        ),
+        // Staged in the composer, it shares one block with the page's items.
+        judge(
+          appendAgentChatContextToMessage(
+            ask,
+            `${dashboardPageItem}\n\n## Active app context\n${panelRequest}`,
+          ),
+        ),
+      ]).toEqual([offPage, offPage]);
+    });
+
+    it("doesn't read the open dashboard's name as a source the user asked for", () => {
+      const ask = "How many signups did we get last week?";
+      const onWarehouseDashboard = appendAgentChatContextToMessage(
+        ask,
+        dashboardPageItem.replace(/Product signups/g, "Warehouse KPIs"),
+      );
+      const judge = (userText: string) =>
+        realDataFinalGuard(
+          guardContext({
+            userText,
+            draftText: GENERIC_NO_DATA_FALLBACK_MESSAGE,
+            toolResults: [
+              {
+                name: "data-source-status",
+                isError: false,
+                content: JSON.stringify({
+                  configuredDataSources: [
+                    {
+                      provider: "first-party",
+                      label: "First-party Analytics",
+                      via: "built-in",
+                      queryAction: "query-agent-native-analytics",
+                    },
+                  ],
+                }),
+              },
+            ],
+          }),
+        );
+      const offPage = judge(ask);
+
+      expect(offPage?.retryMessage).toContain("query-agent-native-analytics");
+      expect(judge(onWarehouseDashboard)).toEqual(offPage);
+    });
   });
 
   it("does not treat a skipped compose as a completed dashboard edit", () => {

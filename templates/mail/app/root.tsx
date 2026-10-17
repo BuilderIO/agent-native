@@ -1,10 +1,11 @@
 import { configureTracking } from "@agent-native/core/client/analytics";
 import { appPath, appApiPath } from "@agent-native/core/client/api-path";
-import { useDbSync } from "@agent-native/core/client/hooks";
 import {
-  AppProviders,
   createAgentNativeQueryClient,
+  useDbSync,
+  useSession,
 } from "@agent-native/core/client/hooks";
+import { getEmbedAuthToken } from "@agent-native/core/client/host";
 import {
   DEFAULT_LOCALE,
   LOCALE_HYDRATION_GLOBAL,
@@ -17,13 +18,12 @@ import {
   isDynamicImportFailureMessage,
   recoverFromStaleChunkError,
 } from "@agent-native/core/client/route-chunk-recovery";
-import {
-  DefaultSpinner,
-  ErrorReportActions,
-  getThemeInitScript,
-} from "@agent-native/core/client/ui";
-import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { getThemeInitScript } from "@agent-native/core/client/ui";
+import { ErrorReportActions } from "@agent-native/toolkit/app/feedback";
+import { AppProviders } from "@agent-native/toolkit/app/providers";
+import { AppShellSkeleton } from "@agent-native/toolkit/app/shared";
+import { useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   isRouteErrorResponse,
   Links,
@@ -37,22 +37,29 @@ import {
 import type { LinksFunction } from "react-router";
 
 import { AppLayout } from "@/components/layout/AppLayout";
+import "@/components/onboarding/register-first-run";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
-import { markExternalEmailRefresh } from "@/hooks/use-emails";
+import { LABELS_QUERY_KEY, markExternalEmailRefresh } from "@/hooks/use-emails";
+import { invalidateInboxThreads } from "@/hooks/use-inbox-threads";
 import {
   MAIL_INTEGRATION_STATUS_QUERY_KEY,
   mailIntegrationProviderFromAppStateKey,
 } from "@/lib/integration-status";
-import { isMcpEmbedSurface } from "@/lib/mcp-embed";
 import { shouldInvalidateMailQueryForActionEvent } from "@/lib/sync-invalidation";
 import { TAB_ID } from "@/lib/tab-id";
+import { getThreadCacheOwner, setThreadCacheOwner } from "@/lib/thread-cache";
 
 import { i18nCatalog } from "./i18n";
 
 import stylesheet from "./global.css?url";
 configureTracking({
+  sessionReplay: {
+    console: false,
+    network: false,
+    sensitiveQueryParams: ["q"],
+  },
   getDefaultProps: (_name, properties) => ({
     ...properties,
     app: "agent-native-mail",
@@ -203,7 +210,7 @@ const MAIL_ERROR_COPY: Record<
     title: "Mail यह दृश्य लोड नहीं कर सका।",
     fallback: "Mail लोड करते समय कुछ गलत हुआ।",
     back: "वापस",
-    reload: "रीलोड",
+    reload: "रीलोड करें",
     loading: "Mail रीलोड हो रहा है...",
     sendFeedback: "फ़ीडबैक भेजें",
     feedbackPlaceholder: "इस Mail त्रुटि से पहले क्या हुआ, उसका वर्णन करें।",
@@ -272,7 +279,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** Ensure the app window has focus so keyboard shortcuts work immediately */
 function AutoFocus() {
   useEffect(() => {
     window.focus();
@@ -282,7 +288,6 @@ function AutoFocus() {
     const handleFocusRestore = () => window.focus();
     document.addEventListener("visibilitychange", handleVisibility);
     document.addEventListener("click", handleFocusRestore, true);
-    // Restore focus when cursor re-enters the app (e.g. after using the agent chat panel)
     document.documentElement.addEventListener("mouseenter", handleFocusRestore);
     return () => {
       document.removeEventListener("visibilitychange", handleVisibility);
@@ -296,7 +301,6 @@ function AutoFocus() {
   return null;
 }
 
-/** Trigger automation processing on window focus and initial load */
 function AutomationTrigger() {
   const lastTrigger = useRef(0);
   useEffect(() => {
@@ -308,9 +312,7 @@ function AutomationTrigger() {
         () => {},
       );
     };
-    // Trigger on load
     trigger();
-    // Trigger on window focus
     const onVisibility = () => {
       if (document.visibilityState === "visible") trigger();
     };
@@ -320,7 +322,6 @@ function AutomationTrigger() {
   return null;
 }
 
-/** Invalidate email queries when the window regains focus or visibility */
 function VisibilityRefresh() {
   const qc = useQueryClient();
   const lastRefresh = useRef(0);
@@ -331,7 +332,8 @@ function VisibilityRefresh() {
       if (now - lastRefresh.current < 60_000) return;
       lastRefresh.current = now;
       void qc.invalidateQueries({ queryKey: ["emails"] });
-      void qc.invalidateQueries({ queryKey: ["labels"] });
+      void qc.invalidateQueries({ queryKey: LABELS_QUERY_KEY });
+      void invalidateInboxThreads(qc);
     };
     document.addEventListener("visibilitychange", refresh);
     window.addEventListener("focus", refresh);
@@ -343,99 +345,212 @@ function VisibilityRefresh() {
   return null;
 }
 
+type MailSyncEvent = {
+  source?: string;
+  type: string;
+  path?: string;
+  key?: string;
+  requestSource?: string;
+};
+
+const MAIL_QUERY_MUTATION_ACTIONS = new Set([
+  "apply-ai-filter",
+  "archive-email",
+  "bulk-archive",
+  "cancel-scheduled-email",
+  "confirm-uncertain-scheduled-email",
+  "create-scheduled-send",
+  "manage-draft",
+  "mark-read",
+  "mark-thread-read",
+  "move-email",
+  "resync-inbox",
+  "retry-uncertain-scheduled-email",
+  "send-email",
+  "send-queued-drafts",
+  "send-scheduled-email-now",
+  "star-email",
+  "trash-email",
+  "unarchive-email",
+  "untrash-email",
+  "update-queued-draft",
+]);
+
+const SCHEDULED_JOB_MUTATION_ACTIONS = new Set([
+  "cancel-scheduled-email",
+  "confirm-uncertain-scheduled-email",
+  "create-scheduled-send",
+  "retry-uncertain-scheduled-email",
+  "send-scheduled-email-now",
+]);
+
+export function createMailSyncEventHandler(qc: QueryClient) {
+  let refreshSignalInvalidationScheduled = false;
+  let actionQueryInvalidationScheduled = false;
+  let settingsInvalidationScheduled = false;
+  const pendingSettingsInvalidations = new Set<
+    "settings" | "mail-inbox" | "agent-engines"
+  >();
+
+  return (data: MailSyncEvent) => {
+    const isOwnEvent = data.requestSource === TAB_ID;
+    const invalidateSettingsSurfaces = () => {
+      void qc.invalidateQueries({ queryKey: ["scheduled-jobs"] });
+      void qc.invalidateQueries({ queryKey: ["automations"] });
+      void qc.invalidateQueries({ queryKey: ["gmail-filters"] });
+      void qc.invalidateQueries({ queryKey: ["google-status"] });
+      void qc.invalidateQueries({ queryKey: ["automation-settings"] });
+      void qc.invalidateQueries({ queryKey: ["framework-triggers-mail"] });
+      void qc.invalidateQueries({ queryKey: ["agent-engines"] });
+    };
+
+    if (data.source === "app-state") {
+      const integrationProvider = mailIntegrationProviderFromAppStateKey(
+        data.key,
+      );
+      if (integrationProvider && !isOwnEvent) {
+        void qc.invalidateQueries({
+          queryKey: MAIL_INTEGRATION_STATUS_QUERY_KEY,
+        });
+        void qc.invalidateQueries({
+          queryKey:
+            integrationProvider === "*"
+              ? ["integration-data"]
+              : ["integration-data", integrationProvider],
+        });
+      }
+      if (
+        (data.key?.startsWith("compose-") || data.key === "*") &&
+        !isOwnEvent
+      ) {
+        void qc.invalidateQueries({
+          queryKey: ["compose-drafts"],
+          refetchType: "all",
+        });
+      }
+      if (data.key === "refresh-signal" && !isOwnEvent) {
+        markExternalEmailRefresh();
+        void qc.invalidateQueries({ queryKey: ["emails"] });
+        void qc.invalidateQueries({ queryKey: ["email"] });
+        if (!refreshSignalInvalidationScheduled) {
+          refreshSignalInvalidationScheduled = true;
+          queueMicrotask(() => {
+            refreshSignalInvalidationScheduled = false;
+            void qc.invalidateQueries({ queryKey: LABELS_QUERY_KEY });
+            void invalidateInboxThreads(qc);
+          });
+        }
+      }
+    } else if (data.source === "settings") {
+      if (!isOwnEvent) {
+        const key = data.key ?? "";
+        if (!key || key === "*") pendingSettingsInvalidations.add("settings");
+        if (key === "agent-engine" || key.endsWith(":agent-engine")) {
+          pendingSettingsInvalidations.add("agent-engines");
+        }
+        if (key === "mail-settings" || key.endsWith(":mail-settings")) {
+          pendingSettingsInvalidations.add("settings");
+          pendingSettingsInvalidations.add("mail-inbox");
+        }
+        if (
+          pendingSettingsInvalidations.size > 0 &&
+          !settingsInvalidationScheduled
+        ) {
+          settingsInvalidationScheduled = true;
+          queueMicrotask(() => {
+            settingsInvalidationScheduled = false;
+            const invalidations = [...pendingSettingsInvalidations];
+            pendingSettingsInvalidations.clear();
+            if (invalidations.includes("settings")) {
+              void qc.invalidateQueries({ queryKey: ["settings"] });
+            }
+            if (invalidations.includes("mail-inbox")) {
+              void qc.invalidateQueries({
+                queryKey: ["action", "list-inbox-threads"],
+              });
+              void qc.invalidateQueries({ queryKey: ["mail-inbox-overview"] });
+            }
+            if (invalidations.includes("agent-engines")) {
+              void qc.invalidateQueries({ queryKey: ["agent-engines"] });
+            }
+          });
+        }
+      }
+    } else if (data.source === "action") {
+      if (!data.key || !MAIL_QUERY_MUTATION_ACTIONS.has(data.key)) return;
+      if (SCHEDULED_JOB_MUTATION_ACTIONS.has(data.key)) {
+        void qc.invalidateQueries({ queryKey: ["scheduled-jobs"] });
+      }
+      if (!actionQueryInvalidationScheduled) {
+        actionQueryInvalidationScheduled = true;
+        queueMicrotask(() => {
+          actionQueryInvalidationScheduled = false;
+          void qc.invalidateQueries({ queryKey: ["emails"] });
+          void qc.invalidateQueries({ queryKey: ["email"] });
+          void qc.invalidateQueries({ queryKey: LABELS_QUERY_KEY });
+        });
+      }
+    } else if (data.source === "screen-refresh") {
+      if (!isOwnEvent) {
+        markExternalEmailRefresh();
+        void qc.invalidateQueries({ queryKey: ["emails"] });
+        void qc.invalidateQueries({ queryKey: ["email"] });
+        invalidateSettingsSurfaces();
+      }
+    }
+  };
+}
+
 function DbSyncSetup() {
   const qc = useQueryClient();
+  const location = useLocation();
+  const onEvent = useMemo(() => createMailSyncEventHandler(qc), [qc]);
 
   useDbSync({
     queryClient: qc,
     queryKeys: [],
-    // Action events refresh action-backed reads (such as queued drafts) while
-    // expensive Gmail/provider queries stay on their targeted sync paths.
     actionInvalidatePredicate: shouldInvalidateMailQueryForActionEvent,
-    // Skip events this tab caused — our mutations already handle cache updates
     ignoreSource: TAB_ID,
-    onEvent: (data: {
-      source?: string;
-      type: string;
-      path?: string;
-      key?: string;
-      requestSource?: string;
-    }) => {
-      // Ignore events we caused — the mutation's onSettled handles our own updates
-      const isOwnEvent = data.requestSource === TAB_ID;
-      const invalidateSettingsSurfaces = () => {
-        void qc.invalidateQueries({ queryKey: ["scheduled-jobs"] });
-        void qc.invalidateQueries({ queryKey: ["automations"] });
-        void qc.invalidateQueries({ queryKey: ["gmail-filters"] });
-        void qc.invalidateQueries({ queryKey: ["google-status"] });
-        void qc.invalidateQueries({ queryKey: ["automation-settings"] });
-        void qc.invalidateQueries({ queryKey: ["framework-triggers-mail"] });
-        void qc.invalidateQueries({ queryKey: ["agent-engines"] });
-      };
-
-      if (data.source === "app-state") {
-        const integrationProvider = mailIntegrationProviderFromAppStateKey(
-          data.key,
-        );
-        if (integrationProvider && !isOwnEvent) {
-          void qc.invalidateQueries({
-            queryKey: MAIL_INTEGRATION_STATUS_QUERY_KEY,
-          });
-          void qc.invalidateQueries({
-            queryKey:
-              integrationProvider === "*"
-                ? ["integration-data"]
-                : ["integration-data", integrationProvider],
-          });
-        }
-        if (
-          (data.key?.startsWith("compose-") || data.key === "*") &&
-          !isOwnEvent
-        ) {
-          void qc.invalidateQueries({
-            queryKey: ["compose-drafts"],
-            refetchType: "all",
-          });
-        }
-        if (data.key === "refresh-signal" && !isOwnEvent) {
-          markExternalEmailRefresh();
-          void qc.invalidateQueries({ queryKey: ["emails"] });
-          void qc.invalidateQueries({ queryKey: ["email"] });
-          void qc.invalidateQueries({ queryKey: ["labels"] });
-        }
-      } else if (data.source === "settings") {
-        if (!isOwnEvent) {
-          void qc.invalidateQueries({ queryKey: ["settings"] });
-          void qc.invalidateQueries({ queryKey: ["aliases"] });
-          void qc.invalidateQueries({ queryKey: ["labels"] });
-          void qc.invalidateQueries({ queryKey: ["emails"] });
-          void qc.invalidateQueries({ queryKey: ["email"] });
-          invalidateSettingsSurfaces();
-        }
-      } else if (data.source === "action") {
-        // The core sync hook already refreshes action-backed queries for action
-        // events. Email and label reads are refreshed by the explicit
-        // refresh-signal app-state event so generic action changes do not
-        // cancel and restart Gmail list requests.
-      } else if (data.source === "screen-refresh") {
-        if (!isOwnEvent) {
-          markExternalEmailRefresh();
-          void qc.invalidateQueries({ queryKey: ["emails"] });
-          void qc.invalidateQueries({ queryKey: ["email"] });
-          void qc.invalidateQueries({ queryKey: ["labels"] });
-          invalidateSettingsSurfaces();
-        }
-      }
-    },
+    onEvent,
+    realtime: isPrivateInboxPath(location.pathname)
+      ? { reason: "new mail arrives while the inbox is open" }
+      : undefined,
+    pauseWhenHidden: true,
   });
   return null;
 }
 
-// Mail supplies its own styled Toaster from @/components/ui/sonner, so the
-// AppProviders built-in toaster is suppressed via toaster={null}.
+const PRIVATE_MAIL_VIEWS = new Set([
+  "inbox",
+  "unread",
+  "starred",
+  "snoozed",
+  "scheduled",
+  "sent",
+  "drafts",
+  "archive",
+  "trash",
+  "all",
+]);
+
+export function isPrivateInboxPath(pathname: string): boolean {
+  const view = pathname.split("/").filter(Boolean)[0];
+  return view !== undefined && PRIVATE_MAIL_VIEWS.has(view);
+}
+
 const MAIL_TOASTER = <Toaster richColors position="bottom-left" />;
 
 function AppContent() {
+  const { session, status } = useSession();
+  const owner = status === "authenticated" ? (session?.userId ?? null) : null;
+  const [cacheOwner, setCacheOwner] = useState(getThreadCacheOwner);
+  useLayoutEffect(() => {
+    setThreadCacheOwner(owner);
+    setCacheOwner(owner);
+  }, [owner]);
+
+  if (owner !== cacheOwner) return null;
+
   return (
     <>
       <AutoFocus />
@@ -449,22 +564,31 @@ function AppContent() {
   );
 }
 
+/**
+ * Bypass requires an actual embed credential, not just the `embedded=1`
+ * display flag isMcpEmbedSurface() checks (that flag stays app-chrome-only —
+ * see its other call sites): the Electron desktop shell opens every app tab
+ * with that flag and no token, and a bare-flag bypass sent those signed-out
+ * tabs straight into an infinite 401 poll instead of sign-in.
+ */
+export function computeSessionBypass(): boolean {
+  return Boolean(getEmbedAuthToken());
+}
+
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
-  const location = useLocation();
-  const isMarketingPath = location.pathname === "/";
   return (
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
+        skeletonLayout="mail"
         themeAttribute={["class", "data-theme"]}
         tooltipDelayDuration={300}
-        isPublicPath={isMarketingPath}
-        toaster={isMarketingPath ? null : MAIL_TOASTER}
-        sessionBypass={isMcpEmbedSurface()}
+        toaster={MAIL_TOASTER}
+        sessionBypass={computeSessionBypass()}
         i18n={{ catalog: i18nCatalog }}
       >
-        {isMarketingPath ? <Outlet /> : <AppContent />}
+        <AppContent />
       </AppProviders>
     </AppToolkitProvider>
   );
@@ -506,14 +630,14 @@ export function ErrorBoundary() {
     if (!recoverFromStaleChunkError(error)) setRecovering(false);
   }, [error, staleChunk]);
 
-  if (recovering) return <DefaultSpinner ariaLabel={copy.loading} />;
+  if (recovering) return <AppShellSkeleton layout="mail" />;
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-6 text-foreground">
       <div className="w-full max-w-md text-center">
         <p className="text-sm font-semibold">{copy.title}</p>
         <p className="mt-2 text-sm text-muted-foreground">{message}</p>
-        <div className="mt-5 flex justify-center gap-2">
+        <div className="mt-5 flex items-center justify-center gap-2">
           <Button
             variant="outline"
             size="sm"

@@ -1,10 +1,10 @@
 const messages = {
+  composer: {
+    removeAttachment: "إزالة {{name}}",
+    removeReference: "إزالة مرجع {{name}}",
+  },
   settings: {
     title: "الإعدادات",
-    description: "تفضيلات اللغة ومساحة العمل لهذا التطبيق.",
-    languageTitle: "اللغة",
-    languageDescription: "اختر لغة الواجهة. يتم حفظ هذا التفضيل في حسابك.",
-    languageLabel: "لغة الواجهة",
     workspaceTitle: "مساحة العمل",
     workspaceDescription:
       "إدارة أعضاء الفريق ووصول المؤسسة وتفضيلات مساحة العمل المشتركة.",
@@ -30,6 +30,15 @@ const messages = {
     newChat: "محادثة جديدة",
     optionsFor: "خيارات لـ",
     pinChat: "تثبيت المحادثة",
+    pinned: "المثبتة",
+    recents: "الأخيرة",
+    retryPreviousRequest: "أعِد محاولة طلبي السابق الآن بعد توصيل مزود النموذج.",
+    invalidHandoffOptions:
+      "تم حفظ المطالبة كمسودة، لكن تعذرت استعادة إعدادات الدردشة. راجع المطالبة والسياق والنموذج قبل إرسالها مرة أخرى.",
+    recoveryDraftUnsaved:
+      "لم تُحفظ هذه التغييرات على المسودة. قد تفقدها إذا أعدت تحميل هذه المحادثة.",
+    retryAttachmentUnavailable:
+      "لا يمكن للدردشة إعادة فتح هذا المرفق لإعادة المحاولة. أضف عنوان URL يمكن الوصول إليه للملف، ثم أعد المحاولة.",
     renameChat: "إعادة تسمية المحادثة",
     renameFailed: "فشلت إعادة التسمية",
     renameThread: "إعادة تسمية السلسلة",
@@ -37,6 +46,22 @@ const messages = {
     suggestionCapabilities: "ما الذي يمكن لهذا التطبيق فعله؟",
     suggestionCustomize: "ساعدني في تخصيص هذا التطبيق",
     unpinChat: "إلغاء تثبيت المحادثة",
+    untitledChat: "محادثة بلا عنوان",
+  },
+  home: {
+    communityDescription: "انضم إلى مجتمع Agent-Native",
+    composerPlaceholder: "استدعِ الإجراء hello من أجل Alex",
+    communityTitle: "تواصل معنا",
+    docsAddAction: "إضافة إجراء",
+    docsAddPage: "إضافة صفحة",
+    docsDescription: "أدلة حول الإجراءات والصفحات والوكلاء",
+    docsGettingStarted: "البدء",
+    docsKeyConcepts: "المفاهيم الأساسية",
+    docsTitle: "المستندات",
+    editHint: "عدّل {{file}} واحفظه، ثم اسأل مجددًا لترى التحية الجديدة.",
+    lead: "تتشارك واجهة تطبيقك ووكيله الإجراءات نفسها.",
+    leadTry: "اطلب من الوكيل استدعاء الإجراء hello.",
+    title: "ابدأ الآن",
   },
   navigation: {
     chat: "المحادثة",
@@ -44,6 +69,7 @@ const messages = {
     database: "قاعدة البيانات",
     expandSidebar: "توسيع الشريط الجانبي",
     extensions: "الإضافات",
+    home: "الرئيسية",
     navigation: "التنقل",
     navigationDescription: "التنقل الرئيسي",
     observability: "قابلية المراقبة",

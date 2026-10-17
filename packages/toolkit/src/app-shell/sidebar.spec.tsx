@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { act } from "react";
+import { act, forwardRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -10,6 +10,7 @@ import {
   AppSidebarNavGroup,
   AppSidebarSection,
   AppSidebarFeedbackButton,
+  type AppSidebarLinkProps,
 } from "./sidebar.js";
 
 describe("AppSidebar", () => {
@@ -75,7 +76,6 @@ describe("AppSidebar", () => {
     const aside = container.querySelector("aside");
     expect(aside?.getAttribute("data-collapsed")).toBe("true");
     expect(aside?.className).toContain("md:w-14");
-    // In collapsed mode, brand name is hidden from screen, badge is present
     expect(container.querySelector("[data-badge]")?.textContent).toBe("alpha");
   });
 
@@ -123,6 +123,83 @@ describe("AppSidebar", () => {
     });
 
     expect(container.textContent).toContain("Project Alpha");
+  });
+
+  it("wires a tooltip trigger onto every control in the collapsed rail", () => {
+    act(() => {
+      root.render(
+        <AppSidebar
+          collapsed
+          brandName="My App"
+          items={[
+            { label: "Inbox", to: "/inbox" },
+            { label: "Action", onClick: () => {} },
+          ]}
+          secondaryItems={[{ label: "Settings", to: "/settings" }]}
+        />,
+      );
+    });
+
+    const rail = Array.from(
+      container.querySelectorAll<HTMLElement>("aside a, aside button"),
+    );
+    expect(rail.length).toBeGreaterThan(0);
+
+    const untriggered = rail
+      .filter((element) => element.getAttribute("data-state") === null)
+      .map((element) => element.getAttribute("aria-label") ?? element.tagName);
+
+    expect(untriggered).toEqual([]);
+  });
+
+  it("keeps tooltip triggers working through a custom link component", () => {
+    const CustomLink = forwardRef<HTMLAnchorElement, AppSidebarLinkProps>(
+      ({ to, href, children, ...props }, ref) => (
+        <a ref={ref} href={to ?? href} data-custom-link {...props}>
+          {children}
+        </a>
+      ),
+    );
+    CustomLink.displayName = "CustomLink";
+
+    act(() => {
+      root.render(
+        <AppSidebar
+          collapsed
+          linkComponent={CustomLink}
+          items={[{ label: "Inbox", to: "/inbox" }]}
+        />,
+      );
+    });
+
+    const link = container.querySelector<HTMLElement>(
+      'a[data-custom-link][aria-label="Inbox"]',
+    );
+    expect(link).not.toBeNull();
+    expect(link?.getAttribute("data-state")).toBe("closed");
+  });
+
+  it("labels a custom collapsed brand link too", () => {
+    act(() => {
+      root.render(
+        <AppSidebar
+          collapsed
+          brandName="Plan"
+          brandLink={
+            <div>
+              <a href="/plans" data-custom-brand>
+                icon
+              </a>
+            </div>
+          }
+        />,
+      );
+    });
+
+    const brand = container.querySelector<HTMLElement>(
+      "[data-sidebar-header] div",
+    );
+    expect(brand?.getAttribute("data-state")).toBe("closed");
   });
 
   it("renders sections with uppercase headers and dividers", () => {

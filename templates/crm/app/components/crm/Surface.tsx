@@ -1,3 +1,4 @@
+import { buildSettingsRoute } from "@agent-native/core/client/navigation";
 import {
   IconArrowUpRight,
   IconDatabase,
@@ -81,7 +82,7 @@ export function SetupEmptyState({
             </Link>
           </Button>
           <Button asChild variant="outline" className="gap-2">
-            <Link to="/settings/connections">
+            <Link to={buildSettingsRoute("integrations")}>
               Open shared connections <IconArrowUpRight className="size-4" />
             </Link>
           </Button>

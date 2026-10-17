@@ -19,17 +19,6 @@ export function isBreakpointSelectionTarget(screen: {
   );
 }
 
-/**
- * Whether the screen's own frame-level SelectionBox (corner/rotate handles +
- * outline sized to the whole screen) should be suppressed because a MORE
- * specific target already owns the selection chrome — either one of the
- * screen's breakpoint sub-frames (existing BP-DEEP v2 case), or a specific
- * element inside the screen (Layers-panel row, in-canvas click resolving to
- * a node). The editor-chrome bridge inside the iframe already renders a
- * correctly-fitted outline + resize handles for that element; drawing the
- * frame-sized box on top of it is wrong, not just redundant — it always
- * spans the whole screen regardless of what's actually selected.
- */
 export function shouldSuppressFrameSelectionBox(
   screen: {
     id: string;
@@ -40,6 +29,28 @@ export function shouldSuppressFrameSelectionBox(
 ): boolean {
   return (
     isBreakpointSelectionTarget(screen) || selectedElementScreenId === screen.id
+  );
+}
+
+export function shouldRenderBoardSelectionBox(options: {
+  boardSelectionRect: unknown;
+  boardIsActive: boolean;
+  boardSurfaceRenderGeometry: unknown;
+}): boolean {
+  return Boolean(
+    options.boardSelectionRect &&
+    options.boardIsActive &&
+    options.boardSurfaceRenderGeometry,
+  );
+}
+
+export function frameCommandTargetIds(
+  selectedIds: string[],
+  isFrame: (id: string) => boolean,
+  selectedElementScreenId: string | null | undefined,
+): string[] {
+  return selectedIds.filter(
+    (id) => isFrame(id) && id !== selectedElementScreenId,
   );
 }
 
@@ -58,11 +69,11 @@ export function getActiveScreenIframeId(screen: {
   return getPrimaryIframeId(screen.id);
 }
 
-/** Resolve an ordinary screen iframe or the dedicated board surface iframe. */
 export function findCanvasIframeForScreen(
   root: HTMLElement | null,
   iframeId: string,
   boardFileId?: string,
+  breakpointWidth?: number,
 ): HTMLIFrameElement | null {
   if (!root) return null;
   if (boardFileId && iframeId === boardFileId) {
@@ -70,7 +81,35 @@ export function findCanvasIframeForScreen(
       "[data-board-surface-layer] iframe[data-design-preview-iframe]",
     );
   }
+  const targetIframeId =
+    breakpointWidth === undefined
+      ? iframeId
+      : getBreakpointIframeId(iframeId, breakpointWidth);
   return root.querySelector<HTMLIFrameElement>(
-    `[data-screen-iframe-id="${CSS.escape(iframeId)}"]`,
+    `[data-screen-iframe-id="${CSS.escape(targetIframeId)}"]`,
   );
+}
+
+export function readCanvasPreviewMeasurementContext(
+  frame: HTMLIFrameElement | null,
+  expectedBreakpointPreview: boolean,
+): { view: Window; doc: Document } | null | undefined {
+  const unavailable = expectedBreakpointPreview ? null : undefined;
+  if (!frame) return unavailable;
+
+  try {
+    const view = frame.contentWindow;
+    const doc = frame.contentDocument;
+    return view && doc ? { view, doc } : unavailable;
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "name" in error &&
+      error.name === "SecurityError"
+    ) {
+      return unavailable;
+    }
+    throw error;
+  }
 }

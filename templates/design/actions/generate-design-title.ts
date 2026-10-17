@@ -18,8 +18,6 @@ export default defineAction({
     "generation prompt and save it. Internal plumbing used right after a " +
     "design is created from the prompt box — not a step in the normal " +
     "design-generation flow, so agents should not call this directly.",
-  // UI-only plumbing: callable via the frontend action surface, hidden from
-  // the agent/MCP/A2A tool lists so it doesn't spend a tool-call slot.
   agentTool: false,
   schema: z.object({
     designId: z.string().describe("Design ID to update"),
@@ -50,8 +48,6 @@ export default defineAction({
       });
       generated = sanitizeGeneratedDesignTitle(result.text);
     } catch {
-      // Best-effort: the placeholder title (already saved at creation time)
-      // stays as-is on any model/engine failure.
       return { updated: false, reason: "generation-failed" };
     }
 
@@ -60,9 +56,6 @@ export default defineAction({
     const db = getDb();
     const now = new Date().toISOString();
 
-    // Read-then-write inside one transaction so we only overwrite the
-    // placeholder title — never a title the user already changed in the
-    // meantime (manual rename racing this background call).
     const outcome = await db.transaction(async (tx) => {
       const [current] = await tx
         .select({ title: schema.designs.title })

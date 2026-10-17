@@ -32,13 +32,13 @@ Eine gute Vorlage:
 Verwenden Sie die Chat-Vorlage, wenn Sie eine minimale App mit bereits vorhandener Framework-Verkabelung wünschen:
 
 ```bash
-npx @agent-native/core@latest create my-template --template chat --standalone
+npx --yes @agent-native/core@latest create my-template --template chat --standalone
 ```
 
 Führen Sie für einen Arbeitsbereich mit mehreren Apps die Auswahl aus und schließen Sie Chat mit allen gewünschten Domänenvorlagen ein:
 
 ```bash
-npx @agent-native/core@latest create my-platform
+npx --yes @agent-native/core@latest create my-platform
 ```
 
 Chat bietet Ihnen Authentifizierung, dauerhafte Chat-Threads, von PostgreSQL unterstützte Ressourcen, Tools, Anwendungsstatus, actions und Abfragesynchronisierung. Sie fügen das Domänenmodell und das Produkt UI hinzu.
@@ -516,13 +516,13 @@ Vor dem Teilen:
 Community-Vorlagen werden direkt aus einem öffentlichen GitHub-Repository installiert. Die Agent-Native-App muss im Stammverzeichnis liegen:
 
 ```bash
-npx @agent-native/core@latest create my-app --template community:owner/repo
+npx --yes @agent-native/core@latest create my-app --template community:owner/repo
 ```
 
 Mit `#branch`, `#tag` oder `#commit` kann eine bestimmte Version festgelegt werden:
 
 ```bash
-npx @agent-native/core@latest create my-app --template community:owner/repo#v1.0.0
+npx --yes @agent-native/core@latest create my-app --template community:owner/repo#v1.0.0
 ```
 
 Die CLI lädt nur den Quellcode herunter. Sie installiert keine Abhängigkeiten und führt keine Skripte der Vorlage aus. Community-Vorlagen sind Drittanbieter-Code; prüfe Repository, Lizenz, Abhängigkeiten und Installationsskripte vor `pnpm install`.

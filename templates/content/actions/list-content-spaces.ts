@@ -14,6 +14,7 @@ import {
   personalContentSpaceId,
   systemIdsForContentSpace,
 } from "./_content-spaces.js";
+import { getContentSourceMode } from "./_local-file-documents.js";
 
 export default defineAction({
   description:
@@ -30,7 +31,39 @@ export default defineAction({
     const personalSpaceId = personalContentSpaceId(email);
     const catalogIds = systemIdsForContentSpace(personalSpaceId, "workspaces");
     const favoritesIds = systemIdsForContentSpace(personalSpaceId, "favorites");
-    const memberships = await listContentOrganizationMemberships(email);
+    const [memberships, sourceMode, rows] = await Promise.all([
+      listContentOrganizationMemberships(email),
+      getContentSourceMode(),
+      db
+        .select({
+          mapping: schema.contentSpaceCatalogItems,
+          space: schema.contentSpaces,
+          item: schema.contentDatabaseItems,
+        })
+        .from(schema.contentSpaceCatalogItems)
+        .innerJoin(
+          schema.contentSpaces,
+          eq(schema.contentSpaces.id, schema.contentSpaceCatalogItems.spaceId),
+        )
+        .innerJoin(
+          schema.contentDatabaseItems,
+          eq(
+            schema.contentDatabaseItems.id,
+            schema.contentSpaceCatalogItems.databaseItemId,
+          ),
+        )
+        .where(
+          and(
+            eq(schema.contentSpaceCatalogItems.ownerEmail, email),
+            eq(
+              schema.contentSpaceCatalogItems.catalogDatabaseId,
+              catalogIds.databaseId,
+            ),
+            isNull(schema.contentSpaces.archivedAt),
+          ),
+        )
+        .orderBy(asc(schema.contentDatabaseItems.position)),
+    ]);
     const roleByOrgId = new Map(
       memberships.map((membership) => [
         membership.orgId,
@@ -41,35 +74,6 @@ export default defineAction({
             : "viewer",
       ]),
     );
-    const rows = await db
-      .select({
-        mapping: schema.contentSpaceCatalogItems,
-        space: schema.contentSpaces,
-        item: schema.contentDatabaseItems,
-      })
-      .from(schema.contentSpaceCatalogItems)
-      .innerJoin(
-        schema.contentSpaces,
-        eq(schema.contentSpaces.id, schema.contentSpaceCatalogItems.spaceId),
-      )
-      .innerJoin(
-        schema.contentDatabaseItems,
-        eq(
-          schema.contentDatabaseItems.id,
-          schema.contentSpaceCatalogItems.databaseItemId,
-        ),
-      )
-      .where(
-        and(
-          eq(schema.contentSpaceCatalogItems.ownerEmail, email),
-          eq(
-            schema.contentSpaceCatalogItems.catalogDatabaseId,
-            catalogIds.databaseId,
-          ),
-          isNull(schema.contentSpaces.archivedAt),
-        ),
-      )
-      .orderBy(asc(schema.contentDatabaseItems.position));
     const filesDatabaseIds = rows.map((row) => row.space.filesDatabaseId);
     const databaseIds = [...filesDatabaseIds, favoritesIds.databaseId];
     const filesDatabases = databaseIds.length
@@ -153,6 +157,7 @@ export default defineAction({
       )
       .digest("hex");
     return {
+      sourceMode,
       catalogDatabaseId: catalogIds.databaseId,
       catalogDocumentId: catalogIds.documentId,
       favoritesDatabaseId: filesDocumentIdByDatabaseId.has(

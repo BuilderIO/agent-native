@@ -1,0 +1,828 @@
+import { type Page } from "@playwright/test";
+
+import { enterDirectMode, expandAllLayers } from "./helpers";
+import { expect, expectOnlyChanged, test, type App } from "./rails";
+
+/** The trigger of the nth existing fill layer, whatever its Fill field reads (`Linear`, `Image`, a color). */
+const layerTrigger = (page: Page, index: number) =>
+  page
+    .locator('[data-inspector-layout="drag-paint-row"]')
+    .nth(index)
+    .locator('button[aria-haspopup="dialog"]')
+    .first();
+
+const FIXTURE = `<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Fill hit area</title></head>
+  <body style="margin:0;font-family:system-ui,sans-serif">
+    <main data-agent-native-node-id="fill-root" data-agent-native-layer-name="Root" style="position:relative;width:900px;height:700px">
+      <div data-agent-native-node-id="fill-gradient" data-agent-native-layer-name="Gradient" style="position:absolute;left:64px;top:64px;width:320px;height:180px;background-color:rgba(0,0,0,0);background-image:linear-gradient(90deg, #ff0000 0%, #0000ff 100%)"></div>
+    </main>
+  </body>
+</html>`;
+
+const SOLID_FILL_FIXTURE = `<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Solid fill conversion</title></head>
+  <body style="margin:0;font-family:system-ui,sans-serif">
+    <main data-agent-native-node-id="fill-root" data-agent-native-layer-name="Root" style="position:relative;width:900px;height:700px">
+      <div data-agent-native-node-id="fill-solid" data-agent-native-layer-name="Solid" style="position:absolute;left:64px;top:64px;width:320px;height:180px;background-color:#ff0000;background-image:none"></div>
+    </main>
+  </body>
+</html>`;
+
+const SOLID_WITH_EXISTING_GRADIENT_FIXTURE = `<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Solid beside existing gradient</title></head>
+  <body style="margin:0;font-family:system-ui,sans-serif">
+    <main data-agent-native-node-id="fill-root" data-agent-native-layer-name="Root" style="position:relative;width:900px;height:700px">
+      <div data-agent-native-node-id="fill-solid-gradient" data-agent-native-layer-name="Solid with gradient" style="position:absolute;left:64px;top:64px;width:320px;height:180px;background-color:#ff0000;background-image:linear-gradient(90deg, #0f766e 0%, #14b8a6 100%)"></div>
+    </main>
+  </body>
+</html>`;
+
+const SIBLING_GRADIENT_FILL_FIXTURE = `<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Sibling gradient conversion</title></head>
+  <body style="margin:0;font-family:system-ui,sans-serif">
+    <main data-agent-native-node-id="fill-root" data-agent-native-layer-name="Root" style="position:relative;width:900px;height:700px">
+      <div data-agent-native-node-id="fill-siblings" data-agent-native-layer-name="Two fills" style="position:absolute;left:64px;top:64px;width:320px;height:180px;background-color:#123456;background-image:linear-gradient(90deg, rgba(204, 51, 102, 0.2) 0%, rgba(51, 102, 204, 0.2) 100%), radial-gradient(circle at center, #00ff00 0%, #ff00ff 100%);background-size:24px 24px, cover;background-repeat:no-repeat, repeat-x;background-position:10% 20%, 30% 40%"></div>
+    </main>
+  </body>
+</html>`;
+
+const BASE_SOLID_WITH_SIBLINGS_FIXTURE = `<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Base solid conversion below siblings</title></head>
+  <body style="margin:0;font-family:system-ui,sans-serif">
+    <main data-agent-native-node-id="fill-root" data-agent-native-layer-name="Root" style="position:relative;width:900px;height:700px">
+      <div data-agent-native-node-id="fill-base-siblings" data-agent-native-layer-name="Base with siblings" style="position:absolute;left:64px;top:64px;width:320px;height:180px;background-color:#ff0000;background-image:url(&quot;https://example.test/image.png&quot;), radial-gradient(circle at center, #00ff00 0%, #ff00ff 100%);background-size:cover, 24px 24px;background-repeat:no-repeat, repeat-x;background-position:center, 30% 40%"></div>
+    </main>
+  </body>
+</html>`;
+
+const THREE_IMAGE_FILLS_FIXTURE = `<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Three image fills</title></head>
+  <body style="margin:0;font-family:system-ui,sans-serif">
+    <main data-agent-native-node-id="fill-root" data-agent-native-layer-name="Root" style="position:relative;width:900px;height:700px">
+      <div data-agent-native-node-id="fill-stack" data-agent-native-layer-name="Three image fills" style="position:absolute;left:64px;top:64px;width:320px;height:180px;background-color:transparent;background-image:url(&quot;https://fills.invalid/first.png&quot;),url(&quot;https://fills.invalid/second.png&quot;),url(&quot;https://fills.invalid/third.png&quot;);background-size:24px 24px,contain,cover;background-repeat:no-repeat,repeat-x,no-repeat;background-position:left top,center,right bottom"></div>
+    </main>
+  </body>
+</html>`;
+
+type Background = {
+  image: string;
+  size: string;
+  repeat: string;
+  position: string;
+  color: string;
+};
+
+/** The saved node's background as Chrome computes it, so it compares 1:1 with the live preview. */
+async function savedFill(
+  app: App,
+  designId: string,
+  nodeId: string,
+): Promise<Background> {
+  const style = (await app.savedNodes(designId)).get(nodeId)?.attrs.style ?? "";
+  return app.page.evaluate((source) => {
+    const probe = document.createElement("div");
+    probe.setAttribute("style", source);
+    // display:none keeps the probe from fetching its url() images.
+    probe.style.display = "none";
+    document.body.append(probe);
+    const computed = getComputedStyle(probe);
+    const result = {
+      image: computed.backgroundImage,
+      size: computed.backgroundSize,
+      repeat: computed.backgroundRepeat,
+      position: computed.backgroundPosition,
+      color: computed.backgroundColor,
+    };
+    probe.remove();
+    return result;
+  }, style);
+}
+
+async function liveFill(app: App, nodeId: string): Promise<Background> {
+  return app.node(nodeId).evaluate((node) => {
+    const computed = getComputedStyle(node);
+    return {
+      image: computed.backgroundImage,
+      size: computed.backgroundSize,
+      repeat: computed.backgroundRepeat,
+      position: computed.backgroundPosition,
+      color: computed.backgroundColor,
+    };
+  });
+}
+
+async function expectSavedAsRendered(
+  app: App,
+  designId: string,
+  nodeId: string,
+) {
+  await app.settled();
+  expect(
+    await savedFill(app, designId, nodeId),
+    "the saved fill is the one rendered",
+  ).toEqual(await liveFill(app, nodeId));
+}
+
+// oracle: none — app fill-layer behavior with no native Figma counterpart; only how the row's trigger is located changed.
+test("gradient fill trigger stays inside its cell and opens from one click", async ({
+  app,
+  page,
+}) => {
+  const designId = await app.seed(FIXTURE);
+  await app.open(designId);
+  await enterDirectMode(page);
+  await expandAllLayers(page);
+  await app.settled();
+  const before = await app.savedNodes(designId);
+
+  const tree = page.getByRole("tree", { name: "Layers" });
+  const layer = tree
+    .getByRole("button", { name: "Gradient", exact: true })
+    .first();
+  await expect(layer).toBeVisible();
+  await layer.click();
+  await expect(
+    tree.locator('[role="treeitem"][aria-selected="true"]'),
+  ).toContainText("Gradient");
+  await expect
+    .poll(() =>
+      page
+        .locator("iframe[data-design-preview-iframe]")
+        .last()
+        .contentFrame()
+        .locator('[data-agent-native-node-id="fill-gradient"]')
+        .evaluate((node) => getComputedStyle(node).backgroundImage),
+    )
+    .toContain("linear-gradient");
+
+  const trigger = layerTrigger(page, 0);
+  await expect(trigger).toBeVisible();
+  const row = trigger.locator(
+    'xpath=ancestor::*[@data-inspector-layout="drag-paint-row"][1]',
+  );
+  const cell = trigger.locator(
+    "xpath=ancestor::*[@data-inspector-grid-cell][1]",
+  );
+  const actionCells = row.locator(
+    ':scope > [data-inspector-grid-cell][data-inspector-span="4"]',
+  );
+  const eye = actionCells.nth(0).getByRole("button");
+  const remove = actionCells.nth(1).getByRole("button");
+  const handle = row.getByRole("button", {
+    name: "Reorder layer",
+    exact: true,
+  });
+  const [triggerBox, cellBox, eyeBox, removeBox, handleBox, rowBox] =
+    await Promise.all([
+      trigger.boundingBox(),
+      cell.boundingBox(),
+      eye.boundingBox(),
+      remove.boundingBox(),
+      handle.boundingBox(),
+      row.boundingBox(),
+    ]);
+
+  expect(triggerBox).not.toBeNull();
+  expect(cellBox).not.toBeNull();
+  expect(eyeBox).not.toBeNull();
+  expect(removeBox).not.toBeNull();
+  expect(handleBox).not.toBeNull();
+  expect(rowBox).not.toBeNull();
+  // The handle hangs in the 8px section gutter beside the pill, not over it.
+  expect(handleBox!.x + handleBox!.width).toBeLessThanOrEqual(
+    triggerBox!.x + 0.5,
+  );
+  expect(triggerBox!.x - rowBox!.x).toBeCloseTo(8, 0);
+  expect(triggerBox!.x + triggerBox!.width).toBeLessThanOrEqual(
+    cellBox!.x + cellBox!.width + 0.5,
+  );
+  expect(triggerBox!.x + triggerBox!.width).toBeLessThanOrEqual(
+    eyeBox!.x + 0.5,
+  );
+  expect(eyeBox!.x + eyeBox!.width).toBeLessThanOrEqual(removeBox!.x + 0.5);
+
+  await trigger.click();
+  await expect(
+    page.locator('[role="group"][aria-label="Gradient stops"]'),
+  ).toBeVisible();
+  await app.settled();
+  expectOnlyChanged(before, await app.savedNodes(designId), []);
+});
+
+// oracle: none — gradient alpha persistence is app behavior with no native Figma counterpart; only the stop opacity locator changed.
+test("gradient fill opacity preserves stop alpha through zero and reload", async ({
+  app,
+  page,
+}) => {
+  await page.route("https://example.test/export-image.svg", (route) =>
+    route.fulfill({
+      contentType: "image/svg+xml",
+      headers: { "access-control-allow-origin": "*" },
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="#00ff00"/></svg>',
+    }),
+  );
+  const designId = await app.seed(
+    FIXTURE.replace("#0000ff 100%", "rgba(0,0,255,0) 100%").replace(
+      "</main>",
+      '<img src="https://example.test/export-image.svg" style="position:absolute;left:400px;top:64px;width:32px;height:32px"/></main>',
+    ),
+  );
+  await app.open(designId);
+  await enterDirectMode(page);
+  await expandAllLayers(page);
+  await app.settled();
+  const before = await app.savedNodes(designId);
+  const tree = page.getByRole("tree", { name: "Layers" });
+  const layer = tree
+    .getByRole("button", { name: "Gradient", exact: true })
+    .first();
+  await layer.click();
+  const trigger = layerTrigger(page, 0);
+  const row = trigger.locator(
+    'xpath=ancestor::*[@data-inspector-layout="drag-paint-row"][1]',
+  );
+  const opacity = row.getByRole("textbox", { name: "Opacity", exact: true });
+  const shape = page
+    .locator("iframe[data-design-preview-iframe]")
+    .last()
+    .contentFrame()
+    .locator('[data-agent-native-node-id="fill-gradient"]');
+  await expect(opacity).toHaveValue("100%");
+  for (const value of [20, 0]) {
+    await opacity.fill(String(value));
+    await opacity.press("Enter");
+    await expect
+      .poll(() =>
+        shape.evaluate((node) => (node as HTMLElement).style.backgroundImage),
+      )
+      .toContain(`${value}%, transparent`);
+    if (value === 20) {
+      const [download] = await Promise.all([
+        page.waitForEvent("download"),
+        page
+          .getByRole("button", { name: "Export", exact: true })
+          .and(page.locator("button:not([aria-expanded])"))
+          .click(),
+      ]);
+      const stream = await download.createReadStream();
+      if (!stream) throw new Error("Export returned no PNG data");
+      await download.saveAs(test.info().outputPath("gradient-opacity.png"));
+      const chunks: Buffer[] = [];
+      for await (const chunk of stream) chunks.push(Buffer.from(chunk));
+      const pixel = await page.evaluate(async (base64) => {
+        const image = new Image();
+        image.src = `data:image/png;base64,${base64}`;
+        await image.decode();
+        const canvas = document.createElement("canvas");
+        canvas.width = image.width;
+        canvas.height = image.height;
+        const context = canvas.getContext("2d")!;
+        context.drawImage(image, 0, 0);
+        return {
+          width: image.width,
+          height: image.height,
+          rgba: [...context.getImageData(32, 90, 1, 1).data],
+        };
+      }, Buffer.concat(chunks).toString("base64"));
+      expect(pixel.width).toBe(320);
+      expect(pixel.height).toBe(180);
+      expect(pixel.rgba[3], JSON.stringify(pixel)).toBeGreaterThanOrEqual(45);
+      expect(pixel.rgba[3], JSON.stringify(pixel)).toBeLessThanOrEqual(47);
+      expect(pixel.rgba[0] - pixel.rgba[1]).toBeGreaterThan(10);
+
+      const screen = tree
+        .locator('[role="treeitem"][aria-level="1"]')
+        .filter({ has: page.locator('span[title="Home"]') })
+        .first();
+      await screen.locator("[data-layer-row-button]").click();
+      await expect(screen).toHaveAttribute("aria-selected", "true");
+      const [screenDownload] = await Promise.all([
+        page.waitForEvent("download"),
+        page
+          .getByRole("button", { name: "Export", exact: true })
+          .and(page.locator("button:not([aria-expanded])"))
+          .click(),
+      ]);
+      const screenStream = await screenDownload.createReadStream();
+      if (!screenStream) throw new Error("Screen export returned no PNG data");
+      await screenDownload.saveAs(
+        test.info().outputPath("gradient-opacity-screen.png"),
+      );
+      const screenChunks: Buffer[] = [];
+      for await (const chunk of screenStream) {
+        screenChunks.push(Buffer.from(chunk));
+      }
+      const screenPixel = await page.evaluate(async (base64) => {
+        const image = new Image();
+        image.src = `data:image/png;base64,${base64}`;
+        await image.decode();
+        const canvas = document.createElement("canvas");
+        canvas.width = image.width;
+        canvas.height = image.height;
+        const context = canvas.getContext("2d")!;
+        context.drawImage(image, 0, 0);
+        return {
+          width: image.width,
+          height: image.height,
+          image: [...context.getImageData(416, 80, 1, 1).data],
+        };
+      }, Buffer.concat(screenChunks).toString("base64"));
+      expect(screenPixel.width).toBeGreaterThan(416);
+      expect(screenPixel.height).toBeGreaterThan(80);
+      expect(screenPixel.image).toEqual([0, 255, 0, 255]);
+      await layer.click();
+      await expect(
+        tree.locator('[role="treeitem"][aria-selected="true"]'),
+      ).toContainText("Gradient");
+    }
+  }
+  await page.reload();
+  await enterDirectMode(page);
+  await expandAllLayers(page);
+  await layer.click();
+  await expect(opacity).toHaveValue("0%");
+  await opacity.fill("100");
+  await opacity.press("Enter");
+  await expect
+    .poll(() =>
+      shape.evaluate((node) => (node as HTMLElement).style.backgroundImage),
+    )
+    .not.toContain("color-mix");
+  await expect
+    .poll(() =>
+      shape.evaluate((node) => getComputedStyle(node).backgroundImage),
+    )
+    .toMatch(/rgb\(255, 0, 0\).*rgba\(0, 0, 255, 0\)/);
+  await trigger.click();
+  // The Stops list has a row per stop: the first stop is the opaque red one.
+  await expect(
+    page.getByRole("textbox", { name: "Stop opacity" }).first(),
+  ).toHaveValue("100");
+  await expectSavedAsRendered(app, designId, "fill-gradient");
+  expectOnlyChanged(before, await app.savedNodes(designId), ["fill-gradient"]);
+});
+
+// oracle: none — only the paint type button changed (Linear is now Gradient); no Figma behavior is claimed.
+test("solid-to-gradient conversion keeps its picker open", async ({
+  app,
+  page,
+}) => {
+  const designId = await app.seed(SOLID_FILL_FIXTURE);
+  await app.open(designId);
+  await enterDirectMode(page);
+  await expandAllLayers(page);
+  await app.settled();
+  const before = await app.savedNodes(designId);
+
+  const tree = page.getByRole("tree", { name: "Layers" });
+  const layer = tree
+    .getByRole("button", { name: "Solid", exact: true })
+    .first();
+  await expect(layer).toBeVisible();
+  await layer.click();
+  await expect(
+    tree.locator('[role="treeitem"][aria-selected="true"]'),
+  ).toContainText("Solid");
+
+  await page.getByRole("button", { name: "Open color picker" }).click();
+  await page.getByRole("button", { name: "Gradient", exact: true }).click();
+  await expect(
+    page.locator('[role="group"][aria-label="Gradient stops"]'),
+  ).toBeVisible();
+
+  const solid = page
+    .locator("iframe[data-design-preview-iframe]")
+    .last()
+    .contentFrame()
+    .locator('[data-agent-native-node-id="fill-solid"]');
+  await expect
+    .poll(() =>
+      solid.evaluate((node) => getComputedStyle(node).backgroundImage),
+    )
+    .toContain("linear-gradient");
+  await expect
+    .poll(() =>
+      solid.evaluate((node) => getComputedStyle(node).backgroundColor),
+    )
+    .toBe("rgba(0, 0, 0, 0)");
+  await expect
+    .poll(async () => (await savedFill(app, designId, "fill-solid")).image)
+    .toContain("linear-gradient");
+  await expect(
+    page.locator('[role="group"][aria-label="Gradient stops"]'),
+    "the picker survives the committed conversion",
+  ).toBeVisible();
+  await expectSavedAsRendered(app, designId, "fill-solid");
+  expect(
+    (await liveFill(app, "fill-solid")).image,
+    "the gradient starts from the solid's colour",
+  ).toMatch(/^linear-gradient\(rgb\(255, 0, 0\) 0%, /);
+  expectOnlyChanged(before, await app.savedNodes(designId), ["fill-solid"]);
+});
+
+// oracle: none — only the paint type button changed (Linear is now Gradient); no Figma behavior is claimed.
+test("removing a converted Solid gradient closes its picker and preserves the sibling", async ({
+  app,
+  page,
+}) => {
+  const designId = await app.seed(SOLID_WITH_EXISTING_GRADIENT_FIXTURE);
+  await app.open(designId);
+  await enterDirectMode(page);
+  await expandAllLayers(page);
+  await app.settled();
+  const before = await app.savedNodes(designId);
+
+  const tree = page.getByRole("tree", { name: "Layers" });
+  const layer = tree
+    .getByRole("button", { name: "Solid with gradient", exact: true })
+    .first();
+  await expect(layer).toBeVisible();
+  await layer.click();
+
+  const fillHeading = page.getByRole("heading", {
+    name: "Fill",
+    exact: true,
+  });
+  const fillSection = page
+    .locator("section")
+    .filter({ has: fillHeading })
+    .first();
+  const paintRows = fillSection.locator(
+    '[data-inspector-layout="paint-row"], [data-inspector-layout="drag-paint-row"]',
+  );
+  await expect(paintRows).toHaveCount(2);
+  const baseFillRow = fillSection.locator(
+    '[data-inspector-layout="paint-row"]',
+  );
+  await expect(baseFillRow).toHaveCount(1);
+  const gradientRows = fillSection.locator(
+    '[data-inspector-layout="drag-paint-row"]',
+  );
+  const originalGradientRow = gradientRows.nth(0);
+  await expect(originalGradientRow).toHaveCount(1);
+
+  const preview = page
+    .locator("iframe[data-design-preview-iframe]")
+    .last()
+    .contentFrame()
+    .locator('[data-agent-native-node-id="fill-solid-gradient"]');
+  const originalGradient = await preview.evaluate(
+    (node) => getComputedStyle(node).backgroundImage,
+  );
+  expect(originalGradient).toContain("linear-gradient");
+
+  await baseFillRow.getByRole("button", { name: "Open color picker" }).click();
+  await page.getByRole("button", { name: "Gradient", exact: true }).click();
+
+  const gradientStops = page.getByRole("group", { name: "Gradient stops" });
+  await expect(gradientStops).toBeVisible();
+  await expect(paintRows).toHaveCount(2);
+  await expect(gradientRows).toHaveCount(2);
+  await expect(baseFillRow).toHaveCount(0);
+
+  const convertedGradientRow = gradientRows.nth(1);
+  await expect(convertedGradientRow).toHaveCount(1);
+  const convertedGradientTrigger = convertedGradientRow.getByRole("button", {
+    name: /Linear/,
+  });
+  await expect(convertedGradientTrigger).toHaveAttribute(
+    "aria-expanded",
+    "true",
+  );
+  await expect
+    .poll(() =>
+      preview.evaluate((node) => getComputedStyle(node).backgroundColor),
+    )
+    .toBe("rgba(0, 0, 0, 0)");
+
+  await convertedGradientRow
+    .getByRole("button", { name: "Remove layer", exact: true })
+    .click();
+  await expect(gradientStops).toBeHidden();
+  await expect(convertedGradientRow).toHaveCount(0);
+  await expect(gradientRows).toHaveCount(1);
+  await expect(paintRows).toHaveCount(1);
+  await expect(baseFillRow).toHaveCount(0);
+  await expect(originalGradientRow).toHaveCount(1);
+  await expect
+    .poll(() =>
+      preview.evaluate((node) => getComputedStyle(node).backgroundImage),
+    )
+    .toBe(originalGradient);
+
+  await expect
+    .poll(
+      async () => (await savedFill(app, designId, "fill-solid-gradient")).image,
+    )
+    .toBe(originalGradient);
+  await expectSavedAsRendered(app, designId, "fill-solid-gradient");
+  expectOnlyChanged(before, await app.savedNodes(designId), [
+    "fill-solid-gradient",
+  ]);
+
+  await page.reload();
+  await enterDirectMode(page);
+  await expandAllLayers(page);
+  await tree
+    .getByRole("button", { name: "Solid with gradient", exact: true })
+    .first()
+    .click();
+  await expect(gradientRows).toHaveCount(1);
+  await expect(paintRows).toHaveCount(1);
+  await expect(originalGradientRow).toHaveCount(1);
+  await expect
+    .poll(() =>
+      preview.evaluate((node) => getComputedStyle(node).backgroundImage),
+    )
+    .toBe(originalGradient);
+  expect((await savedFill(app, designId, "fill-solid-gradient")).image).toBe(
+    originalGradient,
+  );
+});
+
+// oracle: none — only the paint type button changed (Linear is now Gradient); no Figma behavior is claimed.
+test("converting the base solid appends it below sibling fills and keeps their arrays", async ({
+  app,
+  page,
+}) => {
+  await page.route("https://example.test/**", (route) =>
+    route.fulfill({
+      contentType: "image/svg+xml",
+      body: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><rect width="1" height="1" fill="#000"/></svg>',
+    }),
+  );
+  const designId = await app.seed(BASE_SOLID_WITH_SIBLINGS_FIXTURE);
+  await app.open(designId);
+  await enterDirectMode(page);
+  await expandAllLayers(page);
+  await app.settled();
+  const before = await app.savedNodes(designId);
+
+  const tree = page.getByRole("tree", { name: "Layers" });
+  await tree
+    .getByRole("button", { name: "Base with siblings", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Open color picker" }).click();
+  await page.getByRole("button", { name: "Gradient", exact: true }).click();
+
+  await expect(
+    page.locator('[role="group"][aria-label="Gradient stops"]'),
+  ).toBeVisible();
+  await expect(layerTrigger(page, 2)).toBeVisible();
+
+  const preview = page
+    .locator("iframe[data-design-preview-iframe]")
+    .last()
+    .contentFrame()
+    .locator('[data-agent-native-node-id="fill-base-siblings"]');
+  await expect
+    .poll(() =>
+      preview.evaluate((node) => getComputedStyle(node).backgroundImage),
+    )
+    .toMatch(
+      /^url\("https:\/\/example\.test\/image\.png"\), radial-gradient.*linear-gradient/s,
+    );
+  await expect
+    .poll(() =>
+      preview.evaluate((node) => getComputedStyle(node).backgroundSize),
+    )
+    .toBe("cover, 24px 24px, auto");
+  await expect
+    .poll(() =>
+      preview.evaluate((node) => getComputedStyle(node).backgroundRepeat),
+    )
+    .toBe("no-repeat, repeat-x, no-repeat");
+  await expect
+    .poll(() =>
+      preview.evaluate((node) => getComputedStyle(node).backgroundPosition),
+    )
+    .toBe("50% 50%, 30% 40%, 0% 0%");
+  await expect
+    .poll(() =>
+      preview.evaluate((node) => getComputedStyle(node).backgroundColor),
+    )
+    .toBe("rgba(0, 0, 0, 0)");
+  await expectSavedAsRendered(app, designId, "fill-base-siblings");
+  expectOnlyChanged(before, await app.savedNodes(designId), [
+    "fill-base-siblings",
+  ]);
+});
+
+// oracle: none — only the paint type button changed (Linear is now Gradient); no Figma behavior is claimed.
+test("gradient-to-solid preserves sibling fill arrays and keeps the picker open", async ({
+  app,
+  page,
+}) => {
+  const designId = await app.seed(SIBLING_GRADIENT_FILL_FIXTURE);
+  await app.open(designId);
+  await enterDirectMode(page);
+  await expandAllLayers(page);
+  await app.settled();
+  const before = await app.savedNodes(designId);
+
+  const tree = page.getByRole("tree", { name: "Layers" });
+  const layer = tree
+    .getByRole("button", { name: "Two fills", exact: true })
+    .first();
+  await expect(layer).toBeVisible();
+  await layer.click();
+
+  const gradientTrigger = layerTrigger(page, 0);
+  await expect(gradientTrigger).toBeVisible();
+  await gradientTrigger.click();
+  await expect(
+    page.locator('[role="group"][aria-label="Gradient stops"]'),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Solid", exact: true }).click();
+  await expect(page.getByRole("textbox", { name: "Hex" })).toBeVisible();
+  await expect(layerTrigger(page, 0)).toContainText("20%");
+
+  const preview = page
+    .locator("iframe[data-design-preview-iframe]")
+    .last()
+    .contentFrame()
+    .locator('[data-agent-native-node-id="fill-siblings"]');
+  await expect
+    .poll(() =>
+      preview.evaluate((node) => getComputedStyle(node).backgroundImage),
+    )
+    .toContain("linear-gradient");
+  await expect
+    .poll(() =>
+      preview.evaluate((node) => getComputedStyle(node).backgroundImage),
+    )
+    .toContain("radial-gradient");
+  await expect
+    .poll(() =>
+      preview.evaluate((node) => getComputedStyle(node).backgroundColor),
+    )
+    .toBe("rgb(18, 52, 86)");
+  await expect
+    .poll(() =>
+      preview.evaluate((node) => getComputedStyle(node).backgroundSize),
+    )
+    .toBe("24px 24px, cover");
+  await expect
+    .poll(() =>
+      preview.evaluate((node) => getComputedStyle(node).backgroundRepeat),
+    )
+    .toBe("no-repeat, repeat-x");
+  await expect
+    .poll(() =>
+      preview.evaluate((node) => getComputedStyle(node).backgroundPosition),
+    )
+    .toBe("10% 20%, 30% 40%");
+  expect(
+    await preview.evaluate(() =>
+      CSS.supports("background-image", "linear-gradient(#ff0000 0 0)"),
+    ),
+  ).toBe(true);
+
+  await page.getByRole("button", { name: "Gradient", exact: true }).click();
+  await expect(
+    page.locator('[role="group"][aria-label="Gradient stops"]'),
+  ).toBeVisible();
+  await expect
+    .poll(() =>
+      preview.evaluate((node) => getComputedStyle(node).backgroundImage),
+    )
+    .toContain("rgba(204, 51, 102, 0.2)");
+  await expect
+    .poll(() =>
+      preview.evaluate((node) => getComputedStyle(node).backgroundImage),
+    )
+    .toContain("rgba(51, 102, 204, 0.2)");
+
+  await page.getByRole("button", { name: "Solid", exact: true }).click();
+  await expect(page.getByRole("textbox", { name: "Hex" })).toBeVisible();
+  await expect
+    .poll(() =>
+      preview.evaluate((node) => getComputedStyle(node).backgroundImage),
+    )
+    .toContain("linear-gradient(rgba(204, 51, 102, 0.2)");
+
+  await expect
+    .poll(async () => (await savedFill(app, designId, "fill-siblings")).image)
+    .toContain("linear-gradient(rgba(204, 51, 102, 0.2)");
+  expect(await liveFill(app, "fill-siblings")).toMatchObject({
+    image: expect.stringMatching(
+      /^linear-gradient\(rgba\(204, 51, 102, 0\.2\).*radial-gradient/,
+    ),
+    size: "24px 24px, cover",
+    repeat: "no-repeat, repeat-x",
+    position: "10% 20%, 30% 40%",
+    color: "rgb(18, 52, 86)",
+  });
+  await expectSavedAsRendered(app, designId, "fill-siblings");
+  expectOnlyChanged(before, await app.savedNodes(designId), ["fill-siblings"]);
+
+  await page.reload();
+  await enterDirectMode(page);
+  await expandAllLayers(page);
+  const reselectedLayer = page
+    .getByRole("tree", { name: "Layers" })
+    .getByRole("button", { name: "Two fills", exact: true })
+    .first();
+  await expect(reselectedLayer).toBeVisible();
+  await reselectedLayer.click();
+  const reselectedTrigger = layerTrigger(page, 0);
+  await expect(reselectedTrigger).toBeVisible();
+  await expect(reselectedTrigger).toContainText("20%");
+  await reselectedTrigger.click();
+  await expect(page.getByRole("textbox", { name: "Hex" })).toBeVisible();
+});
+
+test("hiding and reordering an image fill keeps its cover size attached to that fill", async ({
+  app,
+  page,
+}) => {
+  await page.route("https://fills.invalid/**", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "image/svg+xml",
+      body: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><rect width="1" height="1" fill="#000"/></svg>',
+    }),
+  );
+  const designId = await app.seed(THREE_IMAGE_FILLS_FIXTURE);
+  await app.open(designId);
+  await enterDirectMode(page);
+  await expandAllLayers(page);
+
+  const selectFillStack = async () => {
+    const layer = page
+      .getByRole("tree", { name: "Layers" })
+      .getByRole("button", { name: "Three image fills", exact: true });
+    await expect(layer).toBeVisible();
+    await layer.click();
+  };
+  await selectFillStack();
+
+  const preview = page
+    .locator("iframe[data-design-preview-iframe]")
+    .last()
+    .contentFrame()
+    .locator('[data-agent-native-node-id="fill-stack"]');
+  const readStack = () =>
+    preview.evaluate((node) => {
+      const style = getComputedStyle(node);
+      return {
+        image: style.backgroundImage,
+        size: style.backgroundSize,
+      };
+    });
+  await expect.poll(readStack).toMatchObject({
+    image: expect.stringMatching(/first\.png.*second\.png.*third\.png/),
+    size: "24px 24px, contain, cover",
+  });
+
+  const fillSection = page
+    .locator("section")
+    .filter({ has: page.getByRole("heading", { name: "Fill", exact: true }) })
+    .first();
+  await fillSection
+    .getByRole("button", { name: "Hide layer", exact: true })
+    .nth(2)
+    .click();
+  await expect.poll(readStack).toMatchObject({
+    image: expect.stringMatching(/first\.png.*second\.png.*third\.png/),
+    size: "24px 24px, contain, 0px 0px",
+  });
+
+  const reorderHandles = fillSection.getByRole("button", {
+    name: "Reorder layer",
+    exact: true,
+  });
+  await expect(reorderHandles).toHaveCount(3);
+  await reorderHandles.nth(2).dragTo(reorderHandles.nth(0));
+  await expect.poll(readStack).toMatchObject({
+    image: expect.stringMatching(/third\.png.*first\.png.*second\.png/),
+    size: "0px 0px, 24px 24px, contain",
+  });
+
+  await fillSection
+    .getByRole("button", { name: "Show layer", exact: true })
+    .click();
+  await expect.poll(readStack).toMatchObject({
+    image: expect.stringMatching(/third\.png.*first\.png.*second\.png/),
+    size: "cover, 24px 24px, contain",
+  });
+
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await expect(
+    page.getByRole("button", { name: "Move", exact: true }),
+  ).toBeVisible();
+  await enterDirectMode(page);
+  await expandAllLayers(page);
+  await selectFillStack();
+  await expect.poll(readStack).toMatchObject({
+    image: expect.stringMatching(/third\.png.*first\.png.*second\.png/),
+    size: "cover, 24px 24px, contain",
+  });
+});

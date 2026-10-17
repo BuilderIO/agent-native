@@ -5,24 +5,14 @@ import { BuilderImage } from "../../builder-image";
 import { CardArrow } from "./card-arrow";
 import { ImgPlaceholder } from "./img-placeholder";
 
-// Text block on top, image/placeholder below — matches builder.io/platform/code's
-// key-features card layout. Reused as-is for use-case, key-feature, and
-// see-it-in-action cards so all three sections read as one system.
 interface ContentCardProps {
   title: ReactNode;
   body?: ReactNode;
-  // Real thumbnail — used when one already exists (e.g. the see-it-in-action
-  // clips). Falls back to a labeled placeholder box when omitted.
   image?: { src: string; alt: string };
   imageLabel?: string;
+  media?: ReactNode;
   imageAspect?: string;
-  // Source frames aren't always cropped the same way as the card's aspect
-  // ratio — e.g. the clip thumbnails are square with the subject low in
-  // frame, so a plain center crop cuts their face off.
   imageObjectPosition?: string;
-  // "bottom" (default) matches the key-features layout: text first, image
-  // pinned under it. "top" matches a media-card layout (thumbnail leads,
-  // title/body follow) — used for the see-it-in-action video cards.
   imagePosition?: "top" | "bottom";
   href?: string;
   onClick?: () => void;
@@ -33,6 +23,7 @@ export function ContentCard({
   body,
   image,
   imageLabel,
+  media,
   imageAspect = "4 / 3",
   imageObjectPosition = "center",
   imagePosition = "bottom",
@@ -53,9 +44,9 @@ export function ContentCard({
     </div>
   );
 
-  // No image and no placeholder label means there's no asset yet for this
-  // card at all — skip the image area entirely rather than show an empty box.
-  const imageBlock = image ? (
+  const imageBlock = media ? (
+    media
+  ) : image ? (
     <BuilderImage
       src={image.src}
       alt={image.alt}

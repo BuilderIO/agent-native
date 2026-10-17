@@ -70,8 +70,6 @@ export const assetGenerationPresets = table("image_generation_presets", {
   updatedAt: text("updated_at").notNull().default(now()),
 });
 
-// Generation presets are retained as a legacy migration source. New reads and
-// writes use templates so a reusable recipe can exist without a Brand Kit.
 export const assetTemplates = table("asset_templates", {
   id: text("id").primaryKey(),
   libraryId: text("library_id"),
@@ -175,23 +173,12 @@ export const assetGenerationRuns = table("image_generation_runs", {
   metadata: text("metadata").notNull().default("{}"),
   createdAt: text("created_at").notNull().default(now()),
   completedAt: text("completed_at"),
-  // ── audit-log columns (v6-v9 migrations) ──
-  // `source`: who triggered the generation ("chat" | "ui" | "a2a"). Defaulted
-  // to "chat" because that's the historical path; UI button popovers and A2A
-  // callers update this on insert.
   source: text("source").notNull().default("chat"),
-  // `callerAppId`: only set for `source = "a2a"` — the calling app's id
-  // (e.g. "slides", "design"). Lets the audit log filter "all generations
-  // triggered by slides".
   callerAppId: text("caller_app_id"),
-  // Identity columns for org-admin audit. Captured at insert time from the
-  // request context so audit reads don't need to re-resolve who owned the run.
   ownerEmail: text("owner_email"),
   orgId: text("org_id"),
 });
 
-// Legacy export aliases keep existing generated action code and external
-// imports working while the app slug/resource name moves from Images to Assets.
 export const imageLibraries = assetLibraries;
 export const imageLibraryShares = assetLibraryShares;
 export const imageCollections = assetCollections;

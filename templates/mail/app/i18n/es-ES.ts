@@ -10,6 +10,7 @@ const messages = {
     },
     views: {
       inbox: "Inbox",
+      all: "Todo",
       unread: "Unread",
       starred: "Starred",
       snoozed: "Snoozed",
@@ -24,6 +25,126 @@ const messages = {
       extensions: "Extensiones",
       noteToSelf: "Nota para mí",
     },
+    inbox: {
+      atLeastCount: "Al menos {{count}}",
+      syncing: "Sincronizando bandeja...",
+    },
+    sort: {
+      label: "Ordenar bandeja",
+      newest: "Más recientes",
+      priority: "Prioridad",
+      priorityFailed: "No se pudo ordenar la bandeja.",
+      priorityScoreHelp:
+        "Una puntuación más alta indica que Jev considera el mensaje más importante.",
+      priorityFeedbackSuggestion:
+        "Convierte este patrón en una regla de importancia o archivo automático.",
+      priorityFeedbackAskAgent: "Pedir al agente que sugiera reglas",
+      aiSetupTitle: "Configura tu bandeja con IA",
+      aiSetupTagLabel: "Crear una etiqueta de IA",
+      aiSetupImportanceLabel: "Correo importante",
+      aiSetupSpamLabel: "Spam",
+      aiSetupArchiveLabel: "Omitir bandeja de entrada",
+      aiSetupSave: "Guardar configuración",
+      aiSetupSkip: "Omitir por ahora",
+      aiSetupImportantHeadline: "¿Qué es importante para ti?",
+      aiSetupSkipInboxHeadline: "¿Qué puede saltarse tu bandeja de entrada?",
+      aiSetupTagsHeadline: "Ordena el correo en pestañas",
+      aiSetupArchiveSpamHeadline: "Omitir bandeja de entrada y spam",
+      aiSetupTagReceipts: "Recibos",
+      aiSetupTagUpdates: "Actualizaciones de productos",
+      aiSetupTagGitHub: "Personas en GitHub",
+      aiSetupPromptReceipts:
+        "Recibos y confirmaciones de pedidos de tiendas online",
+      aiSetupPromptUpdates:
+        "Actualizaciones de productos y notas de versión de mis herramientas",
+      aiSetupPromptGitHub:
+        "Notificaciones de GitHub con comentarios de personas",
+      aiSetupImportantPrompt:
+        "Mensajes que necesitan respuesta o tienen una fecha límite, incluidos los comentarios de personas en GitHub. Omitir comentarios de bots.",
+      aiSetupArchiveSpamPrompt:
+        "Omitir bandeja de entrada: notificaciones de GitHub con comentarios de bots o estados automáticos.\nSpam: mensajes claramente promocionales o no deseados que no solicité.",
+      aiSetupCustomTag: "Personalizado",
+      aiSetupDone: "Listo",
+      aiSetupConnectGmailHeadline:
+        "Conecta Gmail para organizar tu bandeja de entrada",
+      aiSetupConnectGmailDescription:
+        "Conecta Google para aplicar tus reglas a los correos recientes.",
+      aiSetupConnectJevHeadline:
+        "Conecta Jev para organizar tu bandeja de entrada",
+      aiSetupConnectJevDescription:
+        "Conecta Jev para aplicar tus reglas a los correos recientes.",
+      aiSetupCustomTabName: "Nombre de pestaña",
+      aiSetupCustomTabExample: "p. ej., facturas de proveedores",
+      aiSetupRunAgain: "Volver a configurar",
+      aiSetupTagCalendar: "Calendario",
+      aiSetupPromptCalendar:
+        "Invitaciones y cambios de calendario que necesito",
+      aiSetupTagTravel: "Viajes",
+      aiSetupPromptTravel: "Confirmaciones y reservas de viaje que necesito",
+      aiSetupTagFinance: "Finanzas",
+      aiSetupPromptFinance: "Facturas y extractos que necesito",
+      aiSetupArchiveExample:
+        "Notificaciones de bots y CI de GitHub, Vercel y Dependabot",
+      aiSetupFilteredExample:
+        "Mensajes de ventas no solicitados y reclutadores a quienes no he respondido",
+      aiSetupSortingHeadline: "Organizando tu bandeja de entrada",
+      aiSetupSortingDescription:
+        "Esto es lo que tus reglas encontraron en el correo reciente.",
+      aiSetupFindingRecentMail: "Buscando mensajes recientes…",
+      aiSetupRetry: "Reintentar",
+      aiSetupGmailStatusFailed: "No se pudo comprobar la conexión con Gmail",
+      aiSetupAutomationSettingsFailed:
+        "No se pudo comprobar la configuración del modelo de IA",
+      aiSetupSortingProgress:
+        "Ordenando correo reciente: {{processed}} de {{total}}",
+      aiSetupUndoing: "Deshaciendo los cambios de la bandeja…",
+      aiSetupUndoBeforeRetry:
+        "Deshaz los cambios parciales antes de volver a intentarlo.",
+      aiSetupSortingFailed:
+        "No se pudo ordenar tu bandeja. Tus reglas están guardadas; inténtalo de nuevo.",
+      aiSetupUndoComplete: "{{count}} mensajes volvieron a su estado anterior.",
+      aiSetupUndoFailed:
+        "No se pudieron deshacer estos cambios en la bandeja de entrada. Inténtalo de nuevo.",
+      aiSetupUndoStatusFailed:
+        "Se solicitó deshacer, pero no se pudieron cargar los resultados más recientes.",
+      aiSetupRuleCount: "{{count}} coincidencias",
+      aiSetupNoMatches:
+        "Ningún mensaje de los últimos 14 días coincide con estas reglas.",
+      aiSetupChatTip:
+        "Puedes ajustar o añadir reglas en cualquier momento desde el chat.",
+      aiSetupChatPrompt: "Prioriza los correos de mi jefe…",
+      aiSetupNoRules: "No seleccionaste ninguna regla.",
+      aiSetupPartialFailure: "No se pudieron actualizar {{count}} mensajes.",
+      aiSetupSortInbox: "Ordenar mi bandeja",
+      aiSetupImportantExample: "Todo lo de mi jefe, Priya (priya@company.com)…",
+      aiSetupTagsDescription:
+        "La IA etiqueta los mensajes que coinciden y crea una pestaña para cada etiqueta junto a Recibidos.",
+      aiSetupImportantDescription:
+        "La IA añade la etiqueta Importante a los mensajes que coinciden para mostrarlos en la pestaña Importantes.",
+      aiSetupSkipInboxDescription:
+        "La IA archiva los mensajes que coinciden para que no lleguen a Recibidos. Siguen disponibles en Todo el correo y en las búsquedas.",
+      aiSetupAddTab: "Añadir pestaña",
+      aiSetupAdjustRules: "Ajustar reglas",
+      aiSetupImportantBoss: "Mensajes de mi jefe, ",
+      aiSetupImportantBossChip: "Mensajes de mi jefe",
+      aiSetupImportantReply: "Necesita respuesta",
+      aiSetupImportantDeadlines: "Plazos",
+      aiSetupImportantCustomers: "Clientes",
+      aiSetupImportantGitHub: "Personas en GitHub",
+      aiSetupImportantCalendar: "Invitaciones",
+      aiSetupSkipNewsletters: "Boletines",
+      aiSetupSkipPromotions: "Promociones",
+      aiSetupSkipBots: "Alertas de bots y CI",
+      aiSetupSkipColdSales: "Ventas no solicitadas",
+      aiSetupSkipRecruiters: "Reclutadores",
+      aiSetupSkipSocial: "Alertas sociales",
+      priorityFeedbackLabel: "Comentarios sobre importancia",
+      priorityScoreHigh: "Importancia alta",
+      priorityScoreMedium: "Importancia media",
+      priorityScoreLow: "Importancia baja",
+      priorityEditRules: "Editar reglas de importancia",
+      aiSetupContinue: "Continuar",
+    },
     toolbar: {
       toggleMenu: "Alternar menú",
       menu: "Menu",
@@ -35,7 +156,9 @@ const messages = {
       accounts: "Accounts",
       pinSidebar: "Fijar barra lateral",
       unpinSidebar: "Desfijar barra lateral",
+      closeSidebar: "Cerrar barra lateral",
       settings: "Ajustes",
+      aiSettings: "Administrar etiquetas y reglas",
     },
     search: {
       label: "Buscar",
@@ -50,13 +173,16 @@ const messages = {
       filtersLimitReached: "Puedes guardar hasta 20 filtros.",
     },
     tabSettings: {
+      splitInbox: "Bandeja de entrada dividida",
       views: "Vistas",
       categories: "Categorías",
       rename: "Cambiar nombre",
       renameTab: "Renombrar pestaña",
       savedFilters: "Filtros guardados",
       combinedInbox: "Bandeja de entrada combinada",
-      help: "Los elementos marcados se muestran como pestañas. Los emails con etiquetas se separan de la bandeja de entrada.",
+      allTab: "Pestaña Todo",
+      help: "La bandeja combinada reúne todas las cuentas; desactívala para separar el correo en pestañas.",
+      aiSetup: "Configurar etiquetas y reglas de IA",
     },
     accounts: {
       remove: "Eliminar",
@@ -72,6 +198,8 @@ const messages = {
       markUnread: "Marcar como no leído",
       moveTo: "Mover a",
       moveToTrash: "Mover a la papelera",
+      star: "Marcar con estrella",
+      unstar: "Quitar estrella",
     },
     compose: {
       addImage: "Añadir una imagen",
@@ -83,11 +211,16 @@ const messages = {
       attachFile: "Adjuntar archivo",
       bold: "Negrita",
       cancel: "Cancelar",
+      closeAllDrafts: "Cerrar todos los borradores",
       code: "Código",
       deleteDraft: "Eliminar borrador",
+      deleteDrafts: "Eliminar borradores",
+      reopenDraft: "Reabrir",
+      openInMail: "Abrir en Mail",
       discardDraft: "Descartar borrador",
       enterLinkUrl: "Introduce la URL del enlace.",
       forward: "Forward",
+      from: "De",
       fullScreen: "Pantalla completa",
       fullScreenCompose: "Redacción a pantalla completa",
       generate: "generar",
@@ -99,19 +232,29 @@ const messages = {
       minimize: "Minimize",
       minimizeCompose: "Minimizar redacción",
       newDraft: "Nuevo borrador",
+      newMessage: "Nuevo mensaje",
       pasteLink: "Pegar enlace...",
       plainText: "Texto sin formato",
       popOut: "Abrir en ventana de redacción",
       reply: "Reply",
       replyTo: "to {{recipient}}",
+      queuedDraft: "Borrador en cola",
       restore: "Restaurar",
       restoreCompose: "Restaurar redacción",
       restoreComposeSize: "Restaurar tamaño de redacción",
       restoreSize: "Restaurar tamaño",
       send: "Enviar",
       sending: "Enviando...",
+      hideCcBcc: "Ocultar Cc y Cco",
+      showCcBcc: "Mostrar Cc y Cco",
       strikethrough: "Tachado",
       subject: "Subject",
+      to: "Para",
+      toRecipients: "Destinatarios en Para",
+      cc: "Cc",
+      ccRecipients: "Destinatarios en Cc",
+      bcc: "Cco",
+      bccRecipients: "Destinatarios en Cco",
       toSubmit: "to submit",
       uploading: "Subiendo...",
       writeMessagePlaceholder: "Escribe tu mensaje...",
@@ -189,17 +332,34 @@ const messages = {
       expandToIndividualEmails: "Expandir a emails individuales",
       peopleCount: "{{count}} people",
       recipientCount: "{{count}} recipients",
+      removeRecipient: "Quitar destinatario {{recipient}}",
       saveAsAlias: "Guardar como alias",
       saving: "Guardando...",
     },
     sendLater: {
       cancelScheduledSend: "Cancelar envío programado",
+      deliveryUnknownWarning:
+        "Se desconoce el estado de entrega; revisa la vista Enviados de Mail antes de resolverlo.",
+      markSentAfterChecking: "Revisé Enviados; marcar como enviado",
+      sendNewCopy: "Enviar una copia nueva",
+      sendingStatus:
+        "El envío programado se está procesando. Las acciones no están disponibles temporalmente.",
+      confirmSendNewCopyTitle: "¿Enviar otra copia?",
+      confirmSendNewCopyDescription:
+        "Es posible que el mensaje original ya se haya entregado. Revisa primero la vista Enviados de Mail. Enviar otra copia podría crear un duplicado.",
+      dateInput: "Fecha y hora",
+      noDateMatch: "No hay una hora futura coincidente",
+      inputPlaceholder: "Prueba: 8 a. m., 3 días, 7 ago",
+      scheduleAt: "El {{date}}",
+      scheduledFor: "Programado para {{date}}",
       pickDateTime: "Elegir fecha y hora...",
       scheduleSend: "Programar envío",
       sendNow: "Enviar ahora",
 
       laterToday: "Más tarde hoy",
       tomorrowMorning: "Mañana por la mañana",
+      tomorrowAfternoon: "Mañana por la tarde",
+      weekdayMorning: "{{weekday}} por la mañana",
       nextWeek: "La próxima semana",
     },
     snooze: {
@@ -219,16 +379,30 @@ const messages = {
     },
     thread: {
       alwaysFrom: "Always from {{domain}}",
+      at: "a las",
+      back: "Atrás",
+      cc: "Cc",
+      closeDetails: "Cerrar detalles",
+      closeSearch: "Cerrar búsqueda",
       downloadAll: "Descargar todo",
       emailContent: "Contenido del email",
+      from: "De",
       hideQuotedText: "Ocultar texto citado",
       imagesBlocked: "Imágenes bloqueadas.",
+      maximize: "Maximizar",
+      minimize: "Minimizar",
+      nextConversation: "Siguiente conversación",
+      nextMatch: "Siguiente coincidencia",
+      previousConversation: "Conversación anterior",
+      previousMatch: "Coincidencia anterior",
       remoteImagesHidden:
         "Las imágenes remotas están ocultas en este incrustado.",
       searchConversation: "Buscar en la conversación...",
+      searchConversationLabel: "Buscar en la conversación",
       showImages: "Mostrar imágenes",
       showQuotedText: "Mostrar texto citado",
       showSignature: "Mostrar firma",
+      to: "Para",
       unsubscribe: "Unsubscribe",
       unsubscribeTooltip: "Cancelar suscripción a esta lista de correo",
       unsubscribing: "Cancelando suscripción...",
@@ -239,6 +413,8 @@ const messages = {
       actions: "Acciones de selección",
       selected: "{{count}} selected",
       select: "Seleccionar",
+      selectEmail: "Seleccionar email",
+      deselectEmail: "Deseleccionar email",
       all: "Todo",
       none: "Ninguna",
       read: "Read",
@@ -272,20 +448,35 @@ const messages = {
       archived: "Archivado.",
       archivedMany: "Archived {{count}} conversations.",
       archiveFailed: "No se pudo archivar. La conversación se restauró.",
+      moveFailed: "No se pudo mover. La conversación se restauró.",
+      movePartialFailed:
+        "Se movieron {{succeeded}} de {{total}} conversaciones; {{failed}} fallaron.",
+      moveSucceeded: "Movido a {{label}}.",
+      moveManySucceeded: "Se movieron {{count}} conversaciones a {{label}}.",
       trashed: "Movido a la papelera.",
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "Email programado enviado.",
       scheduledSendFailed: "No se pudo enviar el email programado",
+      uncertainScheduledMarkedSent: "Email programado marcado como enviado.",
+      uncertainScheduledResolveFailed:
+        "No se pudo resolver el email programado.",
+      uncertainScheduledRetryStarted: "Se está enviando una copia nueva.",
+      uncertainScheduledRetryFailed: "No se pudo enviar una copia nueva.",
       scheduledCancelled: "Email programado cancelado.",
       scheduledCancelFailed: "No se pudo cancelar el email programado",
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToUploadImage: "No se pudo subir la imagen",
       failedToSendEmail: "No se pudo enviar el email",
+      messageSent: "Mensaje enviado.",
+      failedToSaveDraft: "No se pudo guardar el borrador.",
+      failedToDeleteDraft: "No se pudo eliminar el borrador.",
       failedToScheduleEmailDraftKeptOpen:
         "No se pudo programar el email - borrador abierto",
+      finishRecipientInput:
+        "Termina de añadir el destinatario o borra el texto antes de enviar.",
       pleaseAddRecipient: "Añade al menos un destinatario",
       aiEngineRequired:
-        "Conecta Builder u otro motor de IA antes de usar Generar.",
+        "Usa Builder.io (plan gratuito disponible) u otro motor de IA antes de usar Generar.",
       couldNotUnsubscribe: "No se pudo cancelar la suscripción",
       unsubscribeSent: "Solicitud de baja enviada",
       draftQueued: "Borrador en cola.",
@@ -293,6 +484,8 @@ const messages = {
       draftDismissed: "Borrador descartado.",
       openedInCompose: "Abierto en redacción.",
       draftSent: "Borrador enviado.",
+      draftClosed: "Borrador cerrado.",
+      draftsClosed: "{{count}} borradores cerrados.",
       failedToSendDraft: "No se pudo enviar el borrador.",
       snoozeDbNotReady:
         "La base de datos de posponer no está lista. Ejecuta: pnpm db:push en la plantilla mail.",
@@ -314,9 +507,12 @@ const messages = {
       missingGoogleCredentials:
         "No se encontraron client_id y client_secret en JSON",
       failedToSaveCredentials: "No se pudieron guardar las credenciales",
+      someAccountsFailed: "No se pudo cargar: {{accounts}}",
     },
     googleConnect: {
       connectTitle: "Conecta tu cuenta de Google",
+      connectionNotConfigured:
+        "La conexión de Gmail no está configurada para esta aplicación. Pide a tu administrador que la habilite o salta este paso por ahora.",
       heroDescription:
         "Envía y recibe email real. Conecta tu cuenta de Gmail para empezar.",
       setupIntro:
@@ -371,6 +567,7 @@ const messages = {
       neverSpam: "Nunca spam",
       neverImportant: "Nunca importante",
       important: "Importante",
+      notImportant: "No importante",
       star: "Destacar",
       trash: "Papelera",
       applyLabel: "Aplicar etiqueta",
@@ -383,15 +580,14 @@ const messages = {
       deleteGmailFilter: "Eliminar filtro de Gmail",
       deleteGmailFilterDescription:
         "¿Eliminar este filtro de {{account}}? Esto cambia Gmail directamente.",
-      title: "Filtros de Gmail",
-      description:
-        "Reglas de Gmail del servidor para patrones simples de remitente, asunto y búsqueda.",
       newFilter: "Nuevo filtro",
       noFilters: "Aún no hay filtros de Gmail.",
     },
     aiFilter: {
       title: "Filtro de IA",
       subtitle: "Una etiqueta reversible que aprende de tus decisiones.",
+      rulesTitle: "Reglas",
+      newRule: "Nueva regla",
       lunaBadge: "Luna cuando esté disponible",
       toggle: "Activar filtro de IA",
       autoFilterTitle: "Filtrar automáticamente con alta confianza",
@@ -429,6 +625,8 @@ const messages = {
         "Añade la etiqueta agent-native-filtered y archiva la conversación. Puedes deshacerlo cuando quieras.",
       learningNote:
         "Conserva el mensaje en Recibidos y enseña al filtro a no repetir el error.",
+      learningProgress:
+        "Has confirmado {{count}} de {{required}} ejemplos. Revisaremos el correo reciente cuando se confirmen los {{required}}.",
       rememberLabel: "Recordar para futuros mensajes (opcional)",
       correctLabel: "¿Qué debería aprender? (opcional)",
       rememberPlaceholder:
@@ -443,7 +641,101 @@ const messages = {
       keptToast: "Se conservaron {{count}} conversación(es) en Recibidos.",
       actionFailed: "No se pudo actualizar el filtro de IA.",
       settingsFailed: "No se pudieron guardar los ajustes del filtro de IA.",
+      automationRulesLoadFailed:
+        "No se pudieron cargar las reglas de clasificación.",
       instructionFailed: "No se pudo guardar la instrucción del filtro de IA.",
+      autoArchiveMode: "Archivar automáticamente",
+      skipInboxMode: "Omitir bandeja de entrada",
+      spamMode: "Spam",
+      tagMode: "Etiqueta",
+      aiTagsTitle: "Etiquetas de IA",
+      ruleHelpLabel: "Explicar las reglas de {{mode}}",
+      aiTagRuleHelp:
+        "Escribe una instrucción en lenguaje natural. Jev añade esta etiqueta al correo que coincida.",
+      importantRuleHelp:
+        "Escribe una instrucción en lenguaje natural. Jev marca como importante el correo que coincida.",
+      skipInboxRuleHelp:
+        "Escribe una instrucción en lenguaje natural. Jev archiva el correo que coincida para omitir la bandeja de entrada.",
+      spamRuleHelp:
+        "Escribe una instrucción en lenguaje natural. Jev añade la etiqueta agent-native-filtered y archiva el correo que coincida. No es el Spam de Gmail.",
+      filteredMode: "Filtrado",
+      manageSettings: "Administrar",
+      askJev: "Preguntar a Jev",
+      askJevPrompt:
+        "Ayúdame a ajustar esta regla de Mail: {{condition}}. Pregúntame qué quiero cambiar y luego actualízala.",
+      composerPlaceholder: "Pídele a Jev que organice tu bandeja…",
+      chatSuggestionFilter: "Filtrar mensajes como este",
+      chatSuggestionPriority: "Priorizar los correos de…",
+      chatSuggestionArchive:
+        "Archivar automáticamente las notificaciones de bots",
+      ruleBackfillStarting: "Aplicando esta regla al correo reciente…",
+      ruleBackfillProgress:
+        "Aplicando al correo reciente: {{processed}} de {{total}}",
+      ruleBackfillMatches: "{{count}} mensajes recientes coinciden",
+      ruleBackfillNoMatches: "Ningún mensaje reciente coincide con esta regla.",
+      ruleBackfillFailed: "No se pudo aplicar esta regla al correo reciente.",
+      ruleBackfillRunFailed:
+        "No se pudo completar la aplicación de reglas al correo reciente.",
+      backfillStatusLoadFailed:
+        "No se pudo cargar el estado reciente de las reglas.",
+      ruleBackfillPartialFailure:
+        "No se pudieron actualizar {{count}} mensajes.",
+      ruleBackfillUndoing: "Restaurando el correo reciente…",
+      ruleBackfillUndoComplete: "{{count}} mensajes restaurados",
+      ruleBackfillReview: "Revisar coincidencias",
+      importantMode: "Importante",
+      notifyMode: "Notificar",
+      notifyModeHelp:
+        "Marca los mensajes coincidentes como importantes y muestra una ventana del navegador cuando Mail está abierto y las notificaciones están activadas desde la campana. La aplicación móvil llegará próximamente.",
+      manageAutomationsLink: "Más acciones de automatización",
+      notImportantMode: "No importante",
+      importantLabel: "Importante con IA",
+      reviewImportant: "Ver importantes",
+      importantPlaceholder:
+        "p. ej., mensajes que necesitan respuesta o tienen una fecha límite",
+      ruleAdded: "Regla de IA añadida.",
+      instructionHelp: "Usa lenguaje natural",
+      tagNamePlaceholder: "Nombre de etiqueta",
+      spamLabelHint:
+        "Las coincidencias se etiquetan y se mueven fuera de Recibidos.",
+      spamPlaceholder:
+        "p. ej., mensajes claramente promocionales o no deseados",
+      tagPlaceholder:
+        "p. ej., recibos y confirmaciones de pedidos de tiendas online",
+      archivePlaceholder:
+        "p. ej., notificaciones de bots de GitHub que no requieren mi atención",
+      addShortcut: "Pulsa ⌘ Enter para añadir",
+      previewTitle: "Vista previa del correo reciente",
+      previewDescription:
+        "Revisa los últimos 20 mensajes de Recibidos antes de activar una regla nueva. El correo archivado o archivado automáticamente nunca se envía a evaluación.",
+      previewScope: "Solo Recibidos · correo archivado excluido",
+      previewButton: "Ejecutar vista previa",
+      previewRunning: "Comprobando el correo reciente de Recibidos…",
+      jevBadge: "Jev",
+      jevMatchProbability: "Probabilidad de coincidencia de Jev: {{percent}}%",
+      feedbackLabel: "Marca las coincidencias que no deberían incluirse",
+      notSpamShort: "No es spam",
+      notMatchShort: "No coincide",
+      noMatch: "Sin coincidencia",
+      feedbackPlaceholder:
+        "Opcional: explica qué entendió mal la IA o qué debería buscar en su lugar",
+      refineButton: "Actualizar regla y repetir",
+      instructionsUpdated: "Regla actualizada y vista previa repetida.",
+      noRecentMail: "No hay correo reciente en Recibidos para revisar.",
+      addRuleToPreview:
+        "Añade una regla de IA para previsualizar el correo reciente.",
+      previewEmpty: "Ejecuta una vista previa para ver posibles coincidencias.",
+      previewFailed: "No se pudo previsualizar el correo reciente.",
+      promptRulesCleared: "Reglas de clasificación eliminadas.",
+      tagTabsHelp: "Cada etiqueta se convierte en una pestaña de la bandeja",
+      addTag: "Añadir etiqueta",
+      triageTitle: "Clasificación con IA",
+      connectJev: "Conectar Jev",
+      connectJevToRunTriage: "Conecta Jev para usar el triaje",
+      freeBuilderOrApiKey: "Gratis con Builder.io o añade una clave de API.",
+      jevAvailabilityFailed: "No se pudo comprobar si Jev está disponible.",
+      connectBuilder: "Usar Builder.io",
+      addJevApiKey: "Añadir clave de API",
     },
     draftQueue: {
       title: "Cola de borradores",
@@ -502,6 +794,9 @@ const messages = {
     suggestionSummarize: "Resume mis correos no leidos",
     suggestionReplies: "Que necesita mi respuesta hoy?",
     suggestionWidget: "Crea un widget personalizado para mi bandeja",
+    ruleSuggestionFilter: "Filtra mensajes como este",
+    ruleSuggestionImportant: "Prioriza los correos de mi jefe",
+    ruleSuggestionArchive: "Archiva automáticamente las notificaciones de bots",
   },
   settings: {
     openAgentSettings: "Gestionar agente",
@@ -518,8 +813,6 @@ const messages = {
     peoplePlural: "{{count}} personas",
     deleteAliasDescription:
       '¿Eliminar el alias "{{name}}"? Esta acción no se puede deshacer.',
-    aliasesDescription:
-      "Grupos de direcciones que puedes usar al redactar correos.",
     newAlias: "Nuevo alias",
     noAliases: "Aún no hay alias. Crea uno para empezar.",
     applyLabel: "Aplicar etiqueta",
@@ -527,6 +820,7 @@ const messages = {
     markRead: "Marcar como leído",
     star: "Destacar",
     trash: "Papelera",
+    notify: "Notificar",
     labelName: "Nombre de etiqueta",
     addAction: "+ Añadir acción",
     ruleName: "Nombre de la regla",
@@ -537,16 +831,6 @@ const messages = {
     actions: "Acciones",
     editRule: "Editar regla",
     deleteRule: "Eliminar regla",
-    noEventAutomations:
-      "Aún no hay automatizaciones activadas por eventos de correo.",
-    eventAutomationsPrompt:
-      'Pide al agente crear una automatización como "cuando reciba un correo de mi jefe, destácalo y avísame".',
-    disabled: "desactivado",
-    on: "en",
-    when: "cuando",
-    lastRun: "Última ejecución:",
-    automationsDescription:
-      "Reglas que procesan automáticamente nuevos correos de la bandeja usando IA.",
     allowAutomationSends:
       "Permitir que las automatizaciones envíen correos automáticamente",
     allowAutomationSendsDescription:
@@ -558,17 +842,12 @@ const messages = {
     noAutomationRules: "Aún no hay reglas de automatización.",
     noAutomationRulesDescription:
       "Crea reglas para etiquetar correos, archivar newsletters, destacar mensajes importantes y más. También puedes pedirle al agente de IA que las configure.",
-    eventTriggers: "Disparadores de eventos",
-    eventTriggersDescription:
-      "Automatizaciones que se ejecutan cuando ocurren eventos de correo (p. ej., nuevo correo recibido). Gestionadas por el agente.",
     importedSignature: "Firma importada desde {{account}}.",
     noGmailSignature: "No se encontró firma de Gmail para {{account}}.",
     importSignatureFailed: "No se pudo importar la firma de Gmail.",
     draftingSettingsSaved: "Ajustes de redacción guardados.",
     draftingSettingsSaveFailed:
       "No se pudieron guardar los ajustes de redacción.",
-    draftingDescription:
-      "Preferencias usadas al redactar y generar borradores de correo.",
     signature: "Firma",
     importFromGmail: "Importar desde Gmail",
     signatureHelp:
@@ -576,48 +855,21 @@ const messages = {
     addSignatureImage: "Añadir imagen",
     signatureImageUploadFailed: "No se pudo subir la imagen de la firma",
     writingStyle: "Estilo de escritura",
+    autocomplete: "Autocompletar",
+    sendAndMarkDone: "Enviar y marcar como hecho",
+    autocompleteSaveFailed: "No se pudo guardar el ajuste de autocompletado.",
     writingStylePlaceholder:
       "Breve, específico y cálido. Evita relleno formal.",
     saveDraftingSettings: "Guardar ajustes de redacción",
     reset: "Restablecer",
-    trackingDescription:
-      "Sabe cuándo los destinatarios abren tus correos y hacen clic en enlaces. Las estadísticas aparecen bajo cada mensaje enviado.",
     trackEmailOpens: "Rastrear aperturas",
     trackEmailOpensDescription:
       "Inserta un píxel 1×1 en correos salientes para ver cuándo los abren.",
     trackLinkClicks: "Rastrear clics",
     trackLinkClicksDescription:
       "Reescribe enlaces externos en correos salientes para contar cuándo hacen clic.",
-    slackLoadFailed: "No se pudo cargar el estado de Slack",
-    slackUpdateFailed: "No se pudo actualizar la entrada de Slack",
-    slackConfigured: "Las credenciales de Slack están configuradas.",
-    slackNeedsCredentials:
-      "La entrada personalizada antigua requiere SLACK_BOT_TOKEN y SLACK_SIGNING_SECRET. Para nuevas automatizaciones de mensajería de Slack, conecta un espacio de trabajo en Configuración > Mensajería.",
-    slackIntake: "Entrada de Slack (antigua)",
-    slackDescription:
-      "Integración personalizada antigua que permite poner borradores de correo en cola desde Slack.",
-    enabled: "Activado",
-    disable: "Desactivar",
-    enable: "Activar",
-    slackPostEndpoint: "Endpoint POST de Slack",
-    slackPostEndpointHelp:
-      "Úsalo en Slack Event Subscriptions. Un GET desde el navegador puede mostrar Not Found.",
-    teamDescription:
-      "Configura un equipo para compartir automatizaciones y ajustes de correo con tus compañeros.",
-    title: "Configuracion",
-    general: "General",
-    generalDescription: "Idioma y preferencias de cuenta para Mail.",
-    languageTitle: "Idioma",
-    languageDescription:
-      "Elige el idioma de la interfaz para esta cuenta. Mail lo recuerda en todos tus dispositivos.",
-    languageLabel: "Idioma de la interfaz",
-    whatsNew: "Novedades",
-    whatsNewDescription:
-      "Cambios recientes para usuarios en Agent-Native Mail.",
     drafting: "Redaccion",
     snippets: "Fragmentos",
-    snippetsDescription:
-      "Respuestas guardadas que puedes insertar en un borrador escribiendo / y el nombre del fragmento.",
     newSnippet: "Nuevo fragmento",
     noSnippets: "Aun no hay fragmentos. Crea uno para empezar.",
     snippetName: "Nombre del fragmento",
@@ -628,13 +880,18 @@ const messages = {
     deleteSnippet: "Eliminar fragmento",
     deleteSnippetDescription:
       'Eliminar el fragmento "{{name}}"? Esta accion no se puede deshacer.',
-    automations: "Automatizaciones",
-    aiFilter: "Filtro de IA",
+    rules: "Reglas",
+    rulesModel: "Modelo de reglas",
+    rulesModelDescription: "Compara el correo entrante con tus reglas.",
+    slackDraftRequests: "Solicitudes de borradores",
+    slackDraftQueue: "Poner en cola borradores desde Slack",
+    slackDraftQueueDescription:
+      "Tus compañeros mencionan al agente en Slack para pedir un borrador de correo. Los borradores esperan revisión en tu cola de borradores.",
+    openDraftQueue: "Abrir cola de borradores",
+    aiFilter: "Clasificación con IA",
     gmailFilters: "Filtros de Gmail",
     aliases: "Alias",
     tracking: "Seguimiento",
-    slack: "Slack",
-    team: "Equipo",
     deleteAlias: "Eliminar alias",
     editAlias: "Editar alias",
   },
@@ -661,8 +918,11 @@ const messages = {
     goToStarred: "Ir a destacados",
     goToSent: "Ir a enviados",
     goToDrafts: "Ir a borradores",
+    goToAllMail: "Ir a todo el correo",
     goToArchive: "Ir al archivo",
     goToTrash: "Ir a papelera",
+    enableAutocomplete: "Activar autocompletado",
+    disableAutocomplete: "Desactivar autocompletado",
     privacy: "Privacidad",
     imagesShowAll: "Imagenes: mostrar todas",
     imagesBlockTrackers: "Imagenes: bloquear rastreadores conocidos",
@@ -671,6 +931,23 @@ const messages = {
     toggleLight: "Activar modo claro",
     toggleDark: "Activar modo oscuro",
     actions: "Acciones",
+    shortcuts: "Atajos de teclado",
+    shortcutsGlobal: "General",
+    shortcutsList: "Lista de mensajes",
+    shortcutsThread: "Conversación",
+    shortcutsCompose: "Redacción",
+    backToCommands: "Volver a los comandos",
+    backToMessageList: "Volver a la lista de mensajes",
+    cycleTabs: "Recorrer pestañas",
+    extendSelection: "Ampliar selección",
+    moveSelection: "Mover selección",
+    nextPreviousConversation: "Conversación siguiente / anterior",
+    nextPreviousMessage: "Mensaje siguiente / anterior",
+    openMessage: "Abrir mensaje",
+    selectAllConversations: "Seleccionar todas las conversaciones",
+    sendAndMarkDone: "Enviar y marcar como hecho",
+    toggleMessageExpansion: "Expandir / contraer mensaje",
+    toggleReadState: "Cambiar estado de lectura",
   },
 };
 

@@ -2,6 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (definition: unknown) => definition,
+  fail: (message: string): never => {
+    throw new Error(message);
+  },
 }));
 vi.mock("../server/db/index.js", () => ({ getDb: vi.fn() }));
 vi.mock("../server/lib/require-factory-automation.js", () => ({
@@ -11,25 +14,15 @@ vi.mock("../server/lib/require-workspace-member.js", () => ({
   requireWorkspaceMember: vi.fn(),
   workspaceMemberIdentityFromContext: vi.fn(),
 }));
-vi.mock("../server/lib/factory-repository-scope.js", () => ({
-  resolveFactoryRepository: vi.fn(),
-}));
 vi.mock("../server/triage/audit.js", () => ({
   recordFactoryAudit: vi.fn(),
   recordFactoryAuditIfChanged: vi.fn(),
 }));
-vi.mock("../server/triage/github-client.js", () => ({
-  createGitHubClient: vi.fn(),
-}));
 vi.mock("../server/triage/ids.js", () => ({ stableId: vi.fn() }));
 vi.mock("../server/triage/metadata.js", () => ({
   metadataBoolean: vi.fn(),
-  metadataString: vi.fn(),
   parseTriageMetadata: vi.fn(),
   serializeTriageMetadata: vi.fn(),
-}));
-vi.mock("../server/triage/pr-policy.js", () => ({
-  detectOwnerOwnedArea: vi.fn(),
 }));
 vi.mock("../server/triage/slack-client.js", () => ({
   createSlackReader: vi.fn(),
@@ -38,21 +31,25 @@ vi.mock("../server/triage/slack-client.js", () => ({
 import { getDb } from "../server/db/index.js";
 import { stableId } from "../server/triage/ids.js";
 import {
-  dispatchRepositoryConflictReason,
-  dispatchRepositoryForItem,
+  computeDispatchGuardResults,
+  assertSlackDispatchSource,
   hasFeedbackCluster,
   isStartedTriageRunStatus,
-  ownerOwnedAreaValuesForItem,
   recordAutomaticBuilderDecision,
   relatedDispatchConflictReason,
-  githubBotDispatchText,
-  parseFactoryGitHubIssueNumber,
+  slackClearBugReactionRequirement,
   replyTextForItem,
   requireBuilderSlackUserId,
 } from "./dispatch-factory-item.js";
 import action from "./dispatch-factory-item.js";
 
 describe("dispatch-factory-item schema guidance", () => {
+  it("keeps the single-item action away from GitHub issue writes", () => {
+    expect((action as { description: string }).description).toContain(
+      "does not write to GitHub issues",
+    );
+  });
+
   it("describes clearBug and productUxImplications as orthogonal axes", () => {
     const shape = (
       action as {
@@ -81,23 +78,176 @@ describe("dispatch-factory-item schema guidance", () => {
     );
   });
 
-  it("accepts alreadyClaimed without clearBug", () => {
+  it("describes risk and confidence as the auto-dispatch bar", () => {
+    const shape = (
+      action as {
+        schema: {
+          shape: {
+            risk: { description?: string };
+            confidence: { description?: string };
+          };
+        };
+      }
+    ).schema.shape;
+    expect(shape.risk.description).toMatch(
+      /only tier this action will ever dispatch/i,
+    );
+    expect(shape.risk.description).toMatch(/negligible/i);
+    expect(shape.confidence.description).toMatch(
+      /without reproducing it in a browser/i,
+    );
+    expect(shape.confidence.description).toMatch(
+      /only tier this action will ever dispatch/i,
+    );
+  });
+
+  it("accepts alreadyClaimed without clearBug, but still requires risk and confidence", () => {
     const parsed = (
       action as {
         schema: {
           parse: (value: unknown) => {
             alreadyClaimed: boolean;
             clearBug: boolean;
+            risk: string;
+            confidence: string;
           };
         };
       }
     ).schema.parse({
       itemId: "item-1",
       alreadyClaimed: true,
-      reason: "Parent already has robot_face.",
+      risk: "low",
+      confidence: "medium",
+      reason: "Parent already has eyes.",
     });
     expect(parsed.alreadyClaimed).toBe(true);
     expect(parsed.clearBug).toBe(false);
+    expect(parsed.risk).toBe("low");
+    expect(parsed.confidence).toBe("medium");
+  });
+
+  it("rejects unknown risk and confidence, and rejects a missing value for either", () => {
+    const schema = (
+      action as {
+        schema: { safeParse: (value: unknown) => { success: boolean } };
+      }
+    ).schema;
+    const base = {
+      itemId: "item-1",
+      alreadyClaimed: true,
+      reason: "Parent already has eyes.",
+    };
+    expect(schema.safeParse(base).success).toBe(false);
+    expect(
+      schema.safeParse({ ...base, risk: "low", confidence: "high" }).success,
+    ).toBe(true);
+    expect(
+      schema.safeParse({ ...base, risk: "unknown", confidence: "high" })
+        .success,
+    ).toBe(false);
+    expect(
+      schema.safeParse({ ...base, risk: "low", confidence: "unknown" }).success,
+    ).toBe(false);
+  });
+});
+
+describe("computeDispatchGuardResults", () => {
+  it("only passes every guard when clearBug, risk low, and confidence high all hold", () => {
+    const results = computeDispatchGuardResults({
+      clearBug: true,
+      productUxImplications: false,
+      risk: "low",
+      confidence: "high",
+    });
+    expect(results.every((guard) => guard.passed)).toBe(true);
+  });
+
+  it("blocks on risk_gate for any risk other than low, even with clearBug true", () => {
+    for (const risk of ["negligible", "medium", "high", "critical"]) {
+      const results = computeDispatchGuardResults({
+        clearBug: true,
+        productUxImplications: false,
+        risk,
+        confidence: "high",
+      });
+      const riskGate = results.find((guard) => guard.code === "risk_gate");
+      expect(riskGate?.passed).toBe(false);
+    }
+  });
+
+  it("blocks on confidence_gate for any confidence other than high, even with clearBug true", () => {
+    for (const confidence of ["low", "medium"]) {
+      const results = computeDispatchGuardResults({
+        clearBug: true,
+        productUxImplications: false,
+        risk: "low",
+        confidence,
+      });
+      const confidenceGate = results.find(
+        (guard) => guard.code === "confidence_gate",
+      );
+      expect(confidenceGate?.passed).toBe(false);
+    }
+  });
+
+  it("no longer has an owner_owned guard code", () => {
+    const results = computeDispatchGuardResults({
+      clearBug: true,
+      productUxImplications: false,
+      risk: "low",
+      confidence: "high",
+    });
+    expect(results.some((guard) => guard.code === "owner_owned")).toBe(false);
+  });
+});
+
+describe("slackClearBugReactionRequirement", () => {
+  it("requires eyes before dispatching a Slack clear bug", () => {
+    expect(
+      slackClearBugReactionRequirement({
+        source: "slack",
+        clearBug: true,
+        alreadyClaimed: false,
+        blocked: false,
+        reactionName: null,
+      }),
+    ).toMatch(/reaction eyes/);
+    expect(
+      slackClearBugReactionRequirement({
+        source: "slack",
+        clearBug: true,
+        alreadyClaimed: false,
+        blocked: false,
+        reactionName: "eyes",
+      }),
+    ).toBeNull();
+    expect(
+      slackClearBugReactionRequirement({
+        source: "slack",
+        clearBug: false,
+        alreadyClaimed: false,
+        blocked: true,
+        reactionName: null,
+      }),
+    ).toBeNull();
+    expect(
+      slackClearBugReactionRequirement({
+        source: "slack",
+        clearBug: true,
+        alreadyClaimed: true,
+        blocked: true,
+        reactionName: null,
+      }),
+    ).toBeNull();
+    expect(
+      slackClearBugReactionRequirement({
+        source: "github_issue",
+        clearBug: true,
+        alreadyClaimed: false,
+        blocked: false,
+        reactionName: null,
+      }),
+    ).toBeNull();
   });
 });
 
@@ -132,37 +282,14 @@ describe("dispatch-factory-item Slack handoff", () => {
     );
   });
 
-  it("parses a GitHub issue number and writes an @builderio-bot request", () => {
-    expect(
-      parseFactoryGitHubIssueNumber({
-        externalId: "BuilderIO/agent-native#88",
-        sourceUrl: null,
-      }),
-    ).toBe(88);
-    expect(
-      parseFactoryGitHubIssueNumber({
-        externalId: "sentry-1",
-        sourceUrl: "https://github.com/builder/factory/issues/12",
-      }),
-    ).toBe(12);
-    expect(() =>
-      parseFactoryGitHubIssueNumber({
-        externalId: "sentry-1",
-        sourceUrl: null,
-      }),
-    ).toThrow(/issue number/);
-
-    const text = githubBotDispatchText({
-      itemId: "item-sentry",
-      sourceUrl: "https://sentry.example/issues/9",
-      reason: "Repeated TypeError on export",
-      clearErrorReport: "TypeError: cannot read map",
-    });
-    expect(text).toContain("@builderio-bot");
-    expect(text).toContain("/address-feedback");
-    expect(text).toContain("item-sentry");
-    expect(text).toContain("https://sentry.example/issues/9");
-    expect(text).toContain("TypeError: cannot read map");
+  it("rejects automated issue and Sentry dispatch through the single-item action", () => {
+    expect(() => assertSlackDispatchSource("github_issue")).toThrow(
+      /report-factory-findings/,
+    );
+    expect(() => assertSlackDispatchSource("sentry")).toThrow(
+      /report-factory-findings/,
+    );
+    expect(() => assertSlackDispatchSource("slack")).not.toThrow();
   });
 
   it("blocks related items that are already clustered or started", () => {
@@ -179,61 +306,6 @@ describe("dispatch-factory-item Slack handoff", () => {
     expect(isStartedTriageRunStatus("failed")).toBe(false);
     expect(isStartedTriageRunStatus("reconciliation_required")).toBe(true);
     expect(hasFeedbackCluster({})).toBe(false);
-  });
-
-  it("refuses to tag a repository the factory is not configured for", () => {
-    expect(
-      dispatchRepositoryConflictReason(
-        "BuilderIO/other-repo",
-        "BuilderIO/agent-native",
-      ),
-    ).toMatch(/belongs to BuilderIO\/other-repo/);
-    expect(
-      dispatchRepositoryConflictReason(
-        "https://github.com/BuilderIO/agent-native",
-        "BuilderIO/agent-native",
-      ),
-    ).toBeNull();
-  });
-
-  it("takes the repository from a GitHub issue and falls back to the factory's", () => {
-    expect(
-      dispatchRepositoryForItem(
-        { source: "github_issue", repository: "BuilderIO/other-repo" },
-        "BuilderIO/agent-native",
-      ),
-    ).toBe("BuilderIO/other-repo");
-    expect(
-      dispatchRepositoryForItem(
-        {
-          source: "github_issue",
-          repository: null,
-          externalId: "BuilderIO/other-repo#88",
-        },
-        "BuilderIO/agent-native",
-      ),
-    ).toBe("BuilderIO/other-repo");
-    expect(
-      dispatchRepositoryForItem(
-        { source: "sentry", repository: null, externalId: "sentry-1" },
-        "BuilderIO/agent-native",
-      ),
-    ).toBe("BuilderIO/agent-native");
-  });
-
-  it("includes related item metadata in owner-area detection inputs", () => {
-    expect(
-      ownerOwnedAreaValuesForItem(
-        {
-          title: "Export issue",
-          summary: "The export fails",
-          repository: "BuilderIO/agent-native",
-        },
-        { productArea: "content", path: "apps/content/routes/index.tsx" },
-      ),
-    ).toEqual(
-      expect.arrayContaining(["content", "apps/content/routes/index.tsx"]),
-    );
   });
 
   it("updates an existing automatic-builder decision when a later skip is recorded", async () => {

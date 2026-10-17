@@ -58,7 +58,7 @@ export function ReminderControls({
         value={mode}
         onValueChange={(value) => onModeChange(value as ReminderMode)}
       >
-        <SelectTrigger id={`${idPrefix}-alerts`} className="h-8 text-sm">
+        <SelectTrigger size="sm" id={`${idPrefix}-alerts`} className="text-sm">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -88,7 +88,7 @@ export function ReminderControls({
                   )
                 }
               >
-                <SelectTrigger className="h-8 w-[84px] text-xs">
+                <SelectTrigger size="sm" className="w-[84px] text-xs">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -109,7 +109,7 @@ export function ReminderControls({
                   )
                 }
               >
-                <SelectTrigger className="h-8 flex-1 text-xs">
+                <SelectTrigger size="sm" className="flex-1 text-xs">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -124,8 +124,8 @@ export function ReminderControls({
               <Button
                 type="button"
                 variant="ghost"
-                size="icon"
-                className="h-8 w-8 shrink-0 text-muted-foreground"
+                size="icon-sm"
+                className="shrink-0 text-muted-foreground"
                 disabled={activeReminders.length === 1}
                 onClick={() =>
                   onRemindersChange(
@@ -307,19 +307,20 @@ export function AttachmentControls({
         <div key={attachment.id} className="space-y-1.5">
           <div className="flex items-center gap-1.5">
             <Input
+              size="sm"
               id={`${idPrefix}-attachment-title-${index}`}
               value={attachment.title}
               onChange={(event) =>
                 updateAttachment(attachment.id, { title: event.target.value })
               }
               placeholder={t("eventOptions.attachmentTitle")}
-              className="h-8 text-sm"
+              className="text-sm"
             />
             <Button
               type="button"
               variant="ghost"
-              size="icon"
-              className="h-8 w-8 shrink-0 text-muted-foreground"
+              size="icon-sm"
+              className="shrink-0 text-muted-foreground"
               onClick={() =>
                 onChange(
                   activeAttachments.filter((item) => item.id !== attachment.id),
@@ -333,13 +334,14 @@ export function AttachmentControls({
             </Button>
           </div>
           <Input
+            size="sm"
             id={`${idPrefix}-attachment-url-${index}`}
             value={attachment.fileUrl}
             onChange={(event) =>
               updateAttachment(attachment.id, { fileUrl: event.target.value })
             }
             placeholder="https://drive.google.com/..."
-            className="h-8 text-sm"
+            className="text-sm"
           />
         </div>
       ))}

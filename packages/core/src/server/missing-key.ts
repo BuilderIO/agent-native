@@ -8,14 +8,6 @@ export interface MissingKeyResponse {
   settingsPath: string;
 }
 
-/**
- * Check if an env var is set. If not, set response status and return a structured
- * missing_api_key response object. Returns null if the key exists (no action needed).
- *
- * Usage:
- *   const missing = requireEnvKey(event, 'MY_KEY', 'My Service');
- *   if (missing) return missing;
- */
 export function requireEnvKey(
   event: H3Event,
   key: string,

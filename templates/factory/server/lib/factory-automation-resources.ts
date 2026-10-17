@@ -62,11 +62,6 @@ export function factoryIdFromAutomationName(name: string): string | null {
   return null;
 }
 
-/**
- * Load Factory jobs by their stored path. Membership is the folder (or the
- * default-factory `jobs/factory-*.md` convention), not `domain` / `triggerType`.
- * A scheduler status write that dropped those tags must not hide the job.
- */
 export async function listFactoryAutomationDefinitions(
   orgId: string,
   factoryId: string,
@@ -107,4 +102,35 @@ export async function findFactoryAutomationDefinition(
   return (
     definitions.find((entry) => entry.resource.id === automationId) ?? null
   );
+}
+
+export async function findFactoryAutomationByResourceId(
+  orgId: string,
+  resourceId: string,
+): Promise<(FactoryAutomationDefinition & { factoryId: string }) | null> {
+  const { listFactoryDefinitions } = await import("../factory-graph/store.js");
+  const { DEFAULT_FACTORY_ID, readAutomationFactoryId } =
+    await import("./factory-scope.js");
+  const factories = await listFactoryDefinitions(orgId);
+  const factoryIds = [
+    ...new Set([DEFAULT_FACTORY_ID, ...factories.map((row) => row.id)]),
+  ];
+  for (const factoryId of factoryIds) {
+    const definition = await findFactoryAutomationDefinition(
+      orgId,
+      factoryId,
+      resourceId,
+    );
+    if (definition) {
+      return {
+        ...definition,
+        factoryId: readAutomationFactoryId(
+          definition.meta,
+          definition.resource.content,
+          definition.resource.path,
+        ),
+      };
+    }
+  }
+  return null;
 }

@@ -85,8 +85,6 @@ export function guardRepromptActionRegistry(
                   `Cannot verify the agent thread for mutating action ${name}.`,
                 );
               }
-              // Off-thread callers (realtime voice, MCP, A2A, cron) have no
-              // stored thread, so they cannot be inside a reprompt turn.
               const intent = thread ? threadSelectionIntent(thread) : null;
               if (
                 intent === "reprompt" &&

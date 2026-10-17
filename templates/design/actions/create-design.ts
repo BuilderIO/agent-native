@@ -14,9 +14,13 @@ import {
   resolveDefaultDesignSystemId,
   resolveDesignSystemIdByTitle,
 } from "../server/lib/design-system-defaults.js";
+import { DESIGN_CREATION_METHODS } from "../server/lib/design-tracking.js";
+import {
+  defaultCreationMethod,
+  trackDesignCreated,
+} from "./_design-tracking.js";
 import getDesignSystem from "./get-design-system.js";
 
-/** Editor deep link so external agents can surface "Open design". */
 function designDeepLink(designId: string): string {
   return buildDeepLink({
     app: "design",
@@ -33,8 +37,8 @@ export default defineAction({
     "generate-design (files + canvasFrames) or create-file. When a design " +
     "system is linked, the result includes its `agentContext`; apply it " +
     "before authoring the screen. Omit designSystemId to link the caller's " +
-    "default design system; pass designSystemId, or the exact title as " +
-    "`designSystem`, to override.",
+    "default design system; pass null for no design system, or pass " +
+    "designSystemId or the exact title as `designSystem` to override.",
   schema: z.object({
     id: z
       .string()
@@ -42,7 +46,11 @@ export default defineAction({
       .describe(
         "Optional pre-generated UI ID. Agents should omit this and use the ID returned by the successful action.",
       ),
-    title: z.string().describe("Design project title"),
+    title: z
+      .string()
+      .describe(
+        "A concise, specific project name derived from the user's request. Never use a placeholder such as 'Untitled Design'.",
+      ),
     description: z
       .string()
       .optional()
@@ -54,13 +62,22 @@ export default defineAction({
       .describe("Type of design project"),
     designSystemId: z
       .string()
+      .nullable()
       .optional()
-      .describe("Design system ID to link to this design"),
+      .describe(
+        "Design system ID to link; omit for the caller's default, or pass null for no design system. Overrides designSystem.",
+      ),
     designSystem: z
       .string()
       .optional()
       .describe(
         "Exact title of an accessible design system to link (case-insensitive, whitespace-trimmed); resolved server-side. Use designSystemId when you already have the id; the id wins if both are given.",
+      ),
+    creationMethod: z
+      .enum(DESIGN_CREATION_METHODS)
+      .optional()
+      .describe(
+        "Internal: set by the Design UI and import flows to record how the project was started. Agents should omit this.",
       ),
   }),
   mcpApp: {
@@ -73,14 +90,23 @@ export default defineAction({
       height: 680,
     }),
   },
-  run: async ({
-    id: providedId,
-    title,
-    description,
-    projectType,
-    designSystemId,
-    designSystem,
-  }) => {
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
+  run: async (
+    {
+      id: providedId,
+      title,
+      description,
+      projectType,
+      designSystemId,
+      designSystem,
+      creationMethod,
+    },
+    ctx,
+  ) => {
     const db = getDb();
     const id = providedId ?? nanoid();
     const now = new Date().toISOString();
@@ -91,7 +117,7 @@ export default defineAction({
     let resolvedDesignSystemId = designSystemId;
     if (resolvedDesignSystemId) {
       await assertAccess("design-system", resolvedDesignSystemId, "viewer");
-    } else {
+    } else if (designSystemId !== null) {
       resolvedDesignSystemId =
         (designSystem
           ? await resolveDesignSystemIdByTitle(designSystem)
@@ -113,6 +139,17 @@ export default defineAction({
       createdAt: now,
       updatedAt: now,
     });
+
+    trackDesignCreated(
+      id,
+      {
+        creationMethod: creationMethod ?? defaultCreationMethod(ctx),
+        projectType: projectType ?? "prototype",
+        designSystemId: resolvedDesignSystemId,
+        variantCount: 0,
+      },
+      ctx,
+    );
 
     return {
       id,

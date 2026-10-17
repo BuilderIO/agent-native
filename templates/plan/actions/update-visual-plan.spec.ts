@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import {
+  planContentSchema,
+  storedPlanContentSchema,
+  type PlanContent,
+} from "../shared/plan-content.js";
+
 const request = vi.hoisted(() => ({
   email: undefined as string | undefined,
 }));
@@ -17,6 +23,9 @@ const loadPlanBundleMock = vi.hoisted(() => vi.fn());
 const notifyPlanCommentRecipientsMock = vi.hoisted(() => vi.fn());
 const resolveAccessMock = vi.hoisted(() => vi.fn());
 const createPlanVersionSnapshotMock = vi.hoisted(() => vi.fn());
+const normalizePlanContentMock = vi.hoisted(() =>
+  vi.fn((content: unknown) => content),
+);
 const originalAuthMode = process.env.AUTH_MODE;
 const originalPlanLocalMode = process.env.PLAN_LOCAL_MODE;
 
@@ -37,6 +46,10 @@ vi.mock("@agent-native/core", async (importOriginal) => ({
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: () => request.email,
   getRequestUserName: () => undefined,
+}));
+
+vi.mock("@agent-native/core/tracking", () => ({
+  track: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/sharing", () => {
@@ -95,7 +108,7 @@ vi.mock("../server/db/index.js", () => ({
 }));
 
 vi.mock("../server/plan-content.js", () => ({
-  normalizePlanContent: vi.fn((content: unknown) => content),
+  normalizePlanContent: (content: unknown) => normalizePlanContentMock(content),
   sanitizeStoredPlanHtml: vi.fn((html: string) => html),
   serializePlanContent: vi.fn((content: unknown) => content),
 }));
@@ -215,8 +228,25 @@ const structuredContent = {
   },
 };
 
+const normalizedStructuredContent = planContentSchema.parse(structuredContent);
+const renderableStructuredContent = planContentSchema.parse({
+  ...structuredContent,
+  canvas: {
+    ...structuredContent.canvas,
+    frames: [
+      {
+        ...structuredContent.canvas.frames[0],
+        wireframe: {
+          surface: "desktop" as const,
+          html: "<main>Audit table</main>",
+        },
+      },
+    ],
+  },
+});
+
 function planBundle(input?: {
-  content?: typeof structuredContent | null;
+  content?: PlanContent | null;
   updatedAt?: string;
 }) {
   return {
@@ -227,7 +257,10 @@ function planBundle(input?: {
       kind: "plan",
       status: "review",
       updatedAt: input?.updatedAt ?? baseUpdatedAt,
-      content: input && "content" in input ? input.content : structuredContent,
+      content:
+        input && "content" in input
+          ? input.content
+          : normalizedStructuredContent,
     },
     access: {
       role: "owner",
@@ -295,6 +328,8 @@ describe("update-visual-plan comments", () => {
     resolveAccessMock.mockReset();
     createPlanVersionSnapshotMock.mockReset();
     createPlanVersionSnapshotMock.mockResolvedValue({ created: true });
+    normalizePlanContentMock.mockReset();
+    normalizePlanContentMock.mockImplementation((content: unknown) => content);
     delete process.env.AUTH_MODE;
     delete process.env.PLAN_LOCAL_MODE;
   });
@@ -733,6 +768,463 @@ describe("update-visual-plan comments", () => {
     expect(JSON.stringify(result)).not.toContain("Original intro.");
   });
 
+  it.each([
+    {
+      name: "targeted prototype patch",
+      input: {
+        contentPatches: [
+          {
+            op: "update-prototype-screen" as const,
+            screenId: "screen_1",
+            patch: { title: "Updated home" },
+          },
+        ],
+      },
+    },
+    {
+      name: "full replacement",
+      input: {
+        expectedUpdatedAt: baseUpdatedAt,
+        contentPatches: [],
+        content: {
+          ...renderableStructuredContent,
+          prototype: {
+            ...renderableStructuredContent.prototype,
+            screens: renderableStructuredContent.prototype.screens.map(
+              (screen) => ({
+                ...screen,
+                title: "Updated home",
+              }),
+            ),
+          },
+        },
+      },
+    },
+  ])(
+    "rejects $name when the visible canvas is unchanged",
+    async ({ input }) => {
+      request.email = "editor@example.com";
+      const { updateWhereMock } = useSuccessfulDb();
+      loadPlanBundleMock.mockResolvedValue(
+        planBundle({ content: renderableStructuredContent }),
+      );
+
+      await expect(
+        (
+          updateVisualPlan as {
+            run: (args: unknown, ctx?: unknown) => Promise<unknown>;
+          }
+        ).run(
+          {
+            planId: "plan_public",
+            ...input,
+            sections: [],
+            comments: [],
+            consumedCommentIds: [],
+          },
+          { caller: "tool" },
+        ),
+      ).rejects.toThrow("visible canvas unchanged");
+
+      expect(createPlanVersionSnapshotMock).not.toHaveBeenCalled();
+      expect(updateWhereMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it("allows an explicit single-surface edit and keeps the parity warning", async () => {
+    request.email = "editor@example.com";
+    useSuccessfulDb();
+    loadPlanBundleMock.mockResolvedValue(
+      planBundle({ content: renderableStructuredContent }),
+    );
+
+    const result = await (
+      updateVisualPlan as {
+        run: (args: unknown, ctx?: unknown) => Promise<Record<string, unknown>>;
+      }
+    ).run(
+      {
+        planId: "plan_public",
+        allowSurfaceMismatch: true,
+        contentPatches: [
+          {
+            op: "update-prototype-screen",
+            screenId: "screen_1",
+            patch: { title: "Updated home" },
+          },
+        ],
+        sections: [],
+        comments: [],
+        consumedCommentIds: [],
+      },
+      { caller: "tool" },
+    );
+
+    expect(result).toMatchObject({
+      changed: {
+        warnings: [expect.stringContaining("allowSurfaceMismatch")],
+      },
+    });
+  });
+
+  it("allows an idempotent prototype patch retry", async () => {
+    request.email = "editor@example.com";
+    const { insertValuesMock, updateWhereMock } = useSuccessfulDb();
+    loadPlanBundleMock.mockResolvedValue(planBundle());
+
+    await expect(
+      (
+        updateVisualPlan as {
+          run: (args: unknown, ctx?: unknown) => Promise<unknown>;
+        }
+      ).run(
+        {
+          planId: "plan_public",
+          contentPatches: [
+            {
+              op: "update-prototype-screen",
+              screenId: "screen_1",
+              patch: { title: "Home" },
+            },
+          ],
+          sections: [],
+          comments: [],
+          consumedCommentIds: [],
+        },
+        { caller: "tool" },
+      ),
+    ).resolves.toMatchObject({ planId: "plan_public" });
+    expect(createPlanVersionSnapshotMock).not.toHaveBeenCalled();
+    expect(updateWhereMock).not.toHaveBeenCalled();
+    expect(insertValuesMock).not.toHaveBeenCalled();
+  });
+
+  it("allows prototype-only edits when canvas frames are placeholders", async () => {
+    request.email = "editor@example.com";
+    useSuccessfulDb();
+    loadPlanBundleMock.mockResolvedValue(planBundle());
+
+    await expect(
+      (
+        updateVisualPlan as {
+          run: (args: unknown, ctx?: unknown) => Promise<unknown>;
+        }
+      ).run(
+        {
+          planId: "plan_public",
+          contentPatches: [
+            {
+              op: "update-prototype-screen",
+              screenId: "screen_1",
+              patch: { title: "Updated home" },
+            },
+          ],
+          sections: [],
+          comments: [],
+          consumedCommentIds: [],
+        },
+        { caller: "tool" },
+      ),
+    ).resolves.toMatchObject({ planId: "plan_public" });
+  });
+
+  it("does not run surface parity for status-only updates", async () => {
+    request.email = "editor@example.com";
+    const { updateWhereMock } = useSuccessfulDb();
+    loadPlanBundleMock.mockResolvedValue(
+      planBundle({ content: renderableStructuredContent }),
+    );
+
+    await expect(
+      (
+        updateVisualPlan as {
+          run: (args: unknown, ctx?: unknown) => Promise<unknown>;
+        }
+      ).run(
+        {
+          planId: "plan_public",
+          status: "approved",
+          contentPatches: [],
+          sections: [],
+          comments: [],
+          consumedCommentIds: [],
+        },
+        { caller: "tool" },
+      ),
+    ).resolves.toMatchObject({ planId: "plan_public" });
+    expect(updateWhereMock).toHaveBeenCalled();
+  });
+
+  it("rejects prototype edits paired only with canvas metadata changes", async () => {
+    request.email = "editor@example.com";
+    const { updateWhereMock } = useSuccessfulDb();
+    loadPlanBundleMock.mockResolvedValue(
+      planBundle({ content: renderableStructuredContent }),
+    );
+
+    await expect(
+      (
+        updateVisualPlan as {
+          run: (args: unknown, ctx?: unknown) => Promise<unknown>;
+        }
+      ).run(
+        {
+          planId: "plan_public",
+          contentPatches: [
+            {
+              op: "update-prototype-screen",
+              screenId: "screen_1",
+              patch: { title: "Updated home" },
+            },
+            {
+              op: "update-canvas-frame",
+              frameId: "frame_1",
+              patch: { x: 100 },
+            },
+          ],
+          sections: [],
+          comments: [],
+          consumedCommentIds: [],
+        },
+        { caller: "tool" },
+      ),
+    ).rejects.toThrow("visible canvas unchanged");
+
+    expect(createPlanVersionSnapshotMock).not.toHaveBeenCalled();
+    expect(updateWhereMock).not.toHaveBeenCalled();
+  });
+
+  it("allows paired updates through a referenced wireframe block", async () => {
+    request.email = "editor@example.com";
+    useSuccessfulDb();
+    const linkedContent = {
+      ...structuredContent,
+      blocks: [
+        {
+          id: "screen-block",
+          type: "wireframe" as const,
+          title: "Audit table",
+          data: {
+            surface: "browser" as const,
+            html: "<main>Before</main>",
+          },
+        },
+      ],
+      canvas: {
+        ...structuredContent.canvas,
+        frames: [
+          {
+            ...structuredContent.canvas.frames[0],
+            label: "Audit table",
+            blockId: "screen-block",
+          },
+        ],
+      },
+    } as typeof structuredContent;
+    loadPlanBundleMock.mockResolvedValue(
+      planBundle({ content: linkedContent }),
+    );
+
+    await expect(
+      (
+        updateVisualPlan as {
+          run: (args: unknown, ctx?: unknown) => Promise<unknown>;
+        }
+      ).run(
+        {
+          planId: "plan_public",
+          contentPatches: [
+            {
+              op: "patch-prototype-html",
+              screenId: "screen_1",
+              edits: [{ find: "Home", replace: "Updated home" }],
+            },
+            {
+              op: "patch-wireframe-html",
+              blockId: "screen-block",
+              edits: [{ find: "Before", replace: "After" }],
+            },
+          ],
+          sections: [],
+          comments: [],
+          consumedCommentIds: [],
+        },
+        { caller: "tool" },
+      ),
+    ).resolves.toMatchObject({ planId: "plan_public" });
+  });
+
+  it("rejects prototype edits paired only with hidden linked-block metadata", async () => {
+    request.email = "editor@example.com";
+    const { updateWhereMock } = useSuccessfulDb();
+    const linkedContent = {
+      ...structuredContent,
+      blocks: [
+        {
+          id: "screen-block",
+          type: "wireframe" as const,
+          title: "Audit table",
+          summary: "Before",
+          data: {
+            surface: "browser" as const,
+            html: "<main>Visible</main>",
+          },
+        },
+      ],
+      canvas: {
+        ...structuredContent.canvas,
+        frames: [
+          {
+            ...structuredContent.canvas.frames[0],
+            label: "Audit table",
+            blockId: "screen-block",
+          },
+        ],
+      },
+    } as typeof structuredContent;
+    loadPlanBundleMock.mockResolvedValue(
+      planBundle({ content: linkedContent }),
+    );
+
+    await expect(
+      (
+        updateVisualPlan as {
+          run: (args: unknown, ctx?: unknown) => Promise<unknown>;
+        }
+      ).run(
+        {
+          planId: "plan_public",
+          contentPatches: [
+            {
+              op: "update-prototype-screen",
+              screenId: "screen_1",
+              patch: { title: "Updated home" },
+            },
+            {
+              op: "update-block",
+              blockId: "screen-block",
+              patch: { summary: "After" },
+            },
+          ],
+          sections: [],
+          comments: [],
+          consumedCommentIds: [],
+        },
+        { caller: "tool" },
+      ),
+    ).rejects.toThrow("visible canvas unchanged");
+
+    expect(createPlanVersionSnapshotMock).not.toHaveBeenCalled();
+    expect(updateWhereMock).not.toHaveBeenCalled();
+  });
+
+  it("allows paired updates through a column-nested wireframe block", async () => {
+    request.email = "editor@example.com";
+    useSuccessfulDb();
+    const linkedContent = {
+      ...structuredContent,
+      blocks: [
+        {
+          id: "columns-block",
+          type: "columns" as const,
+          data: {
+            columns: [
+              {
+                id: "column-1",
+                blocks: [
+                  {
+                    id: "nested-screen-block",
+                    type: "wireframe" as const,
+                    title: "Audit table",
+                    data: {
+                      surface: "browser" as const,
+                      html: "<main>Before</main>",
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      canvas: {
+        ...structuredContent.canvas,
+        frames: [
+          {
+            ...structuredContent.canvas.frames[0],
+            label: "Audit table",
+            blockId: "nested-screen-block",
+          },
+        ],
+      },
+    } as typeof structuredContent;
+    loadPlanBundleMock.mockResolvedValue(
+      planBundle({ content: linkedContent }),
+    );
+
+    await expect(
+      (
+        updateVisualPlan as {
+          run: (args: unknown, ctx?: unknown) => Promise<unknown>;
+        }
+      ).run(
+        {
+          planId: "plan_public",
+          contentPatches: [
+            {
+              op: "patch-prototype-html",
+              screenId: "screen_1",
+              edits: [{ find: "Home", replace: "Updated home" }],
+            },
+            {
+              op: "patch-wireframe-html",
+              blockId: "nested-screen-block",
+              edits: [{ find: "Before", replace: "After" }],
+            },
+          ],
+          sections: [],
+          comments: [],
+          consumedCommentIds: [],
+        },
+        { caller: "tool" },
+      ),
+    ).resolves.toMatchObject({ planId: "plan_public" });
+  });
+
+  it("rejects a full replacement that adds a prototype without a canvas change", async () => {
+    request.email = "editor@example.com";
+    const { updateWhereMock } = useSuccessfulDb();
+    const contentWithoutPrototype = {
+      ...renderableStructuredContent,
+      prototype: undefined,
+    } as typeof structuredContent;
+    loadPlanBundleMock.mockResolvedValue(
+      planBundle({ content: contentWithoutPrototype }),
+    );
+
+    await expect(
+      (
+        updateVisualPlan as {
+          run: (args: unknown, ctx?: unknown) => Promise<unknown>;
+        }
+      ).run(
+        {
+          planId: "plan_public",
+          expectedUpdatedAt: baseUpdatedAt,
+          content: renderableStructuredContent,
+          contentPatches: [],
+          sections: [],
+          comments: [],
+          consumedCommentIds: [],
+        },
+        { caller: "tool" },
+      ),
+    ).rejects.toThrow("visible canvas unchanged");
+
+    expect(createPlanVersionSnapshotMock).not.toHaveBeenCalled();
+    expect(updateWhereMock).not.toHaveBeenCalled();
+  });
+
   it("handles a 13-task amendment as three incremental writes", async () => {
     request.email = "editor@example.com";
     useSuccessfulDb();
@@ -943,9 +1435,12 @@ describe("update-visual-plan comments", () => {
         comments: [],
         consumedCommentIds: [],
       }),
-    ).rejects.toThrow(
-      "expectedUpdatedAt is required for full content replacement and replace-blocks",
-    );
+    ).rejects.toMatchObject({
+      message:
+        "expectedUpdatedAt is required for full content replacement and replace-blocks. Read the latest plan, pass its plan.updatedAt, and retry.",
+      errorCode: "expected_updated_at_required",
+      statusCode: 422,
+    });
     expect(createPlanVersionSnapshotMock).not.toHaveBeenCalled();
   });
 
@@ -983,21 +1478,391 @@ describe("update-visual-plan comments", () => {
           comments: [],
           consumedCommentIds: [],
         }),
-      ).rejects.toThrow("prepared from an outdated plan revision");
+      ).rejects.toMatchObject({
+        message: expect.stringContaining(
+          "prepared from an outdated plan revision",
+        ),
+        errorCode: "plan_revision_conflict",
+        statusCode: 409,
+      });
       expect(createPlanVersionSnapshotMock).not.toHaveBeenCalled();
     },
   );
 
+  it("accepts unchanged stored legacy defaults in full replacements", async () => {
+    request.email = "editor@example.com";
+    const { updateWhereMock } = useSuccessfulDb();
+    const legacyContent = storedPlanContentSchema.parse({
+      version: 2,
+      blocks: [
+        { id: "legacy-questions", type: "question-form", data: {} },
+        { id: "legacy-tabs", type: "tabs", data: {} },
+        {
+          id: "intro",
+          type: "rich-text",
+          data: { markdown: "Original copy." },
+        },
+      ],
+    });
+    const replacementContent = storedPlanContentSchema.parse({
+      ...legacyContent,
+      blocks: legacyContent.blocks.map((block) =>
+        block.id === "intro" && block.type === "rich-text"
+          ? { ...block, data: { markdown: "Updated copy." } }
+          : block,
+      ),
+    });
+    loadPlanBundleMock.mockResolvedValue(
+      planBundle({ content: legacyContent }),
+    );
+    const action = updateVisualPlan as unknown as {
+      schema: { parse: (input: unknown) => unknown };
+      run: (args: unknown) => Promise<unknown>;
+    };
+    const args = action.schema.parse({
+      planId: "plan_public",
+      expectedUpdatedAt: baseUpdatedAt,
+      content: replacementContent,
+      contentPatches: [],
+      sections: [],
+      comments: [],
+      consumedCommentIds: [],
+    });
+
+    await expect(action.run(args)).resolves.toMatchObject({
+      planId: "plan_public",
+    });
+    expect(updateWhereMock).toHaveBeenCalled();
+  });
+
+  it.each([
+    ["a JSON string", JSON.stringify({ version: 2, blocks: [] })],
+    ["an envelope with defaulted blocks", { version: 2 }],
+  ])("accepts full content replacement from %s", async (_label, content) => {
+    request.email = "editor@example.com";
+    useSuccessfulDb();
+    normalizePlanContentMock.mockImplementation((input: unknown) =>
+      storedPlanContentSchema.parse(input),
+    );
+    loadPlanBundleMock.mockResolvedValue(planBundle({ content: null }));
+    const action = updateVisualPlan as unknown as {
+      schema: { parse: (input: unknown) => unknown };
+      run: (input: unknown) => Promise<unknown>;
+    };
+    const args = action.schema.parse({
+      planId: "plan_public",
+      expectedUpdatedAt: baseUpdatedAt,
+      content,
+      contentPatches: [],
+      sections: [],
+      comments: [],
+      consumedCommentIds: [],
+    });
+
+    await expect(action.run(args)).resolves.toMatchObject({
+      planId: "plan_public",
+    });
+  });
+
+  it.each([
+    [
+      "checklist items",
+      { id: "new-checklist", type: "checklist", data: {} },
+      /checklist blocks require data\.items/,
+    ],
+    [
+      "annotated-code code",
+      { id: "new-annotated-code", type: "annotated-code", data: {} },
+      /annotated-code blocks require data\.code/,
+    ],
+  ])(
+    "validates omitted %s in JSON-string replacements",
+    async (_label, block, message) => {
+      request.email = "editor@example.com";
+      useSuccessfulDb();
+      const previous = storedPlanContentSchema.parse({
+        version: 2,
+        blocks: [
+          {
+            id: "intro",
+            type: "rich-text",
+            data: { markdown: "Existing content." },
+          },
+        ],
+      });
+      loadPlanBundleMock.mockResolvedValue(planBundle({ content: previous }));
+      const action = updateVisualPlan as unknown as {
+        schema: { parse: (input: unknown) => unknown };
+        run: (input: unknown) => Promise<unknown>;
+      };
+      const args = action.schema.parse({
+        planId: "plan_public",
+        expectedUpdatedAt: baseUpdatedAt,
+        content: JSON.stringify({
+          version: 2,
+          blocks: [previous.blocks[0], block],
+        }),
+        contentPatches: [],
+        sections: [],
+        comments: [],
+        consumedCommentIds: [],
+      });
+
+      await expect(action.run(args)).rejects.toThrow(message);
+      expect(createPlanVersionSnapshotMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rejects new incomplete fields in full replacements", async () => {
+    request.email = "editor@example.com";
+    const { transactionMock } = useSuccessfulDb();
+    loadPlanBundleMock.mockResolvedValue(planBundle({ content: null }));
+    const action = updateVisualPlan as unknown as {
+      schema: { parse: (input: unknown) => unknown };
+      run: (args: unknown) => Promise<unknown>;
+    };
+    const args = action.schema.parse({
+      planId: "plan_public",
+      expectedUpdatedAt: baseUpdatedAt,
+      content: {
+        version: 2,
+        blocks: [
+          {
+            id: "new-questions",
+            type: "question-form",
+            data: { questions: [] },
+          },
+        ],
+      },
+      contentPatches: [],
+      sections: [],
+      comments: [],
+      consumedCommentIds: [],
+    });
+
+    await expect(action.run(args)).rejects.toMatchObject({
+      errorCode: "invalid_plan_content",
+      statusCode: 422,
+      message: expect.stringMatching(
+        /question-form blocks require at least one questions entry/,
+      ),
+    });
+    expect(createPlanVersionSnapshotMock).not.toHaveBeenCalled();
+    expect(transactionMock).not.toHaveBeenCalled();
+  });
+
+  it("returns 422 for an invalid replacement patch before snapshotting or writing", async () => {
+    request.email = "editor@example.com";
+    const { transactionMock } = useSuccessfulDb();
+    loadPlanBundleMock.mockResolvedValue(
+      planBundle({ content: normalizedStructuredContent }),
+    );
+
+    await expect(
+      (updateVisualPlan as { run: (args: unknown) => Promise<unknown> }).run({
+        planId: "plan_public",
+        expectedUpdatedAt: baseUpdatedAt,
+        contentPatches: [
+          {
+            op: "replace-block",
+            blockId: "intro",
+            block: {
+              id: "intro",
+              type: "question-form",
+              data: { questions: [] },
+            },
+          },
+        ],
+        sections: [],
+        comments: [],
+        consumedCommentIds: [],
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "invalid_plan_content",
+      statusCode: 422,
+      message: expect.stringMatching(
+        /question-form blocks require at least one questions entry/,
+      ),
+    });
+
+    expect(createPlanVersionSnapshotMock).not.toHaveBeenCalled();
+    expect(transactionMock).not.toHaveBeenCalled();
+  });
+
+  it("returns a validation error for schema-invalid full replacements", async () => {
+    request.email = "editor@example.com";
+    useSuccessfulDb();
+    normalizePlanContentMock.mockImplementation((input: unknown) =>
+      storedPlanContentSchema.parse(input as never),
+    );
+    loadPlanBundleMock.mockResolvedValue(planBundle({ content: null }));
+    const action = updateVisualPlan as unknown as {
+      schema: { parse: (input: unknown) => unknown };
+      run: (input: unknown) => Promise<unknown>;
+    };
+    const args = action.schema.parse({
+      planId: "plan_public",
+      expectedUpdatedAt: baseUpdatedAt,
+      content: {
+        version: 2,
+        blocks: [
+          {
+            id: "invalid-checklist",
+            type: "checklist",
+            data: { items: "not-an-array" },
+          },
+        ],
+      },
+      contentPatches: [],
+      sections: [],
+      comments: [],
+      consumedCommentIds: [],
+    });
+
+    await expect(action.run(args)).rejects.toMatchObject({
+      errorCode: "invalid_plan_content",
+      statusCode: 422,
+      message: expect.stringContaining("items"),
+    });
+    expect(createPlanVersionSnapshotMock).not.toHaveBeenCalled();
+  });
+
+  it("preserves unexpected errors while mapping only content validation", async () => {
+    request.email = "editor@example.com";
+    const { transactionMock } = useSuccessfulDb();
+    const unexpectedError = new Error("unexpected normalization failure");
+    normalizePlanContentMock.mockImplementation(() => {
+      throw unexpectedError;
+    });
+    loadPlanBundleMock.mockResolvedValue(planBundle({ content: null }));
+    const action = updateVisualPlan as unknown as {
+      run: (input: unknown) => Promise<unknown>;
+    };
+
+    await expect(
+      action.run({
+        planId: "plan_public",
+        expectedUpdatedAt: baseUpdatedAt,
+        content: structuredContent,
+        contentPatches: [],
+        sections: [],
+        comments: [],
+        consumedCommentIds: [],
+      }),
+    ).rejects.toBe(unexpectedError);
+
+    expect(createPlanVersionSnapshotMock).not.toHaveBeenCalled();
+    expect(transactionMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      "checklist items",
+      { id: "new-checklist", type: "checklist", data: {} },
+      /checklist blocks require data\.items/,
+    ],
+    [
+      "annotated-code code",
+      { id: "new-annotated-code", type: "annotated-code", data: {} },
+      /annotated-code blocks require data\.code/,
+    ],
+  ])(
+    "rejects full replacements with omitted $0",
+    async (_label, block, message) => {
+      request.email = "editor@example.com";
+      useSuccessfulDb();
+      const previous = storedPlanContentSchema.parse({
+        version: 2,
+        blocks: [
+          {
+            id: "intro",
+            type: "rich-text",
+            data: { markdown: "Existing content." },
+          },
+        ],
+      });
+      loadPlanBundleMock.mockResolvedValue(planBundle({ content: previous }));
+      const action = updateVisualPlan as unknown as {
+        schema: { parse: (input: unknown) => unknown };
+        run: (input: unknown) => Promise<unknown>;
+      };
+      const input = {
+        planId: "plan_public",
+        expectedUpdatedAt: baseUpdatedAt,
+        content: {
+          version: 2,
+          blocks: [previous.blocks[0], block],
+        },
+        contentPatches: [],
+        sections: [],
+        comments: [],
+        consumedCommentIds: [],
+      };
+      const args = action.schema.parse(input);
+
+      expect(args).toMatchObject({ content: input.content });
+      await expect(action.run(args)).rejects.toThrow(message);
+      expect(createPlanVersionSnapshotMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it("types a stale revision as a 409 conflict so the action boundary does not capture it", async () => {
+    request.email = "editor@example.com";
+    getDbMock.mockReturnValue({});
+    loadPlanBundleMock.mockResolvedValue(
+      planBundle({ updatedAt: newerUpdatedAt }),
+    );
+
+    await expect(
+      (updateVisualPlan as { run: (args: unknown) => Promise<unknown> }).run({
+        planId: "plan_public",
+        expectedUpdatedAt: baseUpdatedAt,
+        content: structuredContent,
+        contentPatches: [],
+        sections: [],
+        comments: [],
+        consumedCommentIds: [],
+      }),
+    ).rejects.toMatchObject({
+      actionContractError: true,
+      errorCode: "plan_revision_conflict",
+      statusCode: 409,
+    });
+  });
+
   it.each([
     {
       name: "full content replacement",
-      input: { content: structuredContent, contentPatches: [] },
+      input: {
+        content: {
+          ...normalizedStructuredContent,
+          blocks: normalizedStructuredContent.blocks.map((block) =>
+            block.id === "intro" && block.type === "rich-text"
+              ? {
+                  ...block,
+                  data: { ...block.data, markdown: "Updated intro." },
+                }
+              : block,
+          ),
+        },
+        contentPatches: [],
+      },
     },
     {
       name: "replace-blocks",
       input: {
         contentPatches: [
-          { op: "replace-blocks" as const, blocks: structuredContent.blocks },
+          {
+            op: "replace-blocks" as const,
+            blocks: normalizedStructuredContent.blocks.map((block) =>
+              block.id === "intro" && block.type === "rich-text"
+                ? {
+                    ...block,
+                    data: { ...block.data, markdown: "Updated intro." },
+                  }
+                : block,
+            ),
+          },
         ],
       },
     },
@@ -1006,7 +1871,9 @@ describe("update-visual-plan comments", () => {
     async ({ input }) => {
       request.email = "editor@example.com";
       const { updateWhereMock } = useSuccessfulDb();
-      loadPlanBundleMock.mockResolvedValue(planBundle());
+      loadPlanBundleMock.mockResolvedValue(
+        planBundle({ content: normalizedStructuredContent }),
+      );
 
       await expect(
         (updateVisualPlan as { run: (args: unknown) => Promise<unknown> }).run({
@@ -1056,6 +1923,33 @@ describe("update-visual-plan comments", () => {
         { op: "eq", args: ["plans.id", "plan_public"] },
         { op: "eq", args: ["plans.updatedAt", baseUpdatedAt] },
       ],
+    });
+  });
+
+  it("returns a typed conflict when another writer wins the revision CAS", async () => {
+    request.email = "editor@example.com";
+    const { returningMock } = useSuccessfulDb();
+    returningMock.mockResolvedValueOnce([]);
+    loadPlanBundleMock.mockResolvedValue(planBundle());
+
+    await expect(
+      (updateVisualPlan as { run: (args: unknown) => Promise<unknown> }).run({
+        planId: "plan_public",
+        contentPatches: [
+          {
+            op: "update-rich-text",
+            blockId: "intro",
+            markdown: "Updated intro.",
+          },
+        ],
+        sections: [],
+        comments: [],
+        consumedCommentIds: [],
+      }),
+    ).rejects.toMatchObject({
+      message: expect.stringContaining("updated by someone else"),
+      errorCode: "plan_revision_conflict",
+      statusCode: 409,
     });
   });
 

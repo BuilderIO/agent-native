@@ -36,7 +36,7 @@ An editor changes a mapped Builder article body. The codec writes supported bloc
 
 ## Product contract
 
-- One pure typed codec is shared by repo-backed docs and CMS-backed databases where the representation applies.
+- One pure typed codec is shared by repo-backed docs and CMS-backed collections where the representation applies.
 - Known blocks map to typed Content structures; unknown components retain raw payload, provider identity, ordering, and fidelity state.
 - Baselines and hashes detect stale/conflicting writes. Codec output is deterministic and covered by golden fixtures.
 - Codec conversion does not decide source truth, write mode, review, or provider publication; adapter and sync policy own those decisions.

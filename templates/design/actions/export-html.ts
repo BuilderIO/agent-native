@@ -5,12 +5,20 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
+  trackDesignExported,
+  withDesignExportFailureTracking,
+} from "../server/lib/design-export-tracking.js";
+import {
   buildStandaloneHtml,
   exportFilename,
   trySaveExportFile,
 } from "../server/lib/design-export.js";
 import { isBoardFile } from "../shared/board-file.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
+
+const trackHtmlExportFailures = withDesignExportFailureTracking<{ id: string }>(
+  "html",
+);
 
 export default defineAction({
   description:
@@ -20,25 +28,35 @@ export default defineAction({
   schema: z.object({
     id: z.string().describe("Design ID to export"),
   }),
-  run: async ({ id }) => {
+  run: trackHtmlExportFailures(async ({ id }, ctx, facts) => {
     const access = await resolveAccess("design", id);
     if (!access) throw new Error(`Design not found: ${id}`);
+    facts.designId = id;
 
     const row = access.resource;
     const db = getDb();
 
-    // Fetch all design files
     const files = await db
       .select()
       .from(schema.designFiles)
       .where(eq(schema.designFiles.designId, id));
     const exportFiles = files.filter((file) => !isBoardFile(file.filename));
+    facts.fileCount = exportFiles.length;
 
-    const html = buildStandaloneHtml({ title: row.title, files: exportFiles });
+    const html = buildStandaloneHtml({
+      title: row.title,
+      files: exportFiles,
+      screenLayout: "stacked",
+    });
 
     const filename = exportFilename(row.title, "html");
     const saveResult = await trySaveExportFile(filename, html);
 
+    trackDesignExported(
+      { ...facts, exportFormat: "html", status: "completed" },
+      ctx,
+    );
+
     return { html, filename, ...saveResult, fileCount: exportFiles.length };
-  },
+  }),
 });

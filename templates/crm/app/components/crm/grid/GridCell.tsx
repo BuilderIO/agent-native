@@ -68,11 +68,6 @@ type Translate = ReturnType<typeof useT>;
 
 const EMPTY = "—";
 
-// ---------------------------------------------------------------------------
-// Header affordances
-// ---------------------------------------------------------------------------
-
-/** The leading glyph on a column header: the attribute's type, not its name. */
 const TYPE_ICONS: Record<
   CrmAttributeType,
   React.ComponentType<{ className?: string }>
@@ -107,10 +102,6 @@ export function AttributeTypeIcon({
   return <Icon className={className} />;
 }
 
-// ---------------------------------------------------------------------------
-// Avatars
-// ---------------------------------------------------------------------------
-
 export type CrmAvatarShape = "person" | "company";
 
 function initials(name: string): string {
@@ -121,10 +112,6 @@ function initials(name: string): string {
   return `${first}${second}`;
 }
 
-/**
- * A record's avatar. Shape carries the object type — a round avatar is a
- * person, a squircle is an organisation — so the two never have to be labelled.
- */
 export function RecordAvatar({
   name,
   shape,
@@ -148,10 +135,6 @@ export function RecordAvatar({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Provenance
-// ---------------------------------------------------------------------------
-
 const PROVENANCE_TINT: Record<CrmCellProvenance["actorType"], string> = {
   user: "",
   agent: "bg-violet-500/70",
@@ -160,10 +143,6 @@ const PROVENANCE_TINT: Record<CrmCellProvenance["actorType"], string> = {
   system: "bg-muted-foreground/40",
 };
 
-/**
- * A 5px corner wedge, not a badge. Provenance has to be legible at a glance
- * across a whole screen of cells without competing with the values themselves.
- */
 export function ProvenanceMarker({
   provenance,
   attributeLabel,
@@ -254,10 +233,6 @@ export function ProvenanceMarker({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Display
-// ---------------------------------------------------------------------------
-
 function copyToClipboard(text: string, t: Translate) {
   void navigator.clipboard
     .writeText(text)
@@ -265,11 +240,6 @@ function copyToClipboard(text: string, t: Translate) {
     .catch(() => toast.error(t("grid.copyFailed")));
 }
 
-/**
- * A record reference. Hover tint rides the shared overlay rather than a
- * background swap so it composites over a tinted row exactly like every other
- * hover in the app.
- */
 function Chip({
   children,
   avatar,
@@ -317,12 +287,6 @@ function Chip({
   );
 }
 
-/**
- * An option renders as a *tint* of its own colour, never a saturated fill: a
- * grid of filled chips reads as decoration, and the colour stops carrying
- * information. `color-mix` rather than an appended hex alpha — an option colour
- * may be any CSS colour, and `#0a0` + "22" is not a colour at all.
- */
 function OptionPill({ token }: { token: CrmValueToken }) {
   return (
     <span
@@ -341,8 +305,6 @@ function OptionPill({ token }: { token: CrmValueToken }) {
   );
 }
 
-/** A value that is a destination: underlined, with a decoration soft enough
- *  that a column of them does not read as a stack of rules. */
 function LinkValue({
   text,
   href,
@@ -359,7 +321,6 @@ function LinkValue({
       {href ? (
         <a
           href={href}
-          // A `mailto:` opened in a new tab leaves an empty one behind.
           {...(href.startsWith("http")
             ? { target: "_blank", rel: "noreferrer" }
             : {})}
@@ -398,8 +359,6 @@ function StatusPill({
 }) {
   const t = useT();
   const token = valueTokens(attribute, value)[0];
-  // A status whose option was deleted still shows its stored value: "—" would
-  // claim the record has no stage at all.
   if (!token) return <span className="text-content-ghost">{EMPTY}</span>;
   return (
     <span className="inline-flex items-center gap-1.5">
@@ -502,8 +461,6 @@ export function CellDisplay({
         avatar={
           <RecordAvatar
             name={text}
-            // A reference carries no object type, so only an actor — always a
-            // person — can claim the round shape.
             shape={type === "actor-reference" ? "person" : "company"}
             className="size-4 text-[9px]"
           />
@@ -518,10 +475,6 @@ export function CellDisplay({
   if (!text) return <span className="text-content-ghost">{EMPTY}</span>;
   return <span className="block min-w-0 truncate">{text}</span>;
 }
-
-// ---------------------------------------------------------------------------
-// Editors
-// ---------------------------------------------------------------------------
 
 const INPUT_CLASS =
   "h-full w-full border-0 bg-transparent px-3 text-sm outline-none ring-0 placeholder:text-content-ghost";
@@ -578,8 +531,6 @@ function OptionPicker({
           <span
             className={cn(
               "size-3 shrink-0 rounded-full",
-              // An uncolored option is a ring, not a grey dot: a filled grey
-              // reads as "colored grey" next to real option colours.
               option.color ? "" : "ring-1 ring-inset ring-hairline",
             )}
             style={option.color ? { backgroundColor: option.color } : undefined}
@@ -594,10 +545,6 @@ function OptionPicker({
   );
 }
 
-/**
- * The editor for one cell. `seed` is the character that started the edit, so
- * typing over a cell replaces its value the way a spreadsheet does.
- */
 export function CellEditor({
   attribute,
   value,
@@ -616,14 +563,10 @@ export function CellEditor({
   onCancel: () => void;
 }) {
   const spec = cellSpecFor(attribute);
-  // The raw value, never the formatted one: a currency cell seeded with
-  // "$1,200.00" parses back as not-a-number the moment the user presses Enter.
   const [text, setText] = useState(() =>
     seed !== undefined ? seed : attributeInputValue(attribute, value),
   );
   const inputRef = useAutoFocus<HTMLInputElement>();
-  // Escape and Enter both remove the input from the tree; without this the
-  // blur that follows would commit a value the user just cancelled.
   const handled = useRef(false);
 
   if (spec.editor === "checkbox") {
@@ -727,8 +670,6 @@ export function CellEditor({
       onKeyDown={(event) => {
         const intent = resolveGridKey(event, { editing: true });
         if (!intent) return;
-        // The editor owns Enter/Tab/Escape while it is open; letting them reach
-        // the grid would move the active cell and commit twice.
         event.preventDefault();
         event.stopPropagation();
         handled.current = true;

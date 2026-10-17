@@ -9,8 +9,6 @@ const PopoverTrigger = PopoverPrimitive.Trigger;
 
 const PopoverAnchor = PopoverPrimitive.Anchor;
 
-// Deliberate addition over the registry output: SettingsPopover renders its
-// own titled close button, which needs the Radix Close primitive.
 const PopoverClose = PopoverPrimitive.Close;
 
 const PopoverContent = React.forwardRef<

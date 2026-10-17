@@ -1,6 +1,5 @@
 import { useEffect, useRef, type RefObject } from "react";
 
-/** Focus an input/textarea and select its existing value after the next paint. */
 export function useAutoFocusSelect<
   T extends HTMLInputElement | HTMLTextAreaElement,
 >(enabled: boolean): RefObject<T | null> {

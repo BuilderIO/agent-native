@@ -1,7 +1,9 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
-import { writeClipboardText } from "@agent-native/core/client/clipboard";
+import { appPath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
-import { buildSignInReturnHref } from "@agent-native/core/client/ui";
+import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
+import { writeClipboardText } from "@agent-native/toolkit/clipboard";
+import { buildSignupAttributionQuery } from "@shared/share-attribution";
 import { IconCheck, IconLink } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -24,25 +26,36 @@ export type SignedOutShareCta = "signin" | "signup";
 export function buildShareSignInHref(
   recordingId: string,
   startAt?: string | null,
+  panel?: string | null,
 ): string {
   const params = new URLSearchParams();
   if (startAt) params.set("at", startAt);
+  if (panel) params.set("panel", panel);
   const query = params.toString();
   return buildSignInReturnHref({
-    returnTo: `/share/${recordingId}${query ? `?${query}` : ""}`,
+    returnTo: appPath(`/share/${recordingId}${query ? `?${query}` : ""}`),
   });
 }
 
 export function buildShareSignUpHref(
   recordingId: string,
   startAt?: string | null,
+  panel?: string | null,
 ): string {
   const params = new URLSearchParams();
   if (startAt) params.set("at", startAt);
+  if (panel) params.set("panel", panel);
   const query = params.toString();
   return buildSignUpReturnHref(
-    `/share/${recordingId}${query ? `?${query}` : ""}`,
+    appPath(`/share/${recordingId}${query ? `?${query}` : ""}`),
   );
+}
+
+export function buildShareAttributedSignUpHref(
+  returnTo: string,
+  via?: string | null,
+): string {
+  return `${buildSignUpReturnHref(appPath(returnTo))}&${buildSignupAttributionQuery(via)}`;
 }
 
 export function buildShareCopyHref(
@@ -58,11 +71,13 @@ export function buildShareCopyHref(
 export function SignedOutShareActions({
   recordingId,
   startAt,
+  panel,
   onCtaClick,
   onSignup,
 }: {
   recordingId: string;
   startAt?: string | null;
+  panel?: string | null;
   onCtaClick?: (cta: SignedOutShareCta) => void;
   onSignup?: () => void;
 }) {
@@ -95,7 +110,7 @@ export function SignedOutShareActions({
     <>
       <Button variant="ghost" size="sm" asChild>
         <a
-          href={buildShareSignInHref(recordingId, startAt)}
+          href={buildShareSignInHref(recordingId, startAt, panel)}
           onClick={() => onCtaClick?.("signin")}
         >
           {t("sharePage.signIn")}
@@ -115,7 +130,7 @@ export function SignedOutShareActions({
         ) : (
           <PageHeaderPrimaryAction asChild>
             <a
-              href={buildShareSignUpHref(recordingId, startAt)}
+              href={buildShareSignUpHref(recordingId, startAt, panel)}
               onClick={() => onCtaClick?.("signup")}
             >
               {t("sharePage.getClipsFree")}

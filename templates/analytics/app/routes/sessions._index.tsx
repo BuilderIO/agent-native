@@ -1,8 +1,8 @@
-import { messagesByLocale } from "@/i18n-data";
+import enUSMessages from "@/i18n/en-US";
 import SessionsPage from "@/pages/sessions/SessionsPage";
 
 export function meta() {
-  return [{ title: messagesByLocale["en-US"].routeTitles.sessions }];
+  return [{ title: enUSMessages.routeTitles.sessions }];
 }
 
 export default function SessionsRoute() {

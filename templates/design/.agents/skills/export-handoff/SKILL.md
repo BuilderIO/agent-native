@@ -34,6 +34,10 @@ How to export designs and generate handoff documentation for developers converti
   failure instead of pretending that a downloadable image exists. The editor's
   Download PNG remains the faithful client-side path for localhost/fusion
   screens that are not stored HTML.
+  PNG and PDF are sRGB: a color written as `oklch()` or `color(display-p3 ...)`
+  that sRGB cannot show is rendered as its CSS Color 4 gamut-mapped sRGB
+  fallback (lightness and hue kept, chroma reduced), not the browser's clip.
+  HTML and SVG exports keep such colors as written.
 - **Deploy preview**: `deploy-design-preview` triggers a preview deploy for a
   fusion-backed design branch. It requires the design's source to advertise
   the `deployPreview` capability (fusion tier) and Builder.io to be connected;
@@ -60,8 +64,10 @@ Returns:
 
 The exported HTML:
 - Includes `@tailwindcss/browser@4` and `alpinejs@3.15.11` CDN links
-- Combines all CSS files into a single `<style>` block
-- Combines all HTML/JSX files into the `<body>`
+- With multiple HTML screens, embeds each in its own isolated viewport, stacked
+  vertically
+- Includes project CSS in each screen document
+- Appends JSX files to the first screen
 - Works when double-clicked in any modern browser
 
 ### ZIP Export
@@ -139,11 +145,10 @@ fall back to `export-svg` or `export-html`.
 type, but its SVG importer reads only font family, size and a coarse bold
 weight. Letter spacing is dropped, and weights above 700 resolve to Bold,
 so tracked or extra-bold text arrives at a different width than the design.
-Measured against Figma directly: `textLength`/`lengthAdjust`, multi-value
-and sibling `tspan` `x`, `word-spacing` and family-encoded weights are
-ignored too. Everything else in the document is geometry-exact. This is a
-Figma import limitation, not a defect in the export; the report's
-`vectorizedTextCaveat` field carries this note for the agent/user.
+Additional SVG text fields, including `textLength`, `lengthAdjust`, `word-spacing`,
+and sibling `tspan` positions, are not preserved by the destination importer.
+The export report's `vectorizedTextCaveat` field carries this limitation for
+the agent and user.
 
 **Getting it into Figma**: two supported paths —
 

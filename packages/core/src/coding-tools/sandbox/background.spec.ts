@@ -1,11 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../../a2a/test-pglite.js";
+import { __resetStoreLedgerSnapshotForTests } from "../../db/store-registry.js";
 
-// Real in-memory PGlite behind getDbExec (same setup as executions-store.spec)
-// so the enqueue → claim → execute → finalize lifecycle runs against genuine
-// atomic-claim semantics. Self-dispatch is mocked so the serverless drive path
-// is observable without a network.
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 let serverless = false;
 
@@ -101,6 +98,7 @@ function okRunner(
 
 beforeEach(async () => {
   pglite = await createTestPglite();
+  __resetStoreLedgerSnapshotForTests();
   serverless = false;
   resetSandboxExecutionsStoreForTests();
   resetSandboxBackgroundForTests();
@@ -120,7 +118,6 @@ describe("queued adapter selection", () => {
     const adapter = getSandboxAdapter();
     expect(adapter).toBeInstanceOf(BackgroundQueueAdapter);
     expect(isQueuedSandboxAdapter(adapter)).toBe(true);
-    // Actual module execution must never route into the queue.
     const execAdapter = resolveExecutionSandboxAdapter();
     expect(isQueuedSandboxAdapter(execAdapter)).toBe(false);
     expect(execAdapter.id).toBe("local-child-process");
@@ -301,7 +298,6 @@ describe("processQueuedSandboxExecution", () => {
   it("reclaims a lease-expired row and reaps it once attempts are exhausted", async () => {
     okRunner({ stdout: "second try" });
     const row = await makeExecution();
-    // First executor claimed and died (expired lease).
     await claimSandboxExecution(row.id, "dead-token", 1, Date.now() - 10_000);
 
     const retry = await processQueuedSandboxExecution(row.id);
@@ -310,7 +306,6 @@ describe("processQueuedSandboxExecution", () => {
     expect(done!.attemptCount).toBe(2);
     expect(done!.stdout).toBe("second try");
 
-    // Exhausted case: expired lease with no attempts left is reaped to failed.
     const exhausted = await makeExecution();
     await claimSandboxExecution(exhausted.id, "t1", 1, Date.now() - 20_000);
     await claimSandboxExecution(exhausted.id, "t2", 1, Date.now() - 10_000);

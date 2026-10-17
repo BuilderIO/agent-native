@@ -56,19 +56,16 @@ import { and, eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 
-// ---------------------------------------------------------------------------
-// Fake @agent-native/core/collab backed by a real per-docId Y.Doc registry.
-// `applyText` uses a real, deterministic common-prefix/suffix-trim diff
-// (the same cursor-based delete/insert shape the real
-// packages/core/src/collab/text-to-yjs.ts's applyTextToYDoc uses, just
-// without pulling in diff-match-patch as an undeclared dependency of this
-// app package) so cursor-based Y.Text mutations behave exactly like the real
-// collab layer's. `applyUpdate`/`getDoc` are the REAL Y.Doc CRDT merge —
-// nothing about the merge semantics under test is faked.
-// ---------------------------------------------------------------------------
-const collabDocs = vi.hoisted(() => ({ docs: new Map<string, unknown>() }));
+const collabDocs = vi.hoisted(() => ({
+  docs: new Map<string, unknown>(),
+  rows: new Map<
+    string,
+    { yjs_state: string; text_snapshot: string; version: number }
+  >(),
+}));
 const collabTestControl = vi.hoisted(() => ({
   corruptNextValidatedApply: false,
+  peerContentBeforeNextValidatedApply: null as string | null,
 }));
 
 function getOrCreateDoc(docId: string): InstanceType<typeof Y.Doc> {
@@ -77,12 +74,49 @@ function getOrCreateDoc(docId: string): InstanceType<typeof Y.Doc> {
     | undefined;
   if (!doc) {
     doc = new Y.Doc();
+    const row = collabDocs.rows.get(docId);
+    if (row?.yjs_state) {
+      doc.getText("content").insert(0, row.text_snapshot);
+    }
     collabDocs.docs.set(docId, doc);
   }
   return doc;
 }
 
-/** Minimal common-prefix/suffix-trim diff -> cursor-based Y.Text delete+insert. */
+function persistMockCollabRow(
+  docId: string,
+  text: string,
+  expectedVersion?: number | null,
+): void {
+  const existing = collabDocs.rows.get(docId);
+  if (expectedVersion !== undefined) {
+    if (
+      expectedVersion === null
+        ? existing !== undefined
+        : existing?.version !== expectedVersion
+    ) {
+      throw new Error("mock collaboration version conflict");
+    }
+  }
+  collabDocs.rows.set(docId, {
+    yjs_state: "mock-yjs-state",
+    text_snapshot: text,
+    version:
+      existing === undefined || expectedVersion === null
+        ? 0
+        : existing.version + 1,
+  });
+}
+
+function persistChangedMockCollabText(
+  docId: string,
+  before: string,
+  doc: InstanceType<typeof Y.Doc>,
+): void {
+  const after = doc.getText("content").toString();
+  if (after !== before) persistMockCollabRow(docId, after);
+}
+
 function applyTextDiff(doc: InstanceType<typeof Y.Doc>, newText: string): void {
   const ytext = doc.getText("content");
   const oldText = ytext.toString();
@@ -107,10 +141,11 @@ function applyTextDiff(doc: InstanceType<typeof Y.Doc>, newText: string): void {
 }
 
 vi.mock("@agent-native/core/collab", () => ({
-  // source-workspace narrows on this class, so the mock has to expose it or
-  // the `instanceof` check throws instead of classifying the error.
   CollabBaseVersionConflictError: class CollabBaseVersionConflictError extends Error {},
-  hasCollabState: async (docId: string) => collabDocs.docs.has(docId),
+  hasCollabState: async (docId: string) => {
+    const row = collabDocs.rows.get(docId);
+    return row ? row.yjs_state.length > 0 : collabDocs.docs.has(docId);
+  },
   getText: async (docId: string) =>
     getOrCreateDoc(docId).getText("content").toString(),
   applyText: async (
@@ -118,9 +153,21 @@ vi.mock("@agent-native/core/collab", () => ({
     newText: string,
     _fieldName?: string,
     _requestSource?: string,
-    options?: { validateSnapshot?: (snapshot: string) => void },
+    options?: {
+      validateBase?: (base: string) => void;
+      validateSnapshot?: (snapshot: string) => void;
+    },
   ) => {
     const doc = getOrCreateDoc(docId);
+    const beforePeer = doc.getText("content").toString();
+    if (collabTestControl.peerContentBeforeNextValidatedApply !== null) {
+      const peerContent = collabTestControl.peerContentBeforeNextValidatedApply;
+      collabTestControl.peerContentBeforeNextValidatedApply = null;
+      applyTextDiff(doc, peerContent);
+      persistChangedMockCollabText(docId, beforePeer, doc);
+    }
+    const before = doc.getText("content").toString();
+    options?.validateBase?.(doc.getText("content").toString());
     applyTextDiff(doc, newText);
     if (
       collabTestControl.corruptNextValidatedApply &&
@@ -134,16 +181,87 @@ vi.mock("@agent-native/core/collab", () => ({
     }
     const snapshot = doc.getText("content").toString();
     options?.validateSnapshot?.(snapshot);
+    persistChangedMockCollabText(docId, before, doc);
     return snapshot;
   },
   seedFromText: async (docId: string, text: string) => {
-    if (collabDocs.docs.has(docId)) return;
+    const row = collabDocs.rows.get(docId);
+    if (row ? row.yjs_state.length > 0 : collabDocs.docs.has(docId)) return;
     const doc = getOrCreateDoc(docId);
     doc.getText("content").insert(0, text);
+    persistMockCollabRow(
+      docId,
+      text,
+      collabDocs.rows.get(docId)?.version ?? null,
+    );
+  },
+  applyTextToYDoc: (
+    doc: InstanceType<typeof Y.Doc>,
+    _fieldName: string,
+    text: string,
+  ) => {
+    if (collabTestControl.peerContentBeforeNextValidatedApply !== null) {
+      const peerContent = collabTestControl.peerContentBeforeNextValidatedApply;
+      collabTestControl.peerContentBeforeNextValidatedApply = null;
+      const peerDoc = getOrCreateDoc(FILE_ID);
+      const beforePeer = peerDoc.getText("content").toString();
+      applyTextDiff(peerDoc, peerContent);
+      persistChangedMockCollabText(FILE_ID, beforePeer, peerDoc);
+      throw new Error("Source file changed while the edit was being applied.");
+    }
+    applyTextDiff(doc, text);
+    if (collabTestControl.corruptNextValidatedApply) {
+      collabTestControl.corruptNextValidatedApply = false;
+      applyTextDiff(
+        doc,
+        `${doc.getText("content").toString()}<!DOCTYPE html><html><body>concurrent</body></html>`,
+      );
+    }
+  },
+  withPreparedYDocMutation: async (
+    docId: string,
+    _requestSource: string | undefined,
+    run: (lease: {
+      doc: InstanceType<typeof Y.Doc>;
+      baseVersion: number | null;
+      persist: (_tx: unknown, text: string) => Promise<void>;
+    }) => Promise<unknown>,
+  ) => {
+    const base = collabDocs.docs.get(docId) as
+      | InstanceType<typeof Y.Doc>
+      | undefined;
+    const baseVersion = collabDocs.rows.get(docId)?.version ?? null;
+    const doc = new Y.Doc();
+    if (base) {
+      Y.applyUpdate(doc, Y.encodeStateAsUpdate(base));
+    } else if (baseVersion !== null) {
+      const row = collabDocs.rows.get(docId);
+      if (row?.yjs_state) doc.getText("content").insert(0, row.text_snapshot);
+    }
+    let persisted = false;
+    try {
+      const result = await run({
+        doc,
+        baseVersion,
+        persist: async (_tx, text) => {
+          persistMockCollabRow(docId, text, baseVersion);
+          collabDocs.docs.set(docId, doc);
+          persisted = true;
+        },
+      });
+      if (!persisted) doc.destroy();
+      return result;
+    } catch (error) {
+      doc.destroy();
+      throw error;
+    }
   },
   getDoc: async (docId: string) => getOrCreateDoc(docId),
   applyUpdate: async (docId: string, update: Uint8Array) => {
-    Y.applyUpdate(getOrCreateDoc(docId), update);
+    const doc = getOrCreateDoc(docId);
+    const before = doc.getText("content").toString();
+    Y.applyUpdate(doc, update);
+    persistChangedMockCollabText(docId, before, doc);
   },
   releaseDoc: (docId: string) => {
     collabDocs.docs.delete(docId);
@@ -156,26 +274,26 @@ vi.mock("@agent-native/core/sharing", () => ({
     role: "editor",
     resource: { data: JSON.stringify({ sourceType: "inline" }) },
   }),
-  // Returning undefined makes drizzle's and(eq(...), accessFilter(...))
-  // collapse to just the eq predicate — the fake matches() below only needs
-  // the id filter, and real and() drops undefined operands.
   accessFilter: vi.fn().mockReturnValue(undefined),
 }));
 
-// ---------------------------------------------------------------------------
-// Minimal fake Drizzle app-DB layer: one `design_files` table backing store,
-// supporting exactly the query shapes writeInlineSourceFile/
-// resolveSourceWorkspace/readLiveSourceFile issue (select+where(+limit),
-// update+set+where). Real `eq`/`and` from drizzle-orm build the same
-// predicate objects the real query builder would receive; this fake just
-// evaluates them structurally instead of compiling SQL.
-// ---------------------------------------------------------------------------
+vi.mock("../server/lib/design-versions.js", () => ({
+  snapshotDesignBeforeAgentEdit: vi.fn().mockResolvedValue(null),
+  checkpointSkippedResultField: (result: unknown) =>
+    result && typeof result === "object" && "skipped" in (result as object)
+      ? { checkpoint: result }
+      : {},
+}));
+
 interface FileRow {
   id: string;
   designId: string;
   filename: string;
   fileType: string;
   content: string;
+  contentOperationSource: string | null;
+  contentOperationRevision: number | null;
+  contentOperationResultHash: string | null;
   createdAt: string | null;
   updatedAt: string | null;
 }
@@ -187,13 +305,20 @@ const designFilesStore = vi.hoisted(() => ({
 const FILE_ID = "file_shader_container";
 const DESIGN_ID = "design_1";
 
-function seedFile(content: string, updatedAt = "2026-07-06T00:00:00.000Z") {
+function seedFile(
+  content: string,
+  updatedAt = "2026-07-06T00:00:00.000Z",
+  fileType = "html",
+) {
   designFilesStore.rows.set(FILE_ID, {
     id: FILE_ID,
     designId: DESIGN_ID,
     filename: "index.html",
-    fileType: "html",
+    fileType,
     content,
+    contentOperationSource: null,
+    contentOperationRevision: null,
+    contentOperationResultHash: null,
     createdAt: updatedAt,
     updatedAt,
   });
@@ -207,10 +332,6 @@ function matches(row: FileRow, predicate: Predicate): boolean {
     left?: { name?: string };
     right?: unknown;
   };
-  // drizzle-orm's eq()/and() internal shape isn't a stable public API, so
-  // rather than reverse-engineer it, just check the two fields our schema
-  // actually filters on: id and designId. This fake only needs to support
-  // the exact predicates writeInlineSourceFile/resolveSourceWorkspace issue.
   const asString = JSON.stringify(predicate);
   if (asString.includes('"id"') && asString.includes(FILE_ID)) {
     return row.id === FILE_ID;
@@ -229,6 +350,9 @@ vi.mock("../server/db/index.js", () => {
       filename: { name: "filename" },
       fileType: { name: "fileType" },
       content: { name: "content" },
+      contentOperationSource: { name: "contentOperationSource" },
+      contentOperationRevision: { name: "contentOperationRevision" },
+      contentOperationResultHash: { name: "contentOperationResultHash" },
       createdAt: { name: "createdAt" },
       updatedAt: { name: "updatedAt" },
     },
@@ -245,15 +369,15 @@ vi.mock("../server/db/index.js", () => {
     return withLimit;
   };
   const db = {
-    execute: async () => ({ rows: [], rowsAffected: 1 }),
+    execute: async () => {
+      const row = collabDocs.rows.get(FILE_ID);
+      return { rows: row ? [row] : [], rowsAffected: 1 };
+    },
     transaction: async (callback: (tx: typeof db) => Promise<unknown>) =>
       callback(db),
     select: (_projection: unknown) => ({
       from: (_table: unknown) => ({
         where: whereBuilder,
-        // update-file's access lookup joins designs for the accessFilter;
-        // the join adds no row filtering the fake needs to model (every
-        // seeded file row belongs to DESIGN_1), so pass through to where.
         innerJoin: (_joined: unknown, _on: unknown) => ({
           where: whereBuilder,
         }),
@@ -267,8 +391,6 @@ vi.mock("../server/db/index.js", () => {
               if (matches(row, predicate)) Object.assign(row, values);
             }
           }
-          // designs.updatedAt touch — no separate backing store needed for
-          // this test, the design_files row is what we assert on.
           return Promise.resolve({ rowsAffected: 1 });
         },
       }),
@@ -288,6 +410,7 @@ import {
   readLiveSourceFile,
   writeInlineSourceFile,
 } from "../server/source-workspace.js";
+import { ensureCodeLayerNodeIdsInHtml } from "../shared/code-layer.js";
 import { sourceContentHash } from "../shared/source-workspace.js";
 import updateFileAction from "./update-file.js";
 
@@ -307,11 +430,6 @@ function buildDoc(bodyExtra = ""): string {
 </html>`;
 }
 
-/** A realistically large document (many sections) — the size the standalone
- * repro needed before diff-match-patch's Diff_Timeout-bounded diff stopped
- * cleanly resolving stale writes as a full replace and a client-style raw
- * ydoc rewrite (not a diff) started producing a genuinely corrupted,
- * doubled document when merged with a concurrent diff-based write. */
 function buildLargeDoc(bodyExtra = ""): string {
   const sections: string[] = [];
   for (let i = 0; i < 40; i++) {
@@ -345,9 +463,6 @@ function assertWellFormed(content: string) {
   expect(content).toContain('<script src="https://cdn.tailwindcss.com">');
 }
 
-/** Always resolve the file reference fresh from the fake DB store, the same
- * way the real actions do via findSourceWorkspaceFile/resolveSourceWorkspace
- * — never a stale, hand-held `content` snapshot from an earlier step. */
 function currentFileRef(): FileRow {
   const row = designFilesStore.rows.get(FILE_ID);
   if (!row) throw new Error("file not seeded");
@@ -356,7 +471,9 @@ function currentFileRef(): FileRow {
 
 beforeEach(() => {
   collabDocs.docs.clear();
+  collabDocs.rows.clear();
   collabTestControl.corruptNextValidatedApply = false;
+  collabTestControl.peerContentBeforeNextValidatedApply = null;
   designFilesStore.rows.clear();
   seedFile(buildDoc());
 });
@@ -443,6 +560,323 @@ describe("locked-layer write boundaries", () => {
   });
 });
 
+describe("verified identity-only source publication", () => {
+  const raw = buildDoc().replace(
+    ' data-agent-native-node-id="an-node-text-1"',
+    "",
+  );
+  const canonical = ensureCodeLayerNodeIdsInHtml(raw, {
+    source: { kind: "design-file", fileId: FILE_ID },
+  }).content;
+  const operationSource = "tab-identity-migration";
+  const operationRevision = 17;
+
+  const publish = (
+    content: string,
+    expectedVersionHash = sourceContentHash(raw),
+  ) =>
+    updateFileAction.run(
+      {
+        id: FILE_ID,
+        content,
+        identityOnly: true,
+        expectedVersionHash,
+        operationSource,
+        operationRevision,
+      } as any,
+      undefined as any,
+    );
+
+  it("accepts only the exact server-derived annotation and stores its operation lineage", async () => {
+    seedFile(raw);
+    await applyText(FILE_ID, raw, "content", "seed");
+
+    const result = await publish(canonical);
+
+    expect(result).toMatchObject({
+      id: FILE_ID,
+      updated: true,
+      versionHash: sourceContentHash(canonical),
+    });
+    expect(designFilesStore.rows.get(FILE_ID)).toMatchObject({
+      content: canonical,
+      contentOperationSource: operationSource,
+      contentOperationRevision: operationRevision,
+      contentOperationResultHash: sourceContentHash(canonical),
+    });
+    expect((await readLiveSourceFile(currentFileRef())).content).toBe(
+      canonical,
+    );
+
+    await expect(publish(canonical)).resolves.toMatchObject({
+      updated: true,
+      versionHash: sourceContentHash(canonical),
+    });
+
+    const laterUserEdit = canonical.replace(
+      "Hello world",
+      "Hello after migration",
+    );
+    await expect(
+      updateFileAction.run(
+        {
+          id: FILE_ID,
+          content: laterUserEdit,
+          syncCollab: true,
+          expectedVersionHash: sourceContentHash(canonical),
+          operationSource,
+          operationRevision: operationRevision + 1,
+        } as any,
+        { caller: "frontend" } as any,
+      ),
+    ).resolves.toMatchObject({
+      updated: true,
+      versionHash: sourceContentHash(laterUserEdit),
+    });
+    expect(designFilesStore.rows.get(FILE_ID)).toMatchObject({
+      content: laterUserEdit,
+      contentOperationSource: operationSource,
+      contentOperationRevision: operationRevision + 1,
+      contentOperationResultHash: sourceContentHash(laterUserEdit),
+    });
+  });
+
+  it("rejects a higher same-source revision built from a stale full-document snapshot", async () => {
+    const base = buildDoc();
+    const afterReparent = base.replace(
+      "Hello world",
+      '<section data-parent="card">Hello world</section>',
+    );
+    const staleAutoLayout = base.replace(
+      "background:#ffffff;",
+      "background:#ffffff;display:flex;gap:10px;",
+    );
+    const composedAutoLayout = afterReparent.replace(
+      "background:#ffffff;",
+      "background:#ffffff;display:flex;gap:10px;",
+    );
+    const rapidSource = "tab-rapid-structure";
+
+    seedFile(base);
+    await applyText(FILE_ID, base, "content", "seed");
+    await expect(
+      updateFileAction.run({
+        id: FILE_ID,
+        content: afterReparent,
+        syncCollab: true,
+        expectedVersionHash: sourceContentHash(base),
+        operationSource: rapidSource,
+        operationRevision: 1,
+      } as never),
+    ).resolves.toMatchObject({ updated: true });
+
+    await expect(
+      updateFileAction.run({
+        id: FILE_ID,
+        content: staleAutoLayout,
+        syncCollab: true,
+        expectedVersionHash: sourceContentHash(base),
+        operationSource: rapidSource,
+        operationRevision: 2,
+      } as never),
+    ).rejects.toThrow(/changed since it was read/i);
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(afterReparent);
+
+    await expect(
+      updateFileAction.run({
+        id: FILE_ID,
+        content: composedAutoLayout,
+        syncCollab: true,
+        expectedVersionHash: sourceContentHash(afterReparent),
+        operationSource: rapidSource,
+        operationRevision: 2,
+      } as never),
+    ).resolves.toMatchObject({ updated: true });
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(
+      composedAutoLayout,
+    );
+  });
+
+  it("repairs SQL when local publication already put canonical bytes in Yjs", async () => {
+    seedFile(raw);
+    await applyText(FILE_ID, canonical, "content", "local-preview");
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(raw);
+
+    await expect(publish(canonical)).resolves.toMatchObject({
+      updated: true,
+      versionHash: sourceContentHash(canonical),
+    });
+    expect(designFilesStore.rows.get(FILE_ID)).toMatchObject({
+      content: canonical,
+      contentOperationSource: operationSource,
+      contentOperationRevision: operationRevision,
+      contentOperationResultHash: sourceContentHash(canonical),
+    });
+  });
+
+  it("allows an exact identity stamp inside a locked legacy subtree while preserving the lock", async () => {
+    const lockedRaw = raw.replace(
+      'data-agent-native-node-id="an-node-container-1"',
+      'data-agent-native-node-id="an-node-container-1" data-agent-native-locked="true"',
+    );
+    const lockedCanonical = ensureCodeLayerNodeIdsInHtml(lockedRaw, {
+      source: { kind: "design-file", fileId: FILE_ID },
+    }).content;
+    seedFile(lockedRaw);
+    await applyText(FILE_ID, lockedRaw, "content", "seed");
+
+    await expect(
+      updateFileAction.run(
+        {
+          id: FILE_ID,
+          content: lockedCanonical,
+          identityOnly: true,
+          expectedVersionHash: sourceContentHash(lockedRaw),
+          operationSource,
+          operationRevision,
+        } as any,
+        undefined as any,
+      ),
+    ).resolves.toMatchObject({ updated: true });
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(lockedCanonical);
+    expect(lockedCanonical).toContain('data-agent-native-locked="true"');
+  });
+
+  it("does not let an older identity revision reset the accepted operation lineage", async () => {
+    seedFile(raw);
+    await applyText(FILE_ID, raw, "content", "seed");
+    await updateFileAction.run(
+      {
+        id: FILE_ID,
+        content: canonical,
+        identityOnly: true,
+        expectedVersionHash: sourceContentHash(raw),
+        operationSource,
+        operationRevision: operationRevision + 1,
+      } as any,
+      undefined as any,
+    );
+
+    await expect(
+      updateFileAction.run(
+        {
+          id: FILE_ID,
+          content: canonical,
+          identityOnly: true,
+          expectedVersionHash: sourceContentHash(canonical),
+          operationSource,
+          operationRevision,
+        } as any,
+        undefined as any,
+      ),
+    ).rejects.toThrow(/newer source operation/i);
+    expect(designFilesStore.rows.get(FILE_ID)).toMatchObject({
+      content: canonical,
+      contentOperationSource: operationSource,
+      contentOperationRevision: operationRevision + 1,
+      contentOperationResultHash: sourceContentHash(canonical),
+    });
+  });
+
+  it("rejects malformed identity-only action shapes before source publication", async () => {
+    seedFile(raw);
+    const validShape = {
+      id: FILE_ID,
+      content: canonical,
+      identityOnly: true,
+      expectedVersionHash: sourceContentHash(raw),
+      operationSource,
+      operationRevision,
+    };
+    const invalidShapes = [
+      { ...validShape, content: undefined },
+      { ...validShape, expectedVersionHash: undefined },
+      { ...validShape, operationRevision: undefined },
+      { ...validShape, filename: "renamed.html" },
+      { ...validShape, fileType: "jsx" },
+      { ...validShape, syncCollab: false },
+    ];
+    for (const shape of invalidShapes) {
+      await expect(
+        updateFileAction.run(shape as any, undefined as any),
+      ).rejects.toThrow(/identity-only updates (require|cannot)/i);
+    }
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(raw);
+    expect(
+      designFilesStore.rows.get(FILE_ID)!.contentOperationRevision,
+    ).toBeNull();
+  });
+
+  it("rejects script, style, text, lock, and structure edits in the identity-only channel", async () => {
+    const lockedRaw = raw.replace(
+      'data-agent-native-node-id="an-node-container-1"',
+      'data-agent-native-node-id="an-node-container-1" data-agent-native-locked="true"',
+    );
+    const lockedCanonical = ensureCodeLayerNodeIdsInHtml(lockedRaw, {
+      source: { kind: "design-file", fileId: FILE_ID },
+    }).content;
+    const invalid = [
+      canonical.replace("Hello world", "changed text"),
+      canonical.replace("background:#ffffff", "background:#123456"),
+      canonical.replace(
+        "https://cdn.tailwindcss.com",
+        "https://example.com/x.js",
+      ),
+      lockedCanonical.replace(' data-agent-native-locked="true"', ""),
+      canonical.replace(
+        "<p data-agent-native-node-id",
+        "<section data-agent-native-node-id",
+      ),
+    ];
+
+    for (const candidate of invalid) {
+      seedFile(raw);
+      await applyText(FILE_ID, raw, "content", "seed");
+      await expect(publish(candidate)).rejects.toThrow(
+        /identity-only publication/i,
+      );
+      expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(raw);
+      expect((await readLiveSourceFile(currentFileRef())).content).toBe(raw);
+    }
+  });
+
+  it("rejects a peer edit that lands after identity validation but before the Yjs apply", async () => {
+    seedFile(raw);
+    await applyText(FILE_ID, raw, "content", "seed");
+    const peerContent = raw.replace("Hello world", "Peer's newer text");
+    collabTestControl.peerContentBeforeNextValidatedApply = peerContent;
+
+    await expect(publish(canonical)).rejects.toThrow(
+      /changed while the edit was being applied/i,
+    );
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(raw);
+    expect((await readLiveSourceFile(currentFileRef())).content).toBe(
+      peerContent,
+    );
+  });
+
+  it("rejects URL-backed and non-HTML files", async () => {
+    const url = "https://preview.example.test";
+    seedFile(url);
+    await expect(
+      updateFileAction.run(
+        {
+          id: FILE_ID,
+          content: url,
+          identityOnly: true,
+          expectedVersionHash: sourceContentHash(url),
+          operationSource,
+          operationRevision,
+        } as any,
+        undefined as any,
+      ),
+    ).rejects.toThrow(/inline HTML/i);
+
+    seedFile(raw, "2026-07-06T00:00:00.000Z", "css");
+    await expect(publish(canonical)).rejects.toThrow(/inline HTML/i);
+  });
+});
+
 describe("apply-source-edit / update-file cross-pipeline interleave", () => {
   it("sequential apply-source-edit then update-file stays well-formed (baseline)", async () => {
     const live = await readLiveSourceFile(currentFileRef());
@@ -457,9 +891,6 @@ describe("apply-source-edit / update-file cross-pipeline interleave", () => {
     });
     expect(write1.changed).toBe(true);
 
-    // update-file's own persistence: content write + syncCollab applyText,
-    // computed from the ALREADY-shader-mutated content (correct sequential
-    // read-before-write — the baseline this bug's fix must preserve).
     const afterShader = await readLiveSourceFile(currentFileRef());
     const addLayerContent = afterShader.content.replace(
       "background:#59d9ff",
@@ -477,16 +908,12 @@ describe("apply-source-edit / update-file cross-pipeline interleave", () => {
   it("rejects a stale expectedVersionHash instead of corrupting the document", async () => {
     const live = await readLiveSourceFile(currentFileRef());
 
-    // A concurrent write lands first (simulating update-file's Add-layer
-    // commit landing between this caller's read and its own write).
     await writeInlineSourceFile({
       designId: DESIGN_ID,
       file: currentFileRef(),
       content: buildDoc(" data-an-layer-added"),
     });
 
-    // The shader apply, still holding the FIRST (now-stale) versionHash, must
-    // be rejected rather than blindly overwriting the concurrent edit.
     await expect(
       writeInlineSourceFile({
         designId: DESIGN_ID,
@@ -496,7 +923,6 @@ describe("apply-source-edit / update-file cross-pipeline interleave", () => {
       }),
     ).rejects.toThrow(/changed since it was read/);
 
-    // The concurrent edit must survive untouched — no partial/corrupted write.
     const finalContent = designFilesStore.rows.get(FILE_ID)!.content;
     assertWellFormed(finalContent);
     expect(finalContent).toContain("data-an-layer-added");
@@ -504,15 +930,8 @@ describe("apply-source-edit / update-file cross-pipeline interleave", () => {
   });
 
   it("a diff-based collab write computed from a stale pre-shader base still leaves the document well-formed once it lands on the shader-mutated doc", async () => {
-    // This is the actual reported repro shape: the shader's apply-source-edit
-    // round trip (read -> transform -> write) completes and mutates the
-    // collab doc FIRST. A base-style commit (update-file's syncCollab
-    // applyText) that had already read the PRE-shader content and computed
-    // its own diff-based patch against that stale base then lands on top.
     const preShaderLive = await readLiveSourceFile(currentFileRef());
 
-    // Shader write lands (this is what apply-source-edit's writeInlineSourceFile
-    // does end to end: re-read, hash-check, seed/applyText, persist SQL).
     await writeInlineSourceFile({
       designId: DESIGN_ID,
       file: currentFileRef(),
@@ -523,18 +942,11 @@ describe("apply-source-edit / update-file cross-pipeline interleave", () => {
     });
     expect(await hasCollabState(FILE_ID)).toBe(true);
 
-    // The stale Add-layer content was computed from preShaderLive.content
-    // (BEFORE the shader write), exactly like a base style commit whose
-    // queued update-file save was in flight while the shader mutation landed.
     const staleAddLayerContent = preShaderLive.content.replace(
       "background:#ffffff;",
       "background:#ffffff;background-image:linear-gradient(180deg,#fff,#fff);",
     );
 
-    // update-file's syncCollab path calls applyText unconditionally — no
-    // expectedVersionHash guard exists there (unlike apply-source-edit) — so
-    // this stale, diff-based write proceeds and merges directly against the
-    // now-shader-mutated live Y.Text.
     await applyText(FILE_ID, staleAddLayerContent, "content", "agent");
 
     const finalLive = await readLiveSourceFile(currentFileRef());
@@ -553,37 +965,17 @@ describe("apply-source-edit / update-file cross-pipeline interleave", () => {
     // documented, always-true floor: never corrupt, regardless of document
     // size or which write wins.
     assertWellFormed(finalLive.content);
-    // Documents the OTHER real risk this exact ordering exposes: update-file
-    // has no expectedVersionHash guard (unlike apply-source-edit), so its
-    // diff-based write silently overwrites the shader's attribute here
-    // instead of composing with it — a lost update, not corruption. Flagging
-    // this explicitly rather than silently asserting on it as "expected"
-    // behavior: closing this gap (giving update-file the same staleness
-    // guard apply-source-edit already has) is a reasonable follow-up beyond
-    // this ship-blocker's exact reproduced corruption.
     expect(finalLive.content.includes("data-an-shader-fill")).toBe(false);
     expect(finalLive.content).toContain("linear-gradient");
   });
 
   it("reproduces the exact reported corruption: a client-style raw ydoc rewrite racing a diff-based shader write on a realistically large document duplicates the content instead of converging", async () => {
-    // This is the mechanism DesignEditor.tsx's GlslShaderPanel write-race
-    // guard exists to prevent: the host's OWN client-side ydoc.transact
-    // untracked full rewrite (applyLocalContentUpdate/commitVisualStyles —
-    // "delete everything, insert nextContent", not a diff) is what the
-    // browser pushes to the server as a binary Yjs update, separate from
-    // update-file's server-side diff-based applyText call this spec's other
-    // tests exercise. Simulated here directly against the real
-    // getDoc/applyUpdate/applyText from @agent-native/core/collab.
     const largeBase = buildLargeDoc();
     seedFile(largeBase);
 
     const preShaderLive = await readLiveSourceFile(currentFileRef());
     expect(preShaderLive.content.length).toBe(largeBase.length);
 
-    // Client A's local replica starts at the pre-shader base and does its
-    // own untracked full-document rewrite for a base Fill "Add layer" /
-    // "Remove layer" commit — exactly commitVisualStyles' ydoc.transact
-    // shape — BEFORE the shader's server round trip has completed.
     const clientDoc = new Y.Doc();
     clientDoc.getText("content").insert(0, largeBase);
     const addLayerContent = largeBase.replace(
@@ -597,9 +989,6 @@ describe("apply-source-edit / update-file cross-pipeline interleave", () => {
     }, "TAB_ID");
     const clientUpdate = Y.encodeStateAsUpdate(clientDoc);
 
-    // Meanwhile, the shader's apply-source-edit round trip completes on the
-    // server FIRST: writeInlineSourceFile re-reads, hash-checks, and applies
-    // its diff-based write to the SAME collab doc.
     const shaderContent = buildLargeDoc(
       ' data-an-shader-fill="an-shader-1" style="background:#59d9ff"',
     );
@@ -611,22 +1000,11 @@ describe("apply-source-edit / update-file cross-pipeline interleave", () => {
     });
     expect(await hasCollabState(FILE_ID)).toBe(true);
 
-    // The client's already-computed raw update (from BEFORE the shader
-    // write landed) now arrives at the server and gets merged into the
-    // live doc via the real applyUpdate/getDoc — exactly what happens when
-    // the browser's Yjs provider POSTs its pending update to
-    // /_agent-native/collab/:docId/update.
     await applyUpdate(FILE_ID, clientUpdate, "network");
 
     const mergedDoc = await getDoc(FILE_ID);
     const merged = mergedDoc.getText("content").toString();
 
-    // Without the write-race guard, this merge produces a corrupted, doubled
-    // document: two full <!DOCTYPE>...</html> copies concatenated together
-    // (verified length === shaderContent.length + addLayerContent.length).
-    // This assertion documents the CORRUPTION SHAPE itself, so a regression
-    // that reintroduces the race is caught here even if the guard elsewhere
-    // is bypassed or removed.
     const isCorrupted =
       (merged.match(/<!DOCTYPE/g) ?? []).length > 1 ||
       (merged.match(/<\/html>/g) ?? []).length > 1;
@@ -646,13 +1024,6 @@ describe("apply-source-edit / update-file cross-pipeline interleave", () => {
 
 describe("update-file expectedVersionHash guard (server-discipline layer)", () => {
   it("fails loud on a stale hash: the original repro's residual write path cannot silently merge", async () => {
-    // The reported repro, with the server guard in place of luck: the shader
-    // apply-source-edit lands first; a base Fill Add/Remove-layer save that
-    // was computed from the PRE-shader content then arrives carrying the
-    // pre-shader hash (what DesignEditor's saveFileContent now sends on
-    // syncCollab saves). The server must reject it outright — no applyText
-    // char-diff against the shader-mutated doc, no truncation, no lost
-    // shader.
     const preShaderLive = await readLiveSourceFile(currentFileRef());
     const preShaderHash = preShaderLive.versionHash;
 
@@ -680,8 +1051,6 @@ describe("update-file expectedVersionHash guard (server-discipline layer)", () =
       } as never),
     ).rejects.toThrow(/changed since it was read/);
 
-    // Both stores untouched by the rejected write: SQL row and live collab
-    // text still hold the shader content, fully well-formed.
     const finalLive = await readLiveSourceFile(currentFileRef());
     assertWellFormed(finalLive.content);
     expect(finalLive.content).toContain("data-an-shader-fill");
@@ -705,16 +1074,74 @@ describe("update-file expectedVersionHash guard (server-discipline layer)", () =
     assertWellFormed(finalLive.content);
   });
 
+  it("rejects a newer same-tab replay against the oldest queued base", async () => {
+    const initial = await readLiveSourceFile(currentFileRef());
+    const first = buildDoc(" data-first");
+    const final = buildDoc(" data-first data-final");
+
+    await updateFileAction.run({
+      id: FILE_ID,
+      content: first,
+      syncCollab: true,
+      operationSource: "tab-a",
+      operationRevision: 1,
+      expectedVersionHash: initial.versionHash,
+    } as never);
+
+    await expect(
+      updateFileAction.run({
+        id: FILE_ID,
+        content: final,
+        syncCollab: true,
+        operationSource: "tab-a",
+        operationRevision: 2,
+        expectedVersionHash: initial.versionHash,
+      } as never),
+    ).rejects.toThrow(/changed since it was read/);
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(first);
+    expect((await readLiveSourceFile(currentFileRef())).content).toBe(first);
+  });
+
+  it("rejects a same-tab replay after a later writer moves the mirror and collab text", async () => {
+    const initial = await readLiveSourceFile(currentFileRef());
+    const first = buildDoc(" data-first");
+    const intervening = buildDoc(" data-intervening");
+    const final = buildDoc(" data-first data-final");
+
+    await updateFileAction.run({
+      id: FILE_ID,
+      content: first,
+      syncCollab: true,
+      operationSource: "tab-a",
+      operationRevision: 1,
+      expectedVersionHash: initial.versionHash,
+    } as never);
+
+    await applyText(FILE_ID, intervening, "content", "agent");
+    designFilesStore.rows.get(FILE_ID)!.content = intervening;
+
+    await expect(
+      updateFileAction.run({
+        id: FILE_ID,
+        content: final,
+        syncCollab: true,
+        operationSource: "tab-a",
+        operationRevision: 2,
+        expectedVersionHash: initial.versionHash,
+      } as never),
+    ).rejects.toThrow(/changed since it was read/);
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(intervening);
+    expect((await readLiveSourceFile(currentFileRef())).content).toBe(
+      intervening,
+    );
+  });
+
   it("checks the hash against LIVE collab text once collab state exists, not the SQL row", async () => {
-    // Seed collab with content that diverges from SQL (a collab write whose
-    // SQL mirror hasn't landed yet). The guard must compare against the live
-    // text — the content applyText would actually diff against.
     const sqlContent = designFilesStore.rows.get(FILE_ID)!.content;
     const liveOnlyContent = buildDoc(" data-live-only");
     await applyText(FILE_ID, liveOnlyContent, "content", "agent");
     expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(sqlContent);
 
-    // Hash of the SQL row (stale relative to live text) must be rejected...
     await expect(
       updateFileAction.run({
         id: FILE_ID,
@@ -724,7 +1151,6 @@ describe("update-file expectedVersionHash guard (server-discipline layer)", () =
       } as never),
     ).rejects.toThrow(/changed since it was read/);
 
-    // ...while the live text's hash is accepted.
     await expect(
       updateFileAction.run({
         id: FILE_ID,
@@ -749,16 +1175,6 @@ describe("update-file expectedVersionHash guard (server-discipline layer)", () =
 });
 
 describe("update-file TOCTOU fix: hash check + write serialized under withSourceFileWriteLock", () => {
-  // PR review finding (bot, legitimate): expectedVersionHash was validated
-  // BEFORE the per-file critical section update-file/writeInlineSourceFile
-  // share. Two concurrent update-file callers could each read the same live
-  // text, each pass the hash check, and then both proceed to write serially
-  // — the second one silently winning over a base it never actually
-  // re-validated against. The fix routes update-file's hash-check -> write ->
-  // collab-sync section through the SAME withSourceFileWriteLock(fileId, ...)
-  // primitive writeInlineSourceFile uses, so the second caller's hash check
-  // now runs AFTER the first caller's write has fully landed.
-
   it("two concurrent update-file calls carrying the SAME valid base hash: exactly one succeeds, the other fails loud with the version error", async () => {
     const live = await readLiveSourceFile(currentFileRef());
     const contentA = buildDoc(" data-writer-a");
@@ -782,17 +1198,12 @@ describe("update-file TOCTOU fix: hash check + write serialized under withSource
     const fulfilled = results.filter((r) => r.status === "fulfilled");
     const rejected = results.filter((r) => r.status === "rejected");
 
-    // Without the lock, both callers could observe the same live text, both
-    // pass the hash check, and both write — this asserts the TOCTOU is
-    // closed: only one of the two same-base writers may succeed.
     expect(fulfilled.length).toBe(1);
     expect(rejected.length).toBe(1);
     expect(
       ((rejected[0] as PromiseRejectedResult).reason as Error).message,
     ).toMatch(/changed since it was read/);
 
-    // The persisted content must be EXACTLY the winner's content — never a
-    // merge/corruption of both, and never silently overwritten by the loser.
     const finalContent = designFilesStore.rows.get(FILE_ID)!.content;
     assertWellFormed(finalContent);
     const winnerWasA = finalContent === contentA;
@@ -816,10 +1227,6 @@ describe("update-file TOCTOU fix: hash check + write serialized under withSource
         syncCollab: true,
         expectedVersionHash: live.versionHash,
       } as never),
-      // Legacy caller: no expectedVersionHash, still today's last-write-wins
-      // for the VALUE written, but the write itself must be serialized under
-      // the same lock rather than interleaving with the guarded writer's own
-      // read-check-write.
       updateFileAction.run({
         id: FILE_ID,
         content: legacyContent,
@@ -827,17 +1234,11 @@ describe("update-file TOCTOU fix: hash check + write serialized under withSource
       } as never),
     ]);
 
-    // The legacy caller never fails (it carries no guard), and the guarded
-    // caller may either succeed (if it happened to run first) or fail loud
-    // (if the legacy write landed first and invalidated its hash) — either
-    // outcome is acceptable, corruption is not.
     const fulfilled = results.filter((r) => r.status === "fulfilled");
     expect(fulfilled.length).toBeGreaterThanOrEqual(1);
 
     const finalContent = designFilesStore.rows.get(FILE_ID)!.content;
     assertWellFormed(finalContent);
-    // The persisted document must be exactly one writer's full content, never
-    // an interleaved/partial merge of both.
     expect(
       finalContent === guardedContent || finalContent === legacyContent,
     ).toBe(true);

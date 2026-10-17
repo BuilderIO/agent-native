@@ -8,11 +8,13 @@ export const DEFAULT_SETTINGS: UserSettings = {
   email: "",
   signature: "",
   writingStyle: "",
+  autocompleteEnabled: false,
   theme: "dark",
   density: "comfortable",
   previewPane: "right",
   sendAndArchive: false,
   combineInbox: false,
+  showAllTab: true,
   undoSendDelay: 5,
   tracking: { opens: false, clicks: false },
 };
@@ -150,6 +152,18 @@ export function normalizeMailSettings(
       ...(dataWithoutSavedFilters as Partial<UserSettings>),
       email: (data as Partial<UserSettings>).email || email,
       signature: normalizeSignature((data as Partial<UserSettings>).signature),
+      autocompleteEnabled:
+        typeof data.autocompleteEnabled === "boolean"
+          ? data.autocompleteEnabled
+          : DEFAULT_SETTINGS.autocompleteEnabled,
+      sendAndArchive:
+        typeof data.sendAndArchive === "boolean"
+          ? data.sendAndArchive
+          : DEFAULT_SETTINGS.sendAndArchive,
+      showAllTab:
+        typeof data.showAllTab === "boolean"
+          ? data.showAllTab
+          : DEFAULT_SETTINGS.showAllTab,
       ...(savedFilters ? { savedFilters } : {}),
     } as UserSettings;
   }

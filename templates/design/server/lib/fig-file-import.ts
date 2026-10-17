@@ -1,10 +1,4 @@
-/**
- * Server bindings for the isomorphic `.fig` conversion in
- * `shared/fig-to-frames.ts`: core's file upload, and the shared HTML document
- * normalizer. Everything else lives there so the browser can run it too.
- */
-
-import { uploadFile } from "@agent-native/core/file-upload";
+import { deleteUploadedFile, uploadFile } from "@agent-native/core/file-upload";
 
 import {
   convertDecodedFigToEditableHtml as convertShared,
@@ -17,8 +11,21 @@ import { normalizeImportedHtmlDocument } from "./import-design-files.js";
 
 export type { FigFileImportResult, ImageUploader };
 
-const serverUploader: ImageUploader = (input) =>
-  uploadFile({ ...input, data: Buffer.from(input.data) });
+const serverUploader: ImageUploader = async (input) => {
+  const uploaded = await uploadFile({
+    ...input,
+    data: Buffer.from(input.data),
+  });
+  if (!uploaded) return null;
+  return {
+    url: uploaded.url,
+    cleanup: () =>
+      deleteUploadedFile(uploaded.provider, {
+        url: uploaded.url,
+        id: uploaded.id,
+      }),
+  };
+};
 
 export function convertDecodedFigToEditableHtml(
   decoded: DecodedFig,

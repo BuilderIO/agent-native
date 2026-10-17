@@ -1,8 +1,10 @@
 import { createDashboardStorage } from "@agent-native/core/dashboard-storage";
 import { registerDataProgramsShareable } from "@agent-native/core/data-programs";
 import { createGetDb } from "@agent-native/core/db";
+import { buildSettingsRoute } from "@agent-native/core/navigation";
 import { registerShareableResource } from "@agent-native/core/sharing";
 
+import { crmNavigationPath } from "../../shared/crm-navigation.js";
 import * as schema from "./schema.js";
 
 export const getDb = createGetDb(schema);
@@ -41,34 +43,44 @@ crmDashboardStore.registerShareable();
 
 registerDataProgramsShareable();
 
+const CONNECTIONS_SETTINGS_PATH = buildSettingsRoute("integrations");
+const FIELDS_SETTINGS_PATH = crmNavigationPath({
+  view: "settings",
+  settingsSection: "fields",
+});
+const INTELLIGENCE_SETTINGS_PATH = crmNavigationPath({
+  view: "settings",
+  settingsSection: "intelligence",
+});
+
 const registrations = [
   [
     "crm-connection",
     schema.crmConnections,
     schema.crmConnectionShares,
     "label",
-    "/settings/connections",
+    CONNECTIONS_SETTINGS_PATH,
   ],
   [
     "crm-object",
     schema.crmObjects,
     schema.crmObjectShares,
     "label",
-    "/settings/fields",
+    FIELDS_SETTINGS_PATH,
   ],
   [
     "crm-field-policy",
     schema.crmFieldPolicies,
     schema.crmFieldPolicyShares,
     "label",
-    "/settings/fields",
+    FIELDS_SETTINGS_PATH,
   ],
   [
     "crm-attribute-option",
     schema.crmAttributeOptions,
     schema.crmAttributeOptionShares,
     "title",
-    "/settings/fields",
+    FIELDS_SETTINGS_PATH,
   ],
   [
     "crm-record",
@@ -118,7 +130,7 @@ const registrations = [
     schema.crmSignalTrackers,
     schema.crmSignalTrackerShares,
     "name",
-    "/settings/intelligence",
+    INTELLIGENCE_SETTINGS_PATH,
   ],
   [
     "crm-signal-run",
@@ -154,7 +166,7 @@ const registrations = [
     schema.crmSyncRuns,
     schema.crmSyncRunShares,
     "id",
-    "/settings/connections",
+    CONNECTIONS_SETTINGS_PATH,
   ],
   [
     "crm-enrichment-run",

@@ -1,9 +1,16 @@
+import { ACTION_CHAT_UI_DATA_WIDGET_RENDERER } from "@agent-native/core/action-ui";
 import {
   DATA_CHART_WIDGET,
   DATA_INSIGHTS_WIDGET,
   DATA_TABLE_WIDGET,
 } from "@agent-native/core/data-widgets";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestContext: () => undefined,
+  getRequestUserEmail: () => "owner@example.com",
+  getRequestOrgId: () => undefined,
+}));
 
 const dbMock = vi.hoisted(() => {
   let results: unknown[][] = [];
@@ -39,6 +46,7 @@ const dbMock = vi.hoisted(() => {
 });
 
 const sharingMock = vi.hoisted(() => ({
+  resolveAccess: vi.fn(async () => ({ role: "owner", resource: {} })),
   accessFilter: vi.fn(() => true),
   assertAccess: vi.fn(async () => ({ resource: form })),
 }));
@@ -99,10 +107,13 @@ async function runInsights(
     [{ formId: "form_1", count: responseRows.length }],
   ]);
 
-  return responseInsights.run({
-    formId: "form_1",
-    ...(displayMode ? { displayMode } : {}),
-  });
+  return responseInsights.run(
+    {
+      formId: "form_1",
+      ...(displayMode ? { displayMode } : {}),
+    },
+    { caller: "frontend", userEmail: form.ownerEmail, orgId: form.orgId },
+  );
 }
 
 describe("response-insights action", () => {
@@ -199,6 +210,9 @@ describe("response-insights action", () => {
     const result = await runInsights();
 
     expect(result.widget).toBe(DATA_INSIGHTS_WIDGET);
+    expect(responseInsights.chatUI?.renderer).toBe(
+      ACTION_CHAT_UI_DATA_WIDGET_RENDERER,
+    );
     expect(result.chartSeries).toBeDefined();
     expect(result.table).toBeDefined();
   });

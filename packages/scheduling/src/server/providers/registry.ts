@@ -1,7 +1,3 @@
-/**
- * Provider registry — consumers register calendar/video/SMS providers at
- * startup. Actions look up providers by kind.
- */
 import type { CalendarProvider, VideoProvider, SmsProvider } from "./types.js";
 
 const calendarProviders = new Map<string, CalendarProvider>();

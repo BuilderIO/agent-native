@@ -1,12 +1,13 @@
 import { defineAction } from "@agent-native/core/action";
 import {
   hydrateBuilderDesignSystemReference,
+  isBuilderDesignSystemReadyByCount,
   parseBuilderDesignSystemProxyReference,
 } from "@agent-native/core/server";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 
 export default defineAction({
   description:
@@ -15,6 +16,7 @@ export default defineAction({
     id: z.string().min(1).describe("Local design system id"),
   }),
   readOnly: true,
+  dedupe: false,
   http: { method: "GET" },
   run: async ({ id }) => {
     const access = await resolveAccess("design-system", id);
@@ -43,11 +45,7 @@ export default defineAction({
       builderJobId: reference.builderJobId,
       status:
         hydrated.builderStatus ?? reference.builderStatus ?? "in-progress",
-      ready:
-        hydrated.builderStatus === "ready" ||
-        hydrated.builderStatus === "complete" ||
-        hydrated.builderStatus === "completed" ||
-        hydrated.completionConfirmed === true,
+      ready: isBuilderDesignSystemReadyByCount(hydrated.docCount),
       docCount: hydrated.docCount,
       tokenCount: Object.keys(hydrated.tokenValues).length,
     };

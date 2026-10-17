@@ -1,18 +1,20 @@
 import { useCodeMode } from "@agent-native/core/client/agent-chat";
-import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
-import { ExtensionSlot } from "@agent-native/core/client/extensions";
 import {
+  callAction,
   setClientAppState,
   useActionMutation,
   useActionQuery,
+  useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { OrgSwitcher } from "@agent-native/core/client/org";
+import { DevDatabaseLink } from "@agent-native/toolkit/app/db-admin";
+import { ExtensionSlot } from "@agent-native/toolkit/app/extensions";
+import { FeedbackButton } from "@agent-native/toolkit/app/feedback";
+import { OrgSwitcher } from "@agent-native/toolkit/app/org";
 import {
   AppSidebarFooter,
   AppSidebarHeader,
-  FeedbackButton,
-} from "@agent-native/core/client/ui";
+} from "@agent-native/toolkit/app/shared";
 import type {
   ContentDatabaseItem,
   ContentDatabasePersonalViewOverrides,
@@ -27,8 +29,6 @@ import {
   IconArrowsSort,
   IconPlus,
   IconRestore,
-  IconSettings,
-  IconPin,
   IconTrashX,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
@@ -36,6 +36,9 @@ import {
   IconChevronRight,
   IconTrash,
   IconGitBranch,
+  IconSearch,
+  IconDatabase,
+  IconFileText,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -44,8 +47,19 @@ import { toast } from "sonner";
 
 import {
   ContentFilesSidebarView,
+  PagedContentFilesSidebarView,
+  contentSidebarOrderedItems,
   type ContentFilesSidebarRenderReorder,
 } from "@/components/editor/database/sidebar";
+import {
+  clearPageDraftJournal,
+  listPageDraftJournal,
+  PageDraftJournalError,
+  readPageDraftJournal,
+  writePageDraftJournal,
+  type PageDraftJournalEntry,
+  type PageDraftJournalSnapshot,
+} from "@/components/editor/page-draft-journal";
 import { QueryErrorState } from "@/components/QueryErrorState";
 import {
   AlertDialog,
@@ -58,6 +72,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -75,20 +90,26 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
+  contentFilesCollectionFilter,
+  contentRowTargets,
+  invalidateContentQueries,
+  useContentActionMutation,
+} from "@/hooks/use-content-action-mutation";
+import {
   applyOptimisticItemToContentDatabase,
   contentDatabaseCreationRequest,
   contentDatabaseByIdQueryKey,
+  contentDatabaseNavigationQueryFilter,
   isContentDatabaseUnavailable,
-  removeOptimisticItemFromContentDatabase,
   useContentDatabaseById,
   useContentDatabasePersonalView,
-  useMoveDatabaseItem,
   useUpdateContentDatabasePersonalView,
   useCreateContentDatabase,
   useDeleteContentDatabase,
   useRestoreContentDatabase,
   useTrashedContentDatabases,
 } from "@/hooks/use-content-database";
+import { useUpdateContentPersonalNavigation } from "@/hooks/use-content-personal-navigation";
 import {
   shouldAutoEnsureContentSpaces,
   useContentSpaces,
@@ -96,23 +117,43 @@ import {
   type ContentSpaceSummary,
 } from "@/hooks/use-content-spaces";
 import {
+  useContentNavigationContext,
   useDocuments,
   useCreateDocument,
   useDeleteDocument,
   usePermanentlyDeleteDocument,
   useRestoreDocument,
   useTrashedDocuments,
+  useMoveDocument,
   useUpdateDocument,
-  filterDocumentTreeDocuments,
+  isDocumentUpdateConflict,
+  isDocumentUpdatePreservationRequired,
+  isDocumentUpdateSuperseded,
+  type DocumentUpdateRequestWithCas,
   documentQueryFilter,
+  removeCreatedDocumentNavigation,
   rollbackOptimisticCreatedDocument,
   restoreDeletedDocumentSnapshots,
+  seedCreatedDocumentNavigation,
+  startPageOpenDocumentReads,
 } from "@/hooks/use-documents";
 import { useLocalStorage } from "@/hooks/use-local-storage";
+import { openContentCommandMenu } from "@/lib/content-command-menu";
 import {
   getDesktopContentFiles,
   type DesktopContentFilesFolder,
 } from "@/lib/desktop-content-files";
+import { documentQueryKey } from "@/lib/document-query";
+import {
+  filesNavigationOrder,
+  openFilesFolderIds,
+} from "@/lib/files-navigation";
+import {
+  filesRootHintScope,
+  prefetchPagedFilesRoot,
+  readPagedFilesRootHint,
+  rememberPagedFilesRoot,
+} from "@/lib/files-root-hint";
 import {
   consumeLiveLocalFolderActivation,
   liveLocalFolderSourceId,
@@ -120,28 +161,62 @@ import {
   subscribeLiveLocalFolderActivation,
 } from "@/lib/local-folder-live-sync";
 import {
+  clearDocumentCreationConfirmed,
+  clearDocumentCreationPending,
+  clearDocumentCreateIntent,
+  markDocumentCreationConfirmed,
   markDocumentCreationPending,
+  readDocumentCreateIntent,
+  readDocumentCreateIntents,
+  isDocumentCreateInFlight,
+  shouldAutoRetryDocumentCreate,
   shouldCreateDocumentOptimistically,
+  withDocumentCreateInFlight,
+  writeDocumentCreateIntent,
+  writeDocumentCreateIntentBestEffort,
+  type DocumentCreateIntent,
+  type DocumentCreateIntentScope,
 } from "@/lib/optimistic-document";
+import {
+  readSidebarLayoutHint,
+  rememberSidebarLayout,
+  withShownFilesBranch,
+  type SidebarLayoutHint,
+  type SidebarRowsHint,
+} from "@/lib/sidebar-layout-hint";
+import { startupAnchor } from "@/lib/startup-timing";
 import { cn } from "@/lib/utils";
 
-import { getDocumentSidebarSections } from "./document-sidebar-sections";
 import {
   firstLocalSourceDocumentId,
   localSourceItemIdentity,
   projectLocalSourceHierarchy,
 } from "./local-source-hierarchy";
 import {
+  MovePageDialog,
+  type MovePageDestination,
+  type MovePageTarget,
+} from "./MovePageDialog";
+import { PersonalSidebarSections } from "./PersonalSidebarSections";
+import {
+  contentSpaceActionArgs,
   contentSpaceAvailability,
+  contentSpaceRouteReconciliation,
+  contentSidebarSubsetReorder,
   contentSpaceForStoredSelection,
   createContentSidebarStateWriteQueue,
   createContentSpaceSelectionQueue,
-  ensureWorkspaceExpanded,
   SELECTED_CONTENT_SPACE_STORAGE_KEY,
   selectContentSpace,
   toggleExpandedWorkspaceIds,
 } from "./select-content-space";
 import { type SidebarReorderLabels } from "./sidebar-reorder";
+import { SidebarRowsSkeleton } from "./SidebarNavigationRow";
+import { sidebarRowClassName } from "./SidebarNavigationRow";
+import {
+  SidebarPageActionsProvider,
+  type SidebarPageActions,
+} from "./SidebarRowActions";
 import {
   WorkspaceSourceMenu,
   type CreatedWorkspace,
@@ -159,10 +234,163 @@ interface DocumentSidebarProps {
   collapsed: boolean;
   onToggleCollapsed: () => void;
   onNavigate?: () => void;
+  onOpenSearch?: () => void;
   width?: number;
   onResize?: (width: number) => void;
   minWidth?: number;
   maxWidth?: number;
+}
+
+export function readCreateRecoveryDraft(
+  read: () => PageDraftJournalEntry | null,
+):
+  | { kind: "readable"; entry: PageDraftJournalEntry | null }
+  | { kind: "unreadable"; error: unknown } {
+  try {
+    return { kind: "readable", entry: read() };
+  } catch (error) {
+    return { kind: "unreadable", error };
+  }
+}
+
+export async function retryCreateAfterDraftRead<T>(
+  read: () => PageDraftJournalEntry | null,
+  create: () => Promise<T>,
+): Promise<{ created: T; draft: PageDraftJournalEntry | null }> {
+  const beforeCreate = readCreateRecoveryDraft(read);
+  if (beforeCreate.kind === "unreadable") throw beforeCreate.error;
+
+  const created = await create();
+  const afterCreate = readCreateRecoveryDraft(read);
+  if (afterCreate.kind === "unreadable") throw afterCreate.error;
+  return { created, draft: afterCreate.entry };
+}
+
+export function retryCreateAfterIntentWrite<T>(
+  scope: DocumentCreateIntentScope,
+  intent: DocumentCreateIntent,
+  read: () => PageDraftJournalEntry | null,
+  create: () => Promise<T>,
+): Promise<{ created: T; draft: PageDraftJournalEntry | null }> {
+  writeDocumentCreateIntentBestEffort(scope, { ...intent, status: "pending" });
+  return retryCreateAfterDraftRead(read, create);
+}
+
+export async function readDocumentBeforeCreateDiscard(
+  read: () => Promise<Document>,
+): Promise<{ kind: "committed"; document: Document } | { kind: "missing" }> {
+  try {
+    return { kind: "committed", document: await read() };
+  } catch (error) {
+    if (
+      error &&
+      typeof error === "object" &&
+      (error as { status?: unknown }).status === 404
+    ) {
+      return { kind: "missing" };
+    }
+    throw error;
+  }
+}
+
+export function mergeCreatedDocumentWithDraft(
+  created: Document,
+  entry: PageDraftJournalEntry | null,
+): Document {
+  return entry
+    ? {
+        ...created,
+        title: entry.snapshot.title,
+        content: entry.snapshot.content,
+      }
+    : created;
+}
+
+export function prepareCreatedDraftReplay(
+  created: Document,
+  entry: PageDraftJournalEntry,
+): {
+  snapshot: PageDraftJournalSnapshot;
+  request: DocumentUpdateRequestWithCas;
+} | null {
+  const snapshot = entry.snapshot;
+  if (snapshot.title === created.title && snapshot.content === created.content)
+    return null;
+
+  const baseMatchesCreated =
+    snapshot.baseTitle === created.title &&
+    snapshot.baseContent === created.content;
+  const baseUpdatedAt = baseMatchesCreated
+    ? (created.updatedAt ?? null)
+    : snapshot.baseUpdatedAt;
+  const baseRevision = baseMatchesCreated
+    ? created.revision
+    : snapshot.baseRevision;
+  if (!baseUpdatedAt && !baseRevision) throw new Error();
+
+  const saveAttemptId = snapshot.saveAttemptId ?? crypto.randomUUID();
+  const replaySnapshot: PageDraftJournalSnapshot = {
+    ...snapshot,
+    ...(baseMatchesCreated
+      ? {
+          baseUpdatedAt,
+          baseRevision,
+          ...(snapshot.authoredBaseRevision &&
+          snapshot.authoredBaseContent !== undefined &&
+          snapshot.authoredCandidateContent === snapshot.content
+            ? {}
+            : baseRevision && snapshot.content !== created.content
+              ? {
+                  authoredBaseRevision: baseRevision,
+                  authoredBaseContent: created.content,
+                  authoredCandidateContent: snapshot.content,
+                }
+              : {}),
+        }
+      : {}),
+    saveAttemptId,
+  };
+  const replayBaseTitle = baseMatchesCreated
+    ? created.title
+    : snapshot.baseTitle;
+  const replayBaseContent = baseMatchesCreated
+    ? created.content
+    : snapshot.baseContent;
+  const hasAuthoredIntent =
+    snapshot.content !== replayBaseContent &&
+    (replaySnapshot.authoredBaseRevision !== undefined ||
+      replaySnapshot.authoredBaseContent !== undefined);
+
+  return {
+    snapshot: replaySnapshot,
+    request: {
+      id: created.id,
+      title: snapshot.title,
+      content: snapshot.content,
+      baseTitle: replayBaseTitle,
+      ...(baseUpdatedAt
+        ? { baseUpdatedAt, loadedUpdatedAt: baseUpdatedAt }
+        : {}),
+      ...(baseRevision ? { baseRevision } : {}),
+      loadedContentWasEmpty: replayBaseContent === "",
+      editorSessionId: entry.scope.writerId,
+      editorEditGeneration: snapshot.editGeneration,
+      browserSaveAttemptId: saveAttemptId,
+      editorSnapshotTitle: snapshot.title,
+      editorSnapshotContent: snapshot.content,
+      ...(hasAuthoredIntent && replaySnapshot.authoredBaseRevision
+        ? {
+            authoredBaseRevision: replaySnapshot.authoredBaseRevision,
+            authoredBaseContent: replaySnapshot.authoredBaseContent,
+            authoredCandidateContent: replaySnapshot.authoredCandidateContent,
+          }
+        : {}),
+    },
+  };
+}
+
+function openCommandMenuFrom(trigger: HTMLButtonElement | null) {
+  openContentCommandMenu(trigger ?? undefined);
 }
 
 const LIST_DOCUMENTS_QUERY_KEY = [
@@ -215,12 +443,13 @@ const SIDEBAR_SECTION_COLLAPSE_STORAGE_KEY =
   "content-sidebar-collapsed-sections";
 const TRASH_COLLAPSED_DEFAULT_MIGRATION_KEY =
   "content-sidebar-trash-collapsed-default-v2";
-const CONTENT_SIDEBAR_STATE_VERSION = 1 as const;
+const CONTENT_SIDEBAR_STATE_VERSION = 2 as const;
 
 interface ContentSidebarStateSnapshot {
   version: typeof CONTENT_SIDEBAR_STATE_VERSION;
-  expandedWorkspaceIds: string[];
-  expandedDocumentIds: string[];
+  spaceId?: string;
+  expandedWorkspaceIds?: string[];
+  expandedDocumentIds?: string[];
 }
 const DEFAULT_COLLAPSED_SECTIONS: CollapsedSectionsState = {
   favorites: false,
@@ -313,7 +542,7 @@ function useDeferredFilesDatabaseId(
   expanded: boolean,
   deferUntilDocumentId: string | null,
 ) {
-  const previouslyExpanded = useRef(expanded);
+  const previouslyExpanded = useRef(false);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -359,9 +588,6 @@ function useDeferredFilesDatabaseId(
       };
     }
 
-    // An already-expanded workspace can contain thousands of files. Give the
-    // selected page's critical read one turn before starting that inventory;
-    // direct expansion remains immediate.
     setReady(false);
     const timeout = window.setTimeout(
       () => setReady(true),
@@ -370,11 +596,6 @@ function useDeferredFilesDatabaseId(
     return () => window.clearTimeout(timeout);
   }, [databaseId, deferUntilDocumentId, expanded]);
 
-  // `databaseId` stays stable across the defer window so the query key never
-  // changes; only `enabled` pauses the fetch. Swapping `databaseId` itself to
-  // null here would move the tree to a disabled, never-fetched query key and
-  // drop the rows already on screen for the whole deferred window instead of
-  // just holding off the refetch.
   return { databaseId: expanded ? databaseId : null, enabled: ready };
 }
 
@@ -382,32 +603,47 @@ function WorkspaceSidebarItem({
   space,
   selected,
   expanded,
+  localFileMode,
   deferInitialReadUntilDocumentId,
   reorder,
   createDocumentPending,
+  createDatabasePending,
   activeDocumentId,
   expandedDocumentIds,
+  documentMetadata,
+  activePathDocuments,
   onDocumentExpandedChange,
   onActivate,
   onToggleExpanded,
   onCreatePageInSpace,
+  onCreateDatabaseInSpace,
   onCreateChildPage,
   onCreateChildDatabase,
   onDeleteItem,
   onToggleFavorite,
+  compact = false,
+  filesPlaceholder,
+  onFilesRootShown,
+  filesBranchPlaceholders,
+  onFilesBranchShown,
 }: {
   space: ContentSpaceSummary;
   selected: boolean;
   expanded: boolean;
+  localFileMode: boolean;
   deferInitialReadUntilDocumentId: string | null;
   reorder?: ContentFilesSidebarRenderReorder;
   createDocumentPending: boolean;
+  createDatabasePending: boolean;
   activeDocumentId: string | null;
   expandedDocumentIds: ReadonlySet<string>;
+  documentMetadata: ReadonlyMap<string, Document>;
+  activePathDocuments: readonly Document[];
   onDocumentExpandedChange: (documentId: string, expanded: boolean) => void;
   onActivate: (space: ContentSpaceSummary, documentId?: string) => void;
   onToggleExpanded: () => void;
   onCreatePageInSpace: (space: ContentSpaceSummary) => void;
+  onCreateDatabaseInSpace: (space: ContentSpaceSummary) => void;
   onCreateChildPage: (
     space: ContentSpaceSummary,
     item: ContentDatabaseItem,
@@ -418,6 +654,11 @@ function WorkspaceSidebarItem({
   ) => void;
   onDeleteItem: (item: ContentDatabaseItem) => void;
   onToggleFavorite: (item: ContentDatabaseItem) => void;
+  compact?: boolean;
+  filesPlaceholder?: SidebarRowsHint;
+  onFilesRootShown?: (shown: SidebarRowsHint) => void;
+  filesBranchPlaceholders?: Readonly<Record<string, SidebarRowsHint>>;
+  onFilesBranchShown?: (documentId: string, shown: SidebarRowsHint) => void;
 }) {
   const t = useT();
   const [localWorkingCopies, setLocalWorkingCopies] = useState<
@@ -476,9 +717,15 @@ function WorkspaceSidebarItem({
     expanded,
     deferInitialReadUntilDocumentId,
   );
+  // The paged tree draws cloud Files; only local-source matching needs rows.
+  const needsFilesRows = localFileMode || localWorkingCopies.length > 0;
   const filesDatabase = useContentDatabaseById(
     deferredFilesDatabase.databaseId,
-    { enabled: deferredFilesDatabase.enabled },
+    {
+      enabled: deferredFilesDatabase.enabled,
+      systemRole: "files",
+      ...(needsFilesRows ? {} : { limit: 0 }),
+    },
   );
   const filesDatabaseData = isContentDatabaseUnavailable(filesDatabase.data)
     ? undefined
@@ -566,7 +813,9 @@ function WorkspaceSidebarItem({
     openedWorkingCopyIdRef.current = selectedWorkingCopy.id;
     onActivate(space, firstDocumentId);
   }, [onActivate, selectedWorkingCopy, space, visibleFilesDatabaseData]);
-  const resolvedFilesDatabaseId = filesDatabaseData?.database.id ?? null;
+  const resolvedFilesDatabaseId = localFileMode
+    ? (filesDatabaseData?.database.id ?? null)
+    : space.filesDatabaseId;
   const filesPersonalView = useContentDatabasePersonalView(
     resolvedFilesDatabaseId,
   );
@@ -574,10 +823,20 @@ function WorkspaceSidebarItem({
     resolvedFilesDatabaseId,
   );
   const failed = filesDatabase.isError || filesPersonalView.isError;
-  const { activeViewId, order: sidebarOrder } = personalSidebarOrderForDatabase(
-    filesDatabaseData,
-    filesPersonalView.data?.overrides,
-  );
+  const pagedOverrides = filesPersonalView.data?.overrides;
+  const { activeViewId, order: sidebarOrder } = localFileMode
+    ? personalSidebarOrderForDatabase(filesDatabaseData, pagedOverrides)
+    : filesNavigationOrder(pagedOverrides);
+  const queryClient = useQueryClient();
+  const { session } = useSession();
+  const filesRootScope = filesRootHintScope(session?.email, session?.orgId);
+  const filesRootConfirmed = !localFileMode && expanded;
+  useEffect(() => {
+    if (!filesRootScope || !filesRootConfirmed) return;
+    rememberPagedFilesRoot(filesRootScope, {
+      databaseId: space.filesDatabaseId,
+    });
+  }, [filesRootConfirmed, filesRootScope, space.filesDatabaseId]);
   const reorderLabels: SidebarReorderLabels = {
     drag: (label) => t("sidebar.dragToReorder", { label }),
     moveUp: t("sidebar.moveUp"),
@@ -616,119 +875,142 @@ function WorkspaceSidebarItem({
 
   return (
     <div className="min-w-0">
-      <div
-        className={cn(
-          "group/workspace-header flex h-7 w-full min-w-0 items-center rounded-md",
-          selected
-            ? "text-foreground"
-            : "text-muted-foreground hover:bg-accent/40 hover:text-foreground",
-        )}
-      >
-        <button
-          type="button"
-          aria-expanded={expanded}
-          aria-label={`${expanded ? t("sidebar.collapse") : t("sidebar.expand")} ${space.name}`}
-          className="group/workspace-toggle relative flex size-7 shrink-0 items-center justify-center rounded-md hover:bg-background/60"
-          onClick={onToggleExpanded}
-        >
-          <span className="group-hover/workspace-header:opacity-0 group-focus-within/workspace-header:opacity-0 group-focus-visible/workspace-toggle:opacity-0">
-            {expanded ? <IconFolderOpen size={14} /> : <IconFolder size={14} />}
-          </span>
-          <span className="absolute inset-0 flex items-center justify-center opacity-0 group-hover/workspace-header:opacity-100 group-focus-within/workspace-header:opacity-100 group-focus-visible/workspace-toggle:opacity-100">
-            {expanded ? (
-              <IconChevronDown size={14} />
-            ) : (
-              <IconChevronRight size={14} />
-            )}
-          </span>
-        </button>
-        <Link
-          to={`/page/${space.filesDocumentId}`}
-          {...reorder?.controls.attributes}
-          {...reorder?.controls.listeners}
-          data-sidebar-reorder-item-id={reorder?.controls.itemId}
-          role="link"
+      {!compact && (
+        <div
           className={cn(
-            "flex h-7 min-w-0 flex-1 items-center pe-2 text-start text-[10px] font-semibold uppercase leading-none tracking-wider",
-            reorder && "touch-none cursor-pointer select-none",
-            reorder?.controls.isDragging && "cursor-grabbing",
+            "group/workspace-header flex h-7 w-full min-w-0 items-center rounded-md",
+            selected
+              ? "text-foreground"
+              : "text-muted-foreground hover:bg-accent/40 hover:text-foreground",
           )}
-          onClick={(event) => {
-            if (
-              !event.metaKey &&
-              !event.ctrlKey &&
-              !event.shiftKey &&
-              !event.altKey
-            ) {
-              event.preventDefault();
-              onActivate(space);
-            }
-          }}
         >
-          <span className="min-w-0 flex-1 truncate">{space.name}</span>
-        </Link>
-        {expanded ? (
+          <button
+            type="button"
+            aria-expanded={expanded}
+            aria-label={
+              expanded
+                ? t("sidebar.collapseItem", { title: space.name })
+                : t("sidebar.expandItem", { title: space.name })
+            }
+            className="group/workspace-toggle relative flex size-7 shrink-0 items-center justify-center rounded-md hover:bg-background/60"
+            onClick={onToggleExpanded}
+          >
+            <span className="group-hover/workspace-header:opacity-0 group-focus-within/workspace-header:opacity-0 group-focus-visible/workspace-toggle:opacity-0">
+              {expanded ? (
+                <IconFolderOpen size={14} />
+              ) : (
+                <IconFolder size={14} />
+              )}
+            </span>
+            <span className="absolute inset-0 flex items-center justify-center opacity-0 group-hover/workspace-header:opacity-100 group-focus-within/workspace-header:opacity-100 group-focus-visible/workspace-toggle:opacity-100">
+              {expanded ? (
+                <IconChevronDown size={14} />
+              ) : (
+                <IconChevronRight size={14} />
+              )}
+            </span>
+          </button>
+          <Link
+            to={`/page/${space.filesDocumentId}`}
+            {...reorder?.controls.attributes}
+            {...reorder?.controls.listeners}
+            data-sidebar-reorder-item-id={reorder?.controls.itemId}
+            role="link"
+            className={cn(
+              "flex h-7 min-w-0 flex-1 items-center pe-2 text-start text-[10px] font-semibold uppercase leading-none tracking-wider",
+              reorder && "touch-none cursor-pointer select-none",
+              reorder?.controls.isDragging && "cursor-grabbing",
+            )}
+            onClick={(event) => {
+              if (
+                !event.metaKey &&
+                !event.ctrlKey &&
+                !event.shiftKey &&
+                !event.altKey
+              ) {
+                event.preventDefault();
+                onActivate(space);
+              }
+            }}
+          >
+            <span className="min-w-0 flex-1 truncate">{space.name}</span>
+          </Link>
+          {expanded ? (
+            <DropdownMenu>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-background/60 hover:text-foreground disabled:opacity-50"
+                      aria-label={t("sidebar.orderButton", {
+                        order: sidebarOrderModeLabels[sidebarOrder.mode],
+                      })}
+                      disabled={
+                        filesDatabase.isLoading ||
+                        filesPersonalView.isLoading ||
+                        updateFilesPersonalView.isPending
+                      }
+                    >
+                      <IconArrowsSort size={14} />
+                    </button>
+                  </DropdownMenuTrigger>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {t("sidebar.orderButton", {
+                    order: sidebarOrderModeLabels[sidebarOrder.mode],
+                  })}
+                </TooltipContent>
+              </Tooltip>
+              <DropdownMenuContent align="end">
+                <DropdownMenuRadioGroup
+                  value={sidebarOrder.mode}
+                  onValueChange={(value) =>
+                    updateSidebarOrder({
+                      ...sidebarOrder,
+                      mode: value as ContentSidebarViewOrder["mode"],
+                    })
+                  }
+                >
+                  {(
+                    Object.keys(
+                      sidebarOrderModeLabels,
+                    ) as ContentSidebarViewOrder["mode"][]
+                  ).map((mode) => (
+                    <DropdownMenuRadioItem key={mode} value={mode}>
+                      {sidebarOrderModeLabels[mode]}
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
           <DropdownMenu>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-background/60 hover:text-foreground disabled:opacity-50"
-                    aria-label={t("sidebar.orderButton", {
-                      order: sidebarOrderModeLabels[sidebarOrder.mode],
-                    })}
-                    disabled={
-                      filesDatabase.isLoading ||
-                      filesPersonalView.isLoading ||
-                      updateFilesPersonalView.isPending
-                    }
-                  >
-                    <IconArrowsSort size={14} />
-                  </button>
-                </DropdownMenuTrigger>
-              </TooltipTrigger>
-              <TooltipContent>
-                {t("sidebar.orderButton", {
-                  order: sidebarOrderModeLabels[sidebarOrder.mode],
-                })}
-              </TooltipContent>
-            </Tooltip>
-            <DropdownMenuContent align="end">
-              <DropdownMenuRadioGroup
-                value={sidebarOrder.mode}
-                onValueChange={(value) =>
-                  updateSidebarOrder({
-                    ...sidebarOrder,
-                    mode: value as ContentSidebarViewOrder["mode"],
-                  })
-                }
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-background/60 hover:text-foreground disabled:opacity-50"
+                disabled={createDocumentPending || createDatabasePending}
+                aria-label={`${t("sidebar.new")} — ${space.name}`}
               >
-                {(
-                  Object.keys(
-                    sidebarOrderModeLabels,
-                  ) as ContentSidebarViewOrder["mode"][]
-                ).map((mode) => (
-                  <DropdownMenuRadioItem key={mode} value={mode}>
-                    {sidebarOrderModeLabels[mode]}
-                  </DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
+                <IconPlus size={14} />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuItem onClick={() => onCreatePageInSpace(space)}>
+                <IconFileText className="me-2 size-4" />
+                {t("sidebar.page")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onCreateDatabaseInSpace(space)}>
+                <IconDatabase className="me-2 size-4" />
+                {t("sidebar.collection")}
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-        ) : null}
-        <button
-          type="button"
-          className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-background/60 hover:text-foreground disabled:opacity-50"
-          disabled={createDocumentPending}
-          aria-label={`${t("sidebar.newPage")} — ${space.name}`}
-          onClick={() => onCreatePageInSpace(space)}
-        >
-          <IconPlus size={14} />
-        </button>
-      </div>
+        </div>
+      )}
       {expanded ? (
-        <div className="min-w-0 pb-1 ps-4">
+        <div className={cn("min-w-0 pb-1", !compact && "ps-4")}>
           {relatedWorkingCopies.some((folder) => folder.kind === "temporary") &&
           selectedWorkingCopy &&
           hasRelatedLocalFiles ? (
@@ -796,7 +1078,7 @@ function WorkspaceSidebarItem({
                 filesDatabase.isFetching || filesPersonalView.isFetching
               }
             />
-          ) : (
+          ) : localFileMode ? (
             <ContentFilesSidebarView
               data={visibleFilesDatabaseData}
               overrides={filesPersonalView.data?.overrides}
@@ -838,12 +1120,46 @@ function WorkspaceSidebarItem({
               }
               onDeleteItem={onDeleteItem}
               onToggleFavorite={onToggleFavorite}
+              scroll={false}
               labels={{
                 noMatchesLabel: t("database.noRowsMatchThisView"),
                 clearLabel: t("database.clearSearchAndFilters"),
                 navigationLabel: `${space.name} ${t("sidebar.files")}`,
                 untitledLabel: t("sidebar.untitled"),
               }}
+            />
+          ) : (
+            <PagedContentFilesSidebarView
+              databaseId={space.filesDatabaseId}
+              activeDocumentId={activeDocumentId}
+              expandedDocumentIds={expandedDocumentIds}
+              onDocumentExpandedChange={onDocumentExpandedChange}
+              documentMetadata={documentMetadata}
+              activePathDocuments={activePathDocuments.filter(
+                (document) => document.id !== space.filesDocumentId,
+              )}
+              onOpenItem={(item) => {
+                if (selected) {
+                  // The link opens the page; its reads start with the click
+                  // rather than after the route renders.
+                  startPageOpenDocumentReads(queryClient, item.document.id);
+                  return false;
+                }
+                onActivate(space, item.document.id);
+                return true;
+              }}
+              onCreateChildPage={(item) => onCreateChildPage(space, item)}
+              onCreateChildDatabase={(item) =>
+                onCreateChildDatabase(space, item)
+              }
+              onDeleteItem={onDeleteItem}
+              onToggleFavorite={onToggleFavorite}
+              navigationLabel={`${space.name} ${t("sidebar.files")}`}
+              untitledLabel={t("sidebar.untitled")}
+              rootPlaceholder={filesPlaceholder}
+              onRootPageShown={onFilesRootShown}
+              branchPlaceholders={filesBranchPlaceholders}
+              onBranchShown={onFilesBranchShown}
             />
           )}
         </div>
@@ -857,6 +1173,7 @@ export function DocumentSidebar({
   collapsed,
   onToggleCollapsed,
   onNavigate,
+  onOpenSearch,
   width,
   onResize,
   minWidth,
@@ -864,8 +1181,18 @@ export function DocumentSidebar({
 }: DocumentSidebarProps) {
   const navigate = useNavigate();
   const location = useLocation();
+  const locationRef = useRef(location);
+  locationRef.current = location;
   const queryClient = useQueryClient();
   const t = useT();
+  const searchTriggerRef = useRef<HTMLButtonElement>(null);
+  const handleOpenSearch = useCallback(() => {
+    if (onOpenSearch) {
+      onOpenSearch();
+      return;
+    }
+    openCommandMenuFrom(searchTriggerRef.current);
+  }, [onOpenSearch]);
   const sidebarReorderLabels = useMemo<SidebarReorderLabels>(
     () => ({
       drag: (label) => t("sidebar.dragToReorder", { label }),
@@ -876,9 +1203,21 @@ export function DocumentSidebar({
     }),
     [t],
   );
-  const documentsQuery = useDocuments();
+  const contentSpacesQuery = useContentSpaces();
+  const { session } = useSession();
+  const filesRootScope = filesRootHintScope(session?.email, session?.orgId);
+  useEffect(() => {
+    if (!filesRootScope) return;
+    const root = readPagedFilesRootHint(filesRootScope);
+    if (!root) return;
+    const { branches } = readSidebarLayoutHint(filesRootScope, null);
+    prefetchPagedFilesRoot(queryClient, root, Object.keys(branches ?? {}));
+  }, [filesRootScope, queryClient]);
+  const localFileMode = contentSpacesQuery.data?.sourceMode === "local-files";
+  const documentsQuery = useDocuments({ enabled: localFileMode });
   const { data: documents = [] } = documentsQuery;
   const createDocument = useCreateDocument();
+  const createDocumentAsync = createDocument.mutateAsync;
   const createDatabase = useCreateContentDatabase(null, {
     skipListDocumentsInvalidation: true,
   });
@@ -887,42 +1226,58 @@ export function DocumentSidebar({
   const permanentlyDeleteDocument = usePermanentlyDeleteDocument();
 
   const restoreDocument = useRestoreDocument();
-  const { data: trashedDocuments } = useTrashedDocuments();
   const restoreContentDatabase = useRestoreContentDatabase();
-  const { data: trashedDatabases } = useTrashedContentDatabases();
   const { isCodeMode } = useCodeMode();
   const updateDocument = useUpdateDocument();
-  const contentSpacesQuery = useContentSpaces();
+  const updateDocumentAsync = updateDocument.mutateAsync;
   const ensureContentSpaces = useEnsureContentSpaces();
   const workspaceSelectionQueueRef = useRef(createContentSpaceSelectionQueue());
+  const lastSyncedSpaceIdRef = useRef<string | null>(null);
+  const explicitSpaceSelectionRef = useRef<string | null>(null);
   const contentSpaces = contentSpacesQuery.data?.spaces ?? [];
-  const workspaceCatalogDatabaseId =
-    contentSpacesQuery.data?.catalogDatabaseId ?? null;
-  const workspaceCatalogDocumentId =
-    contentSpacesQuery.data?.catalogDocumentId ?? null;
+  const [storedSpaceId, setStoredSpaceId] = useLocalStorage<string | null>(
+    SELECTED_CONTENT_SPACE_STORAGE_KEY,
+    null,
+    { syncAcrossTabs: false },
+  );
+  const selectedSpace = contentSpaceForStoredSelection({
+    spaces: contentSpaces,
+    storedSpaceId,
+  });
+  const selectedSpaceId = selectedSpace?.id ?? null;
+  // Read once per space: the hint sizes this load's placeholders, and what
+  // this load draws is remembered for the next one.
+  const sidebarLayoutHint = useMemo(
+    () => readSidebarLayoutHint(filesRootScope, selectedSpaceId),
+    [filesRootScope, selectedSpaceId],
+  );
+  const rememberLayout = useCallback(
+    (shown: SidebarLayoutHint) =>
+      rememberSidebarLayout(filesRootScope, selectedSpaceId, shown),
+    [filesRootScope, selectedSpaceId],
+  );
+  const rememberFilesRoot = useCallback(
+    (files: SidebarRowsHint) => rememberLayout({ files }),
+    [rememberLayout],
+  );
   const favoritesDatabaseId =
     contentSpacesQuery.data?.favoritesDatabaseId ?? null;
-  const favoritesDocumentId =
-    contentSpacesQuery.data?.favoritesDocumentId ?? null;
-  const favoritesDatabase = useContentDatabaseById(favoritesDatabaseId);
-  const workspaceCatalogDatabase = useContentDatabaseById(
-    workspaceCatalogDatabaseId,
-  );
-  const workspaceCatalogDatabaseData = isContentDatabaseUnavailable(
-    workspaceCatalogDatabase.data,
-  )
+  const favoritesDatabase = useContentDatabaseById(favoritesDatabaseId, {
+    limit: 50,
+    contentSpaceId: selectedSpace?.id,
+  });
+  const favoritesPersonalView =
+    useContentDatabasePersonalView(favoritesDatabaseId);
+  const favoritesData = isContentDatabaseUnavailable(favoritesDatabase.data)
     ? undefined
-    : workspaceCatalogDatabase.data;
-  const resolvedWorkspaceCatalogDatabaseId =
-    workspaceCatalogDatabaseData?.database.id ?? null;
-  const workspaceCatalogPersonalView = useContentDatabasePersonalView(
-    resolvedWorkspaceCatalogDatabaseId,
+    : favoritesDatabase.data;
+  const updateFavoritesPersonalView = useUpdateContentPersonalNavigation(
+    favoritesDatabaseId,
+    favoritesData?.database.viewConfig.views,
   );
-  const updateWorkspaceCatalogPersonalView =
-    useUpdateContentDatabasePersonalView(resolvedWorkspaceCatalogDatabaseId);
-  const movePinnedItem = useMoveDatabaseItem(favoritesDocumentId ?? "");
-  const moveWorkspaceItem = useMoveDatabaseItem(
-    workspaceCatalogDocumentId ?? "",
+  const favoritesOrder = personalSidebarOrderForDatabase(
+    favoritesData,
+    favoritesPersonalView.data?.overrides,
   );
   const attemptedSpaceReconciliationKeyRef = useRef<string | null>(null);
   const spaceReconciliationRetryTimerRef = useRef<ReturnType<
@@ -977,20 +1332,24 @@ export function DocumentSidebar({
     ensureContentSpaces.isPending,
     spaceReconciliationRetryNonce,
   ]);
-  const [storedSpaceId, setStoredSpaceId] = useLocalStorage<string | null>(
-    SELECTED_CONTENT_SPACE_STORAGE_KEY,
-    null,
+  const sidebarStateArgs = contentSpaceActionArgs(selectedSpace?.id);
+  const sidebarStateQuery = useActionQuery(
+    "get-content-sidebar-state",
+    sidebarStateArgs,
+    { enabled: Boolean(sidebarStateArgs) },
   );
-  const selectedSpace = contentSpaceForStoredSelection({
-    spaces: contentSpaces,
-    storedSpaceId,
-  });
-  const sidebarStateQuery = useActionQuery("get-content-sidebar-state", {});
-  const updateSidebarState = useActionMutation("update-content-sidebar-state", {
+  const updateSidebarState = useActionMutation<
+    unknown,
+    ContentSidebarStateSnapshot
+  >("update-content-sidebar-state", {
     skipActionQueryInvalidation: true,
-    onSuccess: (data) => {
+    onSuccess: (data, snapshot) => {
       queryClient.setQueryData(
-        ["action", "get-content-sidebar-state", {}],
+        [
+          "action",
+          "get-content-sidebar-state",
+          contentSpaceActionArgs(snapshot.spaceId),
+        ],
         data,
       );
     },
@@ -1010,10 +1369,6 @@ export function DocumentSidebar({
     [],
   );
   const [expandedDocumentIds, setExpandedDocumentIds] = useState<string[]>([]);
-  const expandedDocumentIdSet = useMemo(
-    () => new Set(expandedDocumentIds),
-    [expandedDocumentIds],
-  );
   const sidebarStateHydratedRef = useRef(false);
   const expandedWorkspaceIdsRef = useRef<string[]>([]);
   const expandedDocumentIdsRef = useRef<string[]>([]);
@@ -1026,6 +1381,18 @@ export function DocumentSidebar({
     provisioningPending: ensureContentSpaces.isPending,
     provisioningError: ensureContentSpaces.isError,
   });
+  // Null only while Pinned's reads are in flight. Every settled read gives a
+  // count, so a failed or unavailable database draws its own state instead of
+  // holding the placeholder.
+  const pinnedCount = !favoritesDatabaseId
+    ? contentSpacesQuery.isSuccess
+      ? 0
+      : null
+    : favoritesDatabase.isError || favoritesPersonalView.isError
+      ? 0
+      : favoritesDatabase.isPending || favoritesPersonalView.isPending
+        ? null
+        : (favoritesData?.items.length ?? 0); // coercion-ok: an unavailable database draws as an empty Pinned list.
   const handleRetryContentSpaces = useCallback(() => {
     if (contentSpacesQuery.isError) {
       attemptedSpaceReconciliationKeyRef.current = null;
@@ -1037,10 +1404,12 @@ export function DocumentSidebar({
     ensureContentSpaces.mutate({});
   }, [contentSpacesQuery, ensureContentSpaces]);
   useEffect(() => {
-    if (selectedSpace && selectedSpace.id !== storedSpaceId) {
-      setStoredSpaceId(selectedSpace.id);
-    }
-  }, [selectedSpace, setStoredSpaceId, storedSpaceId]);
+    sidebarStateHydratedRef.current = false;
+    expandedWorkspaceIdsRef.current = [];
+    expandedDocumentIdsRef.current = [];
+    setExpandedWorkspaceIds([]);
+    setExpandedDocumentIds([]);
+  }, [selectedSpace?.id]);
   useEffect(() => {
     if (
       sidebarStateHydratedRef.current ||
@@ -1071,6 +1440,7 @@ export function DocumentSidebar({
       void sidebarStateWriteQueueRef
         .current?.({
           version: CONTENT_SIDEBAR_STATE_VERSION,
+          spaceId: selectedSpace?.id,
           expandedWorkspaceIds: workspaceIds,
           expandedDocumentIds: documentIds,
         })
@@ -1080,7 +1450,7 @@ export function DocumentSidebar({
           });
         });
     },
-    [t],
+    [selectedSpace?.id, t],
   );
 
   const updateExpandedWorkspaceIds = useCallback(
@@ -1157,16 +1527,18 @@ export function DocumentSidebar({
     async (
       space: (typeof contentSpaces)[number],
       targetDocumentId?: string | null,
+      explicitSelection = targetDocumentId === undefined,
     ) => {
-      updateExpandedWorkspaceIds((current) =>
-        ensureWorkspaceExpanded(current, space.id),
-      );
+      const previousExplicitSelection = explicitSpaceSelectionRef.current;
+      if (explicitSelection) {
+        explicitSpaceSelectionRef.current = space.id;
+      }
       try {
         await workspaceSelectionQueueRef.current(() =>
           selectContentSpace({
             space,
-            syncApplicationState: (selected) =>
-              setClientAppState(
+            syncApplicationState: async (selected) => {
+              await setClientAppState(
                 "content-space",
                 {
                   spaceId: selected.id,
@@ -1175,23 +1547,36 @@ export function DocumentSidebar({
                   filesDatabaseId: selected.filesDatabaseId,
                 },
                 { requestSource: "content-sidebar" },
-              ),
+              );
+              lastSyncedSpaceIdRef.current = selected.id;
+            },
             persistSelection: setStoredSpaceId,
-            openFiles: (documentId) => {
+            openSpace: (spaceId) => {
               if (targetDocumentId === null) return;
-              void navigate(`/page/${targetDocumentId ?? documentId}`, {
-                flushSync: true,
-              });
+              void navigate(
+                targetDocumentId
+                  ? `/page/${targetDocumentId}`
+                  : `/home?spaceId=${encodeURIComponent(spaceId)}`,
+                {
+                  flushSync: true,
+                },
+              );
             },
           }),
         );
         return true;
       } catch (error) {
+        if (
+          explicitSelection &&
+          explicitSpaceSelectionRef.current === space.id
+        ) {
+          explicitSpaceSelectionRef.current = previousExplicitSelection;
+        }
         toast.error(error instanceof Error ? error.message : String(error));
         return false;
       }
     },
-    [navigate, setStoredSpaceId, updateExpandedWorkspaceIds],
+    [navigate, setStoredSpaceId],
   );
   const handleWorkspaceCreated = useCallback(
     (created: CreatedWorkspace) =>
@@ -1210,26 +1595,44 @@ export function DocumentSidebar({
     [handleSelectContentSpace],
   );
   useEffect(() => {
-    if (!selectedSpace) return;
-    void setClientAppState(
-      "content-space",
-      {
-        spaceId: selectedSpace.id,
-        name: selectedSpace.name,
-        kind: selectedSpace.kind,
-        filesDatabaseId: selectedSpace.filesDatabaseId,
-      },
-      { requestSource: "content-sidebar" },
-    ).catch(() => {
-      // Space selection remains usable when best-effort agent context sync fails.
-    });
+    if (!selectedSpace || lastSyncedSpaceIdRef.current === selectedSpace.id)
+      return;
+    void workspaceSelectionQueueRef
+      .current(async () => {
+        if (lastSyncedSpaceIdRef.current === selectedSpace.id) return;
+        await setClientAppState(
+          "content-space",
+          {
+            spaceId: selectedSpace.id,
+            name: selectedSpace.name,
+            kind: selectedSpace.kind,
+            filesDatabaseId: selectedSpace.filesDatabaseId,
+          },
+          { requestSource: "content-sidebar" },
+        );
+        lastSyncedSpaceIdRef.current = selectedSpace.id;
+      })
+      .catch(() => {
+        // Space selection remains usable when best-effort agent context sync fails.
+      });
   }, [selectedSpace]);
-  const removeLocalFileSource = useActionMutation<
+  const removeLocalFileSource = useContentActionMutation<
     RemoveLocalFileSourceResult,
     { sourceRootPath?: string | null }
-  >("remove-local-file-source");
-  // Track user-expanded nodes only; active ancestors are derived below so they
-  // do not stay open after navigation unless the user explicitly expanded them.
+  >("remove-local-file-source", {
+    invalidates: [
+      contentDatabaseNavigationQueryFilter(),
+      ["action", "get-document"],
+      ["action", "get-content-database"],
+      ["action", "get-content-navigation-context"],
+      ["action", "get-content-recent"],
+      ["action", "list-content-spaces"],
+    ],
+  });
+  const [isMac, setIsMac] = useState(false);
+  useEffect(() => {
+    setIsMac(/Mac|iPhone|iPad|iPod/.test(navigator.platform));
+  }, []);
   const expandedIdsRef = useRef(new Set<string>());
   const [isResizing, setIsResizing] = useState(false);
   const [storedCollapsedSections, setStoredCollapsedSections] = useLocalStorage<
@@ -1239,6 +1642,12 @@ export function DocumentSidebar({
     () => normalizeCollapsedSections(storedCollapsedSections),
     [storedCollapsedSections],
   );
+  const { data: trashedDocuments } = useTrashedDocuments({
+    enabled: !collapsedSections.trash,
+  });
+  const { data: trashedDatabases } = useTrashedContentDatabases({
+    enabled: !collapsedSections.trash,
+  });
   useEffect(() => {
     try {
       if (
@@ -1260,20 +1669,177 @@ export function DocumentSidebar({
     id: string;
     title: string;
   } | null>(null);
+  const [pendingCreateDiscard, setPendingCreateDiscard] = useState<{
+    scope: DocumentCreateIntentScope;
+    intent: DocumentCreateIntent;
+  } | null>(null);
   const confirmedDeleteIdRef = useRef<string | null>(null);
   const pendingOptimisticCreationIdsRef = useRef(new Set<string>());
+  const restoredCreateIntentsRef = useRef(new Set<string>());
   const settleOptimisticListRefresh = useCallback(
     (id: string) => {
       pendingOptimisticCreationIdsRef.current.delete(id);
-      if (pendingOptimisticCreationIdsRef.current.size === 0) {
+      if (localFileMode && pendingOptimisticCreationIdsRef.current.size === 0) {
         void queryClient.invalidateQueries({
           queryKey: LIST_DOCUMENTS_QUERY_KEY,
         });
       }
     },
-    [queryClient],
+    [localFileMode, queryClient],
   );
-  const settingsActive = location.pathname.startsWith("/settings");
+  const discardPendingCreate = useCallback(async () => {
+    if (!pendingCreateDiscard) return;
+    const { intent, scope } = pendingCreateDiscard;
+    const draftScope = {
+      accountId: scope.accountId,
+      orgId: scope.orgId,
+      documentId: intent.id,
+    };
+    try {
+      await withDocumentCreateInFlight(
+        intent.id,
+        async () => {
+          const resolution = await readDocumentBeforeCreateDiscard(() =>
+            callAction<Document>(
+              "get-document",
+              { id: intent.id },
+              { method: "GET" },
+            ),
+          );
+          let drafts: ReturnType<typeof listPageDraftJournal>;
+          try {
+            drafts = listPageDraftJournal(draftScope);
+          } catch (error) {
+            toast.error(t("sidebar.failedCreatePage"), {
+              description:
+                error instanceof Error
+                  ? error.message
+                  : t("empty.genericError"),
+            });
+            return;
+          }
+
+          let intentCleared = false;
+          const clearedDrafts: typeof drafts = [];
+          try {
+            intentCleared = clearDocumentCreateIntent(scope, intent.id);
+            for (const draft of drafts) {
+              if (!clearPageDraftJournal(draft.scope, draft.snapshot)) {
+                throw new Error(t("editor.pageSaveBeforeNavigationFailed"));
+              }
+              clearedDrafts.push(draft);
+            }
+          } catch (error) {
+            for (const draft of clearedDrafts) {
+              try {
+                writePageDraftJournal({
+                  scope: draft.scope,
+                  snapshot: draft.snapshot,
+                });
+              } catch (restoreError) {
+                console.error(
+                  "Could not restore a discarded page draft.",
+                  restoreError,
+                );
+              }
+            }
+            if (intentCleared) {
+              try {
+                writeDocumentCreateIntent(scope, intent);
+              } catch (restoreError) {
+                console.error(
+                  "Could not restore a pending page creation.",
+                  restoreError,
+                );
+              }
+            }
+            toast.error(t("sidebar.failedCreatePage"), {
+              description:
+                error instanceof Error
+                  ? error.message
+                  : t("empty.genericError"),
+            });
+            return;
+          }
+
+          if (resolution.kind === "committed") {
+            const confirmed = markDocumentCreationConfirmed(
+              queryClient,
+              resolution.document,
+            );
+            queryClient.setQueryData(documentQueryKey(intent.id), confirmed);
+            queryClient.setQueryData(
+              LIST_DOCUMENTS_QUERY_KEY,
+              (old: unknown) => {
+                const docs: Document[] =
+                  (old as { documents?: Document[] })?.documents ??
+                  (Array.isArray(old) ? old : []);
+                const documents = docs.some(
+                  (document) => document.id === intent.id,
+                )
+                  ? docs.map((document) =>
+                      document.id === intent.id ? confirmed : document,
+                    )
+                  : [...docs, confirmed];
+                return withDocumentsCacheShape(old, documents);
+              },
+            );
+            seedCreatedDocumentNavigation(
+              queryClient,
+              confirmed,
+              intent.filesDatabaseId ?? null,
+            );
+            void queryClient.invalidateQueries(documentQueryFilter(intent.id));
+          } else {
+            clearDocumentCreationPending(queryClient, { id: intent.id });
+            queryClient.removeQueries(documentQueryFilter(intent.id));
+            removeCreatedDocumentNavigation(queryClient, intent);
+            queryClient.setQueryData(
+              LIST_DOCUMENTS_QUERY_KEY,
+              (old: unknown) => {
+                const docs: Document[] =
+                  (old as { documents?: Document[] })?.documents ??
+                  (Array.isArray(old) ? old : []);
+                return withDocumentsCacheShape(
+                  old,
+                  docs.filter((document) => document.id !== intent.id),
+                );
+              },
+            );
+          }
+          void queryClient.invalidateQueries({
+            queryKey: ["action", "list-documents"],
+          });
+          if (intent.filesDatabaseId) {
+            void queryClient.invalidateQueries({
+              queryKey: contentDatabaseByIdQueryKey(intent.filesDatabaseId),
+            });
+          }
+          settleOptimisticListRefresh(intent.id);
+          toast.dismiss(`create-page-retry-${intent.id}`);
+          if (locationRef.current.pathname === `/page/${intent.id}`) {
+            void navigate("/home", { replace: true, flushSync: true });
+          }
+          setPendingCreateDiscard(null);
+        },
+        scope,
+      );
+    } catch (error) {
+      toast.error(t("sidebar.failedCreatePage"), {
+        description:
+          error instanceof Error ? error.message : t("empty.genericError"),
+      });
+    }
+  }, [
+    navigate,
+    pendingCreateDiscard,
+    queryClient,
+    settleOptimisticListRefresh,
+    t,
+  ]);
+  const sidebarActiveDocumentId = location.pathname.startsWith("/trash")
+    ? null
+    : activeDocumentId;
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
@@ -1304,31 +1870,129 @@ export function DocumentSidebar({
     [onResize, width],
   );
 
-  const treeDocuments = filterDocumentTreeDocuments(documents);
-  const { localFileMode, databaseDocuments, showFavorites } =
-    getDocumentSidebarSections(documents, treeDocuments);
-
-  const activeDocument = activeDocumentId
-    ? documents.find((doc) => doc.id === activeDocumentId)
-    : null;
+  const navigationContextQuery = useContentNavigationContext(activeDocumentId);
+  useEffect(() => {
+    const filesDatabaseId =
+      navigationContextQuery.data?.workspaceFilesDatabaseId ?? null;
+    const reconciliation = contentSpaceRouteReconciliation({
+      activeDocumentId,
+      routeDocumentId: navigationContextQuery.data?.document.id,
+      routeFilesDatabaseId: filesDatabaseId,
+      selectedSpace,
+      explicitSpaceId: explicitSpaceSelectionRef.current,
+      spaces: contentSpaces,
+    });
+    if (reconciliation.explicitSelectionReachedRoute) {
+      explicitSpaceSelectionRef.current = null;
+    }
+    if (reconciliation.routeSpace) {
+      void handleSelectContentSpace(reconciliation.routeSpace, null);
+    }
+  }, [
+    activeDocumentId,
+    contentSpaces,
+    handleSelectContentSpace,
+    navigationContextQuery.data,
+    selectedSpace?.filesDatabaseId,
+  ]);
+  const activeDocument = navigationContextQuery.data?.document ?? null;
   const trashItems = trashedDatabases?.databases ?? [];
   const trashedPageItems = trashedDocuments?.documents ?? [];
-  const parentByDocumentId = useMemo(
-    () => new Map(documents.map((doc) => [doc.id, doc.parentId])),
-    [documents],
+  const activePathDocuments = useMemo(
+    () =>
+      localFileMode
+        ? documents.filter((document) =>
+            navigationContextQuery.data?.path.some(
+              (entry) => entry.id === document.id,
+            ),
+          )
+        : (navigationContextQuery.data?.path.map(
+            (entry): Document => ({
+              id: entry.id,
+              parentId: entry.parentId,
+              title: entry.title,
+              content: "",
+              description: "",
+              icon: entry.icon,
+              position: 0,
+              isFavorite: entry.isFavorite,
+              hideFromSearch: false,
+              visibility: entry.visibility,
+              accessRole: entry.accessRole,
+              canView: entry.canView,
+              canComment: entry.canComment,
+              canEdit: entry.canEdit,
+              canManage: entry.canManage,
+              source: entry.source,
+              database: undefined,
+              createdAt: entry.createdAt,
+              updatedAt: entry.updatedAt,
+              databaseMembership: entry.databaseId
+                ? {
+                    databaseId: entry.databaseId,
+                    databaseDocumentId: entry.databaseDocumentId,
+                    databaseTitle: null,
+                    position: null,
+                  }
+                : undefined,
+            }),
+          ) ?? []),
+    [documents, localFileMode, navigationContextQuery.data?.path],
+  );
+  const documentMetadata = useMemo(
+    () => new Map(activePathDocuments.map((doc) => [doc.id, doc])),
+    [activePathDocuments],
   );
 
   const activeAncestorIds = useMemo(() => {
     const ids = new Set<string>();
-    let parentId = activeDocumentId
-      ? (parentByDocumentId.get(activeDocumentId) ?? null)
-      : null;
-    while (parentId && !ids.has(parentId)) {
-      ids.add(parentId);
-      parentId = parentByDocumentId.get(parentId) ?? null;
+    for (const entry of navigationContextQuery.data?.path ?? []) {
+      if (entry.id !== activeDocumentId) ids.add(entry.id);
     }
     return ids;
-  }, [activeDocumentId, parentByDocumentId]);
+  }, [activeDocumentId, navigationContextQuery.data?.path]);
+  const visibleExpandedDocumentIds = useMemo(
+    () => openFilesFolderIds(activeAncestorIds, expandedDocumentIds),
+    [activeAncestorIds, expandedDocumentIds],
+  );
+  // Open folders are kept by ID with the rows they drew, so the next load
+  // reads them with the tree and holds their rows. Until the stored open
+  // folders arrive, only the active page's ancestors are known to be open, so
+  // folders are dropped from the hint only after that.
+  const rememberFilesBranches = useCallback(
+    (shown?: { documentId: string; rows: SidebarRowsHint }) => {
+      const current = readSidebarLayoutHint(
+        filesRootScope,
+        selectedSpaceId,
+      ).branches;
+      const branches = shown
+        ? withShownFilesBranch(current, shown.documentId, shown.rows)
+        : { ...current };
+      rememberLayout({
+        branches: Object.fromEntries(
+          Object.entries(branches).filter(
+            ([documentId]) =>
+              !sidebarStateHydratedRef.current ||
+              visibleExpandedDocumentIds.has(documentId),
+          ),
+        ),
+      });
+    },
+    [
+      filesRootScope,
+      rememberLayout,
+      selectedSpaceId,
+      visibleExpandedDocumentIds,
+    ],
+  );
+  const rememberFilesBranch = useCallback(
+    (documentId: string, rows: SidebarRowsHint) =>
+      rememberFilesBranches({ documentId, rows }),
+    [rememberFilesBranches],
+  );
+  useEffect(() => {
+    if (sidebarStateHydratedRef.current) rememberFilesBranches();
+  }, [rememberFilesBranches]);
 
   const expandedIds = new Set(expandedIdsRef.current);
   for (const id of activeAncestorIds) expandedIds.add(id);
@@ -1339,6 +2003,446 @@ export function DocumentSidebar({
     },
     [navigate],
   );
+
+  useEffect(() => {
+    if (!session?.email) return;
+    const scope = {
+      accountId: session.email,
+      orgId: session.orgId ?? null,
+    };
+    let intents;
+    try {
+      intents = readDocumentCreateIntents(scope);
+    } catch (error) {
+      console.error("Could not read pending Content page creations.", error);
+      toast.error(t("sidebar.failedCreatePage"), {
+        id: "pending-create-intents-read",
+        description:
+          error instanceof Error ? error.message : t("empty.genericError"),
+      });
+      return;
+    }
+
+    for (const intent of intents) {
+      const restoreKey = `${scope.accountId}:${scope.orgId ?? ""}:${intent.id}`;
+      if (isDocumentCreateInFlight(intent.id)) continue;
+      if (restoredCreateIntentsRef.current.has(restoreKey)) continue;
+      restoredCreateIntentsRef.current.add(restoreKey);
+
+      const draftScope = {
+        accountId: scope.accountId,
+        orgId: scope.orgId,
+        documentId: intent.id,
+      };
+      const journalRead = readCreateRecoveryDraft(() =>
+        readPageDraftJournal(draftScope),
+      );
+      const journal =
+        journalRead.kind === "readable" ? journalRead.entry : null;
+      if (journalRead.kind === "unreadable") {
+        console.error(
+          "Could not read the draft for a pending Content page.",
+          journalRead.error,
+        );
+      }
+
+      const documentQueryKey = ["action", "get-document", { id: intent.id }];
+      const cached = queryClient.getQueryData<Document>(documentQueryKey);
+      let pendingDocument: Document | undefined;
+      if (journalRead.kind === "readable") {
+        const tempDoc = markDocumentCreationPending(queryClient, {
+          ...(cached?.id === intent.id ? cached : {}),
+          id: intent.id,
+          parentId: intent.parentId,
+          title: journal?.snapshot.title ?? cached?.title ?? "",
+          content: journal?.snapshot.content ?? cached?.content ?? "",
+          icon: cached?.icon ?? null,
+          position: cached?.position ?? 9999,
+          isFavorite: cached?.isFavorite ?? false,
+          hideFromSearch: cached?.hideFromSearch ?? false,
+          visibility: cached?.visibility ?? "private",
+          accessRole: cached?.accessRole ?? "owner",
+          canEdit: cached?.canEdit ?? true,
+          canManage: cached?.canManage ?? true,
+          createdAt: intent.createdAt,
+          updatedAt: cached?.updatedAt ?? intent.createdAt,
+        });
+        pendingDocument = tempDoc;
+        pendingOptimisticCreationIdsRef.current.add(intent.id);
+        queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: any) => {
+          const docs: Document[] =
+            old?.documents ?? (Array.isArray(old) ? old : []);
+          const documents = docs.some((item) => item.id === tempDoc.id)
+            ? docs.map((item) => (item.id === tempDoc.id ? tempDoc : item))
+            : [...docs, tempDoc];
+          return withDocumentsCacheShape(old, documents);
+        });
+        queryClient.setQueryData(documentQueryKey, tempDoc);
+        seedCreatedDocumentNavigation(
+          queryClient,
+          tempDoc,
+          intent.filesDatabaseId ?? null,
+        );
+        if (intent.filesDatabaseId) {
+          const optimisticItem: ContentDatabaseItem = {
+            id: `optimistic-${intent.id}`,
+            databaseId: intent.filesDatabaseId,
+            document: tempDoc,
+            position: tempDoc.position,
+            properties: [],
+          };
+          queryClient.setQueryData<ContentDatabaseResponse>(
+            contentDatabaseByIdQueryKey(intent.filesDatabaseId),
+            (current) =>
+              applyOptimisticItemToContentDatabase(current, optimisticItem),
+          );
+        }
+      }
+
+      const retryToastId = "create-page-retry-" + intent.id;
+      let retrying = false;
+      const showRetry = (
+        error?: unknown,
+        draftPreserved = Boolean(journal),
+      ) => {
+        const errorDescription = error
+          ? error instanceof PageDraftJournalError ||
+            !(error instanceof Error && error.message)
+            ? t("editor.pageSaveBeforeNavigationFailed")
+            : error instanceof Error
+              ? error.message
+              : t("empty.genericError")
+          : null;
+        toast.error(t("sidebar.failedCreatePage"), {
+          id: retryToastId,
+          ...(errorDescription || draftPreserved
+            ? {
+                description: [
+                  errorDescription,
+                  draftPreserved
+                    ? t("sidebar.failedCreatePageDraftDescription")
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(" "),
+              }
+            : {}),
+          duration: Infinity,
+          action: {
+            label: t("root.searchRetry"),
+            onClick: () => void retry(true),
+          },
+          cancel: {
+            label: t("editor.discardSuggestionDraft"),
+            onClick: () => setPendingCreateDiscard({ scope, intent }),
+          },
+        });
+      };
+      const retry = async (manual = false) => {
+        if (retrying) return;
+        retrying = true;
+        try {
+          await withDocumentCreateInFlight(
+            intent.id,
+            async () => {
+              let currentIntent = intent;
+              try {
+                const storedIntent = readDocumentCreateIntent(scope, intent.id);
+                if (!storedIntent) {
+                  const resolution = await readDocumentBeforeCreateDiscard(() =>
+                    callAction<Document>(
+                      "get-document",
+                      { id: intent.id },
+                      { method: "GET" },
+                    ),
+                  );
+                  if (resolution.kind === "committed") {
+                    const confirmed = markDocumentCreationConfirmed(
+                      queryClient,
+                      resolution.document,
+                    );
+                    queryClient.setQueryData(documentQueryKey, confirmed);
+                    queryClient.setQueryData(
+                      LIST_DOCUMENTS_QUERY_KEY,
+                      (old: unknown) => {
+                        const docs: Document[] =
+                          (old as { documents?: Document[] })?.documents ??
+                          (Array.isArray(old) ? old : []);
+                        const documents = docs.some(
+                          (document) => document.id === intent.id,
+                        )
+                          ? docs.map((document) =>
+                              document.id === intent.id ? confirmed : document,
+                            )
+                          : [...docs, confirmed];
+                        return withDocumentsCacheShape(old, documents);
+                      },
+                    );
+                    seedCreatedDocumentNavigation(
+                      queryClient,
+                      confirmed,
+                      intent.filesDatabaseId ?? null,
+                    );
+                  } else {
+                    clearDocumentCreationPending(queryClient, {
+                      id: intent.id,
+                    });
+                    queryClient.removeQueries(documentQueryFilter(intent.id));
+                    removeCreatedDocumentNavigation(queryClient, intent);
+                    queryClient.setQueryData(
+                      LIST_DOCUMENTS_QUERY_KEY,
+                      (old: unknown) => {
+                        const docs: Document[] =
+                          (old as { documents?: Document[] })?.documents ??
+                          (Array.isArray(old) ? old : []);
+                        return withDocumentsCacheShape(
+                          old,
+                          docs.filter((document) => document.id !== intent.id),
+                        );
+                      },
+                    );
+                  }
+                  void queryClient.invalidateQueries(
+                    documentQueryFilter(intent.id),
+                  );
+                  void queryClient.invalidateQueries({
+                    queryKey: ["action", "list-documents"],
+                  });
+                  if (intent.filesDatabaseId) {
+                    void queryClient.invalidateQueries({
+                      queryKey: contentDatabaseByIdQueryKey(
+                        intent.filesDatabaseId,
+                      ),
+                    });
+                  }
+                  settleOptimisticListRefresh(intent.id);
+                  toast.dismiss(retryToastId);
+                  return;
+                }
+                currentIntent = storedIntent;
+                if (!manual && currentIntent.status === "failed") {
+                  showRetry();
+                  return;
+                }
+                const read = () => readPageDraftJournal(draftScope);
+                const { created, draft } = await retryCreateAfterIntentWrite(
+                  scope,
+                  currentIntent,
+                  read,
+                  () =>
+                    createDocumentAsync({
+                      id: currentIntent.id,
+                      title: "",
+                      parentId: currentIntent.parentId ?? undefined,
+                      spaceId: currentIntent.parentId
+                        ? undefined
+                        : (currentIntent.spaceId ?? undefined),
+                    }),
+                );
+                let confirmedDocument: Document = created;
+                if (draft) {
+                  const replay = prepareCreatedDraftReplay(created, draft);
+                  if (replay) {
+                    const requeued = writePageDraftJournal({
+                      scope: draft.scope,
+                      snapshot: replay.snapshot,
+                    });
+                    const replayWithLatest = prepareCreatedDraftReplay(
+                      created,
+                      {
+                        ...draft,
+                        snapshot: requeued.snapshot,
+                      },
+                    );
+                    if (replayWithLatest) {
+                      const current = writePageDraftJournal({
+                        scope: draft.scope,
+                        snapshot: replayWithLatest.snapshot,
+                      });
+                      const finalReplay = prepareCreatedDraftReplay(created, {
+                        ...draft,
+                        snapshot: current.snapshot,
+                      });
+                      if (finalReplay) {
+                        const result = await updateDocumentAsync(
+                          finalReplay.request,
+                        );
+                        if (
+                          isDocumentUpdateConflict(result) ||
+                          isDocumentUpdatePreservationRequired(result) ||
+                          isDocumentUpdateSuperseded(result)
+                        ) {
+                          throw new Error(
+                            t("editor.pageSaveBeforeNavigationFailed"),
+                          );
+                        }
+                        const intentOutcome = (
+                          result as Document & {
+                            bodyIntentOutcome?: {
+                              status: "applied" | "displaced-preserved";
+                            };
+                          }
+                        ).bodyIntentOutcome;
+                        const confirmsBodyIntent =
+                          intentOutcome?.status === "applied" ||
+                          intentOutcome?.status === "displaced-preserved";
+                        if (
+                          result.title !== finalReplay.snapshot.title ||
+                          (result.content !== finalReplay.snapshot.content &&
+                            !confirmsBodyIntent)
+                        ) {
+                          throw new Error(
+                            t("editor.pageSaveBeforeNavigationFailed"),
+                          );
+                        }
+                        confirmedDocument = result;
+                        clearPageDraftJournal(
+                          draft.scope,
+                          finalReplay.snapshot,
+                        );
+                      }
+                    } else {
+                      clearPageDraftJournal(draft.scope, requeued.snapshot);
+                    }
+                  } else {
+                    clearPageDraftJournal(draft.scope, draft.snapshot);
+                  }
+                }
+                const remainingDraft = read();
+                confirmedDocument = mergeCreatedDocumentWithDraft(
+                  confirmedDocument,
+                  remainingDraft,
+                );
+                markDocumentCreationConfirmed(queryClient, created);
+                queryClient.setQueryData(documentQueryKey, confirmedDocument);
+                queryClient.setQueryData(
+                  LIST_DOCUMENTS_QUERY_KEY,
+                  (old: any) => {
+                    const docs: Document[] =
+                      old?.documents ?? (Array.isArray(old) ? old : []);
+                    const documents = docs.some(
+                      (item) => item.id === confirmedDocument.id,
+                    )
+                      ? docs.map((item) =>
+                          item.id === confirmedDocument.id
+                            ? confirmedDocument
+                            : item,
+                        )
+                      : [...docs, confirmedDocument];
+                    return withDocumentsCacheShape(old, documents);
+                  },
+                );
+                try {
+                  clearDocumentCreateIntent(scope, intent.id);
+                } catch (error) {
+                  console.error(
+                    "Could not clear the confirmed Content create intent.",
+                    error,
+                  );
+                }
+                if (locationRef.current.pathname !== `/page/${created.id}`) {
+                  clearDocumentCreationConfirmed(queryClient, {
+                    id: created.id,
+                  });
+                }
+                void queryClient.invalidateQueries(
+                  documentQueryFilter(intent.id),
+                );
+                void queryClient.invalidateQueries({
+                  queryKey: ["action", "list-documents"],
+                });
+                settleOptimisticListRefresh(intent.id);
+                if (intent.filesDatabaseId) {
+                  void queryClient.invalidateQueries({
+                    queryKey: contentDatabaseByIdQueryKey(
+                      intent.filesDatabaseId,
+                    ),
+                  });
+                }
+                toast.dismiss(retryToastId);
+              } catch (error) {
+                const currentDraft = readCreateRecoveryDraft(() =>
+                  readPageDraftJournal(draftScope),
+                );
+                const preserved =
+                  currentDraft.kind === "readable" && currentDraft.entry
+                    ? currentDraft.entry
+                    : journal;
+                if (preserved) {
+                  const current =
+                    queryClient.getQueryData<Document>(documentQueryKey) ??
+                    pendingDocument;
+                  if (current) {
+                    const nextPending = markDocumentCreationPending(
+                      queryClient,
+                      {
+                        ...current,
+                        title: preserved.snapshot.title,
+                        content: preserved.snapshot.content,
+                      },
+                    );
+                    pendingDocument = nextPending;
+                    queryClient.setQueryData(documentQueryKey, nextPending);
+                    queryClient.setQueryData(
+                      LIST_DOCUMENTS_QUERY_KEY,
+                      (old: any) => {
+                        const docs: Document[] =
+                          old?.documents ?? (Array.isArray(old) ? old : []);
+                        const documents = docs.some(
+                          (item) => item.id === nextPending.id,
+                        )
+                          ? docs.map((item) =>
+                              item.id === nextPending.id ? nextPending : item,
+                            )
+                          : [...docs, nextPending];
+                        return withDocumentsCacheShape(old, documents);
+                      },
+                    );
+                  }
+                } else {
+                  if (pendingDocument)
+                    queryClient.setQueryData(documentQueryKey, pendingDocument);
+                }
+                try {
+                  writeDocumentCreateIntent(scope, {
+                    ...currentIntent,
+                    status: "failed",
+                  });
+                } catch (statusError) {
+                  console.error(
+                    "Could not save the failed Content create state.",
+                    statusError,
+                  );
+                }
+                showRetry(error, Boolean(preserved));
+              }
+            },
+            scope,
+          );
+        } catch (error) {
+          showRetry(error, Boolean(journal));
+        } finally {
+          retrying = false;
+        }
+      };
+      if (shouldAutoRetryDocumentCreate(intent)) {
+        void retry();
+      } else {
+        showRetry(
+          journalRead.kind === "unreadable" ? journalRead.error : undefined,
+          Boolean(journal),
+        );
+      }
+    }
+  }, [
+    createDocumentAsync,
+    queryClient,
+    session?.email,
+    session?.orgId,
+    settleOptimisticListRefresh,
+    t,
+    updateDocumentAsync,
+  ]);
 
   const handleCreatePage = useCallback(
     async (
@@ -1362,7 +2466,7 @@ export function DocumentSidebar({
           });
           queryClient.setQueryData(
             ["action", "get-document", { id: created.id }],
-            created,
+            markDocumentCreationConfirmed(queryClient, created),
           );
           void queryClient.invalidateQueries({
             queryKey: ["action", "list-documents"],
@@ -1382,7 +2486,19 @@ export function DocumentSidebar({
 
       const id = optimisticId ?? nanoid();
       const now = new Date().toISOString();
-      const tempDoc = markDocumentCreationPending({
+      const createIntentScope = session?.email
+        ? { accountId: session.email, orgId: session.orgId ?? null }
+        : null;
+      const createIntent: DocumentCreateIntent = {
+        id,
+        parentId: parentId ?? null,
+        spaceId: parentId ? null : (rootSpaceId ?? null),
+        ...(rootFilesDatabaseId
+          ? { filesDatabaseId: rootFilesDatabaseId }
+          : {}),
+        createdAt: now,
+      };
+      const tempDoc = markDocumentCreationPending(queryClient, {
         id,
         parentId: parentId ?? null,
         title: "",
@@ -1398,19 +2514,19 @@ export function DocumentSidebar({
         createdAt: now,
         updatedAt: now,
       });
-      const previousDocuments = queryClient.getQueryData(
-        LIST_DOCUMENTS_QUERY_KEY,
-      );
-      const previousPath = `${location.pathname}${location.search}${location.hash}`;
       pendingOptimisticCreationIdsRef.current.add(id);
 
-      // Optimistically inject into caches so UI updates immediately
       queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: any) => {
         const docs: Document[] =
           old?.documents ?? (Array.isArray(old) ? old : []);
         return withDocumentsCacheShape(old, [...docs, tempDoc]);
       });
       queryClient.setQueryData(["action", "get-document", { id }], tempDoc);
+      seedCreatedDocumentNavigation(
+        queryClient,
+        tempDoc,
+        rootFilesDatabaseId ?? null,
+      );
       if (rootFilesDatabaseId) {
         const optimisticItem: ContentDatabaseItem = {
           id: `optimistic-${id}`,
@@ -1429,71 +2545,153 @@ export function DocumentSidebar({
       navigateToDocument(id);
       onNavigate?.();
 
-      try {
-        const created = await createDocument.mutateAsync({
+      const persistCreatedPage = async () =>
+        withDocumentCreateInFlight(
           id,
-          title: "",
-          parentId: parentId ?? undefined,
-          spaceId: parentId ? undefined : rootSpaceId,
-        });
-        const nextId = created?.id || id;
-        queryClient.setQueryData(
-          ["action", "get-document", { id: nextId }],
-          created,
+          async () => {
+            if (createIntentScope) {
+              writeDocumentCreateIntentBestEffort(createIntentScope, {
+                ...createIntent,
+                status: "pending",
+              });
+            }
+            try {
+              const created = await createDocument.mutateAsync({
+                id,
+                title: "",
+                parentId: parentId ?? undefined,
+                spaceId: parentId ? undefined : rootSpaceId,
+              });
+              const nextId = created?.id || id;
+              const confirmed = markDocumentCreationConfirmed(
+                queryClient,
+                created,
+              );
+              if (createIntentScope) {
+                try {
+                  clearDocumentCreateIntent(createIntentScope, id);
+                } catch (error) {
+                  console.error(
+                    "Could not clear the confirmed Content create intent.",
+                    error,
+                  );
+                }
+              }
+              queryClient.setQueryData(
+                ["action", "get-document", { id: nextId }],
+                confirmed,
+              );
+              if (nextId !== id) {
+                queryClient.removeQueries(documentQueryFilter(id));
+                navigateToDocument(nextId);
+              }
+              if (locationRef.current.pathname !== `/page/${nextId}`) {
+                clearDocumentCreationConfirmed(queryClient, { id: nextId });
+              }
+              void queryClient.invalidateQueries(documentQueryFilter(nextId));
+              settleOptimisticListRefresh(id);
+              if (rootFilesDatabaseId) {
+                void queryClient.invalidateQueries({
+                  queryKey: contentDatabaseByIdQueryKey(rootFilesDatabaseId),
+                });
+              }
+            } catch (error) {
+              if (createIntentScope) {
+                try {
+                  writeDocumentCreateIntent(createIntentScope, {
+                    ...createIntent,
+                    status: "failed",
+                  });
+                } catch (statusError) {
+                  console.error(
+                    "Could not save the failed Content create state.",
+                    statusError,
+                  );
+                }
+              }
+              throw error;
+            }
+          },
+          createIntentScope,
         );
-        if (nextId !== id) {
-          queryClient.removeQueries(documentQueryFilter(id));
-          navigateToDocument(nextId);
+      const retryToastId = `create-page-retry-${id}`;
+      let retrying = false;
+      function showCreatePageRetry(err: unknown) {
+        const recoveryDraft = createIntentScope
+          ? readCreateRecoveryDraft(() =>
+              readPageDraftJournal({
+                accountId: createIntentScope.accountId,
+                orgId: createIntentScope.orgId,
+                documentId: id,
+              }),
+            )
+          : null;
+        const draftPreserved =
+          recoveryDraft?.kind === "readable" && recoveryDraft.entry !== null;
+        toast.error(t("sidebar.failedCreatePage"), {
+          id: retryToastId,
+          description: [
+            err instanceof Error && err.message
+              ? err.message
+              : t("empty.genericError"),
+            draftPreserved
+              ? t("sidebar.failedCreatePageDraftDescription")
+              : null,
+          ]
+            .filter(Boolean)
+            .join(" "),
+          duration: Infinity,
+          action: {
+            label: t("root.searchRetry"),
+            onClick: () => {
+              void retryCreatedPage();
+            },
+          },
+          ...(createIntentScope
+            ? {
+                cancel: {
+                  label: t("editor.discardSuggestionDraft"),
+                  onClick: () =>
+                    setPendingCreateDiscard({
+                      scope: createIntentScope,
+                      intent: createIntent,
+                    }),
+                },
+              }
+            : {}),
+        });
+      }
+      async function retryCreatedPage() {
+        if (retrying) return;
+        retrying = true;
+        try {
+          await persistCreatedPage();
+          toast.dismiss(retryToastId);
+        } catch (retryErr) {
+          showCreatePageRetry(retryErr);
+        } finally {
+          retrying = false;
         }
-        // Replace optimistic doc with real server doc + clear any 404 error
-        // state from the in-flight fetch that ran before create completed.
-        void queryClient.invalidateQueries(documentQueryFilter(nextId));
-        settleOptimisticListRefresh(id);
-        if (rootFilesDatabaseId) {
-          void queryClient.invalidateQueries({
-            queryKey: contentDatabaseByIdQueryKey(rootFilesDatabaseId),
-          });
-        }
+      }
+
+      try {
+        await persistCreatedPage();
         settleParentExpansion(true);
       } catch (err) {
-        settleParentExpansion(false);
-        rollbackOptimisticCreatedDocument(
-          queryClient,
-          id,
-          previousDocuments !== undefined,
-        );
-        settleOptimisticListRefresh(id);
-        queryClient.removeQueries(documentQueryFilter(id));
-        if (rootFilesDatabaseId) {
-          queryClient.setQueryData<ContentDatabaseResponse>(
-            contentDatabaseByIdQueryKey(rootFilesDatabaseId),
-            (current) => removeOptimisticItemFromContentDatabase(current, id),
-          );
-        }
-        if (window.location.pathname === `/page/${id}`) {
-          void navigate(previousPath, {
-            replace: true,
-            flushSync: true,
-          });
-        }
-        toast.error(t("sidebar.failedCreatePage"), {
-          description:
-            err instanceof Error ? err.message : t("empty.genericError"),
-        });
+        settleParentExpansion(true);
+        showCreatePageRetry(err);
       }
     },
     [
       createDocument,
       localFileMode,
-      location.hash,
-      location.pathname,
-      location.search,
-      navigate,
       navigateToDocument,
       onNavigate,
       queryClient,
       revealParentForCreation,
       selectedSpace?.id,
+      session?.email,
+      session?.orgId,
       settleOptimisticListRefresh,
       t,
     ],
@@ -1505,7 +2703,7 @@ export function DocumentSidebar({
       const id = nanoid();
       const now = new Date().toISOString();
       const title = t("editor.untitledDatabase");
-      const tempDoc = markDocumentCreationPending({
+      const tempDoc = markDocumentCreationPending(queryClient, {
         id,
         parentId: parentId ?? null,
         title,
@@ -1521,18 +2719,26 @@ export function DocumentSidebar({
         createdAt: now,
         updatedAt: now,
       });
-      const previousDocuments = queryClient.getQueryData(
-        LIST_DOCUMENTS_QUERY_KEY,
-      );
+      const previousDocuments = localFileMode
+        ? queryClient.getQueryData(LIST_DOCUMENTS_QUERY_KEY)
+        : undefined;
       const previousPath = `${location.pathname}${location.search}${location.hash}`;
       pendingOptimisticCreationIdsRef.current.add(id);
 
-      queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: any) => {
-        const docs: Document[] =
-          old?.documents ?? (Array.isArray(old) ? old : documents);
-        return withDocumentsCacheShape(old, [...docs, tempDoc]);
-      });
+      if (localFileMode) {
+        queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: any) => {
+          const docs: Document[] =
+            old?.documents ?? (Array.isArray(old) ? old : documents);
+          return withDocumentsCacheShape(old, [...docs, tempDoc]);
+        });
+      }
       queryClient.setQueryData(["action", "get-document", { id }], tempDoc);
+      seedCreatedDocumentNavigation(
+        queryClient,
+        tempDoc,
+        contentSpaces.find((space) => space.id === rootSpaceId)
+          ?.filesDatabaseId ?? null,
+      );
       navigateToDocument(id);
       onNavigate?.();
 
@@ -1555,23 +2761,27 @@ export function DocumentSidebar({
           }),
         );
         const nextId = result.database.documentId;
+        clearDocumentCreationPending(queryClient, { id });
         if (nextId !== id) {
           queryClient.removeQueries(documentQueryFilter(id));
           navigateToDocument(nextId);
         }
-        void queryClient.invalidateQueries(documentQueryFilter(nextId));
+        startPageOpenDocumentReads(queryClient, nextId);
         settleOptimisticListRefresh(id);
         settleParentExpansion(true);
       } catch (err) {
         settleParentExpansion(false);
-        rollbackOptimisticCreatedDocument(
-          queryClient,
-          id,
-          previousDocuments !== undefined,
-        );
+        if (localFileMode) {
+          rollbackOptimisticCreatedDocument(
+            queryClient,
+            id,
+            previousDocuments !== undefined,
+          );
+        }
         queryClient.removeQueries(documentQueryFilter(id));
+        removeCreatedDocumentNavigation(queryClient, tempDoc);
         settleOptimisticListRefresh(id);
-        if (window.location.pathname === `/page/${id}`) {
+        if (locationRef.current.pathname === `/page/${id}`) {
           void navigate(previousPath, {
             replace: true,
             flushSync: true,
@@ -1601,22 +2811,40 @@ export function DocumentSidebar({
     ],
   );
 
+  const selectSpaceForCreation = useCallback(
+    async (space: ContentSpaceSummary) => {
+      if (selectedSpace?.id !== space.id) {
+        return handleSelectContentSpace(space, null, true);
+      }
+      return true;
+    },
+    [handleSelectContentSpace, selectedSpace?.id],
+  );
+
   const handleCreatePageInSpace = useCallback(
     async (space: ContentSpaceSummary) => {
       const id = nanoid();
-      if (selectedSpace?.id !== space.id) {
-        void handleSelectContentSpace(space, null);
-      }
+      if (!(await selectSpaceForCreation(space))) return;
       await handleCreatePage(undefined, space.id, id, space.filesDatabaseId);
     },
-    [handleCreatePage, handleSelectContentSpace, selectedSpace?.id],
+    [handleCreatePage, selectSpaceForCreation],
+  );
+
+  const handleCreateDatabaseInSpace = useCallback(
+    async (space: ContentSpaceSummary) => {
+      if (!(await selectSpaceForCreation(space))) return;
+      await handleCreateDatabase(undefined, space.id);
+    },
+    [handleCreateDatabase, selectSpaceForCreation],
   );
 
   const handleDelete = useCallback(
     async (id: string) => {
-      const deletedDocument = documents.find((doc) => doc.id === id) ?? null;
-      const deletedIds = collectDocumentSubtreeIds(documents, id);
-      const activeDeleted = activeDocumentId
+      const deletedDocument = documentMetadata.get(id) ?? null;
+      const deletedIds = localFileMode
+        ? collectDocumentSubtreeIds(documents, id)
+        : new Set([id]);
+      let activeDeleted = activeDocumentId
         ? deletedIds.has(activeDocumentId)
         : false;
       const survivingDocuments = documents.filter(
@@ -1637,15 +2865,17 @@ export function DocumentSidebar({
       );
       const previousPath = `${location.pathname}${location.search}${location.hash}`;
 
-      queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: unknown) => {
-        const cachedDocs: Document[] =
-          (old as { documents?: Document[] })?.documents ??
-          (Array.isArray(old) ? old : documents);
-        return withDocumentsCacheShape(
-          old,
-          cachedDocs.filter((doc) => !deletedIds.has(doc.id)),
-        );
-      });
+      if (localFileMode) {
+        queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: unknown) => {
+          const cachedDocs: Document[] =
+            (old as { documents?: Document[] })?.documents ??
+            (Array.isArray(old) ? old : documents);
+          return withDocumentsCacheShape(
+            old,
+            cachedDocs.filter((doc) => !deletedIds.has(doc.id)),
+          );
+        });
+      }
       for (const deletedId of deletedIds) {
         queryClient.removeQueries(documentQueryFilter(deletedId));
       }
@@ -1659,22 +2889,42 @@ export function DocumentSidebar({
 
       try {
         if (deletedDocument?.database) {
-          await deleteContentDatabase.mutateAsync({
+          const result = await deleteContentDatabase.mutateAsync({
             databaseId: deletedDocument.database.id,
+            activeDocumentId: activeDocumentId ?? undefined,
           });
+          activeDeleted = result.activeTargetDeleted;
+          if (result.navigationPath) {
+            void navigate(result.navigationPath, {
+              replace: true,
+              flushSync: true,
+            });
+          }
         } else {
-          await deleteDocument.mutateAsync({ id });
+          const result = await deleteDocument.mutateAsync({
+            id,
+            activeDocumentId: activeDocumentId ?? undefined,
+          });
+          activeDeleted = result.activeTargetDeleted ?? false;
+          if (result.navigationPath) {
+            void navigate(result.navigationPath, {
+              replace: true,
+              flushSync: true,
+            });
+          }
         }
         void queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
       } catch (err) {
-        restoreDeletedDocumentSnapshots(
-          queryClient,
-          previousDocuments,
-          previousDocumentQueries,
-          deletedIds,
-        );
+        if (localFileMode) {
+          restoreDeletedDocumentSnapshots(
+            queryClient,
+            previousDocuments,
+            previousDocumentQueries,
+            deletedIds,
+          );
+        }
         void queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
@@ -1711,59 +2961,38 @@ export function DocumentSidebar({
   }, []);
 
   const handlePinnedReorder = useCallback(
-    (_itemIds: string[], moved: { itemId: string; position: number }) => {
+    (itemIds: string[], previousItemIds: string[]) => {
       if (!favoritesDatabaseId) return;
-      movePinnedItem.mutate(
+      updateFavoritesPersonalView.mutate(
         {
           databaseId: favoritesDatabaseId,
-          itemId: moved.itemId,
-          position: moved.position,
-        },
-        {
-          onError: (error) => {
-            toast.error(t("sidebar.failedSaveOrder"), {
-              description:
-                error instanceof Error
-                  ? error.message
-                  : t("empty.genericError"),
-            });
+          navigation: {
+            sidebarOrder: {
+              viewId: favoritesOrder.activeViewId,
+              ...contentSidebarSubsetReorder(itemIds, previousItemIds),
+            },
           },
         },
+        { onError: () => toast.error(t("sidebar.failedSaveOrder")) },
       );
     },
-    [favoritesDatabaseId, movePinnedItem, t],
+    [
+      favoritesDatabaseId,
+      favoritesOrder,
+      favoritesPersonalView.data?.overrides,
+      updateFavoritesPersonalView,
+      t,
+    ],
   );
-
-  const handleWorkspaceReorder = useCallback(
-    (_itemIds: string[], moved: { itemId: string; position: number }) => {
-      if (!workspaceCatalogDatabaseId) return;
-      moveWorkspaceItem.mutate(
-        {
-          databaseId: workspaceCatalogDatabaseId,
-          itemId: moved.itemId,
-          position: moved.position,
-        },
-        {
-          onError: (error) => {
-            toast.error(t("sidebar.failedSaveOrder"), {
-              description:
-                error instanceof Error
-                  ? error.message
-                  : t("empty.genericError"),
-            });
-          },
-        },
-      );
-    },
-    [moveWorkspaceItem, t, workspaceCatalogDatabaseId],
-  );
-
   const handleToggleFavorite = useCallback(
     (id: string, isFavorite: boolean) => {
       updateDocument.mutate(
         { id, isFavorite },
         {
           onError: (error) => {
+            void queryClient.invalidateQueries({
+              queryKey: ["action", "get-content-recent"],
+            });
             toast.error(t("sidebar.failedUpdateFavorite"), {
               description:
                 error instanceof Error
@@ -1774,7 +3003,102 @@ export function DocumentSidebar({
         },
       );
     },
-    [t, updateDocument],
+    [queryClient, t, updateDocument],
+  );
+
+  const moveDocument = useMoveDocument();
+  const duplicateDocument = useActionMutation("duplicate-page", {
+    skipActionQueryInvalidation: true,
+    onSuccess: (_result, { documentId }) =>
+      invalidateContentQueries(queryClient, [
+        ...contentRowTargets(queryClient, [documentId]),
+        contentFilesCollectionFilter(),
+      ]),
+  });
+  const [movingPage, setMovingPage] = useState<MovePageTarget | null>(null);
+  const sidebarPageActions = useMemo<SidebarPageActions>(
+    () => ({
+      renamePage: async (documentId, title) => {
+        try {
+          await updateDocument.mutateAsync({ id: documentId, title });
+        } catch (error) {
+          toast.error(t("sidebar.failedRenamePage"), {
+            description:
+              error instanceof Error ? error.message : t("empty.genericError"),
+          });
+          throw error;
+        }
+      },
+      duplicatePage: (documentId) => {
+        duplicateDocument.mutate(
+          { documentId },
+          {
+            onSuccess: (result) => {
+              if (result?.copiedFromLastSave?.length) {
+                toast.info(t("sidebar.duplicatedFromLastSave"));
+              }
+            },
+            onError: (error) => {
+              toast.error(t("sidebar.failedDuplicatePage"), {
+                description:
+                  error instanceof Error
+                    ? error.message
+                    : t("empty.genericError"),
+              });
+            },
+          },
+        );
+      },
+      movePage: ({ documentId, title, spaceId }) =>
+        setMovingPage({
+          documentId,
+          title,
+          spaceId: spaceId ?? selectedSpace?.id ?? null,
+        }),
+    }),
+    [duplicateDocument, selectedSpace?.id, t, updateDocument],
+  );
+  const moveSpaces = useMemo(
+    () =>
+      contentSpaces.filter(
+        (space) =>
+          space.id === movingPage?.spaceId ||
+          (space.kind !== "source_backed" && space.canCreateDatabase !== false),
+      ),
+    [contentSpaces, movingPage?.spaceId],
+  );
+  const handleMovePage = useCallback(
+    (page: MovePageTarget, { spaceId, parentId }: MovePageDestination) => {
+      const crossSpace = spaceId !== page.spaceId;
+      moveDocument.mutate(
+        { id: page.documentId, parentId, ...(crossSpace ? { spaceId } : {}) },
+        {
+          onSuccess: () => {
+            if (parentId) handleDocumentExpandedChange(parentId, true);
+            if (crossSpace) {
+              const space = contentSpaces.find(
+                (candidate) => candidate.id === spaceId,
+              );
+              toast.success(
+                t("sidebar.movedToSpace", {
+                  title: page.title,
+                  space: space?.name ?? "",
+                }),
+              );
+            }
+          },
+          onError: (error) => {
+            toast.error(t("sidebar.failedMovePage"), {
+              description:
+                error instanceof Error
+                  ? error.message
+                  : t("empty.genericError"),
+            });
+          },
+        },
+      );
+    },
+    [contentSpaces, handleDocumentExpandedChange, moveDocument, t],
   );
 
   const handleRestoreDatabase = useCallback(
@@ -1865,38 +3189,38 @@ export function DocumentSidebar({
 
   const renderCollapsedNewButton = () =>
     selectedSpace ? (
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground"
-            aria-label={`${t("sidebar.newPage")} — ${selectedSpace.name}`}
-            disabled={createDocument.isPending}
+      <DropdownMenu>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground"
+                aria-label={`${t("sidebar.new")} — ${selectedSpace.name}`}
+                disabled={createDocument.isPending || createDatabase.isPending}
+              >
+                <IconPlus size={16} />
+              </button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent>{t("sidebar.new")}</TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent side="right" align="start" className="w-44">
+          <DropdownMenuItem
             onClick={() => void handleCreatePageInSpace(selectedSpace)}
           >
-            <IconPlus size={16} />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent>{t("sidebar.newPage")}</TooltipContent>
-      </Tooltip>
+            <IconFileText className="me-2 size-4" />
+            {t("sidebar.page")}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => void handleCreateDatabaseInSpace(selectedSpace)}
+          >
+            <IconDatabase className="me-2 size-4" />
+            {t("sidebar.collection")}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     ) : null;
-
-  const renderSettingsNavButton = () => (
-    <Link
-      to="/settings"
-      className={cn(
-        "flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs",
-        settingsActive
-          ? "bg-primary/10 font-medium text-primary"
-          : "text-primary hover:bg-accent/60",
-      )}
-    >
-      <IconSettings className="size-4 shrink-0 text-primary" />
-      <span className="min-w-0 flex-1 truncate text-start text-primary">
-        {t("navigation.settings")}
-      </span>
-    </Link>
-  );
 
   const collapseButton = (
     <Tooltip>
@@ -1919,6 +3243,123 @@ export function DocumentSidebar({
       </TooltipContent>
     </Tooltip>
   );
+  const collapsedSearchButton = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          ref={searchTriggerRef}
+          type="button"
+          aria-label={t("sidebar.search")}
+          variant="ghost"
+          size="icon-lg"
+          className="text-muted-foreground hover:text-foreground"
+          onClick={handleOpenSearch}
+        >
+          <IconSearch size={16} />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="right">{t("sidebar.search")}</TooltipContent>
+    </Tooltip>
+  );
+  const searchButton = (
+    <Button
+      {...startupAnchor("sidebar-search")}
+      ref={searchTriggerRef}
+      type="button"
+      variant="ghost"
+      className="grid h-8 w-full grid-cols-[1.75rem_minmax(0,1fr)_auto] items-center gap-0 rounded p-0 pe-2 text-sm font-normal text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground !px-0"
+      onClick={handleOpenSearch}
+    >
+      <IconSearch className="size-4 justify-self-center" />
+      <span className="min-w-0 truncate text-start">{t("sidebar.search")}</span>
+      <kbd className="font-sans text-[11px] font-normal text-muted-foreground/70">
+        {isMac ? "⌘ K" : "Ctrl K"}
+      </kbd>
+    </Button>
+  );
+  const contentSpaceSelector = selectedSpace ? (
+    <div
+      {...startupAnchor("sidebar-space")}
+      className="grid min-w-0 grid-cols-[minmax(0,1fr)_2rem] items-center gap-1 ps-2 pe-2 pt-2"
+    >
+      <WorkspaceSourceMenu
+        onCreated={handleWorkspaceCreated}
+        contentClassName="w-[var(--radix-dropdown-menu-trigger-width)] min-w-[var(--radix-dropdown-menu-trigger-width)] max-w-[calc(100vw-1rem)]"
+        menuStart={
+          <DropdownMenuRadioGroup
+            value={selectedSpace.id}
+            onValueChange={(spaceId) => {
+              const space = contentSpaces.find(
+                (candidate) => candidate.id === spaceId,
+              );
+              if (space) void handleSelectContentSpace(space);
+            }}
+          >
+            {contentSpaces.map((space) => (
+              <Tooltip key={space.id}>
+                <TooltipTrigger asChild>
+                  <DropdownMenuRadioItem value={space.id} className="min-w-0">
+                    <span className="min-w-0 flex-1 truncate">
+                      {space.name}
+                    </span>
+                  </DropdownMenuRadioItem>
+                </TooltipTrigger>
+                <TooltipContent side="right">{space.name}</TooltipContent>
+              </Tooltip>
+            ))}
+          </DropdownMenuRadioGroup>
+        }
+      >
+        <Button
+          variant="ghost"
+          className="grid h-8 min-w-0 grid-cols-[1.75rem_minmax(0,1fr)_1.75rem] items-center gap-0 p-0 hover:bg-sidebar-accent/60 !px-0"
+          aria-label={`${t("sidebar.contentSpace")}: ${selectedSpace.name}`}
+        >
+          <span className="col-start-2 min-w-0 truncate text-start">
+            {selectedSpace.name}
+          </span>
+          <IconChevronDown className="col-start-3 size-3.5 justify-self-center" />
+        </Button>
+      </WorkspaceSourceMenu>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="shrink-0 hover:bg-sidebar-accent/60"
+            aria-label={`${t("sidebar.new")} — ${selectedSpace.name}`}
+            disabled={createDocument.isPending || createDatabase.isPending}
+          >
+            <IconPlus className="size-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-44">
+          <DropdownMenuItem
+            onClick={() => void handleCreatePageInSpace(selectedSpace)}
+          >
+            <IconFileText className="me-2 size-4" />
+            {t("sidebar.page")}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => void handleCreateDatabaseInSpace(selectedSpace)}
+          >
+            <IconDatabase className="me-2 size-4" />
+            {t("sidebar.collection")}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  ) : contentSpaceState === "loading" ? (
+    <div
+      {...startupAnchor("sidebar-space")}
+      aria-hidden="true"
+      className="grid min-w-0 grid-cols-[minmax(0,1fr)_2rem] items-center gap-1 ps-3 pe-2 pt-2"
+    >
+      <div className="flex h-8 items-center ps-2">
+        <Skeleton className="h-3.5 w-24 rounded bg-sidebar-foreground/12 dark:bg-sidebar-foreground/10" />
+      </div>
+    </div>
+  ) : null;
   const feedbackButton = (
     <FeedbackButton variant={collapsed ? "icon" : "sidebar"} side="right" />
   );
@@ -1932,38 +3373,55 @@ export function DocumentSidebar({
     });
   };
 
+  // The Files list's own boxes, holding the rows it last drew.
   const renderTreeSkeleton = () => (
-    <div aria-hidden="true" className="grid gap-1 px-3 py-1">
-      {[70, 55, 85, 60, 45].map((w, i) => (
-        <div key={i} className="flex items-center gap-2 px-1 py-1.5">
-          <Skeleton className="size-3.5 shrink-0 rounded-sm bg-sidebar-foreground/12 dark:bg-sidebar-foreground/10" />
-          <Skeleton
-            className="h-3 rounded bg-sidebar-foreground/12 dark:bg-sidebar-foreground/10"
-            style={{ width: `${w}%` }}
-          />
-        </div>
-      ))}
+    <div className="min-w-0 pb-1">
+      <div
+        aria-hidden="true"
+        className="grid min-w-0 gap-0.5 overflow-x-hidden py-1 ps-1"
+      >
+        <SidebarRowsSkeleton
+          framed={false}
+          rows={sidebarLayoutHint.files?.rows ?? 3}
+          more={sidebarLayoutHint.files?.more}
+          firstRowProps={startupAnchor("sidebar-files-first-row")}
+        />
+      </div>
     </div>
   );
 
   const renderWorkspaceRoot = (
     space: ContentSpaceSummary,
     reorder?: ContentFilesSidebarRenderReorder,
+    compact = false,
   ) => (
     <WorkspaceSidebarItem
       space={space}
       selected={selectedSpace?.id === space.id}
-      expanded={expandedWorkspaceIds.includes(space.id)}
+      expanded={compact || expandedWorkspaceIds.includes(space.id)}
+      compact={compact}
+      localFileMode={localFileMode}
       deferInitialReadUntilDocumentId={
         activeDocumentId &&
-        databaseDocuments.some((document) => document.id === activeDocumentId)
+        navigationContextQuery.data?.workspaceFilesDatabaseId ===
+          space.filesDatabaseId
           ? activeDocumentId
           : null
       }
       reorder={reorder}
       createDocumentPending={createDocument.isPending}
-      activeDocumentId={activeDocumentId}
-      expandedDocumentIds={expandedDocumentIdSet}
+      createDatabasePending={createDatabase.isPending}
+      activeDocumentId={sidebarActiveDocumentId}
+      expandedDocumentIds={visibleExpandedDocumentIds}
+      documentMetadata={documentMetadata}
+      activePathDocuments={
+        activePathDocuments.some(
+          (document) =>
+            document.databaseMembership?.databaseId === space.filesDatabaseId,
+        )
+          ? activePathDocuments
+          : []
+      }
       onDocumentExpandedChange={handleDocumentExpandedChange}
       onToggleExpanded={() =>
         updateExpandedWorkspaceIds((current) =>
@@ -1976,17 +3434,22 @@ export function DocumentSidebar({
       onCreatePageInSpace={(nextSpace) =>
         void handleCreatePageInSpace(nextSpace)
       }
-      onCreateChildPage={(nextSpace, item) =>
-        void handleCreatePage(
+      onCreateDatabaseInSpace={(nextSpace) =>
+        void handleCreateDatabaseInSpace(nextSpace)
+      }
+      onCreateChildPage={async (nextSpace, item) => {
+        if (!(await selectSpaceForCreation(nextSpace))) return;
+        await handleCreatePage(
           item.document.id,
           nextSpace.id,
           undefined,
           nextSpace.filesDatabaseId,
-        )
-      }
-      onCreateChildDatabase={(nextSpace, item) =>
-        void handleCreateDatabase(item.document.id, nextSpace.id)
-      }
+        );
+      }}
+      onCreateChildDatabase={async (nextSpace, item) => {
+        if (!(await selectSpaceForCreation(nextSpace))) return;
+        await handleCreateDatabase(item.document.id, nextSpace.id);
+      }}
       onDeleteItem={(item) =>
         requestDelete(
           item.document.id,
@@ -1996,96 +3459,18 @@ export function DocumentSidebar({
       onToggleFavorite={(item) =>
         handleToggleFavorite(item.document.id, !item.document.isFavorite)
       }
+      filesPlaceholder={compact ? sidebarLayoutHint.files : undefined}
+      onFilesRootShown={compact ? rememberFilesRoot : undefined}
+      filesBranchPlaceholders={compact ? sidebarLayoutHint.branches : undefined}
+      onFilesBranchShown={compact ? rememberFilesBranch : undefined}
     />
   );
 
   const renderWorkspaceNavigation = () => (
-    <div className="mb-2 min-w-0 overflow-x-hidden px-2">
+    <div className="mb-2 min-w-0 overflow-x-hidden">
       {contentSpaceState === "ready" && selectedSpace ? (
         <div className="grid gap-1">
-          {workspaceCatalogDatabase.isError ||
-          workspaceCatalogPersonalView.isError ? (
-            <QueryErrorState
-              compact
-              onRetry={() => {
-                void workspaceCatalogDatabase.refetch();
-                void workspaceCatalogPersonalView.refetch();
-              }}
-              retrying={
-                workspaceCatalogDatabase.isFetching ||
-                workspaceCatalogPersonalView.isFetching
-              }
-            />
-          ) : (
-            <ContentFilesSidebarView
-              data={workspaceCatalogDatabaseData}
-              overrides={workspaceCatalogPersonalView.data?.overrides}
-              isLoading={
-                workspaceCatalogDatabase.isLoading ||
-                workspaceCatalogPersonalView.isLoading
-              }
-              onSelectView={(viewId) => {
-                if (!workspaceCatalogDatabaseId) return;
-                const current = workspaceCatalogPersonalView.data?.overrides;
-                updateWorkspaceCatalogPersonalView.mutate({
-                  databaseId: workspaceCatalogDatabaseId,
-                  overrides: {
-                    version:
-                      current?.version ??
-                      CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION,
-                    activeViewId: viewId,
-                    views: current?.views ?? [],
-                  },
-                });
-              }}
-              manualReorder={
-                moveWorkspaceItem.isPending
-                  ? undefined
-                  : {
-                      labels: sidebarReorderLabels,
-                      onReorder: handleWorkspaceReorder,
-                    }
-              }
-              renderItem={(item, reorder) => {
-                const space = contentSpaces.find(
-                  (candidate) =>
-                    candidate.catalogDocumentId === item.document.id,
-                );
-                return space
-                  ? renderWorkspaceRoot(
-                      {
-                        ...space,
-                        name: item.document.title || space.name,
-                      },
-                      reorder,
-                    )
-                  : null;
-              }}
-              scroll={false}
-              labels={{
-                noMatchesLabel: t("database.noRowsMatchThisView"),
-                clearLabel: t("database.clearSearchAndFilters"),
-                navigationLabel: "Content navigation",
-                untitledLabel: t("sidebar.untitled"),
-              }}
-            />
-          )}
-          <div className="px-1">
-            <WorkspaceSourceMenu onCreated={handleWorkspaceCreated}>
-              <button
-                type="button"
-                className="flex h-7 w-full min-w-0 items-center rounded-md text-muted-foreground hover:bg-accent/40 hover:text-foreground"
-                aria-label={t("sidebar.addWorkspace")}
-              >
-                <span className="flex size-7 shrink-0 items-center justify-center">
-                  <IconPlus size={14} />
-                </span>
-                <span className="truncate text-start text-[10px] font-semibold uppercase tracking-wider">
-                  {t("sidebar.addWorkspace")}
-                </span>
-              </button>
-            </WorkspaceSourceMenu>
-          </div>
+          {renderWorkspaceRoot(selectedSpace, undefined, true)}
         </div>
       ) : contentSpaceState === "loading" ? (
         renderTreeSkeleton()
@@ -2102,6 +3487,24 @@ export function DocumentSidebar({
   );
 
   const renderTrashSection = () => {
+    const trashActive = location.pathname.startsWith("/trash");
+    return (
+      <div className="shrink-0 border-t border-border/70 px-2 py-2">
+        <Link
+          to="/trash"
+          aria-current={trashActive ? "page" : undefined}
+          className={cn(sidebarRowClassName(trashActive), "ms-1")}
+          onClick={onNavigate}
+        >
+          <span className="flex size-7 shrink-0 items-center justify-center">
+            <IconTrash className="size-4 text-muted-foreground" />
+          </span>
+          <span className="truncate">{t("sidebar.trash")}</span>
+        </Link>
+      </div>
+    );
+
+    /* i18n-copy-ignore legacy fallback retained until the dedicated route is proven */
     const collapsed = collapsedSections.trash;
 
     return (
@@ -2307,17 +3710,48 @@ export function DocumentSidebar({
     );
   };
 
+  const createDiscardDialog = (
+    <AlertDialog
+      open={pendingCreateDiscard !== null}
+      onOpenChange={(open) => {
+        if (!open) setPendingCreateDiscard(null);
+      }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            {t("sidebar.discardFailedCreatePageQuestion")}
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            {t("sidebar.discardFailedCreatePageDescription")}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>{t("comments.cancel")}</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            onClick={discardPendingCreate}
+          >
+            {t("editor.discardSuggestionDraft")}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+
   if (collapsed) {
     return (
       <div className="agent-layout-left-drawer flex h-full w-14 flex-col items-center border-e border-border bg-sidebar transition-[width] duration-200 ease-out">
         <AppSidebarHeader
           brandName="Content"
+          appId="content"
           brandHref="/home"
           collapsed
           onBrandClick={onToggleCollapsed}
         />
         <div className="flex flex-col items-center gap-1 px-2 py-3">
           {renderCollapsedNewButton()}
+          {collapsedSearchButton}
         </div>
         <div className="mt-auto shrink-0 w-full">
           <AppSidebarFooter
@@ -2334,21 +3768,12 @@ export function DocumentSidebar({
             footerExtras={
               <>
                 {isCodeMode ? <DevDatabaseLink /> : null}
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Link to="/settings" aria-label={t("navigation.settings")}>
-                      <IconSettings className="size-4" />
-                    </Link>
-                  </TooltipTrigger>
-                  <TooltipContent side="right">
-                    {t("navigation.settings")}
-                  </TooltipContent>
-                </Tooltip>
                 {collapseButton}
               </>
             }
           />
         </div>
+        {createDiscardDialog}
       </div>
     );
   }
@@ -2365,130 +3790,133 @@ export function DocumentSidebar({
       {/* Header */}
       <AppSidebarHeader
         brandName="Content"
+        appId="content"
         brandHref="/home"
         collapsed={false}
         onBrandClick={onToggleCollapsed}
       />
+      {contentSpaceSelector}
+      <div className="shrink-0 ps-2 pe-2 py-2">{searchButton}</div>
 
-      <ScrollArea className="min-h-0 flex-1 [&_[data-radix-scroll-area-viewport]]:!overflow-x-hidden">
-        <div className="w-full min-w-0 py-2 pe-2">
-          {/* Pinned */}
-          {showFavorites && (
-            <div className="mb-2 min-w-0 px-2">
-              <div className="group/favorites flex h-7 w-full min-w-0 items-center rounded-md px-1 text-muted-foreground hover:bg-accent/40 hover:text-foreground">
-                <button
-                  type="button"
-                  aria-expanded={!collapsedSections.favorites}
-                  aria-label={`${collapsedSections.favorites ? t("sidebar.expand") : t("sidebar.collapse")} ${t("sidebar.pinned")}`}
-                  className="group/favorites-toggle flex size-7 shrink-0 items-center justify-center rounded-md hover:bg-background/60"
-                  onClick={() => toggleSection("favorites")}
-                >
-                  <span className="relative size-3.5">
-                    <IconPin
-                      aria-hidden="true"
-                      className="absolute inset-0 size-3.5 transition-opacity group-hover/favorites:opacity-0 group-focus-visible/favorites-toggle:opacity-0"
-                    />
-                    <IconChevronRight
-                      aria-hidden="true"
-                      className={cn(
-                        "absolute inset-0 size-3.5 opacity-0 transition-[opacity,transform] group-hover/favorites:opacity-100 group-focus-visible/favorites-toggle:opacity-100 rtl:-scale-x-100",
-                        !collapsedSections.favorites && "rotate-90",
-                      )}
-                    />
-                  </span>
-                </button>
-                <Link
-                  to={
-                    favoritesDocumentId
-                      ? `/page/${favoritesDocumentId}`
-                      : "/favorites"
-                  }
-                  className={cn(
-                    "h-7 min-w-0 flex-1 truncate pe-2 text-start text-[10px] font-semibold uppercase tracking-wider leading-7",
-                    (location.pathname === "/favorites" ||
-                      activeDocumentId === favoritesDocumentId) &&
-                      "text-foreground",
-                  )}
-                >
-                  {t("sidebar.pinned")}
-                </Link>
-              </div>
-              {!collapsedSections.favorites ? (
-                favoritesDatabase.isError ? (
-                  <QueryErrorState
-                    compact
-                    onRetry={() => void favoritesDatabase.refetch()}
-                    retrying={favoritesDatabase.isFetching}
-                  />
-                ) : (
-                  <ContentFilesSidebarView
-                    data={favoritesDatabase.data}
-                    overrides={null}
-                    isLoading={favoritesDatabase.isLoading}
-                    activeDocumentId={activeDocumentId}
-                    manualReorder={
-                      movePinnedItem.isPending
-                        ? undefined
-                        : {
-                            labels: sidebarReorderLabels,
-                            onReorder: handlePinnedReorder,
-                          }
-                    }
-                    onOpenItem={(item) => {
-                      const document = documents.find(
-                        (candidate) => candidate.id === item.document.id,
-                      );
-                      const space = document
-                        ? contentSpaces.find(
-                            (candidate) =>
-                              candidate.filesDocumentId ===
-                              document.databaseMembership?.databaseDocumentId,
-                          )
-                        : undefined;
-                      if (!space || selectedSpace?.id === space.id) {
-                        onNavigate?.();
-                        return false;
+      <SidebarPageActionsProvider value={sidebarPageActions}>
+        <ScrollArea className="min-h-0 flex-1 [&_[data-radix-scroll-area-viewport]]:!overflow-x-hidden">
+          <div className="w-full min-w-0 py-2">
+            {selectedSpace || contentSpaceState === "loading" ? (
+              <PersonalSidebarSections
+                spaceId={selectedSpaceId}
+                pinnedCount={pinnedCount}
+                pinnedError={
+                  favoritesDatabase.isError || favoritesPersonalView.isError
+                }
+                renderFiles={renderWorkspaceNavigation}
+                activeDocumentId={sidebarActiveDocumentId}
+                onNavigate={onNavigate}
+                onToggleFavorite={handleToggleFavorite}
+                reorderLabels={sidebarReorderLabels}
+                layoutHint={sidebarLayoutHint}
+                onLayoutShown={rememberLayout}
+                seeAllHrefs={
+                  selectedSpace
+                    ? {
+                        pinned: `/favorites?spaceId=${encodeURIComponent(selectedSpace.id)}`,
+                        recent: `/favorites?view=recent&spaceId=${encodeURIComponent(selectedSpace.id)}`,
+                        files: `/page/${selectedSpace.filesDocumentId}`,
                       }
-                      void handleSelectContentSpace(space, item.document.id);
-                      onNavigate?.();
-                      return true;
-                    }}
-                    onCreateChildPage={(item) =>
-                      void handleCreatePage(item.document.id)
-                    }
-                    onCreateChildDatabase={(item) =>
-                      void handleCreateDatabase(item.document.id)
-                    }
-                    onDeleteItem={(item) =>
-                      requestDelete(
-                        item.document.id,
-                        item.document.title || t("sidebar.untitled"),
-                      )
-                    }
-                    onToggleFavorite={(item) =>
-                      handleToggleFavorite(item.document.id, false)
-                    }
-                    scroll={false}
-                    labels={{
-                      noMatchesLabel: t("database.noRowsMatchThisView"),
-                      clearLabel: t("database.clearSearchAndFilters"),
-                      navigationLabel: t("sidebar.pinned"),
-                      untitledLabel: t("sidebar.untitled"),
-                    }}
-                  />
-                )
-              ) : null}
-            </div>
-          )}
+                    : null
+                }
+                renderPinned={(limit) => {
+                  const serverOrdered = favoritesOrder.order.mode !== "custom";
+                  const renderedItems = (
+                    serverOrdered
+                      ? (favoritesData?.items ?? [])
+                      : contentSidebarOrderedItems(
+                          favoritesData?.items ?? [],
+                          favoritesOrder.order,
+                        )
+                  ).slice(0, limit);
+                  return favoritesDatabase.isError ||
+                    favoritesPersonalView.isError ? (
+                    <QueryErrorState
+                      compact
+                      onRetry={() => {
+                        void favoritesDatabase.refetch();
+                        void favoritesPersonalView.refetch();
+                      }}
+                    />
+                  ) : (
+                    <ContentFilesSidebarView
+                      data={
+                        favoritesData
+                          ? {
+                              ...favoritesData,
+                              items: renderedItems,
+                            }
+                          : undefined
+                      }
+                      overrides={favoritesPersonalView.data?.overrides}
+                      sidebarOrder={favoritesOrder.order}
+                      serverOrdered={serverOrdered}
+                      isLoading={
+                        favoritesDatabase.isLoading ||
+                        favoritesPersonalView.isLoading
+                      }
+                      activeDocumentId={sidebarActiveDocumentId}
+                      manualReorder={{
+                        labels: sidebarReorderLabels,
+                        onReorder: (itemIds) =>
+                          handlePinnedReorder(
+                            itemIds,
+                            renderedItems.map((item) => item.id),
+                          ),
+                      }}
+                      onOpenItem={(item) => {
+                        const space = contentSpaces.find(
+                          (candidate) =>
+                            candidate.filesDatabaseId ===
+                            item.workspaceFilesDatabaseId,
+                        );
+                        if (!space || selectedSpace?.id === space.id) {
+                          onNavigate?.();
+                          return false;
+                        }
+                        void handleSelectContentSpace(space, item.document.id);
+                        onNavigate?.();
+                        return true;
+                      }}
+                      onCreateChildPage={(item) =>
+                        void handleCreatePage(item.document.id)
+                      }
+                      onCreateChildDatabase={(item) =>
+                        void handleCreateDatabase(item.document.id)
+                      }
+                      onDeleteItem={(item) =>
+                        requestDelete(
+                          item.document.id,
+                          item.document.title || t("sidebar.untitled"),
+                        )
+                      }
+                      onToggleFavorite={(item) =>
+                        handleToggleFavorite(item.document.id, false)
+                      }
+                      scroll={false}
+                      labels={{
+                        noMatchesLabel: t("database.noRowsMatchThisView"),
+                        clearLabel: t("database.clearSearchAndFilters"),
+                        navigationLabel: t("sidebar.pinned"),
+                        untitledLabel: t("sidebar.untitled"),
+                      }}
+                    />
+                  );
+                }}
+              />
+            ) : (
+              renderWorkspaceNavigation()
+            )}
+          </div>
+        </ScrollArea>
+      </SidebarPageActionsProvider>
 
-          {renderWorkspaceNavigation()}
-          {renderTrashSection()}
-        </div>
-      </ScrollArea>
-
-      <div className="shrink-0 border-t border-border/70 px-2 pt-3">
-        <div className="space-y-0.5">{renderSettingsNavButton()}</div>
-      </div>
+      {renderTrashSection()}
 
       <div className="shrink-0">
         <ExtensionSlot
@@ -2517,20 +3945,21 @@ export function DocumentSidebar({
         footerExtras={
           <>
             {isCodeMode ? <DevDatabaseLink /> : null}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Link to="/settings" aria-label={t("navigation.settings")}>
-                  <IconSettings className="size-4" />
-                </Link>
-              </TooltipTrigger>
-              <TooltipContent side="right">
-                {t("navigation.settings")}
-              </TooltipContent>
-            </Tooltip>
             {collapseButton}
           </>
         }
       />
+
+      <MovePageDialog
+        page={movingPage}
+        spaces={moveSpaces}
+        onOpenChange={(open) => {
+          if (!open) setMovingPage(null);
+        }}
+        onMove={handleMovePage}
+      />
+
+      {createDiscardDialog}
 
       {/* Resize handle */}
       {onResize && width !== undefined && (

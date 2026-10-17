@@ -1,12 +1,11 @@
-/**
- * Framework-owned S3-compatible object storage provider.
- *
- * The onboarding form writes these keys to scoped secrets. A public base URL
- * is required because chat attachments need stable URLs that remain usable
- * after the request and across later turns in the thread.
- */
-
-import { resolveSecret } from "../server/credential-provider.js";
+import {
+  prefetchSecrets,
+  resolveSecret,
+} from "../server/credential-provider.js";
+import {
+  listFileUploadProviders,
+  registerFileUploadProvider,
+} from "./registry.js";
 import type { FileUploadProvider } from "./types.js";
 
 interface S3Config {
@@ -88,7 +87,23 @@ async function resolveStorageSecret(
   return primaryValue ?? cleanValue(await resolveSecret(fallback));
 }
 
+const STORAGE_SECRET_KEYS = [
+  "S3_BUCKET",
+  "R2_BUCKET",
+  "S3_ACCESS_KEY_ID",
+  "R2_ACCESS_KEY_ID",
+  "S3_SECRET_ACCESS_KEY",
+  "R2_SECRET_ACCESS_KEY",
+  "S3_ENDPOINT",
+  "R2_ENDPOINT",
+  "S3_REGION",
+  "R2_REGION",
+  "S3_PUBLIC_BASE_URL",
+  "R2_PUBLIC_BASE_URL",
+] as const;
+
 async function readRequestConfig(): Promise<S3Config | null> {
+  await prefetchSecrets(STORAGE_SECRET_KEYS);
   const scopedConfig = buildConfig({
     bucket: await resolveStorageSecret("S3_BUCKET", "R2_BUCKET"),
     accessKeyId: await resolveStorageSecret(
@@ -287,7 +302,7 @@ async function deleteObject(config: S3Config, key: string): Promise<boolean> {
     headers: { ...headers, Authorization: authorization },
   });
   if (response.ok) return true;
-  if (response.status === 404) return false;
+  if (response.status === 404) return true;
   const detail = await response.text();
   throw new Error(
     `S3 DeleteObject failed (${response.status}): ${detail || response.statusText}`,
@@ -306,6 +321,24 @@ export const s3FileUploadProvider: FileUploadProvider = {
   name: "S3-compatible object storage",
   isConfigured: () => readEnvConfig() !== null,
   isConfiguredForRequest: async () => (await readRequestConfig()) !== null,
+  isOwnedUrl: async (value) => {
+    const config = await readRequestConfig();
+    if (!config) return false;
+    try {
+      const url = new URL(value);
+      const publicUrl = new URL(config.publicBaseUrl);
+      const basePath = publicUrl.pathname.replace(/\/+$/, "");
+      return (
+        url.origin === publicUrl.origin &&
+        (basePath === "" ||
+          url.pathname === basePath ||
+          url.pathname.startsWith(`${basePath}/`))
+      );
+    } catch {
+      // coercion-ok: malformed URLs are an explicit not-owned result.
+      return false;
+    }
+  },
   upload: async ({ data, filename, mimeType }) => {
     const config = await readRequestConfig();
     if (!config) {
@@ -330,3 +363,14 @@ export const s3FileUploadProvider: FileUploadProvider = {
     return deleteObject(config, id);
   },
 };
+
+export function ensureS3FileUploadProvider(): void {
+  if (
+    listFileUploadProviders().some(
+      (provider) => provider.id === s3FileUploadProvider.id,
+    )
+  ) {
+    return;
+  }
+  registerFileUploadProvider(s3FileUploadProvider);
+}

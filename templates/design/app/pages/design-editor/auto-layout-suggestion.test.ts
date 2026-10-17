@@ -76,7 +76,7 @@ describe("inferAutoLayoutSuggestion", () => {
     });
   });
 
-  it("uses Figma's column default for a single wide child", () => {
+  it("uses column layout for a single wide child", () => {
     const suggestion = inferAutoLayoutSuggestion({
       container: { id: "container", x: 0, y: 0, width: 300, height: 40 },
       children: [{ id: "wide", x: 0, y: 0, width: 300, height: 40 }],
@@ -172,8 +172,6 @@ describe("applyAutoLayoutSuggestion", () => {
     expect(history).toHaveLength(1);
     expect(history[0]?.before).toBe(html);
     expect(history[0]?.after).toBe(result.content);
-    // The one entry is exactly what editor undo/redo consumes in each
-    // direction, so the complete reorder/layout/sizing proposal is atomic.
     expect(history[0]?.before).not.toBe(history[0]?.after);
   });
 

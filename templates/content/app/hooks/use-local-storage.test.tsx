@@ -101,6 +101,71 @@ describe("useLocalStorage", () => {
     }
   });
 
+  it("can ignore cross-tab storage events while retaining same-tab updates", () => {
+    const values: Record<string, string> = {};
+    const setters: Record<string, (value: string) => void> = {};
+
+    function Probe({ id }: { id: string }) {
+      const [value, setValue] = useLocalStorage("tab-key", "personal", {
+        syncAcrossTabs: false,
+      });
+      values[id] = value;
+      setters[id] = setValue;
+      return null;
+    }
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    act(() => {
+      root?.render(
+        <>
+          <Probe id="a" />
+          <Probe id="b" />
+        </>,
+      );
+    });
+
+    act(() => setters.a("demo"));
+    expect(values).toEqual({ a: "demo", b: "demo" });
+    expect(window.localStorage.getItem("tab-key")).toBe('"demo"');
+
+    window.localStorage.setItem("tab-key", JSON.stringify("other-tab"));
+    act(() => {
+      window.dispatchEvent(
+        new StorageEvent("storage", {
+          key: "tab-key",
+          newValue: JSON.stringify("other-tab"),
+        }),
+      );
+    });
+    expect(values).toEqual({ a: "demo", b: "demo" });
+  });
+
+  it("syncs cross-tab storage events by default", () => {
+    let value = "";
+    function Probe() {
+      [value] = useLocalStorage("default-sync-key", "personal");
+      return null;
+    }
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    act(() => root?.render(<Probe />));
+
+    window.localStorage.setItem(
+      "default-sync-key",
+      JSON.stringify("other-tab"),
+    );
+    act(() => {
+      window.dispatchEvent(
+        new StorageEvent("storage", { key: "default-sync-key" }),
+      );
+    });
+    expect(value).toBe("other-tab");
+  });
+
   it("exposes the new key value during the key-transition render", () => {
     const renderedValues: boolean[] = [];
     window.localStorage.setItem("document-a", JSON.stringify(true));

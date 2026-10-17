@@ -1,5 +1,9 @@
 import { useT } from "@agent-native/core/client/i18n";
-import type { CalendarEvent } from "@shared/api";
+import {
+  getCalendarAttendeeCount,
+  getCalendarAttendeeStatusCounts,
+  type CalendarEvent,
+} from "@shared/api";
 import {
   IconCalendarTime,
   IconDots,
@@ -36,10 +40,11 @@ import {
   getAttendeeLocalTimeLabel,
   resolveAttendeeTimeZone,
 } from "@/lib/attendee-local-time";
+import { withCalendarEventSourceIdentity } from "@/lib/calendar-event-identity";
 import { getLocalTimezone } from "@/lib/event-form-utils";
 import {
   canInlineRsvp,
-  hasTimeProposal,
+  getTimeProposals,
   RsvpStatusIcon,
   type RsvpStatus,
 } from "@/lib/rsvp-status";
@@ -49,7 +54,21 @@ type RecurringScope = "single" | "all" | "thisAndFollowing";
 
 type Attendee = NonNullable<CalendarEvent["attendees"]>[number];
 type EditableRsvpStatus = Exclude<RsvpStatus, "needsAction">;
-type ProposalAction = "propose" | "review";
+type ProposalAction = "propose" | "reviewAll";
+type AttendeeCalendarEvent = Pick<
+  CalendarEvent,
+  | "id"
+  | "accountEmail"
+  | "start"
+  | "startTimeZone"
+  | "allDay"
+  | "source"
+  | "sourceId"
+  | "calendarSourceKey"
+  | "canonicalKey"
+  | "calendarId"
+  | "overlayEmail"
+>;
 
 const ATTENDEE_TRUNCATE_THRESHOLD = 5;
 const ATTENDEE_INITIAL_SHOW = 3;
@@ -118,8 +137,7 @@ function AttendeeAvatar({
 }
 
 function RsvpControls({
-  eventId,
-  accountEmail,
+  event,
   value,
   note,
   onChange,
@@ -127,8 +145,7 @@ function RsvpControls({
   proposalAction,
   googleCalendarLink,
 }: {
-  eventId: string;
-  accountEmail?: string;
+  event: AttendeeCalendarEvent;
   value: RsvpStatus;
   note?: string;
   onChange: (status: RsvpStatus, note: string) => void;
@@ -190,7 +207,16 @@ function RsvpControls({
     const nextNote = status === "accepted" ? "" : noteValue.trim();
     onChange(status, nextNote);
     mutation.mutate(
-      { id: eventId, status, accountEmail, scope, note: nextNote },
+      withCalendarEventSourceIdentity(
+        {
+          id: event.id,
+          status,
+          accountEmail: event.accountEmail,
+          scope,
+          note: nextNote,
+        },
+        event,
+      ),
       { onError: () => onChange(previous, previousNote) },
     );
   };
@@ -277,7 +303,7 @@ function RsvpControls({
           asChild
           variant="ghost"
           size="sm"
-          className="mt-1 h-8 w-full justify-start gap-1.5 px-2 text-xs font-medium text-muted-foreground hover:text-foreground"
+          className="mt-1 w-full justify-start gap-1.5 px-2 text-xs font-medium text-muted-foreground hover:text-foreground"
         >
           <a
             href={googleCalendarLink}
@@ -287,9 +313,9 @@ function RsvpControls({
           >
             <IconCalendarTime aria-hidden="true" className="size-3.5" />
             {t(
-              proposalAction === "review"
-                ? "eventForm.reviewProposedTime"
-                : "eventForm.proposeNewTime",
+              proposalAction === "propose"
+                ? "eventForm.proposeNewTime"
+                : "eventForm.reviewTimeProposals",
             )}
           </a>
         </Button>
@@ -420,10 +446,7 @@ function AttendeeRow({
   onSetTimezone,
 }: {
   attendee: Attendee;
-  event: Pick<
-    CalendarEvent,
-    "id" | "accountEmail" | "start" | "startTimeZone" | "allDay"
-  >;
+  event: AttendeeCalendarEvent;
   photoUrl?: string;
   inlineRsvp?: boolean;
   currentStatus?: RsvpStatus;
@@ -464,11 +487,13 @@ function AttendeeRow({
           startIso: event.start,
         })
       : null;
+  const additionalGuestCount =
+    typeof attendee.additionalGuests === "number" &&
+    Number.isFinite(attendee.additionalGuests) &&
+    attendee.additionalGuests > 0
+      ? Math.floor(attendee.additionalGuests)
+      : 0;
 
-  // One muted line under the name, the way Notion stacks it. The RSVP state is
-  // already on the avatar badge, so it does not get a line of its own; the
-  // attendee's local time still has to survive here because nothing else in the
-  // popover shows it.
   const subLabel = [
     attendee.organizer
       ? t("eventForm.organizer")
@@ -477,6 +502,14 @@ function AttendeeRow({
         : inlineRsvp
           ? t("eventForm.yourResponse", { status: statusLabel })
           : null,
+    additionalGuestCount > 0
+      ? t(
+          additionalGuestCount === 1
+            ? "deleteEvent.guest_one"
+            : "deleteEvent.guest_other",
+          { count: additionalGuestCount },
+        )
+      : null,
     localTimeLabel,
   ]
     .filter(Boolean)
@@ -641,8 +674,7 @@ function AttendeeRow({
       )}
       {inlineRsvp && currentStatus && onResponseChange && (
         <RsvpControls
-          eventId={event.id}
-          accountEmail={event.accountEmail}
+          event={event}
           value={currentStatus}
           note={currentNote}
           onChange={onResponseChange}
@@ -670,21 +702,7 @@ export function EventAttendeesSection({
   canEditOptional = false,
   onToggleOptional,
 }: {
-  event: Pick<
-    CalendarEvent,
-    | "id"
-    | "accountEmail"
-    | "attendees"
-    | "overlayEmail"
-    | "responseStatus"
-    | "source"
-    | "recurringEventId"
-    | "start"
-    | "startTimeZone"
-    | "allDay"
-    | "htmlLink"
-    | "organizer"
-  >;
+  event: CalendarEvent;
   canEditOptional?: boolean;
   onToggleOptional?: (email: string, optional: boolean) => void;
 }) {
@@ -720,12 +738,18 @@ export function EventAttendeesSection({
   const userIsOrganizer = Boolean(
     event.organizer?.self || selfAttendee?.organizer,
   );
+  const timeProposals = getTimeProposals(event);
+  const hasOtherAttendees = attendees.some(
+    (attendee) => !attendee.self && !attendee.organizer,
+  );
   const proposalAction: ProposalAction | undefined =
     selfAttendee && event.htmlLink && !event.allDay
       ? userIsOrganizer
-        ? hasTimeProposal(event)
-          ? "review"
-          : undefined
+        ? timeProposals.length > 0
+          ? undefined
+          : hasOtherAttendees
+            ? "reviewAll"
+            : undefined
         : "propose"
       : undefined;
   const others =
@@ -747,24 +771,20 @@ export function EventAttendeesSection({
     setAttendeeTimezone.mutate({ email, timeZone });
   };
 
+  const attendeeCount = getCalendarAttendeeCount(attendees);
   const shouldTruncate = attendees.length > ATTENDEE_TRUNCATE_THRESHOLD;
-  const showSummary = attendees.length > 1;
+  const showSummary = attendeeCount > 1;
   const visibleOthers =
     shouldTruncate && !expanded
       ? others.slice(0, ATTENDEE_INITIAL_SHOW)
       : others;
   const hiddenCount = others.length - visibleOthers.length;
 
-  const accepted = attendees.filter(
-    (attendee) => attendee.responseStatus === "accepted",
-  ).length;
-  const tentative = attendees.filter(
-    (attendee) => attendee.responseStatus === "tentative",
-  ).length;
-  const declined = attendees.filter(
-    (attendee) => attendee.responseStatus === "declined",
-  ).length;
-  const pending = attendees.length - accepted - tentative - declined;
+  const attendeeStatusCounts = getCalendarAttendeeStatusCounts(attendees);
+  const accepted = attendeeStatusCounts.accepted ?? 0;
+  const tentative = attendeeStatusCounts.tentative ?? 0;
+  const declined = attendeeStatusCounts.declined ?? 0;
+  const pending = attendeeCount - accepted - tentative - declined;
 
   return (
     <div className="px-4 py-1">
@@ -774,7 +794,7 @@ export function EventAttendeesSection({
           <div className="flex-1">
             <div>
               <div className="text-[13px] leading-[18px] font-medium text-foreground">
-                {t("eventForm.participants", { count: attendees.length })}
+                {t("eventForm.participants", { count: attendeeCount })}
               </div>
               <div className="text-xs text-muted-foreground/60">
                 {[
@@ -792,6 +812,54 @@ export function EventAttendeesSection({
                   .filter(Boolean)
                   .join(", ")}
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {userIsOrganizer && timeProposals.length > 0 && (
+        <div
+          role="status"
+          className="mb-2 rounded-lg border border-primary/25 bg-primary/5 p-3"
+        >
+          <div className="flex items-start gap-2.5">
+            <IconCalendarTime
+              aria-hidden="true"
+              className="mt-0.5 size-4 shrink-0 text-primary"
+            />
+            <div className="min-w-0 flex-1">
+              <div className="space-y-2">
+                {timeProposals.map(({ attendee, comment }) => (
+                  <div key={attendee.email}>
+                    <p className="text-[13px] font-medium text-foreground">
+                      {t("eventForm.newTimeProposedBy", {
+                        name: attendee.displayName || attendee.email,
+                      })}
+                    </p>
+                    <p className="mt-0.5 break-words text-xs text-muted-foreground">
+                      {comment}
+                    </p>
+                  </div>
+                ))}
+              </div>
+              {event.htmlLink && (
+                <Button
+                  asChild
+                  variant="secondary"
+                  size="sm"
+                  className="mt-2 h-8 gap-1.5"
+                >
+                  <a
+                    href={event.htmlLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <IconCalendarTime aria-hidden="true" className="size-3.5" />
+                    {t("eventForm.reviewProposedTime")}
+                  </a>
+                </Button>
+              )}
             </div>
           </div>
         </div>
@@ -822,7 +890,7 @@ export function EventAttendeesSection({
             </span>
             <span>
               {t("eventForm.seeAllParticipants", {
-                count: attendees.length,
+                count: attendeeCount,
               })}
             </span>
           </button>

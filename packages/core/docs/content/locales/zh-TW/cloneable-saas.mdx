@@ -58,8 +58,8 @@ package 也相依於 `@agent-native/core`；格式錯誤的標記會被拒絕。
 或 commit。如果未提供 ref，CLI 會先嘗試 `main`，再嘗試 `master`：
 
 ```bash
-npx @agent-native/core@latest create my-app --template community:owner/repo#v1.2.0
-npx @agent-native/core@latest create my-app --template https://github.com/owner/repo#v1.2.0
+npx --yes @agent-native/core@latest create my-app --template community:owner/repo#v1.2.0
+npx --yes @agent-native/core@latest create my-app --template https://github.com/owner/repo#v1.2.0
 ```
 
 若要以非互動方式選擇工作區儲存庫中的來源應用程式，請使用
@@ -67,8 +67,8 @@ npx @agent-native/core@latest create my-app --template https://github.com/owner/
 因為 zsh 等 shell 會將 `?` 視為 glob：
 
 ```bash
-npx @agent-native/core@latest create my-app --template 'community:owner/repo?app=analytics#v1.2.0'
-npx @agent-native/core@latest create my-app --template 'https://github.com/owner/repo?app=analytics#v1.2.0'
+npx --yes @agent-native/core@latest create my-app --template 'community:owner/repo?app=analytics#v1.2.0'
+npx --yes @agent-native/core@latest create my-app --template 'https://github.com/owner/repo?app=analytics#v1.2.0'
 ```
 
 在工作區外，`create` 會將所選來源應用程式建立為獨立應用程式。若要將其
@@ -276,10 +276,10 @@ npx @agent-native/core@latest add-app my-app --template 'community:owner/repo?ap
 若要搭建新應用程式的腳手架：
 
 ```bash
-npx @agent-native/core@latest create my-platform
+npx --yes @agent-native/core@latest create my-platform
 ```
 
-CLI 會先詢問 **如何開始？**。選擇 **Chat** 可建立包含 Chat 和 Dispatch 的最小工作區，選擇 **First-party template(s)** 可開啟多選選取器。Community 和 Headless 是獨立應用程式的入口。工作區應用程式共用驗證、品牌、代理設定和資料庫；每個應用程式都會連同所需的所有檔案建置到 `apps/<name>/` 中。對於沒有瀏覽器 UI 的自動化應用程式，而不是應用程式 UI，請使用 `npx @agent-native/core@latest create my-agent --headless`。
+CLI 會先詢問 **如何開始？**。選擇 **Chat** 可建立包含 Chat 和 Dispatch 的最小工作區，選擇 **First-party template(s)** 可開啟多選選取器。Community 和 Headless 是獨立應用程式的入口。工作區應用程式共用驗證、品牌、代理設定和資料庫；每個應用程式都會連同所需的所有檔案建置到 `apps/<name>/` 中。對於沒有瀏覽器 UI 的自動化應用程式，而不是應用程式 UI，請使用 `npx --yes @agent-native/core@latest create my-agent --headless`。
 
 填寫 `.env`（`ANTHROPIC_API_KEY` 和 `DATABASE_URL`），然後執行 `pnpm install` 和 `pnpm dev`。沒有登入需要實作，也沒有預留位置路由。
 

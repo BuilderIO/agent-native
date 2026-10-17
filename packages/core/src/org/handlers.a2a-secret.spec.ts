@@ -1,3 +1,4 @@
+import * as jose from "jose";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockExecute = vi.fn();
@@ -8,6 +9,12 @@ const mockGetOrgSetting = vi.fn();
 const mockReadBody = vi.fn();
 const mockDiscoverAgents = vi.fn();
 const mockSignA2AToken = vi.fn();
+const mockSignA2AOrganizationToken = vi.fn();
+const mockGetGlobalA2ASecret = vi.fn<() => string | undefined>();
+const mockVerifyA2AToken = vi.fn();
+const mockCanonicalA2AAudience = vi.fn((url: string) =>
+  url.replace(/\/+$/, ""),
+);
 const mockSsrfSafeFetch = vi.fn();
 const mockFetch = vi.fn();
 
@@ -72,18 +79,65 @@ vi.mock("../server/agent-discovery.js", () => ({
 }));
 
 vi.mock("../a2a/client.js", () => ({
+  getGlobalA2ASecret: () => mockGetGlobalA2ASecret(),
   signA2AToken: (...args: any[]) => mockSignA2AToken(...args),
+  signA2AOrganizationToken: (...args: any[]) =>
+    mockSignA2AOrganizationToken(...args),
+}));
+
+vi.mock("../a2a/server.js", () => ({
+  verifyA2AToken: (...args: any[]) => mockVerifyA2AToken(...args),
+}));
+
+vi.mock("../a2a/audience.js", () => ({
+  canonicalA2AAudience: (...args: any[]) => mockCanonicalA2AAudience(...args),
 }));
 
 vi.mock("../extensions/url-safety.js", () => ({
   ssrfSafeFetch: (...args: any[]) => mockSsrfSafeFetch(...args),
 }));
 
+vi.mock("../server/social-sign-in-providers.js", () => ({
+  resolveDeploymentSignInMethods: () => ({
+    emailPassword: true,
+    google: true,
+    github: false,
+  }),
+}));
+
 import {
   getMyOrgHandler,
+  receiveA2ASecretHandler,
   revealA2ASecretHandler,
+  setA2ASecretHandler,
   syncA2ASecretHandler,
 } from "./handlers.js";
+
+const ADMIN_CONTEXT = {
+  email: "admin@example.test",
+  orgId: "org_1",
+  orgName: "Example",
+  role: "admin",
+};
+
+describe("cross-app secret handlers", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetOrgContext.mockResolvedValue(ADMIN_CONTEXT);
+    mockReadBody.mockResolvedValue({});
+  });
+
+  it.each([
+    ["reveal", revealA2ASecretHandler],
+    ["set", setA2ASecretHandler],
+    ["sync", syncA2ASecretHandler],
+  ])("rejects an admin trying to %s it", async (_name, handler) => {
+    await expect(handler({} as any)).rejects.toMatchObject({
+      statusCode: 403,
+    });
+    expect(mockExecute).not.toHaveBeenCalled();
+  });
+});
 
 describe("syncA2ASecretHandler", () => {
   beforeEach(() => {
@@ -110,6 +164,10 @@ describe("syncA2ASecretHandler", () => {
       },
     ]);
     mockSignA2AToken.mockResolvedValue("signed-jwt");
+    mockSignA2AOrganizationToken.mockResolvedValue("signed-jwt");
+    mockCanonicalA2AAudience.mockImplementation((url) =>
+      url.replace(/\/+$/, ""),
+    );
     mockSsrfSafeFetch.mockResolvedValue(new Response("ok", { status: 200 }));
   });
 
@@ -129,6 +187,15 @@ describe("syncA2ASecretHandler", () => {
       succeeded: 1,
       failed: 0,
     });
+    expect(mockSignA2AOrganizationToken).toHaveBeenCalledWith(
+      "example.test",
+      "local-secret",
+      undefined,
+      {
+        preferGlobalSecret: false,
+        audience: "https://remote.example.test",
+      },
+    );
     expect(mockSsrfSafeFetch).toHaveBeenCalledWith(
       "https://remote.example.test/_agent-native/org/a2a-secret/receive",
       expect.objectContaining({
@@ -182,6 +249,160 @@ describe("syncA2ASecretHandler", () => {
   });
 });
 
+describe("org A2A secret equal to the deployment A2A_SECRET", () => {
+  const OWNER_CONTEXT = { ...ADMIN_CONTEXT, role: "owner" };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetGlobalA2ASecret.mockReturnValue("deploy-secret");
+    mockGetOrgContext.mockResolvedValue(OWNER_CONTEXT);
+    mockExecute.mockResolvedValue({
+      rows: [{ id: "org_1", a2a_secret: "existing-org-secret" }],
+    });
+  });
+
+  describe("setA2ASecretHandler", () => {
+    it("refuses the deployment secret even with surrounding whitespace", async () => {
+      mockReadBody.mockResolvedValue({ secret: "  deploy-secret " });
+
+      await expect(setA2ASecretHandler({} as any)).rejects.toMatchObject({
+        statusCode: 400,
+        message: expect.stringContaining("must differ"),
+      });
+      expect(mockExecute).not.toHaveBeenCalled();
+    });
+
+    it("saves a distinct secret", async () => {
+      mockReadBody.mockResolvedValue({ secret: "distinct-org-secret" });
+
+      await expect(setA2ASecretHandler({} as any)).resolves.toMatchObject({
+        a2aSecret: "distinct-org-secret",
+      });
+      expect(mockExecute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sql: expect.stringContaining("UPDATE organizations"),
+          args: ["distinct-org-secret", "org_1"],
+        }),
+      );
+    });
+
+    it("saves any secret when no deployment secret is configured", async () => {
+      mockGetGlobalA2ASecret.mockReturnValue(undefined);
+      mockReadBody.mockResolvedValue({ secret: "deploy-secret" });
+
+      await expect(setA2ASecretHandler({} as any)).resolves.toMatchObject({
+        a2aSecret: "deploy-secret",
+      });
+    });
+
+    it("rotates away from a stored secret equal to the deployment secret", async () => {
+      mockExecute.mockResolvedValue({
+        rows: [{ id: "org_1", a2a_secret: "deploy-secret" }],
+      });
+      mockReadBody.mockResolvedValue({ secret: "distinct-org-secret" });
+
+      await expect(setA2ASecretHandler({} as any)).resolves.toEqual({
+        a2aSecret: "distinct-org-secret",
+        previousSecret: "deploy-secret",
+      });
+      expect(mockExecute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sql: expect.stringContaining("UPDATE organizations"),
+          args: ["distinct-org-secret", "org_1"],
+        }),
+      );
+    });
+  });
+
+  describe("receiveA2ASecretHandler", () => {
+    const receive = async (
+      pushedSecret: string,
+      storedSecret = "existing-org-secret",
+    ) => {
+      mockExecute.mockResolvedValue({
+        rows: [{ id: "org_1", a2a_secret: storedSecret }],
+      });
+      const token = await new jose.SignJWT({ org_domain: "example.test" })
+        .setProtectedHeader({ alg: "HS256" })
+        .sign(new TextEncoder().encode(storedSecret));
+      mockReadBody.mockResolvedValue({
+        secret: pushedSecret,
+        orgDomain: "example.test",
+      });
+      mockVerifyA2AToken.mockResolvedValue({
+        email: null,
+        orgId: "org_1",
+        orgDomain: "example.test",
+      });
+      return receiveA2ASecretHandler({
+        _headers: { authorization: `Bearer ${token}` },
+      } as any);
+    };
+
+    it("fails the sync push loudly instead of silently demoting the org", async () => {
+      await expect(receive("deploy-secret")).rejects.toMatchObject({
+        statusCode: 409,
+        message: expect.stringContaining("equals this app's A2A_SECRET"),
+      });
+      expect(mockExecute).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          sql: expect.stringContaining("UPDATE organizations"),
+        }),
+      );
+    });
+
+    it("does not reveal whether a value matches before the caller is verified", async () => {
+      mockVerifyA2AToken.mockResolvedValue({ email: null, orgDomain: null });
+      const token = await new jose.SignJWT({ org_domain: "example.test" })
+        .setProtectedHeader({ alg: "HS256" })
+        .sign(new TextEncoder().encode("wrong-secret"));
+      mockReadBody.mockResolvedValue({
+        secret: "deploy-secret",
+        orgDomain: "example.test",
+      });
+
+      await expect(
+        receiveA2ASecretHandler({
+          _headers: { authorization: `Bearer ${token}` },
+        } as any),
+      ).rejects.toMatchObject({ statusCode: 401 });
+    });
+
+    it("stores a distinct pushed secret", async () => {
+      await expect(receive("distinct-org-secret")).resolves.toEqual({
+        ok: true,
+        orgId: "org_1",
+      });
+      expect(mockExecute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sql: expect.stringContaining("UPDATE organizations"),
+          args: ["distinct-org-secret", "org_1"],
+        }),
+      );
+    });
+
+    it("rotates away from a stored secret equal to the deployment secret", async () => {
+      await expect(
+        receive("distinct-org-secret", "deploy-secret"),
+      ).resolves.toEqual({ ok: true, orgId: "org_1" });
+      expect(mockExecute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sql: expect.stringContaining("UPDATE organizations"),
+          args: ["distinct-org-secret", "org_1"],
+        }),
+      );
+    });
+
+    it("stores the pushed secret when no deployment secret is configured", async () => {
+      mockGetGlobalA2ASecret.mockReturnValue(undefined);
+
+      await expect(receive("deploy-secret")).resolves.toMatchObject({
+        ok: true,
+      });
+    });
+  });
+});
+
 describe("getMyOrgHandler", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -231,6 +452,23 @@ describe("getMyOrgHandler", () => {
     >;
 
     expect(result.a2aSecretSet).toBeUndefined();
+    expect(result.signInMethods).toBeUndefined();
+  });
+
+  it("gives an admin the sign-in methods but not the secret indicator", async () => {
+    mockGetOrgContext.mockResolvedValue(ADMIN_CONTEXT);
+
+    const result = (await getMyOrgHandler({} as any)) as Record<
+      string,
+      unknown
+    >;
+
+    expect(result.a2aSecretSet).toBeUndefined();
+    expect(result.signInMethods).toEqual({
+      emailPassword: true,
+      google: true,
+      github: false,
+    });
   });
 
   it("fails instead of reporting org visibility when the default cannot be read", async () => {

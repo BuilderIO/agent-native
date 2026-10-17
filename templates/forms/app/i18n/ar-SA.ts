@@ -24,10 +24,6 @@ const messages = {
   },
   settings: {
     title: "الإعدادات",
-    description: "تفضيلات اللغة ومساحة العمل لهذا التطبيق.",
-    languageTitle: "اللغة",
-    languageDescription: "اختر لغة الواجهة. يتم حفظ هذا التفضيل في حسابك.",
-    languageLabel: "لغة الواجهة",
     workspaceTitle: "مساحة العمل",
     workspaceDescription:
       "إدارة أعضاء الفريق ووصول المؤسسة وتفضيلات مساحة العمل المشتركة.",
@@ -43,6 +39,8 @@ const messages = {
     suggestionSurvey: "أنشئ استطلاع ملاحظات العملاء",
     suggestionSubmissions: "اعرض الإرسالات حسب اليوم",
     suggestionExport: "صدر الردود إلى CSV",
+    topSignal: "أبرز إشارة",
+    draftFollowUp: "صياغة سؤال متابعة",
   },
   sidebar: {
     collapseSidebar: "طي الشريط الجانبي",
@@ -353,6 +351,10 @@ const messages = {
     responseSubmitted: "تم إرسال الرد",
     noFields: "لا يحتوي هذا النموذج على حقول بعد.",
     failedSubmit: "فشل إرسال النموذج",
+    uncheckablePattern:
+      "تعذّر التحقق من قاعدة هذا النموذج الخاصة بـ {label}. يرجى الطلب من مالك النموذج إصلاحها.",
+    patternTooLong:
+      "قيمة {label} طويلة جدًا بحيث يتعذر التحقق منها باستخدام قاعدة هذا النموذج.",
   },
   responseInsights: {
     unavailable: "الرؤى غير متاحة",

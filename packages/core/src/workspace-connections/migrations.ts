@@ -3,21 +3,6 @@ import type { MigrationEntry } from "../db/migrations.js";
 export const WORKSPACE_CONNECTIONS_MIGRATIONS_TABLE =
   "_workspace_connections_migrations";
 
-/**
- * Deploy-time schema for workspace connections, grants, and user groups.
- *
- * These three tables were shipped with only their runtime `ensureTable`
- * helpers in `store.ts` / `groups.ts`. That is enough locally and on a
- * long-lived server, but `schemaEnsureDisabled()` makes every probe report
- * "present" on a production serverless runtime, so the ensure path issues no
- * DDL there at all. A table with no entry here therefore never gets created in
- * production, and the first read fails with `relation ... does not exist` —
- * which is exactly what `workspace_user_groups` did from the day after it
- * shipped. Runtime ensure covers dev; this list is the production contract.
- *
- * `created_at` / `updated_at` must be BIGINT on Postgres: they store epoch
- * milliseconds, which overflow int4.
- */
 export const WORKSPACE_CONNECTIONS_MIGRATIONS: MigrationEntry[] = [
   {
     version: 1,
@@ -97,6 +82,7 @@ export const WORKSPACE_CONNECTIONS_MIGRATIONS: MigrationEntry[] = [
         id TEXT PRIMARY KEY,
         org_id TEXT NOT NULL DEFAULT '',
         name TEXT NOT NULL DEFAULT '',
+        normalized_name TEXT,
         member_emails_json TEXT NOT NULL DEFAULT '[]',
         created_by_email TEXT NOT NULL DEFAULT '',
         created_at BIGINT NOT NULL DEFAULT 0,
@@ -108,5 +94,112 @@ export const WORKSPACE_CONNECTIONS_MIGRATIONS: MigrationEntry[] = [
     version: 9,
     sql: `CREATE INDEX IF NOT EXISTS idx_workspace_user_groups_org_updated
       ON workspace_user_groups (org_id, updated_at)`,
+  },
+  {
+    version: 10,
+    sql: `ALTER TABLE workspace_user_groups
+      ADD COLUMN IF NOT EXISTS normalized_name TEXT`,
+  },
+  {
+    version: 11,
+    sql: `CREATE OR REPLACE FUNCTION public.workspace_user_groups_set_normalized_name()
+      RETURNS trigger
+      LANGUAGE plpgsql
+      AS 'BEGIN
+        NEW.normalized_name := LOWER(BTRIM(NEW.name));
+        RETURN NEW;
+      END;';
+      DO 'BEGIN
+        BEGIN
+          CREATE TRIGGER trg_workspace_user_groups_normalized_name
+            BEFORE INSERT OR UPDATE OF name ON public.workspace_user_groups
+            FOR EACH ROW
+            EXECUTE FUNCTION public.workspace_user_groups_set_normalized_name();
+        EXCEPTION WHEN duplicate_object THEN
+          NULL;
+        END;
+      END';
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_workspace_user_groups_org_normalized_name
+      ON workspace_user_groups (org_id, normalized_name)
+      WHERE normalized_name IS NOT NULL;
+      UPDATE workspace_user_groups AS group_row
+      SET normalized_name = LOWER(BTRIM(group_row.name))
+      WHERE group_row.normalized_name IS NULL
+        AND NOT EXISTS (
+          SELECT 1
+          FROM workspace_user_groups AS duplicate
+          WHERE duplicate.org_id = group_row.org_id
+            AND LOWER(BTRIM(duplicate.name)) = LOWER(BTRIM(group_row.name))
+            AND duplicate.id <> group_row.id
+        )`,
+  },
+  {
+    version: 12,
+    sql: `CREATE OR REPLACE FUNCTION public.workspace_user_groups_set_normalized_name()
+      RETURNS trigger
+      LANGUAGE plpgsql
+      AS 'BEGIN
+        NEW.normalized_name := LOWER(BTRIM(NEW.name));
+        RETURN NEW;
+      END;';
+      DO 'BEGIN
+        BEGIN
+          CREATE TRIGGER trg_workspace_user_groups_normalized_name
+            BEFORE INSERT OR UPDATE OF name ON public.workspace_user_groups
+            FOR EACH ROW
+            EXECUTE FUNCTION public.workspace_user_groups_set_normalized_name();
+        EXCEPTION WHEN duplicate_object THEN
+          NULL;
+        END;
+      END';
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_workspace_user_groups_org_normalized_name
+      ON workspace_user_groups (org_id, normalized_name)
+      WHERE normalized_name IS NOT NULL;
+      UPDATE workspace_user_groups AS group_row
+      SET normalized_name = LOWER(BTRIM(group_row.name))
+      WHERE group_row.normalized_name IS NULL
+        AND NOT EXISTS (
+          SELECT 1
+          FROM workspace_user_groups AS duplicate
+          WHERE duplicate.org_id = group_row.org_id
+            AND LOWER(BTRIM(duplicate.name)) = LOWER(BTRIM(group_row.name))
+            AND duplicate.id <> group_row.id
+        )`,
+  },
+  {
+    version: 13,
+    sql: `CREATE OR REPLACE FUNCTION public.workspace_user_groups_set_normalized_name()
+      RETURNS trigger
+      LANGUAGE plpgsql
+      AS 'BEGIN
+        NEW.normalized_name := LOWER(BTRIM(NEW.name));
+        RETURN NEW;
+      END;';
+      DO 'BEGIN
+        BEGIN
+          CREATE TRIGGER trg_workspace_user_groups_normalized_name
+            BEFORE INSERT OR UPDATE OF name ON public.workspace_user_groups
+            FOR EACH ROW
+            EXECUTE FUNCTION public.workspace_user_groups_set_normalized_name();
+        EXCEPTION WHEN duplicate_object THEN
+          NULL;
+        END;
+      END'`,
+  },
+  {
+    version: 14,
+    sql: `CREATE UNIQUE INDEX IF NOT EXISTS idx_workspace_user_groups_org_normalized_name
+      ON workspace_user_groups (org_id, normalized_name)
+      WHERE normalized_name IS NOT NULL;
+      UPDATE workspace_user_groups AS group_row
+      SET normalized_name = LOWER(BTRIM(group_row.name))
+      WHERE group_row.normalized_name IS NULL
+        AND NOT EXISTS (
+          SELECT 1
+          FROM workspace_user_groups AS duplicate
+          WHERE duplicate.org_id = group_row.org_id
+            AND LOWER(BTRIM(duplicate.name)) = LOWER(BTRIM(group_row.name))
+            AND duplicate.id <> group_row.id
+        )`,
   },
 ];

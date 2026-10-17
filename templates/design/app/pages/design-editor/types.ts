@@ -30,16 +30,10 @@ export type DesignLeftPanel =
   | "assets"
   | "tools"
   | "tokens"
+  | "threads"
   | "import"
   | "code";
 
-/**
- * Keep the still-evolving Design editor side panels out of the default
- * surface until their Figma parity work is ready. Flip this switch to expose
- * Assets, Tools, Tokens, Code, and Motion together while iterating on them.
- * The E2E harness sets the Vite flag so those existing advanced-surface tests
- * keep exercising the gated panels.
- */
 const designSecondaryLeftPanelsSetting =
   typeof import.meta !== "undefined"
     ? (import.meta as { env?: Record<string, string> }).env
@@ -59,6 +53,7 @@ export function isDesignLeftPanelEnabled(
     value !== "assets" &&
     value !== "tools" &&
     value !== "tokens" &&
+    value !== "threads" &&
     value !== "import" &&
     value !== "code"
   ) {
@@ -66,13 +61,12 @@ export function isDesignLeftPanelEnabled(
   }
 
   if (value === "code") return SHOW_DESIGN_CODE_LEFT_PANEL;
-  if (value === "assets" || value === "tools" || value === "tokens") {
+  if (value === "assets" || value === "tools") {
     return SHOW_DESIGN_SECONDARY_LEFT_PANELS;
   }
   return true;
 }
 
-/** Zoom percentage applied when entering single-screen (focused) editor mode. */
 export const FOCUSED_SCREEN_ZOOM = 100;
 
 export interface DesignFile {
@@ -80,7 +74,7 @@ export interface DesignFile {
   filename: string;
   fileType: string;
   content: string;
-  createdAt: string;
+  createdAt: string | null;
   updatedAt: string;
 }
 
@@ -98,6 +92,8 @@ export interface DesignData {
   description?: string;
   projectType: string;
   designSystemId?: string | null;
+  liveCollaborationEnabled?: boolean;
+  visibility?: "private" | "org" | "public";
   data?: string | null;
   accessRole?: DesignAccessRole;
   files: DesignFile[];

@@ -21,8 +21,6 @@ import {
 } from "./ui/dropdown-menu";
 import { useRowMenu } from "./useRowMenu";
 
-// Live mic level meter — the analyser owns the path so silence stays flat and
-// the meter disappears with the microphone rather than implying input exists.
 function MicWave({ deviceId, active }: { deviceId: string; active: boolean }) {
   const pathRef = useMicMeter({ deviceId, active });
 
@@ -179,8 +177,8 @@ export function MediaDeviceRow({
           <Tooltip>
             <TooltipTrigger asChild>
               <Switch
-                on={on}
-                onChange={onToggle}
+                checked={on}
+                onCheckedChange={onToggle}
                 label={kind === "camera" ? "Camera" : "Microphone"}
               />
             </TooltipTrigger>
@@ -202,8 +200,8 @@ export function MediaDeviceRow({
             <Tooltip>
               <TooltipTrigger asChild>
                 <Switch
-                  on={!!systemAudio}
-                  onChange={onSystemAudioToggle}
+                  checked={!!systemAudio}
+                  onCheckedChange={onSystemAudioToggle}
                   label="Record system audio"
                 />
               </TooltipTrigger>

@@ -94,13 +94,13 @@ search: "تطبيق وكيل محادثة غنية واجهة مستخدم مح�
 لنقطة بداية تطبيق كاملة، استخدم [قالب المحادثة](/docs/template-chat):
 
 ```bash
-npx @agent-native/core@latest create my-chat-app --template chat
+npx --yes @agent-native/core@latest create my-chat-app --template chat
 ```
 
 أبسط محادثة على صفحة كاملة:
 
 ```tsx
-import { AgentChatSurface } from "@agent-native/core/client/chat";
+import { AgentChatSurface } from "@agent-native/toolkit/app/chat";
 
 export default function ChatRoute() {
   return <AgentChatSurface mode="page" className="h-screen" />;
@@ -113,12 +113,11 @@ export default function ChatRoute() {
 أن تحوّل المحادثة الكاملة إلى الشريط الجانبي مع الحفاظ على الخيط النشط:
 
 ```tsx
+import { AgentChatSurface, AgentSidebar } from "@agent-native/toolkit/app/chat";
 import {
-  AgentChatSurface,
-  AgentSidebar,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
-} from "@agent-native/core/client/chat";
+} from "@agent-native/core/client/agent-chat";
 import { useLocation } from "react-router";
 
 function ChatRoute() {
@@ -151,7 +150,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
 أبسط محادثة مضمّنة مع إطارك الخاص:
 
 ```tsx
-import { AssistantChat } from "@agent-native/core/client/chat";
+import { AssistantChat } from "@agent-native/toolkit/app/chat";
 
 export function ProjectChat({ threadId }: { threadId: string }) {
   return <AssistantChat threadId={threadId} />;
@@ -199,6 +198,77 @@ createAgentChatPlugin({
 المهام أو المشغلات. ترث إرشادات الإطار الافتراضية والوكلاء الفرعيون المشغّلون
 السطح نفسه. تُخفّض أدوات shell الموثوقة تلقائياً إلى sandbox المصفّى حسب الطلب،
 لأن shell غير المقيّد لا يمكنه فرض حد صارم للإجراءات.
+
+### إجراءات إضافية على مستوى الطلب
+
+استخدم `resolveAdditionalActions` عندما لا تُعرف الإجراءات التي يمكن للمستدعي
+استخدامها إلا وقت الطلب، مثل الأدوات التي يسجّلها المستخدم أثناء تشغيل الخادم.
+يعمل الاستدعاء مرة واحدة لكل تشغيل محادثة تفاعلي موثَّق (في الإنتاج والتطوير)،
+قبل `tool-search` و`resolveActionSurface`، فيرى كلاهما المدخلات المُرجَعة. وتنضم
+هذه المدخلات إلى سجل ذلك المستدعي لهذا التشغيل فقط. أما مهام A2A واستدعاءات
+`ask_app` في MCP فلا تتلقاها إلا إذا ذكرت هذه الواجهات في
+`additionalActionSurfaces`؛ ويخبر `surface` الاستدعاء بالواجهة التي تطلبها.
+
+```ts
+createAgentChatPlugin({
+  actions,
+  additionalActionSurfaces: ["a2a"],
+  resolveAdditionalActions: async ({ surface, ownerEmail, orgId }) =>
+    loadUserTools(ownerEmail, orgId, {
+      includeEditorTools: surface === "chat",
+    }),
+});
+```
+
+تعامل مع المدخلات المُرجَعة على أنها مدخلات غير موثوقة. يتجاهل الإطار المدخل
+ويسجّل تحذيرًا مرة واحدة عندما لا يكون اسمه من 1 إلى 64 حرفًا أو رقمًا أو `_` أو
+`-`؛ أو عندما ينتمي الاسم إلى أي إجراء من القالب أو الإطار أو التطوير أو MCP،
+بما في ذلك الإجراءات المخفية عن الوكيل؛ أو عندما يكون اسمًا يبدأ بـ `mcp__` لا
+يستطيع المستدعي رؤيته؛ أو عندما يكون تعريف أداته غير صالح للاستخدام. تُزال من
+الأوصاف محارف التحكم المخفية ويُحدَّد طولها. يجب أن تكون `parameters` مخططًا
+محدود الحجم لبيانات JSON عادية جذره `object`، ولا يستخدم إلا كلمات التحقق والتوصيف
+الشائعة. تُرفض الكلمات المفتاحية غير المعروفة و`pattern` و`patternProperties`
+و`uniqueItems` و`$async` و`$id` والمراسي وأي `$ref` تكراري أو يشير إلى خارج
+المخطط. يرى النموذج النسخة المُتحقَّق منها من المخطط، ويُرفض أي استدعاء تكون
+وسيطاته أكبر من أن يُتحقَّق منها مقابله. العلامات مثل `readOnly`
+و`access` هي تصريحات تطبيقك الخاصة، ويثق بها الإطار كما يثق بـ `run`: اضبطها
+بناءً على ما يفعله الكود الخاص بك، ولا تضبطها أبدًا من بيانات وصفية سجّلها مستخدم.
+
+يرتبط كل مدخل بالمستدعي الذي حُلّ من أجله. يرفض كل استدعاء، أيًّا كان المُرسِل
+الذي ينفّذه، العمل لمستخدم أو مؤسسة مختلفة، ويفرض سياسة `access` الخاصة بالمدخل،
+ويتحقق من الوسائط وفق مخططه دون تحويل للأنواع.
+
+لا تُثبَّت الأسماء إلا عندما يستمر دور محادثة مستضافة كتشغيل خلفي دائم. يعمل
+الاستدعاء مرة أخرى، ويحتفظ الدور بأسمائه الأصلية لهذه المدخلات ولأدوات MCP
+الخاصة بالمستدعي على حد سواء: تبقى المدخلات الجديدة خارجه، ويُرجع الاسم الذي
+اختفى خطأً عند استدعائه، ويُشغّل الاسم الذي بقي تعريفه الحالي. وكل طلب آخر يُحَلّ
+من جديد، بما في ذلك كل استمرار على شريط جانبي محلي، أما البث المنقطع الذي يعاود
+الارتباط بتشغيله فلا يُحَلّ له شيء.
+
+ضع هوية الربط في الاسم، مثل معرّف نافذة أو نطاق (`notes_window_42_insert`)، حتى
+تبدو إعادة الربط كأداة تغادر وأخرى تظهر. تتبع موافقات "السماح دائمًا" اسم الأداة،
+لذا تنتقل معه حين يصبح الاسم نفسه لاحقًا دالًّا على شيء جديد.
+
+اضبط `revision` على مدخل لمنع ذلك: تسجّل الموافقات لمرة واحدة و"السماح دائمًا"
+المراجعة التي مُنحت من أجلها، وتؤدي مراجعة مختلفة إلى سؤال المستخدم مرة أخرى.
+ينبغي لمعالج "السماح دائمًا" المخصص أن يمرّر `askId` الخاص بالموافقة إلى
+`set-tool-approval-policy` على أنه `approvalId`؛ وبدونه يقتصر المنح على المداخل
+التي ليس لها مراجعة.
+
+يفشل استدعاء أداة استخدمتها المحادثة أو حمّلتها سابقًا لكن لم تعد متاحة في هذا
+التشغيل بالخطأ `Error: Tool no longer available` بدلًا من `Unknown tool`،
+وتُخبر عملية التشغيل التي تبدأ بعد اختفاء أدوات محمّلة النموذج بأيّها اختفى.
+وإذا كان المستخدم قد وافق على ذلك الاستدعاء، يتوقف التشغيل بدلًا من ترك النموذج
+يواصل بدونه. وفي المحادثة يتلقى الاستدعاء أيضًا `threadId` و`requestedTurnId`
+و`internalContinuation`، فيستطيع التطبيق الذي يريد مجموعة أدوات واحدة طوال الدور
+أن يحتفظ بلقطته الخاصة.
+
+هذه المدخلات أدوات أصلية لحلقة الوكيل فقط. وعلى غرار أدوات MCP الخاصة بالمستدعي،
+لا يمكن الوصول إليها من `run-code` أو `tool-orchestration`.
+
+يُضبط `event` في `chat` و`a2a`؛ ولا يوجد في استدعاءات `ask_app`. لا يُستدعى
+الاستدعاء للطلبات المجهولة أو المهام المجدولة أو الأتمتة أو الوكلاء الفرعيين
+لفريق الوكلاء. وأي خطأ يطلقه الاستدعاء يُفشل الطلب.
 
 ## واجهة مستخدم مضمّنة أصلية {#native-inline-ui}
 
@@ -259,10 +329,10 @@ createAgentChatPlugin({
 
 كل تطبيق Agent-Native يحتاج في نهاية المطاف إلى مكان يمكن للمستخدمين من خلاله تهيئة وكيلهم: وضع تعليمات دائمة، ومراجعة ما قام به، وتوصيل خوادم MCP، وإدارة الأتمتة، والتحكم في الوصول. بناء هذه الواجهة من الصفر يستلزم الكثير من العمل. يُشحن Agent-Native مع مكوّن بصفحة كاملة مبني مسبقًا، `AgentTabsPage`، يغطي كل ذلك عبر اثني عشر تبويبًا.
 
-ثبّته في `/settings/agent` في تطبيقك. تستخدم القوالب الحالية هذا المسار كمسار أساسي وتمرّر `agentPageHref="/settings/agent"` إلى `AgentSidebar`. ويظل `/agent` متاحًا كإعادة توجيه قديمة.
+لا تثبّته القوالب الرسمية: تغطي الإعدادات الجوانب نفسها (Agent › Model وInstructions وMemory وSkills وFiles وSub-agents، إضافة إلى صفحتي Automations وMCP server الخاصتين بالتطبيق)، ويعيد `/agent` التوجيه إلى الإعدادات، ويفتح `agentPageHref="/settings/agent"` في `AgentSidebar` صفحة Settings › Agent › Model. ثبّت `AgentTabsPage` على مسار خاص به عندما يريد التطبيق عرض واجهة الوكيل كاملة في صفحة واحدة.
 
-```tsx filename="app/routes/settings.agent.tsx"
-import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
+```tsx filename="app/routes/agent.tsx"
+import { AgentTabsPage } from "@agent-native/toolkit/app/agent-page";
 export default function AgentRoute() {
   return <AgentTabsPage />;
 }
@@ -270,20 +340,20 @@ export default function AgentRoute() {
 
 توفر الصفحة المشتركة حاليًا اثني عشر تبويبًا عبر مجموعتين:
 
-| المجموعة | التبويب           | يعرض                                                                                                                                                                                                                                           |
-| -------- | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| الموارد  | **Files**         | لوحة `ResourcesPanel` الحالية للملفات الشخصية أو التنظيمية                                                                                                                                                                                     |
-| الموارد  | **Instructions**  | قواعد دائمة التشغيل بأسلوب AGENTS.md                                                                                                                                                                                                           |
-| الموارد  | **Agents**        | ملفات تعريف الوكلاء الفرعيين المخصصة                                                                                                                                                                                                           |
-| الموارد  | **Memory**        | ملاحظات الاستدعاء طويل الأمد                                                                                                                                                                                                                   |
-| الموارد  | **Skills**        | سير عمل قابلة لإعادة الاستخدام                                                                                                                                                                                                                 |
-| الموارد  | **Learnings**     | التصحيحات والأنماط المُلتقطة بمرور الوقت                                                                                                                                                                                                       |
-| الموارد  | **Remote agents** | اتصالات A2A بتطبيقات agent-native الأخرى (يحل محل ما كان يعرضه تبويب Connections سابقًا)                                                                                                                                                       |
-| الوكيل   | **Snapshots**     | معاينة نطاق، وميزانية رموز، وأقسام نظام مرتبة مجمّعة حسب المصدر/الحوكمة/المرجع، وأحدث لقطة خيط حي. تمت إعادة تسميتها من "Context"؛ تُعيد روابط `#context` القديمة التوجيه إلى هنا.                                                             |
-| الوكيل   | **Connections**   | إدارة خادم MCP فقط                                                                                                                                                                                                                             |
-| الوكيل   | **Automations**   | أتمتة مجدولة/أحداث شخصية وتنظيمية مع تدفقات إيقاف مؤقت/استئناف وتفاصيل وحذف. يبقى عنوان URL للتوافق الثابت `/agent#jobs`.                                                                                                                      |
-| الوكيل   | **Settings**      | نموذج الوكيل، ومفاتيح API، والحدود، والصوت، وإعدادات الأتمتة                                                                                                                                                                                   |
-| الوكيل   | **MCP**           | عنوان URL لـ MCP للتطبيق، وبطاقة وكيل A2A عند الإتاحة، وأدلة الإعداد المشتركة لـ Claude وChatGPT وCursor وClaude Code وCodex وعملاء آخرين. ابحث عنه في **Settings → MCP** أو استخدم `/mcp/connect` لتدفق الاتصال الكامل واحتياطي الرمز المميز. |
+| المجموعة | التبويب           | يعرض                                                                                                                                                                                                                                                  |
+| -------- | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| الموارد  | **Files**         | لوحة `ResourcesPanel` الحالية للملفات الشخصية أو التنظيمية                                                                                                                                                                                            |
+| الموارد  | **Instructions**  | قواعد دائمة التشغيل بأسلوب AGENTS.md                                                                                                                                                                                                                  |
+| الموارد  | **Agents**        | ملفات تعريف الوكلاء الفرعيين المخصصة                                                                                                                                                                                                                  |
+| الموارد  | **Memory**        | ملاحظات الاستدعاء طويل الأمد                                                                                                                                                                                                                          |
+| الموارد  | **Skills**        | سير عمل قابلة لإعادة الاستخدام                                                                                                                                                                                                                        |
+| الموارد  | **Learnings**     | التصحيحات والأنماط المُلتقطة بمرور الوقت                                                                                                                                                                                                              |
+| الموارد  | **Remote agents** | اتصالات A2A بتطبيقات agent-native الأخرى (يحل محل ما كان يعرضه تبويب Connections سابقًا)                                                                                                                                                              |
+| الوكيل   | **Snapshots**     | معاينة نطاق، وميزانية رموز، وأقسام نظام مرتبة مجمّعة حسب المصدر/الحوكمة/المرجع، وأحدث لقطة خيط حي. تمت إعادة تسميتها من "Context"؛ تُعيد روابط `#context` القديمة التوجيه إلى هنا.                                                                    |
+| الوكيل   | **Connections**   | إدارة خادم MCP فقط                                                                                                                                                                                                                                    |
+| الوكيل   | **Automations**   | أتمتة مجدولة/أحداث شخصية وتنظيمية مع تدفقات إيقاف مؤقت/استئناف وتفاصيل وحذف. يبقى عنوان URL للتوافق الثابت `/agent#jobs`.                                                                                                                             |
+| الوكيل   | **Settings**      | نموذج الوكيل، ومفاتيح API، والحدود، والصوت، وإعدادات الأتمتة                                                                                                                                                                                          |
+| الوكيل   | **MCP**           | عنوان URL لـ MCP للتطبيق، وبطاقة وكيل A2A عند الإتاحة، وأدلة الإعداد المشتركة لـ Claude وChatGPT وCursor وClaude Code وCodex وعملاء آخرين. ابحث عنه في **Settings → MCP server** أو استخدم `/mcp/connect` لتدفق الاتصال الكامل واحتياطي الرمز المميز. |
 
 تعرض الصفحة بيانات شخصية (نطاق `user`) فقط. لا يوجد تبديل على مستوى المؤسسة اليوم. إنها غلاف رقيق على المكونات والفحوصات الموجودة، وليست وحدة تحكم إدارية جديدة: يصف Connections ما يمكن للتطبيق استدعاؤه؛ يصف MCP كيفية اتصال العملاء الخارجيين به.
 
@@ -428,7 +498,7 @@ export function AppShell({ children }) {
 أصغر مسار محلي بدون متصفح هو سقالة بالإضافة إلى إجراء واحد:
 
 ```bash
-npx @agent-native/core@latest create my-agent --headless
+npx --yes @agent-native/core@latest create my-agent --headless
 cd my-agent
 pnpm install
 ```
@@ -439,6 +509,7 @@ pnpm install
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
+// One action powers every app surface: UI, agent, HTTP, MCP, A2A, and CLI.
 export default defineAction({
   description: "Summarize this week's submissions.",
   readOnly: true,
@@ -552,10 +623,8 @@ GITHUB_REPOSITORY=owner/repo pnpm agent "Read README.md and suggest the next act
 وسجل النسخ واستدعاءات الأدوات والموافقات والعناصر الأصلية وتخطيط التطبيق.
 
 ```tsx
-import {
-  AssistantChat,
-  createHttpAgentChatRuntime,
-} from "@agent-native/core/client/chat";
+import { AssistantChat } from "@agent-native/toolkit/app/chat";
+import { createHttpAgentChatRuntime } from "@agent-native/core/client/agent-chat";
 
 const runtime = createHttpAgentChatRuntime({
   endpoint: "/api/support-agent/chat",
