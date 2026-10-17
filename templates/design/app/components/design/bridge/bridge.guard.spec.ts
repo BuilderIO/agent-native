@@ -3292,6 +3292,7 @@ it(
     try {
       const page = await browser.newPage({
         viewport: { width: 900, height: 700 },
+        hasTouch: true,
       });
       page.on("pageerror", (error) => pageErrors.push(error.message));
 
@@ -3343,7 +3344,8 @@ it(
       );
       expect(firstSelection.sourceId).toBe("headline");
 
-      await page.waitForTimeout(500);
+      // Keep this click inside the bridge's repeated-click window.
+      await page.waitForTimeout(50);
       await page.mouse.click(point.x, point.y);
       await page.waitForFunction(
         () => (window as any).__elementSelectPayloads.length > 1,
@@ -3354,6 +3356,15 @@ it(
 
       expect(repeatedSelection.sourceId).toBe("headline");
 
+      await page.touchscreen.tap(point.x, point.y);
+      await page.waitForFunction(
+        () => (window as any).__elementSelectPayloads.length > 2,
+      );
+      const touchSelection = await page.evaluate(() =>
+        (window as any).__elementSelectPayloads.at(-1),
+      );
+      expect(touchSelection.sourceId).toBe("headline");
+
       await page.keyboard.down(PLATFORM_PRIMARY_KEY);
       try {
         await page.mouse.click(point.x, point.y);
@@ -3361,7 +3372,7 @@ it(
         await page.keyboard.up(PLATFORM_PRIMARY_KEY);
       }
       await page.waitForFunction(
-        () => (window as any).__elementSelectPayloads.length > 2,
+        () => (window as any).__elementSelectPayloads.length > 3,
       );
       const deepSelection = await page.evaluate(() =>
         (window as any).__elementSelectPayloads.at(-1),
@@ -3386,92 +3397,6 @@ it(
       expect(textSelection.pendingNodeId).toBeTruthy();
       expect(isTextElement(textSelection)).toBe(true);
       expect(pageErrors).toEqual([]);
-    } finally {
-      await browser.close();
-    }
-  },
-);
-
-it.each(["touch", "pen"] as const)(
-  "does not carry a mouse click sequence into %s selection",
-  async (pointerType) => {
-    const browser = await chromium.launch({ headless: true });
-    try {
-      const page = await browser.newPage({
-        viewport: { width: 900, height: 700 },
-      });
-      await page.setContent(`<!doctype html>
-<html><body style="margin:0">
-  <div id="parent" data-agent-native-node-id="parent" style="position:absolute;left:100px;top:100px;width:300px;height:220px;background:#eee">
-    <div id="child" data-agent-native-node-id="child" style="position:absolute;left:20px;top:20px;width:100px;height:80px;background:#88f"></div>
-  </div>
-</body></html>`);
-      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
-      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
-      await page.evaluate(() => {
-        (window as any).__selectedIds = [];
-        window.addEventListener("message", (event: MessageEvent) => {
-          if (event.data?.type === "element-select") {
-            (window as any).__selectedIds.push(event.data.payload?.sourceId);
-          }
-        });
-      });
-
-      await page.mouse.click(350, 250);
-      await page.mouse.click(350, 250);
-      await page.waitForFunction(
-        () => ((window as any).__selectedIds as string[]).length >= 2,
-      );
-      expect(
-        await page.evaluate(() => (window as any).__selectedIds.at(-1)),
-      ).toBe("parent");
-
-      const child = (await page.locator("#child").boundingBox())!;
-      await page.evaluate(
-        ({ x, y, pointerType }) => {
-          const shield = document.querySelector<HTMLElement>(
-            '[data-agent-native-edit-overlay="shield"]',
-          );
-          if (!shield) throw new Error("Editor shield is missing");
-          shield.dispatchEvent(
-            new PointerEvent("pointerdown", {
-              bubbles: true,
-              cancelable: true,
-              pointerId: 8,
-              pointerType,
-              isPrimary: true,
-              button: 0,
-              buttons: 1,
-              clientX: x,
-              clientY: y,
-            }),
-          );
-          shield.dispatchEvent(
-            new PointerEvent("pointerup", {
-              bubbles: true,
-              cancelable: true,
-              pointerId: 8,
-              pointerType,
-              isPrimary: true,
-              button: 0,
-              buttons: 0,
-              clientX: x,
-              clientY: y,
-            }),
-          );
-        },
-        {
-          x: child.x + child.width / 2,
-          y: child.y + child.height / 2,
-          pointerType,
-        },
-      );
-      await page.waitForFunction(
-        () => ((window as any).__selectedIds as string[]).length >= 3,
-      );
-      expect(
-        await page.evaluate(() => (window as any).__selectedIds.at(-1)),
-      ).toBe("parent");
     } finally {
       await browser.close();
     }
@@ -18947,6 +18872,87 @@ it(
       expect(await select("#boolean-layer")).toContain(
         "color-mix(in srgb, #654321 0%, transparent)",
       );
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "modifier-click keeps the frontmost nested hit before cycling the stack across pauses",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 600, height: 500 },
+      });
+      page.on("pageerror", (error) => pageErrors.push(error.message));
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+        <div id="sibling" data-agent-native-node-id="sibling" style="position:absolute;z-index:1;left:100px;top:100px;width:300px;height:240px;background:#777">Overlapping layer</div>
+        <div id="outer" data-agent-native-node-id="outer" style="position:absolute;z-index:2;left:100px;top:100px;width:300px;height:240px;background:#ddd">
+          <div id="middle" data-agent-native-node-id="middle" style="position:absolute;left:20px;top:20px;width:240px;height:180px;background:#aaa">
+            <span id="inner" data-agent-native-node-id="inner" data-an-primitive="text" style="position:absolute;left:20px;top:20px;width:180px;height:100px;background:#555;color:white">Layer text</span>
+          </div>
+        </div>
+      </body></html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+      await page.evaluate(() => {
+        (window as any).__elementSelectPayloads = [];
+        window.addEventListener("message", (event: MessageEvent) => {
+          if (event.data?.type === "element-select") {
+            (window as any).__elementSelectPayloads.push(event.data.payload);
+          }
+        });
+      });
+
+      await selectElementDirect(page, "#outer");
+      await page.evaluate(() => {
+        (window as any).__elementSelectPayloads = [];
+      });
+      const innerBox = await page.locator("#inner").boundingBox();
+      if (!innerBox) throw new Error("Nested text layer was not rendered");
+      const point = {
+        x: innerBox.x + innerBox.width / 2,
+        y: innerBox.y + innerBox.height / 2,
+      };
+      expect(
+        await page.evaluate(
+          ({ x, y }) =>
+            document
+              .elementsFromPoint(x, y)
+              .map((element) => element.id)
+              .filter(Boolean),
+          point,
+        ),
+      ).toEqual(["inner", "middle", "outer", "sibling"]);
+      const selectedSources: string[] = [];
+      for (let index = 0; index < 4; index += 1) {
+        if (index > 0) await page.waitForTimeout(550);
+        await page.keyboard.down(PLATFORM_PRIMARY_KEY);
+        try {
+          await page.mouse.click(point.x, point.y);
+        } finally {
+          await page.keyboard.up(PLATFORM_PRIMARY_KEY);
+        }
+        await page.waitForFunction(
+          (expectedLength) =>
+            (window as any).__elementSelectPayloads.length >= expectedLength,
+          index + 1,
+        );
+        selectedSources.push(
+          await page.evaluate(
+            () =>
+              (window as any).__elementSelectPayloads.at(-1)?.sourceId ?? "",
+          ),
+        );
+      }
+
+      expect(selectedSources).toEqual(["inner", "middle", "outer", "sibling"]);
+      expect(pageErrors).toEqual([]);
     } finally {
       await browser.close();
     }

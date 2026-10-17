@@ -399,6 +399,9 @@ Program result behind each one, when creating a replacement or a new dashboard:
 | GTM pipeline / cross-sell        | `funnel` for ordered stages, `metric` totals, `bar` or `line` trends, and a `table` for account-level follow-up                      |
 | Win/loss analysis                | `section` groups with `metric`, `table`, `bar`, `callout`, and trend panels; use a Data Program for provider joins and evidence rows |
 
+Panel `config.description` values and a callout row's `message` support inline
+Markdown links. Use `[label](https://example.com)`; raw HTML is not rendered.
+
 Funnel panels use `config.xKey` for the stage label and `config.yKey` for a
 non-negative count or value. The renderer preserves the SQL row order, shows
 each stage's share of the first stage, and shows the change from the previous

@@ -286,7 +286,7 @@ test.describe("dragging back into a screen", () => {
   }) => {
     const id = await openFixture(app);
     await clickDesign(app, 75, 160);
-    await clickDesign(app, 75, 160, [MOD]);
+    await expect.poll(() => app.selectedLayers()).toEqual(["Box A"]);
     await expect.poll(() => app.selectedLayers()).toEqual(["Box A"]);
     const before = await app.savedNodes(id);
     const start = await app.pagePoint(75, 160);

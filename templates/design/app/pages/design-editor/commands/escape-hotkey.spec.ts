@@ -80,6 +80,16 @@ describe("runEscapeHotkey", () => {
     expect(calls.setCreatedOverviewLayerSelection).toHaveBeenCalledWith(null);
   });
 
+  it("keeps a pending created-layer selection when another handler consumes Escape", () => {
+    const { args, calls } = harness({ cancelActiveEditorDrag: () => true });
+
+    runEscapeHotkey(args);
+
+    expect(calls.clearPendingOverviewLayerSelection).not.toHaveBeenCalled();
+    expect(calls.setSelectedElement).not.toHaveBeenCalled();
+    expect(calls.setCreatedOverviewLayerSelection).not.toHaveBeenCalled();
+  });
+
   it("does not fall back to selecting the containing screen frame", () => {
     const { args, calls } = harness({ viewMode: "overview" });
 

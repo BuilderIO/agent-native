@@ -19,17 +19,25 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
-function renderPanel() {
+function renderPanel({
+  layers: initialLayers = [{ id: "n1", name: "Box", type: "element" }],
+  onMoveLayer,
+}: {
+  layers?: LayersPanelNode[];
+  onMoveLayer?: () => void;
+} = {}) {
   const onToggleLocked = vi.fn();
   const onToggleHidden = vi.fn();
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
-  const mount = async () => {
+  let layers = initialLayers;
+  const mount = async (nextLayers = layers) => {
+    layers = nextLayers;
     await act(async () => {
       root.render(
         <LayersPanel
-          layers={[{ id: "n1", name: "Box", type: "element" }]}
+          layers={layers}
           selectedIds={[]}
           expandedIds={[]}
           searchQuery=""
@@ -38,6 +46,7 @@ function renderPanel() {
           onSelectionChange={() => {}}
           onToggleLocked={onToggleLocked}
           onToggleHidden={onToggleHidden}
+          onMoveLayer={onMoveLayer}
         />,
       );
     });
@@ -62,10 +71,52 @@ function renderPanel() {
   return { onToggleLocked, onToggleHidden, host, root, mount, click };
 }
 
-function dispatchPointerCancel(pointerType: string) {
-  const event = new Event("pointercancel");
-  Object.defineProperty(event, "pointerType", { value: pointerType });
-  window.dispatchEvent(event as PointerEvent);
+function layerTreeitem(host: HTMLElement, id: string) {
+  const rowButton = host.querySelector<HTMLElement>(
+    `[data-layer-node-id="${id}"]`,
+  );
+  const row = rowButton?.closest<HTMLElement>('[role="treeitem"]');
+  if (!row) throw new Error(`no row for layer ${id}`);
+  return row;
+}
+
+function layerToggleButton(
+  host: HTMLElement,
+  id: string,
+  kind: "hidden" | "locked",
+) {
+  const label = kind === "hidden" ? "layersPanel.hide" : "layersPanel.lock";
+  return Array.from(layerTreeitem(host, id).querySelectorAll("button")).find(
+    (button) => button.getAttribute("aria-label") === label,
+  );
+}
+
+function setHorizontalBounds(
+  element: HTMLElement,
+  left: number,
+  right: number,
+) {
+  vi.spyOn(element, "getBoundingClientRect").mockReturnValue({
+    x: left,
+    y: 0,
+    left,
+    top: 0,
+    right,
+    bottom: 20,
+    width: right - left,
+    height: 20,
+    toJSON: () => ({}),
+  });
+}
+
+function mouseOver(row: HTMLElement, clientX: number) {
+  row.dispatchEvent(
+    new MouseEvent("mouseover", {
+      bubbles: true,
+      clientX,
+      relatedTarget: null,
+    }),
+  );
 }
 
 describe("LayersPanel lock/hide toggles", () => {
@@ -102,6 +153,45 @@ describe("LayersPanel lock/hide toggles", () => {
     expect(panel.onToggleHidden.mock.calls).toEqual([["n1", true]]);
     panel.root.unmount();
   });
+
+  it.each(["locked", "hidden"] as const)(
+    "does not change %s state on a secondary-button press",
+    async (kind) => {
+      const panel = renderPanel({
+        layers: [
+          { id: "n1", name: "Box", type: "element" },
+          { id: "n2", name: "Circle", type: "element" },
+        ],
+      });
+      await panel.mount();
+      const button = layerToggleButton(panel.host, "n1", kind);
+      if (!button) throw new Error(`no ${kind} toggle`);
+
+      const event = new MouseEvent("mousedown", {
+        bubbles: true,
+        cancelable: true,
+        button: 2,
+        detail: 1,
+      });
+      await act(async () => {
+        button.dispatchEvent(event);
+      });
+
+      const targetRow = layerTreeitem(panel.host, "n2");
+      const targetButton = layerToggleButton(panel.host, "n2", kind);
+      if (!targetButton) throw new Error(`no target ${kind} toggle`);
+      setHorizontalBounds(targetButton, 10, 30);
+      await act(async () => {
+        mouseOver(targetRow, 20);
+      });
+
+      expect(event.defaultPrevented).toBe(false);
+      expect(panel.onToggleLocked).not.toHaveBeenCalled();
+      expect(panel.onToggleHidden).not.toHaveBeenCalled();
+      panel.root.unmount();
+      panel.host.remove();
+    },
+  );
 
   it("a drag that starts on a row's eye toggle never starts a row drag", async () => {
     const onMoveLayer = vi.fn();
@@ -201,168 +291,176 @@ describe("LayersPanel lock/hide toggles", () => {
     host.remove();
   });
 
-  it("keeps a mouse click-drag toggle gesture active after mouse pointercancel", async () => {
-    const onToggleHidden = vi.fn();
-    const host = document.createElement("div");
-    document.body.appendChild(host);
-    const root = createRoot(host);
-    await act(async () => {
-      root.render(
-        <LayersPanel
-          layers={[
-            { id: "n1", name: "Box", type: "element" },
-            { id: "n2", name: "Circle", type: "element" },
-          ]}
-          selectedIds={[]}
-          expandedIds={[]}
-          searchQuery=""
-          onSearchQueryChange={() => {}}
-          onExpandedIdsChange={() => {}}
-          onSelectionChange={() => {}}
-          onToggleHidden={onToggleHidden}
-        />,
-      );
+  it.each(["hidden", "locked"] as const)(
+    "uses each target row's %s control slot and skips rows without it",
+    async (kind) => {
+      const absent: LayersPanelNode = {
+        id: "absent",
+        name: "No toggle",
+        type: "element",
+      };
+      if (kind === "hidden") absent.hideable = false;
+      else absent.lockable = false;
+
+      const panel = renderPanel({
+        layers: [
+          { id: "source", name: "Source", type: "element" },
+          { id: "target", name: "Target", type: "element" },
+          absent,
+        ],
+        onMoveLayer: () => {},
+      });
+      try {
+        await panel.mount();
+        const sourceButton = layerToggleButton(panel.host, "source", kind);
+        const targetButton = layerToggleButton(panel.host, "target", kind);
+        expect(sourceButton).toBeDefined();
+        expect(targetButton).toBeDefined();
+        expect(layerToggleButton(panel.host, "absent", kind)).toBeUndefined();
+
+        setHorizontalBounds(sourceButton!, 10, 30);
+        setHorizontalBounds(targetButton!, 100, 120);
+        const sourceRow = layerTreeitem(panel.host, "source");
+        const targetRow = layerTreeitem(panel.host, "target");
+        const absentRow = layerTreeitem(panel.host, "absent");
+        const onToggle =
+          kind === "hidden" ? panel.onToggleHidden : panel.onToggleLocked;
+
+        await act(async () => {
+          sourceButton!.dispatchEvent(
+            new MouseEvent("mousedown", {
+              bubbles: true,
+              cancelable: true,
+              detail: 1,
+              clientX: 20,
+            }),
+          );
+        });
+        expect(sourceRow.draggable).toBe(false);
+        expect(onToggle.mock.calls).toEqual([["source", true]]);
+
+        await act(async () => {
+          mouseOver(targetRow, 20);
+          mouseOver(absentRow, 20);
+        });
+        expect(onToggle.mock.calls).toEqual([["source", true]]);
+
+        await act(async () => {
+          mouseOver(targetRow, 110);
+        });
+        expect(onToggle.mock.calls).toEqual([
+          ["source", true],
+          ["target", true],
+        ]);
+
+        await act(async () => {
+          window.dispatchEvent(new Event("mouseup"));
+        });
+        expect(sourceRow.draggable).toBe(true);
+      } finally {
+        await act(async () => panel.root.unmount());
+        panel.host.remove();
+      }
+    },
+  );
+
+  it.each([
+    "mouseup",
+    "pointerup",
+    "pointercancel",
+    "lostpointercapture",
+    "blur",
+  ] as const)(
+    "clears the toggle drag and restores row dragging on %s",
+    async (endEvent) => {
+      const panel = renderPanel({
+        layers: [
+          { id: "source", name: "Source", type: "element" },
+          { id: "target", name: "Target", type: "element" },
+        ],
+        onMoveLayer: () => {},
+      });
+      try {
+        await panel.mount();
+        const sourceButton = layerToggleButton(panel.host, "source", "hidden");
+        const targetButton = layerToggleButton(panel.host, "target", "hidden");
+        expect(sourceButton).toBeDefined();
+        expect(targetButton).toBeDefined();
+        setHorizontalBounds(sourceButton!, 10, 30);
+        setHorizontalBounds(targetButton!, 10, 30);
+        const sourceRow = layerTreeitem(panel.host, "source");
+        const targetRow = layerTreeitem(panel.host, "target");
+
+        await act(async () => {
+          sourceButton!.dispatchEvent(
+            new MouseEvent("mousedown", {
+              bubbles: true,
+              cancelable: true,
+              detail: 1,
+              clientX: 20,
+            }),
+          );
+        });
+        expect(sourceRow.draggable).toBe(false);
+
+        await act(async () => {
+          window.dispatchEvent(new Event(endEvent));
+        });
+        expect(sourceRow.draggable).toBe(true);
+
+        await act(async () => {
+          mouseOver(targetRow, 20);
+        });
+        expect(panel.onToggleHidden.mock.calls).toEqual([["source", true]]);
+      } finally {
+        await act(async () => panel.root.unmount());
+        panel.host.remove();
+      }
+    },
+  );
+
+  it("clears the toggle drag and restores row dragging when its source row unmounts", async () => {
+    const target: LayersPanelNode = {
+      id: "target",
+      name: "Target",
+      type: "element",
+    };
+    const panel = renderPanel({
+      layers: [{ id: "source", name: "Source", type: "element" }, target],
+      onMoveLayer: () => {},
     });
-    const hideButtons = Array.from(host.querySelectorAll("button")).filter(
-      (candidate) =>
-        candidate.getAttribute("aria-label") === "layersPanel.hide",
-    );
-    const sourceRow =
-      hideButtons[0]!.closest<HTMLElement>('[role="treeitem"]')!;
-    const targetRow =
-      hideButtons[1]!.closest<HTMLElement>('[role="treeitem"]')!;
-    const sourceId = sourceRow.querySelector<HTMLElement>(
-      "[data-layer-row-button]",
-    )!.dataset.layerNodeId;
-    const targetId = targetRow.querySelector<HTMLElement>(
-      "[data-layer-row-button]",
-    )!.dataset.layerNodeId;
+    try {
+      await panel.mount();
+      const sourceButton = layerToggleButton(panel.host, "source", "hidden");
+      expect(sourceButton).toBeDefined();
+      setHorizontalBounds(sourceButton!, 10, 30);
+      const sourceRow = layerTreeitem(panel.host, "source");
+      await act(async () => {
+        sourceButton!.dispatchEvent(
+          new MouseEvent("mousedown", {
+            bubbles: true,
+            cancelable: true,
+            detail: 1,
+            clientX: 20,
+          }),
+        );
+      });
+      expect(sourceRow.draggable).toBe(false);
 
-    await act(async () => {
-      hideButtons[0]!.dispatchEvent(
-        new MouseEvent("mousedown", { bubbles: true, detail: 1 }),
-      );
-      expect(onToggleHidden.mock.calls).toHaveLength(1);
-      dispatchPointerCancel("mouse");
-      expect(onToggleHidden.mock.calls).toHaveLength(1);
-      targetRow.dispatchEvent(
-        new MouseEvent("mouseover", { bubbles: true, clientX: 0 }),
-      );
-      expect(onToggleHidden.mock.calls).toHaveLength(2);
-      window.dispatchEvent(new MouseEvent("mouseup"));
-    });
-
-    expect(onToggleHidden.mock.calls).toEqual([
-      [sourceId, true],
-      [targetId, true],
-    ]);
-    root.unmount();
-    host.remove();
-  });
-
-  it("checks the target toggle column again while the mouse moves through a row", async () => {
-    const onToggleHidden = vi.fn();
-    const host = document.createElement("div");
-    document.body.appendChild(host);
-    const root = createRoot(host);
-    await act(async () => {
-      root.render(
-        <LayersPanel
-          layers={[
-            { id: "n1", name: "Box", type: "element" },
-            { id: "n2", name: "Circle", type: "element" },
-          ]}
-          selectedIds={[]}
-          expandedIds={[]}
-          searchQuery=""
-          onSearchQueryChange={() => {}}
-          onExpandedIdsChange={() => {}}
-          onSelectionChange={() => {}}
-          onToggleHidden={onToggleHidden}
-        />,
-      );
-    });
-    const hideButtons = Array.from(host.querySelectorAll("button")).filter(
-      (candidate) =>
-        candidate.getAttribute("aria-label") === "layersPanel.hide",
-    );
-    const sourceRow =
-      hideButtons[0]!.closest<HTMLElement>('[role="treeitem"]')!;
-    const targetRow =
-      hideButtons[1]!.closest<HTMLElement>('[role="treeitem"]')!;
-    const sourceId = sourceRow.querySelector<HTMLElement>(
-      "[data-layer-row-button]",
-    )!.dataset.layerNodeId;
-    const targetId = targetRow.querySelector<HTMLElement>(
-      "[data-layer-row-button]",
-    )!.dataset.layerNodeId;
-
-    await act(async () => {
-      hideButtons[0]!.dispatchEvent(
-        new MouseEvent("mousedown", { bubbles: true, detail: 1 }),
-      );
-      expect(onToggleHidden.mock.calls).toHaveLength(1);
-      targetRow.dispatchEvent(
-        new MouseEvent("mouseover", { bubbles: true, clientX: 1 }),
-      );
-      expect(onToggleHidden.mock.calls).toHaveLength(1);
-      targetRow.dispatchEvent(
-        new MouseEvent("mousemove", { bubbles: true, clientX: 0 }),
-      );
-      window.dispatchEvent(new MouseEvent("mouseup"));
-    });
-
-    expect(onToggleHidden.mock.calls).toEqual([
-      [sourceId, true],
-      [targetId, true],
-    ]);
-    root.unmount();
-    host.remove();
-  });
-
-  it("clears the click-drag toggle gesture on non-mouse pointercancel", async () => {
-    const onToggleHidden = vi.fn();
-    const host = document.createElement("div");
-    document.body.appendChild(host);
-    const root = createRoot(host);
-    await act(async () => {
-      root.render(
-        <LayersPanel
-          layers={[
-            { id: "n1", name: "Box", type: "element" },
-            { id: "n2", name: "Circle", type: "element" },
-          ]}
-          selectedIds={[]}
-          expandedIds={[]}
-          searchQuery=""
-          onSearchQueryChange={() => {}}
-          onExpandedIdsChange={() => {}}
-          onSelectionChange={() => {}}
-          onToggleHidden={onToggleHidden}
-        />,
-      );
-    });
-    const hideButtons = Array.from(host.querySelectorAll("button")).filter(
-      (candidate) =>
-        candidate.getAttribute("aria-label") === "layersPanel.hide",
-    );
-    const targetRow =
-      hideButtons[1]!.closest<HTMLElement>('[role="treeitem"]')!;
-
-    await act(async () => {
-      hideButtons[0]!.dispatchEvent(
-        new MouseEvent("mousedown", { bubbles: true, detail: 1 }),
-      );
-      dispatchPointerCancel("touch");
-      targetRow.dispatchEvent(
-        new MouseEvent("mouseover", { bubbles: true, clientX: 0 }),
-      );
-      window.dispatchEvent(new MouseEvent("mouseup"));
-    });
-
-    expect(onToggleHidden.mock.calls).toHaveLength(1);
-    root.unmount();
-    host.remove();
+      await panel.mount([target]);
+      expect(sourceRow.draggable).toBe(true);
+      const targetRow = layerTreeitem(panel.host, "target");
+      const targetButton = layerToggleButton(panel.host, "target", "hidden");
+      expect(targetButton).toBeDefined();
+      setHorizontalBounds(targetButton!, 10, 30);
+      await act(async () => {
+        mouseOver(targetRow, 20);
+      });
+      expect(panel.onToggleHidden.mock.calls).toEqual([["source", true]]);
+    } finally {
+      await act(async () => panel.root.unmount());
+      panel.host.remove();
+    }
   });
 });
 

@@ -3,11 +3,11 @@ import { describe, expect, it, vi } from "vitest";
 
 import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-chrome.generated";
 
-function hydratedEditorChromeBridgeScript(): string {
+function hydratedEditorChromeBridgeScript(textEditingEnabled = false): string {
   return (
     editorChromeBridgeScript
       .replace("__READ_ONLY__", "false")
-      .replace("__TEXT_EDITING_ENABLED__", "false")
+      .replace("__TEXT_EDITING_ENABLED__", String(textEditingEnabled))
       .replace("__EDITOR_CHROME_SCALE_X__", "1")
       .replace("__EDITOR_CHROME_SCALE_Y__", "1")
       .replace("__DESIGN_CANVAS_SCREEN_ID__", JSON.stringify("live-screen"))
@@ -198,6 +198,64 @@ describe("container-first click selection", () => {
       await browser.close();
     }
   });
+
+  it.each(["Meta", "Control"] as const)(
+    "does not count a %s click as the first half of a plain double-click",
+    async (modifier) => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const page = await browser.newPage();
+        await page.setContent(DEEP_SELECTION_FIXTURE);
+        await page.addScriptTag({
+          content: hydratedEditorChromeBridgeScript(),
+        });
+        await page.evaluate(() => {
+          (window as any).__selectionIds = [];
+          window.addEventListener("message", (event: MessageEvent) => {
+            if (event.data?.type === "element-select") {
+              (window as any).__selectionIds.push(
+                event.data.payload?.sourceId ?? "",
+              );
+            }
+          });
+        });
+
+        await page.evaluate(() => {
+          const selector = '[data-agent-native-node-id="grandchild"]';
+          window.postMessage(
+            {
+              type: "select-element",
+              selector,
+              selectorCandidates: [selector],
+            },
+            "*",
+          );
+        });
+        await page.waitForFunction(() =>
+          (window as any).__selectionIds.includes("grandchild"),
+        );
+
+        await page.keyboard.down(modifier);
+        await page.mouse.click(100, 100);
+        await page.keyboard.up(modifier);
+        await page.mouse.click(100, 100);
+        await page.waitForFunction(
+          () => (window as any).__selectionIds.length >= 3,
+        );
+
+        const selectedIds = await page.evaluate(
+          () => (window as any).__selectionIds as string[],
+        );
+        expect(selectedIds).toEqual([
+          "grandchild",
+          "middle-frame",
+          "middle-frame",
+        ]);
+      } finally {
+        await browser.close();
+      }
+    },
+  );
 
   it("keeps a host-selected nested leaf's sibling directly reachable", async () => {
     const browser = await chromium.launch({ headless: true });
@@ -520,7 +578,9 @@ describe("container-first click selection", () => {
     try {
       const page = await browser.newPage();
       await page.setContent(DRILL_SCOPE_FIXTURE);
-      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(true),
+      });
       await page.evaluate(() => {
         (window as any).__selectionIds = [];
         window.addEventListener("message", (event: MessageEvent) => {

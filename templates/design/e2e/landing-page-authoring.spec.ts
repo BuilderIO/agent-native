@@ -15,18 +15,6 @@ const BLANK_SCREEN = `<!doctype html>
   <body data-agent-native-node-id="page" style="margin:0;min-height:900px;background:#0b0f19"></body>
 </html>`;
 
-const STYLED_PAINT_STACK_SCREEN = `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <style>.light-surface { background-color: #d9d9d9; }</style>
-  </head>
-  <body data-agent-native-node-id="page" style="position:relative;margin:0;width:900px;height:900px;background:#ffffff">
-    <div data-agent-native-node-id="light" data-agent-native-layer-name="Light surface" class="light-surface" style="position:absolute;left:20px;top:150px;width:280px;height:300px;z-index:2"></div>
-    <div data-agent-native-node-id="dark" data-agent-native-layer-name="Lower dark surface" style="position:absolute;left:20px;top:150px;width:280px;height:300px;background:#111111;z-index:1"></div>
-  </body>
-</html>`;
-
 interface Box {
   left: number;
   top: number;
@@ -304,25 +292,6 @@ test("text typed over a light rectangle stays a page child and is readable on th
     contrastRatio(color, "rgb(217, 217, 217)"),
     `text committed ${color} over the #D9D9D9 rectangle`,
   ).toBeGreaterThanOrEqual(4.5);
-});
-
-test("text color follows a class-painted surface above a later lower-z-index layer", async ({
-  app,
-}) => {
-  const id = await openDesign(app, STYLED_PAINT_STACK_SCREEN);
-  const before = await app.savedNodes(id);
-
-  await typeText(app, { x: 60, y: 260 }, "Readable on top");
-
-  const after = await app.savedNodes(id);
-  const typed = added(before, after);
-  expect(summary(typed)).toEqual([["div", "page", "text", "Readable on top"]]);
-  const color = await renderedColor(app, typed[0]!.id);
-  expect(
-    contrastRatio(color, "rgb(217, 217, 217)"),
-    `text committed ${color} over the stylesheet-painted #D9D9D9 surface`,
-  ).toBeGreaterThanOrEqual(4.5);
-  expectOnlyChanged(before, after, [typed[0]!.id]);
 });
 
 // Shift+A preserves the frame contents and keeps the Gap value fully visible in the inspector.

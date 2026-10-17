@@ -80,10 +80,13 @@ export interface CreatePrimitiveArgs {
 }
 
 type PrimitiveCreationHostLayout =
-  | "flow"
-  | "freeform"
-  | "unavailable"
-  | "stale";
+  | { status: "unavailable" }
+  | { status: "stale" }
+  | {
+      status: "resolved";
+      layout: "flow" | "freeform";
+      document: Document;
+    };
 
 function resolvePrimitiveCreationHostLayout(args: {
   activeBreakpointWidthState?: number;
@@ -101,15 +104,17 @@ function resolvePrimitiveCreationHostLayout(args: {
     fileId: args.fileId,
     overviewScreens: args.overviewScreens,
   });
-  if (preview.status === "unavailable") return "unavailable";
-  if (preview.status === "stale" || !preview.document.body) return "stale";
+  if (preview.status === "unavailable") return { status: "unavailable" };
+  if (preview.status === "stale" || !preview.document.body) {
+    return { status: "stale" };
+  }
 
   const host = canvasPrimitiveInsertionHostNodeId(
     args.content,
     args.primitive,
     args.fileId === args.boardFileId,
   );
-  if (!host) return "stale";
+  if (!host) return { status: "stale" };
 
   let liveHost: Element | null = preview.document.body;
   if (host.kind === "frame") {
@@ -131,18 +136,22 @@ function resolvePrimitiveCreationHostLayout(args: {
       liveMatches.length !== 1 ||
       sourceMatches[0]?.localName !== liveMatches[0]?.localName
     ) {
-      return "stale";
+      return { status: "stale" };
     }
     liveHost = liveMatches[0] ?? null;
   }
   const view = preview.document.defaultView;
-  if (!liveHost || !view) return "stale";
+  if (!liveHost || !view) return { status: "stale" };
   try {
-    return isFlowDisplay(view.getComputedStyle(liveHost).display)
-      ? "flow"
-      : "freeform";
+    return {
+      status: "resolved",
+      layout: isFlowDisplay(view.getComputedStyle(liveHost).display)
+        ? "flow"
+        : "freeform",
+      document: preview.document,
+    };
   } catch {
-    return "stale";
+    return { status: "stale" };
   }
 }
 
@@ -252,9 +261,22 @@ export function runCreatePrimitive(
     const nodeId =
       primitive.nodeId ?? uniqueLayerId(primitive.kind || "primitive");
     const livePrimitive = { ...primitive, nodeId };
+    const livePreview = getLivePreviewDocument({
+      activeBreakpointWidthState,
+      activeFileId: activeFile?.id,
+      boardFileId,
+      fileId: targetFile.id,
+      overviewScreens,
+    });
     const temporaryDocument = appendCanvasPrimitiveToHtml(
       blankScreenHtml("Live insert"),
       livePrimitive,
+      {
+        isBoardTarget: targetFile.id === boardFileId,
+        boardBackground: canvasBackground,
+        liveDocument:
+          livePreview.status === "resolved" ? livePreview.document : undefined,
+      },
     );
     if (!temporaryDocument) {
       toast.error(t("designEditor.toasts.primitiveInsertFailed"));
@@ -301,17 +323,10 @@ export function runCreatePrimitive(
     overviewScreens,
     primitive: insertionPrimitive,
   });
-  if (hostLayout === "stale") {
+  if (hostLayout.status === "stale") {
     toast.error(t("designEditor.toasts.primitiveInsertFailed"));
     return false;
   }
-  const livePreview = getLivePreviewDocument({
-    activeBreakpointWidthState,
-    activeFileId: activeFile?.id,
-    boardFileId,
-    fileId: targetFile.id,
-    overviewScreens,
-  });
   const insertedContent = appendCanvasPrimitiveToHtml(
     insertionBaseContent,
     insertionPrimitive,
@@ -319,11 +334,14 @@ export function runCreatePrimitive(
       preserveNegativePosition: targetFile.id === boardFileId,
       isBoardTarget: targetFile.id === boardFileId,
       boardBackground: canvasBackground,
-      liveDocument:
-        livePreview.status === "resolved" ? livePreview.document : undefined,
-      positioning: hostLayout === "flow" ? "flow" : "absolute",
+      positioning:
+        hostLayout.status === "resolved" && hostLayout.layout === "flow"
+          ? "flow"
+          : "absolute",
       liveLayerSizes:
-        insertionPrimitive.kind === "frame" && hostLayout === "freeform"
+        insertionPrimitive.kind === "frame" &&
+        hostLayout.status === "resolved" &&
+        hostLayout.layout === "freeform"
           ? readLiveHostChildSizes({
               activeBreakpointWidthState,
               activeFileId: activeFile?.id,
@@ -334,6 +352,8 @@ export function runCreatePrimitive(
               primitive: insertionPrimitive,
             })
           : undefined,
+      liveDocument:
+        hostLayout.status === "resolved" ? hostLayout.document : undefined,
     },
   );
   if (!insertedContent) {
