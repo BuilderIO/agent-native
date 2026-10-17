@@ -84,7 +84,10 @@ import {
 import {
   buildDrawingHandoffPrompt,
   buildSelectionHandoffPrompt,
+  buildQuickPickPrompt,
+  openAgentPanel,
   sendEditorPromptToAgent,
+  type ContextToolbarQuickPick,
 } from "@/lib/editor-agent-handoff";
 import { downloadImage } from "@/lib/image-download";
 import {
@@ -96,6 +99,7 @@ import { publishSlidesSelection } from "@/lib/slide-agent-context";
 import {
   getElementPreview,
   storedPathOfRenderedElement,
+  NO_ANIMATION_TARGETS,
   type SelectedAnimationTarget,
 } from "@/lib/slide-animation-elements";
 import {
@@ -177,6 +181,7 @@ import {
   normalizeSlideClipboardHtml,
   restoreEditableTextRange,
   selectAllEditableText,
+  selectionClearingPatch,
   snapshotEditableTextRange,
   type InlineTextStylePatch,
   type InlineTextStyleSnapshot,
@@ -389,6 +394,8 @@ const SLIDE_SHAPE_DEFAULT_SIZES = {
   circle: { width: 144, height: 144 },
   arrow: { width: 192, height: 144 },
   triangle: { width: 144, height: 144 },
+  star: { width: 144, height: 144 },
+  polygon: { width: 144, height: 144 },
   line: { width: 240, height: 4 },
 } satisfies Record<
   SlideShapeType,
@@ -1187,6 +1194,7 @@ interface SlideEditorProps {
   drawMode?: boolean;
   /** Called when the draw overlay should exit (Esc, Send, close button) */
   onExitDrawMode?: () => void;
+  onToggleLayers?: () => void;
   /** Whether comment-pin mode is active on the canvas */
   pinMode?: boolean;
   /** Whether the current viewer can create and reply to comments. */
@@ -1210,11 +1218,11 @@ interface SlideEditorProps {
   layersOpen?: boolean;
   /** Close the document layers panel. */
   onCloseLayers?: () => void;
-  /** Open transitions for the currently selected canvas element. */
-  onOpenAnimations?: (target: SelectedAnimationTarget) => void;
+  /** Open transitions for the currently selected canvas elements. */
+  onOpenAnimations?: (targets: SelectedAnimationTarget[]) => void;
   /** Keep the parent in sync with the current canvas selection. */
-  onSelectedAnimationTargetChange?: (
-    target: SelectedAnimationTarget | null,
+  onSelectedAnimationTargetsChange?: (
+    targets: SelectedAnimationTarget[],
   ) => void;
   /** Slide id for pin mode contextId — falls back to slide.id if omitted */
   slideId?: string;
@@ -1237,6 +1245,8 @@ interface SlideEditorProps {
   /** Called by the editor shell before a navigation that must persist the
    *  current contentEditable draft. Returns true when a draft was active. */
   flushInlineEditRef?: { current: (() => boolean) | null };
+  /** Lets the editor shell's app menu reach canvas zoom and object commands. */
+  canvasCommandsRef?: { current: SlideCanvasCommands | null };
   /** Other users (besides the current user) currently viewing/editing THIS
    *  slide. Drives the soft same-slide-edit indicator on the canvas so a user
    *  knows before they clobber someone else's last-writer-wins text edit. */
@@ -1759,6 +1769,16 @@ type ActiveImageCrop = {
   cancel: () => HTMLElement | null;
 };
 
+export interface SlideCanvasCommands {
+  canZoomIn: boolean;
+  canZoomOut: boolean;
+  zoomIn: () => void;
+  zoomOut: () => void;
+  hasObjectSelection: () => boolean;
+  duplicateObjects: () => boolean;
+  deleteObjects: () => boolean;
+}
+
 export default function SlideEditor({
   slide,
   slidePosition,
@@ -1785,6 +1805,7 @@ export default function SlideEditor({
   aspectRatio,
   drawMode,
   onExitDrawMode,
+  onToggleLayers,
   pinMode,
   canComment = false,
   currentUserEmail,
@@ -1797,7 +1818,7 @@ export default function SlideEditor({
   layersOpen = false,
   onCloseLayers,
   onOpenAnimations,
-  onSelectedAnimationTargetChange,
+  onSelectedAnimationTargetsChange,
   slideId,
   comments = [],
   onSelectCommentThread,
@@ -1807,6 +1828,7 @@ export default function SlideEditor({
   onInlineEditEnd,
   onFlushInlineEdit,
   flushInlineEditRef,
+  canvasCommandsRef,
   presentUsers = [],
   recentEdits = [],
   onComment,
@@ -2039,6 +2061,26 @@ export default function SlideEditor({
       persistence: "immediate",
     });
   }, [onUpdateSlide, slide.id]);
+
+  // The agent reads this to know which side panel the user has open; it is
+  // independent of selection, so it cannot ride on slides-selection.
+  useEffect(() => {
+    const state = {
+      deckId,
+      slideId: slide.id,
+      panel: animationsOpen ? "animations" : layersOpen ? "layers" : null,
+    };
+    for (const key of [
+      appStateKeyForBrowserTab("slides-open-panel", TAB_ID),
+      "slides-open-panel",
+    ]) {
+      setClientAppState(key, state, {
+        keepalive: true,
+        requestSource: TAB_ID,
+      }).catch(() => {});
+    }
+  }, [animationsOpen, layersOpen, deckId, slide.id]);
+
   const dims = getAspectRatioDims(aspectRatio);
   const [, setFitCanvasZoom] = useState(100);
   const stacked = slideScroll !== undefined;
@@ -2056,6 +2098,7 @@ export default function SlideEditor({
     userSetCanvasZoomRef.current = true;
     setCanvasZoom(Math.round(next));
   }, []);
+
   const canvasZoomIn = useCallback(() => {
     const next = CANVAS_ZOOM_PRESETS.find((preset) => preset > canvasZoom);
     setManualCanvasZoom(
@@ -3009,24 +3052,45 @@ export default function SlideEditor({
     [readCurrentSlideContentHtml],
   );
 
-  const getSelectedAnimationTarget =
-    useCallback((): SelectedAnimationTarget | null => {
-      const element = selectedImg ?? resolveSelectedElement();
-      const scope = element?.closest<HTMLElement>("[data-slide-content-scope]");
+  // One target per selected object, in selection order, so the first one picked
+  // is the one that waits for the click.
+  const getSelectedAnimationTargets =
+    useCallback((): SelectedAnimationTarget[] => {
+      const slideContent = getSlideContent();
+      const elements =
+        multiSelection.size > 0
+          ? Array.from(multiSelection).flatMap((id) => {
+              const element = slideContent?.querySelector<HTMLElement>(
+                `[data-builder-id="${id}"]`,
+              );
+              return element ? [element] : [];
+            })
+          : [selectedImg ?? resolveSelectedElement()].filter(
+              (element) => element !== null,
+            );
+      // Every selected object is on the same slide, so one stored source serves all.
+      const scope = elements[0]?.closest<HTMLElement>(
+        "[data-slide-content-scope]",
+      );
       const stored = scope ? getRenderedSlideSource(scope)?.stored : undefined;
-      if (!element || stored === undefined) return null;
-      // The path is taken from the stored HTML, the one playback resolves
-      // against. The rendered DOM drops svg and similar elements, so its
-      // indices would point at the wrong object at runtime.
-      const elementPath = storedPathOfRenderedElement(stored, element);
-      if (!elementPath) return null;
-      const elementIndex = elementPath[elementPath.length - 1] ?? 0;
-      return {
-        elementIndex,
-        elementPath,
-        preview: getElementPreview(element, `Element ${elementIndex + 1}`),
-      };
-    }, [resolveSelectedElement, selectedImg]);
+      if (stored === undefined) return NO_ANIMATION_TARGETS;
+      const targets = elements.flatMap((element) => {
+        // The path is taken from the stored HTML, the one playback resolves
+        // against. The rendered DOM drops svg and similar elements, so its
+        // indices would point at the wrong object at runtime.
+        const elementPath = storedPathOfRenderedElement(stored, element);
+        if (!elementPath) return [];
+        const elementIndex = elementPath[elementPath.length - 1] ?? 0;
+        return [
+          {
+            elementIndex,
+            elementPath,
+            preview: getElementPreview(element, `Element ${elementIndex + 1}`),
+          },
+        ];
+      });
+      return targets.length > 0 ? targets : NO_ANIMATION_TARGETS;
+    }, [getSlideContent, multiSelection, resolveSelectedElement, selectedImg]);
 
   const commentOnSelectedElement = useCallback(() => {
     const target = selectedImg ?? resolveSelectedElement();
@@ -3050,8 +3114,8 @@ export default function SlideEditor({
   }, [ensureCommentObjectId, onComment, resolveSelectedElement, selectedImg]);
 
   useEffect(() => {
-    onSelectedAnimationTargetChange?.(getSelectedAnimationTarget());
-  }, [getSelectedAnimationTarget, onSelectedAnimationTargetChange]);
+    onSelectedAnimationTargetsChange?.(getSelectedAnimationTargets());
+  }, [getSelectedAnimationTargets, onSelectedAnimationTargetsChange]);
 
   const buildSelectionState = useCallback(
     (
@@ -5306,9 +5370,10 @@ export default function SlideEditor({
       ) {
         // The live session styles its own selection so the change is one
         // undo step inside the edit.
+        const selectionPatch = selectionClearingPatch(inlinePatch);
         const applied = session
-          ? session.commands.textStyle(inlinePatch)
-          : applyInlineTextStyle(element, inlinePatch).scope === "selection";
+          ? session.commands.textStyle(selectionPatch)
+          : applyInlineTextStyle(element, selectionPatch).scope === "selection";
         const selection = window.getSelection();
         if (applied && selection && selection.rangeCount === 1) {
           styledRange = selection.getRangeAt(0).cloneRange();
@@ -5503,6 +5568,39 @@ export default function SlideEditor({
     storeCopiedObjects(selection);
     return deleteSelectedElements(selection);
   }, [deleteSelectedElements, getClipboardSelection, storeCopiedObjects]);
+
+  const canvasZoomEnabled = !slide.excalidrawData;
+  const canZoomOut = canvasZoom > MIN_CANVAS_ZOOM;
+  const canZoomIn =
+    canvasZoom < CANVAS_ZOOM_PRESETS[CANVAS_ZOOM_PRESETS.length - 1];
+  useEffect(() => {
+    if (!canvasCommandsRef) return;
+    const commands: SlideCanvasCommands = {
+      canZoomIn: canvasZoomEnabled && canZoomIn,
+      canZoomOut: canvasZoomEnabled && canZoomOut,
+      zoomIn: canvasZoomIn,
+      zoomOut: canvasZoomOut,
+      hasObjectSelection: () => getClipboardSelection() !== null,
+      duplicateObjects: duplicateSelectedObjects,
+      deleteObjects: () => deleteSelectedElements(),
+    };
+    canvasCommandsRef.current = commands;
+    return () => {
+      if (canvasCommandsRef.current === commands) {
+        canvasCommandsRef.current = null;
+      }
+    };
+  }, [
+    canvasCommandsRef,
+    canZoomIn,
+    canZoomOut,
+    canvasZoomEnabled,
+    canvasZoomIn,
+    canvasZoomOut,
+    deleteSelectedElements,
+    duplicateSelectedObjects,
+    getClipboardSelection,
+  ]);
 
   // The object payload stays editor-local while its native marker identifies
   // an in-app layer copy. It intentionally does not survive a deck switch.
@@ -5916,6 +6014,12 @@ export default function SlideEditor({
           "polygon(0% 30%, 55% 30%, 55% 0%, 100% 50%, 55% 100%, 55% 70%, 0% 70%)";
       } else if (type === "triangle") {
         shape.style.clipPath = "polygon(50% 0%, 100% 100%, 0% 100%)";
+      } else if (type === "star") {
+        shape.style.clipPath =
+          "polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%)";
+      } else if (type === "polygon") {
+        shape.style.clipPath =
+          "polygon(25% 5%, 75% 5%, 100% 50%, 75% 95%, 25% 95%, 0% 50%)";
       }
       shape.style.opacity = "0.85";
       if (lineRotationDeg) setSlideObjectRotation(shape, lineRotationDeg);
@@ -10288,17 +10392,12 @@ export default function SlideEditor({
   const multiSelectionBounds = unionDomRects(
     Array.from(multiSelectionRects.values()).map((value) => value.rect),
   );
-  const canZoomOut = canvasZoom > MIN_CANVAS_ZOOM;
-  const canZoomIn =
-    canvasZoom < CANVAS_ZOOM_PRESETS[CANVAS_ZOOM_PRESETS.length - 1];
-  const zoomControls = slide.excalidrawData
+  const zoomControls = !canvasZoomEnabled
     ? undefined
     : {
         value: canvasZoom,
-        onZoomOut: canvasZoomOut,
-        onZoomIn: canvasZoomIn,
-        canZoomOut,
-        canZoomIn,
+        presets: CANVAS_ZOOM_PRESETS,
+        onSelect: setManualCanvasZoom,
       };
 
   const contextImageTarget = (() => {
@@ -10428,6 +10527,97 @@ export default function SlideEditor({
     </>
   );
 
+  const setSelectedImageFit = (newFit: "cover" | "contain") => {
+    if (!imageOverlay || imageOverlay.objectFit === newFit) return;
+    finishImageCrop(true);
+    onToggleObjectFit(imageOverlay.src, newFit, imageOverlay.imageOccurrence);
+    setImageOverlay({ ...imageOverlay, objectFit: newFit });
+    if (selectedImg) {
+      publishImageSelection(selectedImg, {
+        objectFit: newFit,
+        objectPosition: imageOverlay.objectPosition,
+      });
+    }
+  };
+
+  const runInlineTextCommand = (
+    run: (
+      session: NonNullable<typeof textSessionRef.current>["text"],
+    ) => boolean,
+  ) => {
+    const session = textSessionRef.current?.text;
+    if (!session) return;
+    restoreEditableTextRange(session.element, richTextSelectionRef.current);
+    if (!run(session)) return;
+    captureInlineEditDraft(slide.id);
+  };
+
+  const sendQuickPickToAgent = (pick: ContextToolbarQuickPick) => {
+    const selectors =
+      multiSelection.size > 0
+        ? Array.from(multiSelectionRects.values()).map((v) => v.selector)
+        : selectedStyleSnapshot
+          ? [selectedStyleSnapshot.selector]
+          : [];
+    sendEditorPromptToAgent(
+      buildQuickPickPrompt({
+        pick,
+        slideNumber: slideIndex + 1,
+        slideId: slide.id,
+        selectors,
+      }),
+    );
+  };
+
+  const contextToolbarProps = {
+    snapshot: selectedStyleSnapshot,
+    background: slide.background,
+    designSystem: designSystem,
+    leading: contextToolbarLeading,
+    hasSelectedElement: slideElementSelected,
+    animationsOpen: animationsOpen,
+    canComment: canComment,
+    onComment: commentOnSelectedElement,
+    onOpenAnimations: onOpenAnimations
+      ? () => {
+          const targets = getSelectedAnimationTargets();
+          if (targets.length > 0) onOpenAnimations(targets);
+        }
+      : undefined,
+    onChange: applySelectedStylePatch,
+    onEnablePositioning: enableSelectedObjectPositioning,
+    onBackgroundChange: applySlideBackground,
+    onArrange: handleArrangeSelected,
+    onGroup: handleGroupSelected,
+    onUngroup: handleUngroupSelected,
+    onToggleList: handleToggleList,
+    objectSelectionCount: objectSelectionCount,
+    canGroup: canGroupObjects,
+    canUngroup: canUngroupObjects,
+    onAlignObjects: handleAlignSelectedObjects,
+    onDistributeObjects: handleDistributeSelectedObjects,
+    videoPlayback: selectedVideoPlayback,
+    onVideoPlaybackChange: updateSelectedVideoPlayback,
+    zoomControls: zoomControls,
+    layersOpen,
+    onToggleLayers,
+    imageFit: imageOverlay?.objectFit,
+    onReplaceImage: imageOverlay
+      ? () => {
+          finishImageCrop(true);
+          onUploadImage(imageOverlay.src);
+        }
+      : undefined,
+    onImageFitChange: imageOverlay ? setSelectedImageFit : undefined,
+    inlineFormatting: Boolean(editingEl && textSessionRef.current?.text),
+    onTextFormat: (format: "code") =>
+      runInlineTextCommand((session) => session.commands[format]()),
+    onSetLink: (href: string | null) =>
+      runInlineTextCommand((session) => session.commands.link(href)),
+    onOpenAgent: openAgentPanel,
+    onAgentQuickPick: sendQuickPickToAgent,
+  };
+
   // Excalidraw slides have no selectable slide content, so the row collapses
   // to its slide-level state — but that state owns the background picker, and
   // SlideRenderer paints `slide.background` behind the drawing, so the row has
@@ -10445,39 +10635,7 @@ export default function SlideEditor({
       data-slide-context-toolbar-placement="row"
       onPointerDownCapture={preserveRichTextSelection}
     >
-      <SlideContextToolbar
-        snapshot={selectedStyleSnapshot}
-        background={slide.background}
-        designSystem={designSystem}
-        leading={contextToolbarLeading}
-        hasSelectedElement={slideElementSelected}
-        animationsOpen={animationsOpen}
-        canComment={canComment}
-        onComment={commentOnSelectedElement}
-        onOpenAnimations={
-          onOpenAnimations
-            ? () => {
-                const target = getSelectedAnimationTarget();
-                if (target) onOpenAnimations(target);
-              }
-            : undefined
-        }
-        onChange={applySelectedStylePatch}
-        onEnablePositioning={enableSelectedObjectPositioning}
-        onBackgroundChange={applySlideBackground}
-        onArrange={handleArrangeSelected}
-        onGroup={handleGroupSelected}
-        onUngroup={handleUngroupSelected}
-        onToggleList={handleToggleList}
-        objectSelectionCount={objectSelectionCount}
-        canGroup={canGroupObjects}
-        canUngroup={canUngroupObjects}
-        onAlignObjects={handleAlignSelectedObjects}
-        onDistributeObjects={handleDistributeSelectedObjects}
-        videoPlayback={selectedVideoPlayback}
-        onVideoPlaybackChange={updateSelectedVideoPlayback}
-        zoomControls={zoomControls}
-      />
+      <SlideContextToolbar {...contextToolbarProps} />
     </div>
   ) : null;
 
@@ -10489,37 +10647,7 @@ export default function SlideEditor({
       onPointerDownCapture={preserveRichTextSelection}
     >
       <SlideContextToolbar
-        snapshot={selectedStyleSnapshot}
-        background={slide.background}
-        designSystem={designSystem}
-        leading={contextToolbarLeading}
-        hasSelectedElement={slideElementSelected}
-        animationsOpen={animationsOpen}
-        canComment={canComment}
-        onComment={commentOnSelectedElement}
-        onOpenAnimations={
-          onOpenAnimations
-            ? () => {
-                const target = getSelectedAnimationTarget();
-                if (target) onOpenAnimations(target);
-              }
-            : undefined
-        }
-        onChange={applySelectedStylePatch}
-        onEnablePositioning={enableSelectedObjectPositioning}
-        onBackgroundChange={applySlideBackground}
-        onArrange={handleArrangeSelected}
-        onGroup={handleGroupSelected}
-        onUngroup={handleUngroupSelected}
-        onToggleList={handleToggleList}
-        objectSelectionCount={objectSelectionCount}
-        canGroup={canGroupObjects}
-        canUngroup={canUngroupObjects}
-        onAlignObjects={handleAlignSelectedObjects}
-        onDistributeObjects={handleDistributeSelectedObjects}
-        videoPlayback={selectedVideoPlayback}
-        onVideoPlaybackChange={updateSelectedVideoPlayback}
-        zoomControls={zoomControls}
+        {...contextToolbarProps}
         className="slide-context-toolbar--top-row"
       />
     </div>
@@ -10542,6 +10670,7 @@ export default function SlideEditor({
       labels={{
         title: t("editorToolbar.layers"),
         close: t("editorToolbar.closeLayers"),
+        search: t("editorToolbar.searchLayers"),
         expand: t("editorToolbar.expandLayer"),
         collapse: t("editorToolbar.collapseLayer"),
       }}
@@ -10551,7 +10680,7 @@ export default function SlideEditor({
   return (
     <div
       className={`relative flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-l-lg bg-[var(--slides-editor-surface)] ${
-        animationsOpen || layersOpen ? "rounded-r-lg" : ""
+        animationsOpen ? "rounded-r-lg" : ""
       }`}
       data-slide-element-selected={slideElementSelected ? "true" : undefined}
     >
@@ -10810,10 +10939,8 @@ export default function SlideEditor({
             </div>
           )}
         </div>
-        {layersPanel
-          ? layersPanelSlot
-            ? createPortal(layersPanel, layersPanelSlot)
-            : layersPanel
+        {layersPanel && layersPanelSlot
+          ? createPortal(layersPanel, layersPanelSlot)
           : null}
       </div>
 
@@ -11015,23 +11142,11 @@ export default function SlideEditor({
             finishImageCrop(true);
             void downloadImage(imageOverlay.src);
           }}
-          onToggleObjectFit={() => {
-            finishImageCrop(true);
-            const newFit =
-              imageOverlay.objectFit === "cover" ? "contain" : "cover";
-            onToggleObjectFit(
-              imageOverlay.src,
-              newFit,
-              imageOverlay.imageOccurrence,
-            );
-            setImageOverlay({ ...imageOverlay, objectFit: newFit });
-            if (selectedImg) {
-              publishImageSelection(selectedImg, {
-                objectFit: newFit,
-                objectPosition: imageOverlay.objectPosition,
-              });
-            }
-          }}
+          onToggleObjectFit={() =>
+            setSelectedImageFit(
+              imageOverlay.objectFit === "cover" ? "contain" : "cover",
+            )
+          }
           onChangeObjectPosition={(objectPosition) => {
             finishImageCrop(true);
             onChangeObjectPosition(

@@ -1,3 +1,5 @@
+import { getAsyncLocalStorageCtor } from "../shared/optional-node-builtins.js";
+
 /**
  * Dependency-free database runtime facts. Kept out of `./client.js` so the
  * store runner does not require every `vi.mock("../db/client.js")` to stub them.
@@ -41,4 +43,26 @@ export function dbClientGeneration(): number {
     | { __agentNativePgliteClientGeneration?: number }
     | undefined;
   return proc?.__agentNativePgliteClientGeneration ?? 0;
+}
+
+const AsyncLocalStorageCtor = getAsyncLocalStorageCtor();
+const recordingStoreMigration = AsyncLocalStorageCtor
+  ? new AsyncLocalStorageCtor<true>()
+  : undefined;
+
+/**
+ * True while a store migration runs that the ledger will record once it
+ * resolves. Helpers that swallow failures elsewhere must rethrow here, or the
+ * ledger records a step that never happened and never retries it.
+ */
+export function isRecordingStoreMigration(): boolean {
+  return recordingStoreMigration?.getStore() === true;
+}
+
+export function runRecordingStoreMigration<T>(
+  run: () => Promise<T>,
+): Promise<T> {
+  return recordingStoreMigration
+    ? recordingStoreMigration.run(true, run)
+    : run();
 }

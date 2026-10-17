@@ -1,10 +1,30 @@
 const messages = {
   meetingAsk: { resizeOrDismissAnswers: "Antworten anpassen oder schließen" },
+  meetingBrowserConfirmation:
+    "Clips erkennt Mikrofonaktivität in diesem Browser, kann aber nicht feststellen, welcher Tab an der Besprechung teilnimmt.",
+  meetingReplacement: {
+    title: "Meeting-Notizen benötigen deine Aufmerksamkeit",
+    description:
+      "Die Notizen des vorherigen Meetings konnten nicht gespeichert werden. Kopiere sie, bevor du dieses Meeting startest.",
+    copyAndStart: "Notizen kopieren und starten",
+    actionFailed:
+      "Die Meeting-Wiederherstellung konnte nicht fortgesetzt werden. Versuche es erneut.",
+  },
+  quitRecovery: {
+    title: "Clips beendet die Besprechung noch",
+    body: "Clips hat diese Besprechung noch nicht beendet und gespeichert. Wenn du jetzt beendest, kann das neueste Transkript verloren gehen.",
+    keepOpen: "Clips geöffnet lassen",
+    quitAnyway: "Trotzdem beenden",
+    actionFailed:
+      "Clips konnte den Wiederherstellungsstatus nicht ändern. Versuche es erneut.",
+  },
   lookbackContext: {
     includeLast: "Letzte einbeziehen",
     whatIsThis: "Was ist das?",
     off: "Aus",
     none: "Keine",
+    noneExplanation:
+      "„Keine“ bedeutet, dass neue Clips keine frühere Bildschirmzeit enthalten. Rewind zeichnet deinen Bildschirm weiter auf, solange es eingeschaltet ist. Wähle unten „Ausschalten“, um die Aufnahme zu stoppen.",
     custom: "Benutzerdefiniert…",
     customLabel: "Benutzerdefinierte Dauer",
     customAmount: "Dauer",
@@ -33,13 +53,13 @@ const messages = {
       "Auf den Rewind-Speicher konnte nicht zugegriffen werden. Prüfe den freien Speicherplatz und die Ordnerberechtigungen und versuche es erneut.",
     rewindConsentTitle: "Rewind aktivieren?",
     rewindConsentBody:
-      "Clips zeichnet fortlaufend deinen Bildschirm auf und speichert ihn auf diesem Gerät. Agents erhalten Textauszüge, und Videos werden nur mit deiner Zustimmung geteilt.",
+      "Wenn Rewind eingeschaltet ist, zeichnet Clips deinen Bildschirm fortlaufend auf und speichert den aktuellen Verlauf auf diesem Gerät, bis dein Zeit- oder Speicherlimit erreicht ist. Wähle „Bildschirm + Audio“, um auch Mikrofon und Systemton aufzunehmen. Verbundene Agents können einzelne Bildschirmbilder direkt abrufen, ohne eine Clips-Freigabe; was danach mit den Bildern geschieht, hängt vom Agent ab. Die gewählte Dauer für frühere Bildschirmzeit fügt Clips automatisch jedem neuen Clip hinzu; dafür gelten dessen Freigabeeinstellungen. Anfragen, einen ausgewählten Zeitraum als Clip zu teilen, werden standardmäßig vor dem Senden geprüft. Deaktiviere die Prüfung vor dem Senden in den Rewind-Einstellungen, damit solche Anfragen automatisch gesendet werden. Ein Clip kann aufgenommenes Mikrofon- und Systemaudio enthalten. Rewind auszuschalten stoppt neue Aufnahmen, aber der gespeicherte Verlauf bleibt erhalten. Wenn Rewind aus ist, kann der Verlauf deine Zeit- oder Speicherlimits überschreiten, bis die Aufnahme wieder startet. Wähle „Alles löschen“, um ihn jetzt zu entfernen.",
     rewindConsentCancel: "Nicht jetzt",
     rewindConsentConfirm: "Rewind aktivieren",
     rewindConsentBusy: "Rewind wird aktiviert…",
     rewindOffTitle: "Rewind aktivieren",
     rewindOffBody:
-      "Standardmäßig deaktiviert. Der Bildschirmverlauf bleibt auf diesem Gerät, bis du ihn einer Aufnahme hinzufügst oder eine Freigabeanfrage bestätigst.",
+      "Um frühere Bildschirmzeit einzuschließen, aktiviere zuerst Rewind. Wenn Rewind eingeschaltet ist, speichert es den aktuellen Bildschirmverlauf auf diesem Gerät innerhalb deiner Zeit- und Speicherlimits. Ist Rewind ausgeschaltet, kann gespeicherter Verlauf diese Limits überschreiten, bis die Aufnahme wieder startet. Öffne zum Löschen Settings > Rewind > Storage > On this device und wähle Delete all. Anfragen für einen Clip werden standardmäßig vor dem Senden geprüft, sofern du die Prüfung vor dem Senden in den Rewind-Einstellungen nicht deaktivierst.",
     requestFailed:
       "Frühere Bildschirmzeit konnte nicht einbezogen werden. Die Aufnahme läuft ohne sie weiter.",
     localOnlyUnavailable:
@@ -961,8 +981,8 @@ const messages = {
     labMeetings: "Meetings und Transkription",
     labMeetingsDescription:
       "Teste die automatische Erfassung und Transkription von Meetings.",
-    labWisprFlow: "Sprachdiktat",
-    labWisprFlowDescription:
+    labVoiceDictation: "Sprachdiktat",
+    labVoiceDictationDescription:
       "Sprachdiktat in Clips Desktop ein- oder ausblenden.",
     labLookbackContext: "Frühere Bildschirmzeit einbeziehen",
     labLookbackContextDescription:
@@ -1626,6 +1646,9 @@ const messages = {
     disconnected: "Mikrofon getrennt.",
   },
   storageSetup: {
+    builderStorageOffer:
+      "Der kostenlose Tarif von Builder.io umfasst Videospeicher, den du mit einem Klick einrichten kannst.",
+    customKeys: "Eigene Schlüssel",
     builderConnectPopupError:
       "Builder.io konnte nicht geöffnet werden. Wenn diese App in einem Chat eingebettet ist, öffne sie in einem Browser-Tab; versuche es andernfalls erneut.",
     builderConnectError:
@@ -1647,8 +1670,7 @@ const messages = {
       "Der Builder.io-Speicher konnte nicht als bereit bestätigt werden. Versuche es erneut.",
     builderConnected: "Builder.io verbunden",
     waitingForBuilder: "Warten auf Builder...",
-    description:
-      "Speichere aufgenommene Videos mit Builder.io oder S3-kompatiblem Speicher. Builder.io enthält kostenloses Hosting und KI-Guthaben.",
+    description: "Wähle, wo deine aufgenommenen Videos gespeichert werden.",
     createBuilderAccount: "Builder.io verwenden",
     signInWithBuilderAccount: "Mit Builder.io-Konto anmelden",
     free: "Kostenlos",
@@ -2123,6 +2145,34 @@ const messages = {
     copy: "Kopieren",
     copied: "Kopiert",
     copyFailed: "Kopieren nicht möglich",
+    flowStarting: "Diktat wird gestartet …",
+    flowFinalizing: "Diktat wird abgeschlossen…",
+    flowBusy: "Vorheriges Diktat wird abgeschlossen…",
+    flowTranscribing: "Sprache wird transkribiert…",
+    flowCleaning: "Text wird bereinigt…",
+    flowPasting: "Text wird eingefügt…",
+    flowSavingHistory: "Wird im Verlauf gespeichert…",
+    flowPasted: "Eingefügt",
+    flowCopied: "In die Zwischenablage kopiert",
+    flowPastedHistoryFailed: "Eingefügt, aber nicht im Verlauf gespeichert",
+    flowCopiedHistoryFailed: "Kopiert, aber nicht im Verlauf gespeichert",
+    flowHistoryNotSaved: "Diktat wurde nicht im Verlauf gespeichert",
+    flowPermissionFailed: "Mikrofonzugriff ist deaktiviert",
+    flowMicrophoneUnavailable: "Mikrofon nicht verfügbar",
+    flowProviderFailed: "Sprache konnte nicht transkribiert werden",
+    flowMeetingCaptureActive: "Beende die Meeting-Aufnahme, bevor du diktierst",
+    flowPasteFailed: "Transkript konnte nicht eingefügt werden",
+    flowCancelled: "Diktat abgebrochen",
+    flowRetryHistory: "Verlauf erneut speichern",
+    flowDismiss: "Schließen",
+    flowTranscriptRecovery: "Transkript wiederherstellen",
+    flowOriginalTranscript: "Originaltranskript anzeigen",
+    flowCleanupSkipped:
+      "Textbereinigung übersprungen; Originaltext beibehalten",
+    flowBacktrackSkipped:
+      "Textbearbeitung übersprungen; erkannter Text beibehalten",
+    flowCancelDictation: "Diktat abbrechen",
+    flowCopying: "Transkript wird kopiert…",
     aiProcessed: "KI-verarbeitet",
     aiCleaned: "Mit KI bereinigt",
     original: "Original",
@@ -2229,6 +2279,7 @@ const messages = {
     viewsCount: "{{count}} Aufrufe",
     recordingMenu: "Aufnahmemenü",
     moveToFolder: "In Ordner verschieben",
+    moveHere: "Hierher verschieben",
     unarchive: "Archivierung aufheben",
     shareNamedMeeting: "„{{title}}“ teilen",
     shareMeeting: "Meeting teilen",

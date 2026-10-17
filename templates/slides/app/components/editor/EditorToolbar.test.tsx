@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
     () => false,
   ),
   exportMenu: vi.fn(),
+  exportSubmenu: vi.fn(),
   registerEditorCommands: vi.fn(),
   widgetEmbed: { value: false },
   creativeContextLabEnabled: { value: true },
@@ -73,6 +74,10 @@ vi.mock("@agent-native/toolkit/app/chat", async (importOriginal) => ({
   AgentToggleButton: () => <button type="button" data-testid="agent-toggle" />,
 }));
 
+vi.mock("@agent-native/toolkit/app/feedback", () => ({
+  FeedbackButton: () => null,
+}));
+
 vi.mock("@agent-native/toolkit/app/sharing", () => ({
   ShareButton: mocks.shareButton,
 }));
@@ -124,6 +129,10 @@ vi.mock("@/lib/prompt-file-uploads", () => ({
 vi.mock("./ExportMenu", () => ({
   ExportMenu: (props: { hasSlides?: boolean }) => {
     mocks.exportMenu(props);
+    return null;
+  },
+  ExportSubmenu: (props: { hasSlides?: boolean }) => {
+    mocks.exportSubmenu(props);
     return null;
   },
   ExportStatusDialog: () => null,
@@ -233,6 +242,21 @@ afterEach(() => {
   cleanup();
 });
 
+async function openAppMenu() {
+  fireEvent.pointerDown(screen.getByRole("button", { name: "appMenu.label" }), {
+    button: 0,
+    ctrlKey: false,
+  });
+  await screen.findByRole("menu");
+}
+
+async function openAppSubmenu(name: string) {
+  await openAppMenu();
+  const trigger = screen.getByRole("menuitem", { name });
+  fireEvent.focus(trigger);
+  fireEvent.keyDown(trigger, { key: "ArrowRight" });
+}
+
 describe("<EditorToolbar>", () => {
   const viewerToolbar = () => (
     <TooltipProvider>
@@ -248,7 +272,7 @@ describe("<EditorToolbar>", () => {
         onGenerateImage={vi.fn()}
         onOpenAssetLibrary={vi.fn()}
         onShowHistory={vi.fn()}
-        historyButtonRef={createRef<HTMLButtonElement>()}
+        panelAnchorRef={createRef<HTMLDivElement>()}
       />
     </TooltipProvider>
   );
@@ -259,6 +283,14 @@ describe("<EditorToolbar>", () => {
 
     expect(screen.getByText("editorToolbar.viewOnly")).toBeTruthy();
     expect(screen.getByTestId("save-status")).toBeTruthy();
+  });
+
+  it("hides the overflow menu when a viewer has nothing in it", () => {
+    render(viewerToolbar());
+
+    expect(
+      screen.queryByRole("button", { name: "editorToolbar.more" }),
+    ).toBeNull();
   });
 
   it("shows no save status to a viewer with nothing failed", () => {
@@ -292,7 +324,7 @@ describe("<EditorToolbar>", () => {
         onGenerateImage={vi.fn()}
         onOpenAssetLibrary={vi.fn()}
         onShowHistory={vi.fn()}
-        historyButtonRef={createRef<HTMLButtonElement>()}
+        panelAnchorRef={createRef<HTMLDivElement>()}
         onToggleComments={vi.fn()}
         onUndo={vi.fn()}
         onRedo={vi.fn()}
@@ -302,7 +334,7 @@ describe("<EditorToolbar>", () => {
     </TooltipProvider>
   );
 
-  it("shows the app's top bar in a widget minus what the host and the widget grant own", () => {
+  it("shows the app's top bar in a widget minus what the host and the widget grant own", async () => {
     mocks.widgetEmbed.value = true;
     const onTitleChange = vi.fn();
     render(widgetToolbar({ onTitleChange }));
@@ -332,14 +364,28 @@ describe("<EditorToolbar>", () => {
 
     expect(screen.getByText("editorToolbar.present")).toBeTruthy();
     // The host owns navigation and chat.
-    expect(screen.queryByLabelText("editorToolbar.backToDecks")).toBeNull();
     expect(screen.queryByTestId("agent-toggle")).toBeNull();
     expect(screen.queryByTestId("runs-tray")).toBeNull();
     screen.getByRole("button", { name: "editorToolbar.more" }).click();
     expect(screen.queryByText("editorToolbar.comments")).toBeNull();
-    expect(screen.queryByText("editorToolbar.savedVersions")).toBeNull();
-    expect(screen.queryByText("editorToolbar.importFile")).toBeNull();
-    expect(mocks.exportMenu).not.toHaveBeenCalled();
+
+    await openAppMenu();
+    expect(screen.getByRole("menuitem", { name: "appMenu.edit" })).toBeTruthy();
+    expect(
+      screen.queryByRole("menuitem", { name: "appMenu.backToDashboard" }),
+    ).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "appMenu.file" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "appMenu.help" })).toBeNull();
+    expect(mocks.exportSubmenu).not.toHaveBeenCalled();
+  });
+
+  it("keeps the export handle mounted while the app menu is closed", () => {
+    render(widgetToolbar());
+
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(mocks.exportMenu).toHaveBeenCalledWith(
+      expect.objectContaining({ headless: true, hasSlides: true }),
+    );
   });
 
   it("keeps the same Share component and sizing in and out of a widget", () => {
@@ -357,12 +403,17 @@ describe("<EditorToolbar>", () => {
     expect(embedded.showShareLinks).toBe(standard.showShareLinks);
   });
 
-  it("keeps the way back to the deck list and the agent controls outside the widget", () => {
+  it("keeps the way back to the deck list and the agent controls outside the widget", async () => {
     render(widgetToolbar());
 
-    expect(screen.getByLabelText("editorToolbar.backToDecks")).toBeTruthy();
     expect(screen.getByTestId("agent-toggle")).toBeTruthy();
     expect(screen.getByTestId("runs-tray")).toBeTruthy();
+    await openAppMenu();
+    expect(
+      screen
+        .getByRole("menuitem", { name: "appMenu.backToDashboard" })
+        .getAttribute("href"),
+    ).toBe("/home");
   });
 
   it("keeps the creative context tab in Share outside the widget", () => {
@@ -487,7 +538,7 @@ describe("<EditorToolbar>", () => {
           onGenerateImage={vi.fn()}
           onOpenAssetLibrary={vi.fn()}
           onShowHistory={vi.fn()}
-          historyButtonRef={createRef<HTMLButtonElement>()}
+          panelAnchorRef={createRef<HTMLDivElement>()}
         />
       </TooltipProvider>,
     );
@@ -534,7 +585,7 @@ describe("<EditorToolbar>", () => {
             onGenerateImage={vi.fn()}
             onOpenAssetLibrary={vi.fn()}
             onShowHistory={vi.fn()}
-            historyButtonRef={createRef<HTMLButtonElement>()}
+            panelAnchorRef={createRef<HTMLDivElement>()}
           />
         </TooltipProvider>,
       );
@@ -593,7 +644,7 @@ describe("<EditorToolbar>", () => {
           onGenerateImage={vi.fn()}
           onOpenAssetLibrary={vi.fn()}
           onShowHistory={vi.fn()}
-          historyButtonRef={createRef<HTMLButtonElement>()}
+          panelAnchorRef={createRef<HTMLDivElement>()}
         />
       </TooltipProvider>,
     );
@@ -647,7 +698,7 @@ describe("<EditorToolbar>", () => {
           onGenerateImage={vi.fn()}
           onOpenAssetLibrary={vi.fn()}
           onShowHistory={onShowHistory}
-          historyButtonRef={createRef<HTMLButtonElement>()}
+          panelAnchorRef={createRef<HTMLDivElement>()}
           currentSlide={slide}
           onAddEmptySlide={onAddEmptySlide}
           onToggleTextBoxMode={onToggleTextBoxMode}
@@ -726,7 +777,7 @@ describe("<EditorToolbar>", () => {
           onGenerateImage={vi.fn()}
           onOpenAssetLibrary={vi.fn()}
           onShowHistory={vi.fn()}
-          historyButtonRef={createRef<HTMLButtonElement>()}
+          panelAnchorRef={createRef<HTMLDivElement>()}
           onExportGoogleSlides={vi.fn()}
           onPresent={onPresent}
         />
@@ -771,7 +822,7 @@ describe("<EditorToolbar>", () => {
           onGenerateImage={vi.fn()}
           onOpenAssetLibrary={vi.fn()}
           onShowHistory={vi.fn()}
-          historyButtonRef={createRef<HTMLButtonElement>()}
+          panelAnchorRef={createRef<HTMLDivElement>()}
           onSelectShape={onSelectShape}
         />
       </TooltipProvider>,
@@ -804,7 +855,7 @@ describe("<EditorToolbar>", () => {
           onGenerateImage={vi.fn()}
           onOpenAssetLibrary={vi.fn()}
           onShowHistory={vi.fn()}
-          historyButtonRef={createRef<HTMLButtonElement>()}
+          panelAnchorRef={createRef<HTMLDivElement>()}
           onPresent={onPresent}
           onExportGoogleSlides={vi.fn()}
         />
@@ -818,12 +869,9 @@ describe("<EditorToolbar>", () => {
     fireEvent.click(presentButton);
     expect(onPresent).not.toHaveBeenCalled();
 
-    fireEvent.pointerDown(
-      screen.getByRole("button", { name: "editorToolbar.more" }),
-      { button: 0, ctrlKey: false },
-    );
-    await screen.findByRole("menu");
-    expect(mocks.exportMenu.mock.calls.at(-1)?.[0]).toEqual(
+    await openAppSubmenu("appMenu.file");
+    await waitFor(() => expect(mocks.exportSubmenu).toHaveBeenCalled());
+    expect(mocks.exportSubmenu.mock.calls.at(-1)?.[0]).toEqual(
       expect.objectContaining({ hasSlides: false }),
     );
     const source = mocks.registerEditorCommands.mock.calls.at(-1)?.[0] as
@@ -839,9 +887,9 @@ describe("<EditorToolbar>", () => {
     );
   });
 
-  it("surfaces history from the top-right overflow menu", async () => {
+  it("surfaces version history from the app menu's File submenu", async () => {
     const onShowHistory = vi.fn();
-    const historyButtonRef = createRef<HTMLButtonElement>();
+    const panelAnchorRef = createRef<HTMLDivElement>();
 
     render(
       <TooltipProvider>
@@ -856,22 +904,86 @@ describe("<EditorToolbar>", () => {
           onGenerateImage={vi.fn()}
           onOpenAssetLibrary={vi.fn()}
           onShowHistory={onShowHistory}
-          historyButtonRef={historyButtonRef}
+          panelAnchorRef={panelAnchorRef}
         />
       </TooltipProvider>,
     );
 
-    fireEvent.pointerDown(
-      screen.getByRole("button", { name: "editorToolbar.more" }),
-      { button: 0, ctrlKey: false },
+    await openAppSubmenu("appMenu.file");
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "appMenu.versionHistory" }),
     );
 
-    const historyItem = await screen.findByRole("menuitem", {
-      name: "History",
-    });
-    fireEvent.click(historyItem);
-
     await waitFor(() => expect(onShowHistory).toHaveBeenCalledTimes(1));
+  });
+
+  describe("app menu canvas commands", () => {
+    const canvasCommands = (hasObjectSelection: boolean) => ({
+      canZoomIn: true,
+      canZoomOut: false,
+      zoomIn: vi.fn(),
+      zoomOut: vi.fn(),
+      hasObjectSelection: () => hasObjectSelection,
+      duplicateObjects: vi.fn(() => true),
+      deleteObjects: vi.fn(() => true),
+    });
+    const toolbar = (
+      commands: ReturnType<typeof canvasCommands> | null,
+      slideProps: {
+        onDuplicateSlides?: () => void;
+        onDeleteSlides?: () => void;
+      } = {},
+    ) => (
+      <TooltipProvider>
+        <EditorToolbar
+          deck={deckWithSlides}
+          deckId="deck-1"
+          deckTitle="Test deck"
+          onTitleChange={vi.fn()}
+          currentSlideIndex={0}
+          sidebarOpen
+          onToggleSidebar={vi.fn()}
+          onGenerateImage={vi.fn()}
+          onOpenAssetLibrary={vi.fn()}
+          onShowHistory={vi.fn()}
+          panelAnchorRef={createRef<HTMLDivElement>()}
+          canvasCommandsRef={{ current: commands }}
+          {...slideProps}
+        />
+      </TooltipProvider>
+    );
+
+    it("acts on selected objects before falling back to slides", async () => {
+      const commands = canvasCommands(true);
+      const onDuplicateSlides = vi.fn();
+      render(toolbar(commands, { onDuplicateSlides }));
+
+      await openAppSubmenu("appMenu.edit");
+      fireEvent.click(
+        await screen.findByRole("menuitem", {
+          name: "appMenu.duplicateSelection",
+        }),
+      );
+
+      expect(commands.duplicateObjects).toHaveBeenCalledTimes(1);
+      expect(onDuplicateSlides).not.toHaveBeenCalled();
+    });
+
+    it("deletes the selected slides when no object is selected", async () => {
+      const commands = canvasCommands(false);
+      const onDeleteSlides = vi.fn();
+      render(toolbar(commands, { onDeleteSlides }));
+
+      await openAppSubmenu("appMenu.edit");
+      fireEvent.click(
+        await screen.findByRole("menuitem", {
+          name: "appMenu.deleteSelection",
+        }),
+      );
+
+      expect(onDeleteSlides).toHaveBeenCalledTimes(1);
+      expect(commands.deleteObjects).not.toHaveBeenCalled();
+    });
   });
 
   it("keeps transition choices, media tools, and theme toggles out of the overflow menu", async () => {
@@ -888,7 +1000,7 @@ describe("<EditorToolbar>", () => {
           onGenerateImage={vi.fn()}
           onOpenAssetLibrary={vi.fn()}
           onShowHistory={vi.fn()}
-          historyButtonRef={createRef<HTMLButtonElement>()}
+          panelAnchorRef={createRef<HTMLDivElement>()}
           currentSlide={{
             id: "slide-1",
             content: "",
@@ -897,6 +1009,7 @@ describe("<EditorToolbar>", () => {
             transition: "none",
           }}
           onChangeSlideTransition={vi.fn()}
+          onToggleComments={vi.fn()}
         />
       </TooltipProvider>,
     );
@@ -907,6 +1020,8 @@ describe("<EditorToolbar>", () => {
     );
 
     await screen.findByRole("menu");
+    // Comments is the only item, so no separator leads the menu.
+    expect(screen.queryByRole("separator")).toBeNull();
     expect(
       screen.queryByRole("menuitem", {
         name: "editorToolbar.transition_none",
@@ -944,7 +1059,7 @@ describe("<EditorToolbar>", () => {
             onGenerateImage={vi.fn()}
             onOpenAssetLibrary={vi.fn()}
             onShowHistory={vi.fn()}
-            historyButtonRef={createRef<HTMLButtonElement>()}
+            panelAnchorRef={createRef<HTMLDivElement>()}
           />
         </TooltipProvider>,
       );
@@ -995,7 +1110,7 @@ describe("<EditorToolbar>", () => {
           onGenerateImage={vi.fn()}
           onOpenAssetLibrary={vi.fn()}
           onShowHistory={vi.fn()}
-          historyButtonRef={createRef<HTMLButtonElement>()}
+          panelAnchorRef={createRef<HTMLDivElement>()}
         />
       </TooltipProvider>,
     );
@@ -1025,7 +1140,7 @@ describe("<EditorToolbar>", () => {
           onGenerateImage={vi.fn()}
           onOpenAssetLibrary={vi.fn()}
           onShowHistory={vi.fn()}
-          historyButtonRef={createRef<HTMLButtonElement>()}
+          panelAnchorRef={createRef<HTMLDivElement>()}
           onPresent={onPresent}
         />
       </TooltipProvider>,
@@ -1054,7 +1169,7 @@ describe("<EditorToolbar>", () => {
           onGenerateImage={vi.fn()}
           onOpenAssetLibrary={vi.fn()}
           onShowHistory={vi.fn()}
-          historyButtonRef={createRef<HTMLButtonElement>()}
+          panelAnchorRef={createRef<HTMLDivElement>()}
           onPresent={onPresent}
         />
       </TooltipProvider>,
@@ -1099,7 +1214,7 @@ describe("<EditorToolbar>", () => {
           onGenerateImage={vi.fn()}
           onOpenAssetLibrary={vi.fn()}
           onShowHistory={vi.fn()}
-          historyButtonRef={createRef<HTMLButtonElement>()}
+          panelAnchorRef={createRef<HTMLDivElement>()}
           onPresent={onPresent}
         />
       </TooltipProvider>,
@@ -1131,7 +1246,7 @@ describe("<EditorToolbar>", () => {
           onGenerateImage={vi.fn()}
           onOpenAssetLibrary={vi.fn()}
           onShowHistory={vi.fn()}
-          historyButtonRef={createRef<HTMLButtonElement>()}
+          panelAnchorRef={createRef<HTMLDivElement>()}
         />
       </TooltipProvider>,
     );

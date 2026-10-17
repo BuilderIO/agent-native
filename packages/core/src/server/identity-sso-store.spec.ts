@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { storeLedgerResult } from "../db/store-ledger.test-helpers.js";
+
 interface FlowStateRow {
   state: string;
   return_path: string | null;
@@ -19,6 +21,8 @@ const jtis = new Set<string>();
 const exec = async (input: string | { sql: string; args?: unknown[] }) => {
   const sql = (typeof input === "string" ? input : input.sql).trim();
   const args = (typeof input === "string" ? [] : (input.args ?? [])) as any[];
+  const ledger = storeLedgerResult(sql);
+  if (ledger) return ledger;
 
   if (/^CREATE TABLE/i.test(sql)) return { rows: [], rowsAffected: 0 };
   if (/^DELETE FROM identity_sso_flow_state/i.test(sql)) {

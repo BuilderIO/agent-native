@@ -875,6 +875,65 @@ describe("useCollaborativeDoc connection registry", () => {
     expect(_collabDocRegistrySizeForTests()).toBe(1);
   });
 
+  it("sends nothing for a document whose last subscriber left before its state arrived", async () => {
+    const state = deferredResponse();
+    const requests: string[] = [];
+    const { mock: fallback } = makeFetchMock();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        requests.push(url);
+        if (url.endsWith("/collab/deleted-screen/state")) return state.promise;
+        return fallback(input);
+      }),
+    );
+
+    const root = mount(
+      <Probe
+        docId="deleted-screen"
+        onResult={() => {}}
+        user={{ name: "Ada", email: "ada@example.com", color: "#000" }}
+      />,
+    );
+    act(() => root.unmount());
+    roots = roots.filter((r) => r !== root);
+    await act(async () => {
+      state.resolve(emptyStateResponse());
+      await vi.advanceTimersByTimeAsync(900);
+    });
+
+    expect(
+      requests.filter((url) => url.includes("/collab/deleted-screen/")),
+    ).toEqual(["/_agent-native/collab/deleted-screen/state"]);
+  });
+
+  it("resumes polling when a subscriber returns within the linger window", async () => {
+    const { mock } = makeFetchMock();
+    vi.stubGlobal("fetch", mock);
+    const polls = () =>
+      mock.mock.calls.filter(([input]) =>
+        String(input).includes("/_agent-native/poll"),
+      ).length;
+
+    const root = mount(<Probe docId="doc-1" onResult={() => {}} />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    act(() => root.unmount());
+    roots = roots.filter((r) => r !== root);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    const pollsBeforeRemount = polls();
+    mount(<Probe docId="doc-1" onResult={() => {}} />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2500);
+    });
+
+    expect(polls()).toBeGreaterThan(pollsBeforeRemount);
+  });
+
   it("keeps one shared connection under StrictMode double-mounting", async () => {
     const { mock, stateFetches } = makeFetchMock();
     vi.stubGlobal("fetch", mock);

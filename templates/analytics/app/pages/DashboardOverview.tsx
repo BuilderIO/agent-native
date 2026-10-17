@@ -21,7 +21,7 @@ import {
 } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import { useAuth } from "@/components/auth/AuthProvider";
@@ -99,10 +99,14 @@ export default function DashboardOverview() {
   const sigmaMigrationFlag = useFeatureFlagState(
     "analytics.sigma-dashboard-migration",
   );
+  const [searchParams, setSearchParams] = useSearchParams();
   const { auth } = useAuth();
   const dashboardScope = dashboardCacheScope(auth);
   const [folderDialogOpen, setFolderDialogOpen] = useState(false);
   const [sigmaMigrationOpen, setSigmaMigrationOpen] = useState(false);
+  const [preferredSigmaConnectionId, setPreferredSigmaConnectionId] = useState<
+    string | null
+  >(null);
   const [folderName, setFolderName] = useState("");
   const [folderScope, setFolderScope] = useState<Scope>("personal");
   const [search, setSearch] = useState("");
@@ -114,6 +118,16 @@ export default function DashboardOverview() {
     "dashboards",
     "action",
   ]);
+
+  useEffect(() => {
+    if (searchParams.get("openSigma") !== "1") return;
+    setSigmaMigrationOpen(true);
+    setPreferredSigmaConnectionId(searchParams.get("sigmaConnectionId"));
+    const nextSearchParams = new URLSearchParams(searchParams);
+    nextSearchParams.delete("openSigma");
+    nextSearchParams.delete("sigmaConnectionId");
+    setSearchParams(nextSearchParams, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   useEffect(() => {
     setFolderOverrides({});
@@ -411,7 +425,11 @@ export default function DashboardOverview() {
       {sigmaMigrationFlag.status === "ready" && sigmaMigrationFlag.enabled ? (
         <SigmaMigrationDialog
           open={sigmaMigrationOpen}
-          onOpenChange={setSigmaMigrationOpen}
+          preferredConnectionId={preferredSigmaConnectionId}
+          onOpenChange={(open) => {
+            setSigmaMigrationOpen(open);
+            if (!open) setPreferredSigmaConnectionId(null);
+          }}
           onImported={() => void dashboardsQuery.refetch()}
         />
       ) : null}

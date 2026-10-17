@@ -49,6 +49,11 @@ export const DESIGN_E2E_REGRESSION_PINS = [
       "Delete on a canvas-selected layer removes exactly that node from the saved document",
   },
   {
+    shard: "inspector-1a",
+    file: "inspector-styles.spec.ts",
+    title: "text fills hide and restore without losing the original color",
+  },
+  {
     shard: "inspector-1b",
     file: "inspector-styles.spec.ts",
     title: "selection hide and Appearance visibility stay in sync with opacity",
@@ -100,6 +105,12 @@ export const DESIGN_E2E_REGRESSION_PINS = [
       "single-screen control: text tool click then immediate typing still works",
   },
   {
+    shard: "inspector-3a",
+    file: "canvas-invariants.spec.ts",
+    title:
+      "Escape on a rectangle just drawn inside a frame clears the selection without selecting the screen",
+  },
+  {
     shard: "inspector-3b",
     file: "inspector-styles.spec.ts",
     title:
@@ -109,6 +120,12 @@ export const DESIGN_E2E_REGRESSION_PINS = [
     shard: "inspector-3b",
     file: "interaction-selection.spec.ts",
     title: "double-click after selecting Card drills into the clicked child",
+  },
+  {
+    shard: "inspector-3b",
+    file: "canvas-invariants.spec.ts",
+    title:
+      "drawing two shapes then undo removes only the frame, and redo restores it selected",
   },
   {
     shard: "inspector-4a",
@@ -121,6 +138,11 @@ export const DESIGN_E2E_REGRESSION_PINS = [
     file: "text-edit-roundtrip.spec.ts",
     title:
       "inline text edit commits, undo and redo restore exact content, and reload keeps it",
+  },
+  {
+    shard: "inspector-4a",
+    file: "inspector-styles.spec.ts",
+    title: "search selects Lato Medium and keeps custom font names offline",
   },
   {
     shard: "inspector-4b",
@@ -504,6 +526,42 @@ export const DESIGN_E2E_REGRESSION_PINS = [
     shard: "inspector-3a",
     file: "canvas-chords.spec.ts",
     title: "Keyboard repeat paste preserves mixed positioned and flow roots",
+  },
+  {
+    shard: "inspector-2",
+    file: "canvas-chords.spec.ts",
+    title:
+      "Keyboard repeat paste moves relative roots 16px under an RTL containing block",
+  },
+  {
+    shard: "inspector-2",
+    file: "canvas-chords.spec.ts",
+    title:
+      "Keyboard paste preserves relative roots without an anchor across screens",
+  },
+  {
+    shard: "drag-1a",
+    file: "board-option-drag-placement.spec.ts",
+    title:
+      "an Option-drag copy dropped on empty board space between layers lands at the release point",
+  },
+  {
+    shard: "drag-1b",
+    file: "interaction-drag-reparent.spec.ts",
+    title:
+      "a screen layer dropped on the board stays there when the screen save's response is cut off",
+  },
+  {
+    shard: "drag-2a",
+    file: "drag-release-coordinates.spec.ts",
+    title:
+      "an Alt pressed after the last move does not copy at a release the move never reached",
+  },
+  {
+    shard: "inspector-4b",
+    file: "design-component-behavior.spec.ts",
+    title:
+      "redoing a duplicated component while the undo's save is in flight reads no missing node",
   },
 ] as const satisfies readonly DesignE2ERegressionPin[];
 

@@ -26,7 +26,7 @@ Read relevant guides before deeper work:
 
 ## Framework Docs
 
-Use local framework docs, not web research: `pnpm action docs-search --query "<topic>"` searches; `pnpm action docs-search --slug "<slug>"` reads a page.
+For framework questions, use local docs: `pnpm action docs-search --query "<topic>"` or `pnpm action docs-search --slug "<slug>"`. For slide requests to look up or add public facts, load `web-search` and `web-request` with `tool-search`.
 
 ## Actions
 
@@ -61,6 +61,7 @@ Deck data lives in SQL; all writes go through server-side actions. Read `deck-ma
 
 - `navigation` exposes deck, slide, selection, and editor view; `navigate` opens decks, slides, imports, and exports.
 - `slides-selection` describes selected elements, tool mode, transient selectors, text/image/video hints, and computed styles. Read `view-screen` before visual/style edits; use actions for full data.
+- `slides-open-panel` records the open side panel (`layers` / `animations`); `view-screen` prints it as `openPanel`.
 - Presenter speech navigation accepts exact localized next/previous slide phrases; keep transcripts transient and ignore narration.
 
 ## Export Behavior

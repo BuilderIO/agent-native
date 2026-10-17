@@ -289,11 +289,12 @@ export default defineAction({
       .where(eq(schema.designLocalhostConnections.id, id))
       .limit(1);
 
-    // Older CLI versions used a non-user-scoped connection ID. Reuse that
-    // credential only when this owner/org has one unambiguous row for the
-    // exact app URL and root; otherwise a new row could mint a token that an
-    // already-running bridge does not have.
-    if (!args.id && !existing[0] && rootPath) {
+    // Older CLI versions used a non-user-scoped connection ID, and a browser
+    // reconnect names only the app URL. Reuse a credential only when this
+    // owner/org has one unambiguous row for the exact app URL (and root, when
+    // given); otherwise a new row could mint a token that an already-running
+    // bridge does not have.
+    if (!args.id && !existing[0]) {
       const priorConnections = await db
         .select({
           id: schema.designLocalhostConnections.id,
@@ -310,7 +311,9 @@ export default defineAction({
           and(
             ownerOrgScope,
             eq(schema.designLocalhostConnections.devServerUrl, devServerUrl),
-            eq(schema.designLocalhostConnections.rootPath, rootPath),
+            ...(rootPath
+              ? [eq(schema.designLocalhostConnections.rootPath, rootPath)]
+              : []),
             ...(requestedBridgeUrl
               ? [
                   eq(
@@ -337,6 +340,7 @@ export default defineAction({
         existing = [prior];
       }
     }
+    routeManifest.rootPath ??= existing[0]?.rootPath ?? undefined;
 
     if (
       existing[0] &&

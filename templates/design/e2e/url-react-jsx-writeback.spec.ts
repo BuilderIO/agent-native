@@ -132,8 +132,7 @@ test.describe("URL-backed React JSX writeback", () => {
     if (rootPath) fs.rmSync(rootPath, { recursive: true, force: true });
   });
 
-  // fixme: fails in CI on current main: expect(locator).toHaveText(expected) failed
-  test.fixme("previews, persists, hot-reloads, and reloads one literal Card style", async ({
+  test("previews, persists, hot-reloads, and reloads one literal Card style", async ({
     page,
     request,
   }) => {
@@ -160,7 +159,8 @@ test.describe("URL-backed React JSX writeback", () => {
         )
         .contentFrame()
         .locator("[data-card]");
-    await expect(card()).toHaveText("Card");
+    // The first paint waits for the editor and the spawned app's cold dev server.
+    await expect(card()).toHaveText("Card", { timeout: 60_000 });
     await expect(card()).toHaveCSS("color", "rgb(255, 0, 0)");
 
     const sourceRef = {

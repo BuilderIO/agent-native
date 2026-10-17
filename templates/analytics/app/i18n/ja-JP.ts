@@ -69,6 +69,12 @@ export default {
     sigmaChooseConnectionDescription:
       "ワークブックを表示する Sigma ワークスペースを選択してください。",
     sigmaNoConnection: "Sigma が接続されていません",
+    sigmaApiRegion: "Sigma API リージョン",
+    sigmaOAuthConnect: "個人の Sigma アカウントを接続",
+    sigmaOAuthAddAnother: "別の Sigma アカウントを接続",
+    sigmaOAuthCancel: "キャンセル",
+    sigmaOAuthDescription:
+      "アカウントで Sigma にサインインして、アクセスできるワークブックを表示します。",
     sigmaClientId: "クライアント ID",
     sigmaClientSecret: "クライアントシークレット",
     sigmaBaseUrl: "API ベース URL（省略可）",
@@ -82,7 +88,7 @@ export default {
     sigmaCredentialsRequired:
       "先に Sigma のクライアント ID とクライアントシークレットを保存してください。",
     sigmaBaseUrlInvalid:
-      "sigmacomputing.com ドメインの HTTPS Sigma API URL を使用してください。",
+      "Sigma が公式にサポートする API リージョンの URL を選択してください。",
     sigmaPersistenceUnavailable:
       "現在、Analytics は Sigma 接続を安全に保存できません。もう一度お試しください。",
     sigmaPolicyInvalid:
@@ -97,7 +103,7 @@ export default {
     sigmaDirectCredentialsUnavailable:
       "Analytics に保存された Sigma 認証情報を読み取れませんでした。組織の管理者は Dispatch で再接続するか、Analytics で認証情報を再入力できます。",
     sigmaNoConnectionDescription:
-      "ここに認証情報を入力すると Analytics 専用の接続を作成できます。Dispatch で Analytics に許可された Sigma 接続はここに自動で表示されます。認証情報を直接保存できるのは組織管理者のみです。",
+      "個人の Sigma アカウントを接続するか、組織管理者が保存した認証情報を使用してください。Analytics に許可された Dispatch 接続もここに表示されます。",
     sigmaOpenDispatch: "Dispatch で接続",
     sigmaOpenVault: "Vault を開く",
     sigmaWorkbooksLoadFailed: "Sigma のワークブックを読み込めませんでした",
@@ -1319,6 +1325,7 @@ export default {
     certificationFailed: "ダッシュボードを認定できませんでした: {{message}}",
     details: "Details",
     updated: "Updated {{date}}",
+    updatedAgo: "{{age}}に更新",
     public: "Public",
     sharedWithOrg: "組織と共有",
     private: "Private",
@@ -1347,6 +1354,23 @@ export default {
     resetFilters: "フィルターをリセット",
     collapseFilters: "フィルターを折りたたむ",
     expandFilters: "フィルターを展開する",
+    drilldownChartPoints: "グラフのデータポイント",
+    drilldownPreviousPage: "グラフのデータポイントの前のページ",
+    drilldownNextPage: "グラフのデータポイントの次のページ",
+    drilldownPageRange: "全{{total}}件中{{start}}～{{end}}件を表示",
+    drilldownFilterRows: "行をフィルター",
+    drilldownShowSql: "SQLを表示",
+    drilldownHideSql: "SQLを非表示",
+    drilldownDownloadCsv: "CSVをダウンロード",
+    drilldownShowing: "{{total}} 件中 {{shown}} 件を表示",
+    drilldownCsvTruncated:
+      "不完全なエクスポート: クエリに一致した {{total}} 件のうち、最初の {{loaded}} 件のみ読み込まれました。フィルター適用後、このファイルには {{exported}} 件が含まれます。",
+    drilldownCountMismatch:
+      "グラフは {{chart}} ですが、一致したレコードは {{total}} 件です",
+    drilldownAggregateOnly:
+      "このパネルには集計行しかありません。クリックしたポイントに一致する行を強調表示しています。",
+    drilldownNoRecords: "一致するレコードがありません",
+    drilldownLoadFailed: "レコードを読み込めませんでした",
     filterSeries: "Filter",
     chartTimeRangeOverride: "このチャートの期間を上書き",
     chartTimeRangeInherit: "ダッシュボードの期間",
@@ -1374,8 +1398,15 @@ export default {
     refresh: "更新",
     refreshing: "更新中...",
     updating: "更新中",
+    refreshed: "更新しました",
     updatingPreviousFilters: "前のフィルター · 更新中",
     previousFilters: "前のフィルター",
+    fetchedAt: "{{time}} に取得",
+    fetchTimeUnknown: "取得時刻は不明",
+    cacheApp: "キャッシュ",
+    cacheProvider: "BigQuery キャッシュ",
+    cacheRestored: "保存済みコピー",
+    cacheUnknown: "キャッシュの状態は不明",
     downloadCsv: "CSVをダウンロード",
     copyTable: "テーブルをコピー",
     multiColumnSortHelp:
@@ -1402,6 +1433,9 @@ export default {
       "Google スプレッドシートへのエクスポートに失敗しました: {{message}}",
     viewSql: "SQLを見る",
     dragToReorder: "ドラッグして並べ替えます",
+    resizePanelWidth: "パネルの幅を変更",
+    resizePanelHeight: "パネルの高さを変更",
+    resetPanelHeight: "パネルの高さをリセット",
     columnFormat: "形式",
     columnFormatText: "プレーンテキスト",
     columnFormatNumber: "数値",
@@ -2167,6 +2201,8 @@ export default {
     dbtDisabled: "無効",
     dbtAdminOnly: "この接続を変更できるのは組織の管理者のみです。",
     dbtReadFailed: "dbt 接続を読み込めませんでした。",
+    dbtSeveralConnections:
+      "Analytics に複数の dbt 接続が許可されているため、このパネルでは編集できません。設定 → 連携 で余分な接続を削除し、1 つだけ残してください。",
     dbtSave: "接続を保存",
     dbtChecking: "確認中",
     dbtSaveFailed: "dbt 接続を保存できませんでした。",

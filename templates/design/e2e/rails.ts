@@ -79,7 +79,11 @@ export class App {
         });
     });
     page.on("console", (message) => {
-      if (this.recording && message.type() === "error") {
+      if (
+        this.recording &&
+        message.type() === "error" &&
+        !isSandboxedFrameAutomationNoise(message.text())
+      ) {
         this.failures.push({ kind: "console.error", detail: message.text() });
       }
     });
@@ -102,23 +106,33 @@ export class App {
       this.inflightSaves = 0;
       this.lastSaveActivity = Date.now();
     });
-    page.on("response", (response) => {
+    page.on("response", async (response) => {
       const url = new URL(response.url());
       if (
         this.recording &&
         url.pathname.includes("/_agent-native/") &&
         response.status() >= 400
       ) {
+        const motionTimeline422 =
+          response.status() === 422 &&
+          url.pathname.endsWith("/_agent-native/actions/get-motion-timeline");
         this.failures.push({
           kind: `http ${response.status()}`,
-          detail: `${response.request().method()} ${url.pathname}`,
+          detail: `${response.request().method()} ${url.pathname}${
+            motionTimeline422 ? ` ${await response.text()}` : ""
+          }`,
         });
       }
     });
     await page.addInitScript(() => {
       const seen: string[] = [];
-      (window as unknown as { __e2eErrorToasts: string[] }).__e2eErrorToasts =
-        seen;
+      const scriptedSandboxes: string[] = [];
+      const recorder = window as unknown as {
+        __e2eErrorToasts: string[];
+        __e2eScriptedSandboxes: string[];
+      };
+      recorder.__e2eErrorToasts = seen;
+      recorder.__e2eScriptedSandboxes = scriptedSandboxes;
       new MutationObserver(() => {
         for (const toast of document.querySelectorAll(
           '[data-sonner-toast][data-type="error"]',
@@ -126,7 +140,24 @@ export class App {
           const text = (toast.textContent ?? "").trim();
           if (text && !seen.includes(text)) seen.push(text);
         }
-      }).observe(document, { childList: true, subtree: true });
+        for (const frame of document.querySelectorAll<HTMLIFrameElement>(
+          "iframe[sandbox][srcdoc]",
+        )) {
+          const label = frame.srcdoc.slice(0, 160);
+          if (
+            !frame.sandbox.contains("allow-scripts") &&
+            /<script\b/i.test(frame.srcdoc) &&
+            !scriptedSandboxes.includes(label)
+          ) {
+            scriptedSandboxes.push(label);
+          }
+        }
+      }).observe(document, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ["sandbox", "srcdoc"],
+      });
     });
   }
 
@@ -183,13 +214,15 @@ export class App {
     const before = JSON.stringify(await frame.boundingBox());
     await this.page.keyboard.press("Shift+1");
     let previous = "";
+    let unchangedPolls = 0;
     await expect
       .poll(
         async () => {
           const now = JSON.stringify(await frame.boundingBox());
-          const stable = now === previous && now !== before;
+          unchangedPolls = now === previous ? unchangedPolls + 1 : 0;
           previous = now;
-          return stable;
+          // A reload restores the fitted camera, so Shift+1 may move nothing at all.
+          return unchangedPolls >= (now === before ? 10 : 1);
         },
         {
           intervals: [100],
@@ -322,19 +355,31 @@ export class App {
           detail: "a save was still in flight at teardown",
         });
       });
-      toasts = await this.page
-        .evaluate(
-          () =>
-            (window as unknown as { __e2eErrorToasts?: string[] })
-              .__e2eErrorToasts ?? [],
-        )
+      const recorded = await this.page
+        .evaluate(() => {
+          const recorder = window as unknown as {
+            __e2eErrorToasts?: string[];
+            __e2eScriptedSandboxes?: string[];
+          };
+          return {
+            toasts: recorder.__e2eErrorToasts ?? [],
+            scriptedSandboxes: recorder.__e2eScriptedSandboxes ?? [],
+          };
+        })
         .catch((error: Error) => {
           this.failures.push({
             kind: "error toasts unreadable",
             detail: error.message,
           });
-          return [];
+          return { toasts: [], scriptedSandboxes: [] };
         });
+      toasts = recorded.toasts;
+      for (const srcdoc of recorded.scriptedSandboxes) {
+        this.failures.push({
+          kind: "script in a sandboxed srcdoc frame without allow-scripts",
+          detail: srcdoc,
+        });
+      }
       // coercion-ok: the final-state screenshot is evidence only; no test passes or fails on it
       const finalState = await this.page.screenshot().catch(() => null);
       if (finalState)
@@ -461,6 +506,18 @@ export function expectOnlyChanged(
   for (const id of after.keys())
     if (!before.has(id) && !touched.has(id)) drift.push(`${id} appeared`);
   expect(drift, "nodes other than the edited ones changed").toEqual([]);
+}
+
+/**
+ * Chromium logs this under Playwright for a sandboxed srcdoc frame that holds no
+ * script at all; the board static preview and export snapshot frames are such frames.
+ * Teardown fails a test separately when such a frame does carry a script.
+ */
+export function isSandboxedFrameAutomationNoise(text: string) {
+  return (
+    text ===
+    "Blocked script execution in 'about:srcdoc' because the document's frame is sandboxed and the 'allow-scripts' permission is not set."
+  );
 }
 
 export function childrenOf(nodes: Map<string, SavedNode>, parent: string) {

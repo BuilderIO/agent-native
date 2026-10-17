@@ -1,10 +1,29 @@
 const messages = {
   meetingAsk: { resizeOrDismissAnswers: "답변 영역 크기 조절 또는 닫기" },
+  meetingBrowserConfirmation:
+    "Clips는 이 브라우저의 마이크 활동을 감지하지만 회의 중인 탭을 구분할 수 없습니다.",
+  meetingReplacement: {
+    title: "회의 메모 확인이 필요합니다",
+    description:
+      "이전 회의의 메모를 저장하지 못했습니다. 이 회의를 시작하기 전에 메모를 복사하세요.",
+    copyAndStart: "메모 복사 후 시작",
+    actionFailed: "회의 복구를 계속하지 못했습니다. 다시 시도하세요.",
+  },
+  quitRecovery: {
+    title: "Clips에서 회의를 마무리하는 중입니다",
+    body: "Clips에서 이 회의를 중지하고 저장하는 작업을 완료하지 못했습니다. 지금 종료하면 최신 대화록이 손실될 수 있습니다.",
+    keepOpen: "Clips 계속 열어 두기",
+    quitAnyway: "그래도 종료",
+    actionFailed:
+      "Clips에서 종료 복구 상태를 업데이트하지 못했습니다. 다시 시도하세요.",
+  },
   lookbackContext: {
     includeLast: "마지막 구간 포함",
     whatIsThis: "이것은 무엇입니까?",
     off: "끔",
     none: "없음",
+    noneExplanation:
+      "‘없음’은 새 Clip에 이전 화면 시간이 포함되지 않는다는 뜻입니다. Rewind가 켜져 있는 동안 화면은 계속 녹화됩니다. 중지하려면 아래의 ‘끄기’를 선택하세요.",
     custom: "사용자 지정…",
     customLabel: "사용자 지정 길이",
     customAmount: "길이",
@@ -31,13 +50,13 @@ const messages = {
       "Rewind 저장 공간에 접근할 수 없습니다. 디스크 공간과 폴더 권한을 확인한 후 다시 시도하세요.",
     rewindConsentTitle: "Rewind를 켤까요?",
     rewindConsentBody:
-      "Clips는 화면을 계속 녹화해 이 기기에 보관합니다. 에이전트에는 텍스트 발췌가 제공되며, 동영상은 사용자가 승인한 경우에만 공유됩니다.",
+      "Rewind가 켜져 있으면 Clips는 화면을 계속 녹화하고, 선택한 시간 또는 저장 공간 한도에 도달할 때까지 최근 기록을 이 기기에 보관합니다. 마이크와 시스템 오디오도 녹음하려면 'Screen + audio'를 선택하세요. 연결된 에이전트는 Clips의 별도 승인 없이 화면 이미지를 직접 볼 수 있으며, 이후 이미지를 어떻게 사용하는지는 에이전트에 따라 다릅니다. 선택한 이전 화면 시간은 새 Clip마다 자동으로 추가되며 해당 Clip의 공유 설정이 적용됩니다. 선택한 구간을 Clip으로 공유하는 요청은 기본적으로 보내기 전에 검토됩니다. Rewind 설정에서 보내기 전 검토를 끄면 요청이 자동으로 전송됩니다. Clip에는 녹음된 마이크 및 시스템 오디오가 포함될 수 있습니다. Rewind를 끄면 새 녹화는 중지되지만 저장된 기록은 유지됩니다. Rewind가 꺼져 있는 동안 기록이 시간 또는 저장 공간 한도를 넘겨 남을 수 있으며, 녹화가 다시 시작되면 한도가 적용됩니다. 지금 지우려면 '모두 삭제'를 선택하세요.",
     rewindConsentCancel: "나중에",
     rewindConsentConfirm: "Rewind 켜기",
     rewindConsentBusy: "Rewind 켜는 중…",
     rewindOffTitle: "Rewind 켜기",
     rewindOffBody:
-      "기본적으로 꺼져 있습니다. 화면 기록은 녹화에 포함하거나 공유 요청을 승인할 때까지 이 기기에 보관됩니다.",
+      "이전 화면을 포함하려면 먼저 Rewind를 켜세요. Rewind가 켜져 있을 때는 이 기기에 최근 화면 기록을 보관하고 시간 및 저장 공간 한도를 적용합니다. Rewind가 꺼져 있으면 녹화가 다시 시작될 때까지 기록이 한도를 넘겨 남을 수 있습니다. 지금 지우려면 Settings > Rewind > Storage > On this device를 열고 Delete all을 선택하세요. Clip 공유 요청은 기본적으로 보내기 전에 검토되며, Rewind 설정에서 보내기 전 검토를 끄면 자동으로 전송됩니다.",
     requestFailed:
       "이전 화면 시간을 포함하지 못했습니다. 녹화는 이 부분 없이 계속됩니다.",
     localOnlyUnavailable:
@@ -927,8 +946,8 @@ const messages = {
     labVideoEditingDescription: "새 동영상 편집기를 사용해 보세요.",
     labMeetings: "회의 및 전사",
     labMeetingsDescription: "자동 회의 캡처 및 전사를 사용해 보세요.",
-    labWisprFlow: "음성 받아쓰기",
-    labWisprFlowDescription:
+    labVoiceDictation: "음성 받아쓰기",
+    labVoiceDictationDescription:
       "Clips Desktop 음성 받아쓰기를 표시하거나 숨깁니다.",
     labLookbackContext: "이전 화면 시간 포함",
     labLookbackContextDescription:
@@ -1577,6 +1596,9 @@ const messages = {
     disconnected: "마이크 연결이 끊어졌습니다.",
   },
   storageSetup: {
+    builderStorageOffer:
+      "Builder.io 무료 요금제에는 동영상 저장 공간이 포함되며 한 번의 클릭으로 설정할 수 있습니다.",
+    customKeys: "맞춤 키",
     builderConnectPopupError:
       "Builder.io를 열 수 없습니다. 이 앱이 채팅에 삽입되어 있다면 브라우저 탭에서 여세요. 그렇지 않다면 다시 시도하세요.",
     builderConnectError:
@@ -1597,8 +1619,7 @@ const messages = {
       "Builder.io 저장소가 준비되었는지 확인하지 못했습니다. 다시 시도하세요.",
     builderConnected: "Builder.io 연결됨",
     waitingForBuilder: "Builder 대기 중...",
-    description:
-      "녹화한 동영상을 Builder.io 또는 S3 호환 스토리지에 저장하세요. Builder.io에는 무료 호스팅과 AI 크레딧이 포함되어 있습니다.",
+    description: "녹화한 동영상을 저장할 위치를 선택하세요.",
     createBuilderAccount: "Builder.io 사용",
     signInWithBuilderAccount: "Builder.io 계정으로 로그인",
     free: "무료",
@@ -2059,6 +2080,32 @@ const messages = {
     copy: "복사",
     copied: "복사됨",
     copyFailed: "복사하지 못했습니다",
+    flowStarting: "받아쓰기를 시작하는 중…",
+    flowFinalizing: "받아쓰기를 마무리하는 중…",
+    flowBusy: "이전 받아쓰기를 마무리하는 중…",
+    flowTranscribing: "음성을 텍스트로 변환하는 중…",
+    flowCleaning: "텍스트를 다듬는 중…",
+    flowPasting: "텍스트를 붙여넣는 중…",
+    flowSavingHistory: "기록에 저장하는 중…",
+    flowPasted: "붙여넣음",
+    flowCopied: "클립보드에 복사됨",
+    flowPastedHistoryFailed: "붙여넣었지만 기록에 저장되지 않았습니다",
+    flowCopiedHistoryFailed: "복사했지만 기록에 저장되지 않았습니다",
+    flowHistoryNotSaved: "받아쓰기가 기록에 저장되지 않았습니다",
+    flowPermissionFailed: "마이크 권한이 꺼져 있습니다",
+    flowMicrophoneUnavailable: "마이크를 사용할 수 없습니다",
+    flowProviderFailed: "음성을 텍스트로 변환하지 못했습니다",
+    flowMeetingCaptureActive: "받아쓰기 전에 회의 녹음을 중지하세요",
+    flowPasteFailed: "텍스트를 붙여넣지 못했습니다",
+    flowCancelled: "받아쓰기가 취소되었습니다",
+    flowRetryHistory: "기록 저장 재시도",
+    flowDismiss: "닫기",
+    flowTranscriptRecovery: "텍스트 복구",
+    flowOriginalTranscript: "원본 텍스트 보기",
+    flowCleanupSkipped: "텍스트 정리를 건너뛰고 원문을 유지했습니다",
+    flowBacktrackSkipped: "텍스트 편집을 건너뛰고 인식된 내용을 유지했습니다",
+    flowCancelDictation: "받아쓰기 취소",
+    flowCopying: "텍스트를 복사하는 중…",
     aiProcessed: "AI 처리됨",
     aiCleaned: "AI 정리됨",
     original: "원본",
@@ -2163,6 +2210,7 @@ const messages = {
     viewsCount: "조회수 {{count}}회",
     recordingMenu: "녹화 메뉴",
     moveToFolder: "폴더로 이동",
+    moveHere: "여기로 이동",
     unarchive: "보관 해제",
     shareNamedMeeting: '"{{title}}" 공유',
     shareMeeting: "회의 공유",

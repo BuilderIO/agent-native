@@ -531,12 +531,13 @@ test("editing a screen fill changes its body without changing child fills", asyn
   ).toHaveCSS("background-color", "rgb(218, 218, 218)");
 });
 
-// fixme: product bug: After closing the hidden Code workbench the app fires an unrequested preview-source-edit + apply-source-edit; the first nudge saves x=1
-test.fixme("keeps hidden Code source reads quiet during canvas commits", async ({
+test("keeps hidden Code source reads quiet during canvas commits", async ({
   app,
   page,
   request,
 }) => {
+  // CI boots the editor and Monaco in about 15 s, twice per test.
+  test.setTimeout(240_000);
   const designId = await createDesign(app, "Hidden Code source reads");
   const fileId = await createScreen(request, designId, {
     content: FILL_HTML,
@@ -548,6 +549,7 @@ test.fixme("keeps hidden Code source reads quiet during canvas commits", async (
   );
 
   let sourceReads = 0;
+  const sourceEditActions: string[] = [];
   page.on("request", (request) => {
     const url = new URL(request.url());
     if (
@@ -556,49 +558,81 @@ test.fixme("keeps hidden Code source reads quiet during canvas commits", async (
     ) {
       sourceReads += 1;
     }
+    if (
+      url.pathname.endsWith("/_agent-native/actions/preview-source-edit") ||
+      url.pathname.endsWith("/_agent-native/actions/apply-source-edit")
+    ) {
+      sourceEditActions.push(url.pathname);
+    }
   });
   const codeWorkbench = page.getByTestId("design-code-workbench");
-  // The dev server can reload the page once to recover optimized deps, which
-  // strands the first navigation on "Loading application"; navigate again.
   const openCodeWorkbench = async () => {
-    await expect(async () => {
-      await page.goto(appPath(`/design/${designId}?panel=code`), {
-        waitUntil: "domcontentloaded",
+    // Re-navigating during Vite's first optimization cancels the workbench load.
+    await page.goto(appPath(`/design/${designId}?panel=code`), {
+      waitUntil: "domcontentloaded",
+    });
+    await expect(codeWorkbench).toBeVisible({ timeout: 60_000 });
+  };
+  const openCodeFile = async () => {
+    await page.evaluate(async (id) => {
+      const workbench = (window as any).__designCodeWorkbench;
+      const providerKey = "inline:" + id;
+      if (!workbench) throw new Error("Code workbench handle is missing");
+      await workbench.api.openFile(providerKey, "screen.html", {
+        preview: false,
       });
-      await expect(codeWorkbench).toBeVisible({ timeout: 15_000 });
-    }).toPass({ timeout: 60_000 });
+    }, designId);
   };
   await openCodeWorkbench();
   await expect(screenShell).toBeVisible();
-  await page.evaluate(async (id) => {
-    const workbench = (window as any).__designCodeWorkbench;
-    const providerKey = "inline:" + id;
-    if (!workbench) throw new Error("Code workbench handle is missing");
-    await workbench.api.openFile(providerKey, "screen.html", {
-      preview: false,
-    });
-  }, designId);
+  await openCodeFile();
   await expect.poll(() => sourceReads).toBeGreaterThan(0);
+
+  const readCodeBufferState = () =>
+    page.evaluate(() => {
+      const workbench = (window as any).__designCodeWorkbench;
+      const buffers = Object.values(
+        workbench?.api.getState().buffers ?? {},
+      ) as Array<{
+        uri: string;
+        dirty: boolean;
+        saving: boolean;
+        lastSavedAt?: number;
+      }>;
+      const buffer = buffers.find((entry) => entry.uri.endsWith("screen.html"));
+      return buffer
+        ? {
+            dirty: buffer.dirty,
+            saving: buffer.saving,
+            lastSavedAt: buffer.lastSavedAt,
+          }
+        : null;
+    });
+  // Inline HTML is formatted and saved on first open; wait for that write before tracking close behavior.
+  await expect.poll(readCodeBufferState).toMatchObject({
+    dirty: false,
+    saving: false,
+    lastSavedAt: expect.any(Number),
+  });
   const sourceReadsBeforeEdits = sourceReads;
+  const sourceEditActionsBeforeCodeCloses = sourceEditActions.length;
 
   await page.getByRole("button", { name: "Layers", exact: true }).click();
   await expect(page.getByTestId("design-code-workbench")).toBeHidden();
   const frameLabel = screenShell.locator("[data-frame-label]");
   await expect(frameLabel).toBeVisible();
+  await frameLabel.click();
+  await expect(
+    page
+      .getByRole("tree", { name: "Layers" })
+      .getByRole("treeitem", { selected: true }),
+  ).toHaveCount(1);
+
   const readFrameX = async () =>
     designData(await readDesign(request, designId)).canvasFrames?.[fileId]?.x;
   const initialX = await readFrameX();
   expect(initialX).toBe(0);
-  // Retry only readiness: the key press is a non-idempotent mutation and must
-  // be sent once per nudge.
-  await expect(async () => {
-    await frameLabel.click();
-    await expect(
-      page
-        .getByRole("tree", { name: "Layers" })
-        .getByRole("treeitem", { selected: true }),
-    ).toHaveCount(1, { timeout: 2_000 });
-  }).toPass({ timeout: 30_000 });
+  // Retry only readiness: each key press is a non-idempotent mutation.
   for (let index = 0; index < 20; index += 1) {
     const writeResponse = page.waitForResponse((response) => {
       const pathname = new URL(response.url()).pathname;
@@ -615,9 +649,32 @@ test.fixme("keeps hidden Code source reads quiet during canvas commits", async (
     ).toBe(true);
     await expect.poll(readFrameX).toBe(initialX + index + 1);
   }
+  const sourceReadsAfterCommits = sourceReads;
+  const sourceEditActionsAfterCommits = sourceEditActions.length;
+  let observedSourceRequests = `${sourceReads}:${sourceEditActions.length}`;
+  let sourceRequestsQuietSince = Date.now();
+  await expect
+    .poll(
+      () => {
+        const currentSourceRequests = `${sourceReads}:${sourceEditActions.length}`;
+        if (currentSourceRequests !== observedSourceRequests) {
+          observedSourceRequests = currentSourceRequests;
+          sourceRequestsQuietSince = Date.now();
+        }
+        return Date.now() - sourceRequestsQuietSince;
+      },
+      { timeout: 5_000, intervals: [100, 250, 500] },
+    )
+    .toBeGreaterThanOrEqual(1_000);
+  expect(sourceReads).toBe(sourceReadsAfterCommits);
+  expect(sourceEditActions).toHaveLength(sourceEditActionsAfterCommits);
   expect(sourceReads).toBe(sourceReadsBeforeEdits);
+  expect(sourceEditActions.slice(sourceEditActionsBeforeCodeCloses)).toEqual(
+    [],
+  );
 
   await openCodeWorkbench();
+  await openCodeFile();
   await expect.poll(() => sourceReads).toBeGreaterThan(sourceReadsBeforeEdits);
 });
 
@@ -1312,8 +1369,7 @@ test("all-screens PDF mounts an offscreen Hug screen and exports its natural hei
   await expect(hugShell.locator("iframe")).toHaveCount(0);
 });
 
-// fixme: product bug: All-screens PDF vertically squashes auto-height screens: render-export-png captures the screen at its 844 px preview viewport (payload
-test.fixme("all-screens PDF reports a broken image and can retry after it recovers", async ({
+test("all-screens PDF reports a broken image and can retry after it recovers", async ({
   app,
   page,
   request,
@@ -1329,6 +1385,10 @@ test.fixme("all-screens PDF reports a broken image and can retry after it recove
   app.allowFailure(
     /^console\.error PDF image readiness failed: Error: A screen image failed to load\./,
     "the app logs the broken image it reports",
+  );
+  app.allowFailure(
+    /^console\.error (All-screens PDF export|PDF capture) failed: PngCaptureError: PNG capture blob-failed/,
+    "the export command and its error reporter log the failure they report",
   );
   const designId = await createDesign(app, "PDF image failure recovery");
   let assetAvailable = false;

@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
 import {
   isProviderApiId,
+  isValidProviderApiBaseUrl,
   listProviderApiCatalog,
 } from "@agent-native/core/provider-api";
 import { getCredentialContext } from "@agent-native/core/server";
@@ -24,12 +25,15 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
+  hasCredentialLookupError,
   inspectSourceCredentialAvailability,
+  resolveSourceCredentialWithProvenance,
   type SourceCredentialAvailability,
 } from "../server/lib/source-credentials.js";
 import { isBrainAdmin } from "../server/lib/zoom-governance.js";
 
 const APP_ID = "brain";
+const BRAIN_API_KEYS_HREF = "/settings/api-keys";
 
 const SUPPORTED_SOURCE_PROVIDERS = new Set([
   "generic",
@@ -47,10 +51,8 @@ type CatalogProvider = Omit<
   id: string;
 };
 
-// The shared workspace connection catalog has no Zoom provider, so Brain
-// lists it from its own registered secrets. There is no shared connection to
-// grant, which is why the summary is always "not_connected" and the setup link
-// is omitted rather than pointing Dispatch at a provider it does not know.
+// These providers use Brain's own organization-scoped API keys instead of a
+// shared workspace connection grant.
 const BRAIN_LOCAL_PROVIDERS: readonly Omit<
   CatalogProvider,
   "workspaceConnection"
@@ -70,6 +72,27 @@ const BRAIN_LOCAL_PROVIDERS: readonly Omit<
       },
     ],
     capabilities: ["import", "meetings"],
+    recommendedTemplateUses: ["brain"],
+  },
+  {
+    id: "gong",
+    label: "Gong",
+    description:
+      "On-demand Gong call queries using organization API credentials; users do not need individual Gong seats.",
+    credentialKeys: [
+      { key: "GONG_ACCESS_KEY", label: "Gong Access Key", required: true },
+      {
+        key: "GONG_ACCESS_SECRET",
+        label: "Gong Access Secret",
+        required: true,
+      },
+      {
+        key: "GONG_API_BASE",
+        label: "Gong API Base URL",
+        required: false,
+      },
+    ],
+    capabilities: ["meetings"],
     recommendedTemplateUses: ["brain"],
   },
 ];
@@ -143,14 +166,20 @@ function dispatchIntegrationsHref(
 function providerApiConfigured({
   credentialHealth,
   providerApi,
+  providerApiBaseUrlError,
   workspace,
 }: {
   credentialHealth: Awaited<ReturnType<typeof credentialHealthForProvider>>;
   providerApi: ReturnType<typeof listProviderApiCatalog>[number] | null;
+  providerApiBaseUrlError: string | null;
   workspace: WorkspaceConnectionProviderAppSummary;
 }): boolean | null {
   if (!providerApi) return null;
-  if (workspace.hasActiveWorkspaceConnection) return true;
+  if (providerApiBaseUrlError) return false;
+  if (credentialHealth.status === "unavailable") return null;
+  if (providerApi.id !== "gong" && workspace.hasActiveWorkspaceConnection) {
+    return true;
+  }
   if (providerApi.auth === "none") return true;
 
   const availableKeys = new Set(
@@ -181,6 +210,44 @@ function providerApiConfigured({
   return providerApi.credentialKeys.every((key) => availableKeys.has(key));
 }
 
+async function providerApiBaseUrlErrorForProvider({
+  credentialHealth,
+  providerApi,
+}: {
+  credentialHealth: Awaited<ReturnType<typeof credentialHealthForProvider>>;
+  providerApi: ReturnType<typeof listProviderApiCatalog>[number] | null;
+}): Promise<string | null> {
+  if (providerApi?.id !== "gong" || !providerApi.baseUrlCredentialKey) {
+    return null;
+  }
+
+  const baseUrlKey = providerApi.baseUrlCredentialKey;
+  const baseUrlAvailability = credentialHealth.details.find(
+    (detail) => detail.key === baseUrlKey,
+  );
+  if (!baseUrlAvailability?.available) {
+    if (baseUrlAvailability && hasCredentialLookupError(baseUrlAvailability)) {
+      return "Brain could not verify the organization Gong API base URL from its credential vault.";
+    }
+    return null;
+  }
+
+  const ctx = getCredentialContext();
+  if (!ctx) return "Brain could not check the organization Gong API base URL.";
+
+  const credential = await resolveSourceCredentialWithProvenance({
+    provider: providerApi.id,
+    key: baseUrlKey,
+    ctx: { ...ctx, credentialScope: "org" },
+  });
+  if (!credential?.value) {
+    return "Brain could not verify the organization Gong API base URL from its credential vault.";
+  }
+  if (isValidProviderApiBaseUrl(providerApi.id, credential.value)) return null;
+
+  return "GONG_API_BASE must be an HTTPS /v2 URL on the api.gong.io host or a regional Gong API subdomain.";
+}
+
 async function credentialHealthForProvider(provider: CatalogProvider): Promise<{
   status: "available" | "missing" | "not_required" | "unavailable";
   available: boolean;
@@ -207,59 +274,120 @@ async function credentialHealthForProvider(provider: CatalogProvider): Promise<{
   }
 
   const ctx = getCredentialContext();
-  if (!ctx) {
+  if (!ctx || (provider.id === "gong" && !ctx.orgId)) {
     return {
       status: "unavailable",
       available: false,
       requiredKeyCount: requiredKeys.length,
       availableKeyCount: 0,
-      missingCredentialKeys: requiredKeys.map((credential) => credential.key),
-      missingMessages: ["Sign in before checking credential availability."],
+      missingCredentialKeys: [],
+      missingMessages: ["Credential availability could not be verified."],
       details: [],
     };
   }
 
-  const details = await Promise.all(
+  const inspectedDetails = await Promise.all(
     credentialKeys.map((credential) =>
       inspectSourceCredentialAvailability({
         provider: provider.id,
         key: credential.key,
-        ctx,
+        ctx: provider.id === "gong" ? { ...ctx, credentialScope: "org" } : ctx,
       }),
     ),
   );
-  const requiredDetails = details.filter((detail) =>
+  const requiredDetails = inspectedDetails.filter((detail) =>
     requiredKeys.some((credential) => credential.key === detail.key),
   );
-  const missingRequired = requiredDetails.filter((detail) => !detail.available);
+  const unavailableRequired = requiredDetails.filter(
+    (detail) => !detail.available && hasCredentialLookupError(detail),
+  );
+  const missingRequired = requiredDetails.filter(
+    (detail) => !detail.available && !hasCredentialLookupError(detail),
+  );
+  const details = inspectedDetails.map((detail) =>
+    hasCredentialLookupError(detail)
+      ? {
+          ...detail,
+          checked: detail.checked.map((check) =>
+            check.status === "error"
+              ? {
+                  ...check,
+                  message: "Credential availability could not be verified.",
+                }
+              : check,
+          ),
+          missingMessage: detail.available
+            ? detail.missingMessage
+            : "Credential availability could not be verified.",
+        }
+      : detail,
+  );
 
   return {
-    status: missingRequired.length ? "missing" : "available",
-    available: missingRequired.length === 0,
+    status: unavailableRequired.length
+      ? "unavailable"
+      : missingRequired.length
+        ? "missing"
+        : "available",
+    available: unavailableRequired.length === 0 && missingRequired.length === 0,
     requiredKeyCount: requiredKeys.length,
     availableKeyCount: requiredDetails.filter((detail) => detail.available)
       .length,
     missingCredentialKeys: missingRequired.map((detail) => detail.key),
-    missingMessages: missingRequired
-      .map((detail) => detail.missingMessage)
-      .filter((message): message is string => !!message),
+    missingMessages: unavailableRequired.length
+      ? ["Credential availability could not be verified."]
+      : missingRequired
+          .map((detail) => detail.missingMessage)
+          .filter((message): message is string => !!message),
     details,
   };
 }
 
 function providerHealthForProvider({
   credentialHealth,
+  provider,
   providerApi,
+  providerApiBaseUrlError,
   providerApiIsConfigured,
   sourceProviderSupported,
   workspace,
 }: {
   credentialHealth: Awaited<ReturnType<typeof credentialHealthForProvider>>;
+  provider: CatalogProvider;
   providerApi: ReturnType<typeof listProviderApiCatalog>[number] | null;
+  providerApiBaseUrlError: string | null;
   providerApiIsConfigured: boolean | null;
   sourceProviderSupported: boolean;
   workspace: WorkspaceConnectionProviderAppSummary;
 }) {
+  if (providerApiBaseUrlError) {
+    return {
+      status: "unhealthy" as const,
+      message: providerApiBaseUrlError,
+    };
+  }
+  if (providerApi && providerApiIsConfigured === true) {
+    return {
+      status: "ready" as const,
+      message:
+        "Authenticated provider API access is ready for on-demand Brain queries.",
+    };
+  }
+  if (
+    credentialHealth.status === "unavailable" &&
+    workspace.grantState === "needs_grant"
+  ) {
+    return {
+      status: "needs_grant" as const,
+      message: workspace.grantAvailabilityMessage,
+    };
+  }
+  if (credentialHealth.status === "unavailable") {
+    return {
+      status: "unhealthy" as const,
+      message: "Brain could not verify the required provider credentials.",
+    };
+  }
   if (providerApi && providerApiIsConfigured === false) {
     if (workspace.grantState === "needs_grant") {
       return {
@@ -279,8 +407,11 @@ function providerHealthForProvider({
     }
     return {
       status: "missing_credentials" as const,
-      message:
-        "Connect this provider before Brain makes an on-demand API request.",
+      message: BRAIN_LOCAL_PROVIDERS.some(
+        (localProvider) => localProvider.id === provider.id,
+      )
+        ? "Required organization credentials are not available."
+        : "Connect this provider before Brain makes an on-demand API request.",
     };
   }
   if (!sourceProviderSupported) {
@@ -358,7 +489,7 @@ async function listWorkspaceConnectionsForCatalog(): Promise<{
 
 export default defineAction({
   description:
-    "Check reusable Brain source and provider API readiness before using a provider. Each provider reports whether authenticated access is configured and includes an absolute Dispatch setupLink when shared setup is needed. When a requested provider is unavailable, explain the missing connection and return its setupLink instead of attempting provider-api-request; if the user is not a workspace admin, mention that a personal MCP connection may be available in chat.",
+    "Check Brain source and on-demand provider API readiness. `configured: true` means Brain can make authenticated requests with an active shared connection or organization-scoped API keys. Use a returned setupLink when present; for Brain-local providers, describe the missing API keys in Brain Settings instead of asking each user to connect a personal provider account.",
   schema: z.object({}),
   http: { method: "GET" },
   readOnly: true,
@@ -400,9 +531,15 @@ export default defineAction({
         const providerApi = isProviderApiId(provider.id)
           ? (listProviderApiCatalog(provider.id)[0] ?? null)
           : null;
+        const providerApiBaseUrlError =
+          await providerApiBaseUrlErrorForProvider({
+            credentialHealth,
+            providerApi,
+          });
         const providerApiIsConfigured = providerApiConfigured({
           credentialHealth,
           providerApi,
+          providerApiBaseUrlError,
           workspace: workspaceConnection,
         });
         return {
@@ -422,13 +559,43 @@ export default defineAction({
           configured:
             providerApiIsConfigured ??
             (sourceProviderSupported ? credentialHealth.available : null),
-          setupLink: catalogProviderIds.has(provider.id)
-            ? dispatchIntegrationsHref(provider.id, dispatchHref)
-            : undefined,
+          usesBrainLocalCredentials: BRAIN_LOCAL_PROVIDERS.some(
+            (localProvider) => localProvider.id === provider.id,
+          ),
+          setupLink: (() => {
+            const isBrainLocal = BRAIN_LOCAL_PROVIDERS.some(
+              (localProvider) => localProvider.id === provider.id,
+            );
+            const shouldGrantExistingConnection =
+              workspaceConnection.grantState === "needs_grant" &&
+              workspaceConnection.hasWorkspaceConnection;
+            if (
+              isBrainLocal &&
+              !shouldGrantExistingConnection &&
+              (credentialHealth.status !== "available" ||
+                providerApiBaseUrlError)
+            ) {
+              const key =
+                providerApiBaseUrlError && providerApi?.baseUrlCredentialKey
+                  ? providerApi.baseUrlCredentialKey
+                  : (credentialHealth.missingCredentialKeys[0] ??
+                    provider.credentialKeys.find((entry) => entry.required)
+                      ?.key ??
+                    provider.credentialKeys[0]?.key);
+              return key
+                ? `${BRAIN_API_KEYS_HREF}#secrets:${encodeURIComponent(key)}`
+                : BRAIN_API_KEYS_HREF;
+            }
+            return catalogProviderIds.has(provider.id)
+              ? dispatchIntegrationsHref(provider.id, dispatchHref)
+              : undefined;
+          })(),
           credentialHealth,
           providerHealth: providerHealthForProvider({
             credentialHealth,
+            provider,
             providerApi,
+            providerApiBaseUrlError,
             providerApiIsConfigured,
             sourceProviderSupported,
             workspace: workspaceConnection,

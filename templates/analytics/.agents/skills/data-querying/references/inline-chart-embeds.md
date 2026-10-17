@@ -89,7 +89,9 @@ Any other `source`/`chartType` value, or a missing/blank `sql`, makes
 - `events` — `line`, `area`, `bar`, and `combo` with a date x-axis: an array of
   `{ date: "YYYY-MM-DD", label, time?: "HH:MM", timeZone?, color? }` drawn as
   key-date badges on the x-axis (hover for the label and time). Same-day events
-  share a badge. Snaps to the nearest x value; hidden outside the range.
+  share a badge. Snaps to the nearest x value; hidden outside the range. Numeric
+  x-axis timestamps use Unix epoch milliseconds; colors use `#RGB`, `#RGBA`,
+  `#RRGGBB`, or `#RRGGBBAA` hex values.
 - `columns` — `table` chartType only: `{ key, label?, format?, linkKey?, hidden? }[]`.
 - `stacked`, `legend`, `pivot`, `limit`, `valueLabels`, `description` — see
   `SqlPanelConfig` in `types.ts` for the full list.

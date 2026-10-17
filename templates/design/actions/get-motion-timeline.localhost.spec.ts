@@ -60,6 +60,9 @@ const mocks = vi.hoisted(() => {
     setAccessRole: (role: string) => {
       accessRole = role;
     },
+    setDesignData: (data: Record<string, unknown>) => {
+      designData = JSON.stringify(data);
+    },
     setDesignSourceFile: (sourceFile: string) => {
       designData = JSON.stringify({
         sourceType: "localhost",
@@ -160,6 +163,7 @@ vi.mock("./read-local-file.js", () => ({
   },
 }));
 
+import { readLiveSourceFile } from "../server/source-workspace.js";
 import { applyMotionHtmlSourceEdit } from "../shared/motion-html-source.js";
 import { createMotionNativeStyleInstance } from "../shared/motion-native-style-runtime.js";
 import { applyMotionReactSourceEdit } from "../shared/motion-react-source.js";
@@ -257,6 +261,16 @@ const textDocument = {
       ],
     },
   ],
+};
+const textDocumentV2 = {
+  version: 2 as const,
+  animations: textDocument.animations.map((animation) => ({
+    ...animation,
+    animationDirection: "in" as const,
+    order: "left-to-right" as const,
+    ignoreSpaces: true,
+    delayMs: 0,
+  })),
 };
 const managedTextSource = applyMotionReactSourceEdit({
   currentSource: source,
@@ -674,10 +688,7 @@ describe("get-motion-timeline localhost React source", () => {
     expect(result.timelines[0]).toMatchObject({
       source: "stored-react-drift",
       tracks: timeline.tracks,
-      textDocument: {
-        version: 1,
-        animations: [{ targetNodeId: "hero", staggerMs: 40 }],
-      },
+      textDocument: textDocumentV2,
     });
   });
 
@@ -695,7 +706,7 @@ describe("get-motion-timeline localhost React source", () => {
     expect(result.timelines[0]).toMatchObject({
       source: "recovered-react",
       tracks: [],
-      textDocument,
+      textDocument: textDocumentV2,
       durationMs: 800,
     });
   });
@@ -754,7 +765,7 @@ describe("get-motion-timeline localhost React source", () => {
     expect(result.timelines[0]).toMatchObject({
       source: "stored-local-unverified",
       tracks: timeline.tracks,
-      textDocument,
+      textDocument: textDocumentV2,
       filePath: null,
       sourceVersionHash: null,
       cssHash: null,
@@ -784,6 +795,85 @@ describe("get-motion-timeline localhost React source", () => {
       action.run({ designId: "design-1", sourceRef: "screen-1" }),
     ).rejects.toMatchObject({ errorCode: "motion_timeline_corrupt" });
     expect(mocks.readLocal).not.toHaveBeenCalled();
+  });
+
+  it("reads a localhost Design's inline board from its own HTML, not a localhost source", async () => {
+    mocks.setDesignData({
+      sourceType: "localhost",
+      connectionId: "connection-1",
+      screenMetadata: { board: { sourceType: "inline" } },
+    });
+    mocks.setScreenRows([
+      {
+        id: "board",
+        designId: "design-1",
+        filename: "__board__.html",
+        fileType: "html",
+        content: "<!doctype html><html><body></body></html>",
+        createdAt: null,
+        updatedAt: null,
+      },
+    ]);
+
+    vi.mocked(readLiveSourceFile).mockResolvedValueOnce({
+      content: "<!doctype html><html><body></body></html>",
+      versionHash: "board-version",
+      language: "html",
+      source: "stored",
+    });
+
+    const result = await action.run({
+      designId: "design-1",
+      sourceRef: "board",
+    });
+
+    expect(result.timelines).toEqual([]);
+    expect(mocks.readLocal).not.toHaveBeenCalled();
+  });
+
+  it("reports a localhost screen with no saved source file and no timeline as unmapped, not a failure", async () => {
+    mocks.setDesignData({
+      sourceType: "localhost",
+      connectionId: "connection-1",
+      screenMetadata: {
+        "screen-1": {
+          sourceType: "localhost",
+          connectionId: "connection-1",
+          path: "/home",
+          url: "http://localhost:5173/home",
+        },
+      },
+    });
+
+    const result = await action.run({
+      designId: "design-1",
+      sourceRef: "screen-1",
+    });
+
+    expect(result).toMatchObject({
+      timelines: [],
+      sourceWriteCapability: null,
+      localSource: "unmapped",
+    });
+    expect(mocks.readLocal).not.toHaveBeenCalled();
+  });
+
+  it("still rejects an unmapped localhost screen when a stored timeline names a source file", async () => {
+    mocks.setDesignData({
+      sourceType: "localhost",
+      connectionId: "connection-1",
+      screenMetadata: {
+        "screen-1": { sourceType: "localhost", connectionId: "connection-1" },
+      },
+    });
+
+    await expect(
+      action.run({
+        designId: "design-1",
+        sourceRef: "screen-1",
+        previewModulePath: "app/routes/home.tsx",
+      }),
+    ).rejects.toThrow(/no saved source file/);
   });
 
   it("rejects screens that are not scoped to the Design", async () => {

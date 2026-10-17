@@ -70,6 +70,12 @@ export default {
     sigmaChooseConnectionDescription:
       "Escolha o espaço de trabalho do Sigma para ver as pastas de trabalho.",
     sigmaNoConnection: "O Sigma não está conectado",
+    sigmaApiRegion: "Região da API do Sigma",
+    sigmaOAuthConnect: "Conectar conta pessoal do Sigma",
+    sigmaOAuthAddAnother: "Conectar outra conta do Sigma",
+    sigmaOAuthCancel: "Cancelar",
+    sigmaOAuthDescription:
+      "Entre no Sigma com sua conta para ver as pastas de trabalho às quais você tem acesso.",
     sigmaClientId: "ID do cliente",
     sigmaClientSecret: "Segredo do cliente",
     sigmaBaseUrl: "URL base da API (opcional)",
@@ -83,7 +89,7 @@ export default {
     sigmaCredentialsRequired:
       "Salve primeiro o ID e o segredo do cliente Sigma.",
     sigmaBaseUrlInvalid:
-      "Use uma URL HTTPS da API do Sigma em um domínio sigmacomputing.com.",
+      "Escolha a URL de uma região oficial compatível da API do Sigma.",
     sigmaPersistenceUnavailable:
       "O Analytics não pode salvar a conexão do Sigma com segurança agora. Tente novamente.",
     sigmaPolicyInvalid:
@@ -98,7 +104,7 @@ export default {
     sigmaDirectCredentialsUnavailable:
       "Não foi possível ler as credenciais do Sigma salvas no Analytics. Um administrador da organização pode reconectar no Dispatch ou inserir as credenciais novamente no Analytics.",
     sigmaNoConnectionDescription:
-      "Insira as credenciais aqui para criar uma conexão exclusiva do Analytics. As conexões do Sigma concedidas ao Analytics no Dispatch aparecem aqui automaticamente; somente administradores da organização podem salvar credenciais diretamente.",
+      "Conecte sua conta pessoal do Sigma ou use as credenciais salvas por um administrador da organização. As conexões do Dispatch concedidas ao Analytics também aparecem aqui.",
     sigmaOpenDispatch: "Conectar no Dispatch",
     sigmaOpenVault: "Abrir Vault",
     sigmaWorkbooksLoadFailed:
@@ -1336,6 +1342,7 @@ export default {
     certificationFailed: "Não foi possível certificar o dashboard: {{message}}",
     details: "Details",
     updated: "Updated {{date}}",
+    updatedAgo: "Atualizado {{age}}",
     public: "Public",
     sharedWithOrg: "Compartilhado com a organização",
     private: "Private",
@@ -1365,6 +1372,23 @@ export default {
     resetFilters: "Redefinir filtros",
     collapseFilters: "Recolher filtros",
     expandFilters: "Expandir filtros",
+    drilldownChartPoints: "Pontos do gráfico",
+    drilldownPreviousPage: "Página anterior dos pontos do gráfico",
+    drilldownNextPage: "Página seguinte dos pontos do gráfico",
+    drilldownPageRange: "Exibindo {{start}}–{{end}} de {{total}}",
+    drilldownFilterRows: "Filtrar linhas",
+    drilldownShowSql: "Mostrar SQL",
+    drilldownHideSql: "Ocultar SQL",
+    drilldownDownloadCsv: "Baixar CSV",
+    drilldownShowing: "Mostrando {{shown}} de {{total}} registros",
+    drilldownCsvTruncated:
+      "Exportação incompleta: a consulta encontrou {{total}} registros, mas apenas os primeiros {{loaded}} foram carregados; este arquivo inclui {{exported}} após a filtragem.",
+    drilldownCountMismatch:
+      "O gráfico mostra {{chart}}, mas {{total}} registros correspondem",
+    drilldownAggregateOnly:
+      "Este painel tem apenas linhas agregadas. As linhas do ponto clicado estão destacadas.",
+    drilldownNoRecords: "Nenhum registro correspondente",
+    drilldownLoadFailed: "Não foi possível carregar os registros",
     filterSeries: "Filter",
     chartTimeRangeOverride: "Substituir o intervalo de tempo deste gráfico",
     chartTimeRangeInherit: "Intervalo do painel",
@@ -1393,8 +1417,15 @@ export default {
     refresh: "Atualizar",
     refreshing: "Atualizando...",
     updating: "Atualizando",
+    refreshed: "Atualizado",
     updatingPreviousFilters: "Filtros anteriores · Atualizando",
     previousFilters: "Filtros anteriores",
+    fetchedAt: "Obtido {{time}}",
+    fetchTimeUnknown: "Horário de obtenção desconhecido",
+    cacheApp: "Em cache",
+    cacheProvider: "Cache do BigQuery",
+    cacheRestored: "Cópia salva",
+    cacheUnknown: "Status do cache desconhecido",
     downloadCsv: "Baixar CSV",
     copyTable: "Copiar tabela",
     multiColumnSortHelp:
@@ -1420,6 +1451,9 @@ export default {
       "Não foi possível exportar para o Google Sheets: {{message}}",
     viewSql: "Ver SQL",
     dragToReorder: "Arraste para reordenar",
+    resizePanelWidth: "Redimensionar a largura do painel",
+    resizePanelHeight: "Redimensionar a altura do painel",
+    resetPanelHeight: "Redefinir a altura do painel",
     columnFormat: "Formato",
     columnFormatText: "Texto simples",
     columnFormatNumber: "Número",
@@ -2177,6 +2211,8 @@ export default {
     dbtAdminOnly:
       "Somente administradores da organização podem alterar esta conexão.",
     dbtReadFailed: "Não foi possível carregar a conexão com o dbt.",
+    dbtSeveralConnections:
+      "Várias conexões dbt estão concedidas ao Analytics, então este painel não pode editar nenhuma delas. Remova as conexões extras em Configurações → Integrações para manter apenas uma.",
     dbtSave: "Salvar conexão",
     dbtChecking: "Verificando",
     dbtSaveFailed: "Não foi possível salvar a conexão com o dbt.",

@@ -163,8 +163,7 @@ test("cmd/ctrl+wheel zooms around the cursor: the point under the cursor stays f
   );
 });
 
-// fixme: fails on current main after the merge: Error: expect(locator).toHaveCount(expected) failed
-test.fixme("middle-mouse drag pans smoothly with 1:1 deltas over empty canvas", async ({
+test("middle-mouse drag pans smoothly with 1:1 deltas over empty canvas", async ({
   app,
 }) => {
   await openOverview(app);
@@ -207,8 +206,7 @@ test("middle-mouse drag across a button and heading pans 1:1 without selecting o
   expectOnlyChanged(saved, await app.savedNodes(id), []);
 });
 
-// fixme: fails on current main after the merge: Error: expect(locator).toHaveCount(expected) failed
-test.fixme("space+drag pans the canvas 1:1", async ({ app }) => {
+test("space+drag pans the canvas 1:1", async ({ app }) => {
   await openOverview(app);
   const start = await emptyCanvasPoint(app.page);
   const before = await worldTransform(app.page);

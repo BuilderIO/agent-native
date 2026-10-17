@@ -86,26 +86,35 @@ export async function autoJoinDomainMatchingOrgs(
   try {
     const res = await db.execute({
       sql: `SELECT o.id AS "orgId", o.identity_authority AS "identityAuthority",
-                   o.identity_id AS "identityId"
+                   o.identity_id AS "identityId",
+                   EXISTS (
+                     SELECT 1 FROM org_members m
+                     WHERE m.org_id = o.id
+                       AND LOWER(m.email) = ?
+                       AND m.federation_removal_pending_at IS NULL
+                   ) AS "isMember"
             FROM organizations o
             WHERE LOWER(o.allowed_domain) = ?
-              AND NOT EXISTS (
-                SELECT 1
-                FROM org_members m
-                WHERE m.org_id = o.id
-                  AND LOWER(m.email) = ?
-                  AND m.federation_removal_pending_at IS NULL
-              )
-            ORDER BY o.created_at ASC`,
-      args: [domain, email],
+            LIMIT 2`,
+      args: [email, domain],
     });
-    matches = res.rows.map((r: any) => ({
-      orgId: String(r.orgId ?? r.org_id),
-      federated: Boolean(
-        String(r.identityAuthority ?? r.identity_authority ?? "").trim() &&
-        String(r.identityId ?? r.identity_id ?? "").trim(),
-      ),
-    }));
+    if (res.rows.length > 1) return { joined: [], activeOrgId: null };
+    if (res.rows.length === 1) {
+      const row = res.rows[0] as any;
+      if (Boolean(row.isMember ?? row.is_member)) {
+        return { joined: [], activeOrgId: null };
+      }
+      matches = [
+        {
+          orgId: String(row.orgId ?? row.org_id),
+          federated: Boolean(
+            String(
+              row.identityAuthority ?? row.identity_authority ?? "",
+            ).trim() && String(row.identityId ?? row.identity_id ?? "").trim(),
+          ),
+        },
+      ];
+    }
   } catch {
     return { joined: [], activeOrgId: null };
   }

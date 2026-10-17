@@ -1,5 +1,8 @@
 import type { CodeLayerProjection } from "@shared/code-layer";
-import { buildCodeLayerProjection } from "@shared/code-layer";
+import {
+  buildCodeLayerProjection,
+  pinFixedFlexSiblingsOfNode,
+} from "@shared/code-layer";
 import { linkedComponentRootForNode } from "@shared/component-links";
 import { assertDesignHtmlEditIntegrity } from "@shared/html-integrity";
 import type { InteractionState } from "@shared/interaction-states";
@@ -620,8 +623,20 @@ export function runCommitVisualStyles(
             ...Object.fromEntries(entries),
           })
         : null;
+    const resizedNodeId =
+      activeBreakpointUpperBoundPx == null &&
+      entries.some(
+        ([property]) => property === "width" || property === "height",
+      )
+        ? targetNode?.dataAttributes["data-agent-native-node-id"]
+        : undefined;
+    const scopedContent =
+      resizedNodeId && !stylePatch.failed
+        ? pinFixedFlexSiblingsOfNode(stylePatch.content, resizedNodeId)
+        : stylePatch.content;
+    const siblingsPinned = scopedContent !== stylePatch.content;
     const commitResolution = resolveVisualStyleCommitContent({
-      scopedContent: stylePatch.content,
+      scopedContent,
       scopedFailure: stylePatch.failed,
       legacyFallbackContent,
       breakpointScoped: activeBreakpointUpperBoundPx != null,
@@ -824,7 +839,7 @@ export function runCommitVisualStyles(
       setPatchProof((prev) =>
         prev?.id === proofId ? { ...prev, status: "queued" } : prev,
       );
-      if (!runtimeStyleApplied) {
+      if (!runtimeStyleApplied || siblingsPinned) {
         setContentRenderRevision((revision) => revision + 1);
       }
     } else {
@@ -887,12 +902,15 @@ export function runCommitVisualStyles(
         syncCollab: !writeLiveDoc,
       });
       if (
-        shouldReplacePreviewAfterVisualStyleCommit({
-          runtimeApplied: options.runtimeApplied,
-          runtimeStyleApplied,
-        }) &&
+        (siblingsPinned ||
+          shouldReplacePreviewAfterVisualStyleCommit({
+            runtimeApplied: options.runtimeApplied,
+            runtimeStyleApplied,
+          })) &&
         previewContentReplaceNeedsRenderFallback(
-          replacePreviewContent(resolvedNextContent, selector),
+          replacePreviewContent(resolvedNextContent, selector, {
+            forceFullDocument: siblingsPinned,
+          }),
         )
       ) {
         setContentRenderRevision((revision) => revision + 1);
