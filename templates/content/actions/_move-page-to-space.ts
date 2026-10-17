@@ -271,6 +271,7 @@ export async function movePageToSpace(args: {
           for (const table of [
             schema.documentComments,
             schema.documentVersions,
+            schema.documentBodySteps,
             schema.documentBlockFields,
           ]) {
             await tx

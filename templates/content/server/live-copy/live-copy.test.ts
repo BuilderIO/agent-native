@@ -55,6 +55,23 @@ vi.mock("../lib/live-body-writer.js", async (importOriginal) => {
     isLiveBodyWriterPage: thenHook(actual.isLiveBodyWriterPage),
   };
 });
+// Counts the edit bases rebuilt from body steps. History can record a base
+// after the agent read it, so only this tells which edits the steps served.
+const { rebuiltBases } = vi.hoisted(() => ({ rebuiltBases: { count: 0 } }));
+vi.mock("../lib/document-body-steps.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../lib/document-body-steps.js")>();
+  return {
+    ...actual,
+    rebuildDocumentBodyBase: async (
+      ...args: Parameters<typeof actual.rebuildDocumentBodyBase>
+    ) => {
+      const base = await actual.rebuildDocumentBodyBase(...args);
+      if (base !== null) rebuiltBases.count += 1;
+      return base;
+    },
+  };
+});
 
 // The live copy's worker bundles its own Yjs and serializer, so these record
 // only what ran on this thread, and only while `recording` is set.
@@ -1623,8 +1640,8 @@ describe("edit-document on a switched page", () => {
       }
     };
     let edits = 0;
-    let unrecorded = 0;
-    let overtaken = 0;
+    let stale = 0;
+    rebuiltBases.count = 0;
     try {
       const until = Date.now() + 30_000;
       while (Date.now() < until) {
@@ -1637,7 +1654,6 @@ describe("edit-document on a switched page", () => {
             { caller: "mcp", userEmail: OWNER } as never,
           ),
         )) as { bodyRevision: number; content: string };
-        if (!(await historyHolds("liveness", read))) unrecorded += 1;
         // The tab types on while the agent thinks. A base History lacks is
         // rebuilt from at most 256 body steps, about 10 s at this pace.
         await keystrokesLand(2);
@@ -1648,9 +1664,7 @@ describe("edit-document on a switched page", () => {
           `liveness-${edits}`,
         );
         expect(result.receipt.outcome).toBe("applied");
-        if (result.receipt.bodyRevision.before > read.bodyRevision) {
-          overtaken += 1;
-        }
+        if (result.receipt.bodyRevision.before > read.bodyRevision) stale += 1;
         edits += 1;
       }
     } finally {
@@ -1661,9 +1675,10 @@ describe("edit-document on a switched page", () => {
 
     expect(edits).toBeGreaterThan(10);
     expect(keystrokes).toBeGreaterThan(100);
-    // Unless History missed some edits' bases, the loop proves nothing.
-    expect(unrecorded).toBeGreaterThan(0);
-    expect(overtaken).toBe(edits);
+    // Every edit was made on a body the tab had since typed past. Unless
+    // History missed some of those bases, the loop proves nothing.
+    expect(stale).toBe(edits);
+    expect(rebuiltBases.count).toBeGreaterThan(0);
     expect((await page("liveness")).content).toBe(
       `Agent ${edits}\nTab${"x".repeat(keystrokes)}`,
     );
@@ -1713,6 +1728,51 @@ describe("edit-document on a switched page", () => {
       expect(result.receipt.outcome).toBe("applied");
       expect(result.receipt.bodyRevision.before - newer.bodyRevision).toBe(256);
       expect((await page("step-limit")).content).toBe(
+        typed.replace("Agent", "Agent A"),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  }, 120_000);
+
+  it("refuses an unrecorded base a commit replacing more than 64 KB has passed, and lands the edit on a fresh read", async () => {
+    await switchedPage("big-step", `Agent\n\n${"a".repeat(70_000)}`);
+    const now = Date.now();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(now + 10);
+      await typeInTab("big-step", `Agent\n\n${"a".repeat(70_000)}x`);
+      await typeInTab("big-step", `Agent\n\n${"a".repeat(70_000)}xy`);
+      const before = await page("big-step");
+      // The tab replaces the long paragraph in one commit, which records no
+      // step.
+      await typeInTab("big-step", `Agent\n\n${"b".repeat(70_000)}`);
+      expect(await historyHolds("big-step", before)).toBe(false);
+
+      await expect(
+        agentEdit(
+          "big-step",
+          before,
+          [{ find: "Agent", replace: "Agent A" }],
+          "big-step-before",
+        ),
+      ).rejects.toMatchObject({ errorCode: "STALE_BASE_REVISION" });
+
+      const after = await page("big-step");
+      await typeInTab("big-step", `Agent\n\n${"b".repeat(70_000)}x`);
+      expect(await historyHolds("big-step", after)).toBe(false);
+      const typed = (await page("big-step")).content;
+      rebuiltBases.count = 0;
+      const result = await agentEdit(
+        "big-step",
+        after,
+        [{ find: "Agent", replace: "Agent A" }],
+        "big-step-after",
+      );
+
+      expect(result.receipt.outcome).toBe("applied");
+      expect(rebuiltBases.count).toBe(1);
+      expect((await page("big-step")).content).toBe(
         typed.replace("Agent", "Agent A"),
       );
     } finally {
