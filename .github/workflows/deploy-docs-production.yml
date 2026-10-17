@@ -82,14 +82,159 @@ jobs:
               );
             }
 
+  docs-source-freshness:
+    name: Verify docs source before production side effects
+    needs: [verify-stable-release]
+    if: >-
+      ${{ always() && !cancelled() &&
+      (needs.verify-stable-release.result == 'skipped' ||
+      (needs.verify-stable-release.result == 'success' &&
+      needs.verify-stable-release.outputs.verified == 'false')) }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      current: ${{ steps.freshness.outputs.current }}
+    steps:
+      - name: Skip stale queued docs deployments
+        id: freshness
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          SOURCE_REF: ${{ inputs.source_ref || github.sha }}
+        with:
+          script: |
+            core.setOutput("current", "false");
+            if (context.eventName !== "push") {
+              core.setOutput("current", "true");
+              return;
+            }
+
+            const sourceRef = process.env.SOURCE_REF.trim().toLowerCase();
+            if (!/^[0-9a-f]{40}$/.test(sourceRef)) {
+              core.setFailed("Docs production source must be a full 40-character commit SHA.");
+              return;
+            }
+
+            const mainSha = (await github.rest.git.getRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: "heads/main",
+            })).data.object.sha.toLowerCase();
+            if (sourceRef === mainSha) {
+              core.setOutput("current", "true");
+              return;
+            }
+
+            const comparison = await github.rest.repos.compareCommits({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              base: sourceRef,
+              head: mainSha,
+              per_page: 100,
+              page: 1,
+            });
+            const firstPage = comparison.data;
+            if (!["ahead", "identical"].includes(firstPage.status)) {
+              core.setFailed(`Docs production source ${sourceRef} is no longer an ancestor of main ${mainSha}.`);
+              return;
+            }
+
+            const totalCommits = firstPage.total_commits;
+            const files = firstPage.files;
+            if (
+              !Number.isInteger(totalCommits) ||
+              totalCommits < 0 ||
+              !Array.isArray(firstPage.commits) ||
+              !Array.isArray(files) ||
+              files.length >= 300
+            ) {
+              core.setFailed("Cannot verify all newer docs deployment inputs; refusing to publish this queued source.");
+              return;
+            }
+
+            const pageSize = 100;
+            const pageCount = Math.max(1, Math.ceil(totalCommits / pageSize));
+            const commits = [];
+            const commitShas = new Set();
+            for (let page = 1; page <= pageCount; page += 1) {
+              const data = page === 1
+                ? firstPage
+                : (await github.rest.repos.compareCommits({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    base: sourceRef,
+                    head: mainSha,
+                    per_page: pageSize,
+                    page,
+                  })).data;
+              const expectedPageCommits = Math.min(
+                pageSize,
+                totalCommits - commits.length,
+              );
+              if (
+                data.status !== firstPage.status ||
+                data.total_commits !== totalCommits ||
+                !Array.isArray(data.commits) ||
+                data.commits.length !== expectedPageCommits
+              ) {
+                core.setFailed("Cannot verify every newer commit in the docs comparison; refusing to publish this queued source.");
+                return;
+              }
+              for (const commit of data.commits) {
+                if (typeof commit.sha !== "string" || commitShas.has(commit.sha)) {
+                  core.setFailed("Docs comparison returned a missing or duplicate commit; refusing to publish this queued source.");
+                  return;
+                }
+                commitShas.add(commit.sha);
+                commits.push(commit);
+              }
+            }
+            if (commits.length !== totalCommits) {
+              core.setFailed("Cannot verify every newer commit in the docs comparison; refusing to publish this queued source.");
+              return;
+            }
+
+            const docsPaths = [
+              ".nvmrc",
+              "package.json",
+              "pnpm-lock.yaml",
+              "pnpm-workspace.yaml",
+              "packages/core/**",
+              "packages/docs/**",
+              "scripts/netlify-prebuilt-target.ts",
+              "scripts/netlify-migration-url.ts",
+              "scripts/netlify-production-sites.json",
+              ".github/workflows/deploy-docs-production.yml",
+              ".github/workflows/deploy-netlify-prebuilt.yml",
+            ];
+            const matchesDocsPath = (path) =>
+              docsPaths.some((pattern) => {
+                if (!pattern.endsWith("/**")) return path === pattern;
+                const directory = pattern.slice(0, -3);
+                return path === directory || path.startsWith(`${directory}/`);
+              });
+            const newerDocsChange = files.some((file) =>
+              [file.filename, file.previous_filename]
+                .filter((path) => typeof path === "string")
+                .some(matchesDocsPath),
+            );
+            if (newerDocsChange) {
+              core.notice(`Skipping queued docs source ${sourceRef}: main contains newer docs deployment inputs.`);
+              return;
+            }
+
+            core.setOutput("current", "true");
+
   migrate:
     name: Migrate docs production schema
-    needs: [verify-stable-release, pause-netlify-builds]
+    needs: [verify-stable-release, docs-source-freshness, pause-netlify-builds]
     if: >-
       ${{ always() && !cancelled() &&
       (needs.verify-stable-release.result == 'skipped' ||
       (needs.verify-stable-release.result == 'success' &&
       needs.verify-stable-release.outputs.verified == 'false')) &&
+      needs.docs-source-freshness.result == 'success' &&
+      needs.docs-source-freshness.outputs.current == 'true' &&
       needs.pause-netlify-builds.result == 'success' }}
     permissions:
       contents: read
@@ -110,12 +255,14 @@ jobs:
     name: docs production prebuilt deploy
     permissions:
       contents: read
-    needs: [verify-stable-release, pause-netlify-builds, migrate]
+    needs: [verify-stable-release, docs-source-freshness, pause-netlify-builds, migrate]
     if: >-
       ${{ always() && !cancelled() &&
       (needs.verify-stable-release.result == 'skipped' ||
       (needs.verify-stable-release.result == 'success' &&
       needs.verify-stable-release.outputs.verified == 'false')) &&
+      needs.docs-source-freshness.result == 'success' &&
+      needs.docs-source-freshness.outputs.current == 'true' &&
       needs.pause-netlify-builds.result == 'success' &&
       needs.migrate.result == 'success' }}
     uses: ./.github/workflows/deploy-netlify-prebuilt.yml
@@ -134,12 +281,14 @@ jobs:
 
   pause-netlify-builds:
     name: Pause docs site's Git-connected Netlify builds
-    needs: [verify-stable-release]
+    needs: [verify-stable-release, docs-source-freshness]
     if: >-
       ${{ always() && !cancelled() &&
       (needs.verify-stable-release.result == 'skipped' ||
       (needs.verify-stable-release.result == 'success' &&
-      needs.verify-stable-release.outputs.verified == 'false')) }}
+      needs.verify-stable-release.outputs.verified == 'false')) &&
+      needs.docs-source-freshness.result == 'success' &&
+      needs.docs-source-freshness.outputs.current == 'true' }}
     concurrency:
       group: agent-native-production-site-fw
       cancel-in-progress: false

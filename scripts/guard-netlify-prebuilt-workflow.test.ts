@@ -1958,17 +1958,42 @@ describe("production Netlify site concurrency guard", () => {
     assert(index < steps.findIndex((step) => step.id === "deploy"));
   });
 
-  it("skips queued docs deploys after newer docs inputs reach main", () => {
-    const workflow = readWorkflow(
-      ".github/workflows/deploy-netlify-prebuilt.yml",
-    );
+  it("skips queued docs deploys after newer docs inputs reach main", async () => {
     const docsWorkflow = readWorkflow(
       ".github/workflows/deploy-docs-production.yml",
     );
-    const jobs = workflow.jobs as Record<string, Workflow>;
-    const steps = (jobs.deploy.steps as Array<Workflow>).filter(Boolean);
-    const freshness = steps.find(
+    const jobs = docsWorkflow.jobs as Record<string, Workflow>;
+    const freshnessJob = jobs["docs-source-freshness"];
+    assert(freshnessJob);
+    const freshnessSteps = (freshnessJob.steps as Array<Workflow>).filter(
+      Boolean,
+    );
+    const freshness = freshnessSteps.find(
       (step) => step.name === "Skip stale queued docs deployments",
+    );
+    const needsSourceFreshness = (jobName: string) => {
+      const job = jobs[jobName];
+      assert(job);
+      assert((job.needs as string[]).includes("docs-source-freshness"));
+      assert.match(
+        String(job.if),
+        /needs\.docs-source-freshness\.outputs\.current == 'true'/,
+      );
+    };
+    needsSourceFreshness("pause-netlify-builds");
+    needsSourceFreshness("migrate");
+    needsSourceFreshness("deploy");
+
+    const workflow = readWorkflow(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+    );
+    const reusableSource = readFileSync(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+      "utf8",
+    );
+    const reusableJobs = workflow.jobs as Record<string, Workflow>;
+    const steps = (reusableJobs.deploy.steps as Array<Workflow>).filter(
+      Boolean,
     );
     const pause = steps.find(
       (step) =>
@@ -1985,33 +2010,120 @@ describe("production Netlify site concurrency guard", () => {
     assert(pause);
     assert(unlock);
     assert(upload);
-    assert.equal(freshness.id, "docs_source_freshness");
-    const freshnessIndex = steps.indexOf(freshness);
-    assert(freshnessIndex < steps.indexOf(pause));
-    assert(freshnessIndex < steps.indexOf(unlock));
-    assert(freshnessIndex < steps.indexOf(upload));
-    for (const step of [pause, unlock, upload]) {
-      assert.match(
-        String(step.if),
-        /steps\.docs_source_freshness\.outputs\.current == 'true'/,
-      );
-    }
+    assert.equal(freshness.id, "freshness");
+    assert.doesNotMatch(
+      reusableSource,
+      /docs_source_freshness|DOCS_DEPLOY_PATHS/,
+    );
 
     const on = docsWorkflow.on as Workflow;
     const push = on.push as Workflow;
-    const env = freshness.env as Workflow;
-    const docsPaths = JSON.parse(String(env.DOCS_DEPLOY_PATHS));
-    assert.deepEqual(docsPaths, push.paths);
-
     const script = String((freshness.with as Workflow).script);
+    const docsPathList = script.match(/const docsPaths = \[([\s\S]*?)\];/)?.[1];
+    assert(docsPathList);
+    const docsPaths = [...docsPathList.matchAll(/"([^"]+)"/g)].map(
+      (match) => match[1],
+    );
+    assert.deepEqual(docsPaths, push.paths);
     assert.match(script, /github\.rest\.git\.getRef/);
     assert.match(script, /github\.rest\.repos\.compareCommits/);
-    assert.match(script, /comparison\.data\.total_commits > commits\.length/);
+    assert.match(script, /per_page: 100/);
+    assert.match(script, /for \(let page = 1; page <= pageCount; page \+= 1\)/);
+    assert.match(script, /data\.commits\.length !== expectedPageCommits/);
     assert.match(script, /files\.length >= 300/);
     assert.match(script, /file\.previous_filename/);
     assert.match(script, /core\.setOutput\("current", "false"\)/);
-    assert.match(String(upload.if), /inputs\.caller != 'docs'/);
-    assert.match(String(upload.if), /github\.event_name != 'push'/);
+
+    const runFreshnessScript = async (
+      files: Array<{ filename: string; previous_filename?: string }>,
+      page2Commits: Array<{ sha: string }>,
+    ) => {
+      const outputs: Record<string, string> = {};
+      const failures: string[] = [];
+      const notices: string[] = [];
+      const pagesRequested: number[] = [];
+      const allCommits = Array.from({ length: 101 }, (_, index) => ({
+        sha: `commit-${index}`,
+      }));
+      const pageData = [
+        {
+          status: "ahead",
+          total_commits: 101,
+          commits: allCommits.slice(0, 100),
+          files,
+        },
+        {
+          status: "ahead",
+          total_commits: 101,
+          commits: page2Commits,
+        },
+      ];
+      const github = {
+        rest: {
+          git: {
+            getRef: async () => ({ data: { object: { sha: "b".repeat(40) } } }),
+          },
+          repos: {
+            compareCommits: async (args: { page: number }) => {
+              pagesRequested.push(args.page);
+              return { data: pageData[args.page - 1] };
+            },
+          },
+        },
+      };
+      const context = {
+        eventName: "push",
+        repo: { owner: "BuilderIO", repo: "agent-native" },
+      };
+      const core = {
+        setOutput: (name: string, value: string) => {
+          outputs[name] = value;
+        },
+        setFailed: (message: string) => failures.push(message),
+        notice: (message: string) => notices.push(message),
+      };
+      const process = { env: { SOURCE_REF: "a".repeat(40) } };
+      const run = new Function(
+        "github",
+        "context",
+        "core",
+        "process",
+        `return (async () => {\n${script}\n})();`,
+      ) as (
+        github: typeof github,
+        context: typeof context,
+        core: typeof core,
+        process: typeof process,
+      ) => Promise<void>;
+      await run(github, context, core, process);
+      return { outputs, failures, notices, pagesRequested };
+    };
+
+    const fresh = await runFreshnessScript(
+      [{ filename: "README.md" }],
+      [{ sha: "commit-100" }],
+    );
+    assert.deepEqual(fresh.pagesRequested, [1, 2]);
+    assert.equal(fresh.outputs.current, "true");
+    assert.deepEqual(fresh.failures, []);
+
+    const stale = await runFreshnessScript(
+      [{ filename: "packages/docs/content/guide.mdx" }],
+      [{ sha: "commit-100" }],
+    );
+    assert.equal(stale.outputs.current, "false");
+    assert.match(stale.notices[0] ?? "", /newer docs deployment inputs/);
+    assert.deepEqual(stale.failures, []);
+
+    const incomplete = await runFreshnessScript(
+      [{ filename: "README.md" }],
+      [],
+    );
+    assert.equal(incomplete.outputs.current, "false");
+    assert.match(
+      incomplete.failures[0] ?? "",
+      /Cannot verify every newer commit/,
+    );
 
     const wait = steps.find(
       (step) => step.name === "Wait for the Netlify deploy to publish",
@@ -2715,8 +2827,18 @@ describe("production Netlify site concurrency guard", () => {
     const ownership = jobs["pause-netlify-builds"];
     assert.deepEqual(deploy?.needs, [
       "verify-stable-release",
+      "docs-source-freshness",
       "pause-netlify-builds",
       "migrate",
+    ]);
+    assert.deepEqual(jobs.migrate.needs, [
+      "verify-stable-release",
+      "docs-source-freshness",
+      "pause-netlify-builds",
+    ]);
+    assert.deepEqual(ownership.needs, [
+      "verify-stable-release",
+      "docs-source-freshness",
     ]);
     assert.match(String(deploy?.if), /always\(\)/);
     assert.match(String(deploy?.if), /needs\.migrate\.result == 'success'/);

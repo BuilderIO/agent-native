@@ -67,6 +67,23 @@ place of Slack source messages.
   and compares every message/root pair with both the receipt and inventory, so
   omitting the same row from the latter two cannot pass. Never generate the
   receipt by copying the inventory or change it to make a mismatch pass.
+  Each page file must wrap the complete connector response: set `cursor` to the
+  requested cursor (or `null` for the first page), capture `readAt` immediately
+  after the response returns, and set `raw` to `JSON.stringify(response)` where
+  `response` is the complete `slack_search_public` result containing `results`
+  and `pagination_info`. Save the wrapper as formatted JSON, for example:
+
+  ```ts
+  const capturedPage = {
+    cursor: requestedCursor ?? null,
+    readAt: new Date().toISOString(),
+    raw: JSON.stringify(response),
+  };
+  writeFileSync(pagePath, `${JSON.stringify(capturedPage, null, 2)}\n`);
+  ```
+
+  Do not save the connector response directly as the page file: `raw` is a JSON
+  string inside the wrapper, not the top-level page object.
 - Save `.tmp/feedback-inventory.json` with `cutoffTs`, optional `permalinkTs`,
   the exact connector `sweepActorId`, and `channels`. Set `permalinkTs` when a
   supplied message anchors the scan. Each channel must include `channelId`,

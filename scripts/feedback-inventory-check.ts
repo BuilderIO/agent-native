@@ -2562,18 +2562,107 @@ function sourceReceiptChannelName(channelId: string, index: number): string {
   );
 }
 
-const emptySlackSearchResults = "# Search Results for: \n\nNo results found.\n";
+const emptySlackSearchResults =
+  "# Search Results for: in:qa after:2026-10-17\n\nNo results found.\n";
 const emptySlackSearchResultsPattern =
   /^# Search Results for: [^\n]*\n\nNo results found\.\n?$/;
 const exhaustedSlackSearchPagination =
   "End of results - No more pages available.";
 
+type SlackSearchScope = {
+  channelId: string;
+  channelName: string;
+  scanQuery: Pick<ChannelScanQuery, "tool" | "after" | "filters">;
+};
+
+function validateEchoedSlackSearchQuery(
+  query: string,
+  scope: SlackSearchScope,
+  sourceName: string,
+): void {
+  const expectedChannelId = /^in:<#([^>]+)>$/.exec(
+    scope.scanQuery.filters,
+  )?.[1];
+  if (
+    scope.scanQuery.tool !== "slack_search_public" ||
+    expectedChannelId !== scope.channelId
+  ) {
+    throw new Error(`${sourceName}: inventory search scope is invalid`);
+  }
+
+  const tokens = query.trim().split(/\s+/).filter(Boolean);
+  const channelFilters = tokens.filter((token) => token.startsWith("in:"));
+  const afterFilters = tokens.filter((token) => token.startsWith("after:"));
+  if (
+    tokens.length !== 2 ||
+    channelFilters.length !== 1 ||
+    afterFilters.length !== 1
+  ) {
+    throw new Error(
+      `${sourceName}: echoed Slack query must contain only this inventory channel and cutoff`,
+    );
+  }
+
+  const echoedChannel = channelFilters[0]!.slice("in:".length);
+  const normalizedEchoedChannel = echoedChannel
+    .replace(/^<#([^>|]+)(?:\|[^>]+)?>$/, "$1")
+    .replace(/^#/, "")
+    .toLowerCase();
+  if (
+    ![scope.channelName, scope.channelId]
+      .map((value) => value.toLowerCase())
+      .includes(normalizedEchoedChannel)
+  ) {
+    throw new Error(
+      `${sourceName}: echoed Slack query does not match the inventoried channel`,
+    );
+  }
+
+  const afterMatch = /^after:(\d{4}-\d{2}-\d{2})$/.exec(afterFilters[0]!);
+  if (!afterMatch) {
+    throw new Error(
+      `${sourceName}: echoed Slack query has no valid inventory cutoff date`,
+    );
+  }
+  const echoedAfterDate = new Date(`${afterMatch[1]}T00:00:00.000Z`);
+  if (
+    Number.isNaN(echoedAfterDate.getTime()) ||
+    echoedAfterDate.toISOString().slice(0, 10) !== afterMatch[1]
+  ) {
+    throw new Error(
+      `${sourceName}: echoed Slack query has no valid inventory cutoff date`,
+    );
+  }
+  const cutoffMicros = slackTimestamp(
+    scope.scanQuery.after,
+    `${sourceName}.scanQuery.after`,
+  );
+  const cutoffDate = new Date(Number(cutoffMicros / 1_000_000n) * 1_000)
+    .toISOString()
+    .slice(0, 10);
+  if (afterMatch[1]! > cutoffDate) {
+    throw new Error(
+      `${sourceName}: echoed Slack query starts after the inventoried cutoff`,
+    );
+  }
+}
+
 function parseRawSlackSearchPage(
   results: string,
   paginationInfo: unknown,
   sourceName: string,
+  scope: SlackSearchScope,
 ): { blocks: string[]; nextCursor: string | null; exhausted: boolean } {
   const normalizedResults = results.replace(/\r\n/g, "\n");
+  const queryMatch = /^# Search Results for: ([^\n]*)\n\n/.exec(
+    normalizedResults,
+  );
+  if (!queryMatch) {
+    throw new Error(
+      `${sourceName}: raw Slack results have no recognized search-result header`,
+    );
+  }
+  validateEchoedSlackSearchQuery(queryMatch[1]!, scope, sourceName);
   if (typeof paginationInfo !== "string") {
     throw new Error(`${sourceName}: raw Slack response has no pagination info`);
   }
@@ -2649,6 +2738,8 @@ function parseCapturedSlackSearchPage(
   saved: Record<string, unknown>,
   path: string,
   channelId: string,
+  channelName: string,
+  scanQuery: SlackSearchScope["scanQuery"],
 ): RawSourcePageEvidence {
   if (saved.isError === true || typeof saved.raw !== "string") {
     throw new Error(
@@ -2676,6 +2767,7 @@ function parseCapturedSlackSearchPage(
     response.results,
     response.pagination_info,
     path,
+    { channelId, channelName, scanQuery },
   );
   const rows = parsed.blocks.map((block, rowIndex) => {
     const messageName = `${path} result ${rowIndex + 1}`;
@@ -2819,7 +2911,13 @@ function readRawSourcePages(
           `${path}: source page files must be numbered contiguously from 00`,
         );
       }
-      return parseCapturedSlackSearchPage(saved, path, channel.channelId);
+      return parseCapturedSlackSearchPage(
+        saved,
+        path,
+        channel.channelId,
+        channelName,
+        channel.scanQuery,
+      );
     });
   }
   return result;
@@ -4105,10 +4203,20 @@ function validateInventory(
 
 const args = process.argv.slice(2).filter((argument) => argument !== "--");
 if (args[0] === "--self-test" && args.length === 1) {
+  const selfTestSearchScope: SlackSearchScope = {
+    channelId: "C0C4U4XRT6X",
+    channelName: "qa",
+    scanQuery: {
+      tool: "slack_search_public",
+      after: "1792195200.000000",
+      filters: "in:<#C0C4U4XRT6X>",
+    },
+  };
   const emptyPage = parseRawSlackSearchPage(
     emptySlackSearchResults,
     `${exhaustedSlackSearchPagination}\\n`,
     "self-test empty page",
+    selfTestSearchScope,
   );
   if (
     emptyPage.blocks.length !== 0 ||
@@ -4120,9 +4228,10 @@ if (args[0] === "--self-test" && args.length === 1) {
     );
   }
   const echoedQueryEmptyPage = parseRawSlackSearchPage(
-    "# Search Results for: from:steve in:product\n\nNo results found.\n",
+    emptySlackSearchResults,
     exhaustedSlackSearchPagination,
     "self-test echoed-query empty page",
+    selfTestSearchScope,
   );
   if (
     echoedQueryEmptyPage.blocks.length !== 0 ||
@@ -4133,12 +4242,53 @@ if (args[0] === "--self-test" && args.length === 1) {
       "Feedback inventory checker self-test rejected an echoed-query empty page",
     );
   }
+  const mismatchedEmptyPageQueries = [
+    {
+      query: "in:product after:2026-10-17",
+      diagnostic: "does not match the inventoried channel",
+    },
+    {
+      query: "in:qa after:2026-10-18",
+      diagnostic: "starts after the inventoried cutoff",
+    },
+    {
+      query: "in:qa after:2026-10-17 from:steve",
+      diagnostic: "must contain only this inventory channel and cutoff",
+    },
+  ];
+  for (const testCase of mismatchedEmptyPageQueries) {
+    try {
+      parseRawSlackSearchPage(
+        `# Search Results for: ${testCase.query}\n\nNo results found.\n`,
+        exhaustedSlackSearchPagination,
+        "self-test mismatched empty query",
+        selfTestSearchScope,
+      );
+      throw new Error("self-test failed to reject a mismatched empty query");
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message.startsWith("self-test failed to reject")
+      ) {
+        throw error;
+      }
+      if (
+        !(error instanceof Error) ||
+        !error.message.includes(testCase.diagnostic)
+      ) {
+        throw new Error(
+          `self-test expected mismatched empty query rejection containing "${testCase.diagnostic}"; received "${error instanceof Error ? error.message : String(error)}"`,
+        );
+      }
+    }
+  }
   const nonEmptyResults =
-    "# Search Results for: \n\n## Messages (2 results)\n### Result 1 of 2\nfirst\n### Result 2 of 2\nsecond";
+    "# Search Results for: in:qa after:2026-10-17\n\n## Messages (2 results)\n### Result 1 of 2\nfirst\n### Result 2 of 2\nsecond";
   const cursorPage = parseRawSlackSearchPage(
     nonEmptyResults,
     "For the next page of results use cursor `next-page`\\n",
     "self-test cursor page",
+    selfTestSearchScope,
   );
   if (
     cursorPage.blocks.length !== 2 ||
@@ -4150,7 +4300,16 @@ if (args[0] === "--self-test" && args.length === 1) {
     );
   }
   const productionPageResults =
-    "# Search Results for: from:steve\n\n## Messages (1 result)\n### Result 1 of 1\n\nMessage_ts: 1700000000.123456\nPermalink: [link](https://app.slack.com/archives/C0C4U4XRT6X/p1700000000123456)";
+    "# Search Results for: in:qa after:2023-11-14\n\n## Messages (1 result)\n### Result 1 of 1\n\nMessage_ts: 1700000000.123456\nPermalink: [link](https://app.slack.com/archives/C0C4U4XRT6X/p1700000000123456)";
+  const productionSearchScope: SlackSearchScope = {
+    channelId: "C0C4U4XRT6X",
+    channelName: "qa",
+    scanQuery: {
+      tool: "slack_search_public",
+      after: "1700000000.000000",
+      filters: "in:<#C0C4U4XRT6X>",
+    },
+  };
   const productionPage = parseCapturedSlackSearchPage(
     {
       cursor: null,
@@ -4162,6 +4321,8 @@ if (args[0] === "--self-test" && args.length === 1) {
     },
     "self-test production Slack page",
     "C0C4U4XRT6X",
+    "qa",
+    productionSearchScope.scanQuery,
   );
   if (
     productionPage.rows.length !== 1 ||
@@ -4182,6 +4343,8 @@ if (args[0] === "--self-test" && args.length === 1) {
       },
       "self-test production page missing pagination",
       "C0C4U4XRT6X",
+      "qa",
+      productionSearchScope.scanQuery,
     );
     throw new Error(
       "self-test failed to reject production Slack page without pagination",
@@ -4244,6 +4407,7 @@ if (args[0] === "--self-test" && args.length === 1) {
         testCase.results,
         testCase.paginationInfo,
         `self-test ${testCase.name}`,
+        selfTestSearchScope,
       );
       throw new Error(`self-test failed to reject ${testCase.name}`);
     } catch (error) {
