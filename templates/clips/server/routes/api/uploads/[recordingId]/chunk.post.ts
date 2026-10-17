@@ -29,6 +29,7 @@ import finalizeRecording from "../../../../../actions/finalize-recording.js";
 import { getDb, schema } from "../../../../db/index.js";
 import { debugLog } from "../../../../lib/debug.js";
 import { mediaVerificationStateKey } from "../../../../lib/media-verification-state.js";
+import { reconcileMeetingOnRecordingFailedBestEffort } from "../../../../lib/reconcile-meeting-on-finalize.js";
 import {
   hostedStorageAuthFailure,
   recordingTrackingSource,
@@ -779,13 +780,14 @@ export async function handleRecordingChunk(
       failureCode: "storage_setup_required" | "recording_too_large",
       failureReason: string,
     ) => {
+      const failedAt = new Date().toISOString();
       const failed = await db
         .update(schema.recordings)
         .set({
           status: "failed",
           failureCode,
           failureReason,
-          updatedAt: new Date().toISOString(),
+          updatedAt: failedAt,
         })
         .where(
           and(
@@ -932,13 +934,17 @@ export async function handleRecordingChunk(
         );
       }
       if (existing.storageMode === "hosted" && !existing.videoUrl) {
-        await markHostedCleanupConfirmed(recordingId);
+        await markHostedCleanupConfirmed(recordingId, ownerEmail);
         await releaseHostedClipRecording({
           recordingId,
           userId: authUserId,
           ownerEmail,
         });
       }
+      await reconcileMeetingOnRecordingFailedBestEffort({
+        recordingId,
+        ownerEmail,
+      });
       setResponseStatus(event, 409);
       return {
         ok: false,
@@ -1029,7 +1035,7 @@ export async function handleRecordingChunk(
             "Hosted Clips reservation is missing its authenticated user id.",
           );
         }
-        await markHostedCleanupConfirmed(recordingId);
+        await markHostedCleanupConfirmed(recordingId, ownerEmail);
         await releaseHostedClipRecording({
           recordingId,
           userId: authUserId,
@@ -1044,6 +1050,10 @@ export async function handleRecordingChunk(
           recordingId,
           err: err instanceof Error ? err.message : String(err),
         });
+      });
+      await reconcileMeetingOnRecordingFailedBestEffort({
+        recordingId,
+        ownerEmail,
       });
       setResponseStatus(event, 413);
       return {
@@ -1422,6 +1432,10 @@ export async function handleRecordingChunk(
             updatedAt: new Date().toISOString(),
           },
         });
+        await reconcileMeetingOnRecordingFailedBestEffort({
+          recordingId,
+          ownerEmail,
+        });
         if (
           repairResult.outcome === "unreadable" ||
           repairResult.outcome === "contention" ||
@@ -1702,7 +1716,7 @@ async function handleResumableChunk(
             "Hosted Clips reservation is missing its authenticated user id.",
           );
         }
-        await markHostedCleanupConfirmed(recordingId);
+        await markHostedCleanupConfirmed(recordingId, ownerEmail);
         await releaseHostedClipRecording({
           recordingId,
           userId: authUserId,
@@ -1747,6 +1761,10 @@ async function handleResumableChunk(
         recordingId,
         err: error instanceof Error ? error.message : String(error),
       });
+    });
+    await reconcileMeetingOnRecordingFailedBestEffort({
+      recordingId,
+      ownerEmail,
     });
     setResponseStatus(event, 413);
     return {
@@ -2289,6 +2307,10 @@ async function handleResumableChunk(
         failureReason,
         updatedAt: failedAt,
       },
+    });
+    await reconcileMeetingOnRecordingFailedBestEffort({
+      recordingId,
+      ownerEmail,
     });
     if (
       repairResult.outcome === "unreadable" ||
