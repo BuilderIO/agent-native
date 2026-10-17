@@ -255,7 +255,7 @@ export interface TabRecord {
   saveOutcomes: Partial<Record<SaveOutcome, number>>;
   /**
    * Refusal codes, the reason the server gave for a History diversion, and
-   * `stranded` for a save a SaveGate held when its page went away.
+   * `stranded` for a save still in flight when its page went away.
    */
   saveCodes: Record<string, number>;
   saveLineage: SaveLineageEvent[];
@@ -368,7 +368,7 @@ function refuseRealtimeStream(route: Route) {
   return route.fulfill({ status: 204, body: "" });
 }
 
-// A SaveGate reports the saves it strands to its context's TabSet.
+// A SaveGate asks its context's TabSet whether a save it holds is still awaited.
 const tabSets = new WeakMap<BrowserContext, TabSet>();
 
 /**
@@ -389,6 +389,14 @@ export class TabSet {
   >();
   private readonly activeSaveLineage = new Set<UpdateDocumentRequestLineage>();
   private readonly inFlight = new Set<Request>();
+  // Once a tab's document is gone, Playwright drops the saves it had in flight:
+  // no answer or failure event follows, and a SaveGate's continue() or fulfill()
+  // resolves. The set numbers each tab's documents so it can settle them itself.
+  private readonly documents = new WeakMap<Page, number>();
+  private readonly documentOf = new WeakMap<
+    Request,
+    { tab: Page; document: number }
+  >();
 
   private constructor(readonly context: BrowserContext) {}
 
@@ -423,6 +431,20 @@ export class TabSet {
       const record = this.tabs.get(tab);
       if (record) record.loads++;
     });
+    this.documents.set(tab, 0);
+    let navigating = false;
+    tab.on("request", (request) => {
+      if (request.isNavigationRequest() && request.frame() === tab.mainFrame())
+        navigating = true;
+    });
+    // A same-page history change also navigates the frame, but sends no
+    // navigation request first and leaves the document in place.
+    tab.on("framenavigated", (frame) => {
+      if (frame !== tab.mainFrame() || !navigating) return;
+      navigating = false;
+      this.leaveDocument(tab);
+    });
+    tab.on("close", () => this.leaveDocument(tab));
     await gotoEditor(tab, id);
     return tab;
   }
@@ -514,11 +536,27 @@ export class TabSet {
     await this.settled();
   }
 
+  /** False once a save is answered, has failed, or its page went away. */
+  awaiting(request: Request): boolean {
+    return this.inFlight.has(request);
+  }
+
+  /** Settle as stranded every save a tab's departing document had in flight. */
+  private leaveDocument(tab: Page) {
+    const document = this.documents.get(tab) ?? 0;
+    this.documents.set(tab, document + 1);
+    for (const request of this.inFlight) {
+      const sender = this.documentOf.get(request);
+      if (sender?.tab === tab && sender.document === document)
+        this.settleAborted(request, "stranded");
+    }
+  }
+
   /**
-   * Settle a save as aborted, never as answered: its request failed, or a
-   * SaveGate held it when its page went away, which `code` names.
+   * Settle a save as aborted, never as answered: its request failed, or its
+   * page went away with the save in flight, which `code` names.
    */
-  settleAborted(request: Request, code?: string) {
+  private settleAborted(request: Request, code?: string) {
     if (!this.inFlight.delete(request)) return;
     const record = this.recordOf(request);
     record.saveOutcomes.aborted = (record.saveOutcomes.aborted ?? 0) + 1;
@@ -564,11 +602,15 @@ export class TabSet {
 
   private onRequest(request: Request) {
     const url = new URL(request.url());
-    const record = this.recordOf(request);
+    const page = pageOf(request);
+    const record = (page && this.tabs.get(page)) || this.detached;
     if (url.pathname === SAVE_PATH && request.method() === "POST") {
       record.saveRequests++;
       this.inFlight.add(request);
       this.sentAt.set(request, Date.now());
+      const document = page ? this.documents.get(page) : undefined;
+      if (page && document !== undefined)
+        this.documentOf.set(request, { tab: page, document });
       const entry = this.saveLineage.captureRequest(record, request.postData());
       if (entry) {
         this.lineageByRequest.set(request, { record, entry });
@@ -586,7 +628,8 @@ export class TabSet {
   private onResponse(response: Response) {
     const request = response.request();
     const { pathname } = new URL(request.url());
-    const record = this.recordOf(request);
+    const page = pageOf(request);
+    const record = (page && this.tabs.get(page)) || this.detached;
     if (pathname === EVENTS_PATH) {
       if (response.status() === 204) record.realtimeRefusals++;
       if (response.status() === 200) record.realtimeStreams++;
@@ -640,29 +683,16 @@ export class SaveGate {
   private latencyMs = 0;
   private queue: HeldSave[] = [];
   heldCount = 0;
-  // Once the page that sent a held save is gone, Playwright drops the save:
-  // continue() and fulfill() resolve, and no answer or failure event follows.
-  // The gate counts the tab's documents so it can settle those saves itself.
-  private document = 0;
-  private navigating = false;
-  private readonly documentOf = new WeakMap<Request, number>();
-  private readonly holding = new Set<Request>();
 
-  private constructor(private readonly page: Page) {}
+  private constructor(
+    private readonly page: Page,
+    private readonly tabs: TabSet,
+  ) {}
 
   static async install(page: Page): Promise<SaveGate> {
-    const gate = new SaveGate(page);
-    page.on("request", (request) => {
-      if (request.isNavigationRequest() && request.frame() === page.mainFrame())
-        gate.navigating = true;
-      else gate.documentOf.set(request, gate.document);
-    });
-    // A same-page history change also navigates the frame, but sends no
-    // navigation request first and leaves the document in place.
-    page.on("framenavigated", (frame) => {
-      if (frame === page.mainFrame() && gate.navigating) gate.leaveDocument();
-    });
-    page.on("close", () => gate.leaveDocument());
+    const tabs = tabSets.get(page.context());
+    if (!tabs) throw new Error("a SaveGate's page must belong to a TabSet");
+    const gate = new SaveGate(page, tabs);
     await page.route(
       (url) => url.pathname === SAVE_PATH,
       (route) => gate.handle(route),
@@ -720,10 +750,9 @@ export class SaveGate {
   private async handle(route: Route) {
     const request = route.request();
     if (request.method() !== "POST") return route.continue();
-    if ((this.documentOf.get(request) ?? this.document) !== this.document)
-      return this.strand(request);
-    this.holding.add(request);
     if (this.latencyMs > 0) await delay(this.latencyMs);
+    // A save whose page went away is settled, and Playwright has dropped it.
+    if (!this.tabs.awaiting(request)) return;
     if (this.mode === "arrival") {
       this.heldCount++;
       this.queue.push({
@@ -741,6 +770,7 @@ export class SaveGate {
         if (this.page.isClosed()) return;
         throw error;
       }
+      if (!this.tabs.awaiting(request)) return;
       this.queue.push({
         release: () => this.send(request, () => route.fulfill({ response })),
         cutOff: () => this.send(request, () => route.abort("aborted")),
@@ -750,20 +780,9 @@ export class SaveGate {
     await this.send(request, () => route.continue());
   }
 
-  /** Pass on a save the gate still holds; a stranded one is already settled. */
+  /** Pass on a save unless its page went away, which settled it already. */
   private async send(request: Request, step: () => Promise<void>) {
-    if (this.holding.delete(request)) await forward(step);
-  }
-
-  private leaveDocument() {
-    this.document++;
-    this.navigating = false;
-    for (const request of this.holding) this.strand(request);
-  }
-
-  private strand(request: Request) {
-    this.holding.delete(request);
-    tabSets.get(this.page.context())?.settleAborted(request, "stranded");
+    if (this.tabs.awaiting(request)) await forward(step);
   }
 }
 
