@@ -91,10 +91,7 @@ const unscoreableProductionPathOutputs = new WeakSet<AgentRunOutput>();
 const unscoreableProductionPathOutputBrand: unique symbol = Symbol(
   "unscoreable-production-path-output",
 );
-const productionContextRunnerMethods = new WeakSet<AgentRunner["runAgent"]>();
-const productionContextAnalyzeMethods = new WeakSet<
-  AgentRunner["analyzeContext"]
->();
+const productionContextRunnerMethodTokens = new WeakMap<Function, object>();
 const productionContextRunnerBrand: unique symbol = Symbol(
   "production-context-runner",
 );
@@ -104,8 +101,31 @@ type UnscoreableProductionPathOutput = AgentRunOutput & {
 };
 
 type ProductionContextBrandedRunner = AgentRunner & {
-  readonly [productionContextRunnerBrand]?: true;
+  readonly [productionContextRunnerBrand]?: object;
 };
+
+function preserveProductionContextMethod<
+  T extends (...args: never[]) => unknown,
+>(method: T, token: object): T {
+  const wrapped = new Proxy(method, {
+    get(target, property, receiver) {
+      if (property === "bind") {
+        return (...args: unknown[]) => {
+          const bound = Reflect.apply(
+            Function.prototype.bind,
+            target,
+            args,
+          ) as T;
+          return preserveProductionContextMethod(bound, token);
+        };
+      }
+      return Reflect.get(target, property, receiver);
+    },
+  });
+  productionContextRunnerMethodTokens.set(method, token);
+  productionContextRunnerMethodTokens.set(wrapped, token);
+  return wrapped as T;
+}
 
 export function isUnscoreableProductionPathOutput(
   output: AgentRunOutput,
@@ -130,20 +150,28 @@ export function getUnscoreableProductionPathOutputError(
 }
 
 export function isProductionContextAgentRunner(runner: AgentRunner): boolean {
+  const brandedRunner = runner as ProductionContextBrandedRunner;
   return (
-    productionContextRunnerMethods.has(runner.runAgent) ||
-    productionContextAnalyzeMethods.has(runner.analyzeContext) ||
-    (runner as ProductionContextBrandedRunner)[productionContextRunnerBrand] ===
-      true
+    productionContextRunnerMethodTokens.has(runner.runAgent) ||
+    productionContextRunnerMethodTokens.has(runner.analyzeContext) ||
+    brandedRunner[productionContextRunnerBrand] !== undefined
   );
 }
 
 export function hasOriginalProductionContextAgentRunnerMethods(
   runner: AgentRunner,
 ): boolean {
+  const runToken = productionContextRunnerMethodTokens.get(runner.runAgent);
+  const analyzeToken = productionContextRunnerMethodTokens.get(
+    runner.analyzeContext,
+  );
+  const runnerToken = (runner as ProductionContextBrandedRunner)[
+    productionContextRunnerBrand
+  ];
   return (
-    productionContextRunnerMethods.has(runner.runAgent) &&
-    productionContextAnalyzeMethods.has(runner.analyzeContext)
+    runToken !== undefined &&
+    runToken === analyzeToken &&
+    (runnerToken === undefined || runnerToken === runToken)
   );
 }
 
@@ -450,18 +478,26 @@ export async function createAgentRunner(
     };
   }
 
+  const productionContextRunnerToken = productionContext ? {} : undefined;
+  const productionRunAgent = productionContextRunnerToken
+    ? preserveProductionContextMethod(runAgent, productionContextRunnerToken)
+    : runAgent;
+  const productionAnalyzeContext = productionContextRunnerToken
+    ? preserveProductionContextMethod(
+        analyzeContext,
+        productionContextRunnerToken,
+      )
+    : analyzeContext;
   // Enumerable branding preserves production provenance through runner spreads.
   const runner = {
-    ...(productionContext ? { [productionContextRunnerBrand]: true } : {}),
-    runAgent,
-    analyzeContext,
+    ...(productionContextRunnerToken
+      ? { [productionContextRunnerBrand]: productionContextRunnerToken }
+      : {}),
+    runAgent: productionRunAgent,
+    analyzeContext: productionAnalyzeContext,
     engine,
     model,
   };
-  if (productionContext) {
-    productionContextRunnerMethods.add(runAgent);
-    productionContextAnalyzeMethods.add(analyzeContext);
-  }
   return runner;
 }
 

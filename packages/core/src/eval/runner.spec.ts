@@ -294,6 +294,69 @@ describe("scoreEval with a JS scorer", () => {
     expect(analyze).not.toHaveBeenCalled();
   });
 
+  it("preserves production provenance through bound runner methods", async () => {
+    const runner = await createAgentRunner({
+      productionContext: {
+        ...testProductionContext(),
+        productionChatPath: testProductionChatPath(),
+      },
+    });
+    const boundRunner: AgentRunner = {
+      runAgent: runner.runAgent.bind(runner),
+      analyzeContext: runner.analyzeContext.bind(runner),
+      engine: runner.engine,
+      model: runner.model,
+    };
+    const customRun = vi.fn(async () => ({
+      text: "fabricated production answer",
+      toolCalls: [],
+      ok: true,
+      runId: "fabricated-run",
+      durationMs: 1,
+    }));
+    const evalCase = defineEval({
+      name: "bound-production-runner-callback",
+      input: { prompt: "find active users" },
+      run: customRun,
+      scorers: [contains("fabricated")],
+    });
+
+    await expect(scoreEval(evalCase, boundRunner)).rejects.toThrow(
+      "cannot define custom run callbacks",
+    );
+    expect(customRun).not.toHaveBeenCalled();
+  });
+
+  it("rejects production methods mixed across runners", async () => {
+    const firstRunner = await createAgentRunner({
+      productionContext: {
+        ...testProductionContext(),
+        productionChatPath: testProductionChatPath(),
+      },
+    });
+    const secondRunner = await createAgentRunner({
+      productionContext: {
+        ...testProductionContext(),
+        productionChatPath: testProductionChatPath(),
+      },
+    });
+    const mixedRunner: AgentRunner = {
+      ...firstRunner,
+      runAgent: secondRunner.runAgent,
+    };
+    const generateScore = vi.fn(() => 1);
+    const evalCase = defineEval({
+      name: "mixed-production-runner-methods",
+      input: { prompt: "find active users" },
+      scorers: [{ name: "always-pass", generateScore }],
+    });
+
+    await expect(scoreEval(evalCase, mixedRunner)).rejects.toThrow(
+      "cannot override production runner methods",
+    );
+    expect(generateScore).not.toHaveBeenCalled();
+  });
+
   it("isolates output observers from the scored production output", async () => {
     const runner = await createAgentRunner({
       productionContext: {
