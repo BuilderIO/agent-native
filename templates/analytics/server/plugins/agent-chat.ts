@@ -1496,9 +1496,12 @@ function requestedComparisonCalendarRanges(
     ...userText.matchAll(
       /\b(?:this|current|last|previous|prior)\s+(?:week|month|quarter|year)\b/gi,
     ),
-  ].map(([phrase]) => phrase);
+  ].map((match) => ({
+    phrase: match[0],
+    index: match.index ?? 0,
+  }));
   const namedPeriodRanges = requestedNamedPeriodRanges(userText, now);
-  const ranges = periodPhrases.flatMap((phrase) => {
+  const ranges = periodPhrases.flatMap(({ phrase }) => {
     const range = requestedCalendarRange(phrase, now);
     return range ? [range] : [];
   });
@@ -1518,12 +1521,21 @@ function requestedComparisonCalendarRanges(
     unit: match[3]?.toLowerCase().replace(/s$/, ""),
   }));
   const explicitDateRanges = requestedExplicitDateRanges(userText);
-  const equivalentYearAgo =
-    /\b(?:(?:(?:same|equivalent|comparable)\s+period\s+(?:(?:from|of)\s+)?)?(?:one|1)\s+year\s+ago|(?:same|equivalent|comparable)\s+period\s+last\s+year)\b/i.test(
-      userText,
-    );
+  const equivalentYearAgoMatch = userText.match(
+    /\b(?:(?:(?:same|equivalent|comparable)\s+period\s+(?:(?:from|of)\s+)?)?(?:one|1)\s+year\s+ago|(?:same|equivalent|comparable)\s+period\s+last\s+year)\b/i,
+  );
+  const equivalentYearAgo = equivalentYearAgoMatch !== null;
+  const equivalentYearAgoStart = equivalentYearAgoMatch?.index ?? -1;
+  const equivalentYearAgoEnd = equivalentYearAgoMatch
+    ? equivalentYearAgoStart + equivalentYearAgoMatch[0].length
+    : -1;
   const additionalCalendarPhrases = periodPhrases.filter(
-    (phrase) => !(equivalentYearAgo && /^last year$/i.test(phrase)),
+    ({ phrase, index }) =>
+      !(
+        /^last year$/i.test(phrase) &&
+        equivalentYearAgoStart <= index &&
+        index + phrase.length <= equivalentYearAgoEnd
+      ),
   );
   if (
     namedPeriodRanges.length > 0 &&
