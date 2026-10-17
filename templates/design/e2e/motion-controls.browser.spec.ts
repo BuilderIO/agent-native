@@ -954,47 +954,140 @@ test("a new motion preset applies to every selected target", async ({
   page,
   request,
 }) => {
+  let presetDesignId: string | undefined;
+  try {
+    const created = await postAction(request, "create-design", {
+      title: "Multi-target Motion preset",
+      projectType: "prototype",
+    });
+    presetDesignId = created?.id ?? created?.data?.id ?? created?.design?.id;
+    if (!presetDesignId) throw new Error("create-design did not return an id");
+    const file = await postAction(request, "create-file", {
+      designId: presetDesignId,
+      filename: "index.html",
+      content: REFERENCE_FIXTURE_HTML,
+      fileType: "html",
+    });
+    if (!file.id) throw new Error("create-file did not return a file id");
+
+    await page.setViewportSize({ width: 1728, height: 941 });
+    await page.addInitScript(() => localStorage.setItem("theme", "dark"));
+    await gotoEditor(page, presetDesignId);
+    await selectByText(page, "Reference Rectangle", {
+      screenId: file.id,
+      clearPreviousSelection: true,
+      deep: false,
+    });
+    await selectByText(page, "Reference Rectangle Two", {
+      screenId: file.id,
+      additive: true,
+    });
+    await page
+      .getByRole("button", { name: "Motion dock", exact: true })
+      .click();
+    const dock = page.getByRole("region", { name: "Motion dock" }).first();
+    await expect(dock).toBeVisible();
+    const addAnimation = page
+      .getByRole("button", { name: "Add animation", exact: true })
+      .first();
+    const multiTargetApplied = page.waitForResponse(
+      (response) =>
+        response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+        response.request().method() === "POST",
+      { timeout: 20_000 },
+    );
+    await addAnimation.click();
+    await page.getByRole("menuitem", { name: "Scale", exact: true }).click();
+    const multiTargetResponse = await multiTargetApplied;
+    expect(multiTargetResponse.ok(), await multiTargetResponse.text()).toBe(
+      true,
+    );
+
+    const multiTargetTimeline = await getAction(
+      request,
+      "get-motion-timeline",
+      { designId: presetDesignId, sourceRef: file.id },
+    );
+    const scaleTargetIds = multiTargetTimeline.timelines?.[0]?.nativeStyles
+      ?.filter((style: { styleKey: string }) => style.styleKey === "Scale")
+      .map((style: { targetNodeId: string }) => style.targetNodeId)
+      .sort();
+    expect(scaleTargetIds).toEqual([
+      "e2e-motion-reference-rectangle",
+      "e2e-motion-reference-rectangle-2",
+    ]);
+  } finally {
+    if (presetDesignId) {
+      await postAction(request, "delete-design", { id: presetDesignId });
+    }
+  }
+});
+
+test("reopening the Motion dock as its collapse finishes keeps it open", async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 1728, height: 941 });
-  await page.addInitScript(() => localStorage.setItem("theme", "dark"));
   await gotoEditor(page, designId);
   await selectByText(page, "Reference Rectangle", {
     screenId: fileId,
     clearPreviousSelection: true,
     deep: false,
   });
-  await selectByText(page, "Reference Rectangle Two", {
-    screenId: fileId,
-    additive: true,
-  });
   await page.getByRole("button", { name: "Motion dock", exact: true }).click();
-  const dock = page.getByRole("region", { name: "Motion dock" }).first();
-  await expect(dock).toBeVisible();
-  const addAnimation = page
-    .getByRole("button", { name: "Add animation", exact: true })
-    .first();
-  const multiTargetApplied = page.waitForResponse(
-    (response) =>
-      response.url().includes("/_agent-native/actions/apply-motion-edit") &&
-      response.request().method() === "POST",
-    { timeout: 20_000 },
-  );
-  await addAnimation.click();
-  await page.getByRole("menuitem", { name: "Scale", exact: true }).click();
-  const multiTargetResponse = await multiTargetApplied;
-  expect(multiTargetResponse.ok(), await multiTargetResponse.text()).toBe(true);
+  const dockRegion = page.locator('[role="region"][aria-label="Motion dock"]');
+  await expect(dockRegion).toBeVisible();
+  await expect(dockRegion).not.toHaveAttribute("aria-hidden", "true");
 
-  const multiTargetTimeline = await getAction(request, "get-motion-timeline", {
-    designId,
-    sourceRef: fileId,
+  // A slow collapse lets the reopen click land mid-transition, and holding
+  // frames keeps that reopen pending until the collapse transition ends.
+  await page.evaluate(() => {
+    const original = window.requestAnimationFrame.bind(window);
+    const originalCancel = window.cancelAnimationFrame.bind(window);
+    const held = new Map<number, FrameRequestCallback>();
+    let nextId = 1;
+    window.requestAnimationFrame = (callback) => {
+      held.set(nextId, callback);
+      return nextId++;
+    };
+    window.cancelAnimationFrame = (id) => {
+      held.delete(id);
+    };
+    const space = document.querySelector<HTMLElement>(
+      ".design-motion-dock-space",
+    );
+    space?.style.setProperty("--design-motion-dock-duration", "1500ms");
+    space?.addEventListener("transitionend", (event) => {
+      if (event.target === space && event.propertyName === "height") {
+        document.body.dataset.e2eDockCollapsed = "true";
+      }
+    });
+    Object.assign(window, {
+      e2eReleaseFrames: () => {
+        window.requestAnimationFrame = original;
+        window.cancelAnimationFrame = originalCancel;
+        for (const callback of held.values()) original(callback);
+        held.clear();
+      },
+    });
   });
-  const scaleTargetIds = multiTargetTimeline.timelines?.[0]?.nativeStyles
-    ?.filter((style: { styleKey: string }) => style.styleKey === "Scale")
-    .map((style: { targetNodeId: string }) => style.targetNodeId)
-    .sort();
-  expect(scaleTargetIds).toEqual([
-    "e2e-motion-reference-rectangle",
-    "e2e-motion-reference-rectangle-2",
-  ]);
+  await page
+    .getByRole("region", { name: "Motion dock" })
+    .getByRole("button", { name: "Collapse motion dock" })
+    .click();
+  await expect(dockRegion).toHaveAttribute("aria-hidden", "true");
+  await page.getByRole("button", { name: "Motion dock", exact: true }).click();
+  await expect(page.locator("body")).toHaveAttribute(
+    "data-e2e-dock-collapsed",
+    "true",
+  );
+  // Past the exit settle delay that used to unmount the reopening dock.
+  await page.waitForTimeout(300);
+  await page.evaluate(() =>
+    (window as unknown as { e2eReleaseFrames(): void }).e2eReleaseFrames(),
+  );
+
+  await expect(dockRegion).toBeVisible();
+  await expect(dockRegion).not.toHaveAttribute("aria-hidden", "true");
 });
 
 for (const recipeId of ["enter.recipe-10", "cycle.recipe-03"] as const) {

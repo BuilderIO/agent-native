@@ -325,6 +325,7 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
   const [motionDockMounted, setMotionDockMounted] = useState(false);
   const motionDockUnmountTimerRef = useRef<number | null>(null);
   const motionDockOpenAnimationFrameRef = useRef<number | null>(null);
+  const motionDockOpenRequestedRef = useRef(false);
   const motionAutosaveTimerRef = useRef<number | null>(null);
   const motionAutosaveFlushRef = useRef<(() => void) | null>(null);
   const clearMotionDockUnmountTimer = useCallback(() => {
@@ -350,6 +351,7 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
   }, []);
   const setMotionDockOpenAnimated = useCallback(
     (open: boolean) => {
+      motionDockOpenRequestedRef.current = open;
       clearMotionDockUnmountTimer();
       clearMotionDockOpenAnimationFrame();
       if (open) {
@@ -383,7 +385,9 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
     [clearMotionDockOpenAnimationFrame, clearMotionDockUnmountTimer],
   );
   const handleMotionDockExitComplete = useCallback(() => {
-    if (motionDockOpen) return;
+    // A reopen sets motionDockOpen two frames late; an exit transition ending
+    // in between must not unmount the dock it is reopening.
+    if (motionDockOpenRequestedRef.current) return;
     clearMotionDockUnmountTimer();
     if (typeof window === "undefined") {
       setMotionDockMounted(false);
@@ -393,7 +397,7 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
       setMotionDockMounted(false);
       motionDockUnmountTimerRef.current = null;
     }, MOTION_DOCK_EXIT_SETTLE_MS);
-  }, [clearMotionDockUnmountTimer, motionDockOpen]);
+  }, [clearMotionDockUnmountTimer]);
   const [shaderFillPreview, setShaderFillPreview] = useState<{
     selector?: string;
     nodeId?: string;
