@@ -133,16 +133,114 @@ function preserveProductionContextEngine(
   token: object,
 ): AgentEngine {
   const protectedObjects = new WeakMap<object, object>();
-  const boundMethods = new WeakMap<Function, Function>();
-  const protectNestedObject = (value: object): object => {
-    const cached = protectedObjects.get(value);
+  const boundMethods = new WeakMap<Function, WeakMap<object, Function>>();
+  const sharedObjectPrototypeMethods = new WeakMap<Function, Function>();
+  const protectSharedObjectPrototypeMethod = (method: Function): Function => {
+    const cached = sharedObjectPrototypeMethods.get(method);
     if (cached) return cached;
-    const protectedValue = new Proxy(value, {
+    const protectedMethod = function (this: unknown, ...args: unknown[]) {
+      return Reflect.apply(method, this, args);
+    };
+    sharedObjectPrototypeMethods.set(method, protectedMethod);
+    return protectedMethod;
+  };
+  const protectMethod = (method: Function, owner: object): Function => {
+    let methodsByOwner = boundMethods.get(method);
+    if (!methodsByOwner) {
+      methodsByOwner = new WeakMap<object, Function>();
+      boundMethods.set(method, methodsByOwner);
+    }
+    const cached = methodsByOwner.get(owner);
+    if (cached) return cached;
+    const protectedMethod = (...args: unknown[]) => {
+      const result = Reflect.apply(method, owner, args);
+      return result === owner ? protectNestedObject(owner) : result;
+    };
+    methodsByOwner.set(owner, protectedMethod);
+    return protectedMethod;
+  };
+  const protectValue = (
+    owner: object,
+    property: PropertyKey,
+    value: unknown,
+  ): unknown => {
+    if (typeof value === "function") {
+      const objectPrototypeDescriptor = Reflect.getOwnPropertyDescriptor(
+        Object.prototype,
+        property,
+      );
+      if (
+        objectPrototypeDescriptor &&
+        "value" in objectPrototypeDescriptor &&
+        objectPrototypeDescriptor.value === value
+      ) {
+        return protectSharedObjectPrototypeMethod(value);
+      }
+      return protectMethod(value, owner);
+    }
+    return value !== null && typeof value === "object"
+      ? protectNestedObject(value)
+      : value;
+  };
+  const createProtectedView = (value: object): object =>
+    new Proxy(value, {
       get(target, property) {
-        const nested = Reflect.get(target, property, target);
-        return nested !== null && typeof nested === "object"
-          ? protectNestedObject(nested)
-          : nested;
+        return protectValue(
+          target,
+          property,
+          Reflect.get(target, property, target),
+        );
+      },
+      getOwnPropertyDescriptor(target, property) {
+        const descriptor = Reflect.getOwnPropertyDescriptor(target, property);
+        if (!descriptor) return undefined;
+        if ("value" in descriptor) {
+          const protectedValue = protectValue(
+            target,
+            property,
+            descriptor.value,
+          );
+          if (
+            protectedValue !== descriptor.value &&
+            descriptor.configurable === false &&
+            descriptor.writable === false
+          ) {
+            throw new TypeError(
+              "Cannot expose protected immutable engine descriptor values.",
+            );
+          }
+          return { ...descriptor, value: protectedValue };
+        }
+        if (
+          descriptor.configurable === false &&
+          (descriptor.get !== undefined || descriptor.set !== undefined)
+        ) {
+          throw new TypeError(
+            "Cannot expose protected immutable engine accessors.",
+          );
+        }
+        return {
+          ...descriptor,
+          get: descriptor.get
+            ? () =>
+                protectValue(
+                  target,
+                  property,
+                  Reflect.apply(descriptor.get!, target, []),
+                )
+            : undefined,
+          set: undefined,
+        };
+      },
+      getPrototypeOf(target) {
+        const prototype = Reflect.getPrototypeOf(target);
+        if (prototype === null) return null;
+        if (!Reflect.isExtensible(target)) {
+          throw new TypeError(
+            "Cannot expose a protected prototype for a non-extensible engine object.",
+          );
+        }
+        return protectNestedObject(prototype);
       },
       set: () => false,
       defineProperty: () => false,
@@ -150,30 +248,14 @@ function preserveProductionContextEngine(
       setPrototypeOf: () => false,
       preventExtensions: () => false,
     });
+  const protectNestedObject = (value: object): object => {
+    const cached = protectedObjects.get(value);
+    if (cached) return cached;
+    const protectedValue = createProtectedView(value);
     protectedObjects.set(value, protectedValue);
     return protectedValue;
   };
-  let wrapped: AgentEngine;
-  wrapped = new Proxy(engine, {
-    get(target, property) {
-      const value = Reflect.get(target, property, target);
-      if (typeof value === "function") {
-        const bound = boundMethods.get(value);
-        if (bound) return bound;
-        const boundMethod = value.bind(target);
-        boundMethods.set(value, boundMethod);
-        return boundMethod;
-      }
-      return value !== null && typeof value === "object"
-        ? protectNestedObject(value)
-        : value;
-    },
-    set: () => false,
-    defineProperty: () => false,
-    deleteProperty: () => false,
-    setPrototypeOf: () => false,
-    preventExtensions: () => false,
-  });
+  const wrapped = createProtectedView(engine) as AgentEngine;
   protectedObjects.set(engine, wrapped);
   productionContextRunnerEngineTokens.set(wrapped, token);
   return wrapped;
@@ -228,6 +310,41 @@ export function hasOriginalProductionContextAgentRunnerMethods(
     (runnerToken === undefined || runnerToken === runToken) &&
     engineToken === runToken
   );
+}
+
+export function captureAgentRunnerForEval(runner: AgentRunner): {
+  runner: AgentRunner;
+  isProductionContext: boolean;
+  hasOriginalMethods: boolean;
+} {
+  const runAgent = runner.runAgent;
+  const analyzeContext = runner.analyzeContext;
+  const engine = runner.engine;
+  const model = runner.model;
+  const productionToken = (runner as ProductionContextBrandedRunner)[
+    productionContextRunnerBrand
+  ];
+  const capturedRunner = {
+    ...(productionToken === undefined
+      ? {}
+      : { [productionContextRunnerBrand]: productionToken }),
+    runAgent,
+    analyzeContext,
+    engine,
+    model,
+  } as AgentRunner & ProductionContextBrandedRunner;
+
+  return {
+    runner: {
+      engine,
+      model,
+      runAgent: runAgent.bind(runner),
+      analyzeContext: analyzeContext.bind(runner),
+    },
+    isProductionContext: isProductionContextAgentRunner(capturedRunner),
+    hasOriginalMethods:
+      hasOriginalProductionContextAgentRunnerMethods(capturedRunner),
+  };
 }
 
 function toEngineMessages(input: EvalInput): EngineMessage[] {

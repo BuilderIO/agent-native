@@ -300,6 +300,60 @@ describe("scoreEval with a JS scorer", () => {
     expect(runAgent).not.toHaveBeenCalled();
   });
 
+  it("executes the exact runner methods used for provenance validation", async () => {
+    const runner = await createAgentRunner({
+      productionContext: {
+        ...testProductionContext(),
+        productionChatPath: testProductionChatPath(),
+      },
+    });
+    const originalRunAgent = runner.runAgent;
+    const originalAnalyzeContext = runner.analyzeContext;
+    const fabricatedRunAgent = vi.fn(async () => ({
+      text: "fabricated production answer",
+      toolCalls: [],
+      ok: true,
+      runId: "fabricated-run",
+      durationMs: 1,
+    }));
+    const fabricatedAnalyzeContext = vi.fn(() => {
+      throw new Error("fabricated analyze context");
+    });
+    let runAgentReads = 0;
+    let analyzeContextReads = 0;
+    const accessorRunner: AgentRunner = {
+      get runAgent() {
+        runAgentReads += 1;
+        return runAgentReads <= 2 ? originalRunAgent : fabricatedRunAgent;
+      },
+      get analyzeContext() {
+        analyzeContextReads += 1;
+        return analyzeContextReads <= 2
+          ? originalAnalyzeContext
+          : fabricatedAnalyzeContext;
+      },
+      engine: runner.engine,
+      model: runner.model,
+    };
+    const analyze = vi.fn((output: { text: string }) => output.text);
+    const generateScore = vi.fn((text: string) =>
+      text === "production: find active users" ? 1 : 0,
+    );
+    const evalCase = defineEval({
+      name: "accessor-backed-production-runner",
+      input: { prompt: "find active users" },
+      scorers: [{ name: "stable context", analyze, generateScore }],
+    });
+
+    const result = await scoreEval(evalCase, accessorRunner);
+
+    expect(runAgentReads).toBe(1);
+    expect(analyzeContextReads).toBe(1);
+    expect(fabricatedRunAgent).not.toHaveBeenCalled();
+    expect(fabricatedAnalyzeContext).not.toHaveBeenCalled();
+    expect(result.passed).toBe(true);
+  });
+
   it("rejects a replaced analyzeContext on a production-context runner", async () => {
     const runner = await createAgentRunner({
       productionContext: {
@@ -927,11 +981,14 @@ describe("createAgentRunner over a mocked runAgentLoop (no real model)", () => {
       vision: false,
       settings: { mode: "production" },
     };
+    const prototypeSettings = { mode: "production" };
+    const enginePrototype = { settings: prototypeSettings };
     const engine = {
       defaultModel: "fake-model",
       capabilities,
       stream: vi.fn(async function* () {}),
     } as unknown as AgentEngine;
+    Object.setPrototypeOf(engine, enginePrototype);
     const productionChatPath = testProductionChatPath();
     const run = vi.spyOn(productionChatPath, "run");
     const runner = await createAgentRunner({
@@ -952,14 +1009,90 @@ describe("createAgentRunner over a mocked runAgentLoop (no real model)", () => {
     expect(Reflect.set(nestedCapabilities.settings, "mode", "modified")).toBe(
       false,
     );
+
+    const descriptorCapabilities = Object.getOwnPropertyDescriptor(
+      scorerEngine,
+      "capabilities",
+    )?.value as typeof capabilities;
+    const descriptorSettings = Object.getOwnPropertyDescriptor(
+      descriptorCapabilities,
+      "settings",
+    )?.value as typeof capabilities.settings;
+    expect(Reflect.set(descriptorSettings, "mode", "modified")).toBe(false);
+
+    const scorerPrototype = Object.getPrototypeOf(
+      scorerEngine,
+    ) as typeof enginePrototype;
+    expect(scorerPrototype).not.toBe(enginePrototype);
+    expect(Reflect.set(scorerPrototype, "settings", { mode: "modified" })).toBe(
+      false,
+    );
+    const scorerObjectPrototype = Object.getPrototypeOf(scorerPrototype);
+    expect(scorerObjectPrototype).not.toBe(Object.prototype);
+    expect(Reflect.set(scorerObjectPrototype, "engineLeak", true)).toBe(false);
+    const protectedConstructor = (
+      scorerPrototype as unknown as {
+        constructor: { prototype: object };
+      }
+    ).constructor;
+    expect(protectedConstructor.prototype).not.toBe(Object.prototype);
+    const reflectedSettings = Object.getOwnPropertyDescriptor(
+      scorerPrototype,
+      "settings",
+    )?.value as typeof prototypeSettings;
+    expect(Reflect.set(reflectedSettings, "mode", "modified")).toBe(false);
+    expect(
+      (scorerEngine as AgentEngine & { valueOf(): object }).valueOf(),
+    ).toBe(scorerEngine);
     expect(capabilities).toEqual({
       vision: false,
       settings: { mode: "production" },
     });
+    expect(prototypeSettings).toEqual({ mode: "production" });
 
     await runner.runAgent({ prompt: "find active users" });
 
     expect(run).toHaveBeenCalledWith(expect.objectContaining({ engine }));
+  });
+
+  it("fails closed when engine reflection invariants would expose raw state", async () => {
+    const capabilities = { vision: false };
+    const engine = {
+      defaultModel: "fake-model",
+      capabilities,
+      stream: vi.fn(async function* () {}),
+    } as AgentEngine & { fixedAccessor: object; fixedState: object };
+    Object.defineProperty(engine, "fixedState", {
+      configurable: false,
+      enumerable: true,
+      value: Object.freeze({ nested: {} }),
+      writable: false,
+    });
+    Object.defineProperty(engine, "fixedAccessor", {
+      configurable: false,
+      enumerable: true,
+      get: () => capabilities,
+    });
+    Object.preventExtensions(engine);
+    const runner = await createAgentRunner({
+      productionContext: {
+        ...testProductionContext(),
+        productionChatPath: testProductionChatPath(),
+      },
+      engine,
+      model: "fake-model",
+    });
+    const scorerEngine = runner.analyzeContext().engine as typeof engine;
+
+    expect(() =>
+      Object.getOwnPropertyDescriptor(scorerEngine, "fixedState"),
+    ).toThrow("Cannot expose protected immutable engine descriptor values.");
+    expect(() =>
+      Object.getOwnPropertyDescriptor(scorerEngine, "fixedAccessor"),
+    ).toThrow("Cannot expose protected immutable engine accessors.");
+    expect(() => Object.getPrototypeOf(scorerEngine)).toThrow(
+      "Cannot expose a protected prototype for a non-extensible engine object.",
+    );
   });
 
   it("resolves engine + model from the registry when not supplied", async () => {

@@ -8,10 +8,9 @@ import { insertEvalResult } from "../observability/store.js";
 import type { EvalResult as ObservabilityEvalResult } from "../observability/types.js";
 import type { AgentRunner } from "./agent-runner.js";
 import {
+  captureAgentRunnerForEval,
   createAgentRunner,
   getUnscoreableProductionPathOutputError,
-  isProductionContextAgentRunner,
-  hasOriginalProductionContextAgentRunnerMethods,
   isUnscoreableProductionPathOutput,
 } from "./agent-runner.js";
 import { DEFAULT_EVAL_THRESHOLD } from "./define-eval.js";
@@ -87,17 +86,18 @@ export async function scoreEval(
     };
   }
 
+  const capturedRunner = captureAgentRunnerForEval(runner);
   if (
     evalCase.run &&
-    (opts.productionPath === true || isProductionContextAgentRunner(runner))
+    (opts.productionPath === true || capturedRunner.isProductionContext)
   ) {
     throw new Error(
       "Production-path evals cannot define custom run callbacks; lower-level APIs require an explicit non-production path.",
     );
   }
   if (
-    (opts.productionPath || isProductionContextAgentRunner(runner)) &&
-    !hasOriginalProductionContextAgentRunnerMethods(runner)
+    (opts.productionPath || capturedRunner.isProductionContext) &&
+    !capturedRunner.hasOriginalMethods
   ) {
     throw new Error(
       "Production-path eval runners cannot override production runner methods.",
@@ -106,7 +106,7 @@ export async function scoreEval(
 
   let run: AgentRunOutput;
   const runAgent = (input: Eval["input"]) =>
-    runner.runAgent(
+    capturedRunner.runner.runAgent(
       input,
       evalCase.actionAllowlist
         ? { actionAllowlist: evalCase.actionAllowlist }
@@ -129,7 +129,9 @@ export async function scoreEval(
   const scores: ScorerResult[] = [];
   if (!unscoreable) {
     for (const scorer of evalCase.scorers) {
-      scores.push(await runScorer(scorer, run, runner, threshold));
+      scores.push(
+        await runScorer(scorer, run, capturedRunner.runner, threshold),
+      );
     }
   }
 
