@@ -932,7 +932,10 @@ function replyDirectlyRequestsHandoff(text: string, handoff: Handoff): boolean {
 }
 
 function replyExplicitlyRefusesHandoff(text: string): boolean {
-  const normalized = text.normalize("NFKC").replace(/[’‘]/g, "'").toLowerCase();
+  const normalized = text
+    .normalize("NFKC")
+    .replace(/[’‘]/g, "'")
+    .toLowerCase();
   const refusedAction =
     "(?:take|handle|do|own|accept|review|investigate|fix|choose|configure|set|schedule|complete|test|expand|supersede|help with|work on|commit|promise)";
   return (
@@ -946,7 +949,10 @@ function replyExplicitlyRefusesHandoff(text: string): boolean {
 }
 
 function replyExplicitlyAcceptsHandoff(text: string): boolean {
-  const normalized = text.normalize("NFKC").replace(/[’‘]/g, "'").toLowerCase();
+  const normalized = text
+    .normalize("NFKC")
+    .replace(/[’‘]/g, "'")
+    .toLowerCase();
   if (replyExplicitlyRefusesHandoff(normalized)) return false;
   const firstClause = normalized.split(/[.!?;\n]/, 1)[0] ?? normalized;
   if (

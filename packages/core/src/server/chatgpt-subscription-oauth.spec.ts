@@ -203,7 +203,7 @@ describe("ChatGPT subscription OAuth contract", () => {
     expect(mocks.getUserLabEnabled).not.toHaveBeenCalled();
   });
 
-  it("does not read the lab preference for a non-loopback status request", async () => {
+  it("reads account summaries without the lab preference for a non-loopback status request", async () => {
     await runWithRequestContext(
       {
         isLoopbackRequest: false,
@@ -223,6 +223,7 @@ describe("ChatGPT subscription OAuth contract", () => {
     );
 
     expect(mocks.getUserLabEnabled).not.toHaveBeenCalled();
+    expect(mocks.listOAuthAccountsByOwner).toHaveBeenCalled();
   });
 
   it("surfaces lab preference read failures instead of treating them as off", async () => {
