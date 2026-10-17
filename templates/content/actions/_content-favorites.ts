@@ -113,8 +113,10 @@ export async function setFavoriteMembership(args: {
 
   // Trash, restore and permanent delete read and rewrite a page's
   // memberships while they hold its row, and nothing else stops a favorite
-  // being added meanwhile: no collection lock covers Favorites. A removal
-  // must not take this lock, because a save locks the membership first.
+  // being added meanwhile: no collection lock covers Favorites. Outside a
+  // transaction this lock ends before the insert, so callers run this in one.
+  // A save locks the membership before the page, so a removal must not take
+  // this lock, and a caller holding the page locks the membership first.
   // guard:allow-unscoped — the caller already access-checked the page; this waits out its lifecycle writes.
   const [page] = await args.db
     .select({ id: schema.documents.id })

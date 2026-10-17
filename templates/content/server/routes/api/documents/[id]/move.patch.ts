@@ -1,3 +1,4 @@
+import { ActionInputValidationError } from "@agent-native/core/action";
 import { getSession, runWithRequestContext } from "@agent-native/core/server";
 import { createError, defineEventHandler, readBody } from "h3";
 
@@ -45,6 +46,9 @@ export default defineEventHandler(async (event) => {
     // message, so a refusal keeps its message and errorCode only this way.
     // The status is move-document's: 409 for a parent with another owner,
     // space or section, as duplicate-page and moves between spaces return.
+    if (error instanceof ActionInputValidationError) {
+      throw createError({ statusCode: 400, statusMessage: error.message });
+    }
     const statusCode = (error as { statusCode?: unknown }).statusCode;
     if (typeof statusCode !== "number" || statusCode < 400 || statusCode >= 500)
       throw error;
