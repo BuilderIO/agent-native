@@ -918,6 +918,8 @@ export default {
       animations: "アニメーション",
       pathEditAmbiguous:
         "このレイヤーには複数の位置アニメーションがあるため、パスを一意に編集できません。",
+      pathEditPositionConflict:
+        "このレイヤーには別の位置アニメーションがあるため、パスを曲線にできません。",
       animationStyles: {
         title: "アニメーション",
         createTitle: "新しいアニメーションスタイルを作成",

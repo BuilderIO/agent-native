@@ -885,6 +885,8 @@ export default {
       openDock: "动效",
       animations: "动画",
       pathEditAmbiguous: "此图层包含多个位置动画，无法明确编辑其路径。",
+      pathEditPositionConflict:
+        "此图层已有另一个位置动画，因此无法将其路径改为曲线。",
       animationStyles: {
         title: "动画",
         createTitle: "创建新的动画样式",

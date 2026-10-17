@@ -916,6 +916,8 @@ export default {
       animations: "Animações",
       pathEditAmbiguous:
         "Esta camada tem várias animações de posição, então não é possível editar o caminho com precisão.",
+      pathEditPositionConflict:
+        "Esta camada já tem outra animação de posição, então o caminho dela não pode ser curvado.",
       animationStyles: {
         title: "Animações",
         createTitle: "Criar novo estilo de animação",

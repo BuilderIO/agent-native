@@ -4080,7 +4080,12 @@ export function DesignCanvas({
             },
             "*",
           );
-          toast.error(t("designEditor.motion.pathEditAmbiguous"));
+          toast.error(
+            changeResult.reason === "repeated-position-path"
+              ? t("designEditor.motion.pathEditPositionConflict")
+              : t("designEditor.motion.pathEditAmbiguous"),
+            { id: `motion-path-edit-unsupported:${changeResult.reason}` },
+          );
         }
         return;
       }

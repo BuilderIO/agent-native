@@ -904,6 +904,8 @@ export default {
       animations: "एनिमेशन",
       pathEditAmbiguous:
         "इस लेयर में कई Position एनिमेशन हैं, इसलिए इसका पाथ स्पष्ट रूप से संपादित नहीं किया जा सकता।",
+      pathEditPositionConflict:
+        "इस लेयर में पहले से एक और पोज़िशन एनिमेशन है, इसलिए इसका पाथ घुमावदार नहीं बनाया जा सकता।",
       animationStyles: {
         title: "एनिमेशन",
         createTitle: "नई एनिमेशन शैली बनाएँ",

@@ -5,6 +5,7 @@ import {
   MOTION_CODE_METADATA_VERSION,
   MOTION_SOURCE_MARKER_NAME,
   compileMotionCode,
+  motionTimelineHasIncompatiblePositionTracks,
   decodeMotionCodeMetadata,
   encodeMotionCodeMetadata,
   motionCodeDocumentFromTimeline,
@@ -112,6 +113,50 @@ describe("Motion source document CSS codec", () => {
     expect(reconciled.nativeStyles?.map((style) => style.duration)).toEqual([
       0.901,
     ]);
+  });
+
+  it("flags a cubic motion path beside a native Position style on the same node, but not a straight one", () => {
+    const position = createMotionNativeStyleInstance({
+      styleKey: "Position",
+      targetNodeId: "alpha",
+    });
+    const pathTrack = {
+      targetNodeId: "alpha",
+      property: "translate",
+      keyframes: [
+        {
+          t: 0,
+          value: "0px 0px",
+          motionPath: {
+            version: 1 as const,
+            type: "cubic" as const,
+            control1: { x: 0, y: 100 },
+            control2: { x: 0, y: 100 },
+          },
+        },
+        { t: 1, value: "100px 0px" },
+      ],
+    };
+    const straightTrack = {
+      ...pathTrack,
+      keyframes: [
+        { t: 0, value: "0px 0px" },
+        { t: 1, value: "100px 0px" },
+      ],
+    };
+
+    expect(
+      motionTimelineHasIncompatiblePositionTracks({
+        tracks: [pathTrack],
+        nativeStyles: [position],
+      }),
+    ).toBe(true);
+    expect(
+      motionTimelineHasIncompatiblePositionTracks({
+        tracks: [straightTrack],
+        nativeStyles: [position],
+      }),
+    ).toBe(false);
   });
 
   it("keeps disabled tracks in source metadata while omitting them from CSS", () => {

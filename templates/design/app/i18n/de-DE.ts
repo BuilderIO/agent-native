@@ -925,6 +925,8 @@ export default {
       animations: "Animationen",
       pathEditAmbiguous:
         "Diese Ebene hat mehrere Positionsanimationen. Ihr Pfad kann daher nicht eindeutig bearbeitet werden.",
+      pathEditPositionConflict:
+        "Diese Ebene hat bereits eine andere Positionsanimation, daher kann ihr Pfad nicht gekrümmt werden.",
       animationStyles: {
         title: "Animationen",
         createTitle: "Neuen Animationsstil erstellen",

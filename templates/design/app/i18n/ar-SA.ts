@@ -901,6 +901,8 @@ export default {
       animations: "الرسوم المتحركة",
       pathEditAmbiguous:
         "تحتوي هذه الطبقة على عدة حركات للموضع، لذا لا يمكن تحرير مسارها بشكل واضح.",
+      pathEditPositionConflict:
+        "تحتوي هذه الطبقة على رسوم متحركة أخرى للموضع، لذا لا يمكن جعل مسارها منحنيًا.",
       animationStyles: {
         title: "الرسوم المتحركة",
         createTitle: "إنشاء نمط حركة جديد",
