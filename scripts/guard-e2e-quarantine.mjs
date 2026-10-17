@@ -5,11 +5,11 @@ import { join } from "node:path";
 const CEILINGS = {
   // Known product-bug, intermittent and untriaged failures parked as fixme, each with its symptom above it.
   // This only goes down: the change that fixes a parked bug removes its fixme and lowers this by the same count.
-  "templates/design/e2e": 227,
+  "templates/design/e2e": 0,
 };
 
 const SKIP_CEILINGS = {
-  "templates/design/e2e": 7,
+  "templates/design/e2e": 8,
 };
 
 const listOnly = process.argv.includes("--list");

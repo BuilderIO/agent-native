@@ -238,6 +238,8 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
   let uploadRouteError: string | undefined;
   const uploadRoute = "**/_agent-native/actions/upload-image";
   const designReadRoute = "**/_agent-native/actions/get-design*";
+  // The client also reads get-design inside batches; an unheld batch leaks the concurrent edit.
+  const batchedReadRoute = "**/_agent-native/actions/get-actions-batch*";
 
   try {
     await app.open(designId);
@@ -265,6 +267,18 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
       });
       await waitForGate(browserDesignReadGate, "browser get-design release");
       await route.fulfill({ response, body });
+    });
+    await page.route(batchedReadRoute, async (route) => {
+      const readsDesign = (route.request().postData() ?? "").includes(
+        '"action":"get-design"',
+      );
+      if (holdBrowserDesignReads && readsDesign) {
+        await waitForGate(
+          browserDesignReadGate,
+          "browser batched get-design release",
+        );
+      }
+      await route.continue();
     });
     const layers = page.getByRole("tree", { name: "Layers" });
     const screens = layers.locator('[role="treeitem"][aria-level="1"]');
@@ -584,12 +598,12 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
     ]);
     await page.unroute(uploadRoute).catch(() => {});
     await page.unroute(designReadRoute).catch(() => {});
+    await page.unroute(batchedReadRoute).catch(() => {});
   }
 });
 
 // oracle: none — an upload race in app code with no native Figma counterpart; only the Choose image… button's name and how Interact is left and its frame swapped changed here.
-// fixme: product bug: After reload the client re-sends the rejected stale upload save (old #253b50 content + image URL) three times; the server answers 200
-test.fixme("active Screen upload conflict preserves SQL and live-collaboration source", async ({
+test("active Screen upload conflict preserves SQL and live-collaboration source", async ({
   app,
   page,
 }) => {

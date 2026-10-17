@@ -77,8 +77,7 @@ async function heldPreview(page: Page) {
   });
 }
 
-// fixme: product bug: State-dependent drag failure: after double-click text editing on A and Escape, the next press-drag on A never starts. No insertion guide
-test.fixme("held canvas reorder tracks each intermediate insertion slot and is one undo step", async ({
+test("held canvas reorder tracks each intermediate insertion slot and is one undo step", async ({
   app,
   page,
 }) => {

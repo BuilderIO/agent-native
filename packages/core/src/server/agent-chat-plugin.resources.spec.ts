@@ -1,6 +1,8 @@
 import { createApp, H3Event } from "h3";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { AGENT_CHAT_THREAD_ABSENCE_HEADER } from "../shared/agent-chat.js";
+
 const mocks = vi.hoisted(() => ({
   ensurePersonalDefaults: vi.fn(async () => undefined),
   resourceGetByPath: vi.fn(),
@@ -817,6 +819,30 @@ describe("agent chat thread save route", () => {
     expect(await response.json()).toEqual({ error: "Thread not found" });
     expect(threadStoreMocks.updateThreadData).toHaveBeenCalledOnce();
     expect(threadStoreMocks.resolveThreadAccess).toHaveBeenCalledOnce();
+  });
+});
+
+describe("agent chat unsaved thread reads", () => {
+  it("answers a thread nobody has saved yet as typed absent only when the client asks", async () => {
+    const h3App = await mountResourceRoutes();
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue(null);
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+
+    const typed = await fetchWithRequestContext(
+      h3App,
+      "/_agent-native/agent-chat/threads/unsaved-thread",
+      { userEmail: "user@example.test" },
+      { headers: { [AGENT_CHAT_THREAD_ABSENCE_HEADER]: "typed" } },
+    );
+    expect(typed.status).toBe(200);
+    expect(await typed.json()).toEqual({ absent: true });
+
+    const plain = await fetchWithRequestContext(
+      h3App,
+      "/_agent-native/agent-chat/threads/unsaved-thread",
+      { userEmail: "user@example.test" },
+    );
+    expect(plain.status).toBe(404);
   });
 });
 
