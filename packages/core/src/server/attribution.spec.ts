@@ -6,6 +6,7 @@ import {
   deriveLastTouchAttribution,
   deriveReferralSource,
   deriveSignupAttribution,
+  encodeFirstTouchServerCookieValue,
   encodeSignupAttributionContext,
   parseCookieHeader,
   SIGNUP_ATTRIBUTION_HEADER_NAME,
@@ -536,5 +537,79 @@ describe("last touch", () => {
     expect(
       decodeSignupAttributionContext(encodeSignupAttributionContext(context)),
     ).toEqual(context);
+  });
+});
+
+describe("first touch across the browser and server cookies", () => {
+  const sourced = {
+    utm_source: "youtube",
+    landing_path: "/",
+    landed_at: "2026-10-01T00:00:00.000Z",
+  };
+  const direct = { landing_path: "/", landed_at: "2026-10-02T00:00:00.000Z" };
+  const serverCookie = (ft: FirstTouchAttribution) =>
+    `an_fts=${encodeFirstTouchServerCookieValue(ft)}`;
+
+  it("keeps the server's sourced first touch over a stale direct browser one", () => {
+    expect(
+      readFirstTouchAttribution(
+        `${serverCookie(sourced)}; ${ftCookie(direct)}`,
+      ),
+    ).toMatchObject({ utm_source: "youtube" });
+  });
+
+  it("takes the browser's sourced first touch before the server has it", () => {
+    expect(
+      readFirstTouchAttribution(
+        `${serverCookie(direct)}; ${ftCookie(sourced)}`,
+      ),
+    ).toMatchObject({ utm_source: "youtube" });
+  });
+
+  it("prefers the server's copy of the same visit", () => {
+    const trimmed = { ...sourced, utm_campaign: "server" };
+    expect(
+      readFirstTouchAttribution(
+        `${ftCookie({ ...sourced, utm_campaign: "browser" })}; ${serverCookie(trimmed)}`,
+      ),
+    ).toMatchObject({ utm_campaign: "server" });
+  });
+
+  it("reads first touch from the server cookie alone, as after 30 days", () => {
+    expect(
+      signupAttributionFromCookieHeader(serverCookie(sourced)),
+    ).toMatchObject({ utm_source: "youtube", first_touch_path: "/" });
+  });
+
+  it("fits every attribution cookie at full size into the signup handoff", () => {
+    const full = (char: string) => char.repeat(120);
+    const big = {
+      ref: full("r"),
+      via: full("v"),
+      utm_source: full("s"),
+      utm_medium: full("m"),
+      utm_campaign: full("c"),
+      utm_content: full("💡"),
+      utm_term: full("💡"),
+      gclid: full("g"),
+      msclkid: full("k"),
+      landing_path: `/${full("p")}`,
+      landed_at: sourced.landed_at,
+    };
+    const fts = serverCookie(big);
+    const header = [
+      fts,
+      // The browser's own cookies at their largest.
+      `an_ft=${"f".repeat(1494)}`,
+      `an_lt=${"l".repeat(694)}`,
+      `an_aid=${"a".repeat(128)}`,
+    ].join("; ");
+
+    expect(fts.length).toBeLessThanOrEqual(1500);
+    expect(header.length).toBeLessThan(4096);
+    const context = signupAttributionContextFromCookieHeader(header);
+    expect(encodeSignupAttributionContext(context!).length).toBeLessThanOrEqual(
+      4096,
+    );
   });
 });

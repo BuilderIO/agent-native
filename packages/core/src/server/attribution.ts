@@ -11,6 +11,12 @@ import {
   isSourceReferrerHost,
   shareLandingSource,
 } from "../shared/attribution-source.js";
+import {
+  FIRST_TOUCH_SERVER_COOKIE_MAX_BYTES,
+  FIRST_TOUCH_SERVER_COOKIE_NAME,
+  FIRST_TOUCH_SERVER_COOKIE_VERSION,
+  preferFirstTouch,
+} from "../shared/first-touch-persistence.js";
 
 /**
  * First-touch referral attribution — server side.
@@ -26,6 +32,10 @@ import {
  * `an_lt` cookie. First touch answers "how did they find us?" and credits
  * acquisition; last touch answers "what brought them to sign up?" and credits
  * the post, video, or person that converted them.
+ *
+ * First touch also has a durable copy, `an_fts`, that our server sets for a
+ * year (see `first-touch-route.ts`). Signup reads both first-touch cookies and
+ * keeps the one `preferFirstTouch` picks.
  *
  * This module is intentionally pure and dependency-free so it is trivially
  * unit-testable and can never throw into the signup path. The single hard rule:
@@ -169,9 +179,24 @@ export function decodeLastTouchValue(
   return decodeAttributionCookieValue(value, LAST_TOUCH_STRING_FIELDS);
 }
 
+/**
+ * Decode the year-long `an_fts` cookie. A value from another format version
+ * is unreadable here, so it holds no touch.
+ */
+export function decodeFirstTouchServerValue(
+  value: string | null | undefined,
+): FirstTouchAttribution | null {
+  return decodeAttributionCookieValue(
+    value,
+    STRING_FIELDS,
+    FIRST_TOUCH_SERVER_COOKIE_VERSION,
+  );
+}
+
 function decodeAttributionCookieValue<T extends object>(
   value: string | null | undefined,
   fields: ReadonlyArray<keyof T & string>,
+  version?: string,
 ): T | null {
   if (!value || typeof value !== "string") return null;
   let decoded = value;
@@ -190,6 +215,7 @@ function decodeAttributionCookieValue<T extends object>(
     return null;
   }
   const source = parsed as Record<string, unknown>;
+  if (version !== undefined && source.v !== version) return null;
   const result: Record<string, string> = {};
   let any = false;
   for (const field of fields) {
@@ -211,10 +237,67 @@ export function readFirstTouchAttribution(
 ): FirstTouchAttribution | null {
   try {
     const cookies = parseCookieHeader(cookieHeader);
-    return decodeFirstTouchValue(cookies[FIRST_TOUCH_COOKIE_NAME]);
+    return preferFirstTouch(
+      decodeFirstTouchServerValue(cookies[FIRST_TOUCH_SERVER_COOKIE_NAME]),
+      decodeFirstTouchValue(cookies[FIRST_TOUCH_COOKIE_NAME]),
+    );
   } catch {
     return null;
   }
+}
+
+// `landed_at` sets the cookie's expiry and identifies the visit, so it is
+// never the field dropped to fit.
+const FIRST_TOUCH_SERVER_FIELD_PRIORITY: Array<keyof FirstTouchAttribution> = [
+  "landed_at",
+  "gclid",
+  "msclkid",
+  "vector_source",
+  "utm_source",
+  "utm_medium",
+  "utm_campaign",
+  "ref",
+  "via",
+  "utm_content",
+  "utm_term",
+  "landing_path",
+  "landing_referrer",
+  "site_referrer",
+  "site_landing_path",
+];
+
+/**
+ * The `an_fts` cookie value for a first touch, dropping the lowest-priority
+ * fields until `name=value` fits its budget.
+ */
+export function encodeFirstTouchServerCookieValue(
+  touch: FirstTouchAttribution,
+): string {
+  const compact: Record<string, string> = {
+    v: FIRST_TOUCH_SERVER_COOKIE_VERSION,
+  };
+  let truncated = touch.capture_truncated === "1";
+  const encode = (value: Record<string, string>) =>
+    encodeURIComponent(JSON.stringify(value));
+  const fits = (value: Record<string, string>) =>
+    FIRST_TOUCH_SERVER_COOKIE_NAME.length + 1 + encode(value).length <=
+    FIRST_TOUCH_SERVER_COOKIE_MAX_BYTES;
+  // Room for the marker, so adding it later can't push the value over.
+  const withMarker = (value: Record<string, string>) => ({
+    ...value,
+    capture_truncated: "1",
+  });
+  for (const field of FIRST_TOUCH_SERVER_FIELD_PRIORITY) {
+    const value = touch[field];
+    if (!value) continue;
+    const candidate = { ...compact, [field]: value };
+    if (fits(withMarker(candidate))) {
+      compact[field] = value;
+    } else {
+      truncated = true;
+    }
+  }
+  return encode(truncated ? withMarker(compact) : compact);
 }
 
 /**

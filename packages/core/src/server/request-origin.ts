@@ -124,6 +124,18 @@ function isLoopbackHost(host: string): boolean {
   return host.startsWith("localhost:") || host.startsWith("127.0.0.1:");
 }
 
+/**
+ * Stricter than `isSameOriginRequest`, for a POST that writes cookies: a
+ * request with neither header, a navigation, or a desktop shell's origin
+ * can't prove it came from this site's pages.
+ */
+export function isSameOriginPost(event: H3Event): boolean {
+  const fetchSite = getRequestHeader(event, "sec-fetch-site");
+  if (fetchSite) return fetchSite === "same-origin";
+  const origin = getRequestHeader(event, "origin");
+  return !!origin && origin === getForwardedRequestOrigin(event);
+}
+
 export function isSameOriginRequest(event: H3Event): boolean {
   const fetchSite = getRequestHeader(event, "sec-fetch-site");
   if (fetchSite) return fetchSite === "same-origin" || fetchSite === "none";

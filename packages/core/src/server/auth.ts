@@ -24,6 +24,7 @@ import {
   workspaceAppAccessUnavailableBody,
 } from "../org/workspace-app-access-outcome.js";
 import { checkWorkspaceAppAccessForRequest } from "../org/workspace-app-access-request.js";
+import { CONSENT_PATH, CONSENT_REGION_PATH } from "../shared/consent.js";
 import {
   EMBED_SESSION_COOKIE,
   EMBED_START_PATH,
@@ -34,6 +35,7 @@ import {
   FIRST_RUN_ONBOARDING_COOKIE,
   FIRST_RUN_ONBOARDING_MAX_AGE,
 } from "../shared/first-run-onboarding.js";
+import { FIRST_TOUCH_SERVER_PATH } from "../shared/first-touch-persistence.js";
 import { isGoogleProfileImageUrl } from "../shared/google-profile-image.js";
 import {
   EMBED_TRANSPLANT_HEADER,
@@ -41,6 +43,10 @@ import {
   MCP_EMBED_CORS_ALLOW_HEADERS,
   shouldAllowMcpEmbedCredentials,
 } from "../shared/mcp-embed-headers.js";
+import {
+  createConsentHandler,
+  createConsentRegionHandler,
+} from "./consent-route.js";
 import { readDevActionDiscoveryFile } from "./dev-action-discovery.js";
 import { devLoopbackAuthHint } from "./dev-origin-hint.js";
 import {
@@ -58,6 +64,7 @@ import {
   resolveEmbedSessionFromRequest,
   verifyEmbedSessionToken,
 } from "./embed-session.js";
+import { createFirstTouchHandler } from "./first-touch-route.js";
 import { getPublicFrameworkPathname } from "./framework-request-context.js";
 import type { H3AppShim } from "./framework-request-handler.js";
 import {
@@ -7302,6 +7309,9 @@ export async function autoMountAuth(
   const workspaceAppRouteAccess = resolveWorkspaceAppRouteAccess(options);
 
   mountAuthCorsMiddleware(app);
+  app.use(FIRST_TOUCH_SERVER_PATH, createFirstTouchHandler());
+  app.use(CONSENT_REGION_PATH, createConsentRegionHandler());
+  app.use(CONSENT_PATH, createConsentHandler());
 
   if (options.getSession) {
     customGetSession = options.getSession;
