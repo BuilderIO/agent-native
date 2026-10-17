@@ -10205,6 +10205,7 @@ function isGoogleFontsStylesheet(href: string): boolean {
       (url.pathname === "/css" || url.pathname === "/css2")
     );
   } catch {
+    // coercion-ok: Invalid hrefs are non-matches in this predicate.
     return false;
   }
 }
