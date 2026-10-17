@@ -21,7 +21,7 @@ Four phases, in order. Phase 0 comes before any investigation, not after.
 2. **Fix** what the evidence actually proves, at the owning boundary.
 3. **Reply** with useful questions, then recap.
 
-Output is fixes. Reply in-thread only when the reporter must answer, a fix is verified, a beta or package availability change lands, or a handoff needs their action. The one-time dispositions (**Skipped**, **Clustered**, **Abandoned - no answer in 4 days**, **In progress**) still post once, for eligible items only; person-assigned and `:mag:` items get no reply at all. Never post other replies that only restate status. Follow [`slack-reaction-replies.md`](references/slack-reaction-replies.md).
+Output is fixes. Reply in-thread only when the reporter must answer, a fix is verified, or a handoff needs their action. The one-time dispositions (**Skipped**, **Clustered**, **Abandoned - no answer in 4 days**, **In progress**) still post once, for eligible items only; person-assigned and `:mag:` items get no reply at all. Never post other replies that only restate status. Follow [`slack-reaction-replies.md`](references/slack-reaction-replies.md).
 
 ## Slack channels
 
@@ -44,7 +44,7 @@ task named in status may resume its own `👀`: verify ownership, reread thread
 and reactions, then continue only its scope. Handoffs require the current
 owner's explicit reply naming the new task and scope. Claims never expire. Ask
 Steve if ownership is unclear; stop if another mark appears. For continuing
-work, post one status reply with task link and remaining scope.
+work, post the one **In progress** reply with task link and remaining scope.
 
 **Person-assigned threads are not ours.** Skip a thread where a person is asked to investigate, fix, or take ownership (a direct @-mention or group ping; FYI mentions don't count), or says they will or are looking into it. No `👀`, investigation, or reply, even for a clear defect, in any phase.
 

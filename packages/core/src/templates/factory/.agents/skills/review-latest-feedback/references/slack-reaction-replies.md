@@ -4,9 +4,8 @@ Use the connected Slack integration for every Slack read and write. Never
 operate Slack through computer use, a browser, screenshots, or UI automation.
 
 Reply under the parent only when the reporter must act or their outcome changes:
-a question they must answer, a verified fix, a beta or package availability
-change, or a handoff they must act on. Otherwise post nothing; the reaction and
-recap carry the status. Never post "taking a look," reaction explanations, or
+a question they must answer, a verified fix, or a handoff they must
+act on. Otherwise post nothing; the reaction and recap carry the status. Never post "taking a look," reaction explanations, or
 ledger status. The one-time dispositions named in SKILL.md (**Skipped**,
 **Clustered**, **Abandoned - no answer in 4 days**, **In progress**) are the
 exception and still post once, for eligible items only. Person-assigned threads
