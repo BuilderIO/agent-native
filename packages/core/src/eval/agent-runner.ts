@@ -92,6 +92,7 @@ const unscoreableProductionPathOutputBrand: unique symbol = Symbol(
   "unscoreable-production-path-output",
 );
 const productionContextRunnerMethodTokens = new WeakMap<Function, object>();
+const productionContextRunnerEngineTokens = new WeakMap<object, object>();
 const productionContextRunnerBrand: unique symbol = Symbol(
   "production-context-runner",
 );
@@ -127,6 +128,26 @@ function preserveProductionContextMethod<
   return wrapped as T;
 }
 
+function preserveProductionContextEngine(
+  engine: AgentEngine,
+  token: object,
+): AgentEngine {
+  const boundMethods = new WeakMap<Function, Function>();
+  const wrapped = new Proxy(engine, {
+    get(target, property) {
+      const value = Reflect.get(target, property, target);
+      if (typeof value !== "function") return value;
+      const bound = boundMethods.get(value);
+      if (bound) return bound;
+      const boundMethod = value.bind(target);
+      boundMethods.set(value, boundMethod);
+      return boundMethod;
+    },
+  });
+  productionContextRunnerEngineTokens.set(wrapped, token);
+  return wrapped;
+}
+
 export function isUnscoreableProductionPathOutput(
   output: AgentRunOutput,
 ): boolean {
@@ -154,6 +175,7 @@ export function isProductionContextAgentRunner(runner: AgentRunner): boolean {
   return (
     productionContextRunnerMethodTokens.has(runner.runAgent) ||
     productionContextRunnerMethodTokens.has(runner.analyzeContext) ||
+    productionContextRunnerEngineTokens.has(runner.engine) ||
     brandedRunner[productionContextRunnerBrand] !== undefined
   );
 }
@@ -168,10 +190,12 @@ export function hasOriginalProductionContextAgentRunnerMethods(
   const runnerToken = (runner as ProductionContextBrandedRunner)[
     productionContextRunnerBrand
   ];
+  const engineToken = productionContextRunnerEngineTokens.get(runner.engine);
   return (
     runToken !== undefined &&
     runToken === analyzeToken &&
-    (runnerToken === undefined || runnerToken === runToken)
+    (runnerToken === undefined || runnerToken === runToken) &&
+    engineToken === runToken
   );
 }
 
@@ -248,6 +272,10 @@ export async function createAgentRunner(
       )
     : await resolveRuntimeModel();
   const { engine, model } = runtimeModel;
+  const productionContextRunnerToken = productionContext ? {} : undefined;
+  const runnerEngine = productionContextRunnerToken
+    ? preserveProductionContextEngine(engine, productionContextRunnerToken)
+    : engine;
   const timeoutMs = config.timeoutMs ?? DEFAULT_AGENT_TIMEOUT_MS;
   const initialToolNames = productionContext?.initialToolNames
     ? new Set(productionContext.initialToolNames)
@@ -445,7 +473,7 @@ export async function createAgentRunner(
 
   function analyzeContext(): ScorerAnalyzeContext {
     return {
-      engine,
+      engine: runnerEngine,
       model,
       async judge(opts): Promise<string> {
         const controller = new AbortController();
@@ -478,7 +506,6 @@ export async function createAgentRunner(
     };
   }
 
-  const productionContextRunnerToken = productionContext ? {} : undefined;
   const productionRunAgent = productionContextRunnerToken
     ? preserveProductionContextMethod(runAgent, productionContextRunnerToken)
     : runAgent;
@@ -495,7 +522,7 @@ export async function createAgentRunner(
       : {}),
     runAgent: productionRunAgent,
     analyzeContext: productionAnalyzeContext,
-    engine,
+    engine: runnerEngine,
     model,
   };
   return runner;
