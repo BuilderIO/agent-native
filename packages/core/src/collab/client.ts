@@ -93,6 +93,12 @@ export interface UseCollaborativeDocResult {
    * another tab left, failed. Updates still send while the tab stays open.
    */
   durableUpdatesFailed: boolean;
+  /**
+   * True once the server refused one of this tab's updates as too large.
+   * Resending it cannot succeed, so this tab stops sending updates; they stay
+   * unacknowledged, and kept with `durableUpdates`.
+   */
+  updatesRefused: boolean;
   activeUsers: CollabUser[];
   agentActive: boolean;
   agentPresent: boolean;
@@ -251,6 +257,7 @@ interface CollabDocSnapshot {
   isSynced: boolean;
   initialization: CollabInitializationState;
   durableUpdatesFailed: boolean;
+  updatesRefused: boolean;
   activeUsers: CollabUser[];
   agentActive: boolean;
   agentPresent: boolean;
@@ -271,6 +278,7 @@ const EMPTY_SNAPSHOT: CollabDocSnapshot = Object.freeze({
   isSynced: false,
   initialization: { status: "loading" as const },
   durableUpdatesFailed: false,
+  updatesRefused: false,
   activeUsers: [],
   agentActive: false,
   agentPresent: false,
@@ -338,6 +346,7 @@ class CollabDocConnection {
   private updateInFlight = false;
   private keepaliveInFlight = false;
   private updateErrors = 0;
+  private updateBatchLimit = Infinity;
   private updateAbortController: AbortController | null = null;
   private updateHandlerAttached = false;
   private keepsUnsentUpdates = false;
@@ -378,6 +387,7 @@ class CollabDocConnection {
       isSynced: false,
       initialization: { status: "loading" },
       durableUpdatesFailed: false,
+      updatesRefused: false,
       activeUsers: [],
       agentActive: false,
       agentPresent: false,
@@ -619,6 +629,10 @@ class CollabDocConnection {
       if (this.flushTimer) clearTimeout(this.flushTimer);
       this.flushTimer = null;
       this.updateErrors = 0;
+      this.updateBatchLimit = Infinity;
+      if (this.snapshot.updatesRefused) {
+        this.setSnapshot({ updatesRefused: false });
+      }
       // Kept updates are per account.
       this.unsentUpdatesRestored = false;
     }
@@ -876,7 +890,7 @@ class CollabDocConnection {
         this.flushTimer = null;
       }
       await this.flushPendingUpdates();
-      if (this.updateErrors > 0) return false;
+      if (this.updateErrors > 0 || this.snapshot.updatesRefused) return false;
     }
     return this.pendingUpdates.length === 0;
   };
@@ -934,11 +948,12 @@ class CollabDocConnection {
 
   private async flushPendingUpdates(keepalive = false): Promise<void> {
     if (
-      keepalive
+      this.snapshot.updatesRefused ||
+      (keepalive
         ? this.keepaliveInFlight
         : this.disposed ||
           this.updateInFlight ||
-          (this.updateErrors > 0 && this.flushTimer !== null)
+          (this.updateErrors > 0 && this.flushTimer !== null))
     )
       return;
     if (this.flushTimer) {
@@ -946,7 +961,7 @@ class CollabDocConnection {
       this.flushTimer = null;
     }
     if (this.pendingUpdates.length === 0) return;
-    const toSend = this.pendingUpdates.slice();
+    const toSend = this.pendingUpdates.slice(0, this.updateBatchLimit);
     const retiredKey = this.retiredUpdatesKey;
     const merged = toSend.length === 1 ? toSend[0] : Y.mergeUpdates(toSend);
     const controller = new AbortController();
@@ -974,6 +989,16 @@ class CollabDocConnection {
         signal: controller.signal,
         ...(keepalive ? { keepalive: true } : {}),
       });
+      // The same bytes are refused again, so a refused batch is sent in
+      // halves, and a refused single update stops this tab's updates.
+      if (response.status === 413) {
+        if (toSend.length > 1) {
+          this.updateBatchLimit = Math.ceil(toSend.length / 2);
+        } else {
+          this.setSnapshot({ updatesRefused: true });
+        }
+        return;
+      }
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       if (ackListeners.length) ack = readUpdateAck(await response.json());
       const previous = this.pendingUpdates;
@@ -994,6 +1019,7 @@ class CollabDocConnection {
       }
       this.storeUnsentUpdates();
       this.updateErrors = 0;
+      if (this.pendingUpdates.length === 0) this.updateBatchLimit = Infinity;
     } catch {
       this.updateErrors++;
     } finally {
@@ -1006,7 +1032,12 @@ class CollabDocConnection {
         online = this.onlineDuringUpdate;
         this.onlineDuringUpdate = false;
       }
-      if (!this.disposed && this.pendingUpdates.length && !this.flushTimer) {
+      if (
+        !this.disposed &&
+        !this.snapshot.updatesRefused &&
+        this.pendingUpdates.length &&
+        !this.flushTimer
+      ) {
         this.flushTimer = setTimeout(
           () => {
             this.flushTimer = null;
@@ -1583,6 +1614,7 @@ export function useCollaborativeDoc(
     requestSync: conn ? conn.requestSync : requestSyncUnavailable,
     flushUpdates: conn ? conn.flushUpdates : flushUpdatesUnavailable,
     durableUpdatesFailed: snapshot.durableUpdatesFailed,
+    updatesRefused: snapshot.updatesRefused,
     activeUsers: snapshot.activeUsers,
     agentActive: snapshot.agentActive,
     agentPresent: snapshot.agentPresent,

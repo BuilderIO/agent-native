@@ -3561,6 +3561,7 @@ function PageEditorSessionBody({
     requestSync: requestCollabSync,
     flushUpdates: flushCollabUpdates,
     durableUpdatesFailed: collabDurableUpdatesFailed,
+    updatesRefused: collabUpdatesRefused,
     initialization: collabInitialization,
     activeUsers,
     agentActive,
@@ -3582,6 +3583,14 @@ function PageEditorSessionBody({
       toast.error(t("editor.pageSaveBeforeNavigationFailed"));
     }
   }, [collabDurableUpdatesFailed, t]);
+  // Only the live copy carries a switched page's body, so its body can no
+  // longer save; other pages still save theirs.
+  const bodyUpdatesRefused = bodyWritesThroughLiveCopy && collabUpdatesRefused;
+  useEffect(() => {
+    if (bodyUpdatesRefused) {
+      toast.error(t("editor.pageSaveBeforeNavigationFailed"));
+    }
+  }, [bodyUpdatesRefused, t]);
   collabAwarenessRef.current = awareness;
   collabClientIdRef.current = ydoc?.clientID ?? null;
   const bodyHydrationPending = documentBodyHydrationIsPending(document);

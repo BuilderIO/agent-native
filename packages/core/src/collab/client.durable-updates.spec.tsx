@@ -7,7 +7,15 @@
  */
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  onTestFinished,
+  vi,
+} from "vitest";
 import * as Y from "yjs";
 
 import { _resetSyncTransportRegistryForTests } from "../client/use-db-sync.js";
@@ -51,7 +59,7 @@ function outboxKeys(): string[] {
 describe("collab durable updates", () => {
   let root: Root;
   let container: HTMLDivElement;
-  let updateResponses: Array<"offline" | "unreadable" | object>;
+  let updateResponses: Array<"offline" | "unreadable" | "too_large" | object>;
   let sentUpdates: Uint8Array[];
 
   beforeEach(() => {
@@ -78,6 +86,10 @@ describe("collab durable updates", () => {
           const response = updateResponses.shift() ?? { ok: true };
           if (response === "offline") throw new TypeError("Failed to fetch");
           if (response === "unreadable") return new Response("<html>");
+          if (response === "too_large") {
+            const error = JSON.stringify({ error: "Payload too large" });
+            return new Response(error, { status: 413 });
+          }
           return new Response(JSON.stringify(response));
         }
         if (url.includes("/_agent-native/poll")) {
@@ -211,9 +223,14 @@ describe("collab durable updates", () => {
 
   it("reports when an update cannot be kept", async () => {
     const result = await mountReady({ durableUpdates: true });
-    vi.spyOn(window.localStorage, "setItem").mockImplementation(() => {
-      throw new DOMException("full", "QuotaExceededError");
-    });
+    const setItem = vi
+      .spyOn(window.localStorage, "setItem")
+      .mockImplementation(() => {
+        throw new DOMException("full", "QuotaExceededError");
+      });
+    // The afterEach restoreAllMocks leaves this spy on happy-dom's storage,
+    // which would break every later test's outbox.
+    onTestFinished(() => setItem.mockRestore());
     updateResponses = ["offline"];
     act(() => {
       result().ydoc!.getText("t").insert(0, "typed offline");
@@ -255,6 +272,44 @@ describe("collab durable updates", () => {
 
     expect(sentUpdates).toHaveLength(1);
     expect(outboxKeys()).toEqual([]);
+  });
+
+  it("sends a batch the server refuses as too large in halves", async () => {
+    const result = await mountReady({ durableUpdates: true });
+    updateResponses = ["too_large"];
+    const text = result().ydoc!.getText("t");
+    for (const word of ["one ", "two ", "three"])
+      text.insert(text.length, word);
+    await expect(result().flushUpdates()).resolves.toBe(true);
+
+    expect(sentUpdates).toHaveLength(3);
+    const server = new Y.Doc();
+    for (const update of sentUpdates.slice(1)) Y.applyUpdate(server, update);
+    expect(server.getText("t").toString()).toBe("one two three");
+    expect(result().updatesRefused).toBe(false);
+    expect(outboxKeys()).toEqual([]);
+  });
+
+  it("stops sending, keeps and reports an update the server refuses as too large", async () => {
+    const result = await mountReady({ durableUpdates: true });
+    updateResponses = ["too_large"];
+    result().ydoc!.getText("t").insert(0, "a pasted page");
+    await act(async () => {
+      await expect(result().flushUpdates()).resolves.toBe(false);
+    });
+    expect(result().updatesRefused).toBe(true);
+
+    act(() => {
+      result().ydoc!.getText("t").insert(0, "typed after ");
+    });
+    await act(async () => {
+      window.dispatchEvent(new Event("online"));
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    await expect(result().flushUpdates()).resolves.toBe(false);
+
+    expect(sentUpdates).toHaveLength(1);
+    expect(outboxKeys()).toHaveLength(1);
   });
 
   it("reports each acknowledgment's live-copy outcome", async () => {
