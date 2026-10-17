@@ -664,6 +664,12 @@ function mountActionRoutesInternal(
 ) {
   const mounted: string[] = [];
   const app = getH3App(nitroApp);
+  // One layer for every action (see registerMiddlewareGroup): a separate
+  // layer per action makes unmatched requests recurse through all of them.
+  const routeEntries: Array<{
+    path: string;
+    handler: ReturnType<typeof defineEventHandler>;
+  }> = [];
 
   if (!options?.caller && !options?.forcePost && !options?.routePrefix) {
     bindActionBatch({ fetch: (request) => nitroApp.fetch(request), actions });
@@ -705,9 +711,9 @@ function mountActionRoutesInternal(
       registerAuthPublicPaths([routePath], app);
     }
 
-    app.use(
-      routePath,
-      defineEventHandler(async (event) => {
+    routeEntries.push({
+      path: routePath,
+      handler: defineEventHandler(async (event) => {
         const requestAuthenticationStartedAtMs = Date.now();
         setHttpRequestTelemetryActionName(event, name, routeTemplate);
         const reqMethod = getMethod(event);
@@ -1672,9 +1678,15 @@ function mountActionRoutesInternal(
           },
         );
       }),
-    );
+    });
 
     mounted.push(`${method} ${routePath}`);
+  }
+
+  if (app.useGroup) {
+    app.useGroup(routeEntries);
+  } else {
+    for (const entry of routeEntries) app.use(entry.path, entry.handler);
   }
 
   if (mounted.length > 0 && process.env.DEBUG)

@@ -13,6 +13,7 @@ import { useState, useCallback, useRef, useMemo } from "react";
 import { toast } from "sonner";
 
 import { type ExportSettingsValue } from "@/components/design/inspector";
+import { readFusionApp } from "@shared/full-app";
 import { type LayersPanelHandle } from "@/components/design/LayersPanel";
 import { getBreakpointIframeId } from "@/components/design/multi-screen/iframe-targeting";
 import type { ElementInfo } from "@/components/design/types";
@@ -376,20 +377,29 @@ export function useEditorExportAndHandoff({
       pendingVisualStyleScreenSourceTypes,
     ],
   );
+  const isFullAppDesign = useMemo(
+    () => readFusionApp(designDataJson) !== null,
+    [designDataJson],
+  );
   const pendingVisualStylePrompt = useMemo(
     () =>
-      formatPendingVisualStylePrompt({
-        designId: id,
-        designTitle: design?.title,
-        activeFileId: activeFile?.id,
-        activeFilename: activeFile?.filename,
-        localhostConnectionId: activeOverviewScreen?.connectionId,
-        edits: pendingVisualStyleEdits,
-        liveEdits: pendingLiveNonStyleEdits,
-        audience: "coding-agent",
-        screenRoutes: screenRoutesById,
-      }),
+      withFullAppApplyInstructions(
+        isFullAppDesign,
+        id,
+        formatPendingVisualStylePrompt({
+          designId: id,
+          designTitle: design?.title,
+          activeFileId: activeFile?.id,
+          activeFilename: activeFile?.filename,
+          localhostConnectionId: activeOverviewScreen?.connectionId,
+          edits: pendingVisualStyleEdits,
+          liveEdits: pendingLiveNonStyleEdits,
+          audience: "coding-agent",
+          screenRoutes: screenRoutesById,
+        }),
+      ),
     [
+      isFullAppDesign,
       activeFile?.filename,
       activeFile?.id,
       activeOverviewScreen?.connectionId,
@@ -467,7 +477,12 @@ export function useEditorExportAndHandoff({
         pendingLiveNonStyleEditsRef,
         pendingStructureVerificationStatus,
         pendingVisualStyleEdits,
-        pendingVisualStylePrompt: promptOverride ?? pendingVisualStylePrompt,
+        // A server-held handoff (another tab or session) was formatted without
+        // the full-app routing; local prompts already carry it.
+        pendingVisualStylePrompt:
+          promptOverride !== undefined
+            ? withFullAppApplyInstructions(isFullAppDesign, id, promptOverride)
+            : pendingVisualStylePrompt,
         allowPromptOnly: promptOverride !== undefined,
         setActiveLeftPanel,
         setApplyingViaHost,
@@ -484,6 +499,7 @@ export function useEditorExportAndHandoff({
       cancelPendingStructureVerification,
       clearPendingLiveEditState,
       id,
+      isFullAppDesign,
       overviewScreens,
       pendingLiveNonStyleEdits,
       pendingStructureVerificationStatus,
@@ -1290,3 +1306,25 @@ export function useEditorExportAndHandoff({
 export type EditorExportAndHandoff = ReturnType<
   typeof useEditorExportAndHandoff
 >;
+
+/**
+ * A full-app design's screens are a Builder branch container: its source is
+ * changed by Builder, not by Design's localhost source tools.
+ * Say so in the handoff itself, so applying never depends on the agent
+ * inferring it from the prompt's localhost-oriented steps.
+ */
+function withFullAppApplyInstructions(
+  isFullAppDesign: boolean,
+  designId: string | undefined,
+  prompt: string,
+): string {
+  if (!isFullAppDesign || !prompt) return prompt;
+  return [
+    `This is a full-app design${designId ? ` (designId "${designId}")` : ""}: its screens run from a Builder branch container.`,
+    "Apply these edits by calling send-builder-message with the designId and a prompt that describes every edit below precisely. It delegates to Builder and returns when the change is done.",
+    "If this handoff has a revision (from get-visual-edit-pending, or named below), pass it as visualEditRevision so the handoff clears once the change lands.",
+    "Do not use apply-visual-edit, localhost source tools or write consent. Those only exist for connected localhost apps.",
+    "",
+    prompt,
+  ].join("\n");
+}

@@ -1,3 +1,4 @@
+import { isRunningAppSourceType } from "@shared/source-mode";
 import {
   applyVisualEdit,
   buildCodeLayerProjection,
@@ -153,13 +154,13 @@ export function runScreenTextContentChange(
   );
   const canEditScreen =
     canEditDesign ||
-    (screenSourceType === "localhost" && canEditLiveScreen?.(screenId));
+    (isRunningAppSourceType(screenSourceType) && canEditLiveScreen?.(screenId));
   if (screenId === activeFile?.id) {
     if (!canEditScreen) return "refused";
     return handleTextContentChange(selector, value, elementInfo, details);
   }
   if (!canEditScreen) return "refused";
-  if (screenSourceType === "localhost") {
+  if (isRunningAppSourceType(screenSourceType)) {
     recordPendingLiveTextEdit(screenId, selector, value, elementInfo, details);
     setActiveFileId(screenId);
     setActiveTool("move");

@@ -2125,8 +2125,8 @@ export default {
         title: "由本機開發伺服器渲染",
       },
       fusion: {
-        label: "Fusion 遠端",
-        title: "由 Fusion 渲染",
+        label: "Builder 遠端",
+        title: "由 Builder 渲染",
       },
       inline: {
         label: "內嵌",

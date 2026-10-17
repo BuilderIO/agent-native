@@ -4425,8 +4425,8 @@ describe("createAgentNativeChatRuntime", () => {
       "activity",
       "interaction",
       "activity",
+      // No "completed" interaction: the activity row already reports the end.
       "participant",
-      "interaction",
       "task",
       "task",
       "task",
@@ -4479,7 +4479,7 @@ describe("createAgentNativeChatRuntime", () => {
           ? [event.activity.label]
           : [],
     );
-    expect(rowLabels).toHaveLength(5);
+    expect(rowLabels).toHaveLength(4);
     expect(rowLabels).not.toContain("Planck");
     expect(rowLabels).not.toContain("working");
     expect(events[5]).not.toHaveProperty("interaction.label");

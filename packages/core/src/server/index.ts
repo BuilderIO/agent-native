@@ -645,6 +645,8 @@ export {
   getBuilderAuthHeader,
   resolveBuilderPrivateKey,
   resolveBuilderAuthHeader,
+  registerDelegatedBuilderCredentials,
+  type DelegatedBuilderCredentials,
   resolveHasBuilderPrivateKey,
   resolveHasCompleteBuilderConnection,
   resolveBuilderCredentials,
@@ -720,6 +722,11 @@ export {
   type BuilderLegacyCredentialKey,
   type BuilderRequestAuthorization,
 } from "./builder-api-auth.js";
+export {
+  createFusionAgentFeed,
+  fusionStepToAgentChatEvents,
+  type FusionAgentFeedSummary,
+} from "./fusion-agent-feed.js";
 export {
   BUILDER_ASSETS_WRITE_SCOPE,
   BUILDER_OAUTH_SCOPE,

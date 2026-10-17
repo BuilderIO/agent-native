@@ -660,6 +660,28 @@ async function loadAndResolveAccess(
   };
 }
 
+/**
+ * Host hook: for resources that live inside another product (a design bound
+ * to a Builder project), the host is the authority on who may open them. The
+ * resolver returns a role, `null` to deny, or `undefined` to fall through to
+ * AN's own owner/org/share rules. AN keeps no copy of the host's members,
+ * orgs or roles: it asks, per resource, per request.
+ */
+export type HostAccessResolver = (
+  resource: any,
+  ctx: AccessContext,
+) => Promise<ResolvedAccess["role"] | null | undefined>;
+
+const hostAccessResolvers = new Map<string, HostAccessResolver>();
+
+export function registerHostAccessResolver(
+  resourceType: string,
+  resolver: HostAccessResolver | null,
+): void {
+  if (resolver) hostAccessResolvers.set(resourceType, resolver);
+  else hostAccessResolvers.delete(resourceType);
+}
+
 async function accessToResource(
   reg: ShareableResourceRegistration,
   resourceId: string,
@@ -668,6 +690,12 @@ async function accessToResource(
 ): Promise<ResolvedAccess | null> {
   const { userEmail } = ctx;
   const normalizedUserEmail = normalizeEmailForAccess(userEmail);
+
+  const hostResolver = hostAccessResolvers.get(reg.type);
+  if (hostResolver && normalizedUserEmail) {
+    const hosted = await hostResolver(resource, ctx);
+    if (hosted !== undefined) return hosted ? { role: hosted, resource } : null;
+  }
 
   if (
     normalizedUserEmail &&

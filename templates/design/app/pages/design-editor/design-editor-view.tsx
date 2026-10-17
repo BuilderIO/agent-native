@@ -45,6 +45,7 @@ import { DesignEditorSkeleton } from "@/components/design/DesignEditorSkeleton";
 import { DesignBottomToolbar } from "@/components/design/editor/DesignBottomToolbar";
 import { EditorTopBar } from "@/components/design/editor/EditorTopBar";
 import { UrlScreenControls } from "@/components/design/editor/UrlScreenControls";
+import { FusionAppMenu } from "@/components/design/FusionAppMenu";
 import { getUnavailableShortcutIds } from "@/components/design/keyboard-shortcuts";
 import { KeyboardShortcutsDialog } from "@/components/design/KeyboardShortcutsDialog";
 import type { MotionNativeStyleIdentity } from "@/components/design/MotionNativeStyleEditor";
@@ -65,6 +66,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { getDesignHostChannel } from "@/host/design-host-channel";
 import {
   DESIGN_IMPORT_FORMATS,
   importFormatsAccept,
@@ -381,6 +383,8 @@ export function renderDesignEditorView({
     selectedComponentNodeId,
     componentDetailsReady,
     selectedComponentHasLocalOverrides,
+    fullAppBuildingEnabled,
+    fusionApp,
   } = editorLiveEditsAndPresence;
   const {
     uiHidden,
@@ -1014,17 +1018,28 @@ export function renderDesignEditorView({
     });
 
   // Preview opens a window outside the host and Publish joins a waitlist the
-  // widget's write ticket cannot write, so a widget has neither.
-  const publishWaitlistControl = widgetEmbed
-    ? null
-    : renderPublishWaitlistControl({
-        editorCore,
-        editorGenerationAndAccess,
-        editorActiveScreenAndGeometry,
-        editorCanvasAndScreens,
-        editorScreenInspector,
-        editorLayerActions,
-      });
+  // widget's write ticket cannot write, so a widget has neither. A ready
+  // Builder app gets its own menu: Publish deploys it instead.
+  const publishWaitlistControl = widgetEmbed ? null : fullAppBuildingEnabled &&
+    id &&
+    fusionApp?.status === "ready" &&
+    !hostEmbeddedEditor ? (
+    <FusionAppMenu
+      designId={id}
+      previewUrl={fusionApp.previewUrl}
+      editorUrl={fusionApp.editorUrl}
+      deployedUrl={fusionApp.deployedUrl}
+    />
+  ) : (
+    renderPublishWaitlistControl({
+      editorCore,
+      editorGenerationAndAccess,
+      editorActiveScreenAndGeometry,
+      editorCanvasAndScreens,
+      editorScreenInspector,
+      editorLayerActions,
+    })
+  );
 
   // The controls below live in two places: the top bar (docked editor) and
   // the minimal-UI right bar (which has no top bar). Build each once.
@@ -1903,10 +1918,7 @@ export function renderDesignEditorView({
               size="icon-sm"
               className="cursor-pointer"
               onClick={() => {
-                window.parent.postMessage(
-                  { type: "design:close" },
-                  parentOriginRef.current ?? window.location.origin,
-                );
+                getDesignHostChannel().send({ type: "design:close" });
               }}
             >
               <IconX className="size-4" />

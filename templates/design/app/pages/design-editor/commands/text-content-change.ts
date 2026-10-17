@@ -1,3 +1,4 @@
+import { isRunningAppSourceType } from "@shared/source-mode";
 import {
   applyVisualEdit,
   buildCodeLayerProjection,
@@ -128,7 +129,7 @@ export function runTextContentChange(
 ): TextCommitStatus {
   if (!canEditDesign && !canEditLiveScreen) return "refused";
   if (!activeFile) return "refused";
-  if (activeCanvasSourceType === "localhost") {
+  if (isRunningAppSourceType(activeCanvasSourceType)) {
     recordPendingLiveTextEdit(
       activeFile.id,
       selector,

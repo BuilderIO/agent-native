@@ -2126,8 +2126,8 @@ export default {
         title: "Renderizado pelo servidor local",
       },
       fusion: {
-        label: "Fusion remoto",
-        title: "Renderizado pelo Fusion",
+        label: "Builder remoto",
+        title: "Renderizado pelo Builder",
       },
       inline: {
         label: "Embutido",

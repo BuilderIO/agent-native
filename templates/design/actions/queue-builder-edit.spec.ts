@@ -96,7 +96,7 @@ vi.mock("../server/source-workspace.js", () => ({
     mocks.withDesignSourceMutationTransaction,
 }));
 
-import action from "./queue-fusion-edit.js";
+import action from "./queue-builder-edit.js";
 
 beforeEach(() => {
   mocks.state.events.length = 0;
@@ -109,7 +109,7 @@ beforeEach(() => {
   mocks.withDesignSourceMutationTransaction.mockClear();
 });
 
-describe("queue-fusion-edit", () => {
+describe("queue-builder-edit", () => {
   it("inserts the pending edit under the source lock after rechecking access", async () => {
     const result = await action.run(
       {

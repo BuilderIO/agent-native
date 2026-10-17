@@ -2088,8 +2088,8 @@ export default {
         title: "स्थानीय dev server से render",
       },
       fusion: {
-        label: "Fusion remote",
-        title: "Fusion से render",
+        label: "Builder remote",
+        title: "Builder से render",
       },
       inline: {
         label: "इनलाइन",

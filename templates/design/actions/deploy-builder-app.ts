@@ -31,7 +31,7 @@ export default defineAction({
     "<slug>.builder.cloud hosting slug (derived from the design title if not " +
     "already reserved and no slug is given) and triggers a hosted deploy of " +
     "the branch. If the slug is already taken, the error will say so — retry " +
-    "with a different slug. Poll get-fusion-deploy-status for progress " +
+    "with a different slug. Poll get-builder-deploy-status for progress " +
     "(queued -> building -> uploading -> deploying -> live | failed).",
   schema: z.object({
     designId: z.string().describe("Design project ID backed by a fusion app."),
@@ -53,7 +53,7 @@ export default defineAction({
     const fusionApp = readFusionApp(design.data);
     if (!fusionApp) {
       throw new Error(
-        "This design has no fusion app linkage. Call create-fusion-app first.",
+        "This design has no fusion app linkage. Call create-builder-app first.",
       );
     }
 

@@ -1,3 +1,4 @@
+import { isRunningAppSourceType } from "@shared/source-mode";
 import { getFrameGroupBounds } from "@shared/canvas-math";
 import type {
   CodeLayerNode,
@@ -165,7 +166,7 @@ export function runAddAutoLayout({
       designSourceType,
     );
 
-    if (screenSourceType === "localhost") {
+    if (isRunningAppSourceType(screenSourceType)) {
       const snapshot = runtimeLayerSnapshotsById[screenId];
       if (!snapshot) {
         toast.error(t("designEditor.toasts.reactSourceAnchorsLoading"));

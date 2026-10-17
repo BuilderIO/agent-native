@@ -26,6 +26,15 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 const sendFusionBranchMessage = vi.fn();
 vi.mock("@agent-native/core/server", () => ({
   sendFusionBranchMessage: (args: unknown) => sendFusionBranchMessage(args),
+  // The streamed sub-agent feed is covered in core; here it only has to
+  // hand back the reply.
+  createFusionAgentFeed: () => ({
+    onEvent: () => {},
+    finish: (result: { response?: string }) => ({
+      changedFiles: [],
+      text: result.response,
+    }),
+  }),
 }));
 
 const isFullAppBuildingEnabled = vi.fn().mockResolvedValue(true);
@@ -67,7 +76,7 @@ vi.mock("../server/db/index.js", () => ({
   },
 }));
 
-import action from "./apply-fusion-edits.js";
+import action from "./apply-builder-edits.js";
 
 beforeEach(() => {
   sendFusionBranchMessage.mockReset();
@@ -76,7 +85,7 @@ beforeEach(() => {
   pendingRows = [];
 });
 
-describe("apply-fusion-edits", () => {
+describe("apply-builder-edits", () => {
   it("rejects when full app building is disabled for the action caller", async () => {
     isFullAppBuildingEnabled.mockResolvedValueOnce(false);
 

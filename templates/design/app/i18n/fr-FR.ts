@@ -2144,8 +2144,8 @@ export default {
         title: "Rendu depuis le serveur local",
       },
       fusion: {
-        label: "Fusion distant",
-        title: "Rendu depuis Fusion",
+        label: "Builder distant",
+        title: "Rendu depuis Builder",
       },
       inline: {
         label: "Intégré",

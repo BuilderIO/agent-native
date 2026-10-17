@@ -2148,8 +2148,8 @@ export default {
         title: "Vom lokalen Entwicklungsserver gerendert",
       },
       fusion: {
-        label: "Fusion remote",
-        title: "Von Fusion gerendert",
+        label: "Builder remote",
+        title: "Von Builder gerendert",
       },
       inline: {
         label: "Eingebettet",

@@ -2,9 +2,9 @@ import {
   isAssistantChatHistoryVersion,
   type AssistantChatHistoryVersion,
 } from "@agent-native/core/client/agent-chat";
+import { getDesignHostChannel } from "@/host/design-host-channel";
 import { useSession } from "@agent-native/core/client/hooks";
 import {
-  getBuilderParentOrigin,
   isEmbedAuthActive,
 } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
@@ -150,10 +150,10 @@ export function useEditorCore() {
             height: Math.round(box.height),
           }
         : null;
-    window.parent.postMessage(
-      { type: HOST_CHAT_SLOT_MESSAGE, data: { rect } },
-      getBuilderParentOrigin() ?? "*",
-    );
+    getDesignHostChannel().send({
+      type: HOST_CHAT_SLOT_MESSAGE,
+      data: { rect },
+    });
   }, [hostEmbeddedEditor]);
   const attachHostChatSlot = useCallback(
     (node: HTMLDivElement | null) => {
@@ -174,10 +174,10 @@ export function useEditorCore() {
     window.addEventListener("resize", postHostChatSlotRect);
     return () => {
       window.removeEventListener("resize", postHostChatSlotRect);
-      window.parent.postMessage(
-        { type: HOST_CHAT_SLOT_MESSAGE, data: { rect: null } },
-        getBuilderParentOrigin() ?? "*",
-      );
+      getDesignHostChannel().send({
+        type: HOST_CHAT_SLOT_MESSAGE,
+        data: { rect: null },
+      });
     };
   }, [hostEmbeddedEditor, postHostChatSlotRect]);
 

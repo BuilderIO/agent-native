@@ -15,7 +15,7 @@ export default defineAction({
   description:
     "Read-only: check the status of a fusion (full-app) design's last hosted " +
     "deploy (queued|building|migrating|uploading|deploying|live|failed|" +
-    "canceled). Call after deploy-fusion-app to poll for completion. Makes no " +
+    "canceled). Call after deploy-builder-app to poll for completion. Makes no " +
     "database writes.",
   schema: z.object({
     designId: z.string().describe("Design project ID backed by a fusion app."),
@@ -34,12 +34,12 @@ export default defineAction({
     );
     if (!fusionApp) {
       throw new Error(
-        "This design has no fusion app linkage. Call create-fusion-app first.",
+        "This design has no fusion app linkage. Call create-builder-app first.",
       );
     }
     if (!fusionApp.lastDeployId) {
       throw new Error(
-        "This fusion app has not been deployed yet. Call deploy-fusion-app first.",
+        "This fusion app has not been deployed yet. Call deploy-builder-app first.",
       );
     }
 

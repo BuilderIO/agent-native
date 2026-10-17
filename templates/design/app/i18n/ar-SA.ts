@@ -2081,8 +2081,8 @@ export default {
         title: "معروض من خادم التطوير المحلي",
       },
       fusion: {
-        label: "Fusion بعيد",
-        title: "معروض من Fusion",
+        label: "Builder بعيد",
+        title: "معروض من Builder",
       },
       inline: {
         label: "مضمن",

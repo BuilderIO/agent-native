@@ -17,7 +17,7 @@ export default defineAction({
   description:
     "Add or refresh URL-backed screens on a fusion (full-app) design's " +
     "canvas, pointing at the container's live preview URL. Requires the " +
-    "fusion app to already have a previewUrl (call sync-fusion-app first if " +
+    "fusion app to already have a previewUrl (call sync-builder-app first if " +
     "not). Use this to place additional routes the app agent has built " +
     "(e.g. '/settings', '/dashboard') as new overview screens.",
   schema: z.object({
@@ -49,12 +49,12 @@ export default defineAction({
     const fusionApp = readFusionApp(design.data);
     if (!fusionApp) {
       throw new Error(
-        "This design has no fusion app linkage. Call create-fusion-app first.",
+        "This design has no fusion app linkage. Call create-builder-app first.",
       );
     }
     if (!fusionApp.previewUrl) {
       throw new Error(
-        "The fusion app has no preview URL yet. Call sync-fusion-app first " +
+        "The fusion app has no preview URL yet. Call sync-builder-app first " +
           "to boot the container and resolve its preview URL.",
       );
     }

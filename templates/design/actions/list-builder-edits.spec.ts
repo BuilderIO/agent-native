@@ -35,7 +35,7 @@ vi.mock("../server/db/index.js", () => ({
   },
 }));
 
-import action from "./list-fusion-edits.js";
+import action from "./list-builder-edits.js";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -43,7 +43,7 @@ beforeEach(() => {
   mocks.orderBy.mockResolvedValue([]);
 });
 
-describe("list-fusion-edits", () => {
+describe("list-builder-edits", () => {
   it("requires editor access before reading private queued instructions", async () => {
     await action.run({ designId: "design_1" } as never, {} as never);
 

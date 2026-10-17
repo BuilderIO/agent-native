@@ -43,7 +43,7 @@ async function countPendingEdits(
 export default defineAction({
   description:
     "Poll the fusion app's container status and refresh its URL-backed " +
-    "screens once ready. Call this after create-fusion-app (or periodically " +
+    "screens once ready. Call this after create-builder-app (or periodically " +
     "while status is 'building') to pick up the live preview URL. When ready, " +
     "upserts screens for the given paths (or the design's existing fusion " +
     "screens, defaulting to '/') so the canvas iframes point at the live " +
@@ -70,7 +70,7 @@ export default defineAction({
     const fusionApp = readFusionApp(data);
     if (!fusionApp) {
       throw new Error(
-        "This design has no fusion app linkage. Call create-fusion-app first.",
+        "This design has no fusion app linkage. Call create-builder-app first.",
       );
     }
 

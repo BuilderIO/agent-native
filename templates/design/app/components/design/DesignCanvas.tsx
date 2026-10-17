@@ -5416,6 +5416,17 @@ export function DesignCanvas({
         return;
       }
       if (e.data.type === "text-editing-state") {
+        // Selecting in a fusion frame moves keyboard focus to the canvas, and
+        // a cross-origin frame cannot take it back itself, so the text edit it
+        // just started would get no keystrokes. The parent can focus the frame.
+        if (e.data.active === true && sourceType === "fusion") {
+          const editingFrame = Array.from(
+            document.querySelectorAll("iframe"),
+          ).find((frame) => frame.contentWindow === e.source);
+          if (editingFrame && document.activeElement !== editingFrame) {
+            editingFrame.focus({ preventScroll: true });
+          }
+        }
         const activatedSourceId =
           typeof e.data.sourceId === "string" ? e.data.sourceId : "";
         const owner = capturedOwnerRef.current;

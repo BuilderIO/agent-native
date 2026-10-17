@@ -50,8 +50,18 @@ function titleFromPath(path: string): string {
   return last.replace(/[-_]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+/** A screen is named after its route ("home.html" shows as "Home"). */
+function screenFilename(path: string): string {
+  return `${slugForPath(path)}.html`;
+}
+
+/** Earlier screens were saved as "fusion-home.html"; they are renamed on sync. */
+function legacyScreenFilename(path: string): string {
+  return `fusion-${slugForPath(path)}.html`;
+}
+
 function uniqueFilename(path: string, used: Set<string>): string {
-  const base = `fusion-${slugForPath(path)}.html`;
+  const base = screenFilename(path);
   const [stem, extension = "html"] = base.split(/\.(?=[^.]+$)/);
   let filename = `${stem}.${extension}`;
   let suffix = 2;
@@ -122,9 +132,18 @@ export async function upsertFusionScreens(args: {
     const url = originRelativeBase
       ? `${screenUrl.pathname}${screenUrl.search}`
       : screenUrl.toString();
-    const preferredFilename = `fusion-${slugForPath(path)}.html`;
-    let existing = existingByFilename.get(preferredFilename);
-    const filename = existing?.filename ?? uniqueFilename(path, usedFilenames);
+    const preferredFilename = screenFilename(path);
+    let existing =
+      existingByFilename.get(preferredFilename) ??
+      existingByFilename.get(legacyScreenFilename(path));
+    const renameLegacy =
+      existing !== undefined &&
+      existing.filename !== preferredFilename &&
+      !usedFilenames.has(preferredFilename);
+    if (renameLegacy) usedFilenames.add(preferredFilename);
+    const filename = renameLegacy
+      ? preferredFilename
+      : (existing?.filename ?? uniqueFilename(path, usedFilenames));
     let fileId = existing?.id ?? nanoid();
     const title = titleFromPath(path);
 
@@ -145,7 +164,7 @@ export async function upsertFusionScreens(args: {
           if (!current) return false;
           await tx
             .update(schema.designFiles)
-            .set({ content: url, fileType: "html", updatedAt: now })
+            .set({ filename, content: url, fileType: "html", updatedAt: now })
             .where(eq(schema.designFiles.id, existing!.id));
           return true;
         },

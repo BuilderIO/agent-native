@@ -25,9 +25,9 @@ describe("buildShellScreens", () => {
   it("derives the same filenames the server builder does", () => {
     const { screens } = build(["/", "/projects", "/blog/posts"]);
     expect(screens.map((s) => s.filename)).toEqual([
-      "fusion-home.html",
-      "fusion-projects.html",
-      "fusion-blog-posts.html",
+      "home.html",
+      "projects.html",
+      "blog-posts.html",
     ]);
   });
 
@@ -71,8 +71,8 @@ describe("buildShellScreens", () => {
   it("disambiguates distinct routes that slug to the same name", () => {
     const { screens } = build(["/a/b", "/a-b"]);
     expect(screens.map((s) => s.filename)).toEqual([
-      "fusion-a-b.html",
-      "fusion-a-b-2.html",
+      "a-b.html",
+      "a-b-2.html",
     ]);
     expect(new Set(screens.map((s) => s.fileId)).size).toBe(2);
   });
