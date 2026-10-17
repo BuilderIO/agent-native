@@ -358,6 +358,29 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
     const panelIds = (config: Record<string, unknown>) =>
       (config.panels as Array<{ id: string }>).map((panel) => panel.id);
 
+    it("adds the panels once to the saved canonical first-party dashboard", () => {
+      const first = repairKnownFirstPartyDashboardQueries(
+        FIRST_PARTY_DASHBOARD_ID,
+        savedConfig(),
+      );
+
+      expect(first.changed).toBe(true);
+      expect(panelIds(first.config)).toEqual([
+        "dau-over-time",
+        "onboarding-setup-choice",
+        ...AB_IDS,
+        "custom-last",
+      ]);
+      expect(first.config.introducedPanels).toEqual(AB_IDS);
+
+      const second = repairKnownFirstPartyDashboardQueries(
+        FIRST_PARTY_DASHBOARD_ID,
+        first.config,
+      );
+      expect(second.changed).toBe(false);
+      expect(panelIds(second.config)).toEqual(panelIds(first.config));
+    });
+
     it.each(FIRST_PARTY_BIGQUERY_DASHBOARD_IDS)(
       "adds the panels once after the onboarding panels on %s",
       (dashboardId) => {
@@ -1751,6 +1774,7 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
     [
       "a custom config",
       JSON.stringify({
+        introducedPanels: PANELS_INTRODUCED_TO_BIGQUERY_DASHBOARDS,
         panels: [
           {
             id: "recurring-users-by-template",
@@ -1762,6 +1786,7 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
     [
       "a changed custom new-vs-recurring query",
       JSON.stringify({
+        introducedPanels: PANELS_INTRODUCED_TO_BIGQUERY_DASHBOARDS,
         panels: [
           {
             id: "new-vs-recurring-users",
@@ -1773,6 +1798,7 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
     [
       "a changed custom signups date-fill query",
       JSON.stringify({
+        introducedPanels: PANELS_INTRODUCED_TO_BIGQUERY_DASHBOARDS,
         panels: [
           {
             id: "signups-over-time",

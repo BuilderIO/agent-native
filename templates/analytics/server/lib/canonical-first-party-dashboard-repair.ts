@@ -877,7 +877,8 @@ function appendPanelsIntroducedWithRetentionSplit(
 }
 
 /**
- * Panels added to saved BigQuery dashboards after they were created. Each id is
+ * Panels added to saved first-party dashboards (canonical and BigQuery) after
+ * they were created. Each id is
  * recorded in the saved config's `introducedPanels` once delivered (or found
  * already present), so a panel the owner later deletes is not added back.
  */
@@ -991,7 +992,9 @@ export function repairKnownFirstPartyDashboardQueries(
     );
   }
   if (dashboardId === FIRST_PARTY_DASHBOARD_ID) {
-    return repairCanonicalFirstPartyDashboardQueries(config);
+    return appendPanelsIntroducedToBigQueryDashboards(
+      repairCanonicalFirstPartyDashboardQueries(config),
+    );
   }
   return { config, changed: false };
 }

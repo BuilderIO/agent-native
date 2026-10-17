@@ -747,6 +747,7 @@ function readStoredOnboardingExperiment(): OnboardingExperiment | null {
     }
     return value as OnboardingExperiment;
   } catch {
+    // coercion-ok: unreadable storage means no stored arm, so the event is sent untagged and stays out of the experiment cohort rather than blocking tracking.
     return null;
   }
 }
@@ -779,7 +780,7 @@ export function setOnboardingExperiment(
       window.localStorage.removeItem(ONBOARDING_EXPERIMENT_STORAGE_KEY);
     }
   } catch {
-    // In-memory tagging still works when browser storage is unavailable.
+    // coercion-ok: in-memory tagging still works when browser storage is unavailable; only the cross-reload copy is lost.
   }
 }
 
