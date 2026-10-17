@@ -369,14 +369,15 @@ const reply = useActionMutation("reply-to-email", {
 
 ### 各 throw が生成するもの {#failure-shapes}
 
-| `run()` からの throw                            | HTTP ステータス       | レスポンス ボディ                            | エラー トラッキングへの報告 |
-| ----------------------------------------------- | --------------------- | -------------------------------------------- | --------------------------- |
-| `fail(msg)`                                     | 400                   | `{ error: msg, errorCode: "action_failed" }` | なし                        |
-| `fail(msg, { errorCode, statusCode, details })` | 指定した `statusCode` | `{ error, errorCode, details }`              | なし                        |
-| `new ActionContractError(msg, { errorCode })`   | 409                   | `{ error, errorCode, details }`              | なし                        |
-| `new AgentActionStopError(msg)`                 | 500                   | `{ error: msg }`                             | なし                        |
-| `new Error(msg)`                                | 500                   | `{ error: "Internal server error" }`         | あり                        |
-| `schema` 検証に失敗した入力                     | 400                   | `{ error: "Invalid action parameters..." }`  | なし                        |
+| `run()` からの throw                                                 | HTTP ステータス       | レスポンス ボディ                              | エラー トラッキングへの報告 |
+| -------------------------------------------------------------------- | --------------------- | ---------------------------------------------- | --------------------------- |
+| `fail(msg)`                                                          | 400                   | `{ error: msg, errorCode: "action_failed" }`   | なし                        |
+| `fail(msg, { errorCode, statusCode, details })`                      | 指定した `statusCode` | `{ error, errorCode, details }`                | なし                        |
+| `new ActionContractError(msg, { errorCode })`                        | 409                   | `{ error, errorCode, details }`                | なし                        |
+| `new AgentActionStopError(msg)`                                      | 500                   | `{ error: msg }`                               | なし                        |
+| PostgreSQL のデッドロック (`40P01`) またはシリアライズ失敗 (`40001`) | 409                   | `{ error, errorCode: "transaction_conflict" }` | なし                        |
+| `new Error(msg)`                                                     | 500                   | `{ error: "Internal server error" }`           | あり                        |
+| `schema` 検証に失敗した入力                                          | 400                   | `{ error: "Invalid action parameters..." }`    | なし                        |
 
 `AgentActionStopError` は、エージェントが失敗を読んで再試行するのではなくターンを終えるべきときに投げます。`ActionContractError` は `fail()` が代わりに投げてくれるので、409 が望むステータスである場合にだけ直接使ってください。
 
