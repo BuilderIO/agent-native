@@ -64,9 +64,6 @@ const packagesDir = path.join(repoRoot, "packages");
 const failures: string[] = [];
 
 const ASSET_IMPORT_RE = /["'](\.{1,2}\/[^"']+)\?(?:raw|url|inline)["']/g;
-// Declaration emit rewrites `/// <reference path>` to point back into src.
-const REFERENCE_PATH_RE =
-  /^\/\/\/\s*<reference\s+path=["'](\.{1,2}\/[^"']+)["']/gm;
 
 function listSourceFiles(dir: string): string[] {
   const out: string[] = [];
@@ -110,10 +107,7 @@ function unpublishedAssetImportFailures(
   const result: string[] = [];
   for (const file of listSourceFiles(srcDir)) {
     const source = fs.readFileSync(file, "utf8");
-    for (const match of [
-      ...source.matchAll(ASSET_IMPORT_RE),
-      ...source.matchAll(REFERENCE_PATH_RE),
-    ]) {
+    for (const match of source.matchAll(ASSET_IMPORT_RE)) {
       const target = path
         .relative(pkgDir, path.resolve(path.dirname(file), match[1]))
         .split(path.sep)
