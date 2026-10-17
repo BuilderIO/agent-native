@@ -15,6 +15,10 @@ import {
   getCurrentOwnerEmail,
   ownerEmailMatches,
 } from "../server/lib/recordings.js";
+import {
+  hasTranscriptContent,
+  saveTranscriptVersion,
+} from "../server/lib/transcript-versions.js";
 import { isBuilderCreditsExhaustedMessage } from "../shared/builder-credits.js";
 import { normalizeLoomShareUrl } from "../shared/loom.js";
 import { isAutoTitleReplaceable } from "../shared/title-source.js";
@@ -1513,12 +1517,6 @@ async function upsertTranscriptRow(
     replaceTranscript?: StartedFromTranscript;
   },
 ): Promise<boolean> {
-  const [existing] = await db
-    .select({ recordingId: schema.recordingTranscripts.recordingId })
-    .from(schema.recordingTranscripts)
-    .where(eq(schema.recordingTranscripts.recordingId, row.recordingId))
-    .limit(1);
-
   const retryCount = row.status === "ready" ? 0 : (row.retryCount ?? undefined);
   const updatedAt = new Date().toISOString();
   const t = schema.recordingTranscripts;
@@ -1539,34 +1537,66 @@ async function upsertTranscriptRow(
     ? or(notImportedTranscript(), eq(t.importId, replaceImportId))
     : notImportedTranscript();
 
-  if (existing) {
-    const updated = await db
+  return db.transaction(async (tx) => {
+    const lockCurrent = () =>
+      tx
+        .select()
+        .from(t)
+        .where(eq(t.recordingId, row.recordingId))
+        .for("update")
+        .then((rows) => rows[0]);
+    let current = await lockCurrent();
+    if (!current) {
+      const inserted = await tx
+        .insert(t)
+        .values({
+          recordingId: row.recordingId,
+          ownerEmail: row.ownerEmail,
+          language: row.language ?? "en",
+          segmentsJson: row.segmentsJson ?? "[]",
+          fullText: row.fullText ?? "",
+          status: row.status,
+          failureReason: row.failureReason,
+          failureCode:
+            row.status === "failed" ? (row.failureCode ?? null) : null,
+          retryCount: retryCount ?? 0,
+          createdAt: row.now,
+          updatedAt,
+        })
+        .onConflictDoNothing({ target: t.recordingId })
+        .returning({ recordingId: t.recordingId });
+      if (inserted.length > 0) return true;
+      // An import or another pass created the row since the read; it takes
+      // the same guarded update as any existing row.
+      current = await lockCurrent();
+      if (!current) return false;
+    }
+    const updated = await tx
       .update(t)
       .set(set)
       .where(and(eq(t.recordingId, row.recordingId), replaceable))
       .returning({ recordingId: t.recordingId });
-    return updated.length > 0;
-  }
-  // An import can create the row after the read above; the conflict then
-  // takes the same guarded update.
-  const inserted = await db
-    .insert(t)
-    .values({
-      recordingId: row.recordingId,
-      ownerEmail: row.ownerEmail,
-      language: row.language ?? "en",
-      segmentsJson: row.segmentsJson ?? "[]",
-      fullText: row.fullText ?? "",
-      status: row.status,
-      failureReason: row.failureReason,
-      failureCode: row.status === "failed" ? (row.failureCode ?? null) : null,
-      retryCount: retryCount ?? 0,
-      createdAt: row.now,
-      updatedAt,
-    })
-    .onConflictDoUpdate({ target: t.recordingId, set, setWhere: replaceable })
-    .returning({ recordingId: t.recordingId });
-  return inserted.length > 0;
+    if (updated.length === 0) return false;
+    // An explicit regenerate replaces the whole transcript, like an import,
+    // so it always keeps the one it replaces: the same words can still carry
+    // an imported transcript's timings, speakers, language and source. Other
+    // writes keep one only when they take its words away, by replacing them
+    // or hiding them behind another status; rewriting only the cue shapes of
+    // the same words replaces nothing.
+    if (
+      hasTranscriptContent(current) &&
+      (row.replaceTranscript ||
+        set.status !== "ready" ||
+        (set.fullText !== undefined &&
+          set.fullText.trim() !== current.fullText.trim()))
+    ) {
+      await saveTranscriptVersion(tx, current, {
+        reason: row.replaceTranscript ? "regenerate" : "automatic",
+        replacedBy: null,
+      });
+    }
+    return true;
+  });
 }
 
 export default requestTranscriptAction;

@@ -11,36 +11,61 @@ const MIN_WORDS_BEFORE_PUNCTUATION_BREAK = 3;
 const ESTIMATED_MS_PER_WORD = 420;
 const MIN_CAPTION_MS = 900;
 
+function parseSegmentsArray(raw: string | null | undefined) {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw ?? "");
+  } catch {
+    return null; // coercion-ok: null is "unreadable", and callers tell it from []
+  }
+  return Array.isArray(parsed) ? parsed : null;
+}
+
+/**
+ * Every entry of stored segments JSON as written, with its times read the way
+ * the player reads them, for a writer that must not turn unreadable cues into
+ * none. Null when the JSON isn't an array or any entry's times can't be read:
+ * the player would drop that entry, so written on, it would be lost quietly.
+ * Entries the player skips for other reasons, such as empty text, are real
+ * stored data and stay.
+ */
+export function readSegmentEntries(
+  raw: string | null | undefined,
+): Array<Record<string, unknown> & { startMs: number; endMs: number }> | null {
+  const entries = parseSegmentsArray(raw)?.map((entry) => ({
+    ...entry,
+    startMs: Number(entry?.startMs),
+    endMs: Number(entry?.endMs),
+  }));
+  return entries?.every(
+    (entry) => Number.isFinite(entry.startMs) && Number.isFinite(entry.endMs),
+  )
+    ? entries
+    : null;
+}
+
 export function parseTranscriptSegments(
   raw: string | null | undefined,
 ): TranscriptSegment[] {
-  if (!raw) return [];
-
-  try {
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .map((segment) => ({
-        startMs: Number(segment?.startMs),
-        endMs: Number(segment?.endMs),
-        text: typeof segment?.text === "string" ? segment.text.trim() : "",
-        source:
-          segment?.source === "mic" || segment?.source === "system"
-            ? segment.source
-            : undefined,
-        speaker:
-          typeof segment?.speaker === "string" ? segment.speaker : undefined,
-      }))
-      .filter(
-        (segment) =>
-          Number.isFinite(segment.startMs) &&
-          Number.isFinite(segment.endMs) &&
-          segment.endMs > segment.startMs &&
-          segment.text,
-      );
-  } catch {
-    return [];
-  }
+  return (parseSegmentsArray(raw) ?? [])
+    .map((segment) => ({
+      startMs: Number(segment?.startMs),
+      endMs: Number(segment?.endMs),
+      text: typeof segment?.text === "string" ? segment.text.trim() : "",
+      source:
+        segment?.source === "mic" || segment?.source === "system"
+          ? segment.source
+          : undefined,
+      speaker:
+        typeof segment?.speaker === "string" ? segment.speaker : undefined,
+    }))
+    .filter(
+      (segment) =>
+        Number.isFinite(segment.startMs) &&
+        Number.isFinite(segment.endMs) &&
+        segment.endMs > segment.startMs &&
+        segment.text,
+    );
 }
 
 export function buildCaptionSegmentsFromText(

@@ -641,6 +641,14 @@ const messages = {
     errorOutOfOrder: "第 {{line}} 行：此时间早于上一个时间。",
     errorPastEnd: "第 {{line}} 行：此时间晚于视频结束时间。",
   },
+  transcriptHistory: {
+    title: "较早的文字记录",
+    automatic: "自动",
+    restore: "恢复",
+    restored: "已恢复文字记录",
+    restoreFailed: "无法恢复文字记录",
+    undo: "撤销",
+  },
   thumbnailPicker: {
     failedCapture: "捕捉帧失败",
     failedGif: "无法生成 GIF — 尝试更短的范围",

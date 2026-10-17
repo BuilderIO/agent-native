@@ -694,6 +694,14 @@ const messages = {
     errorOutOfOrder: "{{line}} 行目: この時刻は直前の時刻より前です。",
     errorPastEnd: "{{line}} 行目: この時刻は動画の終了より後です。",
   },
+  transcriptHistory: {
+    title: "以前のトランスクリプト",
+    automatic: "自動",
+    restore: "復元",
+    restored: "トランスクリプトを復元しました",
+    restoreFailed: "トランスクリプトを復元できませんでした",
+    undo: "元に戻す",
+  },
   thumbnailPicker: {
     failedCapture: "フレームのキャプチャに失敗しました",
     failedGif: "GIF の生成に失敗しました - より短い範囲を試してください",

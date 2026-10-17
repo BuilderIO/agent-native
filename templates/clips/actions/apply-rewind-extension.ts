@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   readAppState,
   writeAppState,
@@ -15,7 +15,8 @@ import {
   ownerEmailMatches,
 } from "../server/lib/recordings.js";
 import { isS3ObjectUrlBoundToRecording } from "../server/lib/s3-upload-provider.js";
-import { parseTranscriptSegments } from "../shared/transcript-segments.js";
+import { TRANSCRIPT_VERSION_LIMIT } from "../server/lib/transcript-versions.js";
+import { readSegmentEntries } from "../shared/transcript-segments.js";
 import { assertNoDirectRecordingShares } from "./make-recording-private-for-rewind.js";
 import {
   rewindExtensionKey,
@@ -45,6 +46,24 @@ function shiftedJsonArray(
   } catch {
     return raw || "[]";
   }
+}
+
+/**
+ * Stored cues moved onto the extended timeline, every entry and field kept as
+ * stored, or null when they can't be read.
+ */
+function shiftedSegments(raw: string, addedMs: number): string | null {
+  const entries = readSegmentEntries(raw);
+  return (
+    entries &&
+    JSON.stringify(
+      entries.map((entry) => ({
+        ...entry,
+        startMs: entry.startMs + addedMs,
+        endMs: entry.endMs + addedMs,
+      })),
+    )
+  );
 }
 
 export default defineAction({
@@ -142,19 +161,6 @@ export default defineAction({
     }));
     edits.rewindOriginalStartMs = args.addedMs;
     edits.mediaStorageLayout = "external";
-    const [transcript] = await db
-      .select()
-      .from(schema.recordingTranscripts)
-      .where(eq(schema.recordingTranscripts.recordingId, args.recordingId));
-    const shiftedTranscript = transcript
-      ? JSON.stringify(
-          parseTranscriptSegments(transcript.segmentsJson).map((segment) => ({
-            ...segment,
-            startMs: segment.startMs + args.addedMs,
-            endMs: segment.endMs + args.addedMs,
-          })),
-        )
-      : null;
     const now = new Date().toISOString();
 
     await db.transaction(async (tx) => {
@@ -175,11 +181,58 @@ export default defineAction({
           updatedAt: now,
         })
         .where(eq(schema.recordings.id, args.recordingId));
-      if (transcript && shiftedTranscript) {
+      // Locked, so a replace or restore can't swap the transcript or its
+      // versions between this read and the shifted writes below.
+      const [transcript] = await tx
+        .select()
+        .from(schema.recordingTranscripts)
+        .where(eq(schema.recordingTranscripts.recordingId, args.recordingId))
+        .for("update");
+      if (transcript) {
+        const segmentsJson = shiftedSegments(
+          transcript.segmentsJson,
+          args.addedMs,
+        );
+        // Dropped, or left on the old timeline, its cues would be lost
+        // quietly. Failing leaves the editor free to replace the transcript
+        // and extend again.
+        if (segmentsJson === null) {
+          fail(
+            "The transcript has unreadable segments, so it can't move with the video. Nothing was changed.",
+            { errorCode: "transcript_segments_unreadable", statusCode: 500 },
+          );
+        }
         await tx
           .update(schema.recordingTranscripts)
-          .set({ segmentsJson: shiftedTranscript, updatedAt: now })
+          .set({ segmentsJson, updatedAt: now })
           .where(eq(schema.recordingTranscripts.recordingId, args.recordingId));
+      }
+      // Saved transcripts move with the video too, so one restored after the
+      // extension lines up with the longer timeline. One with unreadable cues
+      // stays exactly as stored: restore refuses it, so it can't come back on
+      // any timeline, and failing here would block every extension until it
+      // was pruned, with nothing the editor could do about it.
+      const versions = schema.recordingTranscriptVersions;
+      const saved = await tx
+        .select({ id: versions.id, segmentsJson: versions.segmentsJson })
+        .from(versions)
+        .where(eq(versions.recordingId, args.recordingId))
+        .limit(TRANSCRIPT_VERSION_LIMIT);
+      for (const version of saved) {
+        const segmentsJson = shiftedSegments(
+          version.segmentsJson,
+          args.addedMs,
+        );
+        if (segmentsJson === null) {
+          console.warn(
+            `[clips] Rewind left saved transcript ${version.id} of ${args.recordingId} as stored: its segments are unreadable.`,
+          );
+          continue;
+        }
+        await tx
+          .update(versions)
+          .set({ segmentsJson })
+          .where(eq(versions.id, version.id));
       }
       await tx
         .update(schema.recordingComments)

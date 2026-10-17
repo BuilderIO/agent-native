@@ -673,6 +673,14 @@ const messages = {
     errorOutOfOrder: "السطر {{line}}: هذا الوقت أسبق من الوقت الذي قبله.",
     errorPastEnd: "السطر {{line}}: هذا الوقت بعد نهاية الفيديو.",
   },
+  transcriptHistory: {
+    title: "النصوص السابقة",
+    automatic: "تلقائي",
+    restore: "استعادة",
+    restored: "تمت استعادة النص",
+    restoreFailed: "تعذّرت استعادة النص",
+    undo: "تراجع",
+  },
   thumbnailPicker: {
     failedCapture: "فشل في التقاط الإطار",
     failedGif: "فشل في إنشاء GIF — حاول نطاقًا أقصر",
