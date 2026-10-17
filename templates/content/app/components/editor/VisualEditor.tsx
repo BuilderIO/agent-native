@@ -120,7 +120,11 @@ import {
 import { observeEditorMount } from "./editor-mount-telemetry";
 import { AudioNode } from "./extensions/AudioNode";
 import { BodyElementTiming } from "./extensions/BodyElementTiming";
-import { createChangeSizeGuardPlugin } from "./extensions/ChangeSizeGuard";
+import {
+  type ChangeSizeGuardOptions,
+  createChangeSizeGuardHistoryCommands,
+  createChangeSizeGuardPlugin,
+} from "./extensions/ChangeSizeGuard";
 import { CodeBlock } from "./extensions/CodeBlockNode";
 import {
   CommentHighlight,
@@ -3392,18 +3396,22 @@ export function VisualEditor({
         onMediaSourceCommitted,
         findCommentQuote,
       }),
-      Extension.create({
+      Extension.create<ChangeSizeGuardOptions>({
         name: "contentChangeSizeGuard",
+        addOptions: () => ({
+          // Read on every change: a page can start writing its body through
+          // the doc after this editor is created.
+          doc: () =>
+            onChangeTooLargeToSaveRef.current ? (ydoc ?? null) : null,
+          refused: () => onChangeTooLargeToSaveRef.current?.(),
+        }),
+        // Replaces Collaboration's undo and redo, which write to the doc
+        // before the plugin sees their change.
+        addCommands() {
+          return ydoc ? createChangeSizeGuardHistoryCommands(this.options) : {};
+        },
         addProseMirrorPlugins() {
-          return [
-            // Read on every change: a page can start writing its body through
-            // the doc after this editor is created.
-            createChangeSizeGuardPlugin({
-              doc: () =>
-                onChangeTooLargeToSaveRef.current ? (ydoc ?? null) : null,
-              refused: () => onChangeTooLargeToSaveRef.current?.(),
-            }),
-          ];
+          return [createChangeSizeGuardPlugin(this.options)];
         },
       }),
       Extension.create({

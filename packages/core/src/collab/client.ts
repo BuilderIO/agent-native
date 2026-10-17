@@ -350,13 +350,21 @@ const OUTBOX_PREFIX = "agent-native-collab-outbox-v1:";
 const OUTBOX_ORIGIN = "collab-outbox";
 const REBUILD_ORIGIN = "collab-rebuild";
 // A rebuild candidate writes the page's content again under a new client id,
-// so unlike an unsent update it is not idempotent: two adopted together put
-// that content in twice. Each is kept under its own key, which its tab holds
-// as a Web Lock while open.
+// so unlike an unsent update it is not idempotent: two candidates made from
+// one edit put it in twice.
 const REBUILD_CANDIDATE_MARK = "rebuild:";
+// A connection writes its entries only while it holds the Web Lock named for
+// it, and another adopts them only while holding that lock, so never from a
+// tab that is still open with them: two open tabs refused with the same edit
+// would each keep a candidate for it.
+const OUTBOX_OWNER_LOCK_PREFIX = "agent-native-collab-outbox-owner:";
 
 function outboxPrefix(docKey: string, email: string): string {
   return `${OUTBOX_PREFIX}${encodeURIComponent(docKey)}:${encodeURIComponent(email)}:`;
+}
+
+function webLocks(): LockManager | undefined {
+  return typeof navigator === "undefined" ? undefined : navigator.locks;
 }
 
 interface StoredOutbox {
@@ -412,12 +420,20 @@ class CollabDocConnection {
   private readonly outboxOwnerId = `${Date.now().toString(36)}-${Math.random()
     .toString(36)
     .slice(2)}`;
-  // The candidate the refused connection this one rebuilt kept, which this
-  // one's first update replaces.
-  private rebuiltFromKey: string | null = null;
+  // The refused connection this one was rebuilt from, whose entries it never
+  // adopts: what that one kept is what this one sends.
+  private rebuiltFromOwner: string | null = null;
+  private restoreAfterRebuild = false;
+  private replaced = false;
   private rebuildInFlight: Promise<CollabRebuildResult> | null = null;
-  private candidateLock: Promise<void> | null = null;
-  private releaseCandidateLock: (() => void) | null = null;
+  // Held only while this connection keeps something, so an idle tab holds no
+  // lock that keeps a browser from freezing or caching it.
+  private ownerLock: Promise<void> | null = null;
+  private releaseOwnerLock: (() => void) | null = null;
+  private ownsKeys = false;
+  private ownerLockPins = 0;
+  private readonly storedKeys = new Set<string>();
+  private adoptionAbort: AbortController | null = null;
   // Remote updates wait while a rebuild reads this doc against the server's,
   // so the content it reads holds nothing that copy lacks.
   private heldRemoteUpdates: Uint8Array[] | null = null;
@@ -542,8 +558,11 @@ class CollabDocConnection {
     this.retirePendingUpdates();
     void this.flushPendingUpdates(true);
     this.detachUpdateHandler();
-    this.releaseCandidateLock?.();
-    this.releaseCandidateLock = null;
+    this.adoptionAbort?.abort();
+    this.adoptionAbort = null;
+    this.releaseOwnerLock?.();
+    this.releaseOwnerLock = null;
+    this.ownsKeys = false;
     if (this.agentTimer) {
       clearTimeout(this.agentTimer);
       this.agentTimer = null;
@@ -602,13 +621,13 @@ class CollabDocConnection {
     };
   }
 
-  // Refused updates are held back for good, so retired they would only be
-  // sent again beside the candidate that replaces them.
+  // Refused updates a kept candidate replaces are held back for good, so
+  // retired they would only be sent again beside it.
   private retirePendingUpdates(): void {
     if (
       this.pendingUpdates.length &&
       this.retiredUpdatesKey &&
-      !this.snapshot.updatesRefused
+      !(this.snapshot.updatesRefused && this.keepsUnsentUpdates)
     ) {
       retiredCollabUpdates.set(this.retiredUpdatesKey, this.pendingUpdates);
     }
@@ -624,19 +643,25 @@ class CollabDocConnection {
     if (!this.keepsUnsentUpdates || this.snapshot.updatesRefused) return;
     const scope = this.outboxScope;
     if (!scope) return;
+    if (this.pendingUpdates.length === 0) {
+      this.removeStoredKey(scope.key);
+      return;
+    }
+    // Kept once the lock is held, which stores them then.
+    if (!this.ownsKeys) {
+      void this.holdOwnerLock();
+      if (!this.ownsKeys) return;
+    }
     try {
-      if (this.pendingUpdates.length === 0) {
-        window.localStorage.removeItem(scope.key);
-      } else {
-        window.localStorage.setItem(
-          scope.key,
-          uint8ArrayToBase64(
-            this.pendingUpdates.length === 1
-              ? this.pendingUpdates[0]
-              : Y.mergeUpdates(this.pendingUpdates),
-          ),
-        );
-      }
+      window.localStorage.setItem(
+        scope.key,
+        uint8ArrayToBase64(
+          this.pendingUpdates.length === 1
+            ? this.pendingUpdates[0]
+            : Y.mergeUpdates(this.pendingUpdates),
+        ),
+      );
+      this.storedKeys.add(scope.key);
     } catch {
       this.markDurableUpdatesFailed();
     }
@@ -645,70 +670,119 @@ class CollabDocConnection {
   private removeStored(key: "key" | "candidateKey"): void {
     if (!this.keepsUnsentUpdates) return;
     const scope = this.outboxScope;
-    if (!scope) return;
+    if (scope) this.removeStoredKey(scope[key]);
+  }
+
+  private removeStoredKey(key: string): void {
     try {
-      window.localStorage.removeItem(scope[key]);
+      window.localStorage.removeItem(key);
+      this.storedKeys.delete(key);
     } catch {
       this.markDurableUpdatesFailed();
     }
+    this.releaseOwnerLockIfIdle();
   }
 
   // Replaces the candidate this connection keeps; call only while it holds
-  // the candidate lock.
-  private keepCandidate(update: Uint8Array): void {
-    if (!this.keepsUnsentUpdates) return;
+  // its owner lock. False when it could not be kept.
+  private keepCandidate(update: Uint8Array): boolean {
+    if (!this.keepsUnsentUpdates) return true;
     const scope = this.outboxScope;
-    if (!scope) return;
+    if (!scope) return true;
     try {
       window.localStorage.setItem(
         scope.candidateKey,
         uint8ArrayToBase64(update),
       );
+      this.storedKeys.add(scope.candidateKey);
+      return true;
     } catch {
       this.markDurableUpdatesFailed();
+      return false;
     }
   }
 
-  /** Resolves once this tab holds its candidate's key as a Web Lock. */
-  private holdCandidateLock(): Promise<void> {
-    if (this.candidateLock) return this.candidateLock;
-    const key = this.outboxScope?.candidateKey;
-    const locks =
-      typeof navigator === "undefined" ? undefined : navigator.locks;
-    if (!key || !locks) {
-      this.candidateLock = Promise.resolve();
-      return this.candidateLock;
+  /** Resolves once this connection may write under its own keys. */
+  private holdOwnerLock(): Promise<void> {
+    if (this.ownerLock) return this.ownerLock;
+    const locks = webLocks();
+    if (!locks || this.disposed) {
+      this.ownsKeys = !this.disposed;
+      this.ownerLock = Promise.resolve();
+      return this.ownerLock;
     }
-    this.candidateLock = new Promise<void>((held) => {
-      void locks
+    this.ownerLock = new Promise<void>((held) => {
+      locks
         .request(
-          key,
+          OUTBOX_OWNER_LOCK_PREFIX + this.outboxOwnerId,
           () =>
             new Promise<void>((release) => {
-              this.releaseCandidateLock = release;
-              if (this.disposed) release();
               held();
+              if (this.disposed) {
+                release();
+                return;
+              }
+              this.releaseOwnerLock = release;
+              this.ownsKeys = true;
+              this.storeUnsentUpdates();
+              this.releaseOwnerLockIfIdle();
             }),
         )
-        // coercion-ok: without the lock, the candidate is kept as a browser
-        // without Web Locks keeps it; another tab may adopt it while this one
-        // is open.
-        .catch(() => held());
+        // coercion-ok: a browser that refuses the lock keeps this tab's
+        // entries as one without Web Locks does, and another tab may adopt
+        // them while this one is open.
+        .catch(() => {
+          held();
+          if (this.disposed) return;
+          this.ownsKeys = true;
+          this.storeUnsentUpdates();
+        });
     });
-    return this.candidateLock;
+    return this.ownerLock;
+  }
+
+  private releaseOwnerLockIfIdle(): void {
+    if (
+      !this.releaseOwnerLock ||
+      this.ownerLockPins > 0 ||
+      this.storedKeys.size > 0 ||
+      this.pendingUpdates.length > 0 ||
+      this.snapshot.updatesRefused
+    ) {
+      return;
+    }
+    const release = this.releaseOwnerLock;
+    this.releaseOwnerLock = null;
+    this.ownerLock = null;
+    this.ownsKeys = false;
+    release();
+  }
+
+  private async withOwnerLock<T>(write: () => T): Promise<T> {
+    if (!this.keepsUnsentUpdates) return write();
+    this.ownerLockPins++;
+    try {
+      await this.holdOwnerLock();
+      return write();
+    } finally {
+      this.ownerLockPins--;
+      this.releaseOwnerLockIfIdle();
+    }
   }
 
   /**
    * Sends what other connections for this doc and user kept: a tab that
    * closed or reloaded before its updates were acknowledged. Applying them
    * queues what the doc lacks as this connection's own unsent updates, which
-   * are kept before the other entry is removed. A live tab's entry is adopted
-   * too, which sends its updates twice and changes nothing. Rebuild
-   * candidates are adopted after, and only from tabs that are gone.
+   * are kept before the other entry is removed. Each connection's entries are
+   * adopted while holding its lock, so for a tab that is still open with
+   * them, once it closes; until then it sends them itself. A refused
+   * connection adopts nothing; the one rebuilt from it does.
    */
   private restoreUnsentUpdates(): void {
     if (
       this.unsentUpdatesRestored ||
+      this.restoreAfterRebuild ||
       !this.keepsUnsentUpdates ||
       !this.updateHandlerAttached ||
       this.disposed
@@ -718,80 +792,140 @@ class CollabDocConnection {
     const scope = this.outboxScope;
     if (!scope) return;
     this.unsentUpdatesRestored = true;
-    const candidatePrefix = scope.prefix + REBUILD_CANDIDATE_MARK;
-    const stored = this.readStored(
-      (key) =>
-        key.startsWith(scope.prefix) &&
-        !key.startsWith(candidatePrefix) &&
-        key !== scope.key,
-    );
-    if (!stored) return;
-    this.adoptStored(stored);
-    void this.restoreRebuildCandidates(candidatePrefix, scope.candidateKey);
-  }
-
-  private async restoreRebuildCandidates(
-    candidatePrefix: string,
-    ownKey: string,
-  ): Promise<void> {
-    const locks =
-      typeof navigator === "undefined" ? undefined : navigator.locks;
-    let open: Set<string>;
-    try {
-      const held = locks ? (await locks.query()).held : [];
-      open = new Set((held ?? []).flatMap((lock) => lock.name ?? []));
-    } catch {
-      this.markDurableUpdatesFailed();
+    const owners = this.readStoredOwners(scope.prefix);
+    if (!owners) return;
+    const locks = webLocks();
+    if (!locks) {
+      // An open tab's entries are adopted too, so its edits are sent twice,
+      // which changes nothing, and two refused tabs can each keep a
+      // candidate for one edit.
+      for (const owner of owners) this.adoptOwnerEntries(scope.prefix, owner);
       return;
     }
-    // A refused connection keeps nothing new; the one rebuilt from it adopts
-    // what is left.
-    if (this.disposed || this.snapshot.updatesRefused) return;
-    const stored = this.readStored(
-      (key) =>
-        key.startsWith(candidatePrefix) &&
-        key !== ownKey &&
-        key !== this.rebuiltFromKey &&
-        !open.has(key),
-    );
-    if (stored) this.adoptStored(stored);
+    const signal = (this.adoptionAbort ??= new AbortController()).signal;
+    for (const owner of owners) {
+      locks
+        .request(OUTBOX_OWNER_LOCK_PREFIX + owner, { signal }, () =>
+          this.adoptFromHeldOwner(scope.prefix, owner),
+        )
+        .catch(() => {
+          // Aborted when this connection closes or changes account first.
+          if (!signal.aborted) this.markDurableUpdatesFailed();
+        });
+    }
   }
 
-  private readStored(include: (key: string) => boolean): StoredOutbox[] | null {
-    const stored: StoredOutbox[] = [];
+  private mayAdopt(prefix: string): boolean {
+    return (
+      !this.disposed &&
+      !this.replaced &&
+      !this.snapshot.updatesRefused &&
+      this.outboxScope?.prefix === prefix
+    );
+  }
+
+  private async adoptFromHeldOwner(
+    prefix: string,
+    owner: string,
+  ): Promise<void> {
+    // Adopting writes this connection's own entry, so its lock is asked for
+    // only once there is something to adopt.
+    const entries = this.mayAdopt(prefix)
+      ? this.readOwnerEntries(prefix, owner)
+      : null;
+    if (!entries?.ordinary && !entries?.candidate) return;
+    await this.withOwnerLock(() => {
+      if (this.mayAdopt(prefix)) this.adoptOwnerEntries(prefix, owner);
+    });
+  }
+
+  /** The other connections with entries under `prefix`. */
+  private readStoredOwners(prefix: string): Set<string> | null {
+    const owners = new Set<string>();
     try {
       const storage = window.localStorage;
       for (let index = 0; index < storage.length; index += 1) {
         const key = storage.key(index);
-        if (!key || !include(key)) continue;
-        const raw = storage.getItem(key);
-        if (raw !== null) stored.push({ key, raw });
+        if (!key?.startsWith(prefix)) continue;
+        const rest = key.slice(prefix.length);
+        const owner = rest.startsWith(REBUILD_CANDIDATE_MARK)
+          ? rest.slice(REBUILD_CANDIDATE_MARK.length)
+          : rest;
+        if (
+          owner &&
+          owner !== this.outboxOwnerId &&
+          owner !== this.rebuiltFromOwner
+        ) {
+          owners.add(owner);
+        }
       }
     } catch {
       this.markDurableUpdatesFailed();
       return null;
     }
-    return stored;
+    return owners;
   }
 
-  private adoptStored(stored: StoredOutbox[]): void {
-    for (const entry of stored) {
-      try {
-        Y.applyUpdate(this.ydoc, base64ToUint8Array(entry.raw), OUTBOX_ORIGIN);
-        // Kept nowhere else while this connection cannot keep its own.
-        if (this.snapshot.durableUpdatesFailed) continue;
-      } catch {
-        // An entry that cannot be applied never will be; it is reported,
-        // then removed so it is not reported on every open.
-        this.markDurableUpdatesFailed();
+  private readOwnerEntries(
+    prefix: string,
+    owner: string,
+  ): { ordinary: StoredOutbox | null; candidate: StoredOutbox | null } | null {
+    const read = (key: string): StoredOutbox | null => {
+      const raw = window.localStorage.getItem(key);
+      return raw === null ? null : { key, raw };
+    };
+    try {
+      return {
+        ordinary: read(prefix + owner),
+        candidate: read(prefix + REBUILD_CANDIDATE_MARK + owner),
+      };
+    } catch {
+      this.markDurableUpdatesFailed();
+      return null;
+    }
+  }
+
+  // A candidate holds everything its connection's refused updates did, so
+  // beside one the ordinary entry is only removed.
+  private adoptOwnerEntries(prefix: string, owner: string): void {
+    const entries = this.readOwnerEntries(prefix, owner);
+    if (!entries) return;
+    const { ordinary, candidate } = entries;
+    if (candidate) {
+      const adopted = this.adoptStored(candidate);
+      if (adopted === "kept") return;
+      if (adopted === "adopted") {
+        if (ordinary) this.removeIfUnchanged(ordinary);
+        return;
       }
-      try {
-        if (window.localStorage.getItem(entry.key) === entry.raw) {
-          window.localStorage.removeItem(entry.key);
-        }
-      } catch {
-        this.markDurableUpdatesFailed();
+    }
+    if (ordinary) this.adoptStored(ordinary);
+  }
+
+  private adoptStored(entry: StoredOutbox): "adopted" | "kept" | "unreadable" {
+    let outcome: "adopted" | "unreadable" = "adopted";
+    try {
+      Y.applyUpdate(this.ydoc, base64ToUint8Array(entry.raw), OUTBOX_ORIGIN);
+      // Kept nowhere else while this connection cannot keep its own.
+      if (this.snapshot.durableUpdatesFailed) return "kept";
+    } catch {
+      // An entry that cannot be applied never will be; it is reported,
+      // then removed so it is not reported on every open.
+      this.markDurableUpdatesFailed();
+      outcome = "unreadable";
+    }
+    return this.removeIfUnchanged(entry) ? outcome : "kept";
+  }
+
+  private removeIfUnchanged(entry: StoredOutbox): boolean {
+    try {
+      if (window.localStorage.getItem(entry.key) === entry.raw) {
+        window.localStorage.removeItem(entry.key);
       }
+      return true;
+    } catch {
+      this.markDurableUpdatesFailed();
+      return false;
     }
   }
 
@@ -819,7 +953,10 @@ class CollabDocConnection {
         this.setSnapshot({ updatesRefused: false });
       }
       // Kept updates are per account.
+      this.adoptionAbort?.abort();
+      this.adoptionAbort = null;
       this.unsentUpdatesRestored = false;
+      this.releaseOwnerLockIfIdle();
     }
     if (
       prev &&
@@ -1087,6 +1224,7 @@ class CollabDocConnection {
     if (this.rebuildInFlight) return this.rebuildInFlight;
     if (
       this.disposed ||
+      this.replaced ||
       !this.snapshot.updatesRefused ||
       this.snapshot.initialization.status !== "ready"
     ) {
@@ -1104,7 +1242,7 @@ class CollabDocConnection {
     write: (doc: Y.Doc) => void,
     options: CollabRebuildOptions,
   ): Promise<CollabRebuildResult> {
-    await this.holdCandidateLock();
+    if (this.keepsUnsentUpdates) await this.holdOwnerLock();
     this.heldRemoteUpdates = [];
     try {
       let serverState: Uint8Array;
@@ -1121,7 +1259,10 @@ class CollabDocConnection {
       if (measured.status !== "fits") return measured;
 
       const next = new CollabDocConnection(this.docId, this.baseUrl);
-      next.rebuiltFromKey = this.outboxScope?.candidateKey ?? null;
+      next.rebuiltFromOwner = this.outboxOwnerId;
+      // Until it replaces this doc: an update it adopted first, the content
+      // written onto it would remove.
+      next.restoreAfterRebuild = true;
       const holder = Symbol("rebuild");
       let settle!: (state: CollabInitializationState) => void;
       const initialized = new Promise<CollabInitializationState>((resolve) => {
@@ -1151,10 +1292,12 @@ class CollabDocConnection {
         result = rebuildFailed(
           new Error(`The rebuilt doc did not load: ${initialization.category}`),
         );
-      } else if (this.disposed || !this.snapshot.updatesRefused) {
-        result = { status: "unavailable" };
       } else {
-        result = this.commitRebuild(next, write, options);
+        result = await next.withOwnerLock(() =>
+          this.disposed || !this.snapshot.updatesRefused
+            ? { status: "unavailable" as const }
+            : this.commitRebuild(next, write, options),
+        );
       }
       next.remove(holder);
       if (result.status !== "rebuilt") next.dispose();
@@ -1208,18 +1351,34 @@ class CollabDocConnection {
       write,
     );
     if (measured.status !== "fits") return measured;
+    // The kept candidate becomes the update the new doc keeps and sends, in
+    // one write, so a copy an interrupted handoff leaves repeats that doc's
+    // own entry. While it cannot, this doc and its candidate stay.
+    const candidateKey = this.outboxScope?.candidateKey;
+    if (
+      candidateKey &&
+      this.storedKeys.has(candidateKey) &&
+      !this.keepCandidate(measured.update)
+    ) {
+      return rebuildFailed(
+        new Error("The kept rebuild could not be replaced in storage"),
+      );
+    }
     try {
       options.beforeReplace?.(next.ydoc);
     } catch (error) {
       return rebuildFailed(error);
     }
     Y.applyUpdate(next.ydoc, measured.update, REBUILD_ORIGIN);
-    this.removeStored("candidateKey");
+    if (!next.snapshot.durableUpdatesFailed) this.removeStored("candidateKey");
     this.pendingUpdates = [];
+    this.replaced = true;
     collabConnectionRegistry.set(this.registryKey, next);
     for (const sub of Array.from(this.subscribers.values())) {
       sub.onReplaced?.(next);
     }
+    next.restoreAfterRebuild = false;
+    next.restoreUnsentUpdates();
     return { status: "rebuilt", ydoc: next.ydoc };
   }
 
@@ -1376,7 +1535,6 @@ class CollabDocConnection {
           this.setSnapshot({ updatesRefused: true });
           // Kept, they would only be refused again after a reload.
           this.removeStored("key");
-          void this.holdCandidateLock();
         }
         return;
       }

@@ -54,20 +54,57 @@ function decode(base64: string): Uint8Array {
   return Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
 }
 
-// Web Locks shared by every tab in a test: a name is held until the promise
-// its holder's callback returns settles.
-function installLocks(): Set<string> {
+// Exclusive Web Locks shared by every tab in a test, granted in request
+// order: a name is held until the promise its holder's callback returns
+// settles.
+function installLocks() {
   const held = new Set<string>();
+  const waiting = new Map<string, Array<() => void>>();
+  const release = (name: string) => {
+    const next = waiting.get(name)?.shift();
+    if (next) next();
+    else held.delete(name);
+  };
+  const acquire = (name: string, signal?: AbortSignal) =>
+    new Promise<void>((resolve, reject) => {
+      if (!held.has(name)) {
+        held.add(name);
+        resolve();
+        return;
+      }
+      const queue = waiting.get(name) ?? [];
+      waiting.set(name, queue);
+      const abort = () => {
+        queue.splice(queue.indexOf(grant), 1);
+        reject(new DOMException("Aborted", "AbortError"));
+      };
+      const grant = () => {
+        signal?.removeEventListener("abort", abort);
+        resolve();
+      };
+      signal?.addEventListener("abort", abort, { once: true });
+      queue.push(grant);
+    });
   Object.defineProperty(navigator, "locks", {
     configurable: true,
     value: {
       request: async (name: string, ...rest: unknown[]) => {
-        const callback = rest[rest.length - 1] as () => Promise<unknown>;
-        held.add(name);
+        const callback = rest[rest.length - 1] as (
+          lock: unknown,
+        ) => Promise<unknown>;
+        const options = (rest.length > 1 ? rest[0] : {}) as {
+          ifAvailable?: boolean;
+          signal?: AbortSignal;
+        };
+        if (options.signal?.aborted) {
+          throw new DOMException("Aborted", "AbortError");
+        }
+        if (options.ifAvailable && held.has(name)) return callback(null);
+        await acquire(name, options.signal);
         try {
-          return await callback();
+          return await callback({ name });
         } finally {
-          held.delete(name);
+          release(name);
         }
       },
       query: async () => ({
@@ -76,7 +113,22 @@ function installLocks(): Set<string> {
       }),
     },
   });
-  return held;
+  return {
+    held,
+    /** Holds `name` as another open tab would, until the returned call. */
+    hold(name: string): () => void {
+      expect(held.has(name)).toBe(false);
+      held.add(name);
+      return () => release(name);
+    },
+  };
+}
+
+const OWNER_LOCK_PREFIX = "agent-native-collab-outbox-owner:";
+
+// The lock a stored entry's connection holds while it keeps that entry.
+function ownerLock(key: string): string {
+  return OWNER_LOCK_PREFIX + key.slice(key.lastIndexOf(":") + 1);
 }
 
 function outboxEntries(): string[] {
@@ -122,10 +174,12 @@ describe("rebuilding a doc whose update the server refused", () => {
   }>;
   let stateGate: Promise<void> | null;
   let stateRequests: number;
-  let heldLocks: Set<string>;
+  let updatesOffline: boolean;
+  let otherTabs: Array<() => void>;
+  let locks: ReturnType<typeof installLocks>;
 
   beforeEach(() => {
-    heldLocks = installLocks();
+    locks = installLocks();
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.useFakeTimers();
     window.localStorage.clear();
@@ -137,6 +191,8 @@ describe("rebuilding a doc whose update the server refused", () => {
     pollLog = [];
     stateGate = null;
     stateRequests = 0;
+    updatesOffline = false;
+    otherTabs = [];
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -163,6 +219,7 @@ describe("rebuilding a doc whose update the server refused", () => {
           } as unknown as Response;
         }
         if (/\/collab\/[^/]+\/update/.test(url)) {
+          if (updatesOffline) throw new TypeError("Failed to fetch");
           const update = decode(JSON.parse(String(init?.body)).update);
           sentUpdates.push(update);
           // The server measures the document after the update.
@@ -200,6 +257,7 @@ describe("rebuilding a doc whose update the server refused", () => {
   });
 
   afterEach(() => {
+    for (const close of otherTabs) close();
     act(() => root.unmount());
     container.remove();
     _resetCollabDocRegistryForTests();
@@ -259,6 +317,58 @@ describe("rebuilding a doc whose update the server refused", () => {
       outcome = await result().rebuild(writeTextOf(() => doc));
     });
     return outcome!;
+  }
+
+  // Another tab: the client module loaded again, with its own connections,
+  // sharing this one's storage, locks and server. Closing it disposes them,
+  // as a closed tab's go.
+  async function openOtherTab(
+    name: string,
+    options: Partial<UseCollaborativeDocOptions> = {},
+  ) {
+    const tab = (await import(
+      /* @vite-ignore */ `./client.js?${name}`
+    )) as typeof import("./client.js");
+    let latest: UseCollaborativeDocResult | null = null;
+    function OtherTab() {
+      latest = tab.useCollaborativeDoc({
+        docId: DOC_ID,
+        user: USER,
+        durableUpdates: true,
+        ...options,
+      });
+      return null;
+    }
+    const element = document.createElement("div");
+    document.body.appendChild(element);
+    const tabRoot = createRoot(element);
+    let open = true;
+    const close = () => {
+      if (!open) return;
+      open = false;
+      act(() => tabRoot.unmount());
+      tab._resetCollabDocRegistryForTests();
+      element.remove();
+    };
+    otherTabs.push(close);
+    act(() => tabRoot.render(<OtherTab />));
+    await settle(50);
+    return {
+      result: () => latest as unknown as UseCollaborativeDocResult,
+      close,
+    };
+  }
+
+  function closeThisTab() {
+    act(() => root.unmount());
+    _resetCollabDocRegistryForTests();
+    root = createRoot(container);
+  }
+
+  function candidateKeys(): string[] {
+    return Object.keys(window.localStorage).filter((key) =>
+      key.includes(":rebuild:"),
+    );
   }
 
   it("is unavailable until the server refuses an update", async () => {
@@ -445,21 +555,21 @@ describe("rebuilding a doc whose update the server refused", () => {
     );
   });
 
-  it("leaves the content another open tab keeps to that tab", async () => {
+  it("leaves the content another open tab keeps to that tab, and adopts it once that tab closes", async () => {
     const first = await refusedAfterPaste();
     expect((await rebuild(first)).status).toBe("too_large");
-    const [ownKey] = Object.keys(window.localStorage);
+    const [ownKey] = candidateKeys();
     const otherKey = ownKey!.replace(/rebuild:[^:]+$/, "rebuild:other-tab");
-    // Another tab of the same account keeps the paste and its own typing.
+    // Another open tab of the same account keeps the paste and its own typing.
     const other = new Y.Doc();
     Y.applyUpdate(other, Y.encodeStateAsUpdate(server));
     const before = Y.encodeStateVector(other);
     other.getText("t").insert(5, `${PASTED}other typing`);
+    const closeOther = locks.hold(ownerLock(otherKey));
     window.localStorage.setItem(
       otherKey,
       encode(Y.encodeStateAsUpdate(other, before)),
     );
-    heldLocks.add(otherKey);
     removePaste(first);
     sentUpdates = [];
 
@@ -472,20 +582,228 @@ describe("rebuilding a doc whose update the server refused", () => {
     expect(sentUpdates).toHaveLength(1);
     expect(window.localStorage.getItem(otherKey)).not.toBeNull();
 
-    // Once that tab is gone, the next open adopts what it kept.
-    heldLocks.delete(otherKey);
-    act(() => root.unmount());
-    _resetCollabDocRegistryForTests();
-    root = createRoot(container);
-    const reopened = await mountReady();
+    // The rebuilt doc waits for that tab's lock, so takes what it kept once it
+    // closes.
+    closeOther();
     await settle();
 
     // Both tabs wrote after "kept " at once, so client ids order the two.
     expect([
       `kept ${PASTED}other typingtyped after`,
       `kept typed after${PASTED}other typing`,
-    ]).toContain(reopened().ydoc!.getText("t").toString());
+    ]).toContain(first().ydoc!.getText("t").toString());
     expect(window.localStorage.getItem(otherKey)).toBeNull();
+  });
+
+  it("leaves another open tab's unsent paste to that tab, so the paste is kept once after both close", async () => {
+    const pasting = await mountReady();
+    act(() => pasting().ydoc!.getText("t").insert(5, PASTED));
+    await settle(0);
+    // Kept, and not sent yet.
+    expect(outboxEntries()).toHaveLength(1);
+    expect(sentUpdates).toEqual([]);
+
+    const opened = await openOtherTab("unsent-paste");
+    expect(opened.result().ydoc!.getText("t").toString()).toBe("kept ");
+
+    await act(async () => {
+      await expect(pasting().flushUpdates()).resolves.toBe(false);
+    });
+    expect((await rebuild(pasting)).status).toBe("too_large");
+    expect(candidateKeys()).toHaveLength(1);
+    opened.close();
+    closeThisTab();
+
+    const reopened = await mountReady();
+    await settle();
+    expect(reopened().ydoc!.getText("t").toString()).toBe(`kept ${PASTED}`);
+  });
+
+  it("sends what a reloading page kept once the old page lets it go, though the new page loads first", async () => {
+    updatesOffline = true;
+    const beforeReload = await openOtherTab("before-reload");
+    act(() => beforeReload.result().ydoc!.getText("t").insert(5, "word "));
+    await settle();
+    expect(outboxEntries()).toHaveLength(1);
+
+    const reloaded = await mountReady();
+    await settle();
+    expect(reloaded().ydoc!.getText("t").toString()).toBe("kept ");
+    beforeReload.close();
+    await settle();
+    expect(reloaded().ydoc!.getText("t").toString()).toBe("kept word ");
+
+    updatesOffline = false;
+    await settle(16_000);
+
+    expect(server.getText("t").toString()).toBe("kept word ");
+    expect(reloaded().ydoc!.getText("t").toString()).toBe("kept word ");
+    expect(outboxEntries()).toEqual([]);
+    expect(locks.held.size).toBe(0);
+  });
+
+  it("sends what a closed tab kept when the page opens again", async () => {
+    updatesOffline = true;
+    const closed = await openOtherTab("closed-offline");
+    act(() => closed.result().ydoc!.getText("t").insert(5, "word "));
+    await settle();
+    closed.close();
+    updatesOffline = false;
+
+    const reopened = await mountReady();
+    await settle();
+
+    expect(reopened().ydoc!.getText("t").toString()).toBe("kept word ");
+    expect(server.getText("t").toString()).toBe("kept word ");
+    expect(outboxEntries()).toEqual([]);
+  });
+
+  it("holds its lock only while it keeps something", async () => {
+    const result = await mountReady();
+    expect(locks.held.size).toBe(0);
+    act(() => result().ydoc!.getText("t").insert(5, "a"));
+    await settle(0);
+    expect(locks.held.size).toBe(1);
+    expect(outboxEntries()).toHaveLength(1);
+
+    await settle();
+
+    expect(server.getText("t").toString()).toBe("kept a");
+    expect(outboxEntries()).toEqual([]);
+    expect(locks.held.size).toBe(0);
+  });
+
+  it("keeps a candidate made after the account changes to this tab", async () => {
+    const bea = { ...USER, name: "Bea", email: "bea@example.com" };
+    const first = await refusedAfterPaste();
+    expect((await rebuild(first)).status).toBe("too_large");
+    const asBea = await mountReady({ user: bea });
+    const text = asBea().ydoc!.getText("t");
+    act(() => text.insert(text.length, PASTED));
+    await act(async () => {
+      await expect(asBea().flushUpdates()).resolves.toBe(false);
+    });
+    expect((await rebuild(asBea)).status).toBe("too_large");
+    const beaKey = candidateKeys().find((key) =>
+      key.includes(encodeURIComponent(bea.email)),
+    );
+    expect(beaKey).toBeTruthy();
+    expect(locks.held.has(ownerLock(beaKey!))).toBe(true);
+
+    const elsewhere = await openOtherTab("bea-elsewhere", { user: bea });
+
+    expect(elsewhere.result().ydoc!.getText("t").toString()).toBe("kept ");
+    expect(window.localStorage.getItem(beaKey!)).not.toBeNull();
+  });
+
+  it("keeps a caller's refused updates for its next visit in the tab when it keeps none in storage", async () => {
+    const first = await refusedAfterPaste({ durableUpdates: false });
+    removePaste(first);
+    expect(first().ydoc!.getText("t").toString()).toBe("kept typed after");
+    act(() => root.unmount());
+    // Past the connection's linger, in the same page.
+    await settle(1100);
+    root = createRoot(container);
+
+    const second = await mountReady({ durableUpdates: false });
+    await settle();
+
+    expect(second().ydoc!.getText("t").toString()).toBe("kept typed after");
+    expect(locks.held.size).toBe(0);
+  });
+
+  it("holds the content once when a reload interrupts the handoff to the rebuilt doc", async () => {
+    const first = await refusedAfterPaste();
+    expect((await rebuild(first)).status).toBe("too_large");
+    const [oldKey] = candidateKeys();
+    removePaste(first);
+    const storage = window.localStorage;
+    const removeItem = storage.removeItem.bind(storage);
+    let checkpoint: Record<string, string> | undefined;
+    const remove = vi.spyOn(storage, "removeItem").mockImplementation((key) => {
+      if (key === oldKey) {
+        checkpoint = Object.fromEntries(
+          Object.keys(storage).map((name) => [name, storage.getItem(name)!]),
+        );
+      }
+      removeItem(key);
+    });
+    try {
+      expect((await rebuild(first)).status).toBe("rebuilt");
+    } finally {
+      remove.mockRestore();
+    }
+    // The old candidate and the rebuilt doc's own entry.
+    expect(Object.keys(checkpoint!)).toHaveLength(2);
+    closeThisTab();
+    await settle(1100);
+    storage.clear();
+    for (const [key, value] of Object.entries(checkpoint!)) {
+      storage.setItem(key, value);
+    }
+
+    const reopened = await mountReady();
+    await settle();
+
+    expect(reopened().ydoc!.getText("t").toString()).toBe("kept typed after");
+  });
+
+  it("keeps its candidate, and its doc, while the candidate cannot be replaced", async () => {
+    const first = await refusedAfterPaste();
+    expect((await rebuild(first)).status).toBe("too_large");
+    const [candidateKey] = candidateKeys();
+    const kept = window.localStorage.getItem(candidateKey!);
+    const refusedDoc = first().ydoc;
+    removePaste(first);
+    const setItem = vi
+      .spyOn(window.localStorage, "setItem")
+      .mockImplementation(() => {
+        throw new DOMException("full", "QuotaExceededError");
+      });
+    let outcome: Awaited<ReturnType<UseCollaborativeDocResult["rebuild"]>>;
+    try {
+      outcome = await rebuild(first);
+    } finally {
+      setItem.mockRestore();
+    }
+
+    expect(outcome.status).toBe("failed");
+    expect(first().ydoc).toBe(refusedDoc);
+    expect(first().updatesRefused).toBe(true);
+    expect(first().durableUpdatesFailed).toBe(true);
+    expect(window.localStorage.getItem(candidateKey!)).toBe(kept);
+  });
+
+  it("leaves its candidate when the rebuilt doc cannot keep its update, so a reload holds the content once", async () => {
+    const first = await refusedAfterPaste();
+    expect((await rebuild(first)).status).toBe("too_large");
+    const [candidateKey] = candidateKeys();
+    removePaste(first);
+    updatesOffline = true;
+    const storage = window.localStorage;
+    const setItem = storage.setItem.bind(storage);
+    const store = vi
+      .spyOn(storage, "setItem")
+      .mockImplementation((key, value) => {
+        if (key.startsWith(OUTBOX_PREFIX) && !key.includes(":rebuild:")) {
+          throw new DOMException("full", "QuotaExceededError");
+        }
+        setItem(key, value);
+      });
+    try {
+      expect((await rebuild(first)).status).toBe("rebuilt");
+    } finally {
+      store.mockRestore();
+    }
+    expect(first().durableUpdatesFailed).toBe(true);
+    expect(candidateKeys()).toEqual([candidateKey]);
+    closeThisTab();
+    await settle(1100);
+
+    const reopened = await mountReady();
+    await settle();
+
+    expect(reopened().ydoc!.getText("t").toString()).toBe("kept typed after");
   });
 
   it("saves a deletion that leaves a doc at the size limit smaller", async () => {
