@@ -96,13 +96,26 @@ function foldedRunIds(value: Record<string, unknown>): string[] {
   return [...new Set([...folded, ...(runId ? [runId] : [])])];
 }
 
-function eventRunIds(events: unknown, runs: unknown): Map<string, Set<string>> {
-  const result = new Map<string, Set<string>>();
-  const remember = (messageId: unknown, runId: unknown) => {
+function eventRunIds(
+  events: unknown,
+  runs: unknown,
+): {
+  activeByMessageId: Map<string, Set<string>>;
+  inheritedByMessageId: Map<string, Set<string>>;
+  claimedByMessageId: Map<string, Set<string>>;
+} {
+  const activeByMessageId = new Map<string, Set<string>>();
+  const inheritedByMessageId = new Map<string, Set<string>>();
+  const claimedByMessageId = new Map<string, Set<string>>();
+  const remember = (
+    target: Map<string, Set<string>>,
+    messageId: unknown,
+    runId: unknown,
+  ) => {
     if (typeof messageId !== "string" || typeof runId !== "string") return;
-    const ids = result.get(messageId) ?? new Set<string>();
+    const ids = target.get(messageId) ?? new Set<string>();
     ids.add(runId);
-    result.set(messageId, ids);
+    target.set(messageId, ids);
   };
   for (const value of Array.isArray(events) ? events : []) {
     const event = record(value);
@@ -112,15 +125,19 @@ function eventRunIds(events: unknown, runs: unknown): Map<string, Set<string>> {
         event?.type === "message.completed") &&
       eventMessage?.role === "assistant"
     ) {
-      remember(eventMessage.id ?? event?.messageId, event?.runId);
+      const messageId = eventMessage.id ?? event?.messageId;
+      remember(activeByMessageId, messageId, event?.runId);
+      remember(claimedByMessageId, messageId, event?.runId);
     }
   }
   for (const value of Array.isArray(runs) ? runs : []) {
     const run = record(value);
-    remember(run?.activeMessageId, run?.id);
-    remember(run?.inheritedMessageId, run?.id);
+    remember(activeByMessageId, run?.activeMessageId, run?.id);
+    remember(claimedByMessageId, run?.activeMessageId, run?.id);
+    remember(inheritedByMessageId, run?.inheritedMessageId, run?.id);
+    remember(claimedByMessageId, run?.inheritedMessageId, run?.id);
   }
-  return result;
+  return { activeByMessageId, inheritedByMessageId, claimedByMessageId };
 }
 
 function eventMessageIdsByRun(
@@ -139,17 +156,28 @@ function eventMessageIdsByRun(
 
 function assistantRunId(
   value: Record<string, unknown>,
-  runIdsByMessageId: Map<string, Set<string>>,
+  activeRunIdsByMessageId: Map<string, Set<string>>,
   inferredRunId?: string,
+  inheritedRunIdsByMessageId?: Map<string, Set<string>>,
 ): string | undefined {
   if (value.role !== "assistant") return undefined;
-  const eventRunIds =
-    typeof value.id === "string" ? runIdsByMessageId.get(value.id) : undefined;
-  return (
-    (eventRunIds?.size === 1 ? [...eventRunIds][0] : undefined) ??
-    explicitRunId(value) ??
-    (eventRunIds?.size ? undefined : inferredRunId)
-  );
+  const activeRunIds =
+    typeof value.id === "string"
+      ? activeRunIdsByMessageId.get(value.id)
+      : undefined;
+  if (activeRunIds?.size === 1) return [...activeRunIds][0];
+  if (activeRunIds?.size) return explicitRunId(value);
+
+  const explicit = explicitRunId(value);
+  if (explicit) return explicit;
+
+  const inheritedRunIds =
+    typeof value.id === "string"
+      ? inheritedRunIdsByMessageId?.get(value.id)
+      : undefined;
+  if (inheritedRunIds?.size === 1) return [...inheritedRunIds][0];
+  if (inheritedRunIds?.size) return undefined;
+  return inferredRunId;
 }
 
 function text(
@@ -540,8 +568,10 @@ export function projectRootAssistantMessages(input: {
         return entry ? [entry] : [];
       })
     : [];
-  const runIdsByMessageId = eventRunIds(input.events, input.runs);
-  const messageIdsByRun = eventMessageIdsByRun(runIdsByMessageId);
+  const runClaims = eventRunIds(input.events, input.runs);
+  const { activeByMessageId, inheritedByMessageId, claimedByMessageId } =
+    runClaims;
+  const messageIdsByRun = eventMessageIdsByRun(claimedByMessageId);
   const snapshotUserIdsByRun = new Map<string, string | null>();
   for (const root of rootMessages) {
     if (root.role !== "user") continue;
@@ -589,27 +619,31 @@ export function projectRootAssistantMessages(input: {
     if (candidate.role !== "assistant") continue;
     const eventRunIds =
       typeof candidate.id === "string"
-        ? runIdsByMessageId.get(candidate.id)
+        ? activeByMessageId.get(candidate.id)
         : undefined;
     const inferredRunId =
       !eventRunIds?.size && !explicitRunId(candidate)
         ? submittedRunId
         : undefined;
-    const runId = assistantRunId(candidate, runIdsByMessageId, inferredRunId);
+    const runId = assistantRunId(
+      candidate,
+      activeByMessageId,
+      inferredRunId,
+      inheritedByMessageId,
+    );
+    const claimedRunIds =
+      typeof candidate.id === "string"
+        ? claimedByMessageId.get(candidate.id)
+        : undefined;
+    if (
+      typeof candidate.id === "string" &&
+      !explicitRunId(candidate) &&
+      claimedRunIds !== undefined &&
+      claimedRunIds.size > 1
+    ) {
+      sharedSnapshotIds.add(candidate.id);
+    }
     if (!runId || typeof candidate.id !== "string") {
-      const claimed =
-        typeof candidate.id === "string"
-          ? runIdsByMessageId.get(candidate.id)
-          : undefined;
-      if (
-        !runId &&
-        typeof candidate.id === "string" &&
-        !explicitRunId(candidate) &&
-        claimed &&
-        claimed.size > 1
-      ) {
-        sharedSnapshotIds.add(candidate.id);
-      }
       continue;
     }
     if (inferredRunId) snapshotRunIdsByMessageId.set(candidate.id, runId);
@@ -621,7 +655,7 @@ export function projectRootAssistantMessages(input: {
   const directMatches = new Map<string, string>();
   const rootAssistantCountsByRun = new Map<string, number>();
   for (const root of rootMessages) {
-    const runId = assistantRunId(root, runIdsByMessageId);
+    const runId = assistantRunId(root, activeByMessageId);
     if (!runId) continue;
     rootAssistantCountsByRun.set(
       runId,
@@ -631,7 +665,7 @@ export function projectRootAssistantMessages(input: {
   const supersededSnapshotMessageIds = new Set<string>();
   for (const root of rootMessages) {
     if (root.role !== "assistant" || typeof root.id !== "string") continue;
-    const runId = assistantRunId(root, runIdsByMessageId);
+    const runId = assistantRunId(root, activeByMessageId);
     if (!runId) continue;
     const toolMessageIds = representedToolCallMessageIds(root, input.toolCalls);
     const sameRunCandidates = (snapshotMessagesByRunId.get(runId) ?? []).filter(
@@ -734,7 +768,7 @@ export function projectRootAssistantMessages(input: {
       (explicitRunId(matchingCandidate) === runId ||
         (typeof matchingCandidate.id === "string" &&
           (snapshotRunIdsByMessageId.get(matchingCandidate.id) === runId ||
-            (runIdsByMessageId.get(matchingCandidate.id)?.size === 1 &&
+            (claimedByMessageId.get(matchingCandidate.id)?.size === 1 &&
               messageIdsByRun.get(runId)?.size === 1))));
     if (
       candidateMatches.length === 1 &&
@@ -763,7 +797,7 @@ export function projectRootAssistantMessages(input: {
     const snapshot = snapshotMessages.find(
       (candidate) => candidate.id === snapshotId,
     );
-    const claimed = runIdsByMessageId.get(snapshotId);
+    const claimed = claimedByMessageId.get(snapshotId);
     if (!snapshot || !claimed) continue;
     const rootId = sharedFoldedRootId(
       snapshot,
