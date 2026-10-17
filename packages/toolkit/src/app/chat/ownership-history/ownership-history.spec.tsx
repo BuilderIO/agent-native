@@ -681,6 +681,281 @@ describe("ownership history adapter", () => {
     },
   );
 
+  it.each(
+    (["pin", "rename"] as const).flatMap((olderKind) =>
+      (["false", "throw"] as const).flatMap((failure) =>
+        (["pending", "persisted-refresh-error"] as const).map((laterState) => ({
+          olderKind,
+          failure,
+          laterState,
+        })),
+      ),
+    ),
+  )(
+    "independent fields: older $olderKind $failure with later $laterState rolls back only the failed field",
+    async ({ olderKind, failure, laterState }) => {
+      mine = [row("owned", { title: "Original" })];
+      const pin = deferred<boolean>();
+      const rename = deferred<boolean>();
+      const older = olderKind === "pin" ? pin : rename;
+      const later = olderKind === "pin" ? rename : pin;
+      const onMutationFailed = vi.fn();
+      await render({
+        pinned: true,
+        mutations: { pin: () => pin.promise, rename: () => rename.promise },
+        onMutationFailed,
+      });
+      const start = (kind: "pin" | "rename") =>
+        kind === "pin"
+          ? latest.listProps.onTogglePin!("owned")
+          : latest.listProps.onRename!("owned", "Renamed");
+      let olderResult!: Promise<boolean>;
+      let laterResult!: Promise<boolean>;
+      act(() => {
+        olderResult = start(olderKind);
+      });
+      act(() => {
+        laterResult = start(olderKind === "pin" ? "rename" : "pin");
+      });
+      expect(item("owned")).toMatchObject({
+        titleText: "Renamed",
+        pinned: true,
+      });
+      const finishLater = async () => {
+        mine = [
+          row("owned", {
+            title: olderKind === "pin" ? "Renamed" : "Original",
+            pinnedAt: olderKind === "rename" ? 2 : null,
+          }),
+        ];
+        failMine = true;
+        await act(async () => {
+          later.resolve(true);
+          expect(await laterResult).toBe(true);
+        });
+        expect(latest.error?.message).toContain("503");
+      };
+      if (laterState === "persisted-refresh-error") await finishLater();
+      const requestsBeforeFailure = fetchMock.mock.calls.length;
+      const cause = new Error("Older field failed");
+      await act(async () => {
+        if (failure === "throw") older.reject(cause);
+        else older.resolve(false);
+        expect(await olderResult).toBe(false);
+      });
+      expect(item("owned")).toMatchObject({
+        titleText: olderKind === "pin" ? "Renamed" : "Original",
+        pinned: olderKind === "rename",
+      });
+      expect(onMutationFailed).toHaveBeenCalledExactlyOnceWith(
+        olderKind,
+        "owned",
+        ...(failure === "throw" ? [cause] : []),
+      );
+      expect(fetchMock).toHaveBeenCalledTimes(requestsBeforeFailure);
+      if (laterState === "pending") await finishLater();
+      expect(item("owned")).toMatchObject({
+        titleText: olderKind === "pin" ? "Renamed" : "Original",
+        pinned: olderKind === "rename",
+      });
+      expect(onMutationFailed).toHaveBeenCalledTimes(1);
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+    },
+  );
+
+  it.each(["pin", "rename"] as const)(
+    "independent fields: a later failure preserves the earlier pending %s intent",
+    async (olderKind) => {
+      mine = [row("owned", { title: "Original" })];
+      const pin = deferred<boolean>();
+      const rename = deferred<boolean>();
+      const older = olderKind === "pin" ? pin : rename;
+      const later = olderKind === "pin" ? rename : pin;
+      const onMutationFailed = vi.fn();
+      await render({
+        pinned: true,
+        mutations: { pin: () => pin.promise, rename: () => rename.promise },
+        onMutationFailed,
+      });
+      const start = (kind: "pin" | "rename") =>
+        kind === "pin"
+          ? latest.listProps.onTogglePin!("owned")
+          : latest.listProps.onRename!("owned", "Renamed");
+      let olderResult!: Promise<boolean>;
+      let laterResult!: Promise<boolean>;
+      act(() => {
+        olderResult = start(olderKind);
+      });
+      act(() => {
+        laterResult = start(olderKind === "pin" ? "rename" : "pin");
+      });
+      await act(async () => {
+        later.resolve(false);
+        expect(await laterResult).toBe(false);
+      });
+      expect(item("owned")).toMatchObject({
+        titleText: olderKind === "rename" ? "Renamed" : "Original",
+        pinned: olderKind === "pin",
+      });
+      expect(onMutationFailed).toHaveBeenCalledExactlyOnceWith(
+        olderKind === "pin" ? "rename" : "pin",
+        "owned",
+      );
+      mine = [
+        row("owned", {
+          title: olderKind === "rename" ? "Renamed" : "Original",
+          pinnedAt: olderKind === "pin" ? 2 : null,
+        }),
+      ];
+      await act(async () => {
+        older.resolve(true);
+        expect(await olderResult).toBe(true);
+      });
+      expect(item("owned")).toMatchObject({
+        titleText: olderKind === "rename" ? "Renamed" : "Original",
+        pinned: olderKind === "pin",
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+    },
+  );
+
+  it.each(["pin", "rename"] as const)(
+    "independent fields: an authoritative %s refresh keeps the other field pending",
+    async (olderKind) => {
+      mine = [row("owned", { title: "Original" })];
+      const pin = deferred<boolean>();
+      const rename = deferred<boolean>();
+      const older = olderKind === "pin" ? pin : rename;
+      const later = olderKind === "pin" ? rename : pin;
+      const onMutationFailed = vi.fn();
+      await render({
+        pinned: true,
+        mutations: { pin: () => pin.promise, rename: () => rename.promise },
+        onMutationFailed,
+      });
+      const start = (kind: "pin" | "rename") =>
+        kind === "pin"
+          ? latest.listProps.onTogglePin!("owned")
+          : latest.listProps.onRename!("owned", "Renamed");
+      let olderResult!: Promise<boolean>;
+      let laterResult!: Promise<boolean>;
+      act(() => {
+        olderResult = start(olderKind);
+      });
+      act(() => {
+        laterResult = start(olderKind === "pin" ? "rename" : "pin");
+      });
+      mine = [
+        row("owned", {
+          title: olderKind === "rename" ? "Renamed" : "Original",
+          pinnedAt: olderKind === "pin" ? 2 : null,
+        }),
+      ];
+      await act(async () => {
+        older.resolve(true);
+        expect(await olderResult).toBe(true);
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+      expect(item("owned")).toMatchObject({
+        titleText: "Renamed",
+        pinned: true,
+      });
+      expect(latest.mineRows[0]).toMatchObject({
+        title: olderKind === "rename" ? "Renamed" : "Original",
+        pinnedAt: olderKind === "pin" ? 2 : null,
+      });
+      await act(async () => {
+        later.resolve(false);
+        expect(await laterResult).toBe(false);
+      });
+      expect(item("owned")).toMatchObject({
+        titleText: olderKind === "rename" ? "Renamed" : "Original",
+        pinned: olderKind === "pin",
+      });
+      expect(onMutationFailed).toHaveBeenCalledExactlyOnceWith(
+        olderKind === "pin" ? "rename" : "pin",
+        "owned",
+      );
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+    },
+  );
+
+  it("independent fields: a failed archive restores the other pending rename", async () => {
+    mine = [row("owned", { title: "Original" })];
+    const archive = deferred<boolean>();
+    const rename = deferred<boolean>();
+    const onMutationFailed = vi.fn();
+    await render({
+      mutations: {
+        archive: () => archive.promise,
+        rename: () => rename.promise,
+      },
+      onMutationFailed,
+    });
+    let archiveResult!: Promise<boolean>;
+    let renameResult!: Promise<boolean>;
+    act(() => {
+      archiveResult = latest.listProps.onDelete!("owned");
+    });
+    act(() => {
+      renameResult = latest.listProps.onRename!("owned", "Renamed");
+    });
+    await act(async () => {
+      archive.resolve(false);
+      expect(await archiveResult).toBe(false);
+    });
+    expect(item("owned")?.titleText).toBe("Renamed");
+    expect(onMutationFailed).toHaveBeenCalledExactlyOnceWith(
+      "archive",
+      "owned",
+    );
+    await act(async () => {
+      rename.resolve(false);
+      expect(await renameResult).toBe(false);
+    });
+    expect(item("owned")?.titleText).toBe("Original");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("independent fields: a successful rename refresh does not clear a pending archive", async () => {
+    mine = [row("owned", { title: "Original" })];
+    const archive = deferred<boolean>();
+    const rename = deferred<boolean>();
+    const onMutationFailed = vi.fn();
+    await render({
+      mutations: {
+        archive: () => archive.promise,
+        rename: () => rename.promise,
+      },
+      onMutationFailed,
+    });
+    let archiveResult!: Promise<boolean>;
+    let renameResult!: Promise<boolean>;
+    act(() => {
+      archiveResult = latest.listProps.onDelete!("owned");
+    });
+    act(() => {
+      renameResult = latest.listProps.onRename!("owned", "Renamed");
+    });
+    mine = [row("owned", { title: "Renamed" })];
+    await act(async () => {
+      rename.resolve(true);
+      expect(await renameResult).toBe(true);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(item("owned")).toBeUndefined();
+    await act(async () => {
+      archive.resolve(false);
+      expect(await archiveResult).toBe(false);
+    });
+    expect(item("owned")?.titleText).toBe("Renamed");
+    expect(onMutationFailed).toHaveBeenCalledExactlyOnceWith(
+      "archive",
+      "owned",
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
   it("an older failure cannot roll back a newer optimistic intent", async () => {
     mine = [row("owned")];
     const first = deferred<boolean>();
