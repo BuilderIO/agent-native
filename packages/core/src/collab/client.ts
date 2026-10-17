@@ -15,6 +15,7 @@ import {
   REALTIME_CAP_NO_AWARENESS,
   REALTIME_CAP_POLL_LIVE,
 } from "../realtime-protocol.js";
+import { collabUpdateFits } from "./limits.js";
 import { dedupeCollabUsersByEmail, type CollabUser } from "./types.js";
 export {
   dedupeCollabUsersByEmail,
@@ -23,6 +24,11 @@ export {
   type CollabUser,
 } from "./types.js";
 export { isReconcileLeadClient } from "./lead-client.js";
+export {
+  COLLAB_MAX_STATE_BYTES,
+  COLLAB_MAX_UPDATE_BYTES,
+  collabUpdateFits,
+} from "./limits.js";
 
 export interface UseCollaborativeDocOptions {
   docId: string | null;
@@ -73,6 +79,20 @@ export type CollaborativeDocSyncResult =
   | { status: "failed"; error: Error }
   | { status: "unavailable" };
 
+export interface CollabRebuildOptions {
+  beforeReplace?: (next: Y.Doc) => void;
+}
+
+/**
+ * What `rebuild` did. `too_large` replaced nothing: the server would still
+ * refuse the content as one update.
+ */
+export type CollabRebuildResult =
+  | { status: "rebuilt"; ydoc: Y.Doc }
+  | { status: "too_large"; updateBytes: number; stateBytes: number }
+  | { status: "failed"; error: Error }
+  | { status: "unavailable" };
+
 export interface UseCollaborativeDocResult {
   ydoc: Y.Doc | null;
   awareness: Awareness | null;
@@ -95,10 +115,26 @@ export interface UseCollaborativeDocResult {
   durableUpdatesFailed: boolean;
   /**
    * True once the server refused one of this tab's updates as too large.
-   * Resending it cannot succeed, so this tab stops sending updates; they stay
-   * unacknowledged, and kept with `durableUpdates`.
+   * Every later update depends on it, so this tab stops sending updates and
+   * stops keeping them with `durableUpdates`; `rebuild` replaces them.
    */
   updatesRefused: boolean;
+  /**
+   * After `updatesRefused`, writes the caller's content onto the server's
+   * copy of the doc as one update, through `write`, and replaces this tab's
+   * doc with one under a new client id that sends it. This doc takes the
+   * server's copy first, so content `write` reads from an editor bound to it
+   * holds what collaborators added. While the update would still be refused
+   * it resolves `too_large` and keeps that update, with `durableUpdates`, in
+   * place of the refused ones. Once `rebuilt`, `ydoc` and `awareness` are
+   * the new doc's. `write` runs synchronously, up to twice per call, and
+   * `beforeReplace` gets the new doc right before the hook moves to it, so an
+   * editor can stop taking edits that would reach only the old one.
+   */
+  rebuild: (
+    write: (doc: Y.Doc) => void,
+    options?: CollabRebuildOptions,
+  ) => Promise<CollabRebuildResult>;
   activeUsers: CollabUser[];
   agentActive: boolean;
   agentPresent: boolean;
@@ -271,6 +307,7 @@ interface CollabDocSubscription {
   durableUpdates?: boolean;
   onUpdateAcknowledged?: (ack: CollabUpdateAck) => void;
   onSnapshot: (snapshot: CollabDocSnapshot) => void;
+  onReplaced?: (next: CollabDocConnection) => void;
 }
 
 const EMPTY_SNAPSHOT: CollabDocSnapshot = Object.freeze({
@@ -310,6 +347,7 @@ function readUpdateAck(body: unknown): CollabUpdateAck {
 // changes nothing.
 const OUTBOX_PREFIX = "agent-native-collab-outbox-v1:";
 const OUTBOX_ORIGIN = "collab-outbox";
+const REBUILD_ORIGIN = "collab-rebuild";
 
 function outboxPrefix(docKey: string, email: string): string {
   return `${OUTBOX_PREFIX}${encodeURIComponent(docKey)}:${encodeURIComponent(email)}:`;
@@ -325,6 +363,19 @@ const requestSyncUnavailable = (): Promise<CollaborativeDocSyncResult> =>
 
 // Nothing is outstanding without a connection.
 const flushUpdatesUnavailable = (): Promise<boolean> => Promise.resolve(true);
+
+const rebuildUnavailable = (): Promise<CollabRebuildResult> =>
+  Promise.resolve({ status: "unavailable" });
+
+function rebuildFailed(error: unknown): {
+  status: "failed";
+  error: Error;
+} {
+  return {
+    status: "failed",
+    error: error instanceof Error ? error : new Error(String(error)),
+  };
+}
 
 const DISPOSE_LINGER_MS = 1000;
 
@@ -355,6 +406,13 @@ class CollabDocConnection {
   private readonly outboxOwnerId = `${Date.now().toString(36)}-${Math.random()
     .toString(36)
     .slice(2)}`;
+  // What the refused connection this one rebuilt kept, which this one's
+  // first update replaces.
+  private rebuiltFromKey: string | null = null;
+  private rebuildInFlight: Promise<CollabRebuildResult> | null = null;
+  // Remote updates wait while a rebuild reads this doc against the server's,
+  // so the content it reads holds nothing that copy lacks.
+  private heldRemoteUpdates: Uint8Array[] | null = null;
 
   private syncActive = false;
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
@@ -535,7 +593,7 @@ class CollabDocConnection {
   }
 
   private storeUnsentUpdates(): void {
-    if (!this.keepsUnsentUpdates) return;
+    if (!this.keepsUnsentUpdates || this.snapshot.updatesRefused) return;
     const scope = this.outboxScope;
     if (!scope) return;
     try {
@@ -550,6 +608,22 @@ class CollabDocConnection {
               : Y.mergeUpdates(this.pendingUpdates),
           ),
         );
+      }
+    } catch {
+      this.markDurableUpdatesFailed();
+    }
+  }
+
+  // Replaces what this connection keeps with one update, or with nothing.
+  private keepOwnUpdate(update: Uint8Array | null): void {
+    if (!this.keepsUnsentUpdates) return;
+    const scope = this.outboxScope;
+    if (!scope) return;
+    try {
+      if (update) {
+        window.localStorage.setItem(scope.key, uint8ArrayToBase64(update));
+      } else {
+        window.localStorage.removeItem(scope.key);
       }
     } catch {
       this.markDurableUpdatesFailed();
@@ -580,7 +654,13 @@ class CollabDocConnection {
       const storage = window.localStorage;
       for (let index = 0; index < storage.length; index += 1) {
         const key = storage.key(index);
-        if (!key?.startsWith(scope.prefix) || key === scope.key) continue;
+        if (
+          !key?.startsWith(scope.prefix) ||
+          key === scope.key ||
+          key === this.rebuiltFromKey
+        ) {
+          continue;
+        }
         const raw = storage.getItem(key);
         if (raw !== null) stored.push({ key, raw });
       }
@@ -895,6 +975,200 @@ class CollabDocConnection {
     return this.pendingUpdates.length === 0;
   };
 
+  rebuild = (
+    write: (doc: Y.Doc) => void,
+    options: CollabRebuildOptions = {},
+  ): Promise<CollabRebuildResult> => {
+    if (this.rebuildInFlight) return this.rebuildInFlight;
+    if (
+      this.disposed ||
+      !this.snapshot.updatesRefused ||
+      this.snapshot.initialization.status !== "ready"
+    ) {
+      return Promise.resolve({ status: "unavailable" });
+    }
+    const request = this.performRebuild(write, options);
+    this.rebuildInFlight = request;
+    void request.finally(() => {
+      if (this.rebuildInFlight === request) this.rebuildInFlight = null;
+    });
+    return request;
+  };
+
+  private async performRebuild(
+    write: (doc: Y.Doc) => void,
+    options: CollabRebuildOptions,
+  ): Promise<CollabRebuildResult> {
+    this.heldRemoteUpdates = [];
+    try {
+      let serverState: Uint8Array;
+      try {
+        serverState = await this.fetchServerState();
+      } catch (error) {
+        return rebuildFailed(error);
+      }
+      if (this.disposed || !this.snapshot.updatesRefused) {
+        return { status: "unavailable" };
+      }
+      // Measured first, so content that is still too large starts no doc.
+      const measured = this.measureRebuild(serverState, write);
+      if (measured.status !== "fits") return measured;
+
+      const next = new CollabDocConnection(this.docId, this.baseUrl);
+      next.rebuiltFromKey = this.outboxScope?.key ?? null;
+      const holder = Symbol("rebuild");
+      let settle!: (state: CollabInitializationState) => void;
+      const initialized = new Promise<CollabInitializationState>((resolve) => {
+        settle = resolve;
+      });
+      next.add(holder, {
+        pollInterval: this.effectivePollInterval,
+        pollIntervalWithSse: this.effectivePollIntervalWithSse,
+        pauseWhenHidden: this.effectivePauseWhenHidden,
+        requestSource: this.requestSource,
+        durableUpdates: this.keepsUnsentUpdates,
+        onSnapshot: (snapshot) => {
+          if (snapshot.initialization.status !== "loading") {
+            settle(snapshot.initialization);
+          }
+        },
+      });
+      if (this.lastSetUser) next.setUser(this.lastSetUser);
+      const timeout = setTimeout(
+        () => settle({ status: "error", category: "network" }),
+        STATE_VECTOR_FETCH_TIMEOUT_MS,
+      );
+      const initialization = await initialized;
+      clearTimeout(timeout);
+      let result: CollabRebuildResult;
+      if (initialization.status === "error") {
+        result = rebuildFailed(
+          new Error(`The rebuilt doc did not load: ${initialization.category}`),
+        );
+      } else if (this.disposed || !this.snapshot.updatesRefused) {
+        result = { status: "unavailable" };
+      } else {
+        result = this.commitRebuild(next, write, options);
+      }
+      next.remove(holder);
+      if (result.status !== "rebuilt") next.dispose();
+      return result;
+    } finally {
+      this.releaseRemoteUpdates();
+    }
+  }
+
+  /**
+   * The update `write` makes to `base`, written after this doc takes `base`
+   * so content read from an editor bound to it holds everything `base` does.
+   */
+  private measureRebuild(
+    base: Uint8Array,
+    write: (doc: Y.Doc) => void,
+  ):
+    | { status: "fits"; update: Uint8Array }
+    | Exclude<CollabRebuildResult, { status: "rebuilt" }> {
+    const scratch = new Y.Doc();
+    let update: Uint8Array;
+    try {
+      Y.applyUpdate(scratch, base, "remote");
+      Y.applyUpdate(this.ydoc, base, "remote");
+      const vector = Y.encodeStateVector(scratch);
+      write(scratch);
+      update = Y.encodeStateAsUpdate(scratch, vector);
+    } catch (error) {
+      return rebuildFailed(error);
+    } finally {
+      scratch.destroy();
+    }
+    if (collabUpdateFits(update.length, base.length)) {
+      return { status: "fits", update };
+    }
+    this.keepOwnUpdate(update);
+    return {
+      status: "too_large",
+      updateBytes: update.length,
+      stateBytes: base.length,
+    };
+  }
+
+  private commitRebuild(
+    next: CollabDocConnection,
+    write: (doc: Y.Doc) => void,
+    options: CollabRebuildOptions,
+  ): CollabRebuildResult {
+    // Measured again against the new doc, which may hold more than the state
+    // measured first, and read after this tab's latest typing.
+    const measured = this.measureRebuild(
+      Y.encodeStateAsUpdate(next.ydoc),
+      write,
+    );
+    if (measured.status !== "fits") return measured;
+    try {
+      options.beforeReplace?.(next.ydoc);
+    } catch (error) {
+      return rebuildFailed(error);
+    }
+    Y.applyUpdate(next.ydoc, measured.update, REBUILD_ORIGIN);
+    this.keepOwnUpdate(null);
+    this.pendingUpdates = [];
+    collabConnectionRegistry.set(this.registryKey, next);
+    for (const sub of Array.from(this.subscribers.values())) {
+      sub.onReplaced?.(next);
+    }
+    return { status: "rebuilt", ydoc: next.ydoc };
+  }
+
+  private async fetchServerState(): Promise<Uint8Array> {
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      STATE_VECTOR_FETCH_TIMEOUT_MS,
+    );
+    try {
+      const response = await fetch(`${this.baseUrl}/${this.docId}/state`, {
+        cache: "no-store",
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        throw new Error(`Collab state request failed: HTTP ${response.status}`);
+      }
+      const data = (await response.json()) as { state?: unknown } | null;
+      if (typeof data?.state !== "string" || data.state.length === 0) {
+        throw new Error("Collab state response did not contain state");
+      }
+      return base64ToUint8Array(data.state);
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  /** False when a rebuild holds the update until it finishes. */
+  private applyRemoteUpdate(update: Uint8Array): boolean {
+    if (this.heldRemoteUpdates) {
+      this.heldRemoteUpdates.push(update);
+      return false;
+    }
+    Y.applyUpdate(this.ydoc, update, "remote");
+    return true;
+  }
+
+  private releaseRemoteUpdates(): void {
+    const held = this.heldRemoteUpdates;
+    this.heldRemoteUpdates = null;
+    if (!held?.length || this.disposed) return;
+    let unreadable = false;
+    for (const update of held) {
+      try {
+        Y.applyUpdate(this.ydoc, update, "remote");
+      } catch {
+        unreadable = true;
+      }
+    }
+    // As when one arrives unreadable: the state vector catches up.
+    if (unreadable) void this.fetchStateVector();
+  }
+
   private handleDocUpdate = (update: Uint8Array, origin: unknown): void => {
     if (origin === "remote") return;
     this.pendingUpdates.push(update);
@@ -996,6 +1270,8 @@ class CollabDocConnection {
           this.updateBatchLimit = Math.ceil(toSend.length / 2);
         } else {
           this.setSnapshot({ updatesRefused: true });
+          // Kept, they would only be refused again after a reload.
+          this.keepOwnUpdate(null);
         }
         return;
       }
@@ -1130,7 +1406,7 @@ class CollabDocConnection {
         return;
       }
       try {
-        Y.applyUpdate(this.ydoc, base64ToUint8Array(change.update), "remote");
+        this.applyRemoteUpdate(base64ToUint8Array(change.update));
       } catch {
         // Malformed update — trigger state-vector fetch on next poll
       }
@@ -1226,7 +1502,7 @@ class CollabDocConnection {
         };
       }
       const binary = base64ToUint8Array(stateData.state);
-      Y.applyUpdate(this.ydoc, binary, "remote");
+      if (!this.applyRemoteUpdate(binary)) return { status: "unavailable" };
       return { status: "synced" };
     } catch (error) {
       if (
@@ -1287,7 +1563,7 @@ class CollabDocConnection {
             continue;
           }
           try {
-            Y.applyUpdate(this.ydoc, base64ToUint8Array(evt.update), "remote");
+            this.applyRemoteUpdate(base64ToUint8Array(evt.update));
           } catch {
             await this.fetchStateVector();
           }
@@ -1560,7 +1836,8 @@ export function useCollaborativeDoc(
       return;
     }
     const id = Symbol("useCollaborativeDoc");
-    conn.add(id, {
+    let current = conn;
+    const subscription: CollabDocSubscription = {
       pollInterval,
       pollIntervalWithSse,
       pauseWhenHidden,
@@ -1573,10 +1850,20 @@ export function useCollaborativeDoc(
           }
         : {}),
       onSnapshot: setSnapshot,
-    });
+      // Moved before this hook renders again, so the new doc's first update
+      // is acknowledged to it.
+      onReplaced: (next) => {
+        current.remove(id);
+        current = next;
+        next.add(id, subscription);
+        setSnapshot(next.snapshot);
+        setGeneration((g) => g + 1);
+      },
+    };
+    conn.add(id, subscription);
     setSnapshot(conn.snapshot);
     return () => {
-      conn.remove(id);
+      current.remove(id);
     };
   }, [
     conn,
@@ -1613,6 +1900,7 @@ export function useCollaborativeDoc(
       : () => {},
     requestSync: conn ? conn.requestSync : requestSyncUnavailable,
     flushUpdates: conn ? conn.flushUpdates : flushUpdatesUnavailable,
+    rebuild: conn ? conn.rebuild : rebuildUnavailable,
     durableUpdatesFailed: snapshot.durableUpdatesFailed,
     updatesRefused: snapshot.updatesRefused,
     activeUsers: snapshot.activeUsers,

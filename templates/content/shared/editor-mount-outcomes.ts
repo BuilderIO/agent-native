@@ -3,6 +3,8 @@ export const EDITOR_MOUNT_OUTCOMES = [
   "navigation",
   "mode_switch",
   "remount",
+  // A doc the server refused was rebuilt, an error path counted apart from remounts.
+  "recovery",
 ] as const;
 export const EDITOR_MOUNT_MODES = [
   "editing",

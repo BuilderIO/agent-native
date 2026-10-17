@@ -77,7 +77,11 @@ import {
   Node as TiptapNode,
   mergeAttributes,
 } from "@tiptap/react";
-import { prosemirrorToYDoc, yUndoPluginKey } from "@tiptap/y-tiptap";
+import {
+  prosemirrorToYDoc,
+  updateYFragment,
+  yUndoPluginKey,
+} from "@tiptap/y-tiptap";
 import { defaultMarkdownSerializer } from "prosemirror-markdown";
 import {
   useCallback,
@@ -116,6 +120,7 @@ import {
 import { observeEditorMount } from "./editor-mount-telemetry";
 import { AudioNode } from "./extensions/AudioNode";
 import { BodyElementTiming } from "./extensions/BodyElementTiming";
+import { createChangeSizeGuardPlugin } from "./extensions/ChangeSizeGuard";
 import { CodeBlock } from "./extensions/CodeBlockNode";
 import {
   CommentHighlight,
@@ -1557,6 +1562,13 @@ function writeContentSelectionState(value: unknown) {
 interface VisualEditorProps {
   visitKey?: string;
   editorMountMode?: EditorMountMode;
+  /** Counts this editor's mount as recovery from a doc the server refused. */
+  editorMountRecovery?: boolean;
+  /**
+   * Refuses a change too large for the collab server to take as one update
+   * onto `ydoc`, calling this instead of applying it.
+   */
+  onChangeTooLargeToSave?: () => void;
   documentId?: string;
   contentSpaceId?: string;
   content: string;
@@ -1743,6 +1755,10 @@ export function resolveVisualEditorSelection(
 
 export interface VisualEditorPersistenceController {
   flushLatest: () => Promise<boolean>;
+  /** Writes what the editor shows onto `doc` as the changes that make it so. */
+  writeBodyTo: (doc: YDoc) => void;
+  /** Stops taking edits, for an editor about to be replaced. */
+  freeze: () => void;
 }
 
 export function shouldFlushVisualEditorDraft({
@@ -3055,6 +3071,8 @@ function useRegistryBlockStore(editor: CoreEditor | null) {
 export function VisualEditor({
   visitKey,
   editorMountMode,
+  editorMountRecovery,
+  onChangeTooLargeToSave,
   documentId,
   contentSpaceId,
   content,
@@ -3353,6 +3371,8 @@ export function VisualEditor({
   onEscapeRef.current = onEscape;
   const onImportFilesRef = useRef(onImportFiles);
   onImportFilesRef.current = onImportFiles;
+  const onChangeTooLargeToSaveRef = useRef(onChangeTooLargeToSave);
+  onChangeTooLargeToSaveRef.current = onChangeTooLargeToSave;
   const extensions = useMemo(
     () => [
       ...createVisualEditorExtensions({
@@ -3371,6 +3391,20 @@ export function VisualEditor({
         emptyBlockPlaceholder: t("editor.emptyBlockPlaceholder"),
         onMediaSourceCommitted,
         findCommentQuote,
+      }),
+      Extension.create({
+        name: "contentChangeSizeGuard",
+        addProseMirrorPlugins() {
+          return [
+            // Read on every change: a page can start writing its body through
+            // the doc after this editor is created.
+            createChangeSizeGuardPlugin({
+              doc: () =>
+                onChangeTooLargeToSaveRef.current ? (ydoc ?? null) : null,
+              refused: () => onChangeTooLargeToSaveRef.current?.(),
+            }),
+          ];
+        },
       }),
       Extension.create({
         name: "contentEditorEscape",
@@ -3515,6 +3549,7 @@ export function VisualEditor({
           visitKey,
           editorMountMode ??
             (!editable ? "readonly" : suggesting ? "suggesting" : "editing"),
+          editorMountRecovery === true ? (ydoc ?? null) : null,
         );
       }
     },
@@ -3819,6 +3854,16 @@ export function VisualEditor({
           }),
         );
         return isEditorDraftSaveAccepted(result);
+      },
+      writeBodyTo: (doc) => {
+        if (editor.isDestroyed) throw new Error("The editor is closed.");
+        updateYFragment(doc, doc.getXmlFragment("default"), editor.state.doc, {
+          mapping: new Map(),
+          isOMark: new Map(),
+        });
+      },
+      freeze: () => {
+        if (!editor.isDestroyed) editor.setEditable(false);
       },
     });
     return () => onPersistenceControllerChange?.(null);

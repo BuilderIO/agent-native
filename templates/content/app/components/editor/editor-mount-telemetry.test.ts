@@ -71,6 +71,24 @@ describe("editor mount observations", () => {
     ]);
   });
 
+  it("counts the first editor on a rebuilt doc as recovery, apart from remounts", async () => {
+    vi.useFakeTimers();
+    const report = vi.fn();
+    const observe = createEditorMountObserver(report, () => "visit");
+    const rebuilt = {};
+    observe({}, "page", "route", "editing");
+    observe({}, "page", "route", "editing", rebuilt);
+    observe({}, "page", "route", "editing", rebuilt);
+    observe({}, "page", "route", "suggesting", null);
+    await vi.runAllTimersAsync();
+    expect(report.mock.calls.map(([event]) => event.outcome)).toEqual([
+      "initial",
+      "recovery",
+      "remount",
+      "mode_switch",
+    ]);
+  });
+
   it("does not wait for slow or failed delivery before the next creation", async () => {
     vi.useFakeTimers();
     let settle!: () => void;

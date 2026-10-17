@@ -129,6 +129,10 @@ interface VisitProps {
   content?: string;
   /** Appended to the editor's instance key, as a later remount changes it. */
   remount?: string;
+  /** The doc a rebuild after a refused update moved the page to. */
+  recoveredYdoc?: Y.Doc;
+  /** The stored body was written from the live copy, as a switched page's is. */
+  collabBacked?: boolean;
 }
 
 // Mounts the body the way DocumentEditor does: the static body while the live
@@ -170,13 +174,16 @@ function Visit(args: VisitProps) {
       canEdit: args.canEdit,
       collabEditorEnabled,
       hasYDoc: ready,
+      ydocId: ready ? args.ydoc.guid : null,
     })}${args.remount ?? ""}`,
     visitKey: "route",
     editorMountMode: args.canEdit ? "editing" : "readonly",
+    editorMountRecovery: args.ydoc === args.recoveredYdoc,
     documentId: "page",
     content,
     contentUpdatedAt: UPDATED_AT,
     contentRevision: "body:1",
+    collabContentRevision: args.collabBacked ? "body:1" : null,
     ydoc: isolation.bindCanonicalYDoc ? args.ydoc : null,
     replacesStoredBody,
     collabSynced: true,
@@ -406,6 +413,45 @@ describe("an editor visit", () => {
     expect(editorWithheld.length).toBeGreaterThan(0);
     expect(editorWithheld).not.toContain(true);
     ydoc.destroy();
+  });
+
+  it("moves to a rebuilt doc in a new editor, counted as recovery", async () => {
+    const page = { canEdit: true, collabBacked: true } as const;
+    const refused = liveCopyOf(BODY);
+    await renderVisit({ ...page, liveCopyStatus: "loading", ydoc: refused });
+    await renderVisit({ ...page, liveCopyStatus: "ready", ydoc: refused });
+    const refusedEditor = container.querySelector(".ProseMirror");
+
+    // The stored body still lacks what the server refused.
+    const rebuilt = liveCopyOf(`${BODY}\n\nKept after the rebuild.`);
+    await renderVisit({
+      ...page,
+      liveCopyStatus: "ready",
+      ydoc: rebuilt,
+      recoveredYdoc: rebuilt,
+    });
+    const editor = container.querySelector(".ProseMirror");
+    expect(editor).not.toBe(refusedEditor);
+    expect(editor?.textContent).toContain("Kept after the rebuild.");
+
+    await renderVisit({
+      ...page,
+      liveCopyStatus: "ready",
+      ydoc: rebuilt,
+      recoveredYdoc: rebuilt,
+      remount: ":again",
+    });
+    await settle(400);
+    expect(rebuilt.getXmlFragment("default").toString()).toContain(
+      "Kept after the rebuild.",
+    );
+    expect(report.mock.calls.map(([event]) => event.outcome)).toEqual([
+      "initial",
+      "recovery",
+      "remount",
+    ]);
+    refused.destroy();
+    rebuilt.destroy();
   });
 
   it("starts an image the stored body could not load as broken in the editor", async () => {

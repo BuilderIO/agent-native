@@ -10,14 +10,15 @@ import type { H3Event } from "h3";
 import * as Y from "yjs";
 
 import { readBody } from "../server/h3-helpers.js";
+import { COLLAB_MAX_PAYLOAD_BYTES } from "./limits.js";
 import { uint8ArrayToBase64, base64ToUint8Array } from "./storage.js";
 import * as manager from "./ydoc-manager.js";
 import { searchAndReplace as doSearchAndReplace } from "./ydoc-manager.js";
 
-const DEFAULT_MAX_BYTES = 2 * 1024 * 1024;
-
 function getMaxPayloadBytes(event: H3Event): number {
-  return (event.context as any)?._collabMaxPayloadBytes ?? DEFAULT_MAX_BYTES;
+  return (
+    (event.context as any)?._collabMaxPayloadBytes ?? COLLAB_MAX_PAYLOAD_BYTES
+  );
 }
 
 function enforcePayloadLimit(event: H3Event, body: unknown): boolean {
