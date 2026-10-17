@@ -2208,4 +2208,78 @@ describe("stale automation run-lock recovery across trigger types", () => {
 
     expect(finishes.map((finish) => finish.id)).toEqual(["run-stopped-2"]);
   });
+
+  it("recovers a legacy shared automation's stale history under its run owner", async () => {
+    const list = vi
+      .spyOn(runHistory, "listAutomationRuns")
+      .mockResolvedValue([]);
+    try {
+      resourceListAllOwnersMock.mockResolvedValueOnce([
+        {
+          id: "resource-shared-event",
+          owner: "__shared__",
+          path: "jobs/shared-event.md",
+          content: [
+            "---",
+            'schedule: ""',
+            "enabled: true",
+            "triggerType: event",
+            "event: order.created",
+            "createdBy: alice@example.com",
+            "lastStatus: running",
+            `lastRun: ${new Date(Date.now() - 11 * 60 * 1000).toISOString()}`,
+            "---",
+            "",
+            "Handle the order.",
+          ].join("\n"),
+        },
+      ]);
+
+      await processRecurringJobs(recoveryDeps);
+
+      expect(list).toHaveBeenCalledWith(
+        expect.objectContaining({ owners: ["alice@example.com"] }),
+      );
+    } finally {
+      list.mockRestore();
+    }
+  });
+
+  it("recovers an organization-bound shared automation's stale history under the organization", async () => {
+    const list = vi
+      .spyOn(runHistory, "listAutomationRuns")
+      .mockResolvedValue([]);
+    try {
+      resourceListAllOwnersMock.mockResolvedValueOnce([
+        {
+          id: "resource-org-event",
+          owner: "__shared__",
+          path: "jobs/org-event.md",
+          content: [
+            "---",
+            'schedule: ""',
+            "enabled: true",
+            "triggerType: event",
+            "event: order.created",
+            "createdBy: alice@example.com",
+            "orgId: org-1",
+            "appId: mail",
+            "lastStatus: running",
+            `lastRun: ${new Date(Date.now() - 11 * 60 * 1000).toISOString()}`,
+            "---",
+            "",
+            "Handle the order.",
+          ].join("\n"),
+        },
+      ]);
+
+      await processRecurringJobs({ ...recoveryDeps, appId: "mail" });
+
+      expect(list).toHaveBeenCalledWith(
+        expect.objectContaining({ owners: ["__organization__:org-1"] }),
+      );
+    } finally {
+      list.mockRestore();
+    }
+  });
 });
