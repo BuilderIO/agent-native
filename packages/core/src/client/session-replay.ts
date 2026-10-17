@@ -1718,6 +1718,9 @@ function isDefinitiveReplayUploadClientError(status: number): boolean {
 const MAX_TRANSIENT_REPLAY_CLIENT_FAILURES = 3;
 const REPLAY_UPLOAD_TIMEOUT_MS = 15_000;
 
+// Uploads in flight, so a consent reject can abort them.
+const activeReplayUploads = new Set<AbortController>();
+
 function startReplayUploadTimeout(): {
   signal: AbortSignal | undefined;
   promise: Promise<never>;
@@ -1737,11 +1740,15 @@ function startReplayUploadTimeout(): {
     controller?.abort();
     rejectTimeout(timeoutError);
   }, REPLAY_UPLOAD_TIMEOUT_MS);
+  if (controller) activeReplayUploads.add(controller);
   return {
     signal: controller?.signal,
     promise,
     didTimeout: () => timedOut,
-    done: () => clearTimeout(timer),
+    done: () => {
+      clearTimeout(timer);
+      if (controller) activeReplayUploads.delete(controller);
+    },
   };
 }
 
@@ -3573,6 +3580,8 @@ let replayConsentGeneration = 0;
 let replayAllowedOptions: SessionReplayOptions | null = null;
 
 function discardWithdrawnReplay(state: SessionReplayState): void {
+  for (const upload of activeReplayUploads) upload.abort();
+  activeReplayUploads.clear();
   state.queue = [];
   state.queuedBytes = 0;
   state.retryBatches = [];
@@ -3597,7 +3606,14 @@ function replayConsentAllows(options: SessionReplayOptions): boolean {
         replayConsentWithdrawn = false;
         const waiting = replayAwaitingConsent;
         replayAwaitingConsent = null;
-        if (waiting) void startSessionReplay(waiting);
+        if (!waiting) return;
+        // A reject during the last start cancels it, and an accept that
+        // quickly gets that canceled start back; ask once more after it.
+        void startSessionReplay(waiting).then((result) => {
+          if (!result.started && replayConsentGranted && !getState().active) {
+            void startSessionReplay(waiting);
+          }
+        });
       },
       {
         // The region's first answer revokes before any choice, so a start

@@ -325,8 +325,12 @@ describe("session replay console/network capture", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
 
       let answer: (response: Response) => void = () => {};
+      let signal: AbortSignal | undefined;
       fetchMock.mockImplementationOnce(
-        () => new Promise<Response>((resolve) => (answer = resolve)),
+        (_input: unknown, init?: RequestInit) => {
+          signal = init?.signal ?? undefined;
+          return new Promise<Response>((resolve) => (answer = resolve));
+        },
       );
       emit({ type: 3, timestamp: Date.now(), data: { source: 2 } });
       emit({ type: 3, timestamp: Date.now(), data: { source: 3 } });
@@ -335,6 +339,7 @@ describe("session replay console/network capture", () => {
       await vi.waitFor(() => expect(uploads()).toBe(inFlight));
 
       setConsentChoice({ performance: false, targeting: false });
+      expect(signal?.aborted).toBe(true);
       if (reaccept) {
         setConsentChoice({ performance: true, targeting: false });
         await vi.waitFor(() => expect(mod.isSessionReplayActive()).toBe(true));
@@ -347,6 +352,39 @@ describe("session replay console/network capture", () => {
       expect(uploads()).toBe(inFlight);
     },
   );
+
+  it("records after an accept, a reject and an accept in quick succession", async () => {
+    const { windowStub } = installBrowser();
+    recordMock.mockReturnValue(vi.fn());
+    windowStub.sessionStorage = {
+      getItem: vi.fn((key: string) =>
+        key === "an_consent_region" ? "consent" : null,
+      ),
+      setItem: vi.fn(),
+      removeItem: vi.fn(),
+    };
+    const cookies = new Map<string, string>();
+    Object.defineProperty(globalThis.document, "cookie", {
+      configurable: true,
+      get: () =>
+        [...cookies].map(([name, value]) => `${name}=${value}`).join("; "),
+      set: (assignment: string) => {
+        const [pair] = assignment.split(";", 1);
+        const eq = pair!.indexOf("=");
+        cookies.set(pair!.slice(0, eq), pair!.slice(eq + 1));
+      },
+    });
+    const mod = await freshSessionReplay();
+    activeModule = mod;
+    await mod.startSessionReplay({ ...START_OPTIONS });
+    const { setConsentChoice } = await import("./consent.js");
+
+    setConsentChoice({ performance: true, targeting: false });
+    setConsentChoice({ performance: false, targeting: false });
+    setConsentChoice({ performance: true, targeting: false });
+
+    await vi.waitFor(() => expect(mod.isSessionReplayActive()).toBe(true));
+  });
 
   it("starts a first-visit recording on accept after the region's first answer", async () => {
     const { windowStub, fetchMock } = installBrowser();
