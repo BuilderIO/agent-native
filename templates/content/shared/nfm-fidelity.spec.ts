@@ -205,6 +205,8 @@ describe("canonicalizeNfmWithFidelity", () => {
     canonicalizeNfm(`<span ${"a".repeat(200_000)}>x</span>`);
     canonicalizeNfm(`<span a${" ".repeat(200_000)}b>x</span>`);
     canonicalizeNfm(`a${" ".repeat(200_000)}{`);
+    canonicalizeNfm(`a${" ".repeat(200_000)}b`);
+    canonicalizeNfm(`- a${" ".repeat(200_000)}b`);
     canonicalizeNfm(`a${"\\".repeat(200_000)}`);
     canonicalizeNfm(
       `<mention-user url="u">${" ".repeat(200_000)}a</mention-user>`,
