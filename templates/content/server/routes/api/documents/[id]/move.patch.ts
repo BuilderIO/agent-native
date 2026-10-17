@@ -22,21 +22,37 @@ export default defineEventHandler(async (event) => {
   // A reparent has to hold move-document's page-tree and row locks, or a
   // concurrent move can close a cycle with it. `position` is move-document's
   // index among the page's siblings, which it renumbers, not a stored value.
-  return runWithRequestContext(
-    { userEmail: session.email, orgId: session.orgId },
-    () =>
-      moveDocument.run(
-        {
-          id,
-          parentId: body.parentId as string | null | undefined,
-          position: body.position as number | undefined,
-        },
-        {
-          caller: "http",
-          userEmail: session.email,
-          orgId: session.orgId,
-          actionName: "move-document",
-        },
-      ),
-  );
+  try {
+    return await runWithRequestContext(
+      { userEmail: session.email, orgId: session.orgId },
+      () =>
+        moveDocument.run(
+          {
+            id,
+            parentId: body.parentId as string | null | undefined,
+            position: body.position as number | undefined,
+          },
+          {
+            caller: "http",
+            userEmail: session.email,
+            orgId: session.orgId,
+            actionName: "move-document",
+          },
+        ),
+    );
+  } catch (error) {
+    // h3 sends a thrown error that isn't its own as a bare status, with no
+    // message, so a refusal keeps its message and errorCode only this way.
+    // The status is move-document's: 409 for a parent with another owner,
+    // space or section, as duplicate-page and moves between spaces return.
+    const statusCode = (error as { statusCode?: unknown }).statusCode;
+    if (typeof statusCode !== "number" || statusCode < 400 || statusCode >= 500)
+      throw error;
+    const errorCode = (error as { errorCode?: unknown }).errorCode;
+    throw createError({
+      statusCode,
+      statusMessage: (error as Error).message,
+      ...(typeof errorCode === "string" ? { data: { errorCode } } : {}),
+    });
+  }
 });

@@ -2957,6 +2957,34 @@ title: "Other renamed"
       );
     });
 
+    it("refuses a favorite added while a permanent delete removes the page", async () => {
+      const seed = await seedImportedFavorite(false);
+      const { action: favorited } = await raceAgainst(
+        async (tx) => {
+          await lockDocumentRows(tx, [seed.ids.page]);
+          await tx
+            .delete(schema.contentDatabaseItems)
+            .where(eq(schema.contentDatabaseItems.documentId, seed.ids.page));
+          await tx
+            .delete(schema.documents)
+            .where(eq(schema.documents.id, seed.ids.page));
+        },
+        () =>
+          asOwner(() =>
+            updateDocument.run({ id: seed.ids.page, isFavorite: true }),
+          ),
+      );
+      await expect(favorited).rejects.toMatchObject({
+        errorCode: "DOCUMENT_NOT_FOUND",
+      });
+      expect(
+        await getDb()
+          .select({ id: schema.contentDatabaseItems.id })
+          .from(schema.contentDatabaseItems)
+          .where(eq(schema.contentDatabaseItems.documentId, seed.ids.page)),
+      ).toEqual([]);
+    });
+
     it("refuses a permanent delete whose page a move takes out of its Trash group while it waits", async () => {
       const seed = await seedPageTree();
       await asOwner(() => deleteDocument.run({ id: seed.ids.otherParent }));
