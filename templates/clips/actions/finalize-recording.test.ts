@@ -2185,7 +2185,10 @@ describe("finalize-recording resumable recovery", () => {
         retryableInterruption: true,
       }),
     );
-    expect(mockMarkHostedCleanupConfirmed).toHaveBeenCalledWith("rec_1");
+    expect(mockMarkHostedCleanupConfirmed).toHaveBeenCalledWith(
+      "rec_1",
+      "owner@example.com",
+    );
     expect(
       mockReleaseHostedClipRecording.mock.invocationCallOrder[0],
     ).toBeGreaterThan(
@@ -2200,6 +2203,7 @@ describe("finalize-recording resumable recovery", () => {
 
   it("retries a stored-but-unservable completion and retires its session after persistence", async () => {
     vi.clearAllMocks();
+    mockState.existingRecording.storageMode = null;
     const { deleteResumableSession, getResumableSession } =
       await import("../server/lib/resumable-session.js");
     const { resolveResumableUploadProvider } =
@@ -2400,6 +2404,7 @@ describe("finalize-recording resumable recovery", () => {
 
   it("aborts the provider session and preserves the real completion error", async () => {
     vi.clearAllMocks();
+    mockState.existingRecording.storageMode = null;
     const { deleteResumableSession, getResumableSession } =
       await import("../server/lib/resumable-session.js");
     const { resolveResumableUploadProvider } =
