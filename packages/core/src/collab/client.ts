@@ -435,9 +435,9 @@ class CollabDocConnection {
   private readonly storedKeys = new Set<string>();
   // Whether storage holds every update this doc has not had acknowledged.
   private unsentUpdatesKept = true;
-  // An account change drops the queue but not the doc, so after one the queue
-  // no longer holds everything the doc has unsent, and keeping it does not
-  // keep what an entry this doc applies again holds.
+  // An account change empties the queue but not the doc, and what it sets
+  // aside need not come back to this connection, so after one, keeping the
+  // queue does not keep what an entry this doc applies again holds.
   private unsentUpdatesDropped = false;
   // Other connections' entries this doc applied before it could keep their
   // content, by owner, with what lets go of that owner's lock. Held until this
@@ -638,16 +638,14 @@ class CollabDocConnection {
 
   // Refused updates a kept candidate replaces are held back for good, so
   // retired they would only be sent again beside it.
-  private retirePendingUpdates(): boolean {
+  private retirePendingUpdates(): void {
     if (
-      !this.pendingUpdates.length ||
-      !this.retiredUpdatesKey ||
-      (this.snapshot.updatesRefused && this.keepsUnsentUpdates)
+      this.pendingUpdates.length &&
+      this.retiredUpdatesKey &&
+      !(this.snapshot.updatesRefused && this.keepsUnsentUpdates)
     ) {
-      return false;
+      retiredCollabUpdates.set(this.retiredUpdatesKey, this.pendingUpdates);
     }
-    retiredCollabUpdates.set(this.retiredUpdatesKey, this.pendingUpdates);
-    return true;
   }
 
   private markDurableUpdatesFailed(): void {
@@ -1003,9 +1001,8 @@ class CollabDocConnection {
     if (this.disposed) return;
     const prev = this.lastSetUser;
     if (prev && prev.email !== user.email) {
-      if (this.pendingUpdates.length && !this.retirePendingUpdates()) {
-        this.unsentUpdatesDropped = true;
-      }
+      if (this.pendingUpdates.length) this.unsentUpdatesDropped = true;
+      this.retirePendingUpdates();
       this.pendingUpdates = [];
       this.updateAbortController?.abort();
       if (this.flushTimer) clearTimeout(this.flushTimer);

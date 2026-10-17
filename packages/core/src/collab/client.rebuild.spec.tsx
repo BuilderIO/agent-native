@@ -944,6 +944,31 @@ describe("rebuilding a doc whose update the server refused", () => {
     expect(reopened().ydoc!.getText("t").toString()).toBe(`kept ${PASTED}`);
   });
 
+  it("keeps an entry it applied when the account changes and back and the page names its request source only on return", async () => {
+    const closedKey = outboxKey("closed-tab");
+    keepClosedTabEntry(closedKey, "source-token");
+    // Nothing is acknowledged.
+    const fetchMock = vi.mocked(fetch);
+    const answer = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((input, init) =>
+      /\/collab\/[^/]+\/update/.test(String(input))
+        ? Promise.resolve(new Response("{}", { status: 503 }))
+        : answer(input, init),
+    );
+    await withOrdinaryWritesFailing(() => mountReady());
+    await mountReady({ user: { ...USER, email: "bea@example.com" } });
+
+    const back = await mountReady({ requestSource: "late-tab" });
+    expect(back().ydoc!.getText("t").toString()).toBe("kept source-token");
+    expect(window.localStorage.getItem(closedKey)).not.toBeNull();
+    closeThisTab();
+    await settle(1100);
+
+    const reopened = await mountReady();
+    await settle();
+    expect(reopened().ydoc!.getText("t").toString()).toBe("kept source-token");
+  });
+
   it("hands the candidate it leaves to the rebuilt doc, whose own candidate replaces it", async () => {
     const first = await refusedAfterPaste();
     expect((await rebuild(first)).status).toBe("too_large");
