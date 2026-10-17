@@ -3,6 +3,7 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { serializeIconValue } from "@agent-native/core/icons";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -19,6 +20,14 @@ vi.mock("@agent-native/core/application-state", async (importOriginal) => {
     >();
   return { ...original, writeAppState: vi.fn(original.writeAppState) };
 });
+vi.mock("../server/lib/private-icon-authority.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../server/lib/private-icon-authority.js")
+  >()),
+  assertPrivateIconOwner: vi.fn(async () => {
+    throw new Error("Private icon is unavailable to this user.");
+  }),
+}));
 
 const TEST_DB_PATH = join(
   tmpdir(),
@@ -1287,6 +1296,56 @@ describe("private preview document drafts", () => {
       });
       expect((await documentRowForDraftTest(documentId)).title).toBe(
         "Builder row",
+      );
+    });
+
+    it("refuses a replay that adds a private callout icon the user cannot use as it refuses an open editor's save", async () => {
+      const { documentId, editorSessionId, journalBase } =
+        await discardDraftGeneration(OWNER);
+      const icon = serializeIconValue({
+        version: 1,
+        kind: "image",
+        authority: "private-icon",
+        assetId: "00000000-0000-4000-8000-000000000001",
+      })!;
+      const content = `<callout icon="${icon.replace(/"/g, "&quot;")}">\n\tLocal recovery, then more typing\n</callout>`;
+      const save = (marker: { journalReplay?: true }) =>
+        asUser(OWNER, () =>
+          updateDocument.run(
+            {
+              id: documentId,
+              browserSaveAttemptId: crypto.randomUUID(),
+              ...marker,
+              ...journalBase,
+              content,
+              authoredCandidateContent: content,
+              editorSessionId,
+              editorEditGeneration: 2,
+              editorSnapshotTitle: "Builder row",
+              editorSnapshotContent: content,
+              reuseLabels: [],
+            },
+            { caller: "frontend" } as any,
+          ),
+        );
+      const checkpoints = async () =>
+        (
+          await getDb()
+            .select({ id: schema.documentVersions.id })
+            .from(schema.documentVersions)
+            .where(eq(schema.documentVersions.documentId, documentId))
+        ).length;
+      const checkpointsBefore = await checkpoints();
+
+      await expect(save({})).rejects.toThrow(
+        "Private icon is unavailable to this user.",
+      );
+      await expect(save({ journalReplay: true })).rejects.toThrow(
+        "Private icon is unavailable to this user.",
+      );
+      expect(await checkpoints()).toBe(checkpointsBefore);
+      expect((await documentRowForDraftTest(documentId)).content).toBe(
+        "Server body",
       );
     });
 

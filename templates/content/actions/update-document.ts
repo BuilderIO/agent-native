@@ -54,6 +54,7 @@ import {
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
 import {
+  authorizePrivateCalloutIcons,
   syncPrivateCalloutReferences,
   syncPrivateIconReference,
   verifyPrivateIconAssignment,
@@ -1466,8 +1467,22 @@ const updateDocumentAction = defineAction({
             contentCasConflict = true;
             return;
           }
-          // After every refusal an unmarked save would reach.
+          // After every refusal an unmarked save would reach, including the
+          // callout icon check its reference sync makes after the write.
           if (replayExtendsDiscardedGeneration && content !== undefined) {
+            if (lockedContentChanged) {
+              await authorizePrivateCalloutIcons(
+                tx as unknown as ReturnType<typeof getDb>,
+                {
+                  documentId: id,
+                  before: historyBefore.content,
+                  after: content,
+                  userEmail: actor,
+                  ownerEmail,
+                  orgId: (existing.orgId as string | null) ?? null,
+                },
+              );
+            }
             await preserveUnmergedContent(
               authoredCandidateContent ?? content,
               "provenance",
