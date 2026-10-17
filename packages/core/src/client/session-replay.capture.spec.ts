@@ -353,6 +353,38 @@ describe("session replay console/network capture", () => {
     },
   );
 
+  it("forgets a replay id an earlier page stored when a reject is already known", async () => {
+    const { windowStub } = installBrowser();
+    recordMock.mockReturnValue(vi.fn());
+    const stored = new Map<string, string>([
+      ["an_consent_region", "consent"],
+      [
+        "agent-native.session_replay_id",
+        JSON.stringify({ replayId: "earlier-replay", sequence: 3 }),
+      ],
+    ]);
+    windowStub.sessionStorage = {
+      getItem: vi.fn((key: string) => stored.get(key) ?? null),
+      setItem: vi.fn((key: string, value: string) => stored.set(key, value)),
+      removeItem: vi.fn((key: string) => stored.delete(key)),
+    };
+    Object.defineProperty(globalThis.document, "cookie", {
+      configurable: true,
+      get: () => "an_consent=1.p0.t0",
+      set: () => {},
+    });
+    const consent = await import("./consent.js");
+    consent.whenConsentAllows("performance", () => {});
+    await Promise.resolve();
+    const mod = await freshSessionReplay();
+    activeModule = mod;
+
+    const result = await mod.startSessionReplay({ ...START_OPTIONS });
+
+    expect(result).toEqual({ started: false, reason: "consent-required" });
+    expect(stored.has("agent-native.session_replay_id")).toBe(false);
+  });
+
   it("records after an accept, a reject and an accept in quick succession", async () => {
     const { windowStub } = installBrowser();
     recordMock.mockReturnValue(vi.fn());

@@ -293,6 +293,9 @@ export function whenConsentAllows(
   if (allows(category, region)) {
     waiter.ran = true;
     run();
+  } else if (state().region || getConsentChoice()) {
+    // A reject decided before this caller asked still clears what it stored.
+    options.revoke?.();
   }
   if (!state().region) void resolveConsentRegion();
 }

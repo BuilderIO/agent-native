@@ -162,6 +162,20 @@ describe("client consent", () => {
     expect(revoke).toHaveBeenCalled();
   });
 
+  it("revokes at once for a caller that asks after a reject is known", async () => {
+    const { session } = installBrowser();
+    session.set("an_consent_region", "consent");
+    document.cookie = "an_consent=1.p0.t0; path=/";
+    const consent = await freshConsent();
+    consent.whenConsentAllows("performance", () => {});
+    await tick();
+    const revoke = vi.fn();
+
+    consent.whenConsentAllows("performance", () => {}, { revoke });
+
+    expect(revoke).toHaveBeenCalledTimes(1);
+  });
+
   it("runs scripts the page queued before the module loaded", async () => {
     const { windowMock } = installBrowser({ region: "none" });
     const queued = vi.fn();

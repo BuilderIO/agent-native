@@ -1424,6 +1424,27 @@ describe("browser analytics pageviews", () => {
     expect(getCookie()).not.toMatch(/an_aid=[^;]/);
   });
 
+  it("clears a visitor id an earlier page stored when a reject is already known", async () => {
+    const { session, localStorage, getCookie } = installBrowser();
+    session.set("an_consent_region", "consent");
+    localStorage.setItem("agent-native.anonymous_id", "earlier-visitor");
+    document.cookie = "an_aid=earlier-visitor; path=/";
+    document.cookie = "an_consent=1.p0.t0; path=/";
+    const consent = await import("./consent.js");
+    consent.whenConsentAllows("performance", () => {});
+    await tick();
+    installFetch();
+    vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+    const { configureTracking, trackEvent } = await freshAnalytics();
+    configureTracking({ pageviewTracking: false });
+
+    trackEvent("after_reject", {});
+    await tick();
+
+    expect(localStorage.getItem("agent-native.anonymous_id")).toBeNull();
+    expect(getCookie()).not.toMatch(/an_aid=[^;]/);
+  });
+
   it("holds events until the server's region decides the visitor id", async () => {
     const { session, setTimeZone } = installBrowser();
     session.clear();

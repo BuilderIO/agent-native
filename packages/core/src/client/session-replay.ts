@@ -3621,7 +3621,12 @@ function replayConsentAllows(options: SessionReplayOptions): boolean {
         revoke: () => {
           const wasGranted = replayConsentGranted;
           replayConsentGranted = false;
-          if (!wasGranted) return;
+          if (!wasGranted) {
+            // A replay id an earlier page stored never carries past a reject.
+            const storedReplayId = readStoredReplaySession()?.replayId;
+            if (storedReplayId) removeStoredReplaySession(storedReplayId);
+            return;
+          }
           replayConsentWithdrawn = true;
           replayConsentGeneration += 1;
           // A fresh accept on this page records again, under a new identity.
