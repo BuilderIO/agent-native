@@ -996,7 +996,7 @@ export default defineAction({
       designSourceType === "localhost"
         ? timelines.filter(
             (timeline) =>
-              !timeline.sourceRef ||
+              timeline.sourceRef !== null &&
               !screenIsLocalhost(design.data, timeline.sourceRef),
           )
         : timelines;

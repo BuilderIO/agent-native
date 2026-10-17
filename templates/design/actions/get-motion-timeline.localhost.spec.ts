@@ -991,6 +991,40 @@ describe("get-motion-timeline localhost React source", () => {
     expect(mocks.readLocal).not.toHaveBeenCalled();
   });
 
+  it("does not treat a source-less stored row as inline during a screen read", async () => {
+    mocks.setTimelineRows([
+      {
+        ...timeline,
+        id: "legacy-timeline",
+        sourceRef: null,
+        filePath: null,
+        tracks: JSON.stringify(timeline.tracks),
+        textDocument: null,
+        compiledHash: "stale-hash",
+        createdAt: null,
+        updatedAt: null,
+      },
+    ]);
+
+    const result = await action.run({
+      designId: "design-1",
+      timelineId: "legacy-timeline",
+      sourceRef: "screen-1",
+    });
+
+    expect(result.timeline).toMatchObject({
+      id: "legacy-timeline",
+      sourceRef: null,
+      source: "stored-react-drift",
+      tracks: timeline.tracks,
+    });
+    expect(mocks.readLocal).toHaveBeenCalledWith({
+      designId: "design-1",
+      connectionId: "connection-1",
+      path: "app/routes/home.tsx",
+    });
+  });
+
   it("reports a localhost screen with no saved source file and no timeline as unmapped, not a failure", async () => {
     mocks.setDesignData({
       sourceType: "localhost",
