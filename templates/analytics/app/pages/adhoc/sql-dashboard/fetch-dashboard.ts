@@ -117,6 +117,7 @@ export async function fetchDashboard(
         columns: typeof data.columns === "number" ? data.columns : undefined,
         panels: data.panels ?? [],
         annotations: data.annotations,
+        introducedPanels: data.introducedPanels,
       },
       archivedAt: typeof data.archivedAt === "string" ? data.archivedAt : null,
       hiddenAt: typeof data.hiddenAt === "string" ? data.hiddenAt : null,
