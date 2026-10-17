@@ -86,3 +86,21 @@ export async function reconcileMeetingOnRecordingFailed(params: {
   const meetings = await findLinkedMeetings(params);
   await dispatchMeetingFinalizationIfPending(params.recordingId, meetings);
 }
+
+export async function reconcileMeetingOnRecordingFailedBestEffort(params: {
+  recordingId: string;
+  ownerEmail: string;
+}): Promise<void> {
+  try {
+    await reconcileMeetingOnRecordingFailed(params);
+  } catch (error) {
+    // The failed upload is durable; the upload reaper can retry this dispatch.
+    console.warn(
+      "[clips-meeting] finalization dispatch failed after upload failure",
+      {
+        recordingId: params.recordingId,
+        error: error instanceof Error ? error.message : String(error),
+      },
+    );
+  }
+}

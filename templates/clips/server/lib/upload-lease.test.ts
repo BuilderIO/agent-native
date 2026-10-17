@@ -7,6 +7,8 @@ const { PGlite } = createRequire(
 import { drizzle } from "drizzle-orm/pglite";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { PENDING_MEETING_FINALIZATION_STALE_MS } from "../../shared/meeting-finalization.js";
+
 type PGliteClient = Awaited<ReturnType<typeof PGlite.create>>;
 let db: ReturnType<typeof drizzle>;
 let client: PGliteClient;
@@ -216,7 +218,8 @@ describe("upload lease", () => {
         actual_end TEXT,
         transcript_status TEXT NOT NULL DEFAULT 'idle',
         summary_md TEXT NOT NULL DEFAULT '',
-        trashed_at TEXT
+        trashed_at TEXT,
+        updated_at TEXT NOT NULL DEFAULT '${iso(0)}'
       )`,
     );
     await execute(
@@ -479,10 +482,12 @@ describe("upload lease", () => {
       failure_code: "upload_timed_out",
     });
     expect(await chunkKeys()).toEqual([]);
-    expect(mockReconcileMeetingOnRecordingFailed).toHaveBeenCalledWith({
-      recordingId: "dead",
-      ownerEmail: "owner@example.com",
+    expect(mockReconcileMeetingOnRecordingFailed).not.toHaveBeenCalled();
+    const { rows: retryRows } = await execute(client, {
+      sql: `SELECT key FROM application_state WHERE key = ?`,
+      args: [`clips-meeting-finalize-retry-dead`],
     });
+    expect(retryRows).toEqual([]);
   });
 
   it("releases a hosted reservation after an expired upload's multipart session is confirmed aborted", async () => {
@@ -555,6 +560,17 @@ describe("upload lease", () => {
           bytesUploaded: 10,
         }),
       );
+      await execute(client, {
+        sql: `INSERT INTO clips_meetings
+              (id, owner_email, recording_id, actual_end, transcript_status, summary_md)
+              VALUES (?, ?, ?, ?, 'failed', '')`,
+        args: [recordingId, "owner@example.com", recordingId, iso(-60_000)],
+      });
+      await execute(client, {
+        sql: `INSERT INTO recording_transcripts (recording_id, status, full_text)
+              VALUES (?, 'ready', ?)`,
+        args: [recordingId, "Transcript text"],
+      });
     }
     mockAbortResumableUploadSession.mockClear();
     mockReconcileMeetingOnRecordingFailed
@@ -588,10 +604,6 @@ describe("upload lease", () => {
 
   it("backs off and caps repeated failed meeting finalization dispatches", async () => {
     await insertRecording({ id: "meeting-dispatch-retry", status: "failed" });
-    await insertRecording({
-      id: "meeting-dispatch-inflight",
-      status: "failed",
-    });
     await execute(client, {
       sql: `INSERT INTO clips_meetings
             (id, owner_email, recording_id, actual_end, transcript_status, summary_md)
@@ -607,22 +619,6 @@ describe("upload lease", () => {
       sql: `INSERT INTO recording_transcripts (recording_id, status, full_text)
             VALUES (?, 'ready', ?)`,
       args: ["meeting-dispatch-retry", "Transcript text"],
-    });
-    await execute(client, {
-      sql: `INSERT INTO clips_meetings
-            (id, owner_email, recording_id, actual_end, transcript_status, summary_md)
-            VALUES (?, ?, ?, ?, 'pending', '')`,
-      args: [
-        "meeting-dispatch-inflight",
-        "owner@example.com",
-        "meeting-dispatch-inflight",
-        iso(-60_000),
-      ],
-    });
-    await execute(client, {
-      sql: `INSERT INTO recording_transcripts (recording_id, status, full_text)
-            VALUES (?, 'ready', ?)`,
-      args: ["meeting-dispatch-inflight", "Transcript text"],
     });
     mockReconcileMeetingOnRecordingFailed.mockRejectedValueOnce(
       new Error("dispatch unavailable"),
@@ -761,6 +757,95 @@ describe("upload lease", () => {
       status: "scheduled",
       attempts: 1,
     });
+  });
+
+  it("retries stale pending meeting finalization claims but leaves fresh claims alone", async () => {
+    const staleId = "meeting-stale-pending-retry";
+    const freshId = "meeting-fresh-pending-retry";
+    for (const recordingId of [staleId, freshId]) {
+      await insertRecording({ id: recordingId, status: "ready" });
+      await execute(client, {
+        sql: `INSERT INTO clips_meetings
+              (id, owner_email, recording_id, actual_end, transcript_status, summary_md, updated_at)
+              VALUES (?, ?, ?, ?, 'pending', '', ?)`,
+        args: [
+          recordingId,
+          "owner@example.com",
+          recordingId,
+          iso(-60_000),
+          recordingId === staleId
+            ? iso(-PENDING_MEETING_FINALIZATION_STALE_MS - 1)
+            : iso(-PENDING_MEETING_FINALIZATION_STALE_MS + 1),
+        ],
+      });
+      await execute(client, {
+        sql: `INSERT INTO recording_transcripts (recording_id, status, full_text)
+              VALUES (?, 'ready', ?)`,
+        args: [recordingId, "Transcript text"],
+      });
+    }
+
+    await reapExpiredUploads({ now: NOW });
+
+    expect(mockReconcileMeetingOnRecordingFailed).toHaveBeenCalledOnce();
+    expect(mockReconcileMeetingOnRecordingFailed).toHaveBeenCalledWith({
+      recordingId: staleId,
+      ownerEmail: "owner@example.com",
+    });
+  });
+
+  it("bounds and parallelizes meeting finalization dispatches per sweep", async () => {
+    for (let index = 0; index < 9; index += 1) {
+      const recordingId = `bounded-finalize-${String(index).padStart(2, "0")}`;
+      await insertRecording({ id: recordingId, status: "ready" });
+      await execute(client, {
+        sql: `INSERT INTO clips_meetings
+              (id, owner_email, recording_id, actual_end, transcript_status, summary_md)
+              VALUES (?, ?, ?, ?, 'failed', '')`,
+        args: [recordingId, "owner@example.com", recordingId, iso(-60_000)],
+      });
+      await execute(client, {
+        sql: `INSERT INTO recording_transcripts (recording_id, status, full_text)
+              VALUES (?, 'ready', ?)`,
+        args: [recordingId, "Transcript text"],
+      });
+    }
+
+    let activeDispatches = 0;
+    let peakDispatches = 0;
+    let totalDispatches = 0;
+    let notifyFourStarted!: () => void;
+    let releaseDispatches!: () => void;
+    const fourStarted = new Promise<void>((resolve) => {
+      notifyFourStarted = resolve;
+    });
+    const blockedDispatches = new Promise<void>((resolve) => {
+      releaseDispatches = resolve;
+    });
+    mockReconcileMeetingOnRecordingFailed.mockImplementation(async () => {
+      totalDispatches += 1;
+      activeDispatches += 1;
+      peakDispatches = Math.max(peakDispatches, activeDispatches);
+      if (activeDispatches === 4) notifyFourStarted();
+      await blockedDispatches;
+      activeDispatches -= 1;
+    });
+
+    const reaping = reapExpiredUploads({ now: NOW, limit: 100 });
+    let concurrencyTimeout: ReturnType<typeof setTimeout> | undefined;
+    const reachedConcurrencyLimit = await Promise.race([
+      fourStarted.then(() => true),
+      new Promise<boolean>((resolve) => {
+        concurrencyTimeout = setTimeout(() => resolve(false), 1_000);
+      }),
+    ]);
+    if (concurrencyTimeout) clearTimeout(concurrencyTimeout);
+    releaseDispatches();
+    await reaping;
+
+    expect(reachedConcurrencyLimit).toBe(true);
+    expect(peakDispatches).toBe(4);
+    expect(totalDispatches).toBe(8);
   });
 
   it("retries hosted reservation release after confirmed cleanup", async () => {

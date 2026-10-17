@@ -80,7 +80,6 @@ export async function dispatchPostFinalizeJob(args: {
   const workerUrl = resolveWorkerUrl(dispatchPath);
   const usesDurableBackground =
     dispatchPathTargetsNetlifyBackgroundFunction(dispatchPath);
-  const controller = requireAccepted ? new AbortController() : null;
   const body = JSON.stringify({
     ...job,
     token,
@@ -97,14 +96,44 @@ export async function dispatchPostFinalizeJob(args: {
     workerUrl,
     usesDurableBackground,
   });
-  const post = (url: string) =>
+  const post = (url: string, signal?: AbortSignal) =>
     fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body,
-      ...(controller ? { signal: controller.signal } : {}),
+      ...(signal ? { signal } : {}),
     });
-  const dispatch = post(workerUrl).then(async (initialResponse) => {
+  const responseError = (response: Response) => {
+    throw new Error(
+      `Post-finalize ${args.kind} worker returned HTTP ${response.status}`,
+    );
+  };
+  const requestDurableAcceptance = async () => {
+    const controller = new AbortController();
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        post(workerUrl, controller.signal),
+        new Promise<Response>((_, reject) => {
+          timeout = setTimeout(() => {
+            reject(
+              new Error(
+                `Post-finalize ${args.kind} worker acceptance timed out after ${DISPATCH_ACCEPTANCE_TIMEOUT_MS}ms`,
+              ),
+            );
+            controller.abort();
+          }, DISPATCH_ACCEPTANCE_TIMEOUT_MS);
+        }),
+      ]);
+    } finally {
+      if (timeout) clearTimeout(timeout);
+    }
+  };
+  const dispatch = (async () => {
+    const initialResponse =
+      usesDurableBackground && requireAccepted
+        ? await requestDurableAcceptance()
+        : await post(workerUrl);
     const response =
       usesDurableBackground && !initialResponse.ok
         ? await post(resolveWorkerUrl(processorRoute))
@@ -117,13 +146,8 @@ export async function dispatchPostFinalizeJob(args: {
       });
       return;
     }
-    const detail = (await response.text().catch(() => "")).trim().slice(0, 300);
-    throw new Error(
-      `Post-finalize ${args.kind} worker returned HTTP ${response.status}${
-        detail ? `: ${detail}` : ""
-      }`,
-    );
-  });
+    responseError(response);
+  })();
 
   dispatch.catch((err) => {
     console.error("[post-finalize] worker dispatch failed", {
@@ -135,24 +159,7 @@ export async function dispatchPostFinalizeJob(args: {
   });
 
   if (requireAccepted) {
-    let timeout: ReturnType<typeof setTimeout> | undefined;
-    try {
-      await Promise.race([
-        dispatch,
-        new Promise<void>((_, reject) => {
-          timeout = setTimeout(() => {
-            reject(
-              new Error(
-                `Post-finalize ${args.kind} worker acceptance timed out after ${DISPATCH_ACCEPTANCE_TIMEOUT_MS}ms`,
-              ),
-            );
-            controller?.abort();
-          }, DISPATCH_ACCEPTANCE_TIMEOUT_MS);
-        }),
-      ]);
-    } finally {
-      if (timeout) clearTimeout(timeout);
-    }
+    await dispatch;
     return;
   }
 

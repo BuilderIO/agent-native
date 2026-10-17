@@ -29,7 +29,7 @@ import finalizeRecording from "../../../../../actions/finalize-recording.js";
 import { getDb, schema } from "../../../../db/index.js";
 import { debugLog } from "../../../../lib/debug.js";
 import { mediaVerificationStateKey } from "../../../../lib/media-verification-state.js";
-import { reconcileMeetingOnRecordingFailed } from "../../../../lib/reconcile-meeting-on-finalize.js";
+import { reconcileMeetingOnRecordingFailedBestEffort } from "../../../../lib/reconcile-meeting-on-finalize.js";
 import {
   hostedStorageAuthFailure,
   recordingTrackingSource,
@@ -941,7 +941,7 @@ export async function handleRecordingChunk(
           ownerEmail,
         });
       }
-      await reconcileMeetingOnRecordingFailed({
+      await reconcileMeetingOnRecordingFailedBestEffort({
         recordingId,
         ownerEmail,
       });
@@ -1051,7 +1051,7 @@ export async function handleRecordingChunk(
           err: err instanceof Error ? err.message : String(err),
         });
       });
-      await reconcileMeetingOnRecordingFailed({
+      await reconcileMeetingOnRecordingFailedBestEffort({
         recordingId,
         ownerEmail,
       });
@@ -1432,7 +1432,7 @@ export async function handleRecordingChunk(
             updatedAt: new Date().toISOString(),
           },
         });
-        await reconcileMeetingOnRecordingFailed({
+        await reconcileMeetingOnRecordingFailedBestEffort({
           recordingId,
           ownerEmail,
         });
@@ -1762,7 +1762,7 @@ async function handleResumableChunk(
         err: error instanceof Error ? error.message : String(error),
       });
     });
-    await reconcileMeetingOnRecordingFailed({
+    await reconcileMeetingOnRecordingFailedBestEffort({
       recordingId,
       ownerEmail,
     });
@@ -2308,7 +2308,7 @@ async function handleResumableChunk(
         updatedAt: failedAt,
       },
     });
-    await reconcileMeetingOnRecordingFailed({
+    await reconcileMeetingOnRecordingFailedBestEffort({
       recordingId,
       ownerEmail,
     });

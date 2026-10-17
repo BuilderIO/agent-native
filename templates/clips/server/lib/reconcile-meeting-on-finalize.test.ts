@@ -53,6 +53,7 @@ vi.mock("./post-finalize-dispatch.js", () => ({
 }));
 
 import {
+  reconcileMeetingOnRecordingFailedBestEffort,
   reconcileMeetingOnRecordingFailed,
   reconcileMeetingOnRecordingReady,
 } from "./reconcile-meeting-on-finalize";
@@ -162,5 +163,37 @@ describe("reconcileMeetingOnRecordingReady", () => {
 
     expect(state.updateSets).toEqual([]);
     expect(mockDispatchPostFinalizeJob).not.toHaveBeenCalled();
+  });
+
+  it("keeps upload failure handling intact when finalization dispatch fails", async () => {
+    state.foundMeeting = {
+      id: "meeting_1",
+      actualEnd: "2026-07-06T08:40:00.000Z",
+      summaryMd: "",
+    };
+    mockDispatchPostFinalizeJob.mockRejectedValueOnce(
+      new Error("worker dispatch unavailable"),
+    );
+    const consoleWarn = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+
+    try {
+      await expect(
+        reconcileMeetingOnRecordingFailedBestEffort({
+          recordingId: "rec_1",
+          ownerEmail: "owner@example.com",
+        }),
+      ).resolves.toBeUndefined();
+      expect(consoleWarn).toHaveBeenCalledWith(
+        "[clips-meeting] finalization dispatch failed after upload failure",
+        {
+          recordingId: "rec_1",
+          error: "worker dispatch unavailable",
+        },
+      );
+    } finally {
+      consoleWarn.mockRestore();
+    }
   });
 });

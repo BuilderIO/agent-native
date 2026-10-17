@@ -54,6 +54,8 @@ const RECONCILE_PAGE_LIMIT: usize = 200;
 
 const RECONCILE_MAX_PAGES: usize = 5;
 
+type BrowserProcessKey = (i32, &'static str);
+
 const STRONG_VC_BUNDLES: &[(&str, &str, &str)] = &[
     ("us.zoom.xos", "zoom", "Zoom meeting detected"),
     ("us.zoom.ZoomClips", "zoom", "Zoom meeting detected"),
@@ -380,10 +382,10 @@ impl AdhocMeetingsWatcherInner {
                 .unwrap_or(false)
     }
 
-    fn browser_bundle_ids(&self) -> Vec<&'static str> {
+    fn browser_processes(&self) -> Vec<BrowserProcessKey> {
         self.browser_associations
             .values()
-            .map(|association| association.bundle_id)
+            .map(|association| (association.pid, association.bundle_id))
             .collect()
     }
 
@@ -391,10 +393,14 @@ impl AdhocMeetingsWatcherInner {
         &mut self,
         now: Instant,
         candidate: Option<BrowserCallCandidate>,
-        mic_by_bundle: &HashMap<String, Option<bool>>,
+        mic_by_process: &HashMap<BrowserProcessKey, Option<bool>>,
     ) -> BrowserCallUpdates {
         if let Some(candidate) = candidate.filter(|candidate| {
-            mic_by_bundle.get(candidate.bundle_id).copied().flatten() == Some(true)
+            mic_by_process
+                .get(&(candidate.pid, candidate.bundle_id))
+                .copied()
+                .flatten()
+                == Some(true)
         }) {
             self.browser_associations.retain(|platform, association| {
                 *platform == candidate.platform
@@ -423,7 +429,10 @@ impl AdhocMeetingsWatcherInner {
         let mut updates = BrowserCallUpdates::default();
         let mut expired = Vec::new();
         for (platform, association) in &mut self.browser_associations {
-            let mic = mic_by_bundle.get(association.bundle_id).copied().flatten();
+            let mic = mic_by_process
+                .get(&(association.pid, association.bundle_id))
+                .copied()
+                .flatten();
             association.evidence.observe(now, mic, false);
 
             if association.evidence.take_call_ended() {
@@ -663,26 +672,23 @@ async fn tick_macos(
     let now = Instant::now();
     let now_ts = chrono::Utc::now().timestamp();
 
-    let mut browser_bundle_ids = {
+    let mut browser_processes = {
         let state = app
             .try_state::<AdhocMeetingsWatcherState>()
             .ok_or_else(|| "no AdhocMeetingsWatcherState".to_string())?;
         let g = state.inner.lock().map_err(|e| e.to_string())?;
-        g.browser_bundle_ids()
+        g.browser_processes()
     };
     if let Some(candidate) = browser_candidate {
-        browser_bundle_ids.push(candidate.bundle_id);
+        browser_processes.push((candidate.pid, candidate.bundle_id));
     }
-    browser_bundle_ids.sort_unstable();
-    browser_bundle_ids.dedup();
-    let browser_mic_by_bundle: HashMap<String, Option<bool>> = browser_bundle_ids
+    browser_processes.sort_unstable();
+    browser_processes.dedup();
+    let browser_mic_by_process: HashMap<BrowserProcessKey, Option<bool>> = browser_processes
         .into_iter()
-        .map(|bundle_id| {
-            let bundle_id_string = bundle_id.to_string();
-            let mic = crate::call_activity::call_app_uses_microphone(std::slice::from_ref(
-                &bundle_id_string,
-            ));
-            (bundle_id_string, mic)
+        .map(|(pid, bundle_id)| {
+            let mic = crate::call_activity::call_process_uses_microphone(pid, bundle_id);
+            ((pid, bundle_id), mic)
         })
         .collect();
 
@@ -735,7 +741,7 @@ async fn tick_macos(
             .ok_or_else(|| "no AdhocMeetingsWatcherState".to_string())?;
         let mut g = state.inner.lock().map_err(|e| e.to_string())?;
         g.retain_live_cooldowns(now_ts);
-        let updates = g.observe_browser_calls(now, browser_candidate, &browser_mic_by_bundle);
+        let updates = g.observe_browser_calls(now, browser_candidate, &browser_mic_by_process);
         for platform in &updates.ended_platforms {
             g.end_call_session(platform);
         }
@@ -979,16 +985,68 @@ mod tests {
         }
     }
 
+    fn browser_mic(pid: i32, state: Option<bool>) -> HashMap<BrowserProcessKey, Option<bool>> {
+        HashMap::from([((pid, "com.google.chrome"), state)])
+    }
+
     #[test]
     fn a_browser_microphone_without_a_matched_meeting_host_is_not_associated() {
         let now = Instant::now();
         let mut state = AdhocMeetingsWatcherInner::default();
-        let mic = HashMap::from([("com.google.chrome".to_string(), Some(true))]);
+        let mic = browser_mic(1234, Some(true));
 
         let updates = state.observe_browser_calls(now, None, &mic);
 
         assert!(state.browser_associations.is_empty());
         assert!(updates.live_platforms.is_empty());
+    }
+
+    #[test]
+    fn a_different_browser_process_cannot_supply_candidate_microphone_evidence() {
+        let now = Instant::now();
+        let candidate = BrowserCallCandidate {
+            pid: 1234,
+            bundle_id: "com.google.chrome",
+            platform: "meet",
+        };
+        let other_process_mic = browser_mic(5678, Some(true));
+        let unknown_candidate_mic = browser_mic(candidate.pid, None);
+        let mut state = AdhocMeetingsWatcherInner::default();
+
+        state.observe_browser_calls(now, Some(candidate), &other_process_mic);
+        state.observe_browser_calls(now, Some(candidate), &unknown_candidate_mic);
+
+        assert!(state.browser_associations.is_empty());
+    }
+
+    #[test]
+    fn a_different_browser_process_cannot_keep_an_association_alive() {
+        let start = Instant::now();
+        let candidate = BrowserCallCandidate {
+            pid: 1234,
+            bundle_id: "com.google.chrome",
+            platform: "meet",
+        };
+        let own_mic = browser_mic(candidate.pid, Some(true));
+        let mut state = AdhocMeetingsWatcherInner::default();
+
+        state.observe_browser_calls(start, Some(candidate), &own_mic);
+        state.observe_browser_calls(start + Duration::from_secs(2), None, &own_mic);
+        state.observe_browser_calls(start + Duration::from_secs(4), None, &own_mic);
+
+        let foreign_process_mic = HashMap::from([
+            ((candidate.pid, candidate.bundle_id), Some(false)),
+            ((5678, candidate.bundle_id), Some(true)),
+        ]);
+        state.observe_browser_calls(start + Duration::from_secs(5), None, &foreign_process_mic);
+        let ended = state.observe_browser_calls(
+            start + Duration::from_secs(5) + CALL_END,
+            None,
+            &foreign_process_mic,
+        );
+
+        assert_eq!(ended.ended_platforms, vec!["meet"]);
+        assert!(state.browser_associations.is_empty());
     }
 
     #[test]
@@ -999,7 +1057,7 @@ mod tests {
             bundle_id: "com.google.chrome",
             platform: "meet",
         };
-        let mic = HashMap::from([("com.google.chrome".to_string(), Some(true))]);
+        let mic = browser_mic(candidate.pid, Some(true));
         let mut state = AdhocMeetingsWatcherInner::default();
 
         let first = state.observe_browser_calls(start, Some(candidate), &mic);
@@ -1018,7 +1076,7 @@ mod tests {
         );
         assert_eq!(state.browser_associations["meet"].pid, candidate.pid);
 
-        let mic_stopped = HashMap::from([("com.google.chrome".to_string(), Some(false))]);
+        let mic_stopped = browser_mic(candidate.pid, Some(false));
         let still_active =
             state.observe_browser_calls(start + Duration::from_secs(5), None, &mic_stopped);
         assert!(still_active.ended_platforms.is_empty());
@@ -1045,7 +1103,7 @@ mod tests {
             platform: "zoom",
             ..meet
         };
-        let mic = HashMap::from([("com.google.chrome".to_string(), Some(true))]);
+        let mic = browser_mic(meet.pid, Some(true));
         let mut state = AdhocMeetingsWatcherInner::default();
 
         state.observe_browser_calls(start, Some(meet), &mic);

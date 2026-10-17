@@ -176,8 +176,16 @@ vi.mock("../../../../lib/recordings.js", () => ({
   ownerEmailMatches: (...args: unknown[]) => mockOwnerEmailMatches(...args),
 }));
 vi.mock("../../../../lib/reconcile-meeting-on-finalize.js", () => ({
-  reconcileMeetingOnRecordingFailed: (...args: unknown[]) =>
-    mockReconcileMeetingOnRecordingFailed(...args),
+  reconcileMeetingOnRecordingFailedBestEffort: async (...args: unknown[]) => {
+    try {
+      await mockReconcileMeetingOnRecordingFailed(...args);
+    } catch (error) {
+      console.warn(
+        "[clips-meeting] finalization dispatch failed after upload failure",
+        { error: error instanceof Error ? error.message : String(error) },
+      );
+    }
+  },
 }));
 
 vi.mock("../../../../lib/resumable-session.js", () => ({
@@ -614,6 +622,9 @@ describe("/api/uploads/:recordingId/chunk route", () => {
       uploadGenerationId: "generation-1",
     };
     mockShouldRejectVideoUploadWithoutStorage.mockResolvedValueOnce(true);
+    mockReconcileMeetingOnRecordingFailed.mockRejectedValueOnce(
+      new Error("meeting dispatch unavailable"),
+    );
     mockAppState.set(UPLOAD_KEY, attemptState);
     mockSelectRows.rows[0] = {
       ...mockSelectRows.rows[0],

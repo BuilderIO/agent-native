@@ -1,6 +1,7 @@
 import { getDbExec } from "@agent-native/core/db";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 
+import { PENDING_MEETING_FINALIZATION_STALE_MS } from "../../shared/meeting-finalization.js";
 import { WAITING_STORAGE_EXPIRED_REASON } from "../../shared/upload-interruption.js";
 import { getDb, schema } from "../db/index.js";
 import {
@@ -46,6 +47,8 @@ const MEETING_FINALIZATION_RETRY_STATE_PREFIX = "clips-meeting-finalize-retry-";
 const MAX_MEETING_FINALIZATION_DISPATCH_ATTEMPTS = 5;
 const MEETING_FINALIZATION_RETRY_BASE_MS = 5 * 60 * 1000;
 const MEETING_FINALIZATION_RETRY_MAX_MS = 15 * 60 * 1000;
+const MAX_MEETING_FINALIZATION_DISPATCHES_PER_SWEEP = 8;
+const MEETING_FINALIZATION_DISPATCH_CONCURRENCY = 4;
 
 type MeetingFinalizationRetryState = {
   recordingId: string;
@@ -908,6 +911,13 @@ export async function reapExpiredUploads(
 
   if (!dryRun) {
     const dispatchFailures: Array<{ recordingId: string; error: unknown }> = [];
+    const candidateLimit = Math.min(
+      limit,
+      MAX_MEETING_FINALIZATION_DISPATCHES_PER_SWEEP,
+    );
+    const stalePendingBefore = new Date(
+      now - PENDING_MEETING_FINALIZATION_STALE_MS,
+    ).toISOString();
     const retryableMeetingFinalizations = await exec.execute({
       sql: `SELECT DISTINCT r.id, r.owner_email
             FROM recordings r
@@ -919,7 +929,13 @@ export async function reapExpiredUploads(
                 WHERE m.recording_id = r.id
                   AND m.owner_email = r.owner_email
                   AND m.actual_end IS NOT NULL
-                  AND m.transcript_status IN ('ready', 'failed')
+                  AND (
+                    m.transcript_status IN ('ready', 'failed')
+                    OR (
+                      m.transcript_status = 'pending'
+                      AND m.updated_at < $3
+                    )
+                  )
                   AND m.summary_md = ''
                   AND m.trashed_at IS NULL
                   AND t.status = 'ready'
@@ -939,54 +955,98 @@ export async function reapExpiredUploads(
                   )
               )
             ORDER BY r.id
-            LIMIT ${limit}`,
-      args: [MEETING_FINALIZATION_RETRY_STATE_PREFIX, nowIso],
+            LIMIT ${candidateLimit}`,
+      args: [
+        MEETING_FINALIZATION_RETRY_STATE_PREFIX,
+        nowIso,
+        stalePendingBefore,
+      ],
     });
     const dispatchCandidates = new Map<string, Record<string, unknown>>();
-    for (const row of terminatedRows) {
-      dispatchCandidates.set(String(row.id), row);
-    }
     for (const row of (retryableMeetingFinalizations.rows as Array<
       Record<string, unknown>
     >) ?? []) {
       dispatchCandidates.set(String(row.id), row);
     }
-
-    for (const row of dispatchCandidates.values()) {
-      const recordingId = String(row.id);
-      if (typeof row.owner_email !== "string") {
-        dispatchFailures.push({
-          recordingId,
-          error: new Error("Upload timeout row is missing owner email"),
-        });
-        continue;
-      }
-      try {
-        const claim = await claimMeetingFinalizationDispatch({
-          recordingId,
-          ownerEmail: row.owner_email,
-          now,
-        });
-        if (claim === "waiting" || claim === "already-exhausted") continue;
-        if (claim === "exhausted") {
-          meetingFinalizationRetriesExhausted += 1;
-          console.error(
-            "[upload-reaper] meeting finalization retry limit exhausted",
-            {
-              recordingId,
-              attempts: MAX_MEETING_FINALIZATION_DISPATCH_ATTEMPTS,
-            },
-          );
-          continue;
-        }
-        await reconcileMeetingOnRecordingFailed({
-          recordingId,
-          ownerEmail: row.owner_email,
-        });
-      } catch (error) {
-        dispatchFailures.push({ recordingId, error });
+    const terminatedIds = terminatedRows.map((row) => String(row.id));
+    const terminatedCandidateLimit = candidateLimit - dispatchCandidates.size;
+    if (terminatedIds.length > 0 && terminatedCandidateLimit > 0) {
+      const terminatedMeetingFinalizations = await exec.execute({
+        sql: `SELECT DISTINCT r.id, r.owner_email
+              FROM recordings r
+              WHERE r.id IN (${terminatedIds.map((_, index) => `$${index + 1}`).join(", ")})
+                AND EXISTS (
+                  SELECT 1
+                  FROM clips_meetings m
+                  WHERE m.recording_id = r.id
+                    AND m.owner_email = r.owner_email
+                    AND m.actual_end IS NOT NULL
+                    AND m.summary_md = ''
+                    AND m.trashed_at IS NULL
+                )
+              ORDER BY r.id
+              LIMIT ${terminatedCandidateLimit}`,
+        args: terminatedIds,
+      });
+      for (const row of (terminatedMeetingFinalizations.rows as Array<
+        Record<string, unknown>
+      >) ?? []) {
+        dispatchCandidates.set(String(row.id), row);
       }
     }
+
+    const candidates = [...dispatchCandidates.values()];
+    let nextCandidate = 0;
+    const dispatchNextCandidate = async () => {
+      while (nextCandidate < candidates.length) {
+        const row = candidates[nextCandidate++];
+        if (!row) continue;
+        const recordingId = String(row.id);
+        if (typeof row.owner_email !== "string") {
+          dispatchFailures.push({
+            recordingId,
+            error: new Error("Upload timeout row is missing owner email"),
+          });
+          continue;
+        }
+        try {
+          const claim = await claimMeetingFinalizationDispatch({
+            recordingId,
+            ownerEmail: row.owner_email,
+            now,
+          });
+          if (claim === "waiting" || claim === "already-exhausted") continue;
+          if (claim === "exhausted") {
+            meetingFinalizationRetriesExhausted += 1;
+            console.error(
+              "[upload-reaper] meeting finalization retry limit exhausted",
+              {
+                recordingId,
+                attempts: MAX_MEETING_FINALIZATION_DISPATCH_ATTEMPTS,
+              },
+            );
+            continue;
+          }
+          await reconcileMeetingOnRecordingFailed({
+            recordingId,
+            ownerEmail: row.owner_email,
+          });
+        } catch (error) {
+          dispatchFailures.push({ recordingId, error });
+        }
+      }
+    };
+    await Promise.all(
+      Array.from(
+        {
+          length: Math.min(
+            MEETING_FINALIZATION_DISPATCH_CONCURRENCY,
+            candidates.length,
+          ),
+        },
+        dispatchNextCandidate,
+      ),
+    );
     if (dispatchFailures.length > 0) {
       throw new UploadReaperDispatchError(dispatchFailures);
     }
