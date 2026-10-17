@@ -270,6 +270,8 @@ the hidden data notes are kept. In Edit mode, people do the same from the dashbo
 header's Annotations menu, which also adds and edits key dates and sets.
 
 - Each event is `{ date: "YYYY-MM-DD", label, time?: "HH:MM", timeZone?, color? }`;
+  `color` accepts SVG-safe hex values: `#RGB`, `#RGBA`, `#RRGGBB`, or
+  `#RRGGBBAA`. Numeric x-axis timestamps use Unix epoch milliseconds.
   multiple are allowed. `date` is the calendar date in the event's own zone.
   Give `time` when the moment matters (a launch hour); `timeZone` is an IANA
   zone and needs a `time`. Without a zone, the time is UTC.

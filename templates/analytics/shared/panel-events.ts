@@ -1,4 +1,5 @@
 import type { PanelEvent } from "../app/pages/adhoc/sql-dashboard/types";
+import { isSafeSvgHexColor } from "./svg-color";
 
 export interface ResolvedPanelEvent {
   index: number;
@@ -54,8 +55,8 @@ export function panelEventProblem(value: unknown): string | null {
   if (typeof label !== "string" || label.trim() === "") {
     return "label must be a non-empty string";
   }
-  if (color !== undefined && typeof color !== "string") {
-    return "color must be a string";
+  if (color !== undefined && !isSafeSvgHexColor(color)) {
+    return "color must be a 3, 4, 6, or 8 digit hex color";
   }
   if (time === undefined) {
     return timeZone === undefined ? null : "timeZone needs a time";
@@ -157,6 +158,7 @@ export function panelEventInstant(
   return instant;
 }
 
+/** Numeric x values are Unix epoch milliseconds, matching JavaScript Date. */
 export function xInstant(value: unknown): number | null {
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
   if (typeof value !== "string") return null;
