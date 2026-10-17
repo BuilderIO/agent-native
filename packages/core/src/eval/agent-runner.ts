@@ -1079,7 +1079,7 @@ function normalizeProductionPathUsage(
     const fieldValue = usage[field];
     return (
       fieldValue === undefined ||
-      (typeof fieldValue === "number" && Number.isInteger(fieldValue))
+      (typeof fieldValue === "number" && Number.isSafeInteger(fieldValue))
     );
   };
 
