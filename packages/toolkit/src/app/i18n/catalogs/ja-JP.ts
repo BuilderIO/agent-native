@@ -179,6 +179,16 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "プライバシーポリシー",
   "onboarding.builderConsentAnd": "および",
   "onboarding.builderExistingAccount": "Builder.io アカウントを持っています",
+  "onboarding.creditsTitle": "毎月 60 の無料 Agent Credits で試してみましょう",
+  "onboarding.creditsTitleClips":
+    "無料のビデオストレージと毎月 60 の Agent Credits で試してみましょう",
+  "onboarding.creditsActivate": "無料クレジットを有効化",
+  "onboarding.creditsFinePrint":
+    "無料の Builder.io アカウントが作成されます。続行することで、当社の",
+  "onboarding.creditsConnectExisting": "既存の Builder.io アカウントを接続",
+  "onboarding.creditsMoreInfo": "詳細情報",
+  "onboarding.creditsSkipBody":
+    "スキップする場合は、AI とストレージを使用するために独自のキーを接続する必要があります。",
   "onboarding.builderConnect": "Builder.io に接続",
   "onboarding.builderActivating": "Builder.io 無料クレジットを有効化しています",
   "onboarding.builderConnecting": "Builder.io の無料クレジットを設定しています",

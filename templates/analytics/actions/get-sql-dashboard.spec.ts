@@ -63,6 +63,7 @@ vi.mock("../server/lib/data-notes-store", () => ({
 import {
   FIRST_PARTY_BIGQUERY_WAU_SQL,
   LEGACY_NEW_VS_RECURRING_USERS_SQL,
+  PANELS_INTRODUCED_TO_BIGQUERY_DASHBOARDS,
   PREVIOUS_VIEW_FIRST_PARTY_BIGQUERY_WAU_SQL,
 } from "../server/lib/canonical-first-party-dashboard-repair";
 import { FIRST_PARTY_DASHBOARD_ID } from "../server/lib/first-party-metric-catalog";
@@ -272,6 +273,7 @@ describe("get-sql-dashboard seed fallback", () => {
         kind: "sql",
         config: {
           filters,
+          introducedPanels: PANELS_INTRODUCED_TO_BIGQUERY_DASHBOARDS,
           panels: [
             { id: "wau-over-time", source: "bigquery", sql: wauSql },
             ...otherPanels,

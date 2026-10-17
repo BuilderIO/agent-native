@@ -166,6 +166,16 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "隱私權政策",
   "onboarding.builderConsentAnd": "和",
   "onboarding.builderExistingAccount": "我有 Builder.io 帳戶",
+  "onboarding.creditsTitle": "每月免費試用 60 個 Agent Credits",
+  "onboarding.creditsTitleClips":
+    "免費試用視訊儲存空間，並每月獲得 60 個 Agent Credits",
+  "onboarding.creditsActivate": "啟用免費額度",
+  "onboarding.creditsFinePrint":
+    "這將建立一個免費的 Builder.io 帳戶。繼續表示您同意我們的",
+  "onboarding.creditsConnectExisting": "連線至現有 Builder.io 帳戶",
+  "onboarding.creditsMoreInfo": "更多資訊",
+  "onboarding.creditsSkipBody":
+    "如果您跳過，您將需要連線自己的密鑰才能使用 AI 和儲存空間。",
   "onboarding.builderConnect": "連線至 Builder.io",
   "onboarding.builderActivating": "正在啟用 Builder.io 免費額度",
   "onboarding.builderConnecting": "正在設定 Builder.io 免費額度",

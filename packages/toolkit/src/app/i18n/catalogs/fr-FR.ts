@@ -180,6 +180,17 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "Politique de confidentialité",
   "onboarding.builderConsentAnd": "et",
   "onboarding.builderExistingAccount": "J’ai un compte Builder.io",
+  "onboarding.creditsTitle": "Essayez avec 60 crédits Agent gratuits par mois",
+  "onboarding.creditsTitleClips":
+    "Essayez avec du stockage vidéo gratuit et 60 crédits Agent par mois",
+  "onboarding.creditsActivate": "Activer les crédits gratuits",
+  "onboarding.creditsFinePrint":
+    "Ceci créera un compte Builder.io gratuit. En continuant, vous acceptez nos",
+  "onboarding.creditsConnectExisting":
+    "Connecter un compte Builder.io existant",
+  "onboarding.creditsMoreInfo": "Plus d’infos",
+  "onboarding.creditsSkipBody":
+    "Si vous ignorez, vous devrez connecter vos propres clés pour utiliser l’IA et le stockage.",
   "onboarding.builderConnect": "Connecter Builder.io",
   "onboarding.builderActivating": "Activation des crédits gratuits Builder.io",
   "onboarding.builderConnecting":
