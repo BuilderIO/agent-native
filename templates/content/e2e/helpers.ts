@@ -254,11 +254,12 @@ export interface TabRecord {
   saveRequests: number;
   saveOutcomes: Partial<Record<SaveOutcome, number>>;
   /**
-   * Refusal codes, the reason the server gave for a History diversion,
-   * `stranded` for a save still in flight when its page went away, and
-   * `answered after stranded` if such a save is answered anyway.
+   * Refusal codes, the reason the server gave for a History diversion, and
+   * `stranded` for a save still in flight when its page went away.
    */
   saveCodes: Record<string, number>;
+  /** Answers to stranded saves, which count in `saveOutcomes` as aborted. */
+  lateSaveOutcomes: Partial<Record<SaveOutcome, number>>;
   saveLineage: SaveLineageEvent[];
   saveLineageDropped: number;
   inputLineage: FixtureInputSnapshot[];
@@ -279,6 +280,7 @@ function emptyTab(label: string): TabRecord {
     saveRequests: 0,
     saveOutcomes: {},
     saveCodes: {},
+    lateSaveOutcomes: {},
     saveLineage: [],
     saveLineageDropped: 0,
     inputLineage: [],
@@ -636,15 +638,12 @@ export class TabSet {
       return;
     }
     if (pathname !== SAVE_PATH || request.method() !== "POST") return;
-    if (!this.inFlight.delete(request)) {
-      // Settled as stranded already; the answer is evidence, not an outcome.
-      if (this.stranded.has(request))
-        record.saveCodes["answered after stranded"] =
-          (record.saveCodes["answered after stranded"] ?? 0) + 1;
-      return;
-    }
+    // A save settled as stranded already counted once, as aborted. Its answer
+    // is still the server's word on it, so a History diversion stays noise.
+    const late = !this.inFlight.delete(request);
     const sentAt = this.sentAt.get(request);
-    if (sentAt !== undefined) record.saveDurationsMs.push(Date.now() - sentAt);
+    if (!late && sentAt !== undefined)
+      record.saveDurationsMs.push(Date.now() - sentAt);
     const lineage = this.lineageByRequest.get(request);
     const lineageResponse = lineage
       ? this.saveLineage.beginResponse(lineage.entry, response.status())
@@ -659,7 +658,8 @@ export class TabSet {
             bodyState,
             bodyState === "valid" ? body : undefined,
           );
-        record.saveOutcomes[outcome] = (record.saveOutcomes[outcome] ?? 0) + 1;
+        const outcomes = late ? record.lateSaveOutcomes : record.saveOutcomes;
+        outcomes[outcome] = (outcomes[outcome] ?? 0) + 1;
         if (code) record.saveCodes[code] = (record.saveCodes[code] ?? 0) + 1;
       }),
     );
@@ -1280,6 +1280,10 @@ export function noiseFailures(tabs: readonly TabRecord[]): string[] {
     ...HISTORY_OUTCOMES.filter((outcome) => tab.saveOutcomes[outcome]).map(
       (outcome) =>
         `${tab.label} had ${tab.saveOutcomes[outcome]} saves ${outcome}`,
+    ),
+    ...HISTORY_OUTCOMES.filter((outcome) => tab.lateSaveOutcomes[outcome]).map(
+      (outcome) =>
+        `${tab.label} had ${tab.lateSaveOutcomes[outcome]} stranded saves ${outcome}`,
     ),
   ]);
 }
