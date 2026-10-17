@@ -1958,6 +1958,75 @@ describe("production Netlify site concurrency guard", () => {
     assert(index < steps.findIndex((step) => step.id === "deploy"));
   });
 
+  it("skips queued docs deploys after newer docs inputs reach main", () => {
+    const workflow = readWorkflow(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+    );
+    const docsWorkflow = readWorkflow(
+      ".github/workflows/deploy-docs-production.yml",
+    );
+    const jobs = workflow.jobs as Record<string, Workflow>;
+    const steps = (jobs.deploy.steps as Array<Workflow>).filter(Boolean);
+    const freshness = steps.find(
+      (step) => step.name === "Skip stale queued docs deployments",
+    );
+    const pause = steps.find(
+      (step) =>
+        step.name === "Pause automatic Netlify builds for production cutover",
+    );
+    const unlock = steps.find(
+      (step) => step.name === "Unlock the published production deploy",
+    );
+    const upload = steps.find(
+      (step) => step.name === "Upload the prebuilt deploy",
+    );
+
+    assert(freshness);
+    assert(pause);
+    assert(unlock);
+    assert(upload);
+    assert.equal(freshness.id, "docs_source_freshness");
+    const freshnessIndex = steps.indexOf(freshness);
+    assert(freshnessIndex < steps.indexOf(pause));
+    assert(freshnessIndex < steps.indexOf(unlock));
+    assert(freshnessIndex < steps.indexOf(upload));
+    for (const step of [pause, unlock, upload]) {
+      assert.match(
+        String(step.if),
+        /steps\.docs_source_freshness\.outputs\.current == 'true'/,
+      );
+    }
+
+    const on = docsWorkflow.on as Workflow;
+    const push = on.push as Workflow;
+    const env = freshness.env as Workflow;
+    const docsPaths = JSON.parse(String(env.DOCS_DEPLOY_PATHS));
+    assert.deepEqual(docsPaths, push.paths);
+
+    const script = String((freshness.with as Workflow).script);
+    assert.match(script, /github\.rest\.git\.getRef/);
+    assert.match(script, /github\.rest\.repos\.compareCommits/);
+    assert.match(script, /comparison\.data\.total_commits > commits\.length/);
+    assert.match(script, /files\.length >= 300/);
+    assert.match(script, /file\.previous_filename/);
+    assert.match(script, /core\.setOutput\("current", "false"\)/);
+    assert.match(String(upload.if), /inputs\.caller != 'docs'/);
+    assert.match(String(upload.if), /github\.event_name != 'push'/);
+
+    const wait = steps.find(
+      (step) => step.name === "Wait for the Netlify deploy to publish",
+    );
+    const purge = steps.find(
+      (step) => step.name === "Purge the published Netlify cache",
+    );
+    const lock = steps.find(
+      (step) => step.name === "Lock the published production deploy",
+    );
+    assert.match(String(wait?.if), /steps\.deploy\.outputs\.deploy_id != ''/);
+    assert.match(String(purge?.if), /steps\.deploy\.outputs\.deploy_id != ''/);
+    assert.match(String(lock?.if), /steps\.deploy\.outputs\.deploy_id != ''/);
+  });
+
   it("smoke-tests app health while keeping static docs on a shell-only probe", () => {
     const workflow = readWorkflow(
       ".github/workflows/deploy-netlify-prebuilt.yml",
@@ -2119,7 +2188,7 @@ describe("production Netlify site concurrency guard", () => {
     assert(docsSmoke);
     assert.equal(
       docsSmoke.if,
-      "inputs.deploy && steps.beta_freshness.outputs.current != 'false' && inputs.smoke && steps.target.outputs.source_template == '@agent-native/docs'",
+      "inputs.deploy && steps.deploy.outputs.deploy_id != '' && steps.beta_freshness.outputs.current != 'false' && inputs.smoke && steps.target.outputs.source_template == '@agent-native/docs'",
     );
     assert.doesNotMatch(String(docsSmoke.run), /\/_agent-native\/health/);
   });

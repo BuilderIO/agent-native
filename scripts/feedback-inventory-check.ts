@@ -383,7 +383,7 @@ function validateLegacyReplyReactionReadback(
       `${parentName}.threadSnapshot reply ${parent.ts}.workflowReactionReadAt`,
       "read the exact reply reactions again before recap",
     );
-    if (reactionReadAt < Date.parse(snapshot!.readAt)) {
+    if (reactionReadAt <= Date.parse(snapshot!.readAt)) {
       throw new Error(
         `${parentName}: reply reaction read-back must follow its full-thread read`,
       );
@@ -665,7 +665,7 @@ function validateThreadSnapshotStructure(
           `${replyName}.workflowReactionReadAt must be an ISO timestamp`,
         );
       }
-      if (reactionReadTime < readAt) {
+      if (reactionReadTime <= readAt) {
         throw new Error(
           `${replyName}: reaction read-back must follow the full-thread read`,
         );
@@ -680,7 +680,10 @@ function validateThreadSnapshotStructure(
     }
     previousReplyTs = replyTs;
   }
-  if (snapshot.replies.length > 0 && BigInt(readAt) < previousReplyTs / 1000n) {
+  if (
+    snapshot.replies.length > 0 &&
+    BigInt(readAt) * 1000n <= previousReplyTs
+  ) {
     throw new Error(
       `${parentName}: threadSnapshot.readAt must be after the newest reply it records`,
     );
@@ -2155,7 +2158,7 @@ function validateSupplementalRootAudit(
   if (
     requireFreshReads &&
     finalPageReadAt !== null &&
-    reactionReadAt! < finalPageReadAt
+    reactionReadAt! <= finalPageReadAt
   ) {
     throw new Error(
       `${parentName}: root reaction read-back must follow the final channel page`,
@@ -2527,7 +2530,7 @@ function validateRootReactionReadAt(
     }
     if (
       reactionReadTime === undefined ||
-      reactionReadTime < reactionWriteTime
+      reactionReadTime <= reactionWriteTime
     ) {
       throw new Error(
         `${parentName}: root reaction read-back must follow the latest reaction write`,
@@ -2557,6 +2560,193 @@ function sourceReceiptChannelName(channelId: string, index: number): string {
     ["qa", "product", "dev"][index] ??
     channelId
   );
+}
+
+const emptySlackSearchResults = "# Search Results for: \n\nNo results found.\n";
+const emptySlackSearchResultsPattern =
+  /^# Search Results for: [^\n]*\n\nNo results found\.\n?$/;
+const exhaustedSlackSearchPagination =
+  "End of results - No more pages available.";
+
+function parseRawSlackSearchPage(
+  results: string,
+  paginationInfo: unknown,
+  sourceName: string,
+): { blocks: string[]; nextCursor: string | null; exhausted: boolean } {
+  const normalizedResults = results.replace(/\r\n/g, "\n");
+  if (typeof paginationInfo !== "string") {
+    throw new Error(`${sourceName}: raw Slack response has no pagination info`);
+  }
+
+  const normalizedPagination = paginationInfo
+    .replace(/(?:\\n|\s)+$/g, "")
+    .trimEnd();
+  const cursorMatches = [...normalizedPagination.matchAll(/cursor `([^`]+)`/g)];
+  if (cursorMatches.length > 1) {
+    throw new Error(`${sourceName}: raw Slack response has multiple cursors`);
+  }
+  const nextCursor = cursorMatches[0]?.[1] ?? null;
+  const hasExhaustionMarker = normalizedPagination.includes(
+    exhaustedSlackSearchPagination,
+  );
+  const exhausted = normalizedPagination === exhaustedSlackSearchPagination;
+  if (nextCursor !== null && hasExhaustionMarker) {
+    throw new Error(
+      `${sourceName}: raw Slack response has both a next cursor and exhausted pagination`,
+    );
+  }
+  if (nextCursor === null && !exhausted) {
+    throw new Error(
+      `${sourceName}: raw Slack response must record a next cursor or explicit exhaustion`,
+    );
+  }
+
+  if (emptySlackSearchResultsPattern.test(normalizedResults)) {
+    if (!exhausted) {
+      throw new Error(
+        `${sourceName}: empty Slack results require explicit exhausted pagination`,
+      );
+    }
+    return { blocks: [], nextCursor: null, exhausted: true };
+  }
+
+  const countMatch =
+    /^# Search Results for: [^\n]*\n\n## Messages \((\d+) results?\)\n/.exec(
+      normalizedResults,
+    );
+  if (!countMatch) {
+    throw new Error(
+      `${sourceName}: raw Slack results have no recognized search-result header`,
+    );
+  }
+  const count = Number(countMatch[1]);
+  const headers = [
+    ...normalizedResults.matchAll(/^### Result (\d+) of (\d+)$/gm),
+  ];
+  if (
+    count < 1 ||
+    headers.length !== count ||
+    headers.some(
+      (header, index) =>
+        Number(header[1]) !== index + 1 || Number(header[2]) !== count,
+    )
+  ) {
+    throw new Error(
+      `${sourceName}: raw Slack result headers do not match the declared result count`,
+    );
+  }
+
+  const blocks = headers.map((header, index) => {
+    const start = (header.index ?? 0) + header[0].length;
+    const bodyStart = normalizedResults[start] === "\n" ? start + 1 : start;
+    const end = headers[index + 1]?.index ?? normalizedResults.length;
+    return normalizedResults.slice(bodyStart, end);
+  });
+  return { blocks, nextCursor, exhausted };
+}
+
+function parseCapturedSlackSearchPage(
+  saved: Record<string, unknown>,
+  path: string,
+  channelId: string,
+): RawSourcePageEvidence {
+  if (saved.isError === true || typeof saved.raw !== "string") {
+    throw new Error(
+      `${path}: captured Slack page read failed or has no raw response`,
+    );
+  }
+  if (typeof saved.readAt !== "string") {
+    throw new Error(`${path}: captured Slack page must record readAt`);
+  }
+  let response: { results?: unknown; pagination_info?: unknown };
+  try {
+    response = JSON.parse(saved.raw) as {
+      results?: unknown;
+      pagination_info?: unknown;
+    };
+  } catch (error) {
+    throw new Error(
+      `${path}: raw Slack response is not JSON: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  if (typeof response.results !== "string") {
+    throw new Error(`${path}: raw Slack response has no detailed results`);
+  }
+  const parsed = parseRawSlackSearchPage(
+    response.results,
+    response.pagination_info,
+    path,
+  );
+  const rows = parsed.blocks.map((block, rowIndex) => {
+    const messageName = `${path} result ${rowIndex + 1}`;
+    const ts = (block.match(/\nMessage_ts: ([0-9.]+)/) ?? [])[1];
+    const permalink = (block.match(/\nPermalink: \[link\]\(([^\n]+)\)/) ??
+      [])[1];
+    if (!ts || !permalink) {
+      throw new Error(
+        `${messageName}: source timestamp or permalink is missing`,
+      );
+    }
+    const timestamp = slackTimestamp(ts, `${messageName}.ts`);
+    let url: URL;
+    try {
+      url = new URL(permalink);
+    } catch {
+      throw new Error(`${messageName}: source permalink is invalid`);
+    }
+    const pathMatch = /^\/archives\/([^/]+)\/p(\d+)$/.exec(url.pathname);
+    if (
+      url.protocol !== "https:" ||
+      !url.hostname.endsWith(".slack.com") ||
+      !pathMatch ||
+      pathMatch[1] !== channelId
+    ) {
+      throw new Error(
+        `${messageName}: permalink does not identify the inventoried channel`,
+      );
+    }
+    const permalinkTimestamp = `${pathMatch[2]!.slice(0, -6)}.${pathMatch[2]!.slice(-6)}`;
+    if (
+      slackTimestamp(permalinkTimestamp, `${messageName}.permalink`) !==
+      timestamp
+    ) {
+      throw new Error(
+        `${messageName}: permalink timestamp does not match the source message`,
+      );
+    }
+    const threadTimestamps = url.searchParams.getAll("thread_ts");
+    if (threadTimestamps.length > 1) {
+      throw new Error(
+        `${messageName}: permalink has multiple thread_ts values`,
+      );
+    }
+    const threadTs = threadTimestamps[0] ?? null;
+    if (threadTs !== null) {
+      const parentTimestamp = slackTimestamp(
+        threadTs,
+        `${messageName}.thread_ts`,
+      );
+      if (parentTimestamp > timestamp) {
+        throw new Error(
+          `${messageName}: thread_ts is newer than the source message`,
+        );
+      }
+    }
+    return { ts, root: threadTs ?? ts };
+  });
+  const cursor = saved.cursor === undefined ? null : saved.cursor;
+  if (cursor !== null && typeof cursor !== "string") {
+    throw new Error(`${path}: request cursor must be a string or null`);
+  }
+  return {
+    cursor,
+    nextCursor: parsed.nextCursor,
+    exhausted: parsed.exhausted,
+    readAt: saved.readAt,
+    messageCount: rows.length,
+    sourceTimestamps: rows.map((row) => row.ts),
+    rows,
+  };
 }
 
 function readRawSourcePages(
@@ -2623,112 +2813,13 @@ function readRawSourcePages(
           `${path}: could not read the captured Slack page: ${error instanceof Error ? error.message : String(error)}`,
         );
       }
-      if (saved.isError === true || typeof saved.raw !== "string") {
-        throw new Error(
-          `${path}: captured Slack page read failed or has no raw response`,
-        );
-      }
-      if (typeof saved.readAt !== "string") {
-        throw new Error(`${path}: captured Slack page must record readAt`);
-      }
-      let response: { results?: unknown; pagination_info?: unknown };
-      try {
-        response = JSON.parse(saved.raw) as {
-          results?: unknown;
-          pagination_info?: unknown;
-        };
-      } catch (error) {
-        throw new Error(
-          `${path}: raw Slack response is not JSON: ${error instanceof Error ? error.message : String(error)}`,
-        );
-      }
-      if (typeof response.results !== "string") {
-        throw new Error(`${path}: raw Slack response has no detailed results`);
-      }
-      const blocks = response.results
-        .split(/\n### Result \d+ of \d+\n/)
-        .slice(1);
-      const rows = blocks.map((block, rowIndex) => {
-        const messageName = `${path} result ${rowIndex + 1}`;
-        const ts = (block.match(/\nMessage_ts: ([0-9.]+)/) ?? [])[1];
-        const permalink = (block.match(/\nPermalink: \[link\]\(([^\n]+)\)/) ??
-          [])[1];
-        if (!ts || !permalink) {
-          throw new Error(
-            `${messageName}: source timestamp or permalink is missing`,
-          );
-        }
-        const timestamp = slackTimestamp(ts, `${messageName}.ts`);
-        let url: URL;
-        try {
-          url = new URL(permalink);
-        } catch {
-          throw new Error(`${messageName}: source permalink is invalid`);
-        }
-        const pathMatch = /^\/archives\/([^/]+)\/p(\d+)$/.exec(url.pathname);
-        if (
-          url.protocol !== "https:" ||
-          !url.hostname.endsWith(".slack.com") ||
-          !pathMatch ||
-          pathMatch[1] !== channel.channelId
-        ) {
-          throw new Error(
-            `${messageName}: permalink does not identify the inventoried channel`,
-          );
-        }
-        const permalinkTimestamp = `${pathMatch[2]!.slice(0, -6)}.${pathMatch[2]!.slice(-6)}`;
-        if (
-          slackTimestamp(permalinkTimestamp, `${messageName}.permalink`) !==
-          timestamp
-        ) {
-          throw new Error(
-            `${messageName}: permalink timestamp does not match the source message`,
-          );
-        }
-        const threadTimestamps = url.searchParams.getAll("thread_ts");
-        if (threadTimestamps.length > 1) {
-          throw new Error(
-            `${messageName}: permalink has multiple thread_ts values`,
-          );
-        }
-        const threadTs = threadTimestamps[0] ?? null;
-        if (threadTs !== null) {
-          const parentTimestamp = slackTimestamp(
-            threadTs,
-            `${messageName}.thread_ts`,
-          );
-          if (parentTimestamp > timestamp) {
-            throw new Error(
-              `${messageName}: thread_ts is newer than the source message`,
-            );
-          }
-        }
-        return { ts, root: threadTs ?? ts };
-      });
-      const nextCursor =
-        typeof response.pagination_info === "string"
-          ? ((response.pagination_info.match(/cursor `([^`]+)`/) ?? [])[1] ??
-            null)
-          : null;
-      const cursor = saved.cursor === undefined ? null : saved.cursor;
-      if (cursor !== null && typeof cursor !== "string") {
-        throw new Error(`${path}: request cursor must be a string or null`);
-      }
       const sequence = Number(file.match(/-(\d+)\.json$/)?.[1]);
       if (sequence !== pageIndex) {
         throw new Error(
           `${path}: source page files must be numbered contiguously from 00`,
         );
       }
-      return {
-        cursor,
-        nextCursor,
-        exhausted: nextCursor === null,
-        readAt: saved.readAt,
-        messageCount: rows.length,
-        sourceTimestamps: rows.map((row) => row.ts),
-        rows,
-      };
+      return parseCapturedSlackSearchPage(saved, path, channel.channelId);
     });
   }
   return result;
@@ -3029,6 +3120,13 @@ function validateInventory(
           ),
         )
       : [];
+    for (let pageIndex = 1; pageIndex < pageReadTimes.length; pageIndex += 1) {
+      if (pageReadTimes[pageIndex]! < pageReadTimes[pageIndex - 1]!) {
+        throw new Error(
+          `${name}: channel page ${pageIndex + 1} was read before the preceding page; rerun the complete channel scan in cursor order`,
+        );
+      }
+    }
     const finalPageReadAt = pageReadTimes.length
       ? Math.max(...pageReadTimes)
       : null;
@@ -3067,9 +3165,9 @@ function validateInventory(
           `${name}.threadSnapshots[${snapshotIndex}].readAt`,
           "read the complete thread again after the final channel scan",
         );
-        if (finalPageReadAt !== null && snapshotReadAt < finalPageReadAt) {
+        if (finalPageReadAt !== null && snapshotReadAt <= finalPageReadAt) {
           throw new Error(
-            `${name} threadSnapshot ${snapshot.rootTs} predates the final channel page; read the thread again after the channel scan`,
+            `${name} threadSnapshot ${snapshot.rootTs} must follow the final channel page; read the thread again after the channel scan`,
           );
         }
       }
@@ -3307,7 +3405,7 @@ function validateInventory(
           if (
             options.requireFreshReads &&
             finalPageReadAt !== null &&
-            reactionReadAt! < finalPageReadAt
+            reactionReadAt! <= finalPageReadAt
           ) {
             throw new Error(
               parentName +
@@ -4007,6 +4105,164 @@ function validateInventory(
 
 const args = process.argv.slice(2).filter((argument) => argument !== "--");
 if (args[0] === "--self-test" && args.length === 1) {
+  const emptyPage = parseRawSlackSearchPage(
+    emptySlackSearchResults,
+    `${exhaustedSlackSearchPagination}\\n`,
+    "self-test empty page",
+  );
+  if (
+    emptyPage.blocks.length !== 0 ||
+    emptyPage.nextCursor !== null ||
+    !emptyPage.exhausted
+  ) {
+    throw new Error(
+      "Feedback inventory checker self-test rejected an empty final page",
+    );
+  }
+  const echoedQueryEmptyPage = parseRawSlackSearchPage(
+    "# Search Results for: from:steve in:product\n\nNo results found.\n",
+    exhaustedSlackSearchPagination,
+    "self-test echoed-query empty page",
+  );
+  if (
+    echoedQueryEmptyPage.blocks.length !== 0 ||
+    echoedQueryEmptyPage.nextCursor !== null ||
+    !echoedQueryEmptyPage.exhausted
+  ) {
+    throw new Error(
+      "Feedback inventory checker self-test rejected an echoed-query empty page",
+    );
+  }
+  const nonEmptyResults =
+    "# Search Results for: \n\n## Messages (2 results)\n### Result 1 of 2\nfirst\n### Result 2 of 2\nsecond";
+  const cursorPage = parseRawSlackSearchPage(
+    nonEmptyResults,
+    "For the next page of results use cursor `next-page`\\n",
+    "self-test cursor page",
+  );
+  if (
+    cursorPage.blocks.length !== 2 ||
+    cursorPage.nextCursor !== "next-page" ||
+    cursorPage.exhausted
+  ) {
+    throw new Error(
+      "Feedback inventory checker self-test rejected a cursor page",
+    );
+  }
+  const productionPageResults =
+    "# Search Results for: from:steve\n\n## Messages (1 result)\n### Result 1 of 1\n\nMessage_ts: 1700000000.123456\nPermalink: [link](https://app.slack.com/archives/C0C4U4XRT6X/p1700000000123456)";
+  const productionPage = parseCapturedSlackSearchPage(
+    {
+      cursor: null,
+      readAt: "2026-10-17T19:00:00.000Z",
+      raw: JSON.stringify({
+        results: productionPageResults,
+        pagination_info: "For the next page of results use cursor `next-page`",
+      }),
+    },
+    "self-test production Slack page",
+    "C0C4U4XRT6X",
+  );
+  if (
+    productionPage.rows.length !== 1 ||
+    productionPage.rows[0]?.ts !== "1700000000.123456" ||
+    productionPage.nextCursor !== "next-page" ||
+    productionPage.exhausted
+  ) {
+    throw new Error(
+      "Feedback inventory checker self-test rejected a production cursor page",
+    );
+  }
+  try {
+    parseCapturedSlackSearchPage(
+      {
+        cursor: null,
+        readAt: "2026-10-17T19:00:00.000Z",
+        raw: JSON.stringify({ results: productionPageResults }),
+      },
+      "self-test production page missing pagination",
+      "C0C4U4XRT6X",
+    );
+    throw new Error(
+      "self-test failed to reject production Slack page without pagination",
+    );
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.startsWith("self-test failed to reject")
+    ) {
+      throw error;
+    }
+    if (
+      !(error instanceof Error) ||
+      !error.message.includes("raw Slack response has no pagination info")
+    ) {
+      throw new Error(
+        `self-test expected production missing-pagination rejection; received ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+  const sourcePageEnvelopeFailures = [
+    {
+      name: "unstructured search result text",
+      results: "No results found.\\n",
+      paginationInfo: exhaustedSlackSearchPagination,
+      diagnostic: "no recognized search-result header",
+    },
+    {
+      name: "missing pagination metadata",
+      results: nonEmptyResults,
+      paginationInfo: "",
+      diagnostic: "must record a next cursor or explicit exhaustion",
+    },
+    {
+      name: "cursor and exhaustion metadata together",
+      results: nonEmptyResults,
+      paginationInfo:
+        "End of results - No more pages available. cursor `next-page`",
+      diagnostic: "both a next cursor and exhausted pagination",
+    },
+    {
+      name: "empty results with a next cursor",
+      results: emptySlackSearchResults,
+      paginationInfo: "For the next page of results use cursor `next-page`",
+      diagnostic: "empty Slack results require explicit exhausted pagination",
+    },
+    {
+      name: "mismatched result count",
+      results: nonEmptyResults.replace(
+        "Messages (2 results)",
+        "Messages (3 results)",
+      ),
+      paginationInfo: exhaustedSlackSearchPagination,
+      diagnostic: "result headers do not match the declared result count",
+    },
+  ];
+  for (const testCase of sourcePageEnvelopeFailures) {
+    try {
+      parseRawSlackSearchPage(
+        testCase.results,
+        testCase.paginationInfo,
+        `self-test ${testCase.name}`,
+      );
+      throw new Error(`self-test failed to reject ${testCase.name}`);
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message.startsWith("self-test failed")
+      ) {
+        throw error;
+      }
+      if (
+        !(error instanceof Error) ||
+        !error.message.includes(testCase.diagnostic)
+      ) {
+        throw new Error(
+          `self-test ${testCase.name} expected diagnostic containing "${testCase.diagnostic}"; received "${error instanceof Error ? error.message : String(error)}"`,
+        );
+      }
+    }
+  }
   for (const [text, action] of [
     ["I'll test this later today", "test this later today"],
     ["I'll supersede #7524", "supersede #7524"],
@@ -4518,7 +4774,7 @@ if (args[0] === "--self-test" && args.length === 1) {
             ...(sourceReply?.files?.length ? { files: sourceReply.files } : {}),
             workflowReactionSummary,
             workflowReactionOwners,
-            workflowReactionReadAt: parent.reactionReadAt,
+            workflowReactionReadAt: "2030-01-01T00:00:01.000Z",
           });
         }
         repliesByRoot.set(rootTs, replies);
@@ -8987,17 +9243,39 @@ if (args[0] === "--self-test" && args.length === 1) {
             readAt: pageReadAt,
             parents: page.parents.map((parent) =>
               parent.ts === parent.threadParentTs
-                ? { ...parent, reactionReadAt: pageReadAt }
+                ? {
+                    ...parent,
+                    reactionReadAt:
+                      pageReadAt === undefined
+                        ? undefined
+                        : new Date(Date.parse(pageReadAt) + 1).toISOString(),
+                  }
                 : parent,
             ),
           })),
           threadRootAudits: channel.threadRootAudits?.map((parent) => ({
             ...parent,
-            reactionReadAt: pageReadAt,
+            reactionReadAt:
+              pageReadAt === undefined
+                ? undefined
+                : new Date(Date.parse(pageReadAt) + 1).toISOString(),
           })),
           threadSnapshots: channel.threadSnapshots?.map((snapshot) => ({
             ...snapshot,
             readAt: snapshotReadAt,
+            replies: snapshot.replies.map((reply) =>
+              ["eyes", "white_check_mark", "ticket"].some(
+                (emoji) =>
+                  (reply.workflowReactionOwners[emoji]?.length ?? 0) > 0,
+              )
+                ? {
+                    ...reply,
+                    workflowReactionReadAt: new Date(
+                      Date.parse(snapshotReadAt) + 1,
+                    ).toISOString(),
+                  }
+                : reply,
+            ),
           })),
         })),
       };
@@ -9132,6 +9410,18 @@ if (args[0] === "--self-test" && args.length === 1) {
         };
       }),
     };
+    const outOfOrderPageInventory: Inventory = {
+      ...pagedReceiptInventory,
+      channels: pagedReceiptInventory.channels.map((channel) => ({
+        ...channel,
+        pages: channel.pages.map((page, pageIndex) => ({
+          ...page,
+          readAt: new Date(
+            now - (pageIndex === 0 ? 1_000 : 2_000),
+          ).toISOString(),
+        })),
+      })),
+    };
     const pagedSourceReceipt = sourceReceiptFor(pagedReceiptInventory);
     validateInventory(pagedReceiptInventory, {
       requireFreshReads: true,
@@ -9194,6 +9484,28 @@ if (args[0] === "--self-test" && args.length === 1) {
           })),
         },
       },
+    };
+    const replyReactionReadEqualToThreadInventory: Inventory = {
+      ...inventoryWithReadTimes(freshPageReadAt, freshSnapshotReadAt),
+      channels: inventoryWithReadTimes(
+        freshPageReadAt,
+        freshSnapshotReadAt,
+      ).channels.map((channel) => ({
+        ...channel,
+        threadSnapshots: channel.threadSnapshots?.map((snapshot) => ({
+          ...snapshot,
+          replies: snapshot.replies.map((reply, replyIndex) =>
+            replyIndex === 0
+              ? {
+                  ...reply,
+                  workflowReactionSummary: "eyes (1): USWEEPER",
+                  workflowReactionOwners: { eyes: ["USWEEPER"] },
+                  workflowReactionReadAt: freshSnapshotReadAt,
+                }
+              : reply,
+          ),
+        })),
+      })),
     };
     const sourceReceiptFailures = [
       {
@@ -9306,13 +9618,94 @@ if (args[0] === "--self-test" && args.length === 1) {
           new Date(now - 2_000).toISOString(),
         ),
         diagnostic:
-          "predates the final channel page; read the thread again after the channel scan",
+          "must follow the final channel page; read the thread again after the channel scan",
+      },
+      {
+        name: "thread snapshot read equals the final page read",
+        inventory: inventoryWithReadTimes(freshPageReadAt, freshPageReadAt),
+        diagnostic:
+          "must follow the final channel page; read the thread again after the channel scan",
+      },
+      {
+        name: "channel pages read out of cursor order",
+        inventory: outOfOrderPageInventory,
+        diagnostic:
+          "was read before the preceding page; rerun the complete channel scan in cursor order",
       },
       {
         name: "root reaction read-back predates the latest write",
         inventory: reactionWriteAfterRead,
         diagnostic:
           "root reaction read-back must follow the latest reaction write",
+      },
+      {
+        name: "root reaction read-back equals the final page read",
+        inventory: (() => {
+          const inventory = inventoryWithReadTimes(
+            freshPageReadAt,
+            freshSnapshotReadAt,
+          );
+          return {
+            ...inventory,
+            channels: inventory.channels.map((channel) => ({
+              ...channel,
+              pages: channel.pages.map((page) => ({
+                ...page,
+                parents: page.parents.map((parent) =>
+                  parent.ts === parent.threadParentTs
+                    ? { ...parent, reactionReadAt: freshPageReadAt }
+                    : parent,
+                ),
+              })),
+              threadRootAudits: channel.threadRootAudits?.map((parent) => ({
+                ...parent,
+                reactionReadAt: freshPageReadAt,
+              })),
+            })),
+          };
+        })(),
+        diagnostic:
+          "root reaction read-back must follow the final channel page",
+      },
+      {
+        name: "root reaction read-back equals the latest write",
+        inventory: (() => {
+          const inventory = inventoryWithReadTimes(
+            freshPageReadAt,
+            freshSnapshotReadAt,
+          );
+          let wroteFixture = false;
+          return {
+            ...inventory,
+            channels: inventory.channels.map((channel) => ({
+              ...channel,
+              pages: channel.pages.map((page) => ({
+                ...page,
+                parents: page.parents.map((parent) => {
+                  if (
+                    !wroteFixture &&
+                    parent.ts === parent.threadParentTs &&
+                    parent.reactionReadAt
+                  ) {
+                    wroteFixture = true;
+                    return {
+                      ...parent,
+                      reactionWriteAt: parent.reactionReadAt,
+                    };
+                  }
+                  return parent;
+                }),
+              })),
+            })),
+          };
+        })(),
+        diagnostic:
+          "root reaction read-back must follow the latest reaction write",
+      },
+      {
+        name: "reply reaction read-back equals the full-thread read",
+        inventory: replyReactionReadEqualToThreadInventory,
+        diagnostic: "reaction read-back must follow the full-thread read",
       },
     ];
     for (const testCase of freshnessFailures) {
@@ -9337,7 +9730,7 @@ if (args[0] === "--self-test" && args.length === 1) {
       }
     }
     console.log(
-      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + 3} negative cases; 30 positive inventory cases; 6 handoff phrase cases).`,
+      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + 4} negative cases; 30 positive inventory cases; 6 handoff phrase cases).`,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

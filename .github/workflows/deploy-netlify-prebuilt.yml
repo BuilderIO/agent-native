@@ -833,9 +833,85 @@ jobs:
           steps.target.outputs.source_template == '@agent-native/docs'
         run: NODE_ENV=production NETLIFY=true timeout 180 node scripts/ssr-boot-smoke.mjs packages/docs
 
+      - name: Skip stale queued docs deployments
+        id: docs_source_freshness
+        if: >-
+          inputs.target == 'production' && inputs.deploy &&
+          inputs.deploy_mode == 'production' && inputs.caller == 'docs' &&
+          github.event_name == 'push'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          DOCS_DEPLOY_PATHS: >-
+            [".nvmrc", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "packages/core/**", "packages/docs/**", "scripts/netlify-prebuilt-target.ts", "scripts/netlify-migration-url.ts", "scripts/netlify-production-sites.json", ".github/workflows/deploy-docs-production.yml", ".github/workflows/deploy-netlify-prebuilt.yml"]
+          SOURCE_REF: ${{ steps.source.outputs.source_ref }}
+        with:
+          script: |
+            const sourceRef = process.env.SOURCE_REF.trim().toLowerCase();
+            if (!/^[0-9a-f]{40}$/i.test(sourceRef)) {
+              core.setFailed("Docs production source must be a full 40-character commit SHA.");
+              return;
+            }
+
+            const mainSha = (await github.rest.git.getRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: "heads/main",
+            })).data.object.sha.toLowerCase();
+            if (sourceRef === mainSha) {
+              core.setOutput("current", "true");
+              return;
+            }
+
+            const comparison = await github.rest.repos.compareCommits({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              base: sourceRef,
+              head: mainSha,
+            });
+            if (!["ahead", "identical"].includes(comparison.data.status)) {
+              core.setFailed(`Docs production source ${sourceRef} is no longer an ancestor of main ${mainSha}.`);
+              return;
+            }
+
+            const commits = comparison.data.commits;
+            const files = comparison.data.files;
+            if (
+              !Array.isArray(commits) ||
+              comparison.data.total_commits > commits.length ||
+              !Array.isArray(files) ||
+              files.length >= 300
+            ) {
+              core.setFailed("Cannot verify all newer docs deployment inputs; refusing to publish this queued source.");
+              return;
+            }
+
+            const docsPaths = JSON.parse(process.env.DOCS_DEPLOY_PATHS);
+            const matchesDocsPath = (path) =>
+              docsPaths.some((pattern) =>
+                pattern.endsWith("/**")
+                  ? path.startsWith(pattern.slice(0, -2))
+                  : path === pattern,
+              );
+            const newerDocsChange = files.some((file) =>
+              [file.filename, file.previous_filename]
+                .filter((path) => typeof path === "string")
+                .some(matchesDocsPath),
+            );
+            if (newerDocsChange) {
+              core.setOutput("current", "false");
+              core.notice(`Skipping queued docs source ${sourceRef}: main contains newer docs deployment inputs.`);
+              return;
+            }
+
+            core.setOutput("current", "true");
+
       - name: Pause automatic Netlify builds for production cutover
         id: pause
-        if: inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production'
+        if: >-
+          inputs.target == 'production' && inputs.deploy &&
+          inputs.deploy_mode == 'production' &&
+          (inputs.caller != 'docs' || github.event_name != 'push' ||
+          steps.docs_source_freshness.outputs.current == 'true')
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
@@ -1066,7 +1142,10 @@ jobs:
         id: unlock
         if: >-
           (inputs.target == 'production' || inputs.target == 'beta') &&
-          inputs.deploy && inputs.deploy_mode == 'production'
+          inputs.deploy && inputs.deploy_mode == 'production' &&
+          (inputs.target != 'production' || inputs.caller != 'docs' ||
+          github.event_name != 'push' ||
+          steps.docs_source_freshness.outputs.current == 'true')
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
@@ -1655,7 +1734,10 @@ jobs:
         id: deploy
         if: >-
           inputs.deploy &&
-          (inputs.target != 'beta' || steps.beta_freshness.outputs.current == 'true')
+          (inputs.target != 'beta' || steps.beta_freshness.outputs.current == 'true') &&
+          (inputs.target != 'production' || inputs.caller != 'docs' ||
+          github.event_name != 'push' ||
+          steps.docs_source_freshness.outputs.current == 'true')
         env:
           DEPLOY_MODE: ${{ inputs.deploy_mode }}
           FUNCTIONS_DIRECTORY: ${{ steps.directories.outputs.functions_directory }}
@@ -1722,7 +1804,7 @@ jobs:
       - name: Wait for the Netlify deploy to publish
         id: deploy_wait
         if: >-
-          inputs.deploy &&
+          inputs.deploy && steps.deploy.outputs.deploy_id != '' &&
           (inputs.target != 'beta' || steps.beta_freshness.outputs.current == 'true')
         env:
           DEPLOY_ID: ${{ steps.deploy.outputs.deploy_id }}
@@ -2895,7 +2977,8 @@ jobs:
 
       - name: Smoke-test the static docs deploy
         if: >-
-          inputs.deploy && steps.beta_freshness.outputs.current != 'false' &&
+          inputs.deploy && steps.deploy.outputs.deploy_id != '' &&
+          steps.beta_freshness.outputs.current != 'false' &&
           inputs.smoke && steps.target.outputs.source_template == '@agent-native/docs'
         env:
           DEPLOY_MODE: ${{ inputs.deploy_mode }}
@@ -2913,7 +2996,8 @@ jobs:
       - name: Purge the published Netlify cache
         if: >-
           (inputs.target == 'production' || inputs.target == 'beta') &&
-          inputs.deploy && inputs.deploy_mode == 'production' &&
+          inputs.deploy && steps.deploy.outputs.deploy_id != '' &&
+          inputs.deploy_mode == 'production' &&
           (inputs.target != 'beta' || steps.beta_freshness.outputs.current == 'true') &&
           success()
         env:
@@ -2953,7 +3037,8 @@ jobs:
 
       - name: Verify the deployed site still caches a miss
         if: >-
-          inputs.deploy && steps.beta_freshness.outputs.current != 'false' &&
+          inputs.deploy && steps.deploy.outputs.deploy_id != '' &&
+          steps.beta_freshness.outputs.current != 'false' &&
           inputs.smoke && inputs.deploy_mode == 'production' && success()
         env:
           HOST: ${{ steps.target.outputs.host }}
@@ -3034,7 +3119,10 @@ jobs:
           NODE
 
       - name: Lock the published production deploy
-        if: inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production' && success()
+        if: >-
+          inputs.target == 'production' && inputs.deploy &&
+          inputs.deploy_mode == 'production' &&
+          steps.deploy.outputs.deploy_id != '' && success()
         env:
           DEPLOY_ID: ${{ steps.deploy.outputs.deploy_id }}
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}

@@ -30,7 +30,11 @@ channels are `#product-agent-native-feedback` (`C0ATH3CCZT4`),
 `#qa-agent-native` (`C0C4U4XRT6X`), and
 `#dev-agent-native-feedback` (`C0AJ5QV0J03`). Honor narrower invocation scope.
 Scan five days by default; a supplied timestamp or permalink is the inclusive
-lower bound, even when older. `#dev-agent-native-feedback` is not an exclusion.
+lower bound for the whole invocation, even when older. A permalink sets a time
+boundary, not a channel filter: keep every default channel unless the user
+explicitly narrows scope, and apply the same cutoff to every scoped channel,
+including channels other than the one containing the permalink.
+`#dev-agent-native-feedback` is not an exclusion.
 
 For every scoped channel, run the exact channel-wide, bot-inclusive
 `slack_search_public` query with only `in:<#CHANNEL>` and the recorded lower
@@ -102,7 +106,14 @@ reporter-only wait for a URL, access, or evidence does not get `🎫` by itself.
 Keep the mark as history when the action completes. Never remove or clean up
 `👀`, `✅`, or `🎫`, including after closure. Explain in the current status why
 an open scope has no `✅` or why no human action needs `🎫`. The reply and root
-marks are both required; one never substitutes for the other. See
+marks are both required; one never substitutes for the other. Do not omit `🎫`
+just because nobody has accepted an action; acceptance records ownership, not
+whether a handoff exists. If there is no `🎫`, write `No 🎫 — <reason>` or
+`No 🎫 because <reason>` and state the actual reason: the next step belongs to
+this workflow, only reporter evidence is pending, no human action remains
+because all relevant work is verified or closed, or the request is unapproved
+or out of scope. These reasons describe the remaining scope; verified work does
+not erase a separate unfinished human action, which still needs `🎫`. See
 [`slack-reaction-replies.md`](references/slack-reaction-replies.md) for exact
 ownership, proof, handoff state, reply, and historical-mark rules.
 
