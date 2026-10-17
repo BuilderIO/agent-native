@@ -383,7 +383,7 @@ describe("guard over a repository", () => {
       "packages/core/src/mcp/fragment.ts": "./execute-action-call.ts#review",
       "packages/core/src/mcp/mixed-case.ts": "./Execute-Action-Call.ts",
       "packages/core/src/mcp/percent-capital.ts": "./%45xecute-action-call.ts",
-      "packages/core/src/mcp/escaped-capital.ts": String.raw`./Execute-action-call.ts`,
+      "packages/core/src/mcp/escaped-capital.ts": String.raw`./\u0045xecute-action-call.ts`,
     };
     const root = repo("url-specifiers", {
       [PROTECTED_MODULE]: protectedSource,
