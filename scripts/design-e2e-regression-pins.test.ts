@@ -947,6 +947,84 @@ test("AST identities retain dynamic titles and ignore regex source after control
   assert.equal(findDesignE2ETestLine(source, "protected behavior"), 2);
 });
 
+test("constant title identifiers resolve to their immutable literal value", () => {
+  const registrationFor = (title: string) =>
+    findDesignE2ETestRegistrations(
+      `const TITLE = ${JSON.stringify(title)};\ntest(TITLE, () => {});`,
+    )[0];
+  const first = registrationFor("A");
+  const second = registrationFor("B");
+
+  assert.deepEqual(
+    [first?.title, first?.dynamic, second?.title, second?.dynamic],
+    ["A", false, "B", false],
+  );
+});
+
+test("suppressed dynamic titles require a literal for-of matrix binding", () => {
+  const assertRejected = (source: string) =>
+    assert.throws(
+      () => findDesignE2ETestRegistrations(source),
+      /Unable to inspect a dynamic title on a suppressed test registration/,
+      source,
+    );
+
+  assertRejected(
+    ['let TITLE = "A";', "test.fixme(TITLE, () => {});"].join("\n"),
+  );
+  assertRejected(
+    ['const TITLE = "A" + "x";', "test.fixme(TITLE, () => {});"].join("\n"),
+  );
+  assertRejected(
+    ['const TITLE = "A";', "test.fixme(`global ${TITLE}`, () => {});"].join(
+      "\n",
+    ),
+  );
+  assertRejected(
+    [
+      "const TITLE = `runtime ${suffix}`;",
+      "test(TITLE, (_fixtures, testInfo) => {",
+      '  testInfo.skip(true, "runtime suppression");',
+      "});",
+    ].join("\n"),
+  );
+  assertRejected(
+    [
+      'const TITLE = "suite";',
+      'test.describe.skip("suite", () => {',
+      "  test(`dynamic ${TITLE}`, () => {});",
+      "});",
+    ].join("\n"),
+  );
+  assertRejected(
+    [
+      'const TITLE = "file";',
+      'test.skip(true, "file suppression");',
+      "test(`dynamic ${TITLE}`, () => {});",
+    ].join("\n"),
+  );
+
+  const registrationForTheme = (theme: string) =>
+    findDesignE2ETestRegistrations(
+      [
+        `for (const { theme } of [{ theme: ${JSON.stringify(theme)} }] as const) {`,
+        "  test.fixme(`theme ${theme}`, () => {});",
+        "}",
+      ].join("\n"),
+    )[0];
+  const dark = registrationForTheme("dark");
+  const light = registrationForTheme("light");
+
+  assert.deepEqual([dark?.dynamic, dark?.suppressionKind], [true, "direct"]);
+  assert.notEqual(dark?.suppressionFingerprint, light?.suppressionFingerprint);
+
+  const activeDynamicTitle = findDesignE2ETestRegistrations(
+    'let TITLE = "A"; test(TITLE, () => {});',
+  )[0];
+  assert.equal(activeDynamicTitle?.dynamic, true);
+  assert.equal(activeDynamicTitle?.suppressionKind, null);
+});
+
 test("base pin manifests are read as static literals without executing source", () => {
   const source = [
     'import ts from "typescript";',
@@ -1480,6 +1558,180 @@ test("mutable TestInfo aliases are tracked or fail closed after reassignment", (
   );
 });
 
+test("TestInfo authority stays visible through literal containers", () => {
+  const cases = [
+    [
+      "array destructured TestInfo authority",
+      [
+        'test("array destructured TestInfo authority", async ({}, testInfo) => {',
+        "  const [info] = [testInfo];",
+        '  info.skip(true, "hidden");',
+        "});",
+      ].join("\n"),
+    ],
+    [
+      "object property TestInfo authority",
+      [
+        'test("object property TestInfo authority", async ({}, testInfo) => {',
+        "  const holder = { info: testInfo };",
+        '  holder.info.skip(true, "hidden");',
+        "});",
+      ].join("\n"),
+    ],
+  ] as const;
+
+  for (const [title, source] of cases) {
+    const registrations = findDesignE2ETestRegistrations(source);
+    assert.equal(registrations.length, 1, title);
+    assert.equal(registrations[0]?.suppressionKind, "runtime", title);
+    assert.throws(
+      () => findDesignE2ETestLine(source, title),
+      /must run without/,
+    );
+  }
+
+  const reassignedContainers = [
+    [
+      "container property reassigned to TestInfo",
+      [
+        'test("pin", async ({}, testInfo) => {',
+        "  const holder = { info: { skip() {} } };",
+        "  holder.info = testInfo;",
+        '  holder.info.skip(true, "hidden");',
+        "});",
+      ].join("\n"),
+    ],
+    [
+      "container property reassigned to TestInfo through an alias",
+      [
+        'test("pin", async ({}, testInfo) => {',
+        "  const holder = { info: { skip() {} } };",
+        "  let alias = holder;",
+        "  alias.info = testInfo;",
+        '  holder.info.skip(true, "hidden");',
+        "});",
+      ].join("\n"),
+    ],
+  ] as const;
+  for (const [title, source] of reassignedContainers) {
+    assert.throws(
+      () => findDesignE2ETestLine(source, "pin"),
+      /Unable to inspect ambiguous TestInfo alias/,
+      title,
+    );
+  }
+
+  const ordinaryApi = [
+    'test("ordinary TestInfo API stays active", (_fixtures, testInfo) => {',
+    '  testInfo.outputPath("artifact.txt");',
+    "});",
+  ].join("\n");
+  assert.equal(
+    findDesignE2ETestLine(ordinaryApi, "ordinary TestInfo API stays active"),
+    1,
+  );
+});
+
+test("TestInfo authority stays ambiguous when assigned by for-of loops", () => {
+  const cases = [
+    [
+      "TestInfo loop-head assignment",
+      [
+        'test("pin", ({}, testInfo) => {',
+        "  let info = { skip() {} };",
+        "  for (info of [testInfo]) {}",
+        '  info.skip(true, "hidden");',
+        "});",
+      ].join("\n"),
+    ],
+    [
+      "TestInfo loop-head container-property assignment",
+      [
+        'test("pin", ({}, testInfo) => {',
+        "  const holder = { info: { skip() {} } };",
+        "  for (holder.info of [testInfo]) {}",
+        '  holder.info.skip(true, "hidden");',
+        "});",
+      ].join("\n"),
+    ],
+  ] as const;
+
+  for (const [title, source] of cases) {
+    assert.throws(
+      () => findDesignE2ETestLine(source, "pin"),
+      /Unable to inspect ambiguous TestInfo alias/,
+      title,
+    );
+  }
+
+  const ordinaryLoopVariable = [
+    'test("ordinary loop variable stays active", ({}, testInfo) => {',
+    "  let info = { skip() {} };",
+    "  for (info of [{ skip() {} }]) {}",
+    '  info.skip(true, "ordinary helper");',
+    "});",
+  ].join("\n");
+  assert.equal(
+    findDesignE2ETestLine(
+      ordinaryLoopVariable,
+      "ordinary loop variable stays active",
+    ),
+    1,
+  );
+});
+
+test("TestInfo authority stays ambiguous through literal destructuring", () => {
+  const cases = [
+    [
+      "TestInfo object destructuring",
+      [
+        'test("pin", ({}, testInfo) => {',
+        "  const { info } = { info: testInfo };",
+        '  info.skip(true, "hidden");',
+        "});",
+      ].join("\n"),
+    ],
+    [
+      "TestInfo object for-of destructuring",
+      [
+        'test("pin", ({}, testInfo) => {',
+        "  for (const { info } of [{ info: testInfo }]) {",
+        '    info.skip(true, "hidden");',
+        "  }",
+        "});",
+      ].join("\n"),
+    ],
+    [
+      "TestInfo array for-of destructuring",
+      [
+        'test("pin", ({}, testInfo) => {',
+        "  for (const [info] of [[testInfo]]) {",
+        '    info.skip(true, "hidden");',
+        "  }",
+        "});",
+      ].join("\n"),
+    ],
+    [
+      "TestInfo assignment for-of destructuring",
+      [
+        'test("pin", ({}, testInfo) => {',
+        "  let info;",
+        "  for ({ info } of [{ info: testInfo }]) {}",
+        '  info.skip(true, "hidden");',
+        "});",
+      ].join("\n"),
+    ],
+  ] as const;
+
+  for (const [title, source] of cases) {
+    assert.throws(
+      () => findDesignE2ETestLine(source, "pin"),
+      /(?:must run without test modifiers or suite\/file suppression|Unable to inspect ambiguous TestInfo alias)/,
+      title,
+    );
+  }
+});
+
 test("awaited Promise and test.step callbacks keep runtime skips on the test", () => {
   const cases = [
     [
@@ -1696,6 +1948,82 @@ test("unknown executed callbacks fail closed only when they can suppress a test"
     () => findDesignE2ETestLine(suiteRuntimeSkip, "suite runtime target"),
     /Unable to inspect callback effects passed to externalRunner/,
   );
+});
+
+test("wrapped receivers and loop-head authority writes keep test aliases visible", () => {
+  const wrappedCalls = [
+    '(test).skip("wrapped existing", () => {});',
+    '(test as any).fixme("asserted existing", () => {});',
+  ].join("\n");
+  assert.deepEqual(
+    findDesignE2ETestRegistrations(wrappedCalls).map(
+      ({ title, modifier, suppressionKind }) => [
+        title,
+        modifier ?? null,
+        suppressionKind,
+      ],
+    ),
+    [
+      ["wrapped existing", "skip", "direct"],
+      ["asserted existing", "fixme", "direct"],
+    ],
+  );
+
+  for (const source of [
+    [
+      "let api;",
+      "for (api of [test]) {}",
+      'api.skip(true, "hidden");',
+      'test("pin", () => {});',
+    ].join("\n"),
+    [
+      "let api = test;",
+      "for ([api] of [[test]]) {}",
+      'api.skip(true, "hidden");',
+      'test("pin", () => {});',
+    ].join("\n"),
+    [
+      "let api = test;",
+      'for (api in { key: "value" }) {}',
+      'api.skip(true, "hidden");',
+      'test("pin", () => {});',
+    ].join("\n"),
+    [
+      "for (var api of [test]) {}",
+      'api.skip(true, "hidden");',
+      'test("pin", () => {});',
+    ].join("\n"),
+    [
+      "for (const api of [test]) {",
+      '  api.skip(true, "hidden");',
+      "}",
+      'test("pin", () => {});',
+    ].join("\n"),
+    [
+      "for (const [api] of [[test]]) {",
+      '  api.skip(true, "hidden");',
+      "}",
+      'test("pin", () => {});',
+    ].join("\n"),
+    [
+      "const holder = {};",
+      "for (holder.api of [test]) {}",
+      'holder.api.skip(true, "hidden");',
+      'test("pin", () => {});',
+    ].join("\n"),
+    [
+      "const holder = {};",
+      'for (holder["api"] of [test]) {}',
+      'holder["api"].fixme(true, "hidden");',
+      'test("pin", () => {});',
+    ].join("\n"),
+  ]) {
+    assert.throws(
+      () => findDesignE2ETestLine(source, "pin"),
+      /Unable to inspect ambiguous Playwright API alias/,
+      source,
+    );
+  }
 });
 
 test("escaped Playwright modifiers fail closed through objects and helper parameters", () => {
@@ -2210,6 +2538,33 @@ test("reassigned named callbacks fail closed instead of using a stale initialize
   );
 });
 
+test("for-in and for-of writes invalidate named callback initializers", () => {
+  for (const loopHead of [
+    "sharedBody of [importedBody]",
+    "sharedBody in { body: importedBody }",
+  ]) {
+    const source = [
+      'import { body as importedBody } from "./helper";',
+      "let sharedBody = () => {};",
+      `for (${loopHead}) {}`,
+      'test("pin", sharedBody);',
+    ].join("\n");
+    const registration = findDesignE2ETestRegistrations(source)[0];
+
+    assert.equal(registration?.suppressionKind, "runtime", loopHead);
+    assert.match(
+      registration?.suppressionReason ?? "",
+      /Unable to inspect/,
+      loopHead,
+    );
+    assert.throws(
+      () => findDesignE2ETestLine(source, "pin"),
+      /Unable to inspect the test callback body/,
+      loopHead,
+    );
+  }
+});
+
 test("writes to shadowed callback names do not invalidate the outer binding", () => {
   const source = [
     "const body = () => {};",
@@ -2404,6 +2759,38 @@ test("unresolved named test callbacks fail closed for runtime suppression", () =
   assert.throws(
     () => findDesignE2ETestLine(source, "pinned behavior"),
     /Unable to inspect the test callback body/,
+  );
+});
+
+test("a shadowed local name does not resolve an imported registration callback", () => {
+  const source = [
+    'import { sharedBody } from "./helper";',
+    "function wrapper() {",
+    "  function sharedBody() {}",
+    "}",
+    'test("pin", sharedBody);',
+  ].join("\n");
+  const registration = findDesignE2ETestRegistrations(source)[0];
+
+  assert.equal(registration?.title, "pin");
+  assert.equal(registration?.suppressionKind, "runtime");
+  assert.match(registration?.suppressionReason ?? "", /Unable to inspect/);
+  assert.throws(
+    () => findDesignE2ETestLine(source, "pin"),
+    /Unable to inspect the test callback body/,
+  );
+});
+
+test("an unresolved callback in a conditional fixme registration fails closed", () => {
+  const source = [
+    'import { importedCallback } from "./helper";',
+    "const title = getTitle();",
+    "test.fixme(title, importedCallback);",
+  ].join("\n");
+
+  assert.throws(
+    () => findDesignE2ETestRegistrations(source),
+    /Unable to inspect an ambiguous test\.fixme registration with an unresolved callback/,
   );
 });
 

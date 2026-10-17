@@ -674,6 +674,7 @@ type MutableRegistration = {
   file: string;
   title: string;
   dynamic: boolean;
+  dynamicTitleFromLiteralForOf?: boolean;
   modifier?: string;
   line: number;
   suppressionKind: DesignE2ETestRegistration["suppressionKind"];
@@ -711,6 +712,7 @@ type RegistrationWalkContext = {
   unknownCallbackIdentities: string[];
   conditions: string[];
   insideSingletonLiteralForEach: boolean;
+  literalForOfBindingGroups: ReadonlySet<TypeScript.Identifier>[];
   activeHelpers: Set<TypeScript.Node>;
 };
 
@@ -897,21 +899,16 @@ function propertyPath(
   expression: TypeScript.Expression,
   ts: typeof TypeScript,
 ): string[] {
-  if (ts.isIdentifier(expression)) return [expression.text];
-  if (ts.isPropertyAccessExpression(expression)) {
-    const parentPath = propertyPath(expression.expression, ts);
-    return parentPath.length ? [...parentPath, expression.name.text] : [];
+  const candidate = unwrapExpression(expression, ts);
+  if (ts.isIdentifier(candidate)) return [candidate.text];
+  if (ts.isPropertyAccessExpression(candidate)) {
+    const parentPath = propertyPath(candidate.expression, ts);
+    return parentPath.length ? [...parentPath, candidate.name.text] : [];
   }
-  if (
-    ts.isElementAccessExpression(expression) &&
-    expression.argumentExpression
-  ) {
-    const property = constantStringExpression(
-      expression.argumentExpression,
-      ts,
-    );
+  if (ts.isElementAccessExpression(candidate) && candidate.argumentExpression) {
+    const property = constantStringExpression(candidate.argumentExpression, ts);
     if (property === undefined) return [];
-    const parentPath = propertyPath(expression.expression, ts);
+    const parentPath = propertyPath(candidate.expression, ts);
     return parentPath.length ? [...parentPath, property] : [];
   }
   return [];
@@ -1008,6 +1005,15 @@ function testImports(
     Map<string, Set<string>>
   >();
   const writtenAliases = new WeakMap<TypeScript.Node, Set<string>>();
+  const loopAuthorityAliases = new WeakMap<TypeScript.Node, Set<string>>();
+  const loopAuthorityMemberTargets = new WeakMap<
+    TypeScript.Node,
+    Set<string>
+  >();
+  const loopHeadValueWrites: Array<{
+    target: TypeScript.Node;
+    iterable: TypeScript.Expression;
+  }> = [];
 
   const scopeBindings = (scope: TypeScript.Node) => {
     let bindings = scopes.get(scope);
@@ -1111,6 +1117,20 @@ function testImports(
       }
     }
   };
+  const recordLoopHeadValueWrites = (
+    name: TypeScript.BindingName,
+    iterable: TypeScript.Expression,
+  ) => {
+    if (ts.isIdentifier(name)) {
+      loopHeadValueWrites.push({ target: name, iterable });
+      return;
+    }
+    for (const element of name.elements) {
+      if (ts.isBindingElement(element)) {
+        recordLoopHeadValueWrites(element.name, iterable);
+      }
+    }
+  };
   const collectBindings = (node: TypeScript.Node) => {
     if (ts.isVariableDeclaration(node)) {
       const isVar =
@@ -1118,6 +1138,12 @@ function testImports(
         (node.parent.flags & ts.NodeFlags.BlockScoped) === 0;
       const scope = nearestScope(node, ts, isVar);
       recordBindingName(node.name, scope);
+      if (
+        ts.isVariableDeclarationList(node.parent) &&
+        ts.isForOfStatement(node.parent.parent)
+      ) {
+        recordLoopHeadValueWrites(node.name, node.parent.parent.expression);
+      }
       if (ts.isIdentifier(node.name) && node.initializer) {
         aliasDeclarations.push({
           scope,
@@ -1189,21 +1215,49 @@ function testImports(
     }
     return undefined;
   };
+  const loopAuthorityMemberTargetLength = (
+    expression: TypeScript.Expression,
+  ) => {
+    const segments = propertyPath(expression, ts);
+    if (segments.length < 2) return undefined;
+    const root = rootIdentifier(expression, ts);
+    if (!root) return undefined;
+    const scope = bindingScope(root.text, root);
+    const targets = scope && loopAuthorityMemberTargets.get(scope);
+    if (!targets) return undefined;
+    for (let length = segments.length; length > 1; length--) {
+      if (targets.has(JSON.stringify(segments.slice(0, length)))) {
+        return length;
+      }
+    }
+    return undefined;
+  };
   const resolver: TestAliasResolver = {
     resolve(expression) {
+      const memberTargetLength = loopAuthorityMemberTargetLength(expression);
+      if (memberTargetLength !== undefined) {
+        return [
+          "test",
+          ...propertyPath(expression, ts).slice(memberTargetLength),
+        ];
+      }
       return normalizedTestPath(expression, lookup, ts);
     },
     isAmbiguous(expression) {
+      if (loopAuthorityMemberTargetLength(expression) !== undefined) {
+        return true;
+      }
       const root = rootIdentifier(expression, ts);
       if (!root) return false;
       const scope = bindingScope(root.text, root);
       return (
         scope !== undefined &&
-        aliasDeclarations.some(
-          (declaration) =>
-            declaration.scope === scope && declaration.name === root.text,
-        ) &&
-        (writtenAliases.get(scope)?.has(root.text) ?? false)
+        (loopAuthorityAliases.get(scope)?.has(root.text) === true ||
+          (aliasDeclarations.some(
+            (declaration) =>
+              declaration.scope === scope && declaration.name === root.text,
+          ) &&
+            (writtenAliases.get(scope)?.has(root.text) ?? false)))
       );
     },
     isKnownModifierReference(expression) {
@@ -1268,6 +1322,23 @@ function testImports(
           markWrittenTarget(property.expression);
         }
       }
+      return;
+    }
+    if (
+      (ts.isArrayBindingPattern(candidate) ||
+        ts.isObjectBindingPattern(candidate)) &&
+      candidate.elements
+    ) {
+      for (const element of candidate.elements) {
+        if (ts.isBindingElement(element)) markWrittenTarget(element.name);
+      }
+      return;
+    }
+    if (
+      ts.isBinaryExpression(candidate) &&
+      candidate.operatorToken.kind === ts.SyntaxKind.EqualsToken
+    ) {
+      markWrittenTarget(candidate.left);
     }
   };
   const collectWrites = (node: TypeScript.Node) => {
@@ -1277,6 +1348,21 @@ function testImports(
       node.operatorToken.kind <= ts.SyntaxKind.LastAssignment
     ) {
       markWrittenTarget(node.left);
+    }
+    if (ts.isForInStatement(node) || ts.isForOfStatement(node)) {
+      if (ts.isVariableDeclarationList(node.initializer)) {
+        for (const declaration of node.initializer.declarations) {
+          markWrittenTarget(declaration.name);
+        }
+      } else {
+        markWrittenTarget(node.initializer);
+        if (ts.isForOfStatement(node)) {
+          loopHeadValueWrites.push({
+            target: node.initializer,
+            iterable: node.expression,
+          });
+        }
+      }
     }
     ts.forEachChild(node, collectWrites);
   };
@@ -1346,6 +1432,83 @@ function testImports(
       const aliases = knownModifierObjects.get(scope) ?? new Map();
       aliases.set(name, properties);
       knownModifierObjects.set(scope, aliases);
+    }
+  }
+
+  const markLoopAuthorityTarget = (target: TypeScript.Node) => {
+    const candidate = unwrapExpression(target as TypeScript.Expression, ts);
+    if (ts.isIdentifier(candidate)) {
+      const scope = bindingScope(candidate.text, candidate);
+      if (!scope) return;
+      const names = loopAuthorityAliases.get(scope) ?? new Set<string>();
+      names.add(candidate.text);
+      loopAuthorityAliases.set(scope, names);
+      scopeBindings(scope).set(candidate.text, {
+        kind: "test",
+        path: ["test"],
+      });
+      return;
+    }
+    if (
+      ts.isArrayLiteralExpression(candidate) ||
+      ts.isArrayBindingPattern(candidate)
+    ) {
+      for (const element of candidate.elements) {
+        if (ts.isSpreadElement(element)) {
+          markLoopAuthorityTarget(element.expression);
+        } else if (ts.isBindingElement(element)) {
+          markLoopAuthorityTarget(element.name);
+        } else if (!ts.isOmittedExpression(element)) {
+          markLoopAuthorityTarget(element);
+        }
+      }
+      return;
+    }
+    if (
+      ts.isObjectLiteralExpression(candidate) ||
+      ts.isObjectBindingPattern(candidate)
+    ) {
+      const properties = ts.isObjectLiteralExpression(candidate)
+        ? candidate.properties
+        : candidate.elements;
+      for (const property of properties) {
+        if (ts.isShorthandPropertyAssignment(property)) {
+          markLoopAuthorityTarget(property.name);
+        } else if (ts.isPropertyAssignment(property)) {
+          markLoopAuthorityTarget(property.initializer);
+        } else if (ts.isSpreadAssignment(property)) {
+          markLoopAuthorityTarget(property.expression);
+        } else if (ts.isBindingElement(property)) {
+          markLoopAuthorityTarget(property.name);
+        }
+      }
+      return;
+    }
+    if (
+      ts.isBinaryExpression(candidate) &&
+      candidate.operatorToken.kind === ts.SyntaxKind.EqualsToken
+    ) {
+      markLoopAuthorityTarget(candidate.left);
+      return;
+    }
+    if (
+      ts.isPropertyAccessExpression(candidate) ||
+      ts.isElementAccessExpression(candidate)
+    ) {
+      const segments = propertyPath(candidate, ts);
+      const root = rootIdentifier(candidate, ts);
+      if (segments.length < 2 || !root) return;
+      const scope = bindingScope(root.text, root);
+      if (!scope) return;
+      const targets =
+        loopAuthorityMemberTargets.get(scope) ?? new Set<string>();
+      targets.add(JSON.stringify(segments));
+      loopAuthorityMemberTargets.set(scope, targets);
+    }
+  };
+  for (const { target, iterable } of loopHeadValueWrites) {
+    if (containsKnownPlaywrightAuthority(iterable, resolver, ts)) {
+      markLoopAuthorityTarget(target);
     }
   }
 
@@ -1490,13 +1653,11 @@ function testCallKind(
     ) {
       return "known";
     }
-    return ts.isIdentifier(receiver)
-      ? testInfoAliases.isTestInfo(
-          receiver,
-          testInfoBindings,
-          testInfoMaybeBindings,
-        )
-      : "not-test-info";
+    return testInfoAliases.isTestInfoExpression(
+      receiver,
+      testInfoBindings,
+      testInfoMaybeBindings,
+    );
   };
   const testInfoModifierFor = (candidate: TypeScript.Expression) => {
     const accessor = unwrapExpression(candidate, ts);
@@ -1958,37 +2119,14 @@ function modifierSuppression(
   return undefined;
 }
 
-function parseTestTitle(
-  argument: TypeScript.Expression,
+type LexicalBindingResolver = {
+  resolve(identifier: TypeScript.Identifier): TypeScript.Identifier | undefined;
+};
+
+function lexicalTestBindings(
   sourceFile: TypeScript.SourceFile,
   ts: typeof TypeScript,
-): { title: string; dynamic: boolean } {
-  if (
-    ts.isStringLiteral(argument) ||
-    ts.isNoSubstitutionTemplateLiteral(argument)
-  ) {
-    return { title: argument.text, dynamic: false };
-  }
-  const source = argument.getText(sourceFile);
-  return {
-    title: ts.isTemplateExpression(argument)
-      ? `template:${source}`
-      : `expression:${source}`,
-    dynamic: true,
-  };
-}
-
-type TestCallback =
-  | TypeScript.ArrowFunction
-  | TypeScript.FunctionExpression
-  | TypeScript.FunctionDeclaration;
-
-type NamedTestCallback = TypeScript.Expression | TypeScript.FunctionDeclaration;
-
-function namedTestCallbacks(
-  sourceFile: TypeScript.SourceFile,
-  ts: typeof TypeScript,
-): Map<string, NamedTestCallback | undefined> {
+): LexicalBindingResolver {
   const scopeBindings = new WeakMap<
     TypeScript.Node,
     Map<string, TypeScript.Identifier | undefined>
@@ -2013,8 +2151,9 @@ function namedTestCallbacks(
       recordBinding(scope, name);
     } else {
       for (const element of name.elements) {
-        if (ts.isBindingElement(element))
+        if (ts.isBindingElement(element)) {
           recordBindingName(element.name, scope);
+        }
       }
     }
   };
@@ -2029,8 +2168,9 @@ function namedTestCallbacks(
       "parameters" in node &&
       Array.isArray(node.parameters)
     ) {
-      for (const parameter of node.parameters)
+      for (const parameter of node.parameters) {
         recordBindingName(parameter.name, nearestScope(node, ts));
+      }
       if (ts.isFunctionDeclaration(node) && node.name) {
         recordBinding(nearestScope(node.parent, ts), node.name);
       } else if (
@@ -2040,7 +2180,10 @@ function namedTestCallbacks(
       ) {
         recordBinding(nearestScope(node, ts), node.name);
       }
-    } else if (ts.isClassDeclaration(node) && node.name) {
+    } else if (
+      (ts.isClassDeclaration(node) || ts.isEnumDeclaration(node)) &&
+      node.name
+    ) {
       recordBinding(nearestScope(node.parent, ts), node.name);
     } else if (ts.isImportDeclaration(node) && node.importClause) {
       const clause = node.importClause;
@@ -2049,25 +2192,248 @@ function namedTestCallbacks(
       if (bindings && ts.isNamespaceImport(bindings)) {
         recordBinding(sourceFile, bindings.name);
       } else if (bindings && ts.isNamedImports(bindings)) {
-        for (const element of bindings.elements)
+        for (const element of bindings.elements) {
           recordBinding(sourceFile, element.name);
+        }
       }
     }
     ts.forEachChild(node, collectBindings);
   };
   collectBindings(sourceFile);
 
+  return {
+    resolve(identifier) {
+      let scope: TypeScript.Node | undefined = identifier;
+      while (scope) {
+        const bindings = scopeBindings.get(scope);
+        if (bindings?.has(identifier.text))
+          return bindings.get(identifier.text);
+        scope = scope.parent;
+      }
+      return undefined;
+    },
+  };
+}
+
+function parseTestTitle(
+  argument: TypeScript.Expression,
+  sourceFile: TypeScript.SourceFile,
+  bindings: LexicalBindingResolver,
+  ts: typeof TypeScript,
+): { title: string; dynamic: boolean } {
+  if (
+    ts.isStringLiteral(argument) ||
+    ts.isNoSubstitutionTemplateLiteral(argument)
+  ) {
+    return { title: argument.text, dynamic: false };
+  }
+  const candidate = unwrapExpression(argument, ts);
+  if (ts.isIdentifier(candidate)) {
+    const binding = bindings.resolve(candidate);
+    const declaration = binding?.parent;
+    if (
+      declaration &&
+      ts.isVariableDeclaration(declaration) &&
+      declaration.initializer &&
+      ts.isVariableDeclarationList(declaration.parent) &&
+      (declaration.parent.flags & ts.NodeFlags.Const) !== 0
+    ) {
+      const initializer = unwrapExpression(declaration.initializer, ts);
+      if (
+        ts.isStringLiteral(initializer) ||
+        ts.isNoSubstitutionTemplateLiteral(initializer)
+      ) {
+        return { title: initializer.text, dynamic: false };
+      }
+    }
+  }
+  const source = argument.getText(sourceFile);
+  return {
+    title: ts.isTemplateExpression(argument)
+      ? `template:${source}`
+      : `expression:${source}`,
+    dynamic: true,
+  };
+}
+
+function isStaticPrimitiveLiteral(
+  expression: TypeScript.Expression,
+  ts: typeof TypeScript,
+): boolean {
+  const candidate = unwrapExpression(expression, ts);
+  return (
+    ts.isStringLiteral(candidate) ||
+    ts.isNoSubstitutionTemplateLiteral(candidate) ||
+    ts.isNumericLiteral(candidate) ||
+    candidate.kind === ts.SyntaxKind.TrueKeyword ||
+    candidate.kind === ts.SyntaxKind.FalseKeyword ||
+    candidate.kind === ts.SyntaxKind.NullKeyword ||
+    (ts.isPrefixUnaryExpression(candidate) &&
+      (candidate.operator === ts.SyntaxKind.PlusToken ||
+        candidate.operator === ts.SyntaxKind.MinusToken) &&
+      ts.isNumericLiteral(candidate.operand))
+  );
+}
+
+function staticObjectPropertyName(
+  name: TypeScript.PropertyName,
+  ts: typeof TypeScript,
+): string | undefined {
+  if (
+    ts.isComputedPropertyName(name) ||
+    (!ts.isIdentifier(name) &&
+      !ts.isStringLiteral(name) &&
+      !ts.isNumericLiteral(name))
+  ) {
+    return undefined;
+  }
+  return name.text;
+}
+
+function isStaticLiteralData(
+  expression: TypeScript.Expression,
+  ts: typeof TypeScript,
+): boolean {
+  const candidate = unwrapExpression(expression, ts);
+  if (isStaticPrimitiveLiteral(candidate, ts)) return true;
+  if (ts.isArrayLiteralExpression(candidate)) {
+    return candidate.elements.every(
+      (element) =>
+        !ts.isSpreadElement(element) &&
+        !ts.isOmittedExpression(element) &&
+        isStaticLiteralData(element, ts),
+    );
+  }
+  if (!ts.isObjectLiteralExpression(candidate)) return false;
+  const names = new Set<string>();
+  return candidate.properties.every((property) => {
+    if (!ts.isPropertyAssignment(property)) return false;
+    const name = staticObjectPropertyName(property.name, ts);
+    if (name === undefined || names.has(name)) return false;
+    names.add(name);
+    return isStaticLiteralData(property.initializer, ts);
+  });
+}
+
+function literalForOfTitleBindings(
+  statement: TypeScript.ForOfStatement,
+  ts: typeof TypeScript,
+): Set<TypeScript.Identifier> | undefined {
+  if (
+    !ts.isVariableDeclarationList(statement.initializer) ||
+    (statement.initializer.flags & ts.NodeFlags.Const) === 0 ||
+    statement.initializer.declarations.length !== 1
+  ) {
+    return undefined;
+  }
+  const declaration = statement.initializer.declarations[0]!;
+  if (!ts.isObjectBindingPattern(declaration.name)) return undefined;
+
+  const iterable = unwrapExpression(statement.expression, ts);
+  if (
+    !ts.isArrayLiteralExpression(iterable) ||
+    iterable.elements.length === 0 ||
+    iterable.elements.some(
+      (element) =>
+        ts.isSpreadElement(element) ||
+        ts.isOmittedExpression(element) ||
+        !ts.isObjectLiteralExpression(unwrapExpression(element, ts)) ||
+        !isStaticLiteralData(element, ts),
+    )
+  ) {
+    return undefined;
+  }
+
+  const rows = iterable.elements.map((element) =>
+    unwrapExpression(element, ts),
+  );
+  const titleBindings = new Set<TypeScript.Identifier>();
+  for (const element of declaration.name.elements) {
+    if (
+      !ts.isBindingElement(element) ||
+      element.dotDotDotToken ||
+      element.initializer ||
+      !ts.isIdentifier(element.name)
+    ) {
+      return undefined;
+    }
+    const field = element.propertyName
+      ? staticObjectPropertyName(element.propertyName, ts)
+      : element.name.text;
+    if (field === undefined) return undefined;
+    const everyRowHasPrimitiveField = rows.every((row) => {
+      if (!ts.isObjectLiteralExpression(row)) return false;
+      const values = row.properties.filter(
+        (property): property is TypeScript.PropertyAssignment =>
+          ts.isPropertyAssignment(property) &&
+          staticObjectPropertyName(property.name, ts) === field,
+      );
+      return (
+        values.length === 1 &&
+        isStaticPrimitiveLiteral(values[0]!.initializer, ts)
+      );
+    });
+    if (everyRowHasPrimitiveField) titleBindings.add(element.name);
+  }
+  return titleBindings.size > 0 ? titleBindings : undefined;
+}
+
+function titleUsesOneLiteralForOfBindingGroup(
+  argument: TypeScript.Expression,
+  groups: readonly ReadonlySet<TypeScript.Identifier>[],
+  bindings: LexicalBindingResolver,
+  ts: typeof TypeScript,
+): boolean {
+  const candidate = unwrapExpression(argument, ts);
+  if (!ts.isTemplateExpression(candidate)) return false;
+  const resolvedBindings = candidate.templateSpans.map((span) =>
+    ts.isIdentifier(span.expression)
+      ? bindings.resolve(span.expression)
+      : undefined,
+  );
+  return (
+    resolvedBindings.length > 0 &&
+    resolvedBindings.every((binding) => binding !== undefined) &&
+    groups.some((group) =>
+      resolvedBindings.every(
+        (binding) => binding !== undefined && group.has(binding),
+      ),
+    )
+  );
+}
+
+type TestCallback =
+  | TypeScript.ArrowFunction
+  | TypeScript.FunctionExpression
+  | TypeScript.FunctionDeclaration;
+
+type NamedTestCallback = TypeScript.Expression | TypeScript.FunctionDeclaration;
+
+type NamedTestCallbackResolver = {
+  binding(identifier: TypeScript.Identifier): TypeScript.Identifier | undefined;
+  callback(binding: TypeScript.Identifier): NamedTestCallback | undefined;
+};
+
+function namedTestCallbacks(
+  sourceFile: TypeScript.SourceFile,
+  bindings: LexicalBindingResolver,
+  ts: typeof TypeScript,
+): NamedTestCallbackResolver {
+  const callbackDeclarations = new WeakMap<
+    TypeScript.Identifier,
+    NamedTestCallback
+  >();
   const writtenBindings = new Set<TypeScript.Identifier>();
   const lookupBinding = (identifier: TypeScript.Identifier) => {
-    let scope: TypeScript.Node | undefined = identifier;
-    while (scope) {
-      const bindings = scopeBindings.get(scope);
-      if (bindings?.has(identifier.text)) return bindings.get(identifier.text);
-      scope = scope.parent;
-    }
-    return undefined;
+    return bindings.resolve(identifier);
   };
   const markWrittenTarget = (target: TypeScript.Node) => {
+    if (ts.isArrayBindingPattern(target) || ts.isObjectBindingPattern(target)) {
+      for (const element of target.elements) {
+        if (ts.isBindingElement(element)) markWrittenTarget(element.name);
+      }
+      return;
+    }
     const candidate = unwrapExpression(target as TypeScript.Expression, ts);
     if (ts.isIdentifier(candidate)) {
       const binding = lookupBinding(candidate);
@@ -2102,36 +2468,42 @@ function namedTestCallbacks(
     ) {
       markWrittenTarget(node.left);
     }
+    if (ts.isForInStatement(node) || ts.isForOfStatement(node)) {
+      if (ts.isVariableDeclarationList(node.initializer)) {
+        for (const declaration of node.initializer.declarations) {
+          markWrittenTarget(declaration.name);
+        }
+      } else {
+        markWrittenTarget(node.initializer);
+      }
+    }
     ts.forEachChild(node, collectWrites);
   };
   collectWrites(sourceFile);
 
-  const callbacks = new Map<string, NamedTestCallback | undefined>();
-  const register = (
-    name: string,
-    binding: TypeScript.Identifier,
-    callback: NamedTestCallback,
-  ) => {
-    if (callbacks.has(name) || writtenBindings.has(binding)) {
-      callbacks.set(name, undefined);
-    } else {
-      callbacks.set(name, callback);
-    }
-  };
   const visit = (node: TypeScript.Node) => {
     if (ts.isFunctionDeclaration(node) && node.name && node.body) {
-      register(node.name.text, node.name, node);
+      callbackDeclarations.set(node.name, node);
     } else if (
       ts.isVariableDeclaration(node) &&
       ts.isIdentifier(node.name) &&
       node.initializer
     ) {
-      register(node.name.text, node.name, node.initializer);
+      callbackDeclarations.set(node.name, node.initializer);
     }
     ts.forEachChild(node, visit);
   };
   visit(sourceFile);
-  return callbacks;
+  return {
+    binding(identifier) {
+      return bindings.resolve(identifier);
+    },
+    callback(binding) {
+      return writtenBindings.has(binding)
+        ? undefined
+        : callbackDeclarations.get(binding);
+    },
+  };
 }
 
 type LocalTestHelperResolver = {
@@ -2143,6 +2515,9 @@ type TestInfoBinding = {
   alias?: TypeScript.Identifier;
   mutable: boolean;
   testInfo?: boolean;
+  containerProperties?: Map<string, TypeScript.Expression>;
+  containerElements?: Array<TypeScript.Expression | undefined>;
+  containerUnknownValues?: TypeScript.Expression[];
   modifierAlias?: {
     modifier: string;
     source?: TypeScript.Identifier;
@@ -2172,6 +2547,11 @@ type TestInfoAliasResolver = {
     maybeBindings: ReadonlySet<TypeScript.Node>,
     resolving?: Set<TypeScript.Node>,
   ): TestInfoAliasStatus;
+  isTestInfoExpression(
+    expression: TypeScript.Expression,
+    knownBindings: ReadonlySet<TypeScript.Node>,
+    maybeBindings: ReadonlySet<TypeScript.Node>,
+  ): TestInfoAliasStatus;
 };
 
 function testInfoAliases(
@@ -2192,6 +2572,10 @@ function testInfoAliases(
     mutable = false,
     testInfo = false,
     modifierAlias?: TestInfoBinding["modifierAlias"],
+    container?: Pick<
+      TestInfoBinding,
+      "containerProperties" | "containerElements" | "containerUnknownValues"
+    >,
   ) => {
     let bindings = scopes.get(scope);
     if (!bindings) {
@@ -2209,6 +2593,7 @@ function testInfoAliases(
         mutable,
         testInfo,
         modifierAlias,
+        ...container,
       });
     } else bindings.set(identifier.text, undefined);
   };
@@ -2236,6 +2621,118 @@ function testInfoAliases(
     }
     return undefined;
   };
+
+  const literalContainer = (
+    expression: TypeScript.Expression,
+  ):
+    | Pick<
+        TestInfoBinding,
+        "containerProperties" | "containerElements" | "containerUnknownValues"
+      >
+    | undefined => {
+    const candidate = unwrapExpression(expression, ts);
+    if (ts.isObjectLiteralExpression(candidate)) {
+      const containerProperties = new Map<string, TypeScript.Expression>();
+      const containerUnknownValues: TypeScript.Expression[] = [];
+      for (const property of candidate.properties) {
+        if (ts.isPropertyAssignment(property)) {
+          const key =
+            ts.isIdentifier(property.name) ||
+            ts.isStringLiteral(property.name) ||
+            ts.isNoSubstitutionTemplateLiteral(property.name) ||
+            ts.isNumericLiteral(property.name)
+              ? property.name.text
+              : ts.isComputedPropertyName(property.name)
+                ? constantStringExpression(property.name.expression, ts)
+                : undefined;
+          if (key === undefined) {
+            containerUnknownValues.push(property.initializer);
+          } else {
+            containerProperties.set(key, property.initializer);
+          }
+        } else if (ts.isShorthandPropertyAssignment(property)) {
+          containerProperties.set(property.name.text, property.name);
+        } else if (ts.isSpreadAssignment(property)) {
+          containerUnknownValues.push(property.expression);
+        }
+      }
+      return { containerProperties, containerUnknownValues };
+    }
+    if (ts.isArrayLiteralExpression(candidate)) {
+      const containerElements: Array<TypeScript.Expression | undefined> = [];
+      const containerUnknownValues: TypeScript.Expression[] = [];
+      for (const element of candidate.elements) {
+        if (ts.isSpreadElement(element)) {
+          containerUnknownValues.push(element.expression);
+        } else {
+          containerElements.push(
+            ts.isOmittedExpression(element) ? undefined : element,
+          );
+        }
+      }
+      return { containerElements, containerUnknownValues };
+    }
+    return undefined;
+  };
+
+  const containerForExpression = (
+    expression: TypeScript.Expression,
+    resolving = new Set<TypeScript.Node>(),
+  ):
+    | Pick<
+        TestInfoBinding,
+        "containerProperties" | "containerElements" | "containerUnknownValues"
+      >
+    | undefined => {
+    const candidate = unwrapExpression(expression, ts);
+    const literal = literalContainer(candidate);
+    if (literal) return literal;
+    if (!ts.isIdentifier(candidate) || resolving.has(candidate))
+      return undefined;
+    const binding = lookupCollectedBinding(candidate);
+    if (!binding) return undefined;
+    if (
+      binding.containerProperties ||
+      binding.containerElements ||
+      binding.containerUnknownValues
+    ) {
+      return binding;
+    }
+    if (!binding.alias) return undefined;
+    resolving.add(candidate);
+    const container = containerForExpression(binding.alias, resolving);
+    resolving.delete(candidate);
+    return container;
+  };
+
+  const containerValue = (
+    container: Pick<
+      TestInfoBinding,
+      "containerProperties" | "containerElements"
+    >,
+    key: string,
+  ): TypeScript.Expression | undefined => {
+    if (container.containerProperties?.has(key)) {
+      return container.containerProperties.get(key);
+    }
+    if (/^(0|[1-9]\d*)$/.test(key)) {
+      return container.containerElements?.[Number(key)];
+    }
+    return undefined;
+  };
+
+  const containerValues = (
+    container: Pick<
+      TestInfoBinding,
+      "containerProperties" | "containerElements" | "containerUnknownValues"
+    >,
+  ): TypeScript.Expression[] => [
+    ...[...(container.containerProperties?.values() ?? [])],
+    ...(container.containerElements?.filter(
+      (value): value is TypeScript.Expression => value !== undefined,
+    ) ?? []),
+    ...(container.containerUnknownValues ?? []),
+  ];
 
   const boundModifierAlias = (
     expression: TypeScript.Expression,
@@ -2311,9 +2808,47 @@ function testInfoAliases(
           mutable,
           testInfoCall,
           boundModifier,
+          literalContainer(initializer),
         );
+      } else if (
+        ts.isArrayBindingPattern(node.name) &&
+        node.initializer &&
+        ts.isArrayLiteralExpression(unwrapExpression(node.initializer, ts))
+      ) {
+        const initializer = unwrapExpression(
+          node.initializer,
+          ts,
+        ) as TypeScript.ArrayLiteralExpression;
+        for (const [index, element] of node.name.elements.entries()) {
+          if (!ts.isBindingElement(element)) continue;
+          const source = initializer.elements[index];
+          if (!source || ts.isSpreadElement(source)) {
+            bindName(element.name, scope, mutable);
+            continue;
+          }
+          if (!ts.isIdentifier(element.name)) {
+            bindName(element.name, scope, mutable);
+            continue;
+          }
+          const value = unwrapExpression(source, ts);
+          const testInfoCall =
+            ts.isCallExpression(value) &&
+            aliases.resolve(value.expression).join(".") === "test.info";
+          bind(
+            scope,
+            element.name,
+            ts.isIdentifier(value) ? value : undefined,
+            mutable,
+            testInfoCall,
+            undefined,
+            literalContainer(value),
+          );
+        }
+      } else if (ts.isArrayBindingPattern(node.name)) {
+        bindName(node.name, scope, mutable);
       } else if (ts.isObjectBindingPattern(node.name) && node.initializer) {
         const initializer = unwrapExpression(node.initializer, ts);
+        const initializerContainer = containerForExpression(initializer);
         const directTestInfo =
           ts.isCallExpression(initializer) &&
           aliases.resolve(initializer.expression).join(".") === "test.info";
@@ -2331,7 +2866,27 @@ function testInfoAliases(
               ? propertyName.text
               : undefined;
           if (!modifier || !TEST_MODIFIERS.has(modifier)) {
-            bindName(element.name, scope, mutable);
+            const sourceValue =
+              modifier && initializerContainer
+                ? containerValue(initializerContainer, modifier)
+                : undefined;
+            if (sourceValue && ts.isIdentifier(element.name)) {
+              const value = unwrapExpression(sourceValue, ts);
+              const testInfoCall =
+                ts.isCallExpression(value) &&
+                aliases.resolve(value.expression).join(".") === "test.info";
+              bind(
+                scope,
+                element.name,
+                ts.isIdentifier(value) ? value : undefined,
+                mutable,
+                testInfoCall,
+                undefined,
+                literalContainer(value),
+              );
+            } else {
+              bindName(element.name, scope, mutable);
+            }
             continue;
           }
           bind(
@@ -2402,11 +2957,38 @@ function testInfoAliases(
   };
 
   const writtenBindings = new Set<TypeScript.Node>();
+  const writtenContainerBindings = new Set<TypeScript.Node>();
+  const loopHeadValueWrites: Array<{
+    target: TypeScript.Node;
+    iterable: TypeScript.Expression;
+  }> = [];
+  const markContainerWrite = (
+    identifier: TypeScript.Identifier,
+    resolving = new Set<TypeScript.Node>(),
+  ) => {
+    const binding = lookup(identifier.text, identifier).binding;
+    if (!binding || resolving.has(binding.node)) return;
+    if (!containerForExpression(identifier)) return;
+    writtenContainerBindings.add(binding.node);
+    if (binding.alias) {
+      resolving.add(binding.node);
+      markContainerWrite(binding.alias, resolving);
+      resolving.delete(binding.node);
+    }
+  };
   const markAssignmentTarget = (target: TypeScript.Node) => {
     const candidate = unwrapExpression(target as TypeScript.Expression, ts);
     if (ts.isIdentifier(candidate)) {
       const result = lookup(candidate.text, candidate);
       if (result.binding) writtenBindings.add(result.binding.node);
+      return;
+    }
+    if (
+      ts.isPropertyAccessExpression(candidate) ||
+      ts.isElementAccessExpression(candidate)
+    ) {
+      const root = rootIdentifier(candidate, ts);
+      if (root) markContainerWrite(root);
       return;
     }
     if (ts.isArrayLiteralExpression(candidate)) {
@@ -2453,6 +3035,24 @@ function testInfoAliases(
     ) {
       markAssignmentTarget(node.operand);
     }
+    if (ts.isForInStatement(node) || ts.isForOfStatement(node)) {
+      if (
+        ts.isForOfStatement(node) &&
+        ts.isVariableDeclarationList(node.initializer)
+      ) {
+        for (const declaration of node.initializer.declarations) {
+          loopHeadValueWrites.push({
+            target: declaration.name,
+            iterable: node.expression,
+          });
+        }
+      } else if (ts.isForOfStatement(node)) {
+        loopHeadValueWrites.push({
+          target: node.initializer,
+          iterable: node.expression,
+        });
+      }
+    }
     ts.forEachChild(node, collectWrites);
   };
   collectWrites(sourceFile);
@@ -2470,6 +3070,8 @@ function testInfoAliases(
     if (!binding) return "ambiguous";
     if (resolving.has(binding.node)) return "ambiguous";
     if (maybeBindings.has(binding.node)) return "ambiguous";
+    if (loopHeadWritesTestInfo(binding.node, knownBindings, maybeBindings))
+      return "ambiguous";
     if (binding.testInfo)
       return writtenBindings.has(binding.node) ? "ambiguous" : "known";
     if (knownBindings.has(binding.node))
@@ -2488,6 +3090,289 @@ function testInfoAliases(
     if (status !== "not-test-info" && writtenBindings.has(binding.node))
       return "ambiguous";
     return status;
+  };
+  const isTestInfoExpression = (
+    expression: TypeScript.Expression,
+    knownBindings: ReadonlySet<TypeScript.Node>,
+    maybeBindings: ReadonlySet<TypeScript.Node>,
+    resolving = new Set<TypeScript.Node>(),
+  ): TestInfoAliasStatus => {
+    const candidate = unwrapExpression(expression, ts);
+    if (
+      ts.isCallExpression(candidate) &&
+      aliases.resolve(candidate.expression).join(".") === "test.info"
+    ) {
+      return "known";
+    }
+    if (ts.isIdentifier(candidate)) {
+      return isTestInfo(candidate, knownBindings, maybeBindings, resolving);
+    }
+    if (
+      !ts.isPropertyAccessExpression(candidate) &&
+      !ts.isElementAccessExpression(candidate)
+    ) {
+      return "not-test-info";
+    }
+    const containerRoot = rootIdentifier(candidate.expression, ts);
+    const containerBinding = containerRoot
+      ? lookup(containerRoot.text, containerRoot).binding
+      : undefined;
+    if (
+      containerBinding &&
+      (writtenBindings.has(containerBinding.node) ||
+        writtenContainerBindings.has(containerBinding.node) ||
+        loopHeadWritesTestInfo(
+          containerBinding.node,
+          knownBindings,
+          maybeBindings,
+        ))
+    ) {
+      return "ambiguous";
+    }
+
+    const key = ts.isPropertyAccessExpression(candidate)
+      ? candidate.name.text
+      : candidate.argumentExpression
+        ? (() => {
+            const property = unwrapExpression(candidate.argumentExpression, ts);
+            return ts.isNumericLiteral(property)
+              ? property.text
+              : constantStringExpression(property, ts);
+          })()
+        : undefined;
+    const container = containerForExpression(candidate.expression);
+    if (!container) return "not-test-info";
+    if (key !== undefined) {
+      const value = containerValue(container, key);
+      if (value) {
+        return isTestInfoExpression(
+          value,
+          knownBindings,
+          maybeBindings,
+          resolving,
+        );
+      }
+      return (container.containerUnknownValues ?? []).some((value) =>
+        containsTestInfoValue(value, knownBindings, maybeBindings),
+      )
+        ? "ambiguous"
+        : "not-test-info";
+    }
+    return containerValues(container).some((value) =>
+      containsTestInfoValue(value, knownBindings, maybeBindings),
+    )
+      ? "ambiguous"
+      : "not-test-info";
+  };
+  const containsTestInfoValue = (
+    expression: TypeScript.Expression,
+    knownBindings: ReadonlySet<TypeScript.Node>,
+    maybeBindings: ReadonlySet<TypeScript.Node>,
+    seen = new Set<TypeScript.Node>(),
+  ): boolean => {
+    const candidate = unwrapExpression(expression, ts);
+    if (seen.has(candidate)) return true;
+    const status = isTestInfoExpression(
+      candidate,
+      knownBindings,
+      maybeBindings,
+    );
+    if (status !== "not-test-info") return true;
+    const container = containerForExpression(candidate);
+    if (!container) return false;
+    seen.add(candidate);
+    const contains = containerValues(container).some((value) =>
+      containsTestInfoValue(value, knownBindings, maybeBindings, seen),
+    );
+    seen.delete(candidate);
+    return contains;
+  };
+  const staticPropertyValue = (
+    expression: TypeScript.Expression,
+    name: string,
+  ): TypeScript.Expression | undefined => {
+    const candidate = unwrapExpression(expression, ts);
+    if (!ts.isObjectLiteralExpression(candidate)) return undefined;
+    for (const property of candidate.properties) {
+      if (ts.isPropertyAssignment(property)) {
+        const propertyName =
+          ts.isIdentifier(property.name) ||
+          ts.isStringLiteral(property.name) ||
+          ts.isNoSubstitutionTemplateLiteral(property.name)
+            ? property.name.text
+            : undefined;
+        if (propertyName === name) return property.initializer;
+      } else if (
+        ts.isShorthandPropertyAssignment(property) &&
+        property.name.text === name
+      ) {
+        return property.name;
+      }
+    }
+    return undefined;
+  };
+  const staticPropertyName = (name: TypeScript.PropertyName) =>
+    ts.isIdentifier(name) ||
+    ts.isStringLiteral(name) ||
+    ts.isNoSubstitutionTemplateLiteral(name)
+      ? name.text
+      : undefined;
+  const loopTargetReceivesTestInfo = (
+    target: TypeScript.Node,
+    value: TypeScript.Expression,
+    bindingNode: TypeScript.Node,
+    knownBindings: ReadonlySet<TypeScript.Node>,
+    maybeBindings: ReadonlySet<TypeScript.Node>,
+  ): boolean => {
+    if (ts.isIdentifier(target)) {
+      return (
+        lookup(target.text, target).binding?.node === bindingNode &&
+        containsTestInfoValue(value, knownBindings, maybeBindings)
+      );
+    }
+    if (
+      ts.isPropertyAccessExpression(target) ||
+      ts.isElementAccessExpression(target)
+    ) {
+      const root = rootIdentifier(target, ts);
+      return (
+        root !== undefined &&
+        lookup(root.text, root).binding?.node === bindingNode &&
+        containsTestInfoValue(value, knownBindings, maybeBindings)
+      );
+    }
+    if (
+      ts.isArrayBindingPattern(target) ||
+      ts.isArrayLiteralExpression(target)
+    ) {
+      const source = unwrapExpression(value, ts);
+      if (!ts.isArrayLiteralExpression(source)) return false;
+      const targets = target.elements;
+      for (let index = 0; index < targets.length; index += 1) {
+        const childTarget = targets[index];
+        const childValue = source.elements[index];
+        if (
+          !childTarget ||
+          ts.isOmittedExpression(childTarget) ||
+          !childValue ||
+          ts.isOmittedExpression(childValue) ||
+          ts.isSpreadElement(childValue)
+        ) {
+          continue;
+        }
+        const nestedTarget = ts.isBindingElement(childTarget)
+          ? childTarget.name
+          : ts.isSpreadElement(childTarget)
+            ? childTarget.expression
+            : childTarget;
+        if (
+          loopTargetReceivesTestInfo(
+            nestedTarget,
+            childValue,
+            bindingNode,
+            knownBindings,
+            maybeBindings,
+          )
+        ) {
+          return true;
+        }
+      }
+      return false;
+    }
+    if (ts.isObjectBindingPattern(target)) {
+      for (const property of target.elements) {
+        if (ts.isBindingElement(property)) {
+          const propertyName =
+            property.propertyName ??
+            (ts.isIdentifier(property.name) ? property.name : undefined);
+          const name = propertyName
+            ? staticPropertyName(propertyName)
+            : undefined;
+          const childValue = name
+            ? staticPropertyValue(value, name)
+            : undefined;
+          if (
+            childValue &&
+            loopTargetReceivesTestInfo(
+              property.name,
+              childValue,
+              bindingNode,
+              knownBindings,
+              maybeBindings,
+            )
+          ) {
+            return true;
+          }
+        }
+      }
+      return false;
+    }
+    if (ts.isObjectLiteralExpression(target)) {
+      for (const property of target.properties) {
+        if (ts.isShorthandPropertyAssignment(property)) {
+          const childValue = staticPropertyValue(value, property.name.text);
+          if (
+            childValue &&
+            loopTargetReceivesTestInfo(
+              property.name,
+              childValue,
+              bindingNode,
+              knownBindings,
+              maybeBindings,
+            )
+          ) {
+            return true;
+          }
+        } else if (ts.isPropertyAssignment(property)) {
+          const name = staticPropertyName(property.name);
+          const childValue = name
+            ? staticPropertyValue(value, name)
+            : undefined;
+          if (
+            childValue &&
+            loopTargetReceivesTestInfo(
+              property.initializer,
+              childValue,
+              bindingNode,
+              knownBindings,
+              maybeBindings,
+            )
+          ) {
+            return true;
+          }
+        }
+      }
+      return false;
+    }
+    return false;
+  };
+  const resolvingLoopHeadWrites = new Set<TypeScript.Node>();
+  const loopHeadWritesTestInfo = (
+    bindingNode: TypeScript.Node,
+    knownBindings: ReadonlySet<TypeScript.Node>,
+    maybeBindings: ReadonlySet<TypeScript.Node>,
+  ) => {
+    if (resolvingLoopHeadWrites.has(bindingNode)) return true;
+    for (const { target, iterable } of loopHeadValueWrites) {
+      const values = unwrapExpression(iterable, ts);
+      if (!ts.isArrayLiteralExpression(values)) continue;
+      resolvingLoopHeadWrites.add(bindingNode);
+      const receivesTestInfo = values.elements.some(
+        (value) =>
+          !ts.isOmittedExpression(value) &&
+          !ts.isSpreadElement(value) &&
+          loopTargetReceivesTestInfo(
+            target,
+            value,
+            bindingNode,
+            knownBindings,
+            maybeBindings,
+          ),
+      );
+      resolvingLoopHeadWrites.delete(bindingNode);
+      if (receivesTestInfo) return true;
+    }
+    return false;
   };
   return {
     bindingNode(identifier) {
@@ -2515,6 +3400,9 @@ function testInfoAliases(
       };
     },
     isTestInfo,
+    isTestInfoExpression(expression, knownBindings, maybeBindings) {
+      return isTestInfoExpression(expression, knownBindings, maybeBindings);
+    },
   };
 }
 
@@ -2869,9 +3757,9 @@ function helperReturnsKnownPlaywrightAuthority(
 
 function resolveTestCallback(
   expression: TypeScript.Expression,
-  callbacks: Map<string, NamedTestCallback | undefined>,
+  callbacks: NamedTestCallbackResolver,
   ts: typeof TypeScript,
-  resolving = new Set<string>(),
+  resolving = new Set<TypeScript.Identifier>(),
 ): TestCallback | undefined {
   let candidate = expression;
   while (
@@ -2887,13 +3775,12 @@ function resolveTestCallback(
     return candidate;
   }
   if (ts.isFunctionDeclaration(candidate) && candidate.body) return candidate;
-  if (!ts.isIdentifier(candidate) || resolving.has(candidate.text)) {
-    return undefined;
-  }
-
-  const callback = callbacks.get(candidate.text);
+  if (!ts.isIdentifier(candidate)) return undefined;
+  const binding = callbacks.binding(candidate);
+  if (!binding || resolving.has(binding)) return undefined;
+  const callback = callbacks.callback(binding);
   if (!callback) return undefined;
-  resolving.add(candidate.text);
+  resolving.add(binding);
   if (ts.isFunctionDeclaration(callback)) {
     return callback.body ? callback : undefined;
   }
@@ -2986,7 +3873,8 @@ export function findDesignE2ETestRegistrations(
   const aliases = testImports(sourceFile, ts);
   const testInfoAliasResolver = testInfoAliases(sourceFile, aliases, ts);
   const printer = ts.createPrinter({ removeComments: true });
-  const namedCallbacks = namedTestCallbacks(sourceFile, ts);
+  const lexicalBindings = lexicalTestBindings(sourceFile, ts);
+  const namedCallbacks = namedTestCallbacks(sourceFile, lexicalBindings, ts);
   const localHelpers = localTestHelpers(sourceFile, ts);
   const helperCallReturnsKnownPlaywrightAuthority = (
     expression: TypeScript.Expression,
@@ -3568,7 +4456,20 @@ export function findDesignE2ETestRegistrations(
       visit(node.initializer, context);
       visit(node.expression, context);
       const iterable = stableNodeText(node.expression, sourceFile, printer, ts);
-      visit(node.statement, conditionContext(context, `iteration:${iterable}`));
+      let bodyContext = conditionContext(context, `iteration:${iterable}`);
+      if (ts.isForOfStatement(node)) {
+        const titleBindings = literalForOfTitleBindings(node, ts);
+        if (titleBindings) {
+          bodyContext = {
+            ...bodyContext,
+            literalForOfBindingGroups: [
+              ...context.literalForOfBindingGroups,
+              titleBindings,
+            ],
+          };
+        }
+      }
+      visit(node.statement, bodyContext);
       return;
     }
 
@@ -3826,14 +4727,21 @@ export function findDesignE2ETestRegistrations(
 
       if (classification?.kind === "test") {
         const callbackArgument = node.arguments.at(-1);
+        const callbackArgumentIdentity = callbackArgument
+          ? parseTestTitle(callbackArgument, sourceFile, lexicalBindings, ts)
+          : undefined;
         const callbackCandidate =
           callbackArgument !== undefined &&
-          isTestCallbackArgument(callbackArgument, ts);
+          isTestCallbackArgument(callbackArgument, ts) &&
+          callbackArgumentIdentity?.dynamic !== false;
         const resolvedCallback =
           callbackCandidate && callbackArgument
             ? resolveTestCallback(callbackArgument, namedCallbacks, ts)
             : undefined;
         const firstArgument = node.arguments[0];
+        const firstArgumentIdentity = firstArgument
+          ? parseTestTitle(firstArgument, sourceFile, lexicalBindings, ts)
+          : undefined;
         const booleanConditionModifier =
           classification.modifier !== undefined &&
           (firstArgument?.kind === ts.SyntaxKind.TrueKeyword ||
@@ -3841,13 +4749,28 @@ export function findDesignE2ETestRegistrations(
         const literalTitleModifier =
           classification.modifier !== undefined &&
           firstArgument !== undefined &&
-          (ts.isStringLiteral(firstArgument) ||
-            ts.isNoSubstitutionTemplateLiteral(firstArgument));
+          firstArgumentIdentity !== undefined &&
+          !firstArgumentIdentity.dynamic;
         const unresolvedConditionModifier =
           classification.modifier !== undefined &&
           !booleanConditionModifier &&
           !literalTitleModifier &&
           resolvedCallback === undefined;
+        if (
+          classification.modifier !== undefined &&
+          callbackCandidate &&
+          resolvedCallback === undefined &&
+          firstArgument !== undefined &&
+          !booleanConditionModifier &&
+          !literalTitleModifier
+        ) {
+          const line =
+            sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile))
+              .line + 1;
+          throw new PinInspectionUnavailableError(
+            `${file || "Design E2E source"}:${line}: Unable to inspect an ambiguous test.${classification.modifier} registration with an unresolved callback`,
+          );
+        }
         const hasCallbackArgument =
           callbackCandidate &&
           !booleanConditionModifier &&
@@ -3873,7 +4796,9 @@ export function findDesignE2ETestRegistrations(
               `${file || "Design E2E source"}:${line}: Unable to inspect a registration title that depends on forEach item or is not a literal`,
             );
           }
-          const identity = parseTestTitle(titleArgument, sourceFile, ts);
+          const identity =
+            firstArgumentIdentity ??
+            parseTestTitle(titleArgument, sourceFile, lexicalBindings, ts);
           const directReason = classification.modifier
             ? modifierSuppression(node, sourceFile, classification.modifier, ts)
             : undefined;
@@ -3910,6 +4835,14 @@ export function findDesignE2ETestRegistrations(
           const item: MutableRegistration = {
             file,
             ...identity,
+            ...(titleUsesOneLiteralForOfBindingGroup(
+              titleArgument,
+              context.literalForOfBindingGroups,
+              lexicalBindings,
+              ts,
+            )
+              ? { dynamicTitleFromLiteralForOf: true }
+              : {}),
             line,
             ...(classification.modifier === undefined
               ? {}
@@ -4196,6 +5129,7 @@ export function findDesignE2ETestRegistrations(
     unknownCallbackIdentities: [],
     conditions: [],
     insideSingletonLiteralForEach: false,
+    literalForOfBindingGroups: [],
     activeHelpers: new Set(),
   });
 
@@ -4221,6 +5155,15 @@ export function findDesignE2ETestRegistrations(
       item.suppressionKind = "focus";
       item.suppressionReason =
         "a test.only declaration can focus this file away";
+    }
+    if (
+      item.dynamic &&
+      item.suppressionKind &&
+      !item.dynamicTitleFromLiteralForOf
+    ) {
+      throw new PinInspectionUnavailableError(
+        `${file || "Design E2E source"}:${item.line}: Unable to inspect a dynamic title on a suppressed test registration`,
+      );
     }
   }
   return registrations.map((item) => ({
