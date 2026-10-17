@@ -581,6 +581,52 @@ describe("scoreEval with a JS scorer", () => {
     });
   });
 
+  it("records an uncloneable run as failed and continues the eval suite", async () => {
+    const uncloneable = defineEval({
+      name: "uncloneable-output",
+      input: { prompt: "uncloneable" },
+      run: async () => ({
+        text: "ok",
+        toolCalls: [],
+        toolCallDetails: [
+          { name: "tool", input: { callback: () => undefined } },
+        ],
+        ok: true,
+        runId: "eval:uncloneable",
+        durationMs: 1,
+      }),
+      scorers: [contains("ok")],
+    });
+    const following = defineEval({
+      name: "following-eval",
+      input: { prompt: "cloneable" },
+      scorers: [contains("ok")],
+    });
+    const onRunOutput = vi.fn();
+
+    const report = await runEvals(
+      [uncloneable, following],
+      fakeRunner({ text: "ok" }),
+      { persist: false, onRunOutput },
+    );
+
+    expect(report).toMatchObject({ total: 2, passed: 1, failed: 1 });
+    expect(report.results[0]).toMatchObject({
+      status: "failed",
+      error: "Run output could not be isolated for scoring.",
+      scores: [
+        {
+          scorer: "contains",
+          score: 0,
+          reason: "Run output could not be isolated for scoring.",
+          passed: false,
+        },
+      ],
+    });
+    expect(report.results[1]).toMatchObject({ status: "passed", passed: true });
+    expect(onRunOutput).toHaveBeenCalledTimes(1);
+  });
+
   it("allows callbacks by default for lower-level non-production runners", async () => {
     const run = vi.fn(async () => ({
       text: "callback output",
@@ -1191,6 +1237,37 @@ describe("createAgentRunner over a mocked runAgentLoop (no real model)", () => {
 
     expect(supportedModels).toEqual(["fake-model"]);
     expect(modelConfigs.get("fake-model")).toEqual({ enabled: true });
+  });
+
+  it("does not invoke methods on nested production engine objects", async () => {
+    const state = { enabled: true };
+    const mutate = vi.fn(() => {
+      state.enabled = false;
+      return state;
+    });
+    const nested = { state, mutate };
+    const engine = {
+      defaultModel: "fake-model",
+      nested,
+      stream: vi.fn(async function* () {}),
+    } as unknown as AgentEngine;
+    const runner = await createAgentRunner({
+      productionContext: {
+        ...testProductionContext(),
+        productionChatPath: testProductionChatPath(),
+      },
+      engine,
+      model: "fake-model",
+    });
+    const scorerEngine = runner.analyzeContext().engine as typeof engine & {
+      nested: typeof nested;
+    };
+
+    expect(() => scorerEngine.nested.mutate()).toThrow(
+      "Protected production engine methods are not callable.",
+    );
+    expect(mutate).not.toHaveBeenCalled();
+    expect(state).toEqual({ enabled: true });
   });
 
   it("protects frozen engine members without violating proxy invariants", async () => {

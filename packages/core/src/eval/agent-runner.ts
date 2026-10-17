@@ -205,6 +205,29 @@ function preserveProductionContextEngine(
       };
     }
 
+    const collectionPrototype = isArray
+      ? Array.prototype
+      : isMap
+        ? Map.prototype
+        : isSet
+          ? Set.prototype
+          : isWeakMap
+            ? WeakMap.prototype
+            : isWeakSet
+              ? WeakSet.prototype
+              : undefined;
+    if (
+      !collectionPrototype ||
+      Reflect.get(collectionPrototype, property) !== method ||
+      property === "constructor"
+    ) {
+      return () => {
+        throw new TypeError(
+          "Protected production engine methods are not callable.",
+        );
+      };
+    }
+
     if ((isMap || isSet) && property === "forEach") {
       return (callback: unknown, thisArg?: unknown) => {
         if (typeof callback !== "function") {
@@ -239,7 +262,7 @@ function preserveProductionContextEngine(
       const receiver = isArray ? protectNestedObject(owner) : owner;
       const result = Reflect.apply(method, receiver, args);
       if (
-        (isMap || isSet) &&
+        (isArray || isMap || isSet) &&
         (property === "keys" ||
           property === "values" ||
           property === "entries" ||
@@ -250,7 +273,9 @@ function preserveProductionContextEngine(
       if ((isMap || isWeakMap) && property === "get") {
         return protectCollectionValue(result);
       }
-      return result === owner ? protectNestedObject(owner) : result;
+      return result !== null && typeof result === "object"
+        ? protectNestedObject(result)
+        : result;
     };
     methodsByProperty.set(property, protectedMethod);
     return protectedMethod;

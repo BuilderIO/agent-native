@@ -57,6 +57,17 @@ async function runScorer(
   }
 }
 
+const SCORER_RUN_OUTPUT_CLONE_ERROR =
+  "Run output could not be isolated for scoring.";
+
+function cloneRunOutput(run: AgentRunOutput): AgentRunOutput | undefined {
+  try {
+    return structuredClone(run);
+  } catch {
+    return undefined;
+  }
+}
+
 interface ScoreEvalOptions {
   thresholdOverride?: number;
   onRunOutput?: (output: AgentRunOutput) => void;
@@ -121,7 +132,15 @@ export async function scoreEval(
     run = await runAgent(evalCase.input);
   }
 
-  opts.onRunOutput?.(structuredClone(run));
+  let runOutputCloneFailed = false;
+  if (opts.onRunOutput) {
+    const observerOutput = cloneRunOutput(run);
+    if (observerOutput) {
+      opts.onRunOutput(observerOutput);
+    } else {
+      runOutputCloneFailed = true;
+    }
+  }
   const runOk = run.ok;
   const runError = run.error;
   const runDurationMs = run.durationMs;
@@ -132,15 +151,20 @@ export async function scoreEval(
     unscoreableError !== undefined || isUnscoreableProductionPathOutput(run);
   const scores: ScorerResult[] = [];
   if (!unscoreable) {
-    const scorerInput = structuredClone(run);
     for (const scorer of evalCase.scorers) {
+      const scorerInput = cloneRunOutput(run);
+      if (!scorerInput) {
+        runOutputCloneFailed = true;
+        scores.push({
+          scorer: scorer.name,
+          score: 0,
+          reason: SCORER_RUN_OUTPUT_CLONE_ERROR,
+          passed: false,
+        });
+        continue;
+      }
       scores.push(
-        await runScorer(
-          scorer,
-          structuredClone(scorerInput),
-          capturedRunner.runner,
-          threshold,
-        ),
+        await runScorer(scorer, scorerInput, capturedRunner.runner, threshold),
       );
     }
   }
@@ -150,7 +174,11 @@ export async function scoreEval(
       ? scores.reduce((s, r) => s + r.score, 0) / scores.length
       : 0;
 
-  const passed = !unscoreable && runOk && scores.every((s) => s.passed);
+  const passed =
+    !unscoreable &&
+    !runOutputCloneFailed &&
+    runOk &&
+    scores.every((s) => s.passed);
   return {
     eval: evalCase.name,
     threshold,
@@ -161,9 +189,11 @@ export async function scoreEval(
     durationMs: runDurationMs,
     error: unscoreable
       ? (unscoreableError ?? runError)
-      : runOk
-        ? undefined
-        : runError,
+      : runOutputCloneFailed
+        ? SCORER_RUN_OUTPUT_CLONE_ERROR
+        : runOk
+          ? undefined
+          : runError,
     ...(runUsage ? { usage: runUsage } : {}),
     ...(evalCase.source ? { source: evalCase.source } : {}),
   };
