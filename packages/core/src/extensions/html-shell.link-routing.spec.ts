@@ -64,6 +64,8 @@ const LINKS = `
   <a id="upper" href="https://app.hubspot.com/upper" target="_BLANK">upper</a>
   <a id="plain" href="https://example.com/plain">plain</a>
   <a id="self" href="https://example.com/self" target="_self">self</a>
+  <a id="sameOrigin" href="https://analytics.example/internal">same origin</a>
+  <a id="sameOriginSelf" href="https://analytics.example/internal-self" target="_self">same origin self</a>
   <a id="top" href="https://example.com/top" target="_top">top</a>
   <a id="named" href="https://example.com/named" target="report">named</a>
   <a id="download" href="https://example.com/file.csv" target="_blank" download>file</a>
@@ -142,20 +144,26 @@ describe("extension shell link routing", () => {
     shell.ready();
     const $ = (id: string) => shell.window.document.getElementById(id);
 
-    expect(shell.click($("plain"))).toBe(false);
-    expect(shell.click($("self"))).toBe(false);
+    expect(shell.click($("plain"))).toBe(true);
+    expect(shell.click($("self"))).toBe(true);
+    expect(shell.click($("sameOrigin"))).toBe(false);
+    expect(shell.click($("sameOriginSelf"))).toBe(false);
     expect(shell.click($("top"))).toBe(false);
     expect(shell.click($("named"))).toBe(false);
     expect(shell.click($("download"))).toBe(false);
     expect(shell.click($("mailto"))).toBe(false);
     expect(shell.click($("js"))).toBe(false);
-    expect(shell.click($("svgSelf"))).toBe(false);
+    expect(shell.click($("svgSelf"))).toBe(true);
     expect(shell.click($("blank"), { altKey: true })).toBe(false);
     expect(shell.click($("plain"), { button: 2 }, "auxclick")).toBe(false);
     // Its own handler prevented the default, so the shell stays out of it.
     expect(shell.click($("prevented"))).toBe(true);
 
-    expect(shell.opened()).toEqual([]);
+    expect(shell.opened().map((message) => message.url)).toEqual([
+      "https://example.com/plain",
+      "https://example.com/self",
+      "https://example.com/svg-self",
+    ]);
   });
 
   it("routes SVG links, resolving href and xlink:href against the base URL", () => {

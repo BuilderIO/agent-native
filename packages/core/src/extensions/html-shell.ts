@@ -689,11 +689,16 @@ export function buildExtensionHtml(
         var link = linkOf(e);
         if (!link || link.element.hasAttribute('download')) return;
         if (link.url.protocol !== 'http:' && link.url.protocol !== 'https:') return;
+        var target = targetOf(link.element);
         var newTab = e.type === 'auxclick'
           ? e.button === 1
           : e.button === 0 && !e.altKey &&
-            (e.metaKey || e.ctrlKey || e.shiftKey || /^_blank$/i.test(targetOf(link.element)));
-        if (!newTab) return;
+            (e.metaKey || e.ctrlKey || e.shiftKey || /^_blank$/i.test(target));
+        var defaultOrSelf = /^_self$/i.test(target) ||
+          (!link.element.hasAttribute('target') && !document.querySelector('base[target]'));
+        var externalSameTab = e.type === 'click' && e.button === 0 && !e.altKey &&
+          defaultOrSelf && link.url.origin !== window.location.origin;
+        if (!newTab && !externalSameTab) return;
         e.preventDefault();
         window.parent.postMessage({ type: 'agent-native-extension-open-url', url: link.url.href, token: token }, '*');
       }

@@ -438,6 +438,7 @@ type SaveReloadRequestAbortRule = {
   path: string | RegExp;
   method?: string;
   errorTexts: readonly string[];
+  maxRequestAgeMs?: number | null;
 };
 
 const navigationAbortErrors = ["NS_BINDING_ABORTED", "net::ERR_ABORTED"];
@@ -722,14 +723,16 @@ export function isExpectedSaveReloadWatchedRequestAbort(
     competingRegistrationStartedAfterNavigation?: boolean;
   },
 ) {
+  const pendingAtNavigation = requestWasPendingAtReloadNavigation;
+
   return (
     activePhase === "save/reload" &&
     requestSameOrigin &&
-    requestWasPendingAtReloadNavigation &&
+    pendingAtNavigation &&
     !requestStartedDuringNavigation &&
     !competingClaimStartedAfterNavigation &&
+    Number.isFinite(requestAgeMs) &&
     requestAgeMs >= 0 &&
-    requestAgeMs < reloadNavigationAbortMaxRequestAgeMs &&
     saveReloadRequestAbortRules.some((rule) => {
       const matchesPath =
         typeof rule.path === "string"
@@ -739,6 +742,7 @@ export function isExpectedSaveReloadWatchedRequestAbort(
         matchesPath &&
         (!rule.method || rule.method === method) &&
         rule.errorTexts.includes(errorText) &&
+        isWithinWatchedRequestAgeLimit(requestAgeMs, rule) &&
         (rule !== browserSessionHeartbeatRequestRule ||
           matchesRetiredSessionHeartbeat(
             method ?? "",
@@ -759,6 +763,22 @@ export function isExpectedSaveReloadWatchedRequestAbort(
           ))
       );
     })
+  );
+}
+
+function isWithinWatchedRequestAgeLimit(
+  requestAgeMs: number,
+  rule: SaveReloadRequestAbortRule,
+  defaultMaxRequestAgeMs = reloadNavigationAbortMaxRequestAgeMs,
+) {
+  const requestAgeLimitMs =
+    rule.maxRequestAgeMs === null
+      ? defaultMaxRequestAgeMs
+      : (rule.maxRequestAgeMs ?? defaultMaxRequestAgeMs);
+  return (
+    Number.isFinite(requestAgeMs) &&
+    requestAgeMs >= 0 &&
+    requestAgeMs < requestAgeLimitMs
   );
 }
 
@@ -1218,6 +1238,11 @@ function isExpectedWatchedRequestNavigationAbort(
       return (
         matchesPath &&
         (!rule.method || rule.method === candidate.method) &&
+        isWithinWatchedRequestAgeLimit(
+          candidate.ageMs,
+          rule,
+          maxRequestAgeMs,
+        ) &&
         (rule !== browserSessionHeartbeatRequestRule ||
           matchesRetiredSessionHeartbeat(
             candidate.method,
@@ -2808,6 +2833,7 @@ export async function runAuthoringFuzz(
     outgoingNavigationAbort: boolean;
   };
   const reloadNavigationRequests = new Map<any, ReloadNavigationRequest>();
+  const watchedRequestsLinkedToReloadNavigation = new WeakSet<any>();
   const pendingOutgoingAbortTimers = new Set<ReturnType<typeof setTimeout>>();
   let reloadNavigationStartedAt: number | null = null;
   // Keep the latest start after openSlide returns to correlate late poll errors.
@@ -3329,12 +3355,17 @@ export async function runAuthoringFuzz(
       activeRequestDetails ?? statusProbeFailureEvidence?.details;
     recentlySettledStatusProbeRequests.delete(request);
     const navigationCandidate = reloadNavigationRequests.get(request);
+    const requestLinkedToReloadNavigation =
+      watchedRequestsLinkedToReloadNavigation.has(request);
     const requestPendingAtReloadNavigation =
       navigationCandidate?.requestWasPendingAtNavigation === true;
+    const statusProbePendingAtReloadNavigation =
+      requestPendingAtReloadNavigation || requestLinkedToReloadNavigation;
     const competingClaimStartedAfterNavigation =
       hasCompetingClaimStartedAfterNavigation(request);
     pendingRequests.delete(request);
     watchedRequests.delete(request);
+    watchedRequestsLinkedToReloadNavigation.delete(request);
     watchedRequestDetails.delete(request);
     inFlightBrowserSessionRequests.delete(request);
     const url = request.url();
@@ -3354,7 +3385,7 @@ export async function runAuthoringFuzz(
         requestStartedAt === undefined ? null : Date.now() - requestStartedAt;
       const navigationFacts = reportSaveReloadAccessAbort
         ? ` ${JSON.stringify({
-            pendingAtReload: requestPendingAtReloadNavigation,
+            pendingAtReload: statusProbePendingAtReloadNavigation,
             requestStartedDuringNavigation:
               navigationCandidate?.requestStartedDuringNavigation ?? "unknown",
             sameOrigin: requestUrl.origin === authoringPageOrigin,
@@ -3472,7 +3503,7 @@ export async function runAuthoringFuzz(
               watchedRequestDetailsAtStart,
               failedAt,
               navigationCandidate?.requestWasPendingAtNavigation ??
-                requestPendingAtReloadNavigation,
+                statusProbePendingAtReloadNavigation,
             )
           : null;
       const expectedStatusProbeAbort = isExpectedReadOnlyStatusProbeAbort(
@@ -3518,6 +3549,15 @@ export async function runAuthoringFuzz(
       activePhase === "save/reload" &&
       reloadNavigationStartedAt !== null
     ) {
+      for (const watchedRequest of watchedRequests.keys()) {
+        if (
+          watchedRequest !== request &&
+          watchedRequest.serviceWorker() === null &&
+          watchedRequest.frame() === page.mainFrame()
+        ) {
+          watchedRequestsLinkedToReloadNavigation.add(watchedRequest);
+        }
+      }
       mainFrameNavigationStartedAt = startedAt;
       mainFrameNavigationRequestSequence = requestSequence;
       mainFrameNavigationUrl = request.url();
@@ -3577,6 +3617,20 @@ export async function runAuthoringFuzz(
         reloadNavigationStartedAt,
         outgoingDocumentUrl: outgoingDocumentUrlAtReload,
       });
+    }
+    // Navigation can cancel this read even when the document issues it after the reload starts.
+    if (
+      activePhase === "save/reload" &&
+      reloadNavigationStartedAt !== null &&
+      requestSourceIsMainFrame &&
+      request.method() === "GET" &&
+      requestUrl.pathname === "/_agent-native/actions/get-deck-access-status" &&
+      requestUrl.origin === authoringPageOrigin &&
+      startedAt >= reloadNavigationStartedAt &&
+      startedAt - reloadNavigationStartedAt <
+        reloadNavigationAbortMaxRequestAgeMs
+    ) {
+      watchedRequestsLinkedToReloadNavigation.add(request);
     }
     const requestStartedDuringNavigation =
       activePhase === "save/reload" &&
@@ -3666,6 +3720,7 @@ export async function runAuthoringFuzz(
     }
     pendingRequests.delete(request);
     watchedRequests.delete(request);
+    watchedRequestsLinkedToReloadNavigation.delete(request);
     watchedRequestDetails.delete(request);
     const browserSessionRequest = inFlightBrowserSessionRequests.get(request);
     if (browserSessionRequest) {

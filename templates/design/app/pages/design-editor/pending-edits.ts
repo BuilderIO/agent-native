@@ -1849,7 +1849,13 @@ export function isVisualEditHandoffAcknowledged(args: {
 
 export function resolveOverviewScreenSourceType(
   screen:
-    | { sourceType?: unknown; bridgeUrl?: string | null; content?: string }
+    | {
+        sourceType?: unknown;
+        bridgeUrl?: string | null;
+        url?: string | null;
+        previewUrl?: string | null;
+        content?: string;
+      }
     | null
     | undefined,
   fallbackSourceType: DesignSourceType = "inline",
@@ -1860,14 +1866,23 @@ export function resolveOverviewScreenSourceType(
     (screen.bridgeUrl ? "localhost" : undefined);
   if (screenSourceType) return screenSourceType;
   if (fallbackSourceType !== "localhost") return fallbackSourceType;
+  if (screen.url || screen.previewUrl) return "localhost";
+  if (typeof screen.content !== "string") return "inline";
+  const content = screen.content.trim();
+  if (!content) return "localhost";
   // Every localhost screen records its own sourceType; adding one flips the
-  // whole design to localhost, so its unmarked markup screens are still inline.
-  return /^\s*https?:\/\//i.test(screen.content ?? "") ? "localhost" : "inline";
+  // whole design to localhost, so unmarked markup screens are still inline.
+  return /^https?:\/\//i.test(content) ? "localhost" : "inline";
 }
 
 export function shouldUseRuntimeLayerProjection(args: {
   screen:
-    | { sourceType?: unknown; bridgeUrl?: string | null }
+    | {
+        sourceType?: unknown;
+        bridgeUrl?: string | null;
+        url?: string | null;
+        previewUrl?: string | null;
+      }
     | null
     | undefined;
   fallbackSourceType?: DesignSourceType;

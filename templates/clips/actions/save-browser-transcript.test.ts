@@ -185,6 +185,7 @@ describe("save-browser-transcript", () => {
 
   it("best-effort requeues ended meeting notes when an imported transcript is preserved", async () => {
     mocks.rows = [
+      [recordingRow()],
       [
         {
           status: "ready",
@@ -226,6 +227,7 @@ describe("save-browser-transcript", () => {
 
   it("best-effort requeues ended meeting notes when an existing ready transcript is kept", async () => {
     mocks.rows = [
+      [recordingRow()],
       [
         {
           status: "ready",

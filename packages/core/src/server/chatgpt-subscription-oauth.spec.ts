@@ -122,7 +122,8 @@ describe("ChatGPT subscription OAuth contract", () => {
         ).resolves.toBe(false);
         expect(mocks.listOAuthAccountsByOwner).not.toHaveBeenCalled();
         expect(mocks.getUserSetting).not.toHaveBeenCalled();
-        // Unsupported status can show account summaries without granting access.
+        // Unresolved request scope is not enough to read a user's account list,
+        // even for a status response that will be unsupported either way.
         await expect(
           getChatGPTSubscriptionStatus("alice@example.com"),
         ).resolves.toMatchObject({
@@ -131,12 +132,99 @@ describe("ChatGPT subscription OAuth contract", () => {
           supportReason: "requires_local_loopback",
           accounts: [],
         });
-        expect(mocks.listOAuthAccountsByOwner).toHaveBeenCalled();
+        expect(mocks.getUserLabEnabled).not.toHaveBeenCalled();
+        expect(mocks.listOAuthAccountsByOwner).not.toHaveBeenCalled();
+        expect(mocks.getUserSetting).not.toHaveBeenCalled();
         await expect(
           getChatGPTSubscriptionAccess("alice@example.com"),
         ).rejects.toThrow("available only from a local app");
       },
     );
+  });
+
+  it("does not expose saved accounts to a forwarded loopback request", async () => {
+    mocks.getUserLabEnabled.mockResolvedValue(true);
+    const subject = "subject-alice";
+    const accountId = `siwc_${crypto
+      .createHash("sha256")
+      .update(JSON.stringify(["alice@example.com", CLIENT_ID, subject]))
+      .digest("hex")}`;
+    const resourceSuffix = `:resource:${crypto
+      .createHash("sha256")
+      .update(CHATGPT_SUBSCRIPTION_RESOURCE)
+      .digest("hex")}`;
+    mocks.listOAuthAccountsByOwner.mockResolvedValue([
+      { accountId: `${accountId}${resourceSuffix}` },
+    ]);
+    mocks.readOAuthCredentialState.mockResolvedValue({
+      kind: "connected",
+      credential: {
+        clientId: CLIENT_ID,
+        subject,
+        email: "alice@example.com",
+        displayName: "Alice",
+        extAgentHostId: "urn:uuid:11111111-1111-4111-8111-111111111111",
+        idToken: "id-token-alice",
+        tokenExpiresAt: Date.now() + 60 * 60 * 1000,
+        grantedScopes: [...CHATGPT_SUBSCRIPTION_SCOPES],
+        tokens: {
+          access_token: "access-alice",
+          refresh_token: "refresh-alice",
+        },
+      },
+    });
+
+    await runWithRequestContext(
+      {
+        isLoopbackRequest: true,
+        isDirectLoopbackRequest: false,
+        requestOrigin: "http://127.0.0.1:1455",
+        orgScope: "personal",
+      },
+      async () => {
+        await expect(
+          hasChatGPTSubscriptionCredential("alice@example.com"),
+        ).resolves.toBe(false);
+        await expect(
+          getChatGPTSubscriptionStatus("alice@example.com"),
+        ).resolves.toMatchObject({
+          supported: false,
+          localLoopback: false,
+          connected: false,
+          accounts: [],
+        });
+        expect(mocks.getUserLabEnabled).not.toHaveBeenCalled();
+        expect(mocks.listOAuthAccountsByOwner).not.toHaveBeenCalled();
+        expect(mocks.getUserSetting).not.toHaveBeenCalled();
+        await expect(
+          getChatGPTSubscriptionAccess("alice@example.com"),
+        ).rejects.toThrow("available only from a local app");
+      },
+    );
+    expect(mocks.getUserLabEnabled).not.toHaveBeenCalled();
+  });
+
+  it("reads account summaries without the lab preference for a non-loopback status request", async () => {
+    await runWithRequestContext(
+      {
+        isLoopbackRequest: false,
+        isDirectLoopbackRequest: false,
+        requestOrigin: "https://app.example.com",
+        orgScope: "organization",
+      },
+      async () => {
+        await expect(
+          getChatGPTSubscriptionStatus("alice@example.com"),
+        ).resolves.toMatchObject({
+          supported: false,
+          localLoopback: false,
+          supportReason: "requires_local_loopback",
+        });
+      },
+    );
+
+    expect(mocks.getUserLabEnabled).not.toHaveBeenCalled();
+    expect(mocks.listOAuthAccountsByOwner).toHaveBeenCalled();
   });
 
   it("reports saved accounts in an unsupported status without granting access", async () => {
@@ -185,10 +273,10 @@ describe("ChatGPT subscription OAuth contract", () => {
 
     await runWithRequestContext(
       {
-        isLoopbackRequest: true,
+        isLoopbackRequest: false,
         isDirectLoopbackRequest: false,
-        requestOrigin: "http://127.0.0.1:1455",
-        orgScope: "personal",
+        requestOrigin: "https://app.example.com",
+        orgScope: "organization",
       },
       async () => {
         await expect(
@@ -201,10 +289,7 @@ describe("ChatGPT subscription OAuth contract", () => {
           localLoopback: false,
           connected: false,
           activeAccountId: accountId,
-          activeAccount: expect.objectContaining({
-            id: accountId,
-            active: true,
-          }),
+          activeAccount: expect.objectContaining({ id: accountId, active: true }),
           accounts: [
             expect.objectContaining({
               id: accountId,
@@ -226,10 +311,7 @@ describe("ChatGPT subscription OAuth contract", () => {
         ).resolves.toMatchObject({
           supported: false,
           activeAccountId: accountId,
-          activeAccount: expect.objectContaining({
-            id: accountId,
-            active: true,
-          }),
+          activeAccount: expect.objectContaining({ id: accountId, active: true }),
           accounts: [expect.objectContaining({ id: accountId, active: true })],
           legacyRegistrationCleanupAvailable: true,
         });
@@ -260,12 +342,6 @@ describe("ChatGPT subscription OAuth contract", () => {
         });
       },
     );
-    expect(mocks.getUserSetting).toHaveBeenCalledWith(
-      "alice@example.com",
-      CHATGPT_SUBSCRIPTION_ACTIVE_ACCOUNT_SETTING_KEY,
-    );
-    expect(mocks.putUserSetting).not.toHaveBeenCalled();
-    expect(mocks.getUserLabEnabled).not.toHaveBeenCalled();
   });
 
   it("surfaces lab preference read failures instead of treating them as off", async () => {
