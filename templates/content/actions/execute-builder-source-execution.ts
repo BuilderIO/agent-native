@@ -1367,20 +1367,26 @@ export function realExecutionDeps(
     executeWrite: (args) => executeBuilderCmsWrite(args),
     readLiveEntry: async (args) => {
       const controller = new AbortController();
-      const timeout = setTimeout(
-        () =>
-          controller.abort(
-            new Error("Builder live preflight exceeded its time limit."),
-          ),
-        BUILDER_LIVE_PREFLIGHT_TIMEOUT_MS,
-      );
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      const deadline = new Promise<never>((_resolve, reject) => {
+        timeout = setTimeout(() => {
+          const error = new Error(
+            "Builder live preflight exceeded its time limit.",
+          );
+          controller.abort(error);
+          reject(error);
+        }, BUILDER_LIVE_PREFLIGHT_TIMEOUT_MS);
+      });
       try {
-        return await readBuilderCmsEntryLiveState({
-          ...args,
-          signal: controller.signal,
-        });
+        return await Promise.race([
+          readBuilderCmsEntryLiveState({
+            ...args,
+            signal: controller.signal,
+          }),
+          deadline,
+        ]);
       } finally {
-        clearTimeout(timeout);
+        if (timeout) clearTimeout(timeout);
       }
     },
     reconcileWrite: reconcileBuilderCmsWrite,
