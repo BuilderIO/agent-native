@@ -3668,7 +3668,7 @@ function FunnelRenderer({
   return (
     <div
       className="space-y-3 py-2"
-      role="img"
+      role={onDatumClick ? "group" : "img"}
       aria-label={panel.title}
       data-dashboard-funnel="true"
     >

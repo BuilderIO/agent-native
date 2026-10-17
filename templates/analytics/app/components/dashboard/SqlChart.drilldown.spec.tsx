@@ -126,6 +126,18 @@ function outcomeFunnelPanel(): SqlPanel {
   };
 }
 
+function funnelPanel(): SqlPanel {
+  return {
+    id: "activation-funnel",
+    title: "Activation funnel",
+    sql: "SELECT stage, shown FROM funnel",
+    source: "first-party",
+    chartType: "funnel",
+    width: 1,
+    config: { xKey: "stage", yKey: "shown" },
+  };
+}
+
 describe("SqlChart drilldown clicks", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -224,5 +236,39 @@ describe("SqlChart drilldown clicks", () => {
       x: "visit",
       value: 100,
     });
+  });
+
+  it("exposes interactive plain funnel stages outside image semantics", async () => {
+    const onDatumClick = vi.fn<(datum: ChartDatum) => void>();
+
+    await act(async () => {
+      root.render(
+        <SqlChart
+          panel={funnelPanel()}
+          onDatumClick={onDatumClick}
+          resultOverride={{
+            rows: [{ stage: "visit", shown: 100 }],
+          }}
+        />,
+      );
+    });
+
+    const chart = container.querySelector<HTMLElement>(
+      '[data-dashboard-funnel="true"]',
+    );
+    const visitStage = container.querySelector<HTMLElement>(
+      '[data-dashboard-funnel="true"] [role="button"]',
+    );
+    expect(chart?.getAttribute("role")).toBe("group");
+    expect(visitStage).not.toBeNull();
+    expect(chart?.contains(visitStage)).toBe(true);
+
+    await act(async () => {
+      visitStage!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
+
+    expect(onDatumClick).toHaveBeenCalledWith({ x: "visit", value: 100 });
   });
 });

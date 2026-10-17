@@ -17,4 +17,13 @@ describe("csvCell", () => {
     expect(csvCell("-1.25e-3")).toBe("-1.25e-3");
     expect(csvCell("-1+1")).toBe("'-1+1");
   });
+
+  it("keeps formatted negative numeric strings numeric", () => {
+    expect(csvCell("-1234", { displayValue: "-1,234" })).toBe('"-1,234"');
+    expect(csvCell("-1234", { displayValue: "-$1,234.00" })).toBe(
+      '"-$1,234.00"',
+    );
+    expect(csvCell("-0.05", { displayValue: "-5.00%" })).toBe("-5.00%");
+    expect(csvCell("-1+1", { displayValue: "-1+1" })).toBe("'-1+1");
+  });
 });

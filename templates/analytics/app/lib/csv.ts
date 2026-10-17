@@ -6,7 +6,7 @@ export function csvCell(
   if (
     typeof value !== "number" &&
     typeof value !== "boolean" &&
-    !isNumericText(text) &&
+    !isNumericText(csvText(value)) &&
     /^[\s\u0000-\u001f\u007f]*[=+\-@]/.test(text)
   ) {
     text = `'${text}`;
