@@ -1,5 +1,22 @@
 const messages = {
   meetingAsk: { resizeOrDismissAnswers: "답변 영역 크기 조절 또는 닫기" },
+  meetingBrowserConfirmation:
+    "Clips는 이 브라우저의 마이크 활동을 감지하지만 회의 중인 탭을 구분할 수 없습니다.",
+  meetingReplacement: {
+    title: "회의 메모 확인이 필요합니다",
+    description:
+      "이전 회의의 메모를 저장하지 못했습니다. 이 회의를 시작하기 전에 메모를 복사하세요.",
+    copyAndStart: "메모 복사 후 시작",
+    actionFailed: "회의 복구를 계속하지 못했습니다. 다시 시도하세요.",
+  },
+  quitRecovery: {
+    title: "Clips에서 회의를 마무리하는 중입니다",
+    body: "Clips에서 이 회의를 중지하고 저장하는 작업을 완료하지 못했습니다. 지금 종료하면 최신 대화록이 손실될 수 있습니다.",
+    keepOpen: "Clips 계속 열어 두기",
+    quitAnyway: "그래도 종료",
+    actionFailed:
+      "Clips에서 종료 복구 상태를 업데이트하지 못했습니다. 다시 시도하세요.",
+  },
   lookbackContext: {
     includeLast: "마지막 구간 포함",
     whatIsThis: "이것은 무엇입니까?",
@@ -929,8 +946,8 @@ const messages = {
     labVideoEditingDescription: "새 동영상 편집기를 사용해 보세요.",
     labMeetings: "회의 및 전사",
     labMeetingsDescription: "자동 회의 캡처 및 전사를 사용해 보세요.",
-    labWisprFlow: "음성 받아쓰기",
-    labWisprFlowDescription:
+    labVoiceDictation: "음성 받아쓰기",
+    labVoiceDictationDescription:
       "Clips Desktop 음성 받아쓰기를 표시하거나 숨깁니다.",
     labLookbackContext: "이전 화면 시간 포함",
     labLookbackContextDescription:
@@ -2080,6 +2097,32 @@ const messages = {
     copy: "복사",
     copied: "복사됨",
     copyFailed: "복사하지 못했습니다",
+    flowStarting: "받아쓰기를 시작하는 중…",
+    flowFinalizing: "받아쓰기를 마무리하는 중…",
+    flowBusy: "이전 받아쓰기를 마무리하는 중…",
+    flowTranscribing: "음성을 텍스트로 변환하는 중…",
+    flowCleaning: "텍스트를 다듬는 중…",
+    flowPasting: "텍스트를 붙여넣는 중…",
+    flowSavingHistory: "기록에 저장하는 중…",
+    flowPasted: "붙여넣음",
+    flowCopied: "클립보드에 복사됨",
+    flowPastedHistoryFailed: "붙여넣었지만 기록에 저장되지 않았습니다",
+    flowCopiedHistoryFailed: "복사했지만 기록에 저장되지 않았습니다",
+    flowHistoryNotSaved: "받아쓰기가 기록에 저장되지 않았습니다",
+    flowPermissionFailed: "마이크 권한이 꺼져 있습니다",
+    flowMicrophoneUnavailable: "마이크를 사용할 수 없습니다",
+    flowProviderFailed: "음성을 텍스트로 변환하지 못했습니다",
+    flowMeetingCaptureActive: "받아쓰기 전에 회의 녹음을 중지하세요",
+    flowPasteFailed: "텍스트를 붙여넣지 못했습니다",
+    flowCancelled: "받아쓰기가 취소되었습니다",
+    flowRetryHistory: "기록 저장 재시도",
+    flowDismiss: "닫기",
+    flowTranscriptRecovery: "텍스트 복구",
+    flowOriginalTranscript: "원본 텍스트 보기",
+    flowCleanupSkipped: "텍스트 정리를 건너뛰고 원문을 유지했습니다",
+    flowBacktrackSkipped: "텍스트 편집을 건너뛰고 인식된 내용을 유지했습니다",
+    flowCancelDictation: "받아쓰기 취소",
+    flowCopying: "텍스트를 복사하는 중…",
     aiProcessed: "AI 처리됨",
     aiCleaned: "AI 정리됨",
     original: "원본",

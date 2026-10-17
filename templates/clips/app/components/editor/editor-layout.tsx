@@ -423,7 +423,10 @@ export function EditorLayout({
     () => buildTimelinePieces(durationMs, shownEdits),
     [durationMs, shownEdits],
   );
-  const selectedClip = useMemo(() => {
+  const selectedRange = useMemo(() => {
+    if (selection?.kind === "range") {
+      return { startMs: selection.startMs, endMs: selection.endMs };
+    }
     if (selection?.kind !== "clip") return null;
     const piece = pieces.find(
       (p) =>
@@ -525,8 +528,8 @@ export function EditorLayout({
     ) => {
       const nextTotalWidth = getTimelineTotalWidth(viewportWidth, nextZoom);
       const maxScrollLeft = Math.max(0, nextTotalWidth - viewportWidth);
-      const anchorMs = selectedClip
-        ? (selectedClip.startMs + selectedClip.endMs) / 2
+      const anchorMs = selectedRange
+        ? (selectedRange.startMs + selectedRange.endMs) / 2
         : playheadMs;
       const fallbackAnchorRatio =
         durationMs > 0
@@ -543,7 +546,7 @@ export function EditorLayout({
       const anchorX = anchorRatio * nextTotalWidth;
       return Math.max(0, Math.min(maxScrollLeft, anchorX - viewportX));
     },
-    [durationMs, playheadMs, selectedClip, viewportWidth],
+    [durationMs, playheadMs, selectedRange, viewportWidth],
   );
 
   const setAnchoredZoom = useCallback(
@@ -1119,7 +1122,7 @@ export function EditorLayout({
   const addRedaction = useCallback(
     (rect: RedactionRect) => {
       const at = Math.round(playheadMs);
-      const range = selectedClip ?? { startMs: at, endMs: at + 5_000 };
+      const range = selectedRange ?? { startMs: at, endMs: at + 5_000 };
       const startMs = Math.round(range.startMs);
       const redaction: VideoRedaction = clampRedactionToDuration(
         {
@@ -1141,7 +1144,7 @@ export function EditorLayout({
       playheadMs,
       redactionStyle,
       savedRedactions,
-      selectedClip,
+      selectedRange,
     ],
   );
 
@@ -1332,12 +1335,12 @@ export function EditorLayout({
       await commitEdits(removeCut(savedEdits, selection.cutId));
       return;
     }
-    if (!selectedClip) return;
+    if (!selectedRange) return;
     setSelection(null);
     await commitEdits(
-      addCut(savedEdits, selectedClip.startMs, selectedClip.endMs),
+      addCut(savedEdits, selectedRange.startMs, selectedRange.endMs),
     );
-  }, [commitEdits, savedEdits, selectedClip, selection]);
+  }, [commitEdits, savedEdits, selectedRange, selection]);
 
   const seek = useCallback(
     (ms: number) => {
@@ -1607,7 +1610,7 @@ export function EditorLayout({
             onZoomChange={handleZoomChange}
             timelineActive={activeSurface === "timeline"}
             edits={savedEdits}
-            selectionRange={selectedClip}
+            selectionRange={selectedRange}
             onCutRange={callTrim}
             onSplit={splitAtPlayhead}
             redactMode={redactMode}

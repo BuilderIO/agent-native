@@ -3,6 +3,15 @@
 Use the connected Slack integration for every Slack read and write. Never
 operate Slack through computer use, a browser, screenshots, or UI automation.
 
+Reply under the parent only when the reporter must act or their outcome changes:
+a question they must answer, a verified fix, or a handoff they must
+act on. Otherwise post nothing; the reaction and recap carry the status. Never post "taking a look," reaction explanations, or
+ledger status. The one-time dispositions named in SKILL.md (**Skipped**,
+**Clustered**, **Abandoned - no answer in 4 days**, **In progress**) are the
+exception and still post once, for eligible items only. Person-assigned threads
+and Steve's `:mag:` items get no reply of any kind. Keep each reply to one or
+two sentences.
+
 For each eligible item, add `👀` before investigation. Keep all reactions
 permanently: never remove or clean up `👀`, `✅`, `🎫`, or any other
 reaction on a feedback item. Add `✅` when the accepted scope is complete and
@@ -12,12 +21,7 @@ needing a follow-up action or owner, whether or not a ticket exists. Do not use
 it for routine beta or package publication, expected verification, or optional
 scope without an assigned action or owner.
 
-Before posting, inspect the full thread for an earlier disposition reply. Send
-one concise disposition reply per feedback item: what changed, meaningful
-scope remaining, and the next action/owner/ticket if needed. An earlier
-generic “looking into this” is not a disposition; follow it with this one
-reply. Once a disposition exists, do not post again just to announce merge,
-publication, or live beta. Answer a reporter's direct follow-up.
+Before posting, inspect the full thread for an earlier disposition reply. Send one concise disposition reply per feedback item: what changed, meaningful scope remaining, and any action the reporter must take. Record owner and ticket handoffs in the recap only. Never imply a partial fix resolved the whole report. An earlier generic “looking into this” is not a disposition; follow it with this one reply. Once a disposition exists, do not post again just to announce merge, publication, or live beta. Answer a reporter's direct follow-up.
 
 For an open beta app PR, link it and say beta should follow soon after merge;
 give no exact date. Keep the item **In progress** until the source fix merges.

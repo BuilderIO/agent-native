@@ -5,6 +5,7 @@ import { useEffect, useCallback, useRef, useMemo } from "react";
 import { registerPendingTextHostCommit } from "@/components/design/design-canvas/pending-text-capture";
 import { type StyleChangeMeta } from "@/components/design/EditPanel";
 import {
+  sendBreakpointPreviewStyleChange,
   sendLinkedScreenPreviewInteractionStateStyle,
   sendLinkedScreenPreviewStyleChange,
 } from "@/components/design/multi-screen/linked-screen-preview";
@@ -645,22 +646,44 @@ export function useEditorScreenChangeHandlers({
         );
         return;
       }
+      // A runtime style lands inline in every frame it reaches, so a
+      // breakpoint-scoped edit previews only its own frame and commits by
+      // replacing content, which carries the scoped @media rule.
+      const scopedBreakpointWidthPx =
+        activeBreakpointUpperBoundAtEvent() == null
+          ? null
+          : (activeBreakpointWidthStateRef.current ?? null);
       if (!metadata?.requirePersistedSourceAcceptance) {
         for (const [property, value] of Object.entries(styles)) {
-          sendLinkedScreenPreviewStyleChange(
-            screenId,
-            selector,
-            property,
-            value,
-            {
-              selectorCandidates,
-              nodeId: elementInfo?.runtimeSourceId ?? elementInfo?.sourceId,
-              relativeOperation: relativeOperationsForStyles(
-                { [property]: value },
-                metadata,
-              )?.[property],
-            },
-          );
+          const previewOptions = {
+            selectorCandidates,
+            nodeId: elementInfo?.runtimeSourceId ?? elementInfo?.sourceId,
+            relativeOperation: relativeOperationsForStyles(
+              { [property]: value },
+              metadata,
+            )?.[property],
+          };
+          if (scopedBreakpointWidthPx == null) {
+            sendLinkedScreenPreviewStyleChange(
+              screenId,
+              selector,
+              property,
+              value,
+              previewOptions,
+            );
+          } else if (
+            metadata?.phase === "preview" ||
+            metadata?.phase === "cancel"
+          ) {
+            sendBreakpointPreviewStyleChange(
+              screenId,
+              scopedBreakpointWidthPx,
+              selector,
+              property,
+              value,
+              previewOptions,
+            );
+          }
         }
       }
       if (
@@ -672,7 +695,9 @@ export function useEditorScreenChangeHandlers({
       const relativeOperations = relativeOperationsForStyles(styles, metadata);
       handleScreenVisualStyleChange(screenId, selector, styles, elementInfo, {
         phase: metadata?.phase === "commit" ? "commit" : undefined,
-        runtimeApplied: !metadata?.requirePersistedSourceAcceptance,
+        runtimeApplied:
+          !metadata?.requirePersistedSourceAcceptance &&
+          scopedBreakpointWidthPx == null,
         requirePersistedSourceAcceptance:
           metadata?.requirePersistedSourceAcceptance,
         ...(relativeOperations ? { relativeOperations } : {}),

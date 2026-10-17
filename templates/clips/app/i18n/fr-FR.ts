@@ -2,6 +2,24 @@ const messages = {
   meetingAsk: {
     resizeOrDismissAnswers: "Redimensionner ou fermer les réponses",
   },
+  meetingBrowserConfirmation:
+    "Clips détecte une activité du micro dans ce navigateur, mais ne peut pas identifier l’onglet de la réunion.",
+  meetingReplacement: {
+    title: "Les notes de réunion nécessitent votre attention",
+    description:
+      "Les notes de la réunion précédente n’ont pas pu être enregistrées. Copiez-les avant de démarrer cette réunion.",
+    copyAndStart: "Copier les notes et démarrer",
+    actionFailed:
+      "Impossible de poursuivre la récupération de la réunion. Réessayez.",
+  },
+  quitRecovery: {
+    title: "Clips termine encore la réunion",
+    body: "Clips n’a pas encore terminé d’arrêter et d’enregistrer cette réunion. La transcription la plus récente risque d’être perdue si vous quittez maintenant.",
+    keepOpen: "Garder Clips ouvert",
+    quitAnyway: "Quitter quand même",
+    actionFailed:
+      "Clips n’a pas pu mettre à jour l’état de récupération. Réessayez.",
+  },
   lookbackContext: {
     includeLast: "Inclure les derniers",
     whatIsThis: "Qu'est-ce que c'est ?",
@@ -956,8 +974,8 @@ const messages = {
     labMeetings: "Réunions et transcription",
     labMeetingsDescription:
       "Essayez la capture et la transcription automatiques des réunions.",
-    labWisprFlow: "Dictée vocale",
-    labWisprFlowDescription:
+    labVoiceDictation: "Dictée vocale",
+    labVoiceDictationDescription:
       "Afficher ou masquer la dictée vocale dans Clips Desktop.",
     labLookbackContext: "Inclure le temps d'écran antérieur",
     labLookbackContextDescription:
@@ -2147,6 +2165,33 @@ const messages = {
     copy: "Copier",
     copied: "Copié",
     copyFailed: "Impossible de copier",
+    flowStarting: "Démarrage de la dictée…",
+    flowFinalizing: "Finalisation de la dictée…",
+    flowBusy: "Finalisation de la dictée précédente…",
+    flowTranscribing: "Transcription en cours…",
+    flowCleaning: "Nettoyage du texte…",
+    flowPasting: "Collage du texte…",
+    flowSavingHistory: "Enregistrement dans l’historique…",
+    flowPasted: "Collé",
+    flowCopied: "Copié dans le presse-papiers",
+    flowPastedHistoryFailed: "Collé, mais non enregistré dans l’historique",
+    flowCopiedHistoryFailed: "Copié, mais non enregistré dans l’historique",
+    flowHistoryNotSaved: "La dictée n’a pas été enregistrée dans l’historique",
+    flowPermissionFailed: "L’accès au microphone est désactivé",
+    flowMicrophoneUnavailable: "Microphone indisponible",
+    flowProviderFailed: "Impossible de transcrire la parole",
+    flowMeetingCaptureActive:
+      "Arrêtez l’enregistrement de la réunion avant de dicter",
+    flowPasteFailed: "Impossible de coller la transcription",
+    flowCancelled: "Dictée annulée",
+    flowRetryHistory: "Réessayer l’enregistrement dans l’historique",
+    flowDismiss: "Fermer",
+    flowTranscriptRecovery: "Récupération de la transcription",
+    flowOriginalTranscript: "Afficher la transcription d’origine",
+    flowCleanupSkipped: "Nettoyage ignoré, texte d’origine conservé",
+    flowBacktrackSkipped: "Modification ignorée, texte reconnu conservé",
+    flowCancelDictation: "Annuler la dictée",
+    flowCopying: "Copie de la transcription…",
     aiProcessed: "Traité par l’IA",
     aiCleaned: "Nettoyé par l’IA",
     original: "Original",

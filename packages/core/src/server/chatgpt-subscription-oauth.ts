@@ -825,12 +825,13 @@ export async function getChatGPTSubscriptionStatus(
   email: string,
 ): Promise<ChatGPTSubscriptionStatus> {
   const localLoopback = currentRequestIsLocalLoopback();
-  const labEnabled = await chatGPTSubscriptionLabEnabled(email);
-  if (!labEnabled) {
+  const labEnabled =
+    localLoopback && (await chatGPTSubscriptionLabEnabled(email));
+  if (localLoopback && !labEnabled) {
     return {
       supported: false,
       localLoopback,
-      supportReason: localLoopback ? "requires_lab" : "requires_local_loopback",
+      supportReason: "requires_lab",
       connected: false,
       reconnectRequired: false,
       accountId: null,

@@ -126,8 +126,7 @@ for (const { theme, canvasHex, expectedCanvasRgb, boardTextColor } of [
   },
 ] as const) {
   // oracle: none — only the toolbar tool selection changed in this test; its own claim is unmeasured against Figma.
-  // fixme: light: board text committed with Escape is never saved; dark: fails in CI on current main: expect(received).toEqual(expect
-  test.fixme(`${theme} theme: the canvas keeps its colour when the board gains its first shape`, async ({
+  test(`${theme} theme: the canvas keeps its colour when the board gains its first shape`, async ({
     app,
     page,
   }) => {

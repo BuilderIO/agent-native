@@ -1,3 +1,4 @@
+import { isActionContractError } from "@agent-native/core/action";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -100,6 +101,21 @@ describe("locked layers", () => {
     ]) {
       expect(() => assertLockedLayersPreserved(artboard, next)).not.toThrow();
     }
+  });
+
+  it("rejects a locked-layer violation as a 409 contract error, not a server error", () => {
+    const unlocked = source.replace(' data-agent-native-locked="true"', "");
+    let thrown: unknown;
+    try {
+      assertLockedLayersPreserved(unlocked, source);
+    } catch (error) {
+      thrown = error;
+    }
+    expect(isActionContractError(thrown)).toBe(true);
+    expect(thrown).toMatchObject({
+      statusCode: 409,
+      errorCode: "locked_layer_edit_rejected",
+    });
   });
 
   it("rejects an edit that re-locks a layer the editor unlocked", () => {

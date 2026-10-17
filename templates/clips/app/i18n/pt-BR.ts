@@ -2,6 +2,24 @@ const messages = {
   meetingAsk: {
     resizeOrDismissAnswers: "Redimensionar ou fechar as respostas",
   },
+  meetingBrowserConfirmation:
+    "Clips detecta atividade do microfone neste navegador, mas não consegue identificar em qual guia está a reunião.",
+  meetingReplacement: {
+    title: "As notas da reunião precisam de atenção",
+    description:
+      "Não foi possível salvar as notas da reunião anterior. Copie-as antes de iniciar esta reunião.",
+    copyAndStart: "Copiar notas e iniciar",
+    actionFailed:
+      "Não foi possível continuar a recuperação da reunião. Tente novamente.",
+  },
+  quitRecovery: {
+    title: "Clips ainda está finalizando a reunião",
+    body: "Clips ainda não terminou de encerrar e salvar esta reunião. A transcrição mais recente pode ser perdida se você sair agora.",
+    keepOpen: "Manter Clips aberto",
+    quitAnyway: "Sair mesmo assim",
+    actionFailed:
+      "Clips não conseguiu atualizar o estado de recuperação. Tente novamente.",
+  },
   lookbackContext: {
     includeLast: "Incluir os últimos",
     whatIsThis: "O que é isto?",
@@ -950,8 +968,8 @@ const messages = {
     labMeetings: "Reuniões e transcrição",
     labMeetingsDescription:
       "Experimente a captura e a transcrição automáticas de reuniões.",
-    labWisprFlow: "Ditado por voz",
-    labWisprFlowDescription:
+    labVoiceDictation: "Ditado por voz",
+    labVoiceDictationDescription:
       "Mostre ou oculte o ditado por voz no Clips Desktop.",
     labLookbackContext: "Incluir o tempo de tela anterior",
     labLookbackContextDescription:
@@ -2120,6 +2138,32 @@ const messages = {
     copy: "Copiar",
     copied: "Copiado",
     copyFailed: "Não foi possível copiar",
+    flowStarting: "Iniciando ditado…",
+    flowFinalizing: "Finalizando o ditado…",
+    flowBusy: "Finalizando o ditado anterior…",
+    flowTranscribing: "Transcrevendo…",
+    flowCleaning: "Ajustando o texto…",
+    flowPasting: "Colando o texto…",
+    flowSavingHistory: "Salvando no histórico…",
+    flowPasted: "Colado",
+    flowCopied: "Copiado para a área de transferência",
+    flowPastedHistoryFailed: "Colado, mas não salvo no histórico",
+    flowCopiedHistoryFailed: "Copiado, mas não salvo no histórico",
+    flowHistoryNotSaved: "O ditado não foi salvo no histórico",
+    flowPermissionFailed: "A permissão do microfone está desativada",
+    flowMicrophoneUnavailable: "Microfone indisponível",
+    flowProviderFailed: "Não foi possível transcrever a fala",
+    flowMeetingCaptureActive: "Pare a gravação da reunião antes de ditar",
+    flowPasteFailed: "Não foi possível colar a transcrição",
+    flowCancelled: "Ditado cancelado",
+    flowRetryHistory: "Tentar salvar o histórico novamente",
+    flowDismiss: "Fechar",
+    flowTranscriptRecovery: "Recuperação da transcrição",
+    flowOriginalTranscript: "Mostrar transcrição original",
+    flowCleanupSkipped: "Ajuste do texto ignorado; texto original mantido",
+    flowBacktrackSkipped: "Edição ignorada; texto reconhecido mantido",
+    flowCancelDictation: "Cancelar ditado",
+    flowCopying: "Copiando a transcrição…",
     aiProcessed: "Processado por IA",
     aiCleaned: "Limpo com IA",
     original: "Original",

@@ -1234,8 +1234,47 @@ export function hasDataQueryAttempt(
     if (isToolName(name, "run-code")) {
       return hasRunCodeDataQueryAttempt(result.content);
     }
+    // dbt returns not_found, connection_error, and similar states as normal
+    // payloads, so only a success payload is evidence.
+    if (isToolName(name, "query-dbt-semantic-metric")) {
+      return isSuccessfulDbtMetricResult(result.content);
+    }
     return isGroundingActionName(name) || isMcpDataSourceTool(name);
   });
+}
+
+// A payload whose own status field says it succeeded. Structured failures and
+// timeouts come back as ordinary results, so the field is the only evidence.
+export function isSuccessfulPayload(
+  content: unknown,
+  statusKey: "status" | "query_status",
+): boolean {
+  const parsed = tryParseJsonContent(String(content ?? ""));
+  return (
+    parsed !== null &&
+    typeof parsed === "object" &&
+    (parsed as Record<string, unknown>)[statusKey] === "success"
+  );
+}
+
+// bigquery returns the raw query result on success (a rows array) and throws on
+// failure or timeout, so the result shape is the success evidence. Telemetry
+// fields such as query_status are not part of the tool result. An empty result
+// carries no figure to disclose, so it is not evidence either.
+export function isBigQueryRowsPayload(content: unknown): boolean {
+  const parsed = tryParseJsonContent(String(content ?? ""));
+  if (parsed === null || typeof parsed !== "object") return false;
+  const rows = (parsed as { rows?: unknown }).rows;
+  return Array.isArray(rows) && rows.length > 0;
+}
+
+// A dbt success with no rows has no figure to support an answer, so it is not
+// grounding evidence.
+export function isSuccessfulDbtMetricResult(content: unknown): boolean {
+  if (!isSuccessfulPayload(content, "status")) return false;
+  const parsed = tryParseJsonContent(String(content ?? ""));
+  const rows = (parsed as { rows?: unknown } | null)?.rows;
+  return Array.isArray(rows) && rows.length > 0;
 }
 
 function isFailedDataQueryAttempt(result: {

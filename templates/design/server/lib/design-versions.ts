@@ -62,6 +62,7 @@ export interface DesignVersionFile {
   filename: string;
   fileType: string;
   content: string;
+  createdAt?: string;
 }
 
 export interface ParsedDesignVersionSnapshot {
@@ -295,7 +296,15 @@ export function parseDesignVersionSnapshot(
       typeof candidate.fileType === "string" && candidate.fileType.trim()
         ? candidate.fileType
         : "html";
-    files.push({ id, filename, fileType, content });
+    files.push({
+      id,
+      filename,
+      fileType,
+      content,
+      ...(typeof candidate.createdAt === "string"
+        ? { createdAt: candidate.createdAt }
+        : {}),
+    });
   }
 
   const parsed: ParsedDesignVersionSnapshot = {
@@ -781,6 +790,7 @@ async function readDesignVersionSourceRows(
       fileType: file.fileType,
       content: useLiveContent ? liveContent : file.content,
       source: useLiveContent ? "collab" : "stored",
+      createdAt: file.createdAt,
     });
     collaborationVersions.set(file.id, lease.baseVersion);
   }
@@ -2186,7 +2196,7 @@ export async function restoreDesignVersion(args: {
                     contentOperationSource: null,
                     contentOperationRevision: null,
                     contentOperationResultHash: null,
-                    createdAt: updatedAt,
+                    createdAt: targetFile.createdAt ?? updatedAt,
                     updatedAt,
                   });
                 }

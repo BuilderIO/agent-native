@@ -65,6 +65,11 @@ export default {
     sigmaChooseConnectionPlaceholder: "选择连接",
     sigmaChooseConnectionDescription: "选择要浏览其工作簿的 Sigma 工作区。",
     sigmaNoConnection: "尚未连接 Sigma",
+    sigmaApiRegion: "Sigma API 区域",
+    sigmaOAuthConnect: "连接个人 Sigma 账户",
+    sigmaOAuthAddAnother: "连接其他 Sigma 账户",
+    sigmaOAuthCancel: "取消",
+    sigmaOAuthDescription: "使用你的账户登录 Sigma，浏览你有权访问的工作簿。",
     sigmaClientId: "客户端 ID",
     sigmaClientSecret: "客户端密钥",
     sigmaBaseUrl: "API 基础 URL（可选）",
@@ -76,8 +81,7 @@ export default {
     sigmaCredentialStageFailed:
       "无法暂存临时 Sigma 凭据。请检查 Vault 访问权限，然后重试。",
     sigmaCredentialsRequired: "请先保存 Sigma 客户端 ID 和客户端密钥。",
-    sigmaBaseUrlInvalid:
-      "请使用 sigmacomputing.com 域名下的 HTTPS Sigma API URL。",
+    sigmaBaseUrlInvalid: "请选择 Sigma 官方支持的 API 区域 URL。",
     sigmaPersistenceUnavailable:
       "Analytics 目前无法安全保存 Sigma 连接。请重试。",
     sigmaPolicyInvalid:
@@ -90,7 +94,7 @@ export default {
     sigmaDirectCredentialsUnavailable:
       "无法读取 Analytics 保存的 Sigma 凭据。组织管理员可以在 Dispatch 中重新连接，或在 Analytics 中重新输入凭据。",
     sigmaNoConnectionDescription:
-      "在此输入凭据以创建仅供 Analytics 使用的连接。已在 Dispatch 中授权 Analytics 使用的 Sigma 连接会自动显示在这里；只有组织管理员可以直接保存凭据。",
+      "连接你的个人 Sigma 账户，或使用组织管理员保存的凭据。已授权 Analytics 使用的 Dispatch 连接也会显示在这里。",
     sigmaOpenDispatch: "在 Dispatch 中连接",
     sigmaOpenVault: "打开 Vault",
     sigmaWorkbooksLoadFailed: "无法加载 Sigma 工作簿",
@@ -1276,6 +1280,22 @@ export default {
     resetFilters: "重置筛选器",
     collapseFilters: "折叠过滤器",
     expandFilters: "展开过滤器",
+    drilldownChartPoints: "图表数据点",
+    drilldownPreviousPage: "上一页图表数据点",
+    drilldownNextPage: "下一页图表数据点",
+    drilldownPageRange: "显示第 {{start}}–{{end}} 项，共 {{total}} 项",
+    drilldownFilterRows: "筛选行",
+    drilldownShowSql: "显示 SQL",
+    drilldownHideSql: "隐藏 SQL",
+    drilldownDownloadCsv: "下载 CSV",
+    drilldownShowing: "显示 {{total}} 条记录中的 {{shown}} 条",
+    drilldownCsvTruncated:
+      "导出不完整：查询匹配 {{total}} 条记录，但仅加载了前 {{loaded}} 条；筛选后此文件包含 {{exported}} 条。",
+    drilldownCountMismatch: "图表显示 {{chart}}，但匹配到 {{total}} 条记录",
+    drilldownAggregateOnly:
+      "此面板只有聚合行。与所点击数据点匹配的行已高亮显示。",
+    drilldownNoRecords: "没有匹配的记录",
+    drilldownLoadFailed: "无法加载记录",
     filterSeries: "Filter",
     chartTimeRangeOverride: "覆盖此图表的时间范围",
     chartTimeRangeInherit: "仪表板范围",
@@ -2043,6 +2063,8 @@ export default {
     dbtDisabled: "已停用",
     dbtAdminOnly: "只有组织管理员可以更改此连接。",
     dbtReadFailed: "无法加载 dbt 连接。",
+    dbtSeveralConnections:
+      "Analytics 已被授权多个 dbt 连接，因此此面板无法编辑其中任何一个。请在设置 → 集成中移除多余的连接，只保留一个。",
     dbtSave: "保存连接",
     dbtChecking: "检查中",
     dbtSaveFailed: "无法保存 dbt 连接。",
