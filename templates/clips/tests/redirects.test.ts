@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { loader } from "../app/routes/_app.wispr";
 
-describe("Clips Wispr legacy route", () => {
+describe("legacy dictation route", () => {
   it("marks the redirect as cacheable HTML", () => {
     const response = loader();
 
