@@ -25,6 +25,7 @@ import {
   resolvePropertyDatabaseForDocument,
   serializeDatabaseViewConfig,
 } from "./_property-utils.js";
+import { lockDocumentRows } from "./_row-lock-order.js";
 
 export default defineAction({
   description:
@@ -197,6 +198,10 @@ export default defineAction({
             .map((item) => item.documentId);
           if (documentsWithoutSurvivingPrimary.length > 0) {
             const now = new Date().toISOString();
+            await lockDocumentRows(
+              tx as unknown as ReturnType<typeof getDb>,
+              documentsWithoutSurvivingPrimary,
+            );
             await tx
               .update(schema.documents)
               .set({

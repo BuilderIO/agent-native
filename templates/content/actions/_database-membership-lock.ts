@@ -7,7 +7,24 @@ import { sortRowIds } from "./_row-lock-order.js";
 
 export async function lockDatabaseMemberships(db: any, itemIds: string[]) {
   const uniqueItemIds = sortRowIds(itemIds);
-  if (uniqueItemIds.length === 0) return;
+  const lockedIds = await lockExistingDatabaseMemberships(db, uniqueItemIds);
+  if (lockedIds.size !== uniqueItemIds.length) {
+    throw new ActionContractError(
+      "Database memberships changed before the operation completed.",
+      { errorCode: "DATABASE_MEMBERSHIPS_CHANGED", statusCode: 409 },
+    );
+  }
+}
+
+/**
+ * For writers that report a missing membership themselves: locks those that
+ * still exist, in the same order, and returns their ids.
+ */
+export async function lockExistingDatabaseMemberships(
+  db: any,
+  itemIds: string[],
+): Promise<Set<string>> {
+  const uniqueItemIds = sortRowIds(itemIds);
   const lockedIds = new Set<string>();
   for (const itemIdChunk of chunks(uniqueItemIds, 90)) {
     // The sub-select takes the row locks in id order; an UPDATE alone would
@@ -35,10 +52,5 @@ export async function lockDatabaseMemberships(db: any, itemIds: string[]) {
       .returning({ id: schema.contentDatabaseItems.id });
     for (const row of lockedRows) lockedIds.add(row.id);
   }
-  if (lockedIds.size !== uniqueItemIds.length) {
-    throw new ActionContractError(
-      "Database memberships changed before the operation completed.",
-      { errorCode: "DATABASE_MEMBERSHIPS_CHANGED", statusCode: 409 },
-    );
-  }
+  return lockedIds;
 }

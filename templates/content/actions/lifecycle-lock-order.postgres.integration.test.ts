@@ -27,6 +27,33 @@ vi.mock("@agent-native/creative-context/server", async (importOriginal) => ({
   getGenerationCreativeContext: vi.fn(async () => null),
 }));
 
+vi.mock("../server/lib/private-icon-authority.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../server/lib/private-icon-authority.js")
+  >()),
+  assertPrivateIconOwner: vi.fn(async () => undefined),
+}));
+const builderRead = vi.hoisted(() => ({ entries: [] as unknown[] }));
+vi.mock("./_builder-cms-read-client.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./_builder-cms-read-client.js")>()),
+  readBuilderCmsContentEntries: vi.fn(async () => ({
+    state: "live",
+    entries: builderRead.entries,
+    fetchedAt: "2026-01-01T00:00:00.000Z",
+    message: null,
+    progress: {
+      requestedLimit: 10_000,
+      pageSize: 100,
+      startOffset: 0,
+      nextOffset: builderRead.entries.length,
+      fetchedEntryCount: builderRead.entries.length,
+      hasMore: false,
+      partial: false,
+      readMode: "builder-api",
+    },
+  })),
+}));
+
 const POSTGRES_ENV = process.env.CONTENT_ROW_MUTATION_POSTGRES_URL
   ? "CONTENT_ROW_MUTATION_POSTGRES_URL"
   : "CONTENT_MIGRATION_POSTGRES_URL";
@@ -68,6 +95,11 @@ let removeDatabaseItems: typeof import("./remove-database-items.js").default;
 let createDocument: typeof import("./create-document.js").default;
 let createContentDatabase: typeof import("./create-content-database.js").default;
 let processContentTrashPurge: typeof import("../server/lib/content-trash-purge.js").processContentTrashPurge;
+let rowMutation: typeof import("./_database-row-mutation.js");
+let deleteDocumentProperty: typeof import("./delete-document-property.js").default;
+let replaceHistoricalIconIfUnchanged: typeof import("../scripts/historical-icon-apply.js").replaceHistoricalIconIfUnchanged;
+let syncLocalFolder: typeof import("./sync-local-folder-source.js").default;
+let processBuilderBodyHydrationQueue: typeof import("./_database-source-utils.js").processBuilderBodyHydrationQueue;
 
 beforeAll(async () => {
   if (!POSTGRES_URL) return;
@@ -122,6 +154,14 @@ beforeAll(async () => {
     .default;
   ({ processContentTrashPurge } =
     await import("../server/lib/content-trash-purge.js"));
+  rowMutation = await import("./_database-row-mutation.js");
+  deleteDocumentProperty = (await import("./delete-document-property.js"))
+    .default;
+  ({ replaceHistoricalIconIfUnchanged } =
+    await import("../scripts/historical-icon-apply.js"));
+  syncLocalFolder = (await import("./sync-local-folder-source.js")).default;
+  ({ processBuilderBodyHydrationQueue } =
+    await import("./_database-source-utils.js"));
   await (await import("../server/plugins/db.js")).default(undefined as any);
   // Content's migrations don't create core's organization tables.
   await getDb().execute(
@@ -415,6 +455,75 @@ async function runCycle(
       `run ${run + 1}`,
     ).toEqual([]);
   }
+}
+
+async function waitUntilWaiting(pid: number) {
+  for (let attempt = 0; attempt < 2_000; attempt += 1) {
+    const [row] = rowsOf(
+      await getDb().execute(
+        sql`SELECT cardinality(pg_blocking_pids(${pid}::int)) AS blockers`,
+      ),
+    );
+    if (Number(row.blockers) > 0) return;
+    await sleep(5);
+  }
+  throw new Error("The save never waited.");
+}
+
+/**
+ * For a writer whose transaction can't be held at its first lock: holds the
+ * page, starts the writer, and once it waits on the page starts a save that
+ * locks the memberships, then the page. Released, the page goes to the
+ * writer first, so a writer that then waits for a membership deadlocks
+ * with the save.
+ */
+async function raceSaveThroughPage<T>(args: {
+  page: string;
+  memberships: string[];
+  run: () => Promise<T>;
+  whileWaiting?: () => Promise<void>;
+}) {
+  const gate = await holdRow({ label: "page", kind: "page", id: args.page });
+  let writerSettled = false;
+  const writer = args.run().then(
+    (value) => ({ value, error: undefined as unknown }),
+    (error: unknown) => ({ value: undefined, error }),
+  );
+  void writer.then(() => {
+    writerSettled = true;
+  });
+  let save: Promise<unknown> | undefined;
+  try {
+    expect(await waitUntilBlockedBy(gate.pid, () => writerSettled)).toBe(true);
+    let saving!: (pid: number) => void;
+    const savePid = new Promise<number>((resolve) => {
+      saving = resolve;
+    });
+    save = getDb().transaction(async (transaction) => {
+      const tx = transaction as unknown as Db;
+      saving(await backendPid(tx));
+      await lockDatabaseMemberships(tx, args.memberships);
+      await touchPage(tx, args.page);
+    });
+    await waitUntilWaiting(await savePid);
+    await args.whileWaiting?.();
+  } finally {
+    gate.release();
+    await gate.done;
+  }
+  const [saveError, written] = await Promise.all([
+    save!.then(
+      () => undefined,
+      (error: unknown) => error,
+    ),
+    writer,
+  ]);
+  return {
+    value: written.value,
+    failures: [saveError, written.error]
+      .filter((error) => error !== undefined)
+      .map((error) => postgresCode(error) ?? String(error)),
+  };
 }
 
 let fixtureSequence = 0;
@@ -848,7 +957,11 @@ async function seedSavedPage() {
   return { ids, rows };
 }
 
-async function recordVersion(key: string, documentId: string) {
+async function recordVersion(
+  key: string,
+  documentId: string,
+  content = "Earlier body",
+) {
   const versionId = `${key}_version`;
   await getDb()
     .insert(schema.documentVersions)
@@ -857,7 +970,7 @@ async function recordVersion(key: string, documentId: string) {
       ownerEmail: OWNER,
       documentId,
       title: (await readPage(documentId)).title,
-      content: "Earlier body",
+      content,
       bodyRevision: 0,
       createdAt: STAMP,
     });
@@ -1158,6 +1271,359 @@ function collectionTarget(seed: Awaited<ReturnType<typeof seedCollection>>) {
     databaseId: seed.ids.collection,
     databaseDocumentId: seed.ids.collectionPage,
   };
+}
+
+/** update-database-item and patch-database-items, as an agent calls them. */
+async function rowWriters(seed: Awaited<ReturnType<typeof seedCollection>>) {
+  const target = {
+    ...collectionTarget(seed),
+    authorityScope: { kind: "personal" as const, id: OWNER },
+  };
+  const context = await asOwner(() =>
+    rowMutation.loadContext(target, "editor"),
+  );
+  const revision = async (itemId: string, documentId: string) =>
+    (await rowMutation.rowSnapshot(
+      getDb(),
+      seed.ids.collection,
+      itemId,
+      documentId,
+      new Set(),
+    ))!.revision;
+  const rowRevision = await revision(seed.ids.rowItem, seed.ids.row);
+  const laterRevision = await revision(seed.ids.laterItem, seed.ids.later);
+  return {
+    update: () =>
+      asOwner(() =>
+        rowMutation.updateDatabaseRow({
+          target,
+          expectedSchemaRevision: context.schemaRevision,
+          idempotencyKey: `${seed.key}-row-update`,
+          itemId: seed.ids.rowItem,
+          documentId: seed.ids.row,
+          expectedRowRevision: rowRevision,
+          title: "Row updated",
+          propertyValues: {},
+        }),
+      ),
+    patch: () =>
+      asOwner(() =>
+        rowMutation.patchDatabaseRows({
+          target,
+          expectedSchemaRevision: context.schemaRevision,
+          idempotencyKey: `${seed.key}-row-patch`,
+          rows: [
+            {
+              itemId: seed.ids.laterItem,
+              documentId: seed.ids.later,
+              expectedRowRevision: laterRevision,
+              title: "Later patched",
+            },
+            {
+              itemId: seed.ids.rowItem,
+              documentId: seed.ids.row,
+              expectedRowRevision: rowRevision,
+              title: "Row patched",
+            },
+          ],
+        }),
+      ),
+  };
+}
+
+/** A primary Blocks property on the collection; deleting it clears the rows' bodies. */
+async function addPrimaryBlocksProperty(
+  seed: Awaited<ReturnType<typeof seedCollection>>,
+) {
+  const propertyId = `${seed.key}_body`;
+  await getDb()
+    .insert(schema.documentPropertyDefinitions)
+    .values({
+      id: propertyId,
+      ownerEmail: OWNER,
+      databaseId: seed.ids.collection,
+      name: "Body",
+      type: "blocks",
+      optionsJson: JSON.stringify({ blocks: { primary: true } }),
+      createdAt: STAMP,
+      updatedAt: STAMP,
+    });
+  await getDb()
+    .update(schema.contentDatabases)
+    .set({ primaryBlocksPropertyId: propertyId })
+    .where(eq(schema.contentDatabases.id, seed.ids.collection));
+  return () =>
+    asOwner(() =>
+      deleteDocumentProperty.run({
+        documentId: seed.ids.collectionPage,
+        databaseId: seed.ids.collection,
+        propertyId,
+      }),
+    );
+}
+
+const PRIVATE_ICON = JSON.stringify({
+  version: 1,
+  kind: "image",
+  authority: "private-icon",
+  assetId: "00000000-0000-4000-8000-000000000001",
+});
+const URL_ICON = JSON.stringify({
+  version: 1,
+  kind: "image",
+  authority: "url",
+  assetId: "https://cdn.builder.io/api/v1/image/example",
+});
+
+/** The historical-icon script's callout migration of the row's body. */
+async function addHistoricalCallout(
+  seed: Awaited<ReturnType<typeof seedCollection>>,
+) {
+  const content = `<callout icon="${URL_ICON.replace(/"/g, "&quot;")}">
+	Original
+</callout>`;
+  await getDb()
+    .update(schema.documents)
+    .set({ content })
+    .where(eq(schema.documents.id, seed.ids.row));
+  return async () => {
+    const replaced = await replaceHistoricalIconIfUnchanged(
+      {
+        table: "documents",
+        rowId: seed.ids.row,
+        path: "content.callouts[0].icon",
+        raw: URL_ICON,
+        ownerEmail: OWNER,
+        orgId: null,
+        contentRaw: content,
+        calloutIndex: 0,
+      },
+      PRIVATE_ICON,
+    );
+    if (!replaced) throw new Error("The callout icon was not replaced.");
+  };
+}
+
+/** A page in its space's Files, linked to a local folder that never synced it. */
+async function seedLocalFolderPage() {
+  const key = fixtureKey();
+  const ids = {
+    space: `${key}_s`,
+    files: `${key}_f`,
+    page: `${key}_p`,
+    filesItem: `${key}_m1`,
+    source: `${key}_source`,
+  };
+  const db = getDb();
+  await db.insert(schema.contentSpaces).values({
+    id: ids.space,
+    name: "Synthetic local-folder space",
+    kind: "user",
+    ownerEmail: OWNER,
+    orgId: null,
+    filesDatabaseId: ids.files,
+    createdBy: OWNER,
+    createdAt: STAMP,
+    updatedAt: STAMP,
+  });
+  await db.insert(schema.contentDatabases).values({
+    id: ids.files,
+    ownerEmail: OWNER,
+    spaceId: ids.space,
+    documentId: `${ids.files}_page`,
+    title: "Files",
+    systemRole: "files",
+    createdAt: STAMP,
+    updatedAt: STAMP,
+  });
+  await db.insert(schema.documents).values(
+    pageValues(ids.page, null, "Folder page", {
+      spaceId: ids.space,
+      content: "Old body",
+    }),
+  );
+  await db
+    .insert(schema.contentDatabaseItems)
+    .values(itemValues(ids.filesItem, ids.files, ids.page, 0));
+  await db.insert(schema.contentDatabaseSources).values({
+    id: ids.source,
+    ownerEmail: OWNER,
+    databaseId: ids.files,
+    sourceType: "local-folder",
+    sourceName: "Synthetic folder",
+    sourceTable: `${key}_folder`,
+    createdAt: STAMP,
+    updatedAt: STAMP,
+  });
+  const rows: LockedRow[] = [
+    { label: "files membership", kind: "membership", id: ids.filesItem },
+    { label: "folder page", kind: "page", id: ids.page },
+  ];
+  const sync = () =>
+    asOwner(() =>
+      syncLocalFolder.run({
+        sourceId: ids.source,
+        files: {
+          "page.md": `---
+id: "${ids.page}"
+title: "Folder page"
+---
+New body.
+`,
+        },
+      }),
+    );
+  return { ids, rows, sync };
+}
+
+/**
+ * A Builder collection whose rows wait for their first body hydration.
+ * Twenty rows or more take the bulk path, which reads the bodies from
+ * Builder; fewer convert the queued entry's.
+ */
+async function seedBuilderHydration(count: number) {
+  const key = fixtureKey();
+  const model = `${key}-model`;
+  const bulk = count >= 20;
+  const ids = {
+    collection: `${key}_c`,
+    collectionPage: `${key}_p0`,
+    source: `${key}_source`,
+  };
+  const rows = Array.from({ length: count }, (_, index) => {
+    const number = String(index + 1).padStart(2, "0");
+    return {
+      number,
+      page: `${key}_p${number}`,
+      item: `${key}_m${number}`,
+      entry: `${key}-entry-${number}`,
+      title: `Builder row ${number}`,
+    };
+  });
+  const entries = rows.map((row) => ({
+    id: row.entry,
+    model,
+    title: row.title,
+    urlPath: `/${row.entry}`,
+    updatedAt: STAMP,
+    sourceValues: { "data.title": row.title, lastUpdated: STAMP },
+    rawEntry: {
+      id: row.entry,
+      model,
+      name: row.title,
+      lastUpdated: STAMP,
+      data: {
+        title: row.title,
+        blocks: [
+          {
+            "@type": "@builder.io/sdk:Element",
+            "@version": 2,
+            id: `${row.entry}-text`,
+            component: {
+              name: "Text",
+              options: { text: `<p>Builder body ${row.number}</p>` },
+            },
+          },
+        ],
+      },
+    },
+  }));
+  const db = getDb();
+  await db.insert(schema.documents).values([
+    pageValues(ids.collectionPage, null, "Builder collection"),
+    ...rows.map((row, index) =>
+      pageValues(row.page, ids.collectionPage, row.title, {
+        position: index,
+      }),
+    ),
+  ]);
+  await db.insert(schema.contentDatabases).values({
+    id: ids.collection,
+    ownerEmail: OWNER,
+    spaceId: SPACE_ID,
+    documentId: ids.collectionPage,
+    title: "Builder collection",
+    createdAt: STAMP,
+    updatedAt: STAMP,
+  });
+  await db.insert(schema.contentDatabaseSources).values({
+    id: ids.source,
+    ownerEmail: OWNER,
+    databaseId: ids.collection,
+    sourceType: "builder-cms",
+    sourceName: model,
+    sourceTable: model,
+    createdAt: STAMP,
+    updatedAt: STAMP,
+  });
+  await db.insert(schema.contentDatabaseItems).values(
+    rows.map((row, index) => ({
+      ...itemValues(row.item, ids.collection, row.page, index),
+      bodyHydrationStatus: "pending",
+    })),
+  );
+  await db.insert(schema.contentDatabaseSourceRows).values(
+    rows.map((row) => ({
+      id: `${row.item}_row`,
+      ownerEmail: OWNER,
+      sourceId: ids.source,
+      databaseItemId: row.item,
+      documentId: row.page,
+      sourceRowId: row.entry,
+      sourceQualifiedId: `builder-cms://${model}/${row.entry}`,
+      sourceDisplayKey: row.title,
+      sourceValuesJson: JSON.stringify({
+        "data.title": row.title,
+        lastUpdated: STAMP,
+      }),
+      provenance: "Builder CMS read adapter",
+      createdAt: STAMP,
+      updatedAt: STAMP,
+    })),
+  );
+  await db.insert(schema.contentDatabaseBodyHydrationQueue).values(
+    rows.map((row, index) => ({
+      id: `${row.item}_queue`,
+      ownerEmail: OWNER,
+      sourceId: ids.source,
+      databaseItemId: row.item,
+      documentId: row.page,
+      sourceRowId: row.entry,
+      sourceTable: model,
+      sourceEntryJson: JSON.stringify(
+        bulk ? { ...entries[index], rawEntry: undefined } : entries[index],
+      ),
+      priority: 0,
+      attempts: 0,
+      createdAt: STAMP,
+      updatedAt: STAMP,
+    })),
+  );
+  const hydrate = () => {
+    builderRead.entries = entries;
+    return processBuilderBodyHydrationQueue({
+      sourceId: ids.source,
+      limit: count,
+      ...(bulk ? { preloadBodies: true } : {}),
+    });
+  };
+  return { ids, rows, hydrate };
+}
+
+async function readHydration(itemIds: string[]) {
+  return getDb()
+    .select({
+      id: schema.contentDatabaseItems.id,
+      status: schema.contentDatabaseItems.bodyHydrationStatus,
+      content: schema.documents.content,
+    })
+    .from(schema.contentDatabaseItems)
+    .innerJoin(
+      schema.documents,
+      eq(schema.documents.id, schema.contentDatabaseItems.documentId),
+    )
+    .where(inArray(schema.contentDatabaseItems.id, itemIds))
+    .orderBy(asc(schema.contentDatabaseItems.id));
 }
 
 async function recordImport(importId: string, pageIds: string[]) {
@@ -1800,6 +2266,121 @@ describe.skipIf(!POSTGRES_URL)(
       });
     });
 
+    describe("writers of a page's body or collection row lock its memberships before the page", () => {
+      it("update-document with the body unchanged", async () => {
+        const report = await probeLockOrder(async () => {
+          const seed = await seedCollection();
+          return {
+            rows: seed.rows,
+            run: () =>
+              asOwner(() =>
+                // Alone, an unchanged body skips the transaction.
+                updateDocument.run({
+                  id: seed.ids.row,
+                  content: "Row body",
+                  description: "Described",
+                }),
+              ),
+          };
+        });
+        expect(report.violations).toEqual([]);
+        expect(report.waitedOn).toEqual(["row membership", "row page"]);
+      });
+
+      it("restore-document-version to the current body", async () => {
+        const report = await probeLockOrder(async () => {
+          const seed = await seedCollection();
+          const versionId = await recordVersion(
+            seed.key,
+            seed.ids.row,
+            "Row body",
+          );
+          return {
+            rows: seed.rows,
+            run: () => restoreVersion(seed.ids.row, versionId),
+          };
+        });
+        expect(report.violations).toEqual([]);
+        expect(report.waitedOn).toEqual(["row membership", "row page"]);
+      });
+
+      it("update-document with metadata only", async () => {
+        const report = await probeLockOrder(async () => {
+          const seed = await seedCollection();
+          return {
+            rows: seed.rows,
+            run: () =>
+              asOwner(() =>
+                updateDocument.run({
+                  id: seed.ids.row,
+                  description: "Described",
+                }),
+              ),
+          };
+        });
+        expect(report.violations).toEqual([]);
+        expect(report.waitedOn).toEqual(["row page"]);
+      });
+
+      it("update-database-item", async () => {
+        const report = await probeLockOrder(async () => {
+          const seed = await seedCollection();
+          return { rows: seed.rows, run: (await rowWriters(seed)).update };
+        });
+        expect(report.violations).toEqual([]);
+        expect(report.waitedOn).toEqual([
+          "collection",
+          "row membership",
+          "row page",
+        ]);
+      });
+
+      it("patch-database-items", async () => {
+        const report = await probeLockOrder(async () => {
+          const seed = await seedCollection();
+          return { rows: seed.rows, run: (await rowWriters(seed)).patch };
+        });
+        expect(report.violations).toEqual([]);
+        expect(report.waitedOn).toEqual([
+          "collection",
+          "row membership",
+          "later membership",
+          "row page",
+          "later page",
+        ]);
+      });
+
+      it("deleting a primary Blocks property", async () => {
+        const report = await probeLockOrder(async () => {
+          const seed = await seedCollection();
+          return { rows: seed.rows, run: await addPrimaryBlocksProperty(seed) };
+        });
+        expect(report.violations).toEqual([]);
+        expect(report.waitedOn).toEqual(COLLECTION_ROWS);
+      });
+
+      it("the historical-icon script's callout migration", async () => {
+        const report = await probeLockOrder(async () => {
+          const seed = await seedCollection();
+          return { rows: seed.rows, run: await addHistoricalCallout(seed) };
+        });
+        expect(report.violations).toEqual([]);
+        expect(report.waitedOn).toEqual(["row membership", "row page"]);
+      });
+
+      it("local-folder sync", async () => {
+        const report = await probeLockOrder(async () => {
+          const seed = await seedLocalFolderPage();
+          return { rows: seed.rows, run: seed.sync };
+        });
+        expect(report.violations).toEqual([]);
+        expect(report.waitedOn).toEqual(["files membership", "folder page"]);
+        const seed = await seedLocalFolderPage();
+        await seed.sync();
+        expect((await readPage(seed.ids.page)).content).toContain("New body.");
+      });
+    });
+
     describe("saves that drop an inline collection lock it before the owner page", () => {
       it("update-document", async () => {
         const report = await probeLockOrder(async () => {
@@ -1996,6 +2577,113 @@ describe.skipIf(!POSTGRES_URL)(
           };
         });
       }, 120_000);
+
+      it("updating a collection row against a save of it", async () => {
+        await runCycle(async () => {
+          const seed = await seedCollection();
+          const writers = await rowWriters(seed);
+          return {
+            first: (tx) => lockDatabaseMemberships(tx, [seed.ids.rowItem]),
+            second: (tx) => touchPage(tx, seed.ids.row),
+            run: writers.update,
+          };
+        });
+      }, 120_000);
+
+      it("patching collection rows against a save of one", async () => {
+        await runCycle(async () => {
+          const seed = await seedCollection();
+          const writers = await rowWriters(seed);
+          return {
+            first: (tx) => lockDatabaseMemberships(tx, [seed.ids.rowItem]),
+            second: (tx) => touchPage(tx, seed.ids.row),
+            run: writers.patch,
+          };
+        });
+      }, 120_000);
+
+      it("migrating a historical callout icon against a save of the page", async () => {
+        await runCycle(async () => {
+          const seed = await seedCollection();
+          const migrate = await addHistoricalCallout(seed);
+          return {
+            first: (tx) => lockDatabaseMemberships(tx, [seed.ids.rowItem]),
+            second: (tx) => touchPage(tx, seed.ids.row),
+            run: migrate,
+          };
+        });
+      }, 120_000);
+
+      it("syncing a local folder against a save of its page", async () => {
+        await runCycle(async () => {
+          const seed = await seedLocalFolderPage();
+          return {
+            first: (tx) => lockDatabaseMemberships(tx, [seed.ids.filesItem]),
+            second: (tx) => touchPage(tx, seed.ids.page),
+            run: seed.sync,
+          };
+        });
+      }, 120_000);
+    });
+
+    describe("Builder body hydration doesn't deadlock with a save that waits behind it", () => {
+      it("one row", async () => {
+        const seed = await seedBuilderHydration(1);
+        const [row] = seed.rows;
+        const result = await raceSaveThroughPage({
+          page: row!.page,
+          memberships: [row!.item],
+          run: seed.hydrate,
+        });
+        expect(result.failures).toEqual([]);
+        expect(result.value).toMatchObject({
+          processed: 1,
+          succeeded: 1,
+          failed: 0,
+        });
+        expect(await readHydration([row!.item])).toEqual([
+          {
+            id: row!.item,
+            status: "hydrated",
+            content: expect.stringContaining("Builder body 01"),
+          },
+        ]);
+      });
+
+      it("twenty rows in bulk", async () => {
+        const seed = await seedBuilderHydration(20);
+        const [first, second] = seed.rows;
+        let heldSecondMembership: boolean | undefined;
+        const result = await raceSaveThroughPage({
+          page: first!.page,
+          memberships: [first!.item],
+          run: seed.hydrate,
+          whileWaiting: async () => {
+            heldSecondMembership = await isRowLocked({
+              label: "second membership",
+              kind: "membership",
+              id: second!.item,
+            });
+          },
+        });
+        expect(result.failures).toEqual([]);
+        // Only the bulk transaction holds every row's membership while it
+        // waits on the first page.
+        expect(heldSecondMembership).toBe(true);
+        expect(result.value).toMatchObject({
+          processed: 20,
+          succeeded: 20,
+          failed: 0,
+        });
+        const hydrated = await readHydration(seed.rows.map((row) => row.item));
+        expect(hydrated).toHaveLength(20);
+        for (const [index, row] of hydrated.entries()) {
+          expect(row.status).toBe("hydrated");
+          expect(row.content).toContain(
+            `Builder body ${String(index + 1).padStart(2, "0")}`,
+          );
+        }
+      });
     });
 
     it.each([

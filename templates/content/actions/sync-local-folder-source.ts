@@ -24,7 +24,10 @@ import { setFavoriteMembership } from "./_content-favorites.js";
 import { ensureDocumentsFilesMembership } from "./_content-files.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
 import { provisionContentSpaces } from "./_content-spaces.js";
-import { lockDatabaseMemberships } from "./_database-membership-lock.js";
+import {
+  lockDatabaseMemberships,
+  lockExistingDatabaseMemberships,
+} from "./_database-membership-lock.js";
 import {
   LOCAL_FOLDER_SOURCE_TYPE,
   localFolderObservedRevision,
@@ -32,6 +35,7 @@ import {
   localFolderSourceIdentityFromMetadata,
   normalizeLocalFolderSourceIdentity,
 } from "./_local-folder-source.js";
+import { lockDocumentRows } from "./_row-lock-order.js";
 
 const MAX_SOURCE_FILES = 500;
 const MAX_SOURCE_FILE_BYTES = 2 * 1024 * 1024;
@@ -517,6 +521,30 @@ export default defineAction({
           (row) => !currentDocumentIds.has(row.documentId),
         );
         classifyPlans(transactionSnapshot);
+        // The pages' Files memberships, then the pages, each by id, as a save
+        // takes them: the writes below update pages before the memberships.
+        const writtenPageIds = [
+          ...plans
+            .filter((plan) => !plan.conflict && plan.existing)
+            .map((plan) => plan.id),
+          ...missingRows.map((row) => row.documentId),
+        ];
+        if (writtenPageIds.length > 0) {
+          const memberships = await tx
+            .select({ id: schema.contentDatabaseItems.id })
+            .from(schema.contentDatabaseItems)
+            .where(
+              and(
+                eq(schema.contentDatabaseItems.databaseId, target.database.id),
+                inArray(schema.contentDatabaseItems.documentId, writtenPageIds),
+              ),
+            );
+          await lockExistingDatabaseMemberships(tx, [
+            ...memberships.map((membership: { id: string }) => membership.id),
+            ...missingRows.map((row) => row.databaseItemId),
+          ]);
+          await lockDocumentRows(tx, writtenPageIds);
+        }
         for (const plan of plans) {
           if (plan.conflict) {
             const changeSetId = opaqueId(
