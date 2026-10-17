@@ -76,7 +76,47 @@ async function startHostServer(): Promise<ViteDevServer> {
             res.setHeader("Content-Type", "text/html");
             res.end(
               buildExtensionHtml(
-                '<a id="route-external-link" href="https://external.example.test/route-metric" onclick="event.stopImmediatePropagation()">Open route metric</a><a id="route-window-capture-link" href="https://external.example.test/route-window-capture">Open route metric from window capture</a><script>window.__routeWindowCaptureCount = 0; window.addEventListener("click", function(event) { if (event.composedPath().some(function(target) { return target && target.id === "route-window-capture-link"; })) { window.__routeWindowCaptureCount += 1; event.stopImmediatePropagation(); } }, true);</script><form action="/__extension-e2e-route"><button id="route-external-form" type="submit" formaction="https://external.example.test/form-submit">Submit external form</button></form>',
+                `<a id="route-external-link" href="https://external.example.test/route-metric" onclick="event.stopImmediatePropagation()">Open route metric</a>
+<a id="route-window-capture-link" href="https://external.example.test/route-window-capture">Open route metric from window capture</a>
+<button id="route-nonce-spoof-click" type="button">Try nonce-only link request</button>
+<script>
+  window.__routeWindowCaptureCount = 0;
+  window.__routeNonceObserved = false;
+  window.__routeNonceSpoofReady = false;
+  window.addEventListener("click", function(event) {
+    if (event.composedPath().some(function(target) { return target && target.id === "route-window-capture-link"; })) {
+      window.__routeWindowCaptureCount += 1;
+      event.stopImmediatePropagation();
+    }
+  }, true);
+  var navigationEntry = performance.getEntriesByType("navigation")[0];
+  var nonceMatch = navigationEntry && /__agent_native_link_nonce=([0-9a-f]{48})/.exec(navigationEntry.name);
+  if (nonceMatch) {
+    window.__routeNonceObserved = true;
+    var spoofChannel = new MessageChannel();
+    window.__routeNonceSpoofPort = spoofChannel.port1;
+    spoofChannel.port1.addEventListener("message", function(event) {
+      if (event.data && event.data.type === "agent-native-extension.link-channel-ready") {
+        window.__routeNonceSpoofReady = true;
+        spoofChannel.port1.postMessage({ type: "agent-native-extension.link-channel-ready-ack" });
+      }
+    });
+    spoofChannel.port1.start();
+    window.parent.postMessage({
+      type: "agent-native-extension.hello-link-channel",
+      nonce: nonceMatch[1]
+    }, "*", [spoofChannel.port2]);
+    document.getElementById("route-nonce-spoof-click").addEventListener("click", function() {
+      try {
+        spoofChannel.port1.postMessage({
+          type: "agent-native-extension.open-external-link",
+          href: "https://external.example.test/forged-navigation-nonce"
+        });
+      } catch {}
+    });
+  }
+</script>
+<form action="/__extension-e2e-route"><button id="route-external-form" type="submit" formaction="https://external.example.test/form-submit">Submit external form</button></form>`,
                 ":root{}",
                 false,
                 "route-extension",
@@ -502,6 +542,21 @@ describe("AgentNativeExtensionFrame browser links", () => {
         .frames()
         .find((frame) => frame.url().includes("/__extension-e2e-route"));
       expect(initialRouteFrame).toBeDefined();
+      await page.waitForTimeout(100);
+      expect(
+        await initialRouteFrame!.evaluate(
+          () => (window as any).__routeNonceObserved,
+        ),
+      ).toBe(true);
+      expect(
+        await initialRouteFrame!.evaluate(
+          () => (window as any).__routeNonceSpoofReady,
+        ),
+      ).toBe(false);
+      const pagesBeforeSpoofClick = page.context().pages().length;
+      await initialRouteFrame!.locator("#route-nonce-spoof-click").click();
+      await page.waitForTimeout(100);
+      expect(page.context().pages()).toHaveLength(pagesBeforeSpoofClick);
       const routeReadyCount = await page.evaluate(
         () => window.__extensionRouteLinkReadyCount ?? 0,
       );

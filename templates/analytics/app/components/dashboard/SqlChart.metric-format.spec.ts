@@ -158,6 +158,23 @@ describe("safeDashboardLinkHref", () => {
     }
   });
 
+  it("blocks same-origin authentication and action endpoints", () => {
+    vi.stubGlobal("window", {
+      location: new URL("https://app.example/analytics"),
+    });
+    try {
+      for (const path of [
+        "/_agent-native/auth/logout",
+        "/_agent-native/actions/update-profile",
+      ]) {
+        expect(safeDashboardLinkHref(path)).toBeNull();
+        expect(safeDashboardLinkHref(`https://app.example${path}`)).toBeNull();
+      }
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("blocks unsafe or incomplete link targets", () => {
     expect(safeDashboardLinkHref("javascript:alert(1)")).toBeNull();
     expect(safeDashboardLinkHref("data:text/html,hi")).toBeNull();
