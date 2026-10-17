@@ -1,5 +1,5 @@
 import { ActionContractError } from "@agent-native/core";
-import { getDbExec } from "@agent-native/core/db";
+import { getDbExec, type DbExec } from "@agent-native/core/db";
 import { asc, inArray, sql, type SQL } from "drizzle-orm";
 
 import type { getDb } from "../db/index.js";
@@ -64,12 +64,19 @@ function unsupportedBodyWriter(documentId: string, writer: LegacyBodyWriter) {
  * page that switched while it was in flight refuses with the retryable
  * LIVE_BODY_WRITE_PATH_CHANGED. Any other writer refuses with
  * LIVE_BODY_WRITER_UNSUPPORTED, which a retry doesn't change.
+ *
+ * The flags and the live copy's version are read on `exec`, which defaults to
+ * `getDbExec()`. That is the transaction only inside `getDb().transaction()`:
+ * a writer inside a raw `getDbExec().transaction()` callback passes that
+ * callback's exec, or the reads take a second pool connection, which a
+ * one-connection serverless pool refuses as a self-deadlock.
  */
 export async function lockLegacyBodyWrites(
   tx: ContentDb,
   documentIds: readonly string[],
-  options: LegacyBodyWriter & { routed?: boolean },
+  options: LegacyBodyWriter & { routed?: boolean; exec?: DbExec },
 ): Promise<LegacyBodyWrites> {
+  const exec = options.exec ?? getDbExec();
   const ids = [...new Set(documentIds)].sort();
   for (let start = 0; start < ids.length; start += LOCK_BATCH) {
     // guard:allow-unscoped — locks pages the writer already resolved, and reads only their write-path columns.
@@ -80,14 +87,11 @@ export async function lockLegacyBodyWrites(
       .orderBy(asc(documents.id))
       .for("update");
     for (const row of rows) {
-      // Inside the write's transaction, getDbExec() runs on it.
       if (options.routed) {
-        await assertLegacyBodyWritePath(row, { transaction: getDbExec() });
+        await assertLegacyBodyWritePath(row, { transaction: exec });
         continue;
       }
-      const gate = await liveBodyWriterGateForRow(row, {
-        transaction: getDbExec(),
-      });
+      const gate = await liveBodyWriterGateForRow(row, { transaction: exec });
       if (gate.writePath === "live_copy") {
         throw unsupportedBodyWriter(row.id, options);
       }

@@ -2,7 +2,7 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { getDbExec } from "@agent-native/core/db";
+import { getDbExec, type DbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { putOrgSetting, putSetting } from "@agent-native/core/settings";
 import { eq } from "drizzle-orm";
@@ -444,6 +444,36 @@ describe("lockLegacyBodyWrites", () => {
       errorCode: "LIVE_BODY_WRITE_PATH_CHANGED",
       details: { documentId: "switched", reason: "live_copy" },
     });
+    expect(await body("switched")).toEqual({
+      content: "Body",
+      bodyRevision: 3,
+    });
+  });
+
+  it("reads the write path on the exec a raw transaction's writer passes", async () => {
+    const { drizzleOverExec } = await import("../live-copy/exec-db.js");
+    await setFlags(WRITER_FLAGS);
+    await insertPage("switched");
+    const reads: string[] = [];
+
+    await expect(
+      getDbExec().transaction!(async (exec) => {
+        const recorded: DbExec = {
+          execute: (statement) => {
+            reads.push(
+              typeof statement === "string" ? statement : statement.sql,
+            );
+            return exec.execute(statement);
+          },
+        };
+        await bodyRevision.lockLegacyBodyWrites(
+          drizzleOverExec(exec),
+          ["switched"],
+          { operation: "test-writer", routed: true, exec: recorded },
+        );
+      }),
+    ).rejects.toMatchObject({ errorCode: "LIVE_BODY_WRITE_PATH_CHANGED" });
+    expect(reads).toContainEqual(expect.stringContaining("_collab_docs"));
     expect(await body("switched")).toEqual({
       content: "Body",
       bodyRevision: 3,
