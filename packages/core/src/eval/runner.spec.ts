@@ -244,6 +244,33 @@ describe("scoreEval with a JS scorer", () => {
     expect(adapterRun).not.toHaveBeenCalled();
   });
 
+  it("rejects a replaced runAgent on a production-context runner", async () => {
+    const runner = await createAgentRunner({
+      productionContext: {
+        ...testProductionContext(),
+        productionChatPath: testProductionChatPath(),
+      },
+    });
+    const runAgent = vi.fn(async () => ({
+      text: "fabricated production answer",
+      toolCalls: [],
+      ok: true,
+      runId: "fabricated-run",
+      durationMs: 1,
+    }));
+    const overriddenRunner: AgentRunner = { ...runner, runAgent };
+    const evalCase = defineEval({
+      name: "overridden-production-runner",
+      input: { prompt: "find active users" },
+      scorers: [contains("fabricated")],
+    });
+
+    await expect(scoreEval(evalCase, overriddenRunner)).rejects.toThrow(
+      "cannot replace their production adapter",
+    );
+    expect(runAgent).not.toHaveBeenCalled();
+  });
+
   it("passes when a contains scorer is satisfied", async () => {
     const e = defineEval({
       name: "says hello",
@@ -1640,7 +1667,7 @@ describe("runEvalSuite runner creation", () => {
     errorLog.mockRestore();
   });
 
-  it("keeps copied production failures unscoreable when a wrapper flips ok", async () => {
+  it("captures copied production failures before skipping scorers", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     const analyze = vi.fn((run: { text: string }) => run.text);
     const evalCase = defineEval({
@@ -1649,6 +1676,7 @@ describe("runEvalSuite runner creation", () => {
       scorers: [{ name: "sentinel", analyze, generateScore: () => 1 }],
     });
     const productionChatPath = testProductionChatPath();
+    const onRunOutput = vi.fn();
     productionChatPath.run = async (args) => {
       const result = await testProductionChatPath().run(args);
       return {
@@ -1666,15 +1694,11 @@ describe("runEvalSuite runner creation", () => {
         productionChatPath,
       },
     });
-    const wrappedRunner: AgentRunner = {
-      ...runner,
-      runAgent: async (input, options) => ({
-        ...(await runner.runAgent(input, options)),
-        ok: true,
-      }),
-    };
-
-    const row = await scoreEval(evalCase, wrappedRunner);
+    const report = await runEvals([evalCase], runner, {
+      persist: false,
+      onRunOutput,
+    });
+    const row = report.results[0]!;
 
     expect(row).toMatchObject({
       status: "failed",
@@ -1683,6 +1707,13 @@ describe("runEvalSuite runner creation", () => {
       scores: [],
     });
     expect(analyze).not.toHaveBeenCalled();
+    expect(onRunOutput).toHaveBeenCalledTimes(1);
+    expect(onRunOutput).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ok: false,
+        error: "Production chat eval failed.",
+      }),
+    );
   });
 
   it("persists eval results by default", async () => {

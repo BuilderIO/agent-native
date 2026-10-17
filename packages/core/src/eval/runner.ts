@@ -11,6 +11,7 @@ import {
   createAgentRunner,
   getUnscoreableProductionPathOutputError,
   isProductionContextAgentRunner,
+  isProductionContextAgentRunnerMethod,
   isUnscoreableProductionPathOutput,
 } from "./agent-runner.js";
 import { DEFAULT_EVAL_THRESHOLD } from "./define-eval.js";
@@ -57,10 +58,15 @@ async function runScorer(
   }
 }
 
+interface ScoreEvalOptions {
+  thresholdOverride?: number;
+  onRunOutput?: (output: AgentRunOutput) => void;
+}
+
 export async function scoreEval(
   evalCase: Eval,
   runner: AgentRunner,
-  opts: { thresholdOverride?: number } = {},
+  opts: ScoreEvalOptions = {},
 ): Promise<EvalResultRow> {
   const threshold =
     opts.thresholdOverride ?? evalCase.threshold ?? DEFAULT_EVAL_THRESHOLD;
@@ -84,6 +90,14 @@ export async function scoreEval(
       "Production-path evals cannot define custom run callbacks; every case must use the production chat adapter.",
     );
   }
+  if (
+    isProductionContextAgentRunner(runner) &&
+    !isProductionContextAgentRunnerMethod(runner.runAgent)
+  ) {
+    throw new Error(
+      "Production-path eval runners cannot replace their production adapter.",
+    );
+  }
 
   let run: AgentRunOutput;
   const runAgent = (input: Eval["input"]) =>
@@ -101,6 +115,8 @@ export async function scoreEval(
   } else {
     run = await runAgent(evalCase.input);
   }
+
+  opts.onRunOutput?.(run);
 
   const unscoreableError = getUnscoreableProductionPathOutputError(run);
   const unscoreable =
@@ -139,7 +155,7 @@ export async function scoreEval(
 export async function runEvals(
   evals: Eval[],
   runner: AgentRunner,
-  opts: { thresholdOverride?: number; persist?: boolean } = {},
+  opts: ScoreEvalOptions & { persist?: boolean } = {},
 ): Promise<EvalRunReport> {
   const persist = opts.persist ?? true;
   const results: EvalResultRow[] = [];

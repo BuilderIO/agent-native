@@ -138,6 +138,12 @@ export function isProductionContextAgentRunner(runner: AgentRunner): boolean {
   );
 }
 
+export function isProductionContextAgentRunnerMethod(
+  runAgent: AgentRunner["runAgent"],
+): boolean {
+  return productionContextRunnerMethods.has(runAgent);
+}
+
 function toEngineMessages(input: EvalInput): EngineMessage[] {
   const messages: EngineMessage[] = [];
   for (const turn of input.history ?? []) {
