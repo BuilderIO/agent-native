@@ -33,6 +33,7 @@ async function run(opts: {
   systemPrompt: string;
   turns?: EngineContentPart[][];
   messages?: EngineMessage[];
+  followUpSuggestions?: boolean;
 }) {
   const actions = attachToolSearch(registry);
   const allTools = actionsToEngineTools(actions);
@@ -70,6 +71,8 @@ async function run(opts: {
     systemPrompt: opts.systemPrompt,
     tools: allTools.filter((t) => ["starter", "tool-search"].includes(t.name)),
     availableTools: allTools,
+    followUpSuggestions: opts.followUpSuggestions,
+    runId: opts.followUpSuggestions ? "tool-index-run" : undefined,
     messages: opts.messages ?? [
       { role: "user", content: [{ type: "text", text: "go" }] },
     ],
@@ -113,6 +116,30 @@ describe("runAgentLoop tool index", () => {
     expect(prompts).toHaveLength(2);
     expect(prompts[1]).toBe(prompts[0]);
     expect(prompts[0]).toContain("send-email");
+  });
+
+  it("keeps the index on the production turn that requests follow-up suggestions", async () => {
+    const { prompts } = await run({
+      systemPrompt: "rules",
+      followUpSuggestions: true,
+      turns: [
+        [{ type: "text", text: "done" }],
+        [
+          {
+            type: "tool-call",
+            id: "suggestions",
+            name: "follow-up-suggestions",
+            input: {
+              suggestions: [{ label: "Refine it", prompt: "Refine it" }],
+            },
+          },
+        ],
+      ],
+    });
+
+    expect(prompts[0]).toContain("## Tool index");
+    expect(prompts[0]).toContain("send-email");
+    expect(prompts[1]).not.toContain("## Tool index");
   });
 
   it("tells the model when an earlier tool-search result cannot be restored", async () => {

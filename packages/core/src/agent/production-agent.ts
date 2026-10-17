@@ -6411,20 +6411,18 @@ export async function runAgentLoop(opts: {
   const activeToolNames = new Set(activeTools.map((tool) => tool.name));
   // Built from the initial tool set, before earlier loads are restored, so it is
   // identical every turn and stays inside the cached system-prompt prefix.
-  const systemPromptWithToolIndex = followUpRunId
-    ? systemPrompt
-    : insertToolIndex(
-        systemPrompt,
-        formatToolIndex(
-          [...availableToolMap.keys()].filter(
-            (name) =>
-              !activeToolNames.has(name) &&
-              name !== TOOL_SEARCH_ACTION_NAME &&
-              name !== FOLLOW_UP_SUGGESTIONS_TOOL_NAME &&
-              !isUnavailableActionEntry(actions[name]),
-          ),
-        ),
-      );
+  const systemPromptWithToolIndex = insertToolIndex(
+    systemPrompt,
+    formatToolIndex(
+      [...availableToolMap.keys()].filter(
+        (name) =>
+          !activeToolNames.has(name) &&
+          name !== TOOL_SEARCH_ACTION_NAME &&
+          name !== FOLLOW_UP_SUGGESTIONS_TOOL_NAME &&
+          !isUnavailableActionEntry(actions[name]),
+      ),
+    ),
+  );
   let appAuthorizationPromise:
     | Promise<import("../org/app-roles.js").AppAuthorizationContext | null>
     | undefined;
