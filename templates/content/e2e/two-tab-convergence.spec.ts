@@ -109,9 +109,19 @@ async function runScenario(
     notes: {},
     expectedNoise: [],
   };
-  await body(scenario);
+  let stopped: unknown;
+  try {
+    await body(scenario);
+  } catch (error) {
+    stopped = error;
+  }
   const working = [...tabs.tabs.values()];
-  const integrity = await observeIntegrity(tabs, reader, id, scenario.markers);
+  // A scenario that stopped early still reports its tabs, but not marker
+  // counts: the step that failed may have left text the counts misread.
+  const integrity =
+    stopped === undefined
+      ? await observeIntegrity(tabs, reader, id, scenario.markers)
+      : null;
   const record: ScenarioRecord = {
     scenario: name,
     tags: testInfo.tags,
@@ -123,6 +133,12 @@ async function runScenario(
     markers: scenario.markers.all.length,
     durationMs: Date.now() - started,
     integrity,
+    ...(stopped === undefined
+      ? {}
+      : {
+          stoppedEarly:
+            stopped instanceof Error ? stopped.message : String(stopped),
+        }),
     tabs: [...tabs.tabs.values(), tabs.detached],
   };
   writeScenarioRecord(testInfo, record);
@@ -130,6 +146,7 @@ async function runScenario(
     body: JSON.stringify(record, null, 2),
     contentType: "application/json",
   });
+  if (stopped !== undefined) throw stopped;
   // The lane fails if it did not run under the conditions it reports.
   const latency = Number(scenario.notes.saveLatencyMs ?? 0);
   for (const tab of working) {

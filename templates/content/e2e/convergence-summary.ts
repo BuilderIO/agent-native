@@ -59,7 +59,10 @@ const tally = (
 const distinct = (
   record: ScenarioRecord,
   field: "lost" | "duplicated" | "resurrected",
-) => new Set(record.integrity.flatMap((entry) => entry[field])).size;
+) =>
+  record.integrity === null
+    ? "stopped"
+    : new Set(record.integrity.flatMap((entry) => entry[field])).size;
 
 const arms = [...new Set(records.map((record) => record.gate))];
 const lines = [
@@ -81,17 +84,19 @@ for (const record of records) {
 }
 
 const failures = records.flatMap((record) =>
-  record.integrity
-    .filter(
-      (entry) =>
-        entry.lost.length ||
-        entry.duplicated.length ||
-        entry.resurrected.length,
-    )
-    .map(
-      (entry) =>
-        `- ${record.scenario}, ${entry.at}, ${entry.surface}: lost ${entry.lost.join(" ") || "none"}; duplicated ${entry.duplicated.join(" ") || "none"}; deleted, back ${entry.resurrected.join(" ") || "none"}`,
-    ),
+  record.integrity === null
+    ? []
+    : record.integrity
+        .filter(
+          (entry) =>
+            entry.lost.length ||
+            entry.duplicated.length ||
+            entry.resurrected.length,
+        )
+        .map(
+          (entry) =>
+            `- ${record.scenario}, ${entry.at}, ${entry.surface}: lost ${entry.lost.join(" ") || "none"}; duplicated ${entry.duplicated.join(" ") || "none"}; deleted, back ${entry.resurrected.join(" ") || "none"}`,
+        ),
 );
 if (failures.length)
   lines.push(
@@ -99,6 +104,19 @@ if (failures.length)
     "### Lost, duplicated or deleted-then-back text",
     "",
     ...failures,
+  );
+
+// Its marker counts were never taken, so it is listed rather than counted.
+const stopped = records.filter((record) => record.integrity === null);
+if (stopped.length)
+  lines.push(
+    "",
+    "### Stopped early, text not counted",
+    "",
+    ...stopped.map(
+      (record) =>
+        `- ${record.scenario}: ${(record.stoppedEarly ?? "no reason recorded").replace(/\x1b\[[0-9;]*m/g, "").split("\n")[0]}`,
+    ),
   );
 
 const notes = records.filter((record) => Object.keys(record.notes).length);

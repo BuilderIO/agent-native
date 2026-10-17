@@ -1084,8 +1084,10 @@ export async function typeAtParagraphEnd(
 }
 
 /**
- * Fail as a harness error when the keys typed into a paragraph do not end it,
- * so a misplaced caret is never reported as the product losing a marker.
+ * Stop when the keys typed into a paragraph do not end it: a marker typed
+ * into another breaks both, and the counts after would report a loss. The
+ * text alone cannot say whether the caret moved before the keys landed or
+ * the editor moved them after, so the error names neither as the cause.
  */
 async function expectTypedAtEnd(
   page: Page,
@@ -1128,7 +1130,7 @@ async function expectTypedAtEnd(
     if (Date.now() > deadline)
       throw new Error(
         spaced(read.body).includes(typed.trim())
-          ? `Harness error: the keys typed for ${JSON.stringify(typed)} landed in the editor but not at the end of the paragraph containing ${JSON.stringify(anchor)}, which reads ${JSON.stringify(read.paragraph)}.`
+          ? `The keys typed for ${JSON.stringify(typed)} are in the editor, but the paragraph containing ${JSON.stringify(anchor)} does not end with them: it reads ${JSON.stringify(read.paragraph)}. Either the caret moved before they landed or the editor moved them after.`
           : `The editor does not hold the keys typed for ${JSON.stringify(typed)} at all; the paragraph containing ${JSON.stringify(anchor)} reads ${JSON.stringify(read.paragraph)}.`,
       );
     await delay(50);
@@ -1588,7 +1590,10 @@ export interface ScenarioRecord {
   authoredEdits: number;
   markers: number;
   durationMs: number;
-  integrity: IntegrityObservation[];
+  /** Null when the scenario stopped early, before the page was observed. */
+  integrity: IntegrityObservation[] | null;
+  /** Why the scenario stopped before its last step, if it did. */
+  stoppedEarly?: string;
   tabs: TabRecord[];
 }
 
@@ -1611,6 +1616,8 @@ export function integrityProblem(entry: IntegrityObservation): boolean {
 }
 
 export function integrityFailures(record: ScenarioRecord): string[] {
+  if (record.integrity === null)
+    return [`${record.scenario} stopped before its page was observed`];
   return record.integrity
     .filter(integrityProblem)
     .map(
