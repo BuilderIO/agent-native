@@ -583,13 +583,20 @@ export function useCollabReconcile({
   const latestObservedRevisionRef = useRef<string | null>(
     contentRevision ?? null,
   );
-  // Until a joining doc holds a stored body, only the newest one it has seen
-  // may finish its join: an older one, even one it matches, lacks the newer
-  // stored edit. The reconcile below records that order.
-  const propsAreNewestObserved = () =>
-    !contentUpdatedAt ||
-    (contentUpdatedAt === latestObservedUpdatedAtRef.current &&
-      (contentRevision ?? null) === latestObservedRevisionRef.current);
+  // Until a joining doc holds a stored body, a snapshot known to be older than
+  // one it has seen may not finish its join: even one the doc matches lacks the
+  // newer stored edit. Same-time revisions that can't be ordered are taken, as
+  // the reconcile below takes them; refusing them would leave the join unable
+  // to finish at all.
+  const propsKnownOlderThanObserved = () => {
+    const newestAt = latestObservedUpdatedAtRef.current;
+    if (!contentUpdatedAt || !newestAt) return false;
+    if (contentUpdatedAt !== newestAt) return contentUpdatedAt < newestAt;
+    const newest = latestObservedRevisionRef.current;
+    if (!contentRevision || !newest || contentRevision === newest) return false;
+    const order = compareContentRevisions?.(contentRevision, newest);
+    return typeof order === "number" && order <= 0;
+  };
   const reportedConflictRevisionRef = useRef<string | null>(null);
   const reconcileCallbacksRef = useRef({
     getMarkdown,
@@ -630,10 +637,7 @@ export function useCollabReconcile({
   useEffect(() => {
     if (!editor || editor.isDestroyed || joinEvidence?.ydoc !== ydoc) return;
     const check = () => {
-      if (editor.isDestroyed) return;
-      // This runs before the reconcile records new props, so props newer than
-      // the record finish there instead.
-      if (!propsAreNewestObserved()) return;
+      if (editor.isDestroyed || propsKnownOlderThanObserved()) return;
       const callbacks = reconcileCallbacksRef.current;
       const normalizedValue = callbacks.normalizeValue(value);
       if (callbacks.getMarkdown(editor) !== normalizedValue) return;
@@ -1240,7 +1244,7 @@ export function useCollabReconcile({
       if (
         joinsOnPeerEvidence &&
         lastAppliedSerializedRef.current === null &&
-        !propsAreNewestObserved()
+        propsKnownOlderThanObserved()
       )
         return;
       const currentMarkdown = callbacks.getMarkdown(editor);

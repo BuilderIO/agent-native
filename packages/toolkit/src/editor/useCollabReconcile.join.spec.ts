@@ -125,10 +125,13 @@ function makeTabs({
   joinsOnPeers = true,
   ids = { A: 1, B: 2, C: 3 },
   cRefusesStoredBody = false,
+  compare = compareRevisions,
 }: {
   joinsOnPeers?: boolean;
   ids?: { A: number; B: number; C: number };
   cRefusesStoredBody?: boolean;
+  /** How the tabs order revisions; null passes no comparator. */
+  compare?: ((first: string, second: string) => number | null) | null;
 } = {}) {
   const docs = { A: new Y.Doc(), B: new Y.Doc(), C: new Y.Doc() };
   docs.A.clientID = ids.A;
@@ -232,7 +235,7 @@ function makeTabs({
       value: snapshot.value,
       contentRevision: snapshot.revision,
       contentUpdatedAt: snapshot.updatedAt,
-      compareContentRevisions: compareRevisions,
+      compareContentRevisions: compare ?? undefined,
       ...(joins
         ? {
             discoverCollabPeers: discover[name],
@@ -1153,6 +1156,46 @@ describe("useCollabReconcile: what finishes a join", () => {
         expect(tabs.results.C!.isJoinPending()).toBe(true);
         expect(tabs.editors.C!.isEditable).toBe(false);
         expect(heldRevision(tabs.awareness.C)).toBeUndefined();
+      } finally {
+        tabs.dispose();
+      }
+    },
+  );
+
+  // A's save lands at the time of the snapshot C opened on, under a revision
+  // nothing can order against it.
+  it.each([
+    ["one that cannot order them", () => null],
+    ["absent", null],
+  ])(
+    "finishes on a same-time snapshot the doc matches when the comparator is %s",
+    async (_, compare) => {
+      const tabs = makeTabs({ ids: { A: 5, B: 2, C: 3 }, compare });
+      const opened: Snapshot = { ...STORED, revision: "opaque:first" };
+      const saved: Snapshot = {
+        value: SAVED,
+        revision: "opaque:second",
+        updatedAt: opened.updatedAt,
+      };
+      vi.useFakeTimers();
+      try {
+        await openCWhileASaves(tabs, { snapshotC: opened });
+        expect(tabs.results.C!.isJoinPending()).toBe(true);
+        act(() =>
+          root.render(
+            React.createElement(tabs.Tabs, {
+              snapshot: STORED,
+              snapshotC: saved,
+              withC: true,
+            }),
+          ),
+        );
+        await act(async () => vi.advanceTimersByTimeAsync(100));
+
+        expect(tabs.counts()).toEqual({ A: 1, B: 1, C: 1 });
+        expect(tabs.results.C!.isJoinPending()).toBe(false);
+        expect(tabs.editors.C!.isEditable).toBe(true);
+        expect(heldRevision(tabs.awareness.C)).toBe(saved.revision);
       } finally {
         tabs.dispose();
       }
