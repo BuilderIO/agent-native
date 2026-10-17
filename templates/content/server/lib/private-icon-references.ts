@@ -1,10 +1,14 @@
+import { ActionContractError } from "@agent-native/core";
 import { parseIconValue } from "@agent-native/core/icons";
 import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, isNull, like, ne, or } from "drizzle-orm";
 
 import { nfmToDoc } from "../../shared/nfm.js";
 import { getDb, schema } from "../db/index.js";
-import { assertPrivateIconOwner } from "./private-icon-authority.js";
+import {
+  assertPrivateIconOwner,
+  ownsPrivateIcon,
+} from "./private-icon-authority.js";
 
 type Database = ReturnType<typeof getDb>;
 type ElementType = "document" | "property" | "view" | "callout";
@@ -136,6 +140,61 @@ export function calloutPrivateIconAssetIds(content: string): Set<string> {
   return found;
 }
 
+// An icon that a recovery checkpoint adds back may return only if the
+// restorer or the author of the kept body owns it, or a version recording a
+// state the page had holds it, since a write then already authorized it.
+async function recoveredCalloutIconMayReturn(
+  db: Database,
+  input: {
+    assetId: string;
+    documentId: string;
+    ownerEmail: string;
+    orgId: string | null;
+    emails: Array<string | null>;
+  },
+): Promise<boolean> {
+  for (const email of new Set(input.emails)) {
+    if (
+      email &&
+      (await ownsPrivateIcon({
+        assetId: input.assetId,
+        ownerEmail: email,
+        orgId: input.orgId,
+      }))
+    )
+      return true;
+  }
+  for (let offset = 0; ; offset += 100) {
+    const versions = await db
+      .select({ content: schema.documentVersions.content })
+      .from(schema.documentVersions)
+      .where(
+        and(
+          eq(schema.documentVersions.documentId, input.documentId),
+          eq(schema.documentVersions.ownerEmail, input.ownerEmail),
+          or(
+            isNull(schema.documentVersions.checkpointKind),
+            ne(schema.documentVersions.checkpointKind, "recovery"),
+          ),
+          like(schema.documentVersions.content, `%${input.assetId}%`),
+        ),
+      )
+      .orderBy(
+        asc(schema.documentVersions.createdAt),
+        asc(schema.documentVersions.id),
+      )
+      .limit(100)
+      .offset(offset);
+    if (
+      versions.some((version) =>
+        calloutPrivateIconAssetIds(version.content).has(input.assetId),
+      )
+    )
+      return true;
+    if (versions.length < 100) return false;
+  }
+}
+
 export async function syncPrivateCalloutReferences(
   db: Database,
   input: {
@@ -156,7 +215,13 @@ export async function syncPrivateCalloutReferences(
   const after = calloutPrivateIconAssetIds(input.after);
   let authorizedSourceAssets: Set<string> | undefined;
   if (input.source) {
-    const [source] =
+    const [source]: Array<{
+      content: string;
+      ownerEmail: string;
+      orgId: string | null;
+      checkpointKind?: string | null;
+      actorEmail?: string | null;
+    }> =
       input.source.kind === "document"
         ? await db
             .select({
@@ -177,6 +242,8 @@ export async function syncPrivateCalloutReferences(
               content: schema.documentVersions.content,
               ownerEmail: schema.documentVersions.ownerEmail,
               orgId: schema.documents.orgId,
+              checkpointKind: schema.documentVersions.checkpointKind,
+              actorEmail: schema.documentVersions.actorEmail,
             })
             .from(schema.documentVersions)
             .innerJoin(
@@ -204,6 +271,33 @@ export async function syncPrivateCalloutReferences(
       await assertAccess("document", input.documentId, "editor");
     }
     authorizedSourceAssets = calloutPrivateIconAssetIds(source.content);
+    // A recovery checkpoint keeps a body the page never had, so no save
+    // checked the icons it holds.
+    if (source.checkpointKind === "recovery") {
+      const unavailable: string[] = [];
+      for (const assetId of after) {
+        if (before.has(assetId)) continue;
+        if (
+          !(await recoveredCalloutIconMayReturn(db, {
+            assetId,
+            documentId: input.documentId,
+            ownerEmail: input.ownerEmail,
+            orgId: input.orgId,
+            emails: [input.userEmail, source.actorEmail ?? null],
+          }))
+        )
+          unavailable.push(assetId);
+      }
+      if (unavailable.length > 0)
+        throw new ActionContractError(
+          "Private icon is unavailable to this user.",
+          {
+            errorCode: "PRIVATE_ICON_UNAVAILABLE",
+            statusCode: 403,
+            details: { assetIds: unavailable },
+          },
+        );
+    }
   }
   for (const assetId of after) {
     if (before.has(assetId)) continue;

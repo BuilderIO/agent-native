@@ -10,6 +10,20 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 const checkOwner = vi.hoisted(() => vi.fn());
 vi.mock("./private-icon-authority.js", () => ({
   assertPrivateIconOwner: checkOwner,
+  // As in the real module, owning is the check passing; any other failure
+  // still throws.
+  ownsPrivateIcon: async (input: unknown) => {
+    try {
+      await checkOwner(input);
+      return true;
+    } catch (error) {
+      if (
+        (error as Error).message !== "Private icon is unavailable to this user."
+      )
+        throw error;
+      return false;
+    }
+  },
 }));
 vi.mock("@agent-native/creative-context/server", async (importOriginal) => ({
   ...(await importOriginal<
@@ -627,6 +641,166 @@ describe("private icon references", () => {
       .where(eq(schema.privateIconReferences.elementId, `${id}:${ASSET}`));
     expect(reference.assetId).toBe(ASSET);
     expect(checkOwner).not.toHaveBeenCalled();
+  });
+
+  describe("restoring a body History kept instead of saving", () => {
+    function callout(assetId: string, text: string) {
+      return `<callout icon="${icon(assetId).replace(/"/g, "&quot;")}">\n\t${text}\n</callout>`;
+    }
+
+    async function editablePage(content = "Current") {
+      const id = await document({ content });
+      await db.insert(schema.documentShares).values({
+        id: `private-icon-share-${++count}`,
+        resourceId: id,
+        principalType: "user",
+        principalId: SHARED,
+        role: "editor",
+        createdBy: OWNER,
+      });
+      return id;
+    }
+
+    async function keptBody(
+      documentId: string,
+      content: string,
+      authorEmail: string,
+    ) {
+      const versionId = `private-icon-recovery-${++count}`;
+      await db.insert(schema.documentVersions).values({
+        id: versionId,
+        documentId,
+        ownerEmail: OWNER,
+        title: "Icon test",
+        content,
+        actorEmail: authorEmail,
+        operation: "update-document-displaced",
+        checkpointKind: "recovery",
+      });
+      return versionId;
+    }
+
+    async function restore(
+      userEmail: string,
+      documentId: string,
+      versionId: string,
+    ) {
+      const [current] = await db
+        .select({ updatedAt: schema.documents.updatedAt })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, documentId));
+      return runWithRequestContext({ userEmail }, () =>
+        restoreDocumentVersionAction.run({
+          documentId,
+          versionId,
+          expectedUpdatedAt: current.updatedAt,
+        }),
+      );
+    }
+
+    async function pageState(documentId: string) {
+      const [page] = await db
+        .select({ content: schema.documents.content })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, documentId));
+      const references = await db
+        .select({ assetId: schema.privateIconReferences.assetId })
+        .from(schema.privateIconReferences)
+        .where(eq(schema.privateIconReferences.documentId, documentId));
+      return {
+        content: page.content,
+        references: references.map((reference) => reference.assetId),
+      };
+    }
+
+    it("refuses to bring back an icon that neither the restorer nor the author of a save History kept can use, and names it", async () => {
+      const id = await editablePage();
+      const body = callout(FORGED, "Kept typing");
+      const kept = await runWithRequestContext({ userEmail: SHARED }, () =>
+        updateDocumentAction.run(
+          {
+            id,
+            content: body,
+            browserSaveAttemptId: crypto.randomUUID(),
+            editorSessionId: `tab:${id}`,
+            editorEditGeneration: 1,
+            editorSnapshotTitle: "Icon test",
+            editorSnapshotContent: body,
+            reuseLabels: [],
+          },
+          { caller: "frontend", userEmail: SHARED },
+        ),
+      );
+      expect(kept).toMatchObject({
+        preservationRequired: true,
+        checkpointId: expect.any(String),
+      });
+      expect(await pageState(id)).toEqual({
+        content: "Current",
+        references: [],
+      });
+
+      await expect(
+        restore(SHARED, id, (kept as { checkpointId: string }).checkpointId),
+      ).rejects.toMatchObject({
+        errorCode: "PRIVATE_ICON_UNAVAILABLE",
+        details: { assetIds: [FORGED] },
+      });
+      expect(await pageState(id)).toEqual({
+        content: "Current",
+        references: [],
+      });
+      await expect(
+        refs.resolveReadablePrivateIcon(FORGED, { userEmail: SHARED }),
+      ).resolves.toBeNull();
+    });
+
+    it("brings back an icon the author of the kept body owns", async () => {
+      const id = await editablePage();
+      const body = callout(ASSET, "Kept typing");
+      const versionId = await keptBody(id, body, OWNER);
+
+      await restore(SHARED, id, versionId);
+
+      expect(await pageState(id)).toEqual({
+        content: body,
+        references: [ASSET],
+      });
+    });
+
+    it("brings back an icon a version of the page held, though no one restoring it owns it", async () => {
+      const id = await editablePage();
+      const body = callout(FORGED, "Kept typing");
+      await db.insert(schema.documentVersions).values({
+        id: `private-icon-version-${++count}`,
+        documentId: id,
+        ownerEmail: OWNER,
+        title: "Icon test",
+        content: callout(FORGED, "On the page"),
+        checkpointKind: "after",
+      });
+      const versionId = await keptBody(id, body, SHARED);
+
+      await restore(SHARED, id, versionId);
+
+      expect(await pageState(id)).toEqual({
+        content: body,
+        references: [FORGED],
+      });
+    });
+
+    it("brings back text whose icon is already on the page without checking it", async () => {
+      const onPage = callout(FORGED, "Current");
+      const id = await editablePage(onPage);
+      const body = `${onPage}\n\nKept typing`;
+      const versionId = await keptBody(id, body, SHARED);
+      checkOwner.mockClear();
+
+      await restore(SHARED, id, versionId);
+
+      expect((await pageState(id)).content).toBe(body);
+      expect(checkOwner).not.toHaveBeenCalled();
+    });
   });
 
   it("requires a real saved callout, ignoring a code-fenced lookalike", async () => {
