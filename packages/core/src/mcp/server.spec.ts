@@ -199,7 +199,7 @@ vi.mock("./oauth-store.js", () => ({
 }));
 
 const { handleMcpRequest } = await import("./server.js");
-const { handleMcpFetchRequest } = await import("./fetch-handler.js");
+const { handleMcpFetchRequest } = await import("./framework-fetch-handler.js");
 
 interface MakeEventOpts {
   method?: string;

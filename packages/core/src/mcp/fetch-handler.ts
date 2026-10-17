@@ -1,11 +1,6 @@
-import { getAppConfig } from "../app-config/store.js";
-import { trackMcpInitialize } from "./analytics.js";
-import {
-  createMCPServerForRequest,
-  type MCPCallerIdentity,
-  type MCPConfig,
-  type MCPRequestMeta,
-} from "./build-server.js";
+import type { createMcpHandler } from "@modelcontextprotocol/server";
+
+type MCPServerFactory = Parameters<typeof createMcpHandler>[0];
 
 const MAX_INITIALIZE_TELEMETRY_BODY_BYTES = 64 * 1024;
 
@@ -24,46 +19,6 @@ function findInitializeRequest(body: unknown) {
       message !== null &&
       (message as { method?: unknown }).method === "initialize",
   );
-}
-
-function trackInitializeRequest(
-  body: unknown,
-  config: MCPConfig,
-  options: MCPFetchHandlerOptions,
-): void {
-  const initializeRequest = findInitializeRequest(body);
-  if (!initializeRequest) return;
-
-  if (getAppConfig().observability.mcpDebugInitialize) {
-    console.error(
-      "[MCP_DEBUG_INIT] clientInfo=",
-      JSON.stringify(initializeRequest.params?.clientInfo),
-      "capabilities=",
-      JSON.stringify(initializeRequest.params?.capabilities),
-    );
-  }
-
-  const clientInfo = initializeRequest.params?.clientInfo;
-  const protocolVersion = initializeRequest.params?.protocolVersion;
-  trackMcpInitialize({
-    source: "http",
-    serverName: config.name,
-    serverVersion: config.version ?? "1.0.0",
-    ...(config.appId ? { appId: config.appId } : {}),
-    ...(typeof clientInfo?.name === "string"
-      ? { clientName: clientInfo.name }
-      : {}),
-    ...(typeof clientInfo?.version === "string"
-      ? { clientVersion: clientInfo.version }
-      : {}),
-    ...(options.requestMeta.clientName
-      ? { clientUserAgent: options.requestMeta.clientName }
-      : {}),
-    ...(typeof protocolVersion === "string" ? { protocolVersion } : {}),
-    ...(options.identity?.userEmail
-      ? { userId: options.identity.userEmail }
-      : {}),
-  });
 }
 
 async function readJsonBodyForInitialize(request: Request): Promise<unknown> {
@@ -110,25 +65,31 @@ async function cancelUnreadBody(request: Request): Promise<void> {
 }
 
 export interface MCPFetchHandlerOptions {
-  /** Identity established by the host's existing authentication policy. */
-  identity?: MCPCallerIdentity;
-  /** Request metadata established by the host after authentication. */
-  requestMeta: MCPRequestMeta;
+  /** Create the transport's MCP server without coupling it to a host runtime. */
+  createServer: MCPServerFactory;
   /** Reuse a body already parsed by a framework adapter. */
   parsedBody?: unknown;
+  /** Observe an initialize request without coupling transport to telemetry. */
+  onInitialize?: (request: MCPInitializeRequest) => void;
+}
+
+export interface MCPInitializeRequest {
+  params?: {
+    capabilities?: unknown;
+    clientInfo?: { name?: unknown; version?: unknown };
+    protocolVersion?: unknown;
+  };
 }
 
 /**
  * Execute an authenticated MCP request using only Web Platform request and
  * response primitives.
  *
- * Authentication deliberately remains outside this adapter: hosts must apply
- * their existing policy first and pass only the resulting identity and request
- * metadata. This keeps transport portability from creating a second auth path.
+ * Authentication and server construction remain with the host, which supplies
+ * a factory only after applying its existing request policy.
  */
 export async function handleMcpFetchRequest(
   request: Request,
-  config: MCPConfig,
   options: MCPFetchHandlerOptions,
 ): Promise<Response> {
   const method = request.method.toUpperCase();
@@ -136,11 +97,10 @@ export async function handleMcpFetchRequest(
   const hasParsedBody = body !== undefined;
   const { createMcpHandler, isJsonContentType } =
     await import("@modelcontextprotocol/server");
-  const handler = createMcpHandler(
-    () =>
-      createMCPServerForRequest(config, options.identity, options.requestMeta),
-    { legacy: "stateless", responseMode: "auto" },
-  );
+  const handler = createMcpHandler(options.createServer, {
+    legacy: "stateless",
+    responseMode: "auto",
+  });
 
   const initializeBody =
     !hasParsedBody &&
@@ -149,7 +109,10 @@ export async function handleMcpFetchRequest(
       ? readJsonBodyForInitialize(request)
       : undefined;
 
-  if (hasParsedBody) trackInitializeRequest(body, config, options);
+  if (hasParsedBody) {
+    const initializeRequest = findInitializeRequest(body);
+    if (initializeRequest) options.onInitialize?.(initializeRequest);
+  }
 
   const responsePromise = handler.fetch(
     request,
@@ -166,7 +129,8 @@ export async function handleMcpFetchRequest(
     initializeBody,
   ]);
   await cancelUnreadBody(request);
-  trackInitializeRequest(observedBody, config, options);
+  const initializeRequest = findInitializeRequest(observedBody);
+  if (initializeRequest) options.onInitialize?.(initializeRequest);
   if (!result.ok) throw result.error;
   return result.response;
 }

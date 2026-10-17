@@ -24,7 +24,7 @@ import {
   type MCPCallerIdentity,
   type MCPRequestMeta,
 } from "./build-server.js";
-import { handleMcpFetchRequest } from "./fetch-handler.js";
+import { handleMcpFetchRequest } from "./framework-fetch-handler.js";
 import {
   buildMcpOAuthChallenge,
   getMcpOAuthAudiences,
