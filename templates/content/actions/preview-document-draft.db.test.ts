@@ -337,6 +337,77 @@ describe("private preview document drafts", () => {
     ).resolves.toMatchObject({ status: "resolved", choice: "keep_mine" });
   });
 
+  it("keeps the draft's body hash when a retried claim puts the draft back", async () => {
+    const documentId = await createDocument();
+    const [before] = await getDb()
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, documentId));
+    const baseContentHash = `sha256:${"a".repeat(64)}`;
+    await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft: {
+          ...payload("Local recovery"),
+          baseContentHash,
+          deferredReason: "conflict",
+        },
+      }),
+    );
+    const updateSpy = vi
+      .spyOn(updateDocument, "run")
+      .mockRejectedValueOnce(new Error("worker stopped"))
+      .mockRejectedValueOnce(new Error("retry stopped"));
+    const request = {
+      choice: "keep_mine" as const,
+      documentId,
+      expectedDraftVersion: 1,
+      expectedDraftTitle: "Builder row",
+      expectedDraftContent: "Local recovery",
+      expectedDocumentUpdatedAt: before.updatedAt,
+    };
+    try {
+      await expect(
+        asUser(OWNER, () => resolveDraft.run(request)),
+      ).rejects.toThrow("worker stopped");
+      const [claim] = await getDb()
+        .select()
+        .from(schema.documentVersions)
+        .where(
+          and(
+            eq(schema.documentVersions.documentId, documentId),
+            eq(
+              schema.documentVersions.operation,
+              "claim-preview-draft-keep_mine",
+            ),
+          ),
+        );
+      await getDb()
+        .update(schema.documentVersions)
+        .set({
+          chatContext: JSON.stringify({
+            ...JSON.parse(claim.chatContext),
+            processingStartedAt: "2026-01-01T00:00:00.000Z",
+          }),
+        })
+        .where(eq(schema.documentVersions.id, claim.id));
+      await getDb()
+        .delete(schema.documentPreviewDrafts)
+        .where(eq(schema.documentPreviewDrafts.documentId, documentId));
+
+      await expect(
+        asUser(OWNER, () => resolveDraft.run(request)),
+      ).rejects.toThrow("retry stopped");
+    } finally {
+      updateSpy.mockRestore();
+    }
+    expect(
+      (await asUser(OWNER, () => getDraft.run({ documentId }))).draft,
+    ).toMatchObject({ content: "Local recovery", baseContentHash });
+  });
+
   it("fences an expired worker when a retry completes the side effect first", async () => {
     const documentId = await createDocument();
     const [before] = await getDb()
