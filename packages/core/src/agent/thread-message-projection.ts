@@ -96,13 +96,26 @@ function foldedRunIds(value: Record<string, unknown>): string[] {
   return [...new Set([...folded, ...(runId ? [runId] : [])])];
 }
 
-function eventRunIds(events: unknown, runs: unknown): Map<string, Set<string>> {
-  const result = new Map<string, Set<string>>();
-  const remember = (messageId: unknown, runId: unknown) => {
+function eventRunIds(
+  events: unknown,
+  runs: unknown,
+): {
+  activeByMessageId: Map<string, Set<string>>;
+  inheritedByMessageId: Map<string, Set<string>>;
+  claimedByMessageId: Map<string, Set<string>>;
+} {
+  const activeByMessageId = new Map<string, Set<string>>();
+  const inheritedByMessageId = new Map<string, Set<string>>();
+  const claimedByMessageId = new Map<string, Set<string>>();
+  const remember = (
+    target: Map<string, Set<string>>,
+    messageId: unknown,
+    runId: unknown,
+  ) => {
     if (typeof messageId !== "string" || typeof runId !== "string") return;
-    const ids = result.get(messageId) ?? new Set<string>();
+    const ids = target.get(messageId) ?? new Set<string>();
     ids.add(runId);
-    result.set(messageId, ids);
+    target.set(messageId, ids);
   };
   for (const value of Array.isArray(events) ? events : []) {
     const event = record(value);
@@ -112,14 +125,19 @@ function eventRunIds(events: unknown, runs: unknown): Map<string, Set<string>> {
         event?.type === "message.completed") &&
       eventMessage?.role === "assistant"
     ) {
-      remember(eventMessage.id ?? event?.messageId, event?.runId);
+      const messageId = eventMessage.id ?? event?.messageId;
+      remember(activeByMessageId, messageId, event?.runId);
+      remember(claimedByMessageId, messageId, event?.runId);
     }
   }
   for (const value of Array.isArray(runs) ? runs : []) {
     const run = record(value);
-    remember(run?.activeMessageId, run?.id);
+    remember(activeByMessageId, run?.activeMessageId, run?.id);
+    remember(claimedByMessageId, run?.activeMessageId, run?.id);
+    remember(inheritedByMessageId, run?.inheritedMessageId, run?.id);
+    remember(claimedByMessageId, run?.inheritedMessageId, run?.id);
   }
-  return result;
+  return { activeByMessageId, inheritedByMessageId, claimedByMessageId };
 }
 
 function eventMessageIdsByRun(
@@ -138,17 +156,28 @@ function eventMessageIdsByRun(
 
 function assistantRunId(
   value: Record<string, unknown>,
-  runIdsByMessageId: Map<string, Set<string>>,
+  activeRunIdsByMessageId: Map<string, Set<string>>,
   inferredRunId?: string,
+  inheritedRunIdsByMessageId?: Map<string, Set<string>>,
 ): string | undefined {
   if (value.role !== "assistant") return undefined;
-  const eventRunIds =
-    typeof value.id === "string" ? runIdsByMessageId.get(value.id) : undefined;
-  return (
-    (eventRunIds?.size === 1 ? [...eventRunIds][0] : undefined) ??
-    explicitRunId(value) ??
-    (eventRunIds?.size ? undefined : inferredRunId)
-  );
+  const activeRunIds =
+    typeof value.id === "string"
+      ? activeRunIdsByMessageId.get(value.id)
+      : undefined;
+  if (activeRunIds?.size === 1) return [...activeRunIds][0];
+  if (activeRunIds?.size) return explicitRunId(value);
+
+  const explicit = explicitRunId(value);
+  if (explicit) return explicit;
+
+  const inheritedRunIds =
+    typeof value.id === "string"
+      ? inheritedRunIdsByMessageId?.get(value.id)
+      : undefined;
+  if (inheritedRunIds?.size === 1) return [...inheritedRunIds][0];
+  if (inheritedRunIds?.size) return undefined;
+  return inferredRunId;
 }
 
 function text(
@@ -290,6 +319,56 @@ function snapshotRepresentsRootContent(
   );
 }
 
+function splitSnapshotGroupMatch(
+  root: Record<string, unknown>,
+  candidates: Record<string, unknown>[],
+  toolMessageIds: Set<string> | undefined,
+): Record<string, unknown> | undefined {
+  const rootText = text(root);
+  const rootCalls = rootToolCalls(root);
+  if (!rootText || rootCalls.length === 0) return undefined;
+
+  const textCandidates = candidates.filter(
+    (candidate) =>
+      text(candidate) === rootText &&
+      snapshotAdditionalContentIsRepresented(root, candidate),
+  );
+  if (textCandidates.length !== 1) return undefined;
+
+  const textCandidate = textCandidates[0]!;
+  const callPartsMatch = rootCalls.every((rootCall) =>
+    candidates.some((candidate) => {
+      if (
+        candidate.id === textCandidate.id ||
+        !snapshotAdditionalContentIsRepresented(root, candidate)
+      ) {
+        return false;
+      }
+      const candidateText = text(candidate);
+      return (
+        (!candidateText || isPrefixCompatible(rootText, candidateText)) &&
+        rootToolCalls(candidate).some((candidateCall) =>
+          sameToolCallIdentity(rootCall, candidateCall),
+        )
+      );
+    }),
+  );
+  const indexedToolMessagesMatch =
+    toolMessageIds !== undefined &&
+    toolMessageIds.size > 0 &&
+    [...toolMessageIds].every(
+      (messageId) =>
+        messageId !== textCandidate.id &&
+        candidates.some(
+          (candidate) =>
+            candidate.id === messageId &&
+            snapshotAdditionalContentIsRepresented(root, candidate),
+        ),
+    );
+
+  return callPartsMatch || indexedToolMessagesMatch ? textCandidate : undefined;
+}
+
 function sameValue(left: unknown, right: unknown): boolean {
   if (Object.is(left, right)) return true;
   if (Array.isArray(left) || Array.isArray(right)) {
@@ -370,7 +449,11 @@ function contentMatches(
   const toolCallMatch = Boolean(
     typeof candidate.id === "string" && toolMessageIds?.has(candidate.id),
   );
-  if (rootToolCalls(root).length > 0 && toolMessageIds === undefined) {
+  // Matching text alone must not hide the root's durable tool-call parts.
+  if (
+    rootToolCalls(root).length > 0 &&
+    !snapshotRepresentsRootContent(root, candidate, toolMessageIds)
+  ) {
     return false;
   }
   return (
@@ -425,6 +508,41 @@ function foldedProjectionMatches(
   return isPrefix || isSuffix;
 }
 
+function sharedFoldedRootId(
+  snapshot: Record<string, unknown>,
+  claimedRunIds: Set<string>,
+  rootMessages: Record<string, unknown>[],
+  toolCalls: unknown,
+  takenRootIds: ReadonlySet<string>,
+): string | undefined {
+  if (claimedRunIds.size < 2) return undefined;
+  let matched: string | undefined;
+  for (const root of rootMessages) {
+    if (root.role !== "assistant" || typeof root.id !== "string") continue;
+    if (takenRootIds.has(root.id)) continue;
+    const folded = foldedRunIds(root);
+    if (
+      folded.length < 2 ||
+      folded.length !== claimedRunIds.size ||
+      !folded.every((runId) => claimedRunIds.has(runId))
+    ) {
+      continue;
+    }
+    if (
+      !contentMatches(
+        root,
+        snapshot,
+        representedToolCallMessageIds(root, toolCalls),
+      )
+    ) {
+      continue;
+    }
+    if (matched) return undefined;
+    matched = root.id;
+  }
+  return matched;
+}
+
 /** AgentKit messages that represent durable root assistant messages. */
 export function projectRootAssistantMessages(input: {
   rootMessages: unknown;
@@ -450,8 +568,10 @@ export function projectRootAssistantMessages(input: {
         return entry ? [entry] : [];
       })
     : [];
-  const runIdsByMessageId = eventRunIds(input.events, input.runs);
-  const messageIdsByRun = eventMessageIdsByRun(runIdsByMessageId);
+  const runClaims = eventRunIds(input.events, input.runs);
+  const { activeByMessageId, inheritedByMessageId, claimedByMessageId } =
+    runClaims;
+  const messageIdsByRun = eventMessageIdsByRun(claimedByMessageId);
   const snapshotUserIdsByRun = new Map<string, string | null>();
   for (const root of rootMessages) {
     if (root.role !== "user") continue;
@@ -484,6 +604,7 @@ export function projectRootAssistantMessages(input: {
   }
   const snapshotMessagesByRunId = new Map<string, Record<string, unknown>[]>();
   const snapshotRunIdsByMessageId = new Map<string, string>();
+  const sharedSnapshotIds = new Set<string>();
   let submittedRunId: string | undefined;
   for (const candidate of snapshotMessages) {
     if (candidate.role === "user") {
@@ -498,14 +619,33 @@ export function projectRootAssistantMessages(input: {
     if (candidate.role !== "assistant") continue;
     const eventRunIds =
       typeof candidate.id === "string"
-        ? runIdsByMessageId.get(candidate.id)
+        ? activeByMessageId.get(candidate.id)
         : undefined;
     const inferredRunId =
       !eventRunIds?.size && !explicitRunId(candidate)
         ? submittedRunId
         : undefined;
-    const runId = assistantRunId(candidate, runIdsByMessageId, inferredRunId);
-    if (!runId || typeof candidate.id !== "string") continue;
+    const runId = assistantRunId(
+      candidate,
+      activeByMessageId,
+      inferredRunId,
+      inheritedByMessageId,
+    );
+    const claimedRunIds =
+      typeof candidate.id === "string"
+        ? claimedByMessageId.get(candidate.id)
+        : undefined;
+    if (
+      typeof candidate.id === "string" &&
+      !explicitRunId(candidate) &&
+      claimedRunIds !== undefined &&
+      claimedRunIds.size > 1
+    ) {
+      sharedSnapshotIds.add(candidate.id);
+    }
+    if (!runId || typeof candidate.id !== "string") {
+      continue;
+    }
     if (inferredRunId) snapshotRunIdsByMessageId.set(candidate.id, runId);
     const candidates = snapshotMessagesByRunId.get(runId);
     if (candidates) candidates.push(candidate);
@@ -515,7 +655,7 @@ export function projectRootAssistantMessages(input: {
   const directMatches = new Map<string, string>();
   const rootAssistantCountsByRun = new Map<string, number>();
   for (const root of rootMessages) {
-    const runId = assistantRunId(root, runIdsByMessageId);
+    const runId = assistantRunId(root, activeByMessageId);
     if (!runId) continue;
     rootAssistantCountsByRun.set(
       runId,
@@ -525,7 +665,7 @@ export function projectRootAssistantMessages(input: {
   const supersededSnapshotMessageIds = new Set<string>();
   for (const root of rootMessages) {
     if (root.role !== "assistant" || typeof root.id !== "string") continue;
-    const runId = assistantRunId(root, runIdsByMessageId);
+    const runId = assistantRunId(root, activeByMessageId);
     if (!runId) continue;
     const toolMessageIds = representedToolCallMessageIds(root, input.toolCalls);
     const sameRunCandidates = (snapshotMessagesByRunId.get(runId) ?? []).filter(
@@ -551,6 +691,26 @@ export function projectRootAssistantMessages(input: {
             );
           })
         : [];
+    const splitGroupMatch =
+      rootText && isTerminalAssistant(root)
+        ? splitSnapshotGroupMatch(root, sameRunCandidates, toolMessageIds)
+        : undefined;
+    if (splitGroupMatch && typeof splitGroupMatch.id === "string") {
+      represented.add(root.id);
+      directMatches.set(root.id, splitGroupMatch.id);
+      for (const candidate of duplicateCandidates) {
+        if (candidate.id === splitGroupMatch.id) continue;
+        const candidateText = text(candidate);
+        if (
+          candidateText &&
+          snapshotAdditionalContentIsRepresented(root, candidate) &&
+          typeof candidate.id === "string"
+        ) {
+          supersededSnapshotMessageIds.add(candidate.id);
+        }
+      }
+      continue;
+    }
     if (
       rootText &&
       isTerminalAssistant(root) &&
@@ -608,7 +768,7 @@ export function projectRootAssistantMessages(input: {
       (explicitRunId(matchingCandidate) === runId ||
         (typeof matchingCandidate.id === "string" &&
           (snapshotRunIdsByMessageId.get(matchingCandidate.id) === runId ||
-            (runIdsByMessageId.get(matchingCandidate.id)?.size === 1 &&
+            (claimedByMessageId.get(matchingCandidate.id)?.size === 1 &&
               messageIdsByRun.get(runId)?.size === 1))));
     if (
       candidateMatches.length === 1 &&
@@ -632,6 +792,22 @@ export function projectRootAssistantMessages(input: {
     ) {
       represented.add(root.id);
     }
+  }
+  for (const snapshotId of sharedSnapshotIds) {
+    const snapshot = snapshotMessages.find(
+      (candidate) => candidate.id === snapshotId,
+    );
+    const claimed = claimedByMessageId.get(snapshotId);
+    if (!snapshot || !claimed) continue;
+    const rootId = sharedFoldedRootId(
+      snapshot,
+      claimed,
+      rootMessages,
+      input.toolCalls,
+      represented,
+    );
+    if (!rootId) continue;
+    represented.add(rootId);
   }
   const directMatchCountBySnapshotId = new Map<string, number>();
   for (const snapshotId of directMatches.values()) {

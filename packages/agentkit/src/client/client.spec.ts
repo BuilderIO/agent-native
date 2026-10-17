@@ -76,6 +76,36 @@ function createTransport(events: AgentEvent[]): AgentTransport {
   };
 }
 
+async function loadSharedReplyStatus(
+  runs: NonNullable<AgentThreadSnapshot["runs"]>,
+) {
+  const transport = createTransport([]);
+  transport.getThreadSnapshot = async () => ({
+    id: "thread-1",
+    createdAt: "2026-08-29T00:00:00.000Z",
+    updatedAt: "2026-08-29T00:00:03.000Z",
+    messages: [
+      {
+        id: "assistant-shared",
+        role: "assistant",
+        status: "streaming",
+        parts: [{ type: "text", text: "Shared reply" }],
+      },
+    ],
+    runs,
+    activeRunIds: [],
+  });
+  const client = new AgentKitClient({ transport });
+
+  try {
+    const thread = await client.loadThread("thread-1");
+    return thread.messages.find((message) => message.id === "assistant-shared")
+      ?.status;
+  } finally {
+    await client.dispose();
+  }
+}
+
 function createTerminalCatchUpTransport(
   messageStatus: "streaming" | "complete" = "streaming",
 ): AgentTransport {
@@ -3934,6 +3964,323 @@ describe("AgentKitClient", () => {
     expect(thread.activeRunIds).toEqual([]);
   });
 
+  it("re-derives a shared reply owner when a reloaded continuation settles", async () => {
+    const transport = createTransport([]);
+    transport.getThreadSnapshot = async () => ({
+      id: "thread-1",
+      createdAt: "2026-08-29T00:00:00.000Z",
+      updatedAt: "2026-08-29T00:00:02.000Z",
+      messages: [
+        {
+          id: "assistant-shared",
+          role: "assistant",
+          status: "streaming",
+          parts: [{ type: "text", text: "Shared reply" }],
+        },
+      ],
+      runs: [
+        {
+          id: "run-1",
+          threadId: "thread-1",
+          status: "completed",
+          lastSequence: 3,
+          activeMessageId: "assistant-shared",
+          startedAt: "2026-08-28T23:59:59.000Z",
+          completedAt: "2026-08-29T00:00:01.000Z",
+        },
+        {
+          id: "run-2",
+          threadId: "thread-1",
+          status: "running",
+          lastSequence: 1,
+        },
+      ],
+      // The continuation's start event survived, but its client-only message
+      // ownership did not; hydration must reconcile it with the snapshot.
+      events: [
+        { ...protocolEvent(1, { type: "run.started" }), runId: "run-2" },
+      ],
+      activeRunIds: ["run-2"],
+    });
+    transport.subscribeToRun = async function* ({ runId }) {
+      if (runId !== "run-2") return;
+      yield {
+        id: "run-2-event-2",
+        threadId: "thread-1",
+        runId: "run-2",
+        sequence: 2,
+        occurredAt: "2026-08-29T00:00:03.000Z",
+        type: "run.completed",
+      } as AgentEvent;
+    };
+    const client = new AgentKitClient({ transport });
+
+    const thread = await client.loadThread("thread-1");
+
+    expect(thread.runs["run-2"]?.inheritedMessageId).toBe("assistant-shared");
+    await vi.waitFor(() =>
+      expect(
+        client.getSnapshot().threads["thread-1"]?.runs["run-2"]?.status,
+      ).toBe("completed"),
+    );
+    expect(
+      client
+        .getSnapshot()
+        .threads["thread-1"]?.messages.find(
+          (message) => message.id === "assistant-shared",
+        )?.status,
+    ).toBe("complete");
+    await client.dispose();
+  });
+
+  it("preserves inherited ownership from a refreshed run snapshot", async () => {
+    const snapshots = [
+      {
+        id: "thread-1",
+        createdAt: "2026-08-29T00:00:00.000Z",
+        updatedAt: "2026-08-29T00:00:01.000Z",
+        messages: [],
+        runs: [
+          {
+            id: "run-2",
+            threadId: "thread-1",
+            status: "running" as const,
+            lastSequence: 1,
+          },
+        ],
+        events: [
+          { ...protocolEvent(1, { type: "run.started" }), runId: "run-2" },
+        ],
+        activeRunIds: ["run-2"],
+      },
+      {
+        id: "thread-1",
+        createdAt: "2026-08-29T00:00:00.000Z",
+        updatedAt: "2026-08-29T00:00:02.000Z",
+        messages: [],
+        runs: [
+          {
+            id: "run-2",
+            threadId: "thread-1",
+            status: "running" as const,
+            lastSequence: 1,
+            inheritedMessageId: "assistant-shared",
+          },
+        ],
+        events: [
+          { ...protocolEvent(1, { type: "run.started" }), runId: "run-2" },
+        ],
+        activeRunIds: ["run-2"],
+      },
+    ];
+    let snapshotIndex = 0;
+    const transport = createTransport([]);
+    transport.getThreadSnapshot = async () =>
+      snapshots[Math.min(snapshotIndex++, snapshots.length - 1)]!;
+    transport.getRun = async () => ({
+      id: "run-2",
+      threadId: "thread-1",
+      status: "running",
+      lastSequence: 1,
+    });
+    const client = new AgentKitClient({ transport });
+
+    const first = await client.loadThread("thread-1");
+    expect(first.runs["run-2"]?.inheritedMessageId).toBeUndefined();
+
+    const refreshed = await client.loadThread("thread-1");
+
+    expect(refreshed.runs["run-2"]?.inheritedMessageId).toBe(
+      "assistant-shared",
+    );
+    await client.dispose();
+  });
+
+  it("resolves a shared message from its terminal writers during reload", async () => {
+    const transport = createTransport([]);
+    transport.getThreadSnapshot = async () => ({
+      id: "thread-1",
+      createdAt: "2026-08-29T00:00:00.000Z",
+      updatedAt: "2026-08-29T00:00:03.000Z",
+      messages: [
+        {
+          id: "assistant-shared",
+          role: "assistant",
+          status: "streaming",
+          parts: [{ type: "text", text: "Shared reply" }],
+        },
+      ],
+      runs: [
+        {
+          id: "run-1",
+          threadId: "thread-1",
+          status: "failed",
+          lastSequence: 3,
+          activeMessageId: "assistant-shared",
+          startedAt: "2026-08-29T00:00:00.000Z",
+          completedAt: "2026-08-29T00:00:03.000Z",
+        },
+        {
+          id: "run-2",
+          threadId: "thread-1",
+          status: "completed",
+          lastSequence: 3,
+          activeMessageId: "assistant-shared",
+          startedAt: "2026-08-29T00:00:01.000Z",
+          completedAt: "2026-08-29T00:00:02.000Z",
+        },
+      ],
+      activeRunIds: [],
+    });
+    const client = new AgentKitClient({ transport });
+
+    const thread = await client.loadThread("thread-1");
+
+    expect(
+      thread.messages.find((message) => message.id === "assistant-shared")
+        ?.status,
+    ).toBe("complete");
+    await client.dispose();
+  });
+
+  it("settles tied-start shared replies by terminal completion time", async () => {
+    await expect(
+      loadSharedReplyStatus([
+        {
+          id: "run-1",
+          threadId: "thread-1",
+          status: "failed",
+          lastSequence: 3,
+          activeMessageId: "assistant-shared",
+          startedAt: "2026-08-29T00:00:00.000Z",
+          completedAt: "2026-08-29T00:00:03.000Z",
+        },
+        {
+          id: "run-2",
+          threadId: "thread-1",
+          status: "completed",
+          lastSequence: 3,
+          activeMessageId: "assistant-shared",
+          startedAt: "2026-08-29T00:00:00.000Z",
+          completedAt: "2026-08-29T00:00:02.000Z",
+        },
+      ]),
+    ).resolves.toBe("error");
+  });
+
+  it("uses a completed writer when terminal timestamps cannot break a tie", async () => {
+    await expect(
+      loadSharedReplyStatus([
+        {
+          id: "run-1",
+          threadId: "thread-1",
+          status: "failed",
+          lastSequence: 3,
+          activeMessageId: "assistant-shared",
+          startedAt: "2026-08-29T00:00:00.000Z",
+          completedAt: "2026-08-29T00:00:03.000Z",
+        },
+        {
+          id: "run-2",
+          threadId: "thread-1",
+          status: "completed",
+          lastSequence: 3,
+          activeMessageId: "assistant-shared",
+          startedAt: "2026-08-29T00:00:00.000Z",
+          completedAt: "2026-08-29T00:00:03.000Z",
+        },
+      ]),
+    ).resolves.toBe("complete");
+  });
+
+  it("releases an inherited reply when a refreshed continuation settles", async () => {
+    const settled = Promise.withResolvers<void>();
+    let refresh = false;
+    const transport = createTransport([]);
+    transport.getThreadSnapshot = async () => ({
+      id: "thread-1",
+      createdAt: "2026-08-29T00:00:00.000Z",
+      updatedAt: "2026-08-29T00:00:02.000Z",
+      messages: [
+        {
+          id: "assistant-shared",
+          role: "assistant",
+          status: "streaming",
+          parts: [{ type: "text", text: "Shared reply" }],
+        },
+      ],
+      runs: [
+        {
+          id: "run-1",
+          threadId: "thread-1",
+          status: "completed",
+          lastSequence: 3,
+          activeMessageId: "assistant-shared",
+          completedAt: "2026-08-29T00:00:01.000Z",
+        },
+        {
+          id: "run-2",
+          threadId: "thread-1",
+          status: "running",
+          lastSequence: 1,
+          // The refresh read model omits the client-only inherited id.
+          ...(refresh ? {} : { inheritedMessageId: "assistant-shared" }),
+        },
+      ],
+      // Only the continuation's events survive, so event hydration lists it
+      // ahead of its predecessor and cannot re-derive the inherited reply.
+      events: [
+        { ...protocolEvent(1, { type: "run.started" }), runId: "run-2" },
+      ],
+      activeRunIds: ["run-2"],
+    });
+    transport.subscribeToRun = async function* ({ runId }) {
+      if (runId !== "run-2") return;
+      await settled.promise;
+      yield {
+        id: "run-2-event-2",
+        threadId: "thread-1",
+        runId: "run-2",
+        sequence: 2,
+        occurredAt: "2026-08-29T00:00:03.000Z",
+        type: "run.completed",
+      } as AgentEvent;
+    };
+    const client = new AgentKitClient({ transport });
+
+    const hydrated = await client.loadThread("thread-1");
+    expect(hydrated.runs["run-2"]?.inheritedMessageId).toBe("assistant-shared");
+    refresh = true;
+    transport.getRun = async () => ({
+      id: "run-2",
+      threadId: "thread-1",
+      status: "running",
+      lastSequence: 1,
+    });
+    const refreshed = await client.loadThread("thread-1");
+    expect(refreshed.runs["run-2"]?.inheritedMessageId).toBe(
+      "assistant-shared",
+    );
+    expect(
+      refreshed.messages.find((message) => message.id === "assistant-shared")
+        ?.status,
+    ).toBe("streaming");
+    settled.resolve();
+    await vi.waitFor(() =>
+      expect(
+        client.getSnapshot().threads["thread-1"]?.runs["run-2"]?.status,
+      ).toBe("completed"),
+    );
+    expect(
+      client
+        .getSnapshot()
+        .threads["thread-1"]?.messages.find(
+          (message) => message.id === "assistant-shared",
+        )?.status,
+    ).toBe("complete");
+    await client.dispose();
+  });
+
   it("prefers refreshed terminal status over a live run at the same cursor", async () => {
     let getRunCalls = 0;
     const transport = createTransport([]);
@@ -5880,6 +6227,41 @@ describe("AgentKitClient", () => {
           status: "completed" as const,
           lastSequence: 1,
           completedAt: "2026-08-29T00:00:02.000Z",
+        },
+      ],
+      activeRunIds: [],
+    });
+    const client = new AgentKitClient({ transport });
+
+    const thread = await client.loadThread("thread-1");
+
+    expect(thread.messages).toEqual([
+      expect.objectContaining({ id: "assistant-complete", status: "complete" }),
+    ]);
+  });
+
+  it("settles a streaming message held only by a terminal inherited claim", async () => {
+    const transport = createTransport([]);
+    transport.getThreadSnapshot = async () => ({
+      id: "thread-1",
+      createdAt: "2026-08-29T00:00:00.000Z",
+      updatedAt: "2026-08-29T00:00:02.000Z",
+      messages: [
+        {
+          id: "assistant-complete",
+          role: "assistant",
+          status: "streaming",
+          parts: [{ type: "text", text: "Completed response" }],
+        },
+      ],
+      runs: [
+        {
+          id: "run-complete",
+          threadId: "thread-1",
+          status: "completed" as const,
+          lastSequence: 1,
+          completedAt: "2026-08-29T00:00:02.000Z",
+          inheritedMessageId: "assistant-complete",
         },
       ],
       activeRunIds: [],

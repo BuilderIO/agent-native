@@ -695,10 +695,16 @@ describe("useSqlQuery saved results", () => {
 
   it("does not save a result for the previous account after a switch", async () => {
     const request = deferred<SqlQueryResult>();
-    mocks.callAction.mockReturnValue(request.promise);
+    mocks.callAction.mockReturnValueOnce(request.promise);
+    mocks.callAction.mockImplementation(pendingAction);
     await act(async () => render({ sql: "SELECT 1" }));
+    await vi.waitFor(() => expect(mocks.callAction).toHaveBeenCalledTimes(1));
 
-    signIn(USER_B);
+    await act(async () => {
+      signIn(USER_B);
+      render({ sql: "SELECT 1" });
+    });
+    await vi.waitFor(() => expect(mocks.callAction).toHaveBeenCalledTimes(2));
     await act(async () => {
       request.resolve({ rows: [{ n: 1 }], fetchedAt: minutesAgo(0) });
     });

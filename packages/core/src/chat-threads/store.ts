@@ -660,10 +660,10 @@ function forkThreadData(
   const activeMessageIds = new Set(
     runs.flatMap((rawRun) => {
       const run = asRecord(rawRun);
-      return typeof run?.id === "string" &&
-        nonterminalRunIds.has(run.id) &&
-        typeof run.activeMessageId === "string"
-        ? [run.activeMessageId]
+      return typeof run?.id === "string" && nonterminalRunIds.has(run.id)
+        ? [run.activeMessageId, run.inheritedMessageId].filter(
+            (id): id is string => typeof id === "string",
+          )
         : [];
     }),
   );
@@ -748,6 +748,7 @@ function forkThreadData(
               if (nonterminalRunIds.has(run.id)) {
                 copied.status = "cancelled";
                 delete copied.activeMessageId;
+                delete copied.inheritedMessageId;
               }
               return [copied];
             }),

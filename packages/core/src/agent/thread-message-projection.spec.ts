@@ -94,4 +94,198 @@ describe("assistant root projection", () => {
       true,
     );
   });
+
+  it("does not deduplicate a tool-only durable root with empty text", () => {
+    const result = projectRootAssistantMessages({
+      rootMessages: [
+        {
+          id: "server-run-one",
+          role: "assistant",
+          parts: [
+            {
+              type: "tool-call",
+              toolCallId: "call-1",
+              toolName: "search",
+              args: { query: "example" },
+            },
+          ],
+          metadata: { runId: "run-one" },
+        },
+      ],
+      snapshotMessages: [
+        {
+          id: "snapshot-empty",
+          role: "assistant",
+          parts: [{ type: "text", text: "" }],
+          metadata: { runId: "run-one" },
+        },
+      ],
+    });
+    expect(result.representedRootMessageIds.has("server-run-one")).toBe(false);
+  });
+
+  it("keeps tool parts when snapshot text matches but omits them", () => {
+    const result = projectRootAssistantMessages({
+      rootMessages: [
+        {
+          id: "server-run-one",
+          role: "assistant",
+          parts: [
+            { type: "text", text: "Answer complete" },
+            {
+              type: "tool-call",
+              toolCallId: "call-1",
+              toolName: "search",
+              args: { query: "example" },
+            },
+          ],
+          metadata: { runId: "run-one" },
+        },
+      ],
+      snapshotMessages: [
+        {
+          id: "snapshot-text",
+          role: "assistant",
+          parts: [{ type: "text", text: "Answer complete" }],
+          metadata: { runId: "run-one" },
+        },
+      ],
+    });
+    expect(result.representedRootMessageIds.has("server-run-one")).toBe(false);
+    expect(result.snapshotMessageIdsByRootMessageId.has("server-run-one")).toBe(
+      false,
+    );
+  });
+
+  it("keeps a tool-bearing root when indexed calls have no message id", () => {
+    const result = projectRootAssistantMessages({
+      rootMessages: [
+        {
+          id: "server-run-one",
+          role: "assistant",
+          parts: [
+            { type: "text", text: "Answer complete" },
+            {
+              type: "data",
+              mediaType: "application/x-agent-native-repository-part",
+              data: {
+                type: "tool-call",
+                toolCallId: "call-1",
+                toolName: "search",
+                args: { query: "example" },
+              },
+            },
+          ],
+          metadata: { runId: "run-one" },
+        },
+      ],
+      snapshotMessages: [
+        {
+          id: "snapshot-text",
+          role: "assistant",
+          parts: [{ type: "text", text: "Answer complete" }],
+          metadata: { runId: "run-one" },
+        },
+      ],
+      toolCalls: [
+        { id: "call-1", name: "search", input: { query: "example" } },
+      ],
+    });
+
+    expect(result.representedRootMessageIds.has("server-run-one")).toBe(false);
+    expect(result.snapshotMessageIdsByRootMessageId.has("server-run-one")).toBe(
+      false,
+    );
+  });
+
+  it("matches a folded root claimed only by an inherited snapshot message id", () => {
+    const result = projectRootAssistantMessages({
+      rootMessages: [
+        {
+          id: "root-answer",
+          role: "assistant",
+          parts: [{ type: "text", text: "Answer complete" }],
+          metadata: {
+            runId: "run-root",
+            custom: { foldedRunIds: ["run-root", "run-continuation"] },
+          },
+        },
+      ],
+      snapshotMessages: [
+        {
+          id: "snapshot-answer",
+          role: "assistant",
+          parts: [{ type: "text", text: "Answer complete" }],
+        },
+      ],
+      runs: [
+        {
+          id: "run-continuation",
+          status: "completed",
+          inheritedMessageId: "snapshot-answer",
+        },
+      ],
+    });
+
+    expect(result.representedRootMessageIds.has("root-answer")).toBe(true);
+  });
+
+  it("matches durable text and tool calls split across same-run snapshots", () => {
+    const result = projectRootAssistantMessages({
+      rootMessages: [
+        {
+          id: "root-answer",
+          role: "assistant",
+          status: { type: "complete" },
+          content: [
+            { type: "text", text: "Done." },
+            {
+              type: "tool-call",
+              toolCallId: "call-1",
+              toolName: "search",
+              args: { query: "example" },
+            },
+          ],
+          metadata: { runId: "run-one" },
+        },
+      ],
+      snapshotMessages: [
+        {
+          id: "snapshot-text",
+          role: "assistant",
+          parts: [{ type: "text", text: "Done." }],
+          metadata: { runId: "run-one" },
+        },
+        {
+          id: "snapshot-tool",
+          role: "assistant",
+          parts: [
+            {
+              type: "tool-call",
+              toolCallId: "call-1",
+              toolName: "search",
+              args: { query: "example" },
+            },
+          ],
+          metadata: { runId: "run-one" },
+        },
+      ],
+      toolCalls: [
+        {
+          id: "call-1",
+          name: "search",
+          input: { query: "example" },
+          messageId: "snapshot-tool",
+        },
+      ],
+    });
+
+    expect(result.representedRootMessageIds.has("root-answer")).toBe(true);
+    expect(result.snapshotMessageIdsByRootMessageId.get("root-answer")).toBe(
+      "snapshot-text",
+    );
+    expect(result.supersededSnapshotMessageIds.has("snapshot-tool")).toBe(
+      false,
+    );
+  });
 });
