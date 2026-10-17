@@ -24,6 +24,8 @@ export interface UseChatThreadListOptions {
   query?: string;
   /** When false nothing is fetched and the list is empty. Defaults to true. */
   enabled?: boolean;
+  /** Listen for thread update events and refresh loaded rows. Defaults to true. Does not affect initial or manual refreshes. */
+  refreshOnThreadUpdates?: boolean;
   apiUrl?: string;
 }
 
@@ -101,14 +103,19 @@ function createListState(identity: string, enabled: boolean) {
 /**
  * One paginated chat history list (`mine`, `shared`, or `all`). Each list pages
  * independently, so a long Shared list never waits on My chats. It refetches
- * when any thread mutation in this tab calls `notifyChatThreadsUpdated`,
+ * by default when a thread mutation in this tab calls `notifyChatThreadsUpdated`,
  * keeping every row already loaded, however many server pages that spans,
  * rather than collapsing to the first page.
  */
 export function useChatThreadList(
   options: UseChatThreadListOptions,
 ): UseChatThreadListResult {
-  const { ownership, includeExternal = false, enabled = true } = options;
+  const {
+    ownership,
+    includeExternal = false,
+    enabled = true,
+    refreshOnThreadUpdates = true,
+  } = options;
   const apiUrl = options.apiUrl ?? agentNativePath("/_agent-native/agent-chat");
   const pageSize = resolvePageSize(options.pageSize);
   const query = options.query?.trim() ?? "";
@@ -278,12 +285,13 @@ export function useChatThreadList(
   }, [refresh]);
 
   useEffect(() => {
-    if (!enabled || typeof window === "undefined") return;
+    if (!enabled || !refreshOnThreadUpdates || typeof window === "undefined")
+      return;
     const onUpdated = () => void refresh();
     window.addEventListener(CHAT_THREADS_UPDATED_EVENT, onUpdated);
     return () =>
       window.removeEventListener(CHAT_THREADS_UPDATED_EVENT, onUpdated);
-  }, [enabled, refresh]);
+  }, [enabled, refresh, refreshOnThreadUpdates]);
 
   const { threads, loading, loadingMore, error, hasMore } = state;
   return {
