@@ -98,7 +98,6 @@ describe("stampYjsUndoSelectionAfter / readYjsRedoSelection", () => {
 describe("forwardYjsUndoStackItemMeta", () => {
   it("carries a stamp forward so it survives real yjs's fresh-item undo/redo round trip", () => {
     const um = fakeUndoManager();
-    const before = captureYjsUndoStackTop(um as any);
     um.undoStack.push({ meta: new Map() });
     const afterSnap = {
       selectedElement: { selector: "#group-1" } as any,

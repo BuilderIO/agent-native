@@ -337,6 +337,11 @@ class CollabDocConnection {
     if (!this.started) {
       this.started = true;
       this.start();
+    } else if (
+      !this.syncActive &&
+      this.snapshot.initialization.status === "ready"
+    ) {
+      this.startTransport();
     } else {
       this.resubscribeCollabEventsIfPauseChanged();
       this.reschedulePoll();
@@ -346,6 +351,7 @@ class CollabDocConnection {
   remove(id: symbol): void {
     this.subscribers.delete(id);
     if (this.subscribers.size === 0) {
+      this.stopSync();
       cancelAwarenessPush(this.baseUrl, this.docId, this.ydoc.clientID);
       this.scheduleDispose();
     } else {
@@ -559,9 +565,11 @@ class CollabDocConnection {
   }
 
   private startTransport(): void {
+    if (this.disposed || this.subscribers.size === 0) return;
     this.attachUpdateHandler();
     this.startSync();
 
+    if (this.unsubscribeAwarenessEvents) return;
     this.unsubscribeAwarenessEvents = subscribeSyncEvents({
       onEvents: (events) => {
         if (this.disposed) return;
@@ -821,7 +829,13 @@ class CollabDocConnection {
   }
 
   private startSync(): void {
-    if (this.syncActive || this.docMissing || this.disposed) return;
+    if (
+      this.syncActive ||
+      this.docMissing ||
+      this.disposed ||
+      this.subscribers.size === 0
+    )
+      return;
     this.syncActive = true;
 
     this.subscribeCollabEvents();
@@ -837,12 +851,17 @@ class CollabDocConnection {
     if (!this.syncActive) return;
     this.syncActive = false;
     this.setCollabPollBoost(false);
+    this.sseActive = false;
+    this.sseAwarenessCovered = false;
+    this.ssePollLive = false;
     if (this.pollTimer) {
       clearTimeout(this.pollTimer);
       this.pollTimer = null;
     }
     this.unsubscribeCollabEvents?.();
     this.unsubscribeCollabEvents = null;
+    this.unsubscribeAwarenessEvents?.();
+    this.unsubscribeAwarenessEvents = null;
     this.sseSubscribedWithPause = null;
     window.removeEventListener("focus", this.handleFocus);
     document.removeEventListener(
@@ -1090,6 +1109,9 @@ class CollabDocConnection {
         await this.fetchStateVector();
       }
 
+      if (!this.syncActive || this.disposed || this.subscribers.size === 0) {
+        return;
+      }
       const localState = this.awareness.getLocalState();
       if (localState && !this.disposed) {
         try {

@@ -392,8 +392,7 @@ test.fixme("Shift+A on an element that already has auto layout wraps it in a new
   expectOnlyChanged(before, after, ["nav", wrapperId]);
 });
 
-// fixme: product bug, intermittent: after a screen duplicate the editor POSTs collab awareness to a stale room and gets 404
-test.fixme("Cmd+D places screen duplicates in free slots above the source, and grouped undo/redo restores their positions", async ({
+test("Cmd+D places screen duplicates in free slots above the source, and grouped undo/redo restores their positions", async ({
   app,
 }) => {
   const id = await app.seed(NAV_SCREEN, {

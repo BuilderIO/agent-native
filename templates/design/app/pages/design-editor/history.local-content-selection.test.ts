@@ -11,6 +11,48 @@ import {
 } from "@/pages/design-editor/history";
 
 describe("local content history selection stamps", () => {
+  it("clears a stale redo selection when coalescing an unstamped edit", () => {
+    const previous = {
+      fileId: "file-1",
+      before: "<original/>",
+      after: "<first-copy/>",
+      selectionBefore: {
+        selectedElement: null,
+        selectedLayerIds: ["original"],
+      },
+      selectionAfter: {
+        selectedElement: null,
+        selectedLayerIds: ["first-copy"],
+      },
+    } satisfies ContentHistoryChange;
+
+    const coalesced = mergeLocalContentHistoryFallback([previous], {
+      fileId: "file-1",
+      before: "<first-copy/>",
+      after: "<second-copy/>",
+    });
+    const latestSelection = {
+      selectedElement: null,
+      selectedLayerIds: ["second-copy"],
+    };
+    const coalescedWithSelection = mergeLocalContentHistoryFallback(
+      [previous],
+      {
+        fileId: "file-1",
+        before: "<first-copy/>",
+        after: "<second-copy/>",
+        selectionAfter: latestSelection,
+      },
+    );
+
+    expect(coalesced).toHaveLength(1);
+    expect(coalesced[0]?.before).toBe("<original/>");
+    expect(coalesced[0]?.after).toBe("<second-copy/>");
+    expect(coalesced[0]?.selectionBefore).toEqual(previous.selectionBefore);
+    expect(coalesced[0]?.selectionAfter).toBeUndefined();
+    expect(coalescedWithSelection[0]?.selectionAfter).toEqual(latestSelection);
+  });
+
   it("keeps the first selection for undo and advances the redo selection when a change coalesces", () => {
     const firstBefore = {
       selectedElement: null,

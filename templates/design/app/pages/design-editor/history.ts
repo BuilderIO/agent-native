@@ -825,7 +825,10 @@ export function mergeLocalContentHistoryFallback(
     !last.isCheckpoint &&
     !change.isCheckpoint
   ) {
-    return [...stack.slice(0, -1), { ...last, after: change.after }];
+    const merged = { ...last, after: change.after };
+    if (change.selectionAfter === undefined) delete merged.selectionAfter;
+    else merged.selectionAfter = change.selectionAfter;
+    return [...stack.slice(0, -1), merged];
   }
   return [...stack.slice(-(MAX_DESIGN_UNDO_STACK - 1)), change];
 }
