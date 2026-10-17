@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   buildExtensionHtml,
+  EXTENSION_LINK_CHANNEL_HOST_PORT_MESSAGE_TYPE,
   EXTENSION_LINK_CHANNEL_HELLO_MESSAGE_TYPE,
   EXTENSION_LINK_CHANNEL_READY_MESSAGE_TYPE,
   EXTENSION_NAVIGATE_SAME_ORIGIN_MESSAGE_TYPE,
@@ -33,12 +34,28 @@ function loadShell(
     linkChannelReady?: boolean;
     hostParent?: boolean;
     navigationType?: string | null;
+    navigationName?: string;
+    rejectDuplicateLinkHellos?: boolean;
+    deferHostMessages?: boolean;
+    grantHostPort?: boolean;
     url?: string;
   } = {},
 ) {
   const posted: any[] = [];
   const portPosted: any[] = [];
   const linkChannelPorts: any[] = [];
+  const acceptedLinkChannelPorts: any[] = [];
+  const hostPortRecipients: any[] = [];
+  const issuedHostPorts: any[] = [];
+  const acceptedLinkNonces = new Set<unknown>();
+  const deferredHostMessages: Array<{
+    message: unknown;
+    transfer?: any[];
+  }> = [];
+  let receiveHostMessage: (
+    message: unknown,
+    transfer?: any[],
+  ) => void = () => {};
   const linkHandlers: Partial<
     Record<"click" | "auxclick", (event: any) => void>
   > = {};
@@ -69,11 +86,15 @@ function loadShell(
           options.navigationType === undefined
             ? "navigate"
             : options.navigationType;
+        const navigationName =
+          options.navigationName ??
+          options.url ??
+          "https://analytics.example/_agent-native/extensions/ext/render";
         Object.defineProperty(window.performance, "getEntriesByType", {
           configurable: true,
           value: (entryType: string) =>
             entryType === "navigation" && navigationType
-              ? [{ type: navigationType }]
+              ? [{ type: navigationType, name: navigationName }]
               : [],
         });
         class TestMessagePort {
@@ -86,15 +107,54 @@ function loadShell(
           close() {
             this.closed = true;
           }
-          postMessage(data: unknown) {
+          postMessage(data: unknown, transfer?: TestMessagePort[]) {
             portPosted.push(data);
             this.peer?.listeners.forEach((listener) =>
-              listener({ data, ports: [] }),
+              listener({ data, ports: transfer ?? [] }),
             );
           }
           start() {}
         }
         const postTestPortMessage = TestMessagePort.prototype.postMessage;
+        receiveHostMessage = (message, transfer) => {
+          if (
+            (message as any)?.type !== EXTENSION_LINK_CHANNEL_HELLO_MESSAGE_TYPE
+          ) {
+            return;
+          }
+          const nonce = (message as any).nonce;
+          const duplicate = acceptedLinkNonces.has(nonce);
+          if (!duplicate) {
+            acceptedLinkNonces.add(nonce);
+            if (transfer?.[0]?.peer) {
+              acceptedLinkChannelPorts.push(transfer[0].peer);
+            }
+            if (options.grantHostPort && transfer?.[0]) {
+              const hostPort = new TestMessagePort();
+              issuedHostPorts.push(hostPort);
+              hostPortRecipients.push(transfer[0].peer);
+              postTestPortMessage.call(
+                transfer[0],
+                { type: EXTENSION_LINK_CHANNEL_HOST_PORT_MESSAGE_TYPE },
+                [hostPort],
+              );
+            }
+          }
+          if (
+            (!duplicate || !options.rejectDuplicateLinkHellos) &&
+            options.linkChannelReady !== false
+          ) {
+            if (transfer?.[0]) {
+              postTestPortMessage.call(transfer[0], {
+                type: EXTENSION_LINK_CHANNEL_READY_MESSAGE_TYPE,
+              });
+            }
+          }
+          if (duplicate && options.rejectDuplicateLinkHellos) {
+            transfer?.[0]?.close();
+          }
+          if (transfer?.[0]?.peer) linkChannelPorts.push(transfer[0].peer);
+        };
         window.MessagePort = TestMessagePort;
         window.MessageChannel = class {
           port1 = new TestMessagePort();
@@ -110,17 +170,10 @@ function loadShell(
           transfer?: TestMessagePort[],
         ) => {
           posted.push(message);
-          if (
-            (message as any)?.type === EXTENSION_LINK_CHANNEL_HELLO_MESSAGE_TYPE
-          ) {
-            if (options.linkChannelReady !== false) {
-              if (transfer?.[0]) {
-                postTestPortMessage.call(transfer[0], {
-                  type: EXTENSION_LINK_CHANNEL_READY_MESSAGE_TYPE,
-                });
-              }
-            }
-            if (transfer?.[0]?.peer) linkChannelPorts.push(transfer[0].peer);
+          if (options.deferHostMessages) {
+            deferredHostMessages.push({ message, transfer });
+          } else {
+            receiveHostMessage(message, transfer);
           }
         };
         (window as any).postMessage = postToParent;
@@ -229,6 +282,15 @@ function loadShell(
           message?.type === EXTENSION_LINK_CHANNEL_HELLO_MESSAGE_TYPE,
       ),
     linkChannelPorts: () => linkChannelPorts,
+    acceptedLinkChannelPorts: () => acceptedLinkChannelPorts,
+    hostPortRecipients: () => hostPortRecipients,
+    issuedHostPorts: () => issuedHostPorts,
+    flushHostMessages() {
+      while (deferredHostMessages.length > 0) {
+        const { message, transfer } = deferredHostMessages.shift()!;
+        receiveHostMessage(message, transfer);
+      }
+    },
     deliverLinkChannelReady(port: {
       peer: { postMessage(data: unknown): void };
     }) {
@@ -789,6 +851,112 @@ describe("extension shell link routing", () => {
     ).toBe(true);
   });
 
+  it("claims a src-frame nonce before extension code can spoof HELLO from navigation timing", () => {
+    const nonce = "a".repeat(48);
+    const encodedAppFragment = encodeURIComponent("metric-chart");
+    const sourceUrl = `https://analytics.example/_agent-native/extensions/ext/render#__agent_native_link_nonce=${nonce}&__agent_native_app_fragment=${encodedAppFragment}`;
+    const shell = loadShell(
+      `<script>
+        var bootstrapScript = document.querySelector('script[data-link-nonce]');
+        var navigationEntry = performance.getEntriesByType('navigation')[0];
+        var match = navigationEntry && /__agent_native_link_nonce=([0-9a-f]{48})/.exec(navigationEntry.name);
+        var observedNonce = (bootstrapScript && bootstrapScript.getAttribute('data-link-nonce')) || (match && match[1]);
+        window.__observedLinkNonce = observedNonce || null;
+        if (observedNonce) {
+          var channel = new MessageChannel();
+          window.__spoofedLinkPort = channel.port1;
+          parent.postMessage({
+            type: '${EXTENSION_LINK_CHANNEL_HELLO_MESSAGE_TYPE}',
+            nonce: observedNonce
+          }, '*', [channel.port2]);
+        }
+      </script>`,
+      {
+        hostParent: true,
+        rejectDuplicateLinkHellos: true,
+        deferHostMessages: true,
+        grantHostPort: true,
+        url: sourceUrl,
+      },
+    );
+
+    expect(shell.window.location.hash).toBe("#metric-chart");
+    expect(
+      shell.window.performance.getEntriesByType("navigation")[0].name,
+    ).toBe(sourceUrl);
+    expect((shell.window as any).__observedLinkNonce).toBe(nonce);
+    expect(shell.linkChannelHellos()).toHaveLength(2);
+    expect(shell.linkChannelHellos().map((hello) => hello.nonce)).toEqual([
+      nonce,
+      nonce,
+    ]);
+    expect(shell.acceptedLinkChannelPorts()).toHaveLength(0);
+    shell.flushHostMessages();
+    expect(shell.acceptedLinkChannelPorts()).toEqual([
+      shell.linkChannelPorts()[0],
+    ]);
+    expect(shell.acceptedLinkChannelPorts()[0]).not.toBe(
+      (shell.window as any).__spoofedLinkPort,
+    );
+    expect(shell.linkChannelPorts()[1]).toBe(
+      (shell.window as any).__spoofedLinkPort,
+    );
+    expect(shell.hostPortRecipients()).toEqual([
+      shell.acceptedLinkChannelPorts()[0],
+    ]);
+    expect(shell.hostPortRecipients()).not.toContain(
+      (shell.window as any).__spoofedLinkPort,
+    );
+    expect((shell.window as any).__agentNativeExtensionHostPort).toBe(
+      shell.issuedHostPorts()[0],
+    );
+  });
+
+  it("starts the generated srcDoc bridge before authored scripts can inspect its nonce", () => {
+    const nonce = "b".repeat(48);
+    const shell = loadShell(
+      `<script>
+        var bootstrapScript = document.querySelector('script[data-link-nonce]');
+        var navigationEntry = performance.getEntriesByType('navigation')[0];
+        var match = navigationEntry && /__agent_native_link_nonce=([0-9a-f]{48})/.exec(navigationEntry.name);
+        var observedNonce = (bootstrapScript && bootstrapScript.getAttribute('data-link-nonce')) || (match && match[1]);
+        window.__observedLinkNonce = observedNonce || null;
+        window.__bootstrapNonceAttributeVisible = Boolean(bootstrapScript);
+        if (observedNonce) {
+          var channel = new MessageChannel();
+          window.__spoofedLinkPort = channel.port1;
+          parent.postMessage({
+            type: '${EXTENSION_LINK_CHANNEL_HELLO_MESSAGE_TYPE}',
+            nonce: observedNonce
+          }, '*', [channel.port2]);
+        }
+      </script>`,
+      {
+        hostParent: true,
+        deferHostMessages: true,
+        grantHostPort: true,
+        linkNonce: nonce,
+        url: "about:srcdoc",
+      },
+    );
+
+    expect(shell.window.location.hash).toBe("");
+    expect((shell.window as any).__observedLinkNonce).toBeNull();
+    expect((shell.window as any).__bootstrapNonceAttributeVisible).toBe(false);
+    expect(shell.linkChannelHellos()).toHaveLength(1);
+    expect(shell.linkChannelHellos()[0]).toMatchObject({ nonce });
+    shell.flushHostMessages();
+    expect(shell.acceptedLinkChannelPorts()).toEqual([
+      shell.linkChannelPorts()[0],
+    ]);
+    expect(shell.hostPortRecipients()).toEqual([
+      shell.acceptedLinkChannelPorts()[0],
+    ]);
+    expect((shell.window as any).__agentNativeExtensionHostPort).toBe(
+      shell.issuedHostPorts()[0],
+    );
+  });
+
   it("preserves unmarked fragments and restores the app fragment beside a host nonce", () => {
     const appFragment = loadShell(
       '<a href="https://example.com/metric">metric</a>',
@@ -981,6 +1149,7 @@ describe("extension shell link routing", () => {
         linkNonce: "frame-link-nonce",
         linkChannelReady: false,
         hostParent: true,
+        rejectDuplicateLinkHellos: true,
       },
     );
     const link = shell.window.document.getElementById("external");
@@ -993,6 +1162,7 @@ describe("extension shell link routing", () => {
       "frame-link-nonce",
       "frame-link-nonce",
     ]);
+    expect(shell.acceptedLinkChannelPorts()).toEqual([acceptedPort]);
     expect(acceptedPort.closed).toBe(false);
     shell.deliverLinkChannelReady(acceptedPort);
     expect(acceptedPort.closed).toBe(false);

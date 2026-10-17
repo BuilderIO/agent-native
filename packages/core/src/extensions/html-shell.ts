@@ -275,10 +275,6 @@ export function buildExtensionExternalLinkTargetBootstrap(
         });
         portStart.call(childPort);
         pendingPorts.push(childPort);
-        parentPostMessage({
-          type: ${JSON.stringify(EXTENSION_LINK_CHANNEL_HELLO_MESSAGE_TYPE)},
-          nonce: linkNonce
-        }, '*', [channel.port2]);
         handshakeRetryTimer = setTimeout(function() {
           if (handshakePendingPort !== childPort) return;
           handshakePendingPort = null;
@@ -292,24 +288,28 @@ export function buildExtensionExternalLinkTargetBootstrap(
           }
           sendLinkChannelRequest();
         }, 500);
+        parentPostMessage({
+          type: ${JSON.stringify(EXTENSION_LINK_CHANNEL_HELLO_MESSAGE_TYPE)},
+          nonce: linkNonce
+        }, '*', [channel.port2]);
       }
 
       function startLinkChannel() {
         if (!linkNonce) return;
+        if (!handshakeTimer) {
+          handshakeTimer = setInterval(function() {
+            sendLinkChannelRequest();
+            if (handshakeAttempts >= 20 && handshakeTimer) {
+              clearInterval(handshakeTimer);
+              handshakeTimer = null;
+            }
+          }, 100);
+        }
         sendLinkChannelRequest();
-        handshakeTimer = setInterval(function() {
-          sendLinkChannelRequest();
-          if (handshakeAttempts >= 20 && handshakeTimer) {
-            clearInterval(handshakeTimer);
-            handshakeTimer = null;
-          }
-        }, 100);
       }
-      if (document.readyState === 'complete') {
-        startLinkChannel();
-      } else {
-        window.addEventListener('load', startLinkChannel, { once: true });
-      }
+      // replaceState cannot hide this fragment from PerformanceNavigationTiming.name.
+      // Claim the one-use nonce before extension-provided scripts can read it and race HELLO.
+      startLinkChannel();
       window.addEventListener('pagehide', function() {
         if (handshakeTimer) clearInterval(handshakeTimer);
         handshakeTimer = null;

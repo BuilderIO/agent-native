@@ -315,6 +315,37 @@ describe("ExtensionViewer MCP embeds", () => {
     );
   });
 
+  it("rotates the link nonce when refreshed MCP srcdoc content remounts the frame", async () => {
+    embedState.active = true;
+    const firstFrame = await renderViewer();
+
+    await vi.waitFor(() => {
+      expect(firstFrame.getAttribute("srcdoc")).toContain("hello-link-channel");
+    });
+    const firstNonce = firstFrame
+      .getAttribute("srcdoc")
+      ?.match(/data-link-nonce="([^"]+)"/)?.[1];
+    expect(firstNonce).toBeTruthy();
+
+    let updatedFrame: HTMLIFrameElement | null = null;
+    await act(async () => {
+      queryClient.setQueryData(["extension", "ext-1"], {
+        ...extensionResponse,
+        content: "<section>Updated chart</section>",
+      });
+    });
+    await vi.waitFor(() => {
+      updatedFrame = container.querySelector("iframe");
+      expect(updatedFrame).not.toBe(firstFrame);
+      expect(updatedFrame?.getAttribute("srcdoc")).toContain("Updated chart");
+      const updatedNonce = updatedFrame
+        ?.getAttribute("srcdoc")
+        ?.match(/data-link-nonce="([^"]+)"/)?.[1];
+      expect(updatedNonce).toBeTruthy();
+      expect(updatedNonce).not.toBe(firstNonce);
+    });
+  });
+
   it("keeps the render route when an MCP embed has no inline extension content", async () => {
     embedState.active = true;
     vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL) =>

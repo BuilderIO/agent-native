@@ -1046,11 +1046,38 @@ export function ExtensionViewer({
 
   toolRef.current = extension ?? null;
   const iframeKey = `${extension?.updatedAt ?? ""}-${refreshKey}`;
-  const linkNonce = useExternalExtensionLinks(
-    iframeRef,
-    `${iframeKey}:${Boolean(extension)}`,
-    { enabled: true },
+  const usesSrcDoc = !!extension?.content && isEmbedMcpChatBridgeActive();
+  // The srcDoc frame applies the deployment's configured img-src / media-src,
+  // fetched from the server; wait for it rather than loading the frame twice.
+  const iframeMetaCsp = useExtensionIframeMetaCsp(usesSrcDoc);
+  const linkDocumentIdentity = useMemo(
+    () => ({
+      iframeKey,
+      extensionId: usesSrcDoc ? extension?.id : undefined,
+      content: usesSrcDoc ? extension?.content : undefined,
+      ownerEmail: usesSrcDoc ? extension?.ownerEmail : undefined,
+      role: usesSrcDoc ? extension?.role : undefined,
+      sourceMode: usesSrcDoc ? extension?.source?.mode : undefined,
+      permissions: usesSrcDoc ? extension?.source?.permissions : undefined,
+      isDark: usesSrcDoc ? isDark : undefined,
+      metaCsp: usesSrcDoc ? iframeMetaCsp : undefined,
+    }),
+    [
+      extension?.content,
+      extension?.id,
+      extension?.ownerEmail,
+      extension?.role,
+      extension?.source?.mode,
+      extension?.source?.permissions,
+      iframeKey,
+      iframeMetaCsp,
+      isDark,
+      usesSrcDoc,
+    ],
   );
+  const linkNonce = useExternalExtensionLinks(iframeRef, linkDocumentIdentity, {
+    enabled: true,
+  });
 
   useEffect(() => {
     if (!extension) return;
@@ -1080,10 +1107,6 @@ export function ExtensionViewer({
       `/_agent-native/extensions/${extensionId}/render?dark=${document.documentElement.classList.contains("dark")}&v=${encodeURIComponent(extension?.updatedAt ?? "")}&r=${refreshKey}`,
     );
   }, [extensionId, extension?.updatedAt, refreshKey]);
-  const usesSrcDoc = !!extension?.content && isEmbedMcpChatBridgeActive();
-  // The srcDoc frame applies the deployment's configured img-src / media-src,
-  // fetched from the server; wait for it rather than loading the frame twice.
-  const iframeMetaCsp = useExtensionIframeMetaCsp(usesSrcDoc);
   const iframeSrcDoc = useMemo(() => {
     if (!extension || !usesSrcDoc || !iframeMetaCsp || !linkNonce) {
       return undefined;

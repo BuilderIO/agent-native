@@ -172,6 +172,42 @@ describe("SqlChart render contract parity", () => {
     expect(container.textContent).toContain("the extension");
   });
 
+  it("renders auth and action API links as text after URL normalization", async () => {
+    const links = [
+      ["relative auth", "/_agent-native/auth/sign-in"],
+      ["relative actions", "/_agent-native/actions/run"],
+      [
+        "absolute same-origin actions",
+        `${window.location.origin}/_agent-native/actions/run`,
+      ],
+      [
+        "absolute same-origin auth",
+        `${window.location.origin}/_agent-native/auth/sign-in`,
+      ],
+      ["encoded prefix and auth segment", "/%5Fagent-native/%61uth/sign-in"],
+      ["double-encoded action segment", "/_agent-native/%2561ctions/run"],
+      ["encoded route separator", "/_agent-native%2factions/run"],
+      ["normalized auth path", "/docs/%2e%2e/_agent-native/auth/sign-in"],
+    ] as const;
+    const target = panel({
+      chartType: "metric",
+      config: {
+        description: links
+          .map(([label, href]) => `[${label}](${href})`)
+          .join(", "),
+      },
+    });
+
+    await act(async () => {
+      root.render(
+        <SqlChart panel={target} resultOverride={{ rows: [{ value: 42 }] }} />,
+      );
+    });
+
+    expect(container.querySelectorAll("a")).toHaveLength(0);
+    for (const [label] of links) expect(container.textContent).toContain(label);
+  });
+
   it("renders safe Markdown links in metric descriptions", async () => {
     const target = panel({
       chartType: "metric",
