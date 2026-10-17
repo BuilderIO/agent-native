@@ -290,10 +290,19 @@ export type { LayersPanelMoveIntent };
 let activeIconToggleDrag: {
   kind: "hidden" | "locked";
   value: boolean;
+  toggledLayerIds: Set<string>;
 } | null = null;
 
-function beginIconToggleDrag(kind: "hidden" | "locked", value: boolean): void {
-  activeIconToggleDrag = { kind, value };
+function beginIconToggleDrag(
+  kind: "hidden" | "locked",
+  value: boolean,
+  sourceLayerId: string,
+): void {
+  activeIconToggleDrag = {
+    kind,
+    value,
+    toggledLayerIds: new Set([sourceLayerId]),
+  };
   const clear = () => {
     activeIconToggleDrag = null;
     window.removeEventListener("pointerup", clear);
@@ -1882,10 +1891,9 @@ const LayerRow = memo(function LayerRow({
     });
   };
 
-  const handleRowMouseEnter = (event: MouseEvent<HTMLDivElement>) => {
-    onHoverLayer?.(node.id);
+  const handleRowToggleDrag = (event: MouseEvent<HTMLDivElement>) => {
     const toggleDrag = activeIconToggleDrag;
-    if (!toggleDrag) return;
+    if (!toggleDrag || toggleDrag.toggledLayerIds.has(node.id)) return;
     const rowContent = event.currentTarget.querySelector<HTMLElement>(
       ":scope > [data-layer-row-content]",
     );
@@ -1896,13 +1904,26 @@ const LayerRow = memo(function LayerRow({
     const bounds = toggleButton.getBoundingClientRect();
     if (event.clientX < bounds.left || event.clientX > bounds.right) return;
     if (toggleDrag?.kind === "locked" && node.locked !== toggleDrag.value) {
+      toggleDrag.toggledLayerIds.add(node.id);
       onToggleLocked?.(node.id, toggleDrag.value);
     } else if (
       toggleDrag?.kind === "hidden" &&
       node.hidden !== toggleDrag.value
     ) {
+      toggleDrag.toggledLayerIds.add(node.id);
       onToggleHidden?.(node.id, toggleDrag.value);
+    } else {
+      toggleDrag.toggledLayerIds.add(node.id);
     }
+  };
+
+  const handleRowMouseEnter = (event: MouseEvent<HTMLDivElement>) => {
+    onHoverLayer?.(node.id);
+    handleRowToggleDrag(event);
+  };
+
+  const handleRowMouseMove = (event: MouseEvent<HTMLDivElement>) => {
+    handleRowToggleDrag(event);
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
@@ -2161,6 +2182,7 @@ const LayerRow = memo(function LayerRow({
             clearSpringLoadTimer();
           }}
           onMouseEnter={handleRowMouseEnter}
+          onMouseMove={handleRowMouseMove}
           onMouseLeave={() => onLeaveLayer?.(node.id)}
         >
           {activeDrop === "before" ? (
@@ -2361,7 +2383,7 @@ const LayerRow = memo(function LayerRow({
                             event.stopPropagation();
                             const nextLocked = !node.locked;
                             onToggleLocked?.(node.id, nextLocked);
-                            beginIconToggleDrag("locked", nextLocked);
+                            beginIconToggleDrag("locked", nextLocked, node.id);
                           }}
                           onClick={(event) => {
                             if (event.detail !== 0) return;
@@ -2404,7 +2426,7 @@ const LayerRow = memo(function LayerRow({
                             event.stopPropagation();
                             const nextHidden = !node.hidden;
                             onToggleHidden?.(node.id, nextHidden);
-                            beginIconToggleDrag("hidden", nextHidden);
+                            beginIconToggleDrag("hidden", nextHidden, node.id);
                           }}
                           onClick={(event) => {
                             if (event.detail !== 0) return;
