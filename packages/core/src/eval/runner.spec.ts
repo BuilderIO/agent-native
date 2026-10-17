@@ -1118,6 +1118,41 @@ describe("createAgentRunner over a mocked runAgentLoop (no real model)", () => {
     );
   });
 
+  it("preserves the production engine stream for scorer analysis", async () => {
+    const event = { type: "text-delta" as const, text: "judge output" };
+    const stream = vi.fn(async function* () {
+      yield event;
+    });
+    const engine = {
+      defaultModel: "fake-model",
+      stream,
+    } as unknown as AgentEngine;
+    const runner = await createAgentRunner({
+      productionContext: {
+        ...testProductionContext(),
+        productionChatPath: testProductionChatPath(),
+      },
+      engine,
+      model: "fake-model",
+    });
+
+    const observed: unknown[] = [];
+    for await (const item of runner.analyzeContext().engine.stream({
+      model: "fake-model",
+      systemPrompt: "",
+      messages: [],
+      tools: [],
+      abortSignal: new AbortController().signal,
+    })) {
+      observed.push(item);
+    }
+
+    expect(stream).toHaveBeenCalledOnce();
+    expect(observed).toEqual([event]);
+    expect(Reflect.set(observed[0] as object, "text", "changed")).toBe(false);
+    expect(event.text).toBe("judge output");
+  });
+
   it("rejects writes to nested production engine configuration", async () => {
     const capabilities = {
       vision: false,
@@ -1386,6 +1421,58 @@ describe("createAgentRunner over a mocked runAgentLoop (no real model)", () => {
         onUsage: expect.any(Function),
       }),
     );
+  });
+
+  it("passes only normalized adapter output fields to scorers and observers", async () => {
+    const productionChatPath = testProductionChatPath();
+    const nestedInput = { query: "active users" };
+    productionChatPath.run = async (args) => {
+      const result = await testProductionChatPath().run(args);
+      return {
+        ...result,
+        output: {
+          ...result.output,
+          adapterSecret: "unvalidated adapter data",
+          toolCallDetails: [
+            {
+              name: "search",
+              input: nestedInput,
+              completed: true,
+              adapterSecret: "unvalidated nested data",
+            },
+          ],
+        } as never,
+      };
+    };
+    const runner = await createAgentRunner({
+      productionContext: {
+        ...testProductionContext(),
+        productionChatPath,
+      },
+    });
+    const analyze = vi.fn((output: AgentRunOutput) => output);
+    const onRunOutput = vi.fn();
+    const evalCase = defineEval({
+      name: "normalized-production-adapter-output",
+      input: { prompt: "find active users" },
+      scorers: [{ name: "inspect-output", analyze, generateScore: () => 1 }],
+    });
+
+    const row = await scoreEval(evalCase, runner, { onRunOutput });
+
+    expect(row.passed).toBe(true);
+    expect(analyze).toHaveBeenCalledOnce();
+    expect(onRunOutput).toHaveBeenCalledOnce();
+    for (const output of [
+      analyze.mock.calls[0]![0],
+      onRunOutput.mock.calls[0]![0],
+    ]) {
+      expect(output).not.toHaveProperty("adapterSecret");
+      expect(output.toolCallDetails).toEqual([
+        { name: "search", input: nestedInput, completed: true },
+      ]);
+      expect(output.toolCallDetails?.[0]).not.toHaveProperty("adapterSecret");
+    }
   });
 
   it("distinguishes failed agent runs from missing adapter usage", async () => {

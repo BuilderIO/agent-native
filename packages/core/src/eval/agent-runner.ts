@@ -182,6 +182,7 @@ function preserveProductionContextEngine(
     owner: object,
     property: PropertyKey,
   ): Function => {
+    const isEngineStream = owner === engine && property === "stream";
     const isMap = owner instanceof Map;
     const isSet = owner instanceof Set;
     const isWeakMap = owner instanceof WeakMap;
@@ -217,9 +218,10 @@ function preserveProductionContextEngine(
               ? WeakSet.prototype
               : undefined;
     if (
-      !collectionPrototype ||
-      Reflect.get(collectionPrototype, property) !== method ||
-      property === "constructor"
+      !isEngineStream &&
+      (!collectionPrototype ||
+        Reflect.get(collectionPrototype, property) !== method ||
+        property === "constructor")
     ) {
       return () => {
         throw new TypeError(
@@ -259,6 +261,20 @@ function preserveProductionContextEngine(
     const cached = methodsByProperty.get(property);
     if (cached) return cached;
     const protectedMethod = (...args: unknown[]) => {
+      if (isEngineStream) {
+        const stream = Reflect.apply(
+          method,
+          owner,
+          args,
+        ) as AsyncIterable<object>;
+        return {
+          async *[Symbol.asyncIterator]() {
+            for await (const event of stream) {
+              yield protectCollectionValue(event);
+            }
+          },
+        };
+      }
       const receiver = isArray ? protectNestedObject(owner) : owner;
       const result = Reflect.apply(method, receiver, args);
       if (
@@ -888,8 +904,8 @@ async function runProductionChatPath(args: {
         getUsablePartialUsage(),
       );
     }
-    const output = result.output;
-    if (!isProductionPathOutput(output)) {
+    const output = normalizeProductionPathOutput(result.output);
+    if (!output) {
       return malformedProductionPathOutput(
         "Production chat eval adapter returned malformed run output.",
         Date.now() - started,
@@ -940,9 +956,12 @@ async function runProductionChatPath(args: {
       return malformedProductionPathOutput(error, Date.now() - started, usage);
     }
     return {
-      ...output,
+      text: output.text,
+      toolCalls: output.toolCalls,
+      ...(output.toolCallDetails !== undefined
+        ? { toolCallDetails: output.toolCallDetails }
+        : {}),
       ok: true,
-      error: undefined,
       runId: output.runId || `eval:${crypto.randomUUID()}`,
       durationMs: Date.now() - started,
       usage,
@@ -1170,24 +1189,116 @@ function validateProductionPathRun(
   return undefined;
 }
 
-function isProductionPathOutput(value: unknown): value is AgentRunOutput {
+interface NormalizedProductionPathOutput {
+  text: string;
+  toolCalls: readonly string[];
+  toolCallDetails?: AgentRunOutput["toolCallDetails"];
+  ok: boolean;
+  runId: string;
+  durationMs: number;
+  usage?: unknown;
+}
+
+function normalizeProductionPathOutput(
+  value: unknown,
+): NormalizedProductionPathOutput | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return false;
+    return undefined;
   }
 
   const output = value as Record<string, unknown>;
-  return (
-    typeof output.text === "string" &&
-    Array.isArray(output.toolCalls) &&
-    Array.from(output.toolCalls).every(
-      (toolCall) => typeof toolCall === "string",
-    ) &&
-    typeof output.ok === "boolean" &&
-    typeof output.runId === "string" &&
-    typeof output.durationMs === "number" &&
-    Number.isFinite(output.durationMs) &&
-    output.durationMs >= 0
-  );
+  const text = output.text;
+  const toolCalls = output.toolCalls;
+  const ok = output.ok;
+  const runId = output.runId;
+  const durationMs = output.durationMs;
+  const rawToolCallDetails = output.toolCallDetails;
+  const toolCallDetails =
+    normalizeProductionPathToolCallDetails(rawToolCallDetails);
+  if (
+    typeof text !== "string" ||
+    !Array.isArray(toolCalls) ||
+    !toolCalls.every((toolCall) => typeof toolCall === "string") ||
+    typeof ok !== "boolean" ||
+    typeof runId !== "string" ||
+    typeof durationMs !== "number" ||
+    !Number.isFinite(durationMs) ||
+    durationMs < 0 ||
+    (rawToolCallDetails !== undefined && toolCallDetails === undefined)
+  ) {
+    return undefined;
+  }
+
+  return {
+    text,
+    toolCalls: [...toolCalls],
+    ...(toolCallDetails !== undefined ? { toolCallDetails } : {}),
+    ok,
+    runId,
+    durationMs,
+    ...(output.usage !== undefined ? { usage: output.usage } : {}),
+  };
+}
+
+function normalizeProductionPathToolCallDetails(
+  value: unknown,
+): AgentRunOutput["toolCallDetails"] {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) return undefined;
+
+  const normalized: NonNullable<AgentRunOutput["toolCallDetails"]>[number][] =
+    [];
+  for (const candidate of value) {
+    if (
+      !candidate ||
+      typeof candidate !== "object" ||
+      Array.isArray(candidate)
+    ) {
+      return undefined;
+    }
+    const detail = candidate as Record<string, unknown>;
+    const optionalNumbers = [
+      detail.startedAtEventIndex,
+      detail.completedAtEventIndex,
+    ];
+    if (
+      typeof detail.name !== "string" ||
+      !Object.hasOwn(detail, "input") ||
+      optionalNumbers.some(
+        (field) => field !== undefined && typeof field !== "number",
+      ) ||
+      [detail.completed, detail.completedSideEffect, detail.isError].some(
+        (field) => field !== undefined && typeof field !== "boolean",
+      ) ||
+      (detail.result !== undefined && typeof detail.result !== "string")
+    ) {
+      return undefined;
+    }
+
+    normalized.push({
+      name: detail.name,
+      input: detail.input,
+      ...(detail.startedAtEventIndex !== undefined
+        ? { startedAtEventIndex: detail.startedAtEventIndex as number }
+        : {}),
+      ...(detail.completedAtEventIndex !== undefined
+        ? { completedAtEventIndex: detail.completedAtEventIndex as number }
+        : {}),
+      ...(detail.completed !== undefined
+        ? { completed: detail.completed as boolean }
+        : {}),
+      ...(detail.completedSideEffect !== undefined
+        ? { completedSideEffect: detail.completedSideEffect as boolean }
+        : {}),
+      ...(detail.isError !== undefined
+        ? { isError: detail.isError as boolean }
+        : {}),
+      ...(detail.result !== undefined
+        ? { result: detail.result as string }
+        : {}),
+    });
+  }
+  return normalized;
 }
 
 function resolveActionAllowlist(

@@ -64,6 +64,7 @@ function cloneRunOutput(run: AgentRunOutput): AgentRunOutput | undefined {
   try {
     return structuredClone(run);
   } catch {
+    // coercion-ok: callers mark the run failed when isolation cannot be proven.
     return undefined;
   }
 }
