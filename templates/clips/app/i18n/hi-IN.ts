@@ -2040,6 +2040,7 @@ const messages = {
     copyFailed: "कॉपी नहीं हो सका",
     flowStarting: "डिक्टेशन शुरू हो रहा है…",
     flowFinalizing: "डिक्टेशन पूरा हो रहा है…",
+    flowBusy: "पिछला डिक्टेशन पूरा किया जा रहा है…",
     flowTranscribing: "आवाज़ को टेक्स्ट में बदला जा रहा है…",
     flowCleaning: "टेक्स्ट साफ़ किया जा रहा है…",
     flowPasting: "टेक्स्ट पेस्ट हो रहा है…",

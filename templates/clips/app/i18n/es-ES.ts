@@ -2114,6 +2114,7 @@ const messages = {
     copyFailed: "No se pudo copiar",
     flowStarting: "Iniciando dictado…",
     flowFinalizing: "Finalizando el dictado…",
+    flowBusy: "Finalizando el dictado anterior…",
     flowTranscribing: "Transcribiendo…",
     flowCleaning: "Revisando el texto…",
     flowPasting: "Pegando el texto…",

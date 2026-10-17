@@ -867,7 +867,19 @@ export function installDesktopVoiceDictation(
       });
       return;
     }
-    if (runId === null) return;
+    if (runId === null) {
+      const activeRun = lifecycle.snapshot();
+      if (activeRun && latestFlowStatePayload.runId === activeRun.runId) {
+        const busyPayload = {
+          ...latestFlowStatePayload,
+          busyAcknowledgement: true,
+        };
+        latestFlowStatePayload = busyPayload;
+        void invoke("show_flow_bar").catch(() => {});
+        emit("voice:state-change", busyPayload).catch(() => {});
+      }
+      return;
+    }
 
     startInFlight = true;
     startInFlightRunId = runId;
@@ -1298,7 +1310,12 @@ export function installDesktopVoiceDictation(
         }
       };
       startMeter(next);
-      recorder.start();
+      try {
+        recorder.start();
+      } catch (err) {
+        stopMeter(next);
+        throw err;
+      }
       next.starting = false;
       releaseStart(runId);
       if (!enterRecordingState(runId)) {
@@ -1669,6 +1686,7 @@ export function installDesktopVoiceDictation(
         console.log("[voice-dictation] recognition.start() returned");
       } catch (err) {
         console.error("[voice-dictation] recognition.start threw:", err);
+        stopMeter(next);
         stopTracks(next);
         if (session === next) session = null;
         throw err;

@@ -2125,6 +2125,7 @@ const messages = {
     copyFailed: "Kopieren nicht möglich",
     flowStarting: "Diktat wird gestartet …",
     flowFinalizing: "Diktat wird abgeschlossen…",
+    flowBusy: "Vorheriges Diktat wird abgeschlossen…",
     flowTranscribing: "Sprache wird transkribiert…",
     flowCleaning: "Text wird bereinigt…",
     flowPasting: "Text wird eingefügt…",

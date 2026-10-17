@@ -132,7 +132,7 @@ mod macos {
     use std::collections::HashSet;
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-    use std::sync::{Arc, Mutex, OnceLock};
+    use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
     use std::time::{Duration, Instant};
 
     use serde::Serialize;
@@ -1055,6 +1055,14 @@ mod macos {
         run_is_current(&authority, owner, run_id)
     }
 
+    fn start_native_capture_without_authority_lock<T>(
+        authority: Option<MutexGuard<'_, RunAuthority>>,
+        start: impl FnOnce() -> T,
+    ) -> T {
+        drop(authority);
+        start()
+    }
+
     pub async fn start(
         app: AppHandle,
         language: Option<String>,
@@ -1233,78 +1241,92 @@ mod macos {
             }
         }
 
-        let combined_cap = if shared_audio.is_none()
-            && should_use_combined_sck_capture(owner, supports_sck_microphone_capture())
-        {
-            match start_raw_meeting_capture(
-                app.clone(),
-                mic_device_id.clone(),
-                mic_device_label.clone(),
-                capture_system,
-                run_id,
-                mic_callback.clone(),
-                system_callback.clone(),
-            ) {
-                Ok(cap) => {
-                    eprintln!("[whisper] using combined ScreenCaptureKit mic + system capture");
-                    Some(cap)
-                }
-                Err(e) => {
-                    eprintln!(
-                        "[whisper] combined ScreenCaptureKit meeting capture failed: {e}; falling back to split capture"
-                    );
-                    None
-                }
-            }
-        } else {
-            None
-        };
-
-        let (mic_cap, sys_cap) = if shared_audio.is_some() {
-            eprintln!("[whisper] using shared Rewind microphone/system PCM producer");
-            (None, None)
-        } else if let Some(combined_cap) = combined_cap {
-            mic_stream.set_src_rate(48000.0);
-            (None, Some(combined_cap))
-        } else {
-            let mic_options = split_mic_capture_options(owner, capture_system, voice_processing);
-            let mic_cap = start_raw_mic_capture(
-                app.clone(),
-                mic_device_id,
-                mic_device_label,
-                mic_options.voice_processing,
-                mic_options.reuse_voice_processing_engine,
-                run_id,
-                mic_callback,
-            )
-            .map_err(|e| {
-                mic_stream.stop();
-                if let Some(sys_stream) = &sys_stream {
-                    sys_stream.stop();
-                }
-                format!("mic capture failed: {e}")
-            })?;
-            mic_stream.set_src_rate(mic_cap.sample_rate());
-
-            let sys_cap = if let Some(system_callback) = system_callback {
-                match start_raw_system_capture(app.clone(), system_callback, run_id) {
-                    Ok(cap) => Some(cap),
+        let capture_result = start_native_capture_without_authority_lock(capture_authority, || {
+            let combined_cap = if shared_audio.is_none()
+                && should_use_combined_sck_capture(owner, supports_sck_microphone_capture())
+            {
+                match start_raw_meeting_capture(
+                    app.clone(),
+                    mic_device_id.clone(),
+                    mic_device_label.clone(),
+                    capture_system,
+                    run_id,
+                    mic_callback.clone(),
+                    system_callback.clone(),
+                ) {
+                    Ok(cap) => {
+                        eprintln!("[whisper] using combined ScreenCaptureKit mic + system capture");
+                        Some(cap)
+                    }
                     Err(e) => {
-                        if let Some(sys_stream) = &sys_stream {
-                            sys_stream.stop();
-                        }
-                        mic_stream.stop();
-                        mic_cap.stop();
-                        return Err(format!("system capture failed: {e}"));
+                        eprintln!(
+                            "[whisper] combined ScreenCaptureKit meeting capture failed: {e}; falling back to split capture"
+                        );
+                        None
                     }
                 }
             } else {
                 None
             };
-            (Some(mic_cap), sys_cap)
+
+            if shared_audio.is_some() {
+                eprintln!("[whisper] using shared Rewind microphone/system PCM producer");
+                Ok((None, None))
+            } else if let Some(combined_cap) = combined_cap {
+                mic_stream.set_src_rate(48000.0);
+                Ok((None, Some(combined_cap)))
+            } else {
+                let mic_options =
+                    split_mic_capture_options(owner, capture_system, voice_processing);
+                let mic_cap = start_raw_mic_capture(
+                    app.clone(),
+                    mic_device_id,
+                    mic_device_label,
+                    mic_options.voice_processing,
+                    mic_options.reuse_voice_processing_engine,
+                    run_id,
+                    mic_callback,
+                )
+                .map_err(|e| {
+                    mic_stream.stop();
+                    if let Some(sys_stream) = &sys_stream {
+                        sys_stream.stop();
+                    }
+                    format!("mic capture failed: {e}")
+                })?;
+                mic_stream.set_src_rate(mic_cap.sample_rate());
+
+                let sys_cap = if let Some(system_callback) = system_callback {
+                    match start_raw_system_capture(app.clone(), system_callback, run_id) {
+                        Ok(cap) => Some(cap),
+                        Err(e) => {
+                            if let Some(sys_stream) = &sys_stream {
+                                sys_stream.stop();
+                            }
+                            mic_stream.stop();
+                            mic_cap.stop();
+                            return Err(format!("system capture failed: {e}"));
+                        }
+                    }
+                } else {
+                    None
+                };
+                Ok((Some(mic_cap), sys_cap))
+            }
+        });
+        let (mic_cap, sys_cap) = match capture_result {
+            Ok(captures) => captures,
+            Err(error) => {
+                drop(shared_audio);
+                release_temporary_audio(&app, temporary_audio);
+                mic_stream.stop();
+                if let Some(sys_stream) = &sys_stream {
+                    sys_stream.stop();
+                }
+                return Err(error);
+            }
         };
 
-        drop(capture_authority);
         let run_authority = match latest_run_id_slot().lock() {
             Ok(latest) => latest,
             Err(error) => {
@@ -1524,8 +1546,9 @@ mod macos {
             begin_run_authority, begin_run_result, buffer_start_after_drain, cancel_run_authority,
             clean_transcript, partial_inference_due, partial_inference_timestamp, resample_to_16k,
             run_is_current, session_start_error, should_use_combined_sck_capture,
-            split_mic_capture_options, timeline_start_for_offset, utterance_finalize_due,
-            IncrementalResample, RunAuthority, SessionOwner, START_SUPERSEDED,
+            split_mic_capture_options, start_native_capture_without_authority_lock,
+            timeline_start_for_offset, utterance_finalize_due, IncrementalResample, RunAuthority,
+            SessionOwner, START_SUPERSEDED,
         };
         use crate::native_speech::macos::MicVoiceProcessingMode;
 
@@ -1594,6 +1617,47 @@ mod macos {
                 &mut authority,
                 SessionOwner::Dictation,
                 11
+            ));
+        }
+
+        #[test]
+        fn stop_can_cancel_while_native_capture_initializes() {
+            use std::sync::{mpsc, Arc, Mutex};
+            use std::thread;
+
+            let authority = Arc::new(Mutex::new(RunAuthority::default()));
+            assert!(begin_run_authority(
+                &mut authority.lock().unwrap(),
+                SessionOwner::Meeting,
+                10
+            ));
+
+            let capture_authority = Some(authority.lock().unwrap());
+            let stop_authority = Arc::clone(&authority);
+            let (startup_started_tx, startup_started_rx) = mpsc::channel();
+            let (stop_finished_tx, stop_finished_rx) = mpsc::channel();
+            let stop_thread = thread::spawn(move || {
+                startup_started_rx
+                    .recv_timeout(Duration::from_secs(3))
+                    .expect("native capture startup should begin");
+                let mut latest = stop_authority.lock().unwrap();
+                let cancelled = cancel_run_authority(&mut latest, SessionOwner::Meeting, 10);
+                stop_finished_tx.send(cancelled).unwrap();
+            });
+
+            let cancelled = start_native_capture_without_authority_lock(capture_authority, || {
+                startup_started_tx.send(()).unwrap();
+                stop_finished_rx
+                    .recv_timeout(Duration::from_secs(3))
+                    .expect("stop waited for native capture initialization")
+            });
+
+            assert!(cancelled);
+            stop_thread.join().unwrap();
+            assert!(!run_is_current(
+                &authority.lock().unwrap(),
+                SessionOwner::Meeting,
+                10
             ));
         }
 

@@ -38,6 +38,7 @@ type FlowInsertion = "inserted" | "copied";
 type FlowStateChangePayload = {
   state: FlowState;
   stage?: FlowProcessingStage;
+  busyAcknowledgement?: boolean;
   runId?: number;
   startedAtMs?: number;
   failure?: FlowFailure;
@@ -190,8 +191,9 @@ export function FlowBar() {
   const formattedElapsed = `${Math.floor(totalSeconds / 60)}:${String(
     totalSeconds % 60,
   ).padStart(2, "0")}`;
-  const processingLabel =
-    payload.stage === "initializing"
+  const processingLabel = payload.busyAcknowledgement
+    ? t("dictateRoute.flowBusy")
+    : payload.stage === "initializing"
       ? t("dictateRoute.flowStarting")
       : payload.stage === "transcribing"
         ? t("dictateRoute.flowTranscribing")

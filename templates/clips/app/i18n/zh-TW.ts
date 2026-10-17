@@ -1964,6 +1964,7 @@ const messages = {
     copyFailed: "無法複製",
     flowStarting: "正在啟動聽寫…",
     flowFinalizing: "正在完成聽寫…",
+    flowBusy: "正在完成上一次聽寫…",
     flowTranscribing: "正在轉錄…",
     flowCleaning: "正在整理文字…",
     flowPasting: "正在貼上文字…",

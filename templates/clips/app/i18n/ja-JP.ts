@@ -2097,6 +2097,7 @@ const messages = {
     copyFailed: "コピーできませんでした",
     flowStarting: "音声入力を開始しています…",
     flowFinalizing: "音声入力を完了しています…",
+    flowBusy: "前の音声入力を完了しています…",
     flowTranscribing: "文字起こし中…",
     flowCleaning: "テキストを整えています…",
     flowPasting: "テキストを貼り付けています…",

@@ -148,6 +148,34 @@ function installMediaRecorder() {
   return { stream, track };
 }
 
+function installAudioContext() {
+  const previousDescriptor = Object.getOwnPropertyDescriptor(
+    window,
+    "AudioContext",
+  );
+  class FakeAudioContext {
+    createMediaStreamSource = vi.fn(() => ({ connect: vi.fn() }));
+    createAnalyser = vi.fn(() => ({
+      fftSize: 0,
+      getByteTimeDomainData: vi.fn(),
+    }));
+    close = vi.fn(async () => {});
+  }
+
+  Object.defineProperty(window, "AudioContext", {
+    configurable: true,
+    value: FakeAudioContext,
+  });
+
+  return () => {
+    if (previousDescriptor) {
+      Object.defineProperty(window, "AudioContext", previousDescriptor);
+    } else {
+      Reflect.deleteProperty(window, "AudioContext");
+    }
+  };
+}
+
 function stateChanges() {
   return tauri.events
     .filter((event) => event.name === "voice:state-change")
@@ -181,6 +209,8 @@ function emitFinal(runId: number, text: string) {
 
 describe("desktop voice dictation runs", () => {
   let dispose: (() => void) | undefined;
+  let restoreAudioContext: (() => void) | undefined;
+  let cancelAnimationFrameMock: ReturnType<typeof vi.fn>;
   let fetchMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
@@ -211,7 +241,8 @@ describe("desktop voice dictation runs", () => {
       "requestAnimationFrame",
       vi.fn(() => 1),
     );
-    vi.stubGlobal("cancelAnimationFrame", vi.fn());
+    cancelAnimationFrameMock = vi.fn();
+    vi.stubGlobal("cancelAnimationFrame", cancelAnimationFrameMock);
     fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.includes("transcribe-voice")) {
@@ -234,8 +265,11 @@ describe("desktop voice dictation runs", () => {
   afterEach(() => {
     dispose?.();
     dispose = undefined;
+    restoreAudioContext?.();
+    restoreAudioContext = undefined;
     vi.clearAllTimers();
     vi.useRealTimers();
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
     Reflect.deleteProperty(window, "SpeechRecognition");
   });
@@ -294,6 +328,122 @@ describe("desktop voice dictation runs", () => {
       ).toBe(true);
     },
   );
+
+  it("stops the browser audio meter when recognition start throws", async () => {
+    Object.defineProperty(window, "SpeechRecognition", {
+      configurable: true,
+      value: FakeRecognition,
+    });
+    const startError = new Error("recognition start failed");
+    const recognitionStart = vi
+      .spyOn(FakeRecognition.prototype, "start")
+      .mockImplementation(() => {
+        throw startError;
+      });
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+
+    const started = await startDictation("browser");
+    dispose = started.dispose;
+
+    expect(recognitionStart).toHaveBeenCalledOnce();
+    expect(cancelAnimationFrameMock).toHaveBeenCalledWith(1);
+    expect(stateChanges().at(-1)).toMatchObject({
+      state: "error",
+      runId: started.runId,
+      failure: "provider",
+    });
+    expect(
+      tauri.events.some(
+        (event) =>
+          event.name === "voice:audio-level" &&
+          (event.payload as { level?: number; runId?: number }).level === 0 &&
+          (event.payload as { level?: number; runId?: number }).runId ===
+            started.runId,
+      ),
+    ).toBe(true);
+
+    recognitionStart.mockRestore();
+    consoleError.mockRestore();
+  });
+
+  it("stops the server audio meter when recorder start throws", async () => {
+    restoreAudioContext = installAudioContext();
+    const { track } = installMediaRecorder();
+    const startError = new Error("recorder start failed");
+    const recorderStart = vi
+      .spyOn(FakeRecorder.prototype, "start")
+      .mockImplementation(() => {
+        throw startError;
+      });
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+
+    const started = await startDictation("auto");
+    dispose = started.dispose;
+
+    expect(recorderStart).toHaveBeenCalledOnce();
+    expect(cancelAnimationFrameMock).toHaveBeenCalledWith(1);
+    expect(track.stop).toHaveBeenCalledOnce();
+    expect(stateChanges().at(-1)).toMatchObject({
+      state: "error",
+      runId: started.runId,
+      failure: "microphone-unavailable",
+    });
+    expect(
+      tauri.events.some(
+        (event) =>
+          event.name === "voice:audio-level" &&
+          (event.payload as { level?: number; runId?: number }).level === 0 &&
+          (event.payload as { level?: number; runId?: number }).runId ===
+            started.runId,
+      ),
+    ).toBe(true);
+
+    recorderStart.mockRestore();
+    consoleError.mockRestore();
+  });
+
+  it("re-shows the active processing status when another press is rejected", async () => {
+    let resolveInsertion!: (result: unknown) => void;
+    tauri.invoke.mockImplementation((command) => {
+      if (command === "complete_voice_dictation") {
+        return new Promise((resolve) => {
+          resolveInsertion = resolve;
+        });
+      }
+      return Promise.resolve(undefined);
+    });
+    const started = await startDictation("auto");
+    dispose = started.dispose;
+    const recorder = FakeRecorder.instances[0];
+    recorder.ondataavailable?.({ data: new Blob(["audio"]) });
+    await release();
+    void recorder.onstop?.();
+    await settle();
+
+    expect(stateChanges().at(-1)).toMatchObject({
+      state: "processing",
+      stage: "pasting",
+      runId: started.runId,
+    });
+    tauri.invoke.mockClear();
+    await dispatch("voice:shortcut-start", { source: "fn" });
+
+    expect(FakeRecorder.instances).toHaveLength(1);
+    expect(tauri.invoke).toHaveBeenCalledWith("show_flow_bar");
+    expect(stateChanges().at(-1)).toMatchObject({
+      state: "processing",
+      stage: "pasting",
+      runId: started.runId,
+      busyAcknowledgement: true,
+    });
+
+    resolveInsertion("inserted");
+    await settle();
+  });
 
   it("terminalizes an empty browser result as no speech", async () => {
     Object.defineProperty(window, "SpeechRecognition", {

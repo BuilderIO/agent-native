@@ -2128,6 +2128,7 @@ const messages = {
     copyFailed: "Impossible de copier",
     flowStarting: "Démarrage de la dictée…",
     flowFinalizing: "Finalisation de la dictée…",
+    flowBusy: "Finalisation de la dictée précédente…",
     flowTranscribing: "Transcription en cours…",
     flowCleaning: "Nettoyage du texte…",
     flowPasting: "Collage du texte…",

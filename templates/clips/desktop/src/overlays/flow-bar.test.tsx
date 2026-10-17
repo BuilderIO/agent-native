@@ -19,7 +19,8 @@ const mocks = vi.hoisted(() => {
 });
 
 vi.mock("@agent-native/core/client/i18n", () => ({
-  useT: () => (key: string) => key,
+  useT: () => (key: string) =>
+    key === "dictateRoute.flowBusy" ? "Finishing the previous dictation…" : key,
 }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: mocks.invoke }));
 vi.mock("@tauri-apps/api/event", () => ({
@@ -38,7 +39,7 @@ vi.mock("../components/live-waveform", () => ({ LiveWaveform: () => null }));
 
 import { FlowBar } from "./flow-bar";
 
-describe("FlowBar recovery dismissal", () => {
+describe("FlowBar", () => {
   let host: HTMLDivElement;
   let root: Root;
 
@@ -113,5 +114,24 @@ describe("FlowBar recovery dismissal", () => {
       runId: 123,
     });
     expect(mocks.invoke).toHaveBeenCalledWith("hide_flow_bar");
+  });
+
+  it("shows an explicit busy message when another dictation is requested", async () => {
+    const onStateChange = mocks.listeners.get("voice:state-change");
+    await act(async () => {
+      onStateChange?.({
+        payload: {
+          state: "processing",
+          stage: "pasting",
+          runId: 124,
+          busyAcknowledgement: true,
+        },
+      });
+      await Promise.resolve();
+    });
+
+    expect(host.querySelector(".flow-bar-processing")?.textContent).toBe(
+      "Finishing the previous dictation…",
+    );
   });
 });

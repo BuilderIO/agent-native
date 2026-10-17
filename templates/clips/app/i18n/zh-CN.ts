@@ -1976,6 +1976,7 @@ const messages = {
     copyFailed: "复制失败",
     flowStarting: "正在启动听写…",
     flowFinalizing: "正在完成听写…",
+    flowBusy: "正在完成上一次听写…",
     flowTranscribing: "正在转写…",
     flowCleaning: "正在整理文本…",
     flowPasting: "正在粘贴文本…",

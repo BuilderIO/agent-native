@@ -2064,6 +2064,7 @@ const messages = {
     copyFailed: "تعذّر النسخ",
     flowStarting: "جارٍ بدء الإملاء…",
     flowFinalizing: "جارٍ إنهاء الإملاء…",
+    flowBusy: "جارٍ إنهاء الإملاء السابق…",
     flowTranscribing: "جارٍ تحويل الكلام إلى نص…",
     flowCleaning: "جارٍ تنقيح النص…",
     flowPasting: "جارٍ لصق النص…",

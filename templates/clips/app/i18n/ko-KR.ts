@@ -2061,6 +2061,7 @@ const messages = {
     copyFailed: "복사하지 못했습니다",
     flowStarting: "받아쓰기를 시작하는 중…",
     flowFinalizing: "받아쓰기를 마무리하는 중…",
+    flowBusy: "이전 받아쓰기를 마무리하는 중…",
     flowTranscribing: "음성을 텍스트로 변환하는 중…",
     flowCleaning: "텍스트를 다듬는 중…",
     flowPasting: "텍스트를 붙여넣는 중…",
