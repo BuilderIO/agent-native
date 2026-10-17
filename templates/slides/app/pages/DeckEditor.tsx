@@ -166,6 +166,11 @@ import {
   retryMissingDeck,
   shouldShowDeckEditorSkeleton,
 } from "@/lib/deck-editor-loading";
+import {
+  buildPresentUrl,
+  PRESENTER_WINDOW_FEATURES,
+  presenterWindowName,
+} from "@/lib/deck-present-url";
 import { preloadAddSlidePopover } from "@/lib/deferred-editor-surfaces";
 import { getPreset } from "@/lib/design-systems";
 import {
@@ -5119,12 +5124,20 @@ export default function DeckEditor() {
     attemptId: number,
     target: Window | null,
     presentationUrl: string,
+    presenter: { window: Window; url: string } | null,
   ) => {
+    const closeOpenedWindows = () => {
+      if (target && !target.closed) target.close();
+      if (presenter && !presenter.window.closed) presenter.window.close();
+    };
     try {
       await flushDeckSave(id);
       if (presentAttemptRef.current !== attemptId) {
-        if (target && !target.closed) target.close();
+        closeOpenedWindows();
         return;
+      }
+      if (presenter && !presenter.window.closed) {
+        presenter.window.location.href = presenter.url;
       }
       if (target) {
         if (!target.closed) target.location.href = presentationUrl;
@@ -5133,11 +5146,8 @@ export default function DeckEditor() {
       presentNavigationRef.current = true;
       void navigate(presentationUrl);
     } catch (error) {
-      if (presentAttemptRef.current !== attemptId) {
-        if (target && !target.closed) target.close();
-        return;
-      }
-      if (target && !target.closed) target.close();
+      closeOpenedWindows();
+      if (presentAttemptRef.current !== attemptId) return;
       console.error("[slides-present] failed to flush save:", error);
       toast.error(t("settings.saveFailed"));
     } finally {
@@ -5152,10 +5162,12 @@ export default function DeckEditor() {
       return request?.preserveNativeNavigation ? true : undefined;
     }
 
+    const mode = request?.mode ?? "fullscreen";
     trackEvent("slide_presentation_opened", {
       app_name: "slides",
       template_name: "slides",
       navigation: request?.preserveNativeNavigation ? "new_tab" : "current_tab",
+      mode,
     });
 
     const hasInlineDraft = inlineEditFlushRef.current?.() ?? false;
@@ -5164,7 +5176,13 @@ export default function DeckEditor() {
     flushPendingSaves();
     if (request?.preserveNativeNavigation && !hasPendingEdits) return false;
 
-    const presentationUrl = `/deck/${id}/present?slide=${Math.max(0, currentIndex) + 1}`;
+    // Presenter View is a second window beside the audience view, which is
+    // presented the way Full Screen does.
+    const presentationUrl = buildPresentUrl(
+      id,
+      currentIndex,
+      mode === "presenter" ? "fullscreen" : mode,
+    );
     const target = request?.preserveNativeNavigation
       ? window.open("", "_blank")
       : null;
@@ -5172,9 +5190,28 @@ export default function DeckEditor() {
       toast.error(t("settings.saveFailed"));
       return true;
     }
+    // A popup is only allowed while the click is still being handled, so it
+    // opens blank now and gets its address once the save has been flushed.
+    const presenterWindow =
+      mode === "presenter"
+        ? window.open("", presenterWindowName(id), PRESENTER_WINDOW_FEATURES)
+        : null;
+    if (mode === "presenter" && !presenterWindow) {
+      toast.error(t("editorToolbar.presenterViewBlocked"));
+    }
     presentInFlightRef.current = true;
     const attemptId = ++presentAttemptRef.current;
-    void finishPresent(attemptId, target, presentationUrl);
+    void finishPresent(
+      attemptId,
+      target,
+      presentationUrl,
+      presenterWindow
+        ? {
+            window: presenterWindow,
+            url: buildPresentUrl(id, currentIndex, "presenter"),
+          }
+        : null,
+    );
     return request?.preserveNativeNavigation ? true : undefined;
   };
 
