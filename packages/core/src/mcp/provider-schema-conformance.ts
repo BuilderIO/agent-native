@@ -187,7 +187,7 @@ export const PROVIDER_SCHEMA_RULES = {
     providers: ["gemini"],
     basis: "observed",
     source:
-      "Gemini through OpenRouter's OpenAPI parameters path, 2026-10-17: a forced call (tool_choice naming the function) returned 400 INVALID_ARGUMENT for 1,000 string items and for 100 of Content's add-database-item property entries, and succeeded once maxItems was removed. The bound depends on the item schema, so no smaller maxItems is safe.",
+      "Gemini through OpenRouter's OpenAPI parameters path, 2026-10-17: a forced call (tool_choice naming the function) returned 400 INVALID_ARGUMENT for 1,000 string items and for 100 of Content's add-database-item property entries, and succeeded once maxItems was removed. The bound depends on the item schema, so no smaller maxItems is safe. Not yet observed on parametersJsonSchema, the field Gemini CLI fills.",
     message: "array declares maxItems, which Gemini's forced mode may refuse",
   },
   geminiStringConst: {
