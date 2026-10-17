@@ -156,19 +156,69 @@ function serializeAttrs(
     );
   return parts.length ? " " + parts.join(" ") : "";
 }
+const ATTR_NAME_CHAR = /[\w:-]/;
+const ATTR_NAME_START = /[a-zA-Z_:]/;
+const SPACE_CHAR = /\s/;
+
+// Each `name="value"` in `raw`, as /([a-zA-Z_:][\w:-]*)\s*=\s*"([^"]*)"/g
+// finds them. Found by hand: that pattern tries a name from every offset of a
+// word, and rescans the rest of a long word from each one.
+function attrMatches(
+  raw: string,
+): Array<{ from: number; to: number; name: string; value: string }> {
+  const found: Array<{
+    from: number;
+    to: number;
+    name: string;
+    value: string;
+  }> = [];
+  let i = 0;
+  while (i < raw.length) {
+    if (!ATTR_NAME_CHAR.test(raw[i])) {
+      i++;
+      continue;
+    }
+    let end = i;
+    while (end < raw.length && ATTR_NAME_CHAR.test(raw[end])) end++;
+    // A name from any later offset of the word ends where this one does.
+    let from = i;
+    while (from < end && !ATTR_NAME_START.test(raw[from])) from++;
+    let at = end;
+    while (at < raw.length && SPACE_CHAR.test(raw[at])) at++;
+    if (from < end && raw[at] === "=") {
+      at++;
+      while (at < raw.length && SPACE_CHAR.test(raw[at])) at++;
+      const close = raw[at] === '"' ? raw.indexOf('"', at + 1) : -1;
+      if (close !== -1) {
+        found.push({
+          from,
+          to: close + 1,
+          name: raw.slice(from, end),
+          value: raw.slice(at + 1, close),
+        });
+        i = close + 1;
+        continue;
+      }
+    }
+    i = end;
+  }
+  return found;
+}
 function parseAttrs(raw: string): Record<string, string> {
   const attrs: Record<string, string> = {};
-  const re = /([a-zA-Z_:][\w:-]*)\s*=\s*"([^"]*)"/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(raw))) attrs[m[1]] = unescapeAttr(m[2]);
+  for (const { name, value } of attrMatches(raw))
+    attrs[name] = unescapeAttr(value);
   return attrs;
 }
 /** Attribute source `parseAttrs` skips: unquoted, single-quoted or bare. */
 function unparsedAttrSource(raw: string): string {
-  return raw
-    .replace(/([a-zA-Z_:][\w:-]*)\s*=\s*"([^"]*)"/g, "")
-    .replace(/\/\s*$/, "")
-    .trim();
+  let rest = "";
+  let last = 0;
+  for (const { from, to } of attrMatches(raw)) {
+    rest += raw.slice(last, from);
+    last = to;
+  }
+  return (rest + raw.slice(last)).replace(/\/\s*$/, "").trim();
 }
 
 /**
@@ -208,20 +258,41 @@ function blockAttrSuffix(opts: {
   if (isColor(opts.color)) parts.push(`color="${opts.color}"`);
   return parts.length ? ` {${parts.join(" ")}}` : "";
 }
+// Counted by hand: /\\+$/ retries from every backslash of a run that does
+// not end the string.
+function trailingBackslashes(s: string): number {
+  let run = 0;
+  while (run < s.length && s[s.length - 1 - run] === "\\") run++;
+  return run;
+}
+
 function oddTrailingBackslashes(s: string): boolean {
-  return (s.match(/\\+$/)?.[0].length ?? 0) % 2 === 1;
+  return trailingBackslashes(s) % 2 === 1;
 }
 
 function escapeTrailingBackslashRun(s: string): string {
-  const run = s.match(/\\+$/)?.[0];
-  if (!run) return s;
-  return s.slice(0, -run.length) + run + run;
+  return s + "\\".repeat(trailingBackslashes(s));
 }
 
 function unescapeTrailingBackslashRun(s: string): string {
-  const run = s.match(/\\+$/)?.[0];
+  const run = trailingBackslashes(s);
   if (!run) return s;
-  return s.slice(0, -run.length) + "\\".repeat(run.length / 2);
+  return s.slice(0, -run) + "\\".repeat(run / 2);
+}
+
+// /^(.*?)\s*\{([^{}]*)\}\s*$/, found by hand: that pattern retries the spaces
+// before the brace from every offset of a long run of them.
+function matchBlockAttrSuffix(
+  line: string,
+): { text: string; body: string } | null {
+  const brace = /\{([^{}]*)\}\s*$/.exec(line);
+  if (!brace) return null;
+  let end = brace.index;
+  while (end > 0 && SPACE_CHAR.test(line[end - 1])) end--;
+  const text = line.slice(0, end);
+  // The pattern's `.` stops at a line terminator.
+  if (/[\n\r\u2028\u2029]/.test(text)) return null;
+  return { text, body: brace[1] };
 }
 
 function splitBlockAttrs(
@@ -232,10 +303,10 @@ function splitBlockAttrs(
   toggle: boolean;
   color: string | null;
 } {
-  const m = line.match(/^(.*?)\s*\{([^{}]*)\}\s*$/);
+  const m = matchBlockAttrSuffix(line);
   if (!m) return { text: line, toggle: false, color: null };
-  const body = m[2];
-  if (oddTrailingBackslashes(m[1]) || oddTrailingBackslashes(body)) {
+  const body = m.body;
+  if (oddTrailingBackslashes(m.text) || oddTrailingBackslashes(body)) {
     return { text: line, toggle: false, color: null };
   }
   const toggle = /\btoggle\s*=\s*"true"/.test(body);
@@ -250,7 +321,7 @@ function splitBlockAttrs(
     .trim();
   if (rest || (colorMatch && !color))
     reportLoss("dropped-attribute", `{${body}}`);
-  return { text: m[1], toggle, color };
+  return { text: m.text, toggle, color };
 }
 
 function markOf(node: PMNode, type: string): PMMark | undefined {
@@ -567,6 +638,11 @@ function findToken(
  */
 function atomicSpanEnd(s: string, at: number, codeRuns: CodeRuns): number {
   if (s[at] === "$") return matchInlineMathAt(s, at)?.to ?? -1;
+  return codeSpanSkip(s, at, codeRuns);
+}
+
+/** `atomicSpanEnd` for code spans alone. */
+function codeSpanSkip(s: string, at: number, codeRuns: CodeRuns): number {
   if (s[at] !== "`") return -1;
   const run = delimiterRunLength(s, at, "`");
   const end = codeSpanEnd(at, run, codeRuns);
@@ -695,8 +771,17 @@ function matchUnderscoreEmphasis(
   return null;
 }
 
+// Every run of one link or span shares its mark, so each mark is keyed once:
+// keying it per neighbouring pair is quadratic under one long URL.
+const markKeys = new WeakMap<PMMark, string>();
+
 function markKey(mark: PMMark): string {
-  return `${mark.type}:${JSON.stringify(mark.attrs ?? null)}`;
+  let key = markKeys.get(mark);
+  if (key === undefined) {
+    key = `${mark.type}:${JSON.stringify(mark.attrs ?? null)}`;
+    markKeys.set(mark, key);
+  }
+  return key;
 }
 
 function sameMarks(a: PMMark[] | undefined, b: PMMark[] | undefined): boolean {
@@ -731,16 +816,25 @@ function mergeAdjacentText(nodes: PMNode[]): PMNode[] {
   return out;
 }
 
-function parseInline(input: string): PMNode[] {
+// Spans, marks and links read their text by parsing it again, so each level
+// of nesting costs its whole text and a few call frames. Past this depth,
+// which no page needs, the text reads as written and the loss is reported.
+const MAX_INLINE_DEPTH = 32;
+
+function parseInline(input: string, depth = 0): PMNode[] {
+  if (depth > MAX_INLINE_DEPTH) {
+    // Without a character that opens a construct, text reads as itself.
+    if (/[\\$`<*~_[]/.test(input)) reportLoss("dropped-formatting", input);
+    return input ? [textNode(input, [])] : [];
+  }
   const out: PMNode[] = [];
   let buf = "";
   let i = 0;
   const codeRuns = indexCodeRuns(input);
   const underscoreMisses: number[] = [];
-  const linkCloses = {
-    brackets: new Map<number, number>(),
-    parens: new Map<number, number>(),
-  };
+  let linkCloses: LinkCloses | null = null;
+  let nextIndex: ((needle: string, from: number) => number) | null = null;
+  let mentionCloses: MentionCloseTrie | null = null;
   const flush = () => {
     if (buf) {
       out.push(textNode(buf, []));
@@ -815,12 +909,13 @@ function parseInline(input: string): PMNode[] {
     }
 
     if (input.startsWith("<span", i)) {
-      const open = input.indexOf(">", i);
-      const close = input.indexOf("</span>", open);
+      nextIndex ??= nextIndexFinder(input);
+      const open = nextIndex(">", i);
+      const close = open === -1 ? -1 : nextIndex("</span>", open);
       if (open !== -1 && close !== -1) {
         flush();
         const rawAttrs = input.slice(i + 5, open);
-        const inner = parseInline(input.slice(open + 1, close));
+        const inner = parseInline(input.slice(open + 1, close), depth + 1);
         mergeSpanMark(inner, parseAttrs(rawAttrs), rawAttrs);
         pushAll(out, inner);
         i = close + "</span>".length;
@@ -829,8 +924,9 @@ function parseInline(input: string): PMNode[] {
     }
 
     if (input.startsWith("<mention-", i)) {
-      const selfClose = input.indexOf("/>", i);
-      const open = input.indexOf(">", i);
+      nextIndex ??= nextIndexFinder(input);
+      const selfClose = nextIndex("/>", i);
+      const open = nextIndex(">", i);
       if (selfClose !== -1 && (open === -1 || selfClose <= open)) {
         flush();
         const tagMatch = input.slice(i).match(/^<(mention-[\w-]+)([^>]*?)\/>/);
@@ -840,13 +936,19 @@ function parseInline(input: string): PMNode[] {
           continue;
         }
       }
-      const tagMatch = input
-        .slice(i)
-        .match(/^<(mention-[\w-]+)([^>]*)>([\s\S]*?)<\/\1>/);
-      if (tagMatch) {
+      const tag =
+        open === -1
+          ? null
+          : matchMentionTag(
+              input,
+              i,
+              open,
+              (mentionCloses ??= indexMentionCloses(input)),
+            );
+      if (tag) {
         flush();
-        out.push(makeInlineAtom(tagMatch[1], tagMatch[2], tagMatch[3]));
-        i += tagMatch[0].length;
+        out.push(makeInlineAtom(tag.name, tag.attrs, tag.label));
+        i = tag.end;
         continue;
       }
     }
@@ -855,7 +957,7 @@ function parseInline(input: string): PMNode[] {
       const close = findToken(input, "***", i + 3, codeRuns);
       if (close > i + 3) {
         flush();
-        const inner = parseInline(input.slice(i + 3, close));
+        const inner = parseInline(input.slice(i + 3, close), depth + 1);
         addMark(inner, { type: "bold" });
         addMark(inner, { type: "italic" });
         pushAll(out, inner);
@@ -868,7 +970,7 @@ function parseInline(input: string): PMNode[] {
       const close = findToken(input, "**", i + 2, codeRuns);
       if (close > i + 2) {
         flush();
-        const inner = parseInline(input.slice(i + 2, close));
+        const inner = parseInline(input.slice(i + 2, close), depth + 1);
         addMark(inner, { type: "bold" });
         pushAll(out, inner);
         i = close + 2;
@@ -880,7 +982,7 @@ function parseInline(input: string): PMNode[] {
       const close = findToken(input, "~~", i + 2, codeRuns);
       if (close > i + 2) {
         flush();
-        const inner = parseInline(input.slice(i + 2, close));
+        const inner = parseInline(input.slice(i + 2, close), depth + 1);
         addMark(inner, { type: "strike" });
         pushAll(out, inner);
         i = close + 2;
@@ -897,7 +999,10 @@ function parseInline(input: string): PMNode[] {
       );
       if (emphasis) {
         flush();
-        const inner = parseInline(input.slice(emphasis.from, emphasis.to));
+        const inner = parseInline(
+          input.slice(emphasis.from, emphasis.to),
+          depth + 1,
+        );
         if (emphasis.run >= 2) addMark(inner, { type: "bold" });
         if (emphasis.run !== 2) addMark(inner, { type: "italic" });
         pushAll(out, inner);
@@ -915,7 +1020,7 @@ function parseInline(input: string): PMNode[] {
       const close = findToken(input, "*", i + 1, codeRuns);
       if (close > i + 1) {
         flush();
-        const inner = parseInline(input.slice(i + 1, close));
+        const inner = parseInline(input.slice(i + 1, close), depth + 1);
         addMark(inner, { type: "italic" });
         pushAll(out, inner);
         i = close + 1;
@@ -924,10 +1029,14 @@ function parseInline(input: string): PMNode[] {
     }
 
     if (ch === "[") {
+      linkCloses ??= {
+        brackets: new Int32Array(input.length),
+        parens: new Int32Array(input.length),
+      };
       const link = matchLink(input, i, linkCloses, codeRuns);
       if (link) {
         flush();
-        const inner = parseInline(link.text);
+        const inner = parseInline(link.text, depth + 1);
         addMark(inner, { type: "link", attrs: { href: link.href } });
         pushAll(out, inner);
         i = link.end;
@@ -940,6 +1049,86 @@ function parseInline(input: string): PMNode[] {
   }
   flush();
   return mergeAdjacentText(out);
+}
+
+// The next `needle` at or after `from`. The parse asks with growing offsets,
+// so the last answer for each needle usually still holds, and a line of
+// unclosed tags is searched once rather than once per tag.
+function nextIndexFinder(s: string): (needle: string, from: number) => number {
+  const last = new Map<string, { from: number; at: number }>();
+  return (needle, from) => {
+    const hit = last.get(needle);
+    if (hit && from >= hit.from && (hit.at === -1 || from <= hit.at))
+      return hit.at;
+    const at = s.indexOf(needle, from);
+    last.set(needle, { from, at });
+    return at;
+  };
+}
+
+const MENTION_NAME_CHAR = /[\w-]/;
+
+// The names of a source's `</mention-name>` close tags, as a trie of their
+// characters holding each name's tag offsets.
+type MentionCloseTrie = { next: Map<string, MentionCloseTrie>; at: number[] };
+
+function indexMentionCloses(s: string): MentionCloseTrie {
+  const root: MentionCloseTrie = { next: new Map(), at: [] };
+  const prefix = "</mention-";
+  for (
+    let tag = s.indexOf(prefix);
+    tag !== -1;
+    tag = s.indexOf(prefix, tag + 1)
+  ) {
+    let node = root;
+    let end = tag + prefix.length;
+    for (; end < s.length && MENTION_NAME_CHAR.test(s[end]); end++) {
+      let child = node.next.get(s[end]);
+      if (!child) node.next.set(s[end], (child = { next: new Map(), at: [] }));
+      node = child;
+    }
+    if (node !== root && s[end] === ">") node.at.push(tag);
+  }
+  return root;
+}
+
+// The mention at `at` whose open tag ends at `gt`, as
+// /^<(mention-[\w-]+)([^>]*)>([\s\S]*?)<\/\1>/ reads it: the longest name
+// with a close tag after the open tag, up to that tag's first occurrence. By
+// hand, since the pattern searches the rest of the source again for each
+// shorter name it backs off to.
+function matchMentionTag(
+  s: string,
+  at: number,
+  gt: number,
+  closes: MentionCloseTrie,
+): { name: string; attrs: string; label: string; end: number } | null {
+  const closable: Array<{ node: MentionCloseTrie; end: number }> = [];
+  let node: MentionCloseTrie | undefined = closes;
+  let end = at + "<mention-".length;
+  while (node && end < s.length && MENTION_NAME_CHAR.test(s[end])) {
+    node = node.next.get(s[end++]);
+    if (node?.at.length) closable.push({ node, end });
+  }
+  for (let k = closable.length - 1; k >= 0; k--) {
+    const tags = closable[k].node.at;
+    let low = 0;
+    let high = tags.length;
+    while (low < high) {
+      const mid = (low + high) >> 1;
+      if (tags[mid] <= gt) low = mid + 1;
+      else high = mid;
+    }
+    if (low === tags.length) continue;
+    const name = s.slice(at + 1, closable[k].end);
+    return {
+      name,
+      attrs: s.slice(closable[k].end, gt),
+      label: s.slice(gt + 1, tags[low]),
+      end: tags[low] + name.length + 3,
+    };
+  }
+  return null;
 }
 
 function makeInlineAtom(
@@ -964,44 +1153,49 @@ function makeInlineAtom(
 }
 
 // A scan from one opener passes the same steps a scan from any opener inside
-// it would, so it records their closers too (-1 for none) in `closes`, and a
-// line of unmatched openers is scanned once instead of once per opener.
+// it would, so it records their closers too in `closes`, and a line of
+// unmatched openers is scanned once instead of once per opener. Each is kept
+// at its opener's offset as the closer + 2, so 0 is unknown and 1 is none: a
+// Map of every opener in a long line slows faster than the line grows.
+type LinkCloses = { brackets: Int32Array; parens: Int32Array };
+
+// A code span binds tighter than link text, as the editor writes code `]`
+// under a link: [`]`](u). Math in link text and an image's alt read as main
+// reads them: the editor writes neither.
 function findMatchingBracketClose(
   s: string,
   start: number,
-  closes = new Map<number, number>(),
-  codeRuns = indexCodeRuns(s),
+  closes: Int32Array = new Int32Array(s.length),
+  codeRuns?: CodeRuns,
 ): number {
-  const known = closes.get(start);
-  if (known !== undefined) return known;
+  if (closes[start]) return closes[start] - 2;
   const openers: number[] = [];
   for (let i = start; i < s.length; i++) {
     if (s[i] === "\\") {
       i++;
       continue;
     }
-    const skipTo = atomicSpanEnd(s, i, codeRuns);
+    const skipTo = codeRuns ? codeSpanSkip(s, i, codeRuns) : -1;
     if (skipTo !== -1) {
       i = skipTo - 1;
       continue;
     }
     if (s[i] === "[") openers.push(i);
     else if (s[i] === "]") {
-      closes.set(openers.pop()!, i);
+      closes[openers.pop()!] = i + 2;
       if (openers.length === 0) return i;
     }
   }
-  for (const opener of openers) closes.set(opener, -1);
+  for (const opener of openers) closes[opener] = 1;
   return -1;
 }
 
 function findMatchingParenClose(
   s: string,
   openParenIdx: number,
-  closes = new Map<number, number>(),
+  closes: Int32Array = new Int32Array(s.length),
 ): number {
-  const known = closes.get(openParenIdx);
-  if (known !== undefined) return known;
+  if (closes[openParenIdx]) return closes[openParenIdx] - 2;
   const openers: number[] = [];
   for (let i = openParenIdx; i < s.length; i++) {
     if (s[i] === "\\") {
@@ -1010,11 +1204,11 @@ function findMatchingParenClose(
     }
     if (s[i] === "(") openers.push(i);
     else if (s[i] === ")") {
-      closes.set(openers.pop()!, i);
+      closes[openers.pop()!] = i + 2;
       if (openers.length === 0) return i;
     }
   }
-  for (const opener of openers) closes.set(opener, -1);
+  for (const opener of openers) closes[opener] = 1;
   return -1;
 }
 
@@ -1042,7 +1236,7 @@ function unescapeUrlParens(url: string): string {
 function matchLink(
   s: string,
   start: number,
-  closes: { brackets: Map<number, number>; parens: Map<number, number> },
+  closes: LinkCloses,
   codeRuns: CodeRuns,
 ): { text: string; href: string; end: number } | null {
   const closeBracket = findMatchingBracketClose(
@@ -1679,37 +1873,50 @@ function parseDetailsBody(
   const nestedContainers: Array<{ tagKey: string; closeTag: string }> = [];
   let fence: { marker: string; promoteBy: number } | undefined;
   const sourceLines = lines.slice(start, end);
+  // By tag, whether each opener has its close. A scan from one opener passes a
+  // same-tag opener inside it as a scan from that one would, so it answers for
+  // that one too.
+  const matched = new Map<string, Map<number, boolean>>();
   const hasMatchingClose = (from: number, tagKey: string): boolean => {
-    const closeTag = CONTAINER_CLOSE[tagKey];
-    let depth = 1;
-    let fenceMarker = "";
-    for (let i = from + 1; i < sourceLines.length; i++) {
-      const candidate = sourceLines[i].slice(leadingTabs(sourceLines[i]));
-      const fenceMatch = matchFenceOpen(candidate);
-      if (fenceMarker) {
-        if (
-          fenceMatch &&
-          !fenceMatch[2].trim() &&
-          closesFence(fenceMatch, fenceMarker)
-        ) {
-          fenceMarker = "";
+    let known = matched.get(tagKey);
+    if (!known) matched.set(tagKey, (known = new Map()));
+    if (!known.has(from)) {
+      const closeTag = CONTAINER_CLOSE[tagKey];
+      const openers = [from];
+      let fenceMarker = "";
+      for (let i = from + 1; i < sourceLines.length && openers.length; i++) {
+        const candidate = sourceLines[i].slice(leadingTabs(sourceLines[i]));
+        const fenceMatch = matchFenceOpen(candidate);
+        if (fenceMarker) {
+          if (
+            fenceMatch &&
+            !fenceMatch[2].trim() &&
+            closesFence(fenceMatch, fenceMarker)
+          ) {
+            fenceMarker = "";
+          }
+          continue;
         }
-        continue;
+        if (fenceMatch) {
+          fenceMarker = fenceMatch[1];
+          continue;
+        }
+        if (matchContainerOpen(candidate) === tagKey) openers.push(i);
+        else if (candidate === closeTag) known.set(openers.pop()!, true);
       }
-      if (fenceMatch) {
-        fenceMarker = fenceMatch[1];
-        continue;
-      }
-      if (matchContainerOpen(candidate) === tagKey) depth++;
-      if (candidate === closeTag && --depth === 0) return true;
+      for (const opener of openers) known.set(opener, false);
     }
-    return false;
+    return known.get(from)!;
   };
+  // Lines inside a container too deep to read need no more tabs: one more per
+  // level would make each line as long as the nesting is deep.
+  const nestedIndent = (depth: number) =>
+    Math.min(childIndent + depth, MAX_CONTAINER_INDENT + 1);
   const bodyLines = sourceLines.map((line, lineIndex) => {
     const indent = leadingTabs(line);
     const dedented = line.slice(indent);
     if (fence) {
-      const requiredIndent = childIndent + nestedContainers.length;
+      const requiredIndent = nestedIndent(nestedContainers.length);
       const promoteBy =
         fence.promoteBy > 0
           ? fence.promoteBy
@@ -1725,8 +1932,9 @@ function parseDetailsBody(
     const detailsSummary =
       nestedContainers[nestedContainers.length - 1]?.tagKey === "<details" &&
       /^<summary>[\s\S]*<\/summary>\s*$/.test(dedented);
-    const requiredIndent =
-      childIndent + nestedContainers.length - (detailsSummary ? 1 : 0);
+    const requiredIndent = nestedIndent(
+      nestedContainers.length - (detailsSummary ? 1 : 0),
+    );
     const open = matchFenceOpen(dedented);
     if (open) {
       const promoteBy = Math.max(0, requiredIndent - indent);
@@ -1758,23 +1966,23 @@ function endsWithUnescapedPipe(value: string): boolean {
   return backslashes % 2 === 0;
 }
 
-function hasMatchingBacktickRun(
-  value: string,
-  start: number,
-  expectedLength: number,
-): boolean {
-  for (let i = start; i < value.length; i++) {
+// Where a pipe row's last backtick run of each length starts, read as the row
+// is: a backslash takes the next character with it. A run opens code when a
+// later run of its length closes it, and searching the rest of the row from
+// every run is quadratic in a row of runs of many lengths.
+function lastBacktickRuns(value: string): Map<number, number> {
+  const last = new Map<number, number>();
+  for (let i = 0; i < value.length; i++) {
     if (value[i] === "\\") {
       i++;
       continue;
     }
     if (value[i] !== "`") continue;
-    let runLength = 1;
-    while (value[i + runLength] === "`") runLength++;
-    if (runLength === expectedLength) return true;
-    i += runLength - 1;
+    const run = delimiterRunLength(value, i, "`");
+    last.set(run, i);
+    i += run - 1;
   }
-  return false;
+  return last;
 }
 
 export function splitGfmPipeRow(line: string): string[] | null {
@@ -1785,6 +1993,7 @@ export function splitGfmPipeRow(line: string): string[] | null {
   let cell = "";
   let codeFenceLength = 0;
   let sawSeparator = false;
+  const lastRuns = lastBacktickRuns(value);
 
   for (let i = 0; i < value.length; i++) {
     const char = value[i];
@@ -1795,10 +2004,7 @@ export function splitGfmPipeRow(line: string): string[] | null {
     if (char === "`") {
       let runLength = 1;
       while (value[i + runLength] === "`") runLength++;
-      if (
-        codeFenceLength === 0 &&
-        hasMatchingBacktickRun(value, i + runLength, runLength)
-      )
+      if (codeFenceLength === 0 && (lastRuns.get(runLength) ?? -1) > i)
         codeFenceLength = runLength;
       else if (codeFenceLength === runLength) codeFenceLength = 0;
       cell += "`".repeat(runLength);
@@ -1948,6 +2154,87 @@ function tabCountsOf(lines: string[]): Int32Array {
   return counts;
 }
 
+type FenceCloses = {
+  // Each line's closing marker length, or 0.
+  length: Int32Array;
+  // The first closing line at or after each line.
+  first: Int32Array;
+  // After each closing line, the next one with a longer marker.
+  longer: Int32Array;
+};
+
+// What each line's text says, read without its leading whitespace, which the
+// rewrites below never change. Every list depth steps over the lines nested
+// under it, and a blank line or a fence's body costs no indentation, so
+// reading them again at each depth is quadratic.
+type LineIndex = {
+  // The first line at or after each line with text.
+  filled: Int32Array;
+  // Each line's opening fence marker, as `matchFenceOpen` reads it.
+  fenceOpens: Array<string | null>;
+  fenceCloses: Record<string, FenceCloses>;
+};
+
+const lineIndexes = new WeakMap<string[], LineIndex>();
+
+function lineIndexOf(lines: string[]): LineIndex {
+  let index = lineIndexes.get(lines);
+  if (index) return index;
+  const filled = new Int32Array(lines.length + 1);
+  const fenceOpens: Array<string | null> = [];
+  const fenceCloses: Record<string, FenceCloses> = {};
+  for (const char of ["`", "~"]) {
+    fenceCloses[char] = {
+      length: new Int32Array(lines.length),
+      first: new Int32Array(lines.length + 1),
+      longer: new Int32Array(lines.length),
+    };
+  }
+  for (let i = 0; i < lines.length; i++) {
+    fenceOpens.push(matchFenceOpen(lines[i].trimStart())?.[1] ?? null);
+    const close = lines[i].trim().match(FENCE_CLOSE);
+    if (close) fenceCloses[close[1][0]].length[i] = close[1].length;
+  }
+  filled[lines.length] = lines.length;
+  for (let i = lines.length - 1; i >= 0; i--)
+    filled[i] = lines[i].trim() ? i : filled[i + 1];
+  for (const { length, first, longer } of Object.values(fenceCloses)) {
+    first[lines.length] = lines.length;
+    const ahead: number[] = [];
+    for (let i = lines.length - 1; i >= 0; i--) {
+      first[i] = length[i] ? i : first[i + 1];
+      if (!length[i]) continue;
+      while (ahead.length && length[ahead[ahead.length - 1]] <= length[i])
+        ahead.pop();
+      longer[i] = ahead.length ? ahead[ahead.length - 1] : lines.length;
+      ahead.push(i);
+    }
+  }
+  index = { filled, fenceOpens, fenceCloses };
+  lineIndexes.set(lines, index);
+  return index;
+}
+
+// The first line after `open` that closes a fence of `marker`, or the page's
+// end. Each step reaches a longer marker, so the steps are fewer than the
+// marker's length.
+function fenceCloseAfter(
+  index: LineIndex,
+  open: number,
+  marker: string,
+): number {
+  const { length, first, longer } = index.fenceCloses[marker[0]];
+  let at = first[open + 1];
+  while (at < length.length && length[at] < marker.length) at = longer[at];
+  return at;
+}
+
+// The parse takes a few call frames per depth, and nesting by spaces would
+// otherwise overflow the stack on pages main reads. Past this depth, which no
+// page needs, space-indented lines read as main reads them, and the loss is
+// reported.
+const MAX_SPACE_NESTED_DEPTH = 256;
+
 // Agents nest list items with spaces, and CommonMark puts a line inside the
 // innermost item whose text column it reaches. The parser nests by tabs, so
 // a list run's space-indented lines are rewritten as the tab-indented lines
@@ -1964,43 +2251,39 @@ function normalizeSpaceIndentedListRun(
 ): Map<number, string> {
   const originals = new Map<number, string>();
   const write = (index: number, depth: number, text: string) => {
-    if (!originals.has(index)) originals.set(index, lines[index]);
+    if (!originals.has(index)) {
+      if (originals.size === 0) containerCloseLayers(lines).push(new Map());
+      originals.set(index, lines[index]);
+    }
     lines[index] = "\t".repeat(depth) + text;
     tabCounts[index] = depth + leadingTabs(text);
   };
   const spaced = spacedLinesFrom(lines);
+  if (spaced[start] === lines.length) return originals;
   const tabCounts = tabCountsOf(lines);
+  const index = lineIndexOf(lines);
   const open: Array<{ content: number; depth: number }> = [];
   let blank = false;
   let continuing = false;
   for (let i = start; i < lines.length && spaced[i] < lines.length; i++) {
-    const line = lines[i];
-    const tabs = tabCounts[i];
-    if (!line.slice(tabs).trim()) {
+    if (index.filled[i] !== i) {
       blank = true;
+      i = index.filled[i] - 1;
       continue;
     }
+    const line = lines[i];
+    const tabs = tabCounts[i];
     if (tabs < indent) break;
     const afterBlank = blank;
     blank = false;
     if (tabs > indent) {
       while (open.length && open[open.length - 1].depth >= tabs) open.pop();
       continuing = false;
-      const fence = matchFenceOpen(line.slice(tabs));
-      if (fence) {
-        while (
-          i + 1 < lines.length &&
-          !closesFence(
-            lines[i + 1]
-              .slice(tabCounts[i + 1])
-              .trim()
-              .match(FENCE_CLOSE),
-            fence[1],
-          )
-        )
-          i++;
-        i++;
-      }
+      // A marker read without the line's leading whitespace is the one read
+      // after its tabs only when nothing else comes before it.
+      const fence =
+        line[tabs] === "`" || line[tabs] === "~" ? index.fenceOpens[i] : null;
+      if (fence) i = fenceCloseAfter(index, i, fence);
       continue;
     }
     const afterTabs = line.slice(tabs);
@@ -2029,6 +2312,10 @@ function normalizeSpaceIndentedListRun(
       continue;
     }
     const depth = parent.depth + 1;
+    if (depth > MAX_SPACE_NESTED_DEPTH) {
+      reportLoss("dropped-formatting", text);
+      break;
+    }
     if (item) {
       write(i, depth, text);
       open.push({ content: spaces + listItemContentOffset(text), depth });
@@ -2040,7 +2327,15 @@ function normalizeSpaceIndentedListRun(
       // An unclosed fence runs to the page's end in the tab form, so one
       // whose item ends first reads as on main and takes nothing with it.
       if (
-        fenceLeavesItem(lines, tabCounts, i, indent, parent.content, fence[1])
+        fenceLeavesItem(
+          lines,
+          tabCounts,
+          index,
+          i,
+          indent,
+          parent.content,
+          fence[1],
+        )
       )
         break;
       write(i, depth, text);
@@ -2074,17 +2369,16 @@ function normalizeSpaceIndentedListRun(
 function fenceLeavesItem(
   lines: string[],
   tabCounts: Int32Array,
+  index: LineIndex,
   open: number,
   indent: number,
   content: number,
   marker: string,
 ): boolean {
-  for (let i = open + 1; i < lines.length; i++) {
+  const close = fenceCloseAfter(index, open, marker);
+  for (let i = index.filled[open + 1]; i < close; i = index.filled[i + 1]) {
     const line = lines[i];
     const tabs = tabCounts[i];
-    const rest = line.slice(tabs).trim();
-    if (closesFence(rest.match(FENCE_CLOSE), marker)) return false;
-    if (!rest) continue;
     if (tabs < indent) return true;
     if (tabs > indent) continue;
     let spaces = 0;
@@ -2155,6 +2449,7 @@ function parseList(
     lines[index] = line;
     tabCounts[index] = leadingTabs(line);
   }
+  if (originals.size > 0) containerCloseLayers(lines).pop();
 
   if (kind === "task") {
     return { nodes: [{ type: "taskList", content: items }], end: i };
@@ -2620,6 +2915,33 @@ function matchContainerOpen(dedent: string): string | null {
   return null;
 }
 
+const MAX_CONTAINER_INDENT = 32;
+
+// Where each container opener's closing tag is, or -1 for none, by tag. A
+// scan from one opener passes a same-tag opener at its indent as a scan from
+// that one would, so it records that one's close too, and a page of unclosed
+// containers is scanned once. A list run whose indents are rewritten reads
+// from a set of its own, dropped when the run is put back.
+type ContainerCloses = Map<string, Map<number, number>>;
+const containerCloseIndexes = new WeakMap<string[], ContainerCloses[]>();
+
+function containerCloseLayers(lines: string[]): ContainerCloses[] {
+  let layers = containerCloseIndexes.get(lines);
+  if (!layers) containerCloseIndexes.set(lines, (layers = [new Map()]));
+  return layers;
+}
+
+function containerClosesOf(
+  lines: string[],
+  tagKey: string,
+): Map<number, number> {
+  const layers = containerCloseLayers(lines);
+  const byTag = layers[layers.length - 1];
+  let closes = byTag.get(tagKey);
+  if (!closes) byTag.set(tagKey, (closes = new Map()));
+  return closes;
+}
+
 function parseContainer(
   lines: string[],
   start: number,
@@ -2648,43 +2970,49 @@ function parseContainer(
     );
   }
 
-  let i = start + 1;
-  const childStart = i;
-  let depth = 1;
-  let fence: { indent: number; marker: string } | undefined;
-  for (; i < lines.length; i++) {
-    const li = leadingTabs(lines[i]);
-    const ld = lines[i].slice(li);
-    if (fence) {
-      if (closesFence(ld.match(FENCE_CLOSE), fence.marker)) {
-        fence = undefined;
-      }
-      continue;
-    }
-    const openFence = matchFenceOpen(ld);
-    if (openFence) {
-      fence = { indent: li, marker: openFence[1] };
-      continue;
-    }
-    if (
-      li === indent &&
-      matchContainerOpen(ld) === tagKey &&
-      !ld.startsWith("</")
-    ) {
-      depth++;
-    }
-    if (li === indent && ld === closeTag) {
-      depth--;
-      if (depth === 0) break;
-    }
-  }
-  if (depth !== 0) {
+  const openerAsText = (): ParseResult => {
     const { text, color } = splitBlockAttrs(openLine);
     const node: PMNode = { type: "paragraph", content: parseInline(text) };
     if (isColor(color)) node.attrs = { color };
     return { nodes: [withIndentAttr(node)], end: start + 1 };
+  };
+  // A container holds its children one tab in, so its indent bounds how many
+  // containers it is inside. Each level reads its body again, a details body
+  // with its whole subtree, so past this depth the opener reads as text,
+  // without the scan for its close: openers at many indents would each scan
+  // the rest of the nesting.
+  if (indent > MAX_CONTAINER_INDENT) {
+    reportLoss("dropped-formatting", openLine);
+    return openerAsText();
   }
-  const closeIdx = i;
+  const closes = containerClosesOf(lines, tagKey);
+  if (!closes.has(start)) {
+    const openers = [start];
+    let fence: { indent: number; marker: string } | undefined;
+    for (let i = start + 1; i < lines.length && openers.length > 0; i++) {
+      const li = leadingTabs(lines[i]);
+      const ld = lines[i].slice(li);
+      if (fence) {
+        if (closesFence(ld.match(FENCE_CLOSE), fence.marker)) {
+          fence = undefined;
+        }
+        continue;
+      }
+      const openFence = matchFenceOpen(ld);
+      if (openFence) {
+        fence = { indent: li, marker: openFence[1] };
+        continue;
+      }
+      if (li !== indent) continue;
+      if (matchContainerOpen(ld) === tagKey && !ld.startsWith("</"))
+        openers.push(i);
+      else if (ld === closeTag) closes.set(openers.pop()!, i);
+    }
+    for (const opener of openers) closes.set(opener, -1);
+  }
+  const closeIdx = closes.get(start)!;
+  if (closeIdx === -1) return openerAsText();
+  const childStart = start + 1;
 
   if (tagKey === "<details") {
     const attrs = readContainerAttrs(
@@ -2807,18 +3135,23 @@ function parseRawContainer(
   tagName: string,
   withIndentAttr: (n: PMNode) => PMNode,
 ): ParseResult {
-  let i = start + 1;
-  let closed = false;
-  for (; i < lines.length; i++) {
-    if (
-      lines[i].slice(indent) === closeTag &&
-      leadingTabs(lines[i]) >= indent
-    ) {
-      closed = true;
-      break;
+  // The first line after the opener that is the closing tag at its indent;
+  // every same opener on the way closes there too.
+  const closes = containerClosesOf(lines, closeTag);
+  if (!closes.has(start)) {
+    const close = TAB.repeat(indent) + closeTag;
+    const open = TAB.repeat(indent) + "<" + closeTag.slice(2);
+    const openers = [start];
+    let at = start + 1;
+    while (at < lines.length && lines[at] !== close) {
+      if (lines[at] === open) openers.push(at);
+      at++;
     }
+    for (const opener of openers)
+      closes.set(opener, at < lines.length ? at : -1);
   }
-  if (!closed) {
+  const i = closes.get(start)!;
+  if (i === -1) {
     const openLine = lines[start].slice(indent);
     const { text, color } = splitBlockAttrs(openLine);
     const node: PMNode = { type: "paragraph", content: parseInline(text) };
@@ -2859,6 +3192,21 @@ function cellClosesFrom(
   return next;
 }
 
+const tableCloseIndexes = new WeakMap<string[], Int32Array>();
+
+// For each line, the first `</table>` line at or after it. A page of unclosed
+// tables would otherwise search the rest of itself from every one.
+function tableClosesFrom(lines: string[]): Int32Array {
+  let next = tableCloseIndexes.get(lines);
+  if (next) return next;
+  next = new Int32Array(lines.length + 1);
+  next[lines.length] = lines.length;
+  for (let i = lines.length - 1; i >= 0; i--)
+    next[i] = lines[i].trim() === "</table>" ? i : next[i + 1];
+  tableCloseIndexes.set(lines, next);
+  return next;
+}
+
 function parseTable(
   lines: string[],
   start: number,
@@ -2869,8 +3217,8 @@ function parseTable(
   const lineAt = (index: number) =>
     lines[index].slice(Math.min(indent, leadingTabs(lines[index]))).trim();
 
-  let close = start + 1;
-  while (close < lines.length && lineAt(close) !== "</table>") close++;
+  // A line's tabs are all leading whitespace, so `lineAt` is its trimmed text.
+  const close = tableClosesFrom(lines)[start + 1];
   if (close === lines.length) {
     const { text, color } = splitBlockAttrs(openLine);
     const node: PMNode = { type: "paragraph", content: parseInline(text) };
@@ -2922,9 +3270,13 @@ function parseTable(
       enterGroups(ld);
       continue;
     }
-    const colMatch = ld.match(/^<col(\s[^>]*?)?\s*\/?>$/);
+    // Not /^<col(\s[^>]*?)?\s*\/?>$/: its lazy group retries the spaces
+    // before `>` from each offset of a long run of them. The attributes read
+    // the same with the spaces, but not with the slash.
+    const colMatch = ld.match(/^<col(\s[^>]*)?\/?>$/);
     if (colMatch) {
-      const a = readAttrs("col", colMatch[1] ?? "", COL_ATTRS);
+      const attrSource = (colMatch[1] ?? "").replace(/\/$/, "");
+      const a = readAttrs("col", attrSource, COL_ATTRS);
       colMeta.push({ color: a.color, width: a.width });
       continue;
     }
@@ -2955,13 +3307,11 @@ function parseTable(
           !CELL_OPEN.test(lineAt(end))
         ) {
           for (; i <= end; i++) cd += ` ${lineAt(i)}`;
-          cd = cd
-            .replace(/^(<t[dh][^>]*>)\s+/, "$1")
-            .replace(/\s+(<\/t[dh]>)(?=(?:\s*<\/tr>)?$)/, "$1");
+          cd = trimJoinedCell(cd);
         }
       }
       rowClosed = /<\/t[dh]>\s*<\/tr>$/.test(cd);
-      if (rowClosed) cd = cd.replace(/\s*<\/tr>$/, "");
+      if (rowClosed) cd = cd.slice(0, -"</tr>".length).trimEnd();
       // The writer puts one cell on a line and escapes `<` outside code and
       // math, so a close tag outside those before the line's end is an
       // agent's `<td>a</td><td>b</td>`.
@@ -3052,6 +3402,24 @@ const CELL_LINE_END = /<\/t[dh]>(?:\s*<\/tr>)?$/;
 const ROW_BREAK =
   /^(?:<\/tr>\s*)?(?:<\/?(?:thead|tbody|tfoot)>\s*)*<tr(\s[^>]*?)?>$/;
 const ROW_GROUP_TAG = /<(\/?)(thead|tbody|tfoot)>/g;
+
+// Drops the spaces just inside a joined cell's tags, which HTML ignores. By
+// hand, since a pattern for the spaces before the close tag retries them from
+// each offset of a long run.
+function trimJoinedCell(cell: string): string {
+  const open = /^<t[dh][^>]*>/.exec(cell);
+  let text = cell;
+  if (open) {
+    let from = open[0].length;
+    while (from < text.length && SPACE_CHAR.test(text[from])) from++;
+    text = open[0] + text.slice(from);
+  }
+  const close = CELL_LINE_END.exec(text);
+  if (!close) return text;
+  let to = close.index;
+  while (to > 0 && SPACE_CHAR.test(text[to - 1])) to--;
+  return text.slice(0, to) + text.slice(close.index);
+}
 
 // A cell's source, or where the next row opens.
 type TableLinePart = string | { rowAttrs: string; gap: string };

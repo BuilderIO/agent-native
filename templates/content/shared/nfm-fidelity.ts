@@ -77,23 +77,65 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/**
- * JSON with sorted keys, so two parses compare by content. A node's marks
- * are a set, as the editor holds them, so their order does not count.
- */
-function stableJson(value: unknown, key?: string): string {
-  if (Array.isArray(value)) {
-    const items = value.map((item) => stableJson(item));
-    if (key === "marks") items.sort();
-    return `[${items.join(",")}]`;
-  }
+/** JSON with sorted keys, for a mark, whose attributes hold no nodes. */
+function stableJson(value: unknown): string {
+  if (Array.isArray(value))
+    return `[${value.map((item) => stableJson(item)).join(",")}]`;
   if (value && typeof value === "object") {
     const entries = Object.entries(value)
       .filter(([, v]) => v !== undefined)
       .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
-    return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${stableJson(v, k)}`).join(",")}}`;
+    return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${stableJson(v)}`).join(",")}}`;
   }
   return JSON.stringify(value);
+}
+
+function definedKeys(value: object): string[] {
+  return Object.keys(value).filter(
+    (key) => (value as Record<string, unknown>)[key] !== undefined,
+  );
+}
+
+/**
+ * Whether two parses hold the same content, in any key order. A node's marks
+ * are a set, as the editor holds them, so their order does not count. Walks
+ * both trees once: serializing each subtree would copy a deep leaf into every
+ * ancestor.
+ */
+function sameContent(a: unknown, b: unknown): boolean {
+  const pending: Array<[unknown, unknown, string | undefined]> = [
+    [a, b, undefined],
+  ];
+  while (pending.length > 0) {
+    const [left, right, key] = pending.pop()!;
+    if (Array.isArray(left) || Array.isArray(right)) {
+      if (!Array.isArray(left) || !Array.isArray(right)) return false;
+      if (left.length !== right.length) return false;
+      if (key === "marks") {
+        const leftKeys = left.map((mark) => stableJson(mark)).sort();
+        const rightKeys = right.map((mark) => stableJson(mark)).sort();
+        if (leftKeys.some((mark, index) => mark !== rightKeys[index]))
+          return false;
+        continue;
+      }
+      for (let i = 0; i < left.length; i++)
+        pending.push([left[i], right[i], undefined]);
+    } else if (
+      left &&
+      right &&
+      typeof left === "object" &&
+      typeof right === "object"
+    ) {
+      const keys = definedKeys(left);
+      if (keys.length !== definedKeys(right).length) return false;
+      for (const name of keys) {
+        const other = (right as Record<string, unknown>)[name];
+        if (other === undefined) return false;
+        pending.push([(left as Record<string, unknown>)[name], other, name]);
+      }
+    } else if (JSON.stringify(left) !== JSON.stringify(right)) return false;
+  }
+  return true;
 }
 
 function firstDifferentLine(a: string, b: string): string {
@@ -109,9 +151,13 @@ function firstDifferentLine(a: string, b: string): string {
 function firstDifferentBlock(a: PMDoc, b: PMDoc): string {
   const count = Math.max(a.content.length, b.content.length);
   for (let i = 0; i < count; i++) {
-    const left = stableJson(a.content[i] ?? null);
-    const right = stableJson(b.content[i] ?? null);
-    if (left !== right) return `block ${i + 1}: ${left} → ${right}`;
+    const left = a.content[i] ?? null;
+    const right = b.content[i] ?? null;
+    if (!sameContent(left, right)) {
+      const show = (block: unknown) =>
+        JSON.stringify(block).slice(0, MAX_SAMPLE_LENGTH / 2);
+      return `block ${i + 1}: ${show(left)} → ${show(right)}`;
+    }
   }
   return "";
 }
@@ -149,7 +195,7 @@ export function canonicalizeNfmWithFidelity(
 
     const kept = canonicalNfmDoc(parsed.doc);
     const reparsed = nfmToDoc(markdown);
-    if (stableJson(reparsed) !== stableJson(kept))
+    if (!sameContent(reparsed, kept))
       losses.add("reparse-mismatch", firstDifferentBlock(kept, reparsed));
     else if (docToNfm(reparsed) !== markdown)
       losses.add(
