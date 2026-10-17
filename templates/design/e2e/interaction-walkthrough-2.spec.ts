@@ -394,7 +394,7 @@ test.describe("interaction: responsive card with auto layout and constraints", (
     });
   });
 
-  test("steps 7-8: Shift+A wraps the shift-clicked title and creator into a vertical auto-layout frame without moving them, and gap 4 saves on that frame", async ({
+  test("Shift+A wraps the shift-clicked title and creator in a vertical auto-layout frame without moving them, and saves a gap of 4", async ({
     app,
     page,
   }) => {
@@ -425,6 +425,7 @@ test.describe("interaction: responsive card with auto layout and constraints", (
       display: "flex",
       "flex-direction": "column",
       gap: "8px",
+      "align-items": "flex-start",
     });
     expect(styleOf(wrapped.get("title"))).toEqual({
       margin: "0",

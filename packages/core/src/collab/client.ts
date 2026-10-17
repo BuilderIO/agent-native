@@ -280,10 +280,9 @@ class CollabDocConnection {
   private syncActive = false;
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
   private pollGeneration = 0;
-  // A poll asked for while one is in flight runs once after it, so focus,
-  // visibility and a sync restart never start a second polling chain.
-  private pollInFlight = false;
-  private pollRequested = false;
+  // An older generation can stay on the network after sync restarts.
+  private readonly pollInFlight = new Set<number>();
+  private readonly pollRequested = new Set<number>();
   private consecutiveErrors = 0;
   private pollCycleCount = 0;
   private pollVersion = 0;
@@ -864,7 +863,7 @@ class CollabDocConnection {
     if (!this.syncActive) return;
     this.syncActive = false;
     this.pollGeneration++;
-    this.pollRequested = false;
+    this.pollRequested.clear();
     this.setCollabPollBoost(false);
     this.sseActive = false;
     this.sseAwarenessCovered = false;
@@ -1066,19 +1065,18 @@ class CollabDocConnection {
 
   private async poll(generation: number): Promise<void> {
     if (!this.isPollCurrent(generation)) return;
-    if (this.pollInFlight) {
-      this.pollRequested = true;
+    if (this.pollInFlight.has(generation)) {
+      this.pollRequested.add(generation);
       return;
     }
-    this.pollInFlight = true;
+    this.pollInFlight.add(generation);
     try {
       await this.pollOnce(generation);
     } finally {
-      this.pollInFlight = false;
+      this.pollInFlight.delete(generation);
     }
-    if (this.pollRequested) {
-      this.pollRequested = false;
-      if (this.isPollCurrent(this.pollGeneration)) this.pollNow();
+    if (this.pollRequested.delete(generation)) {
+      if (this.isPollCurrent(generation)) this.pollNow();
     }
   }
 

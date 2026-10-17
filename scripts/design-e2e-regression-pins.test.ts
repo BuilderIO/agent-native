@@ -137,7 +137,7 @@ const REQUIRED_CORE_COVERAGE = [
       "Layers-first editing preserves identity in the AI-generated Orbit source",
   },
   {
-    shard: "inspector-1a",
+    shard: "inspector-1b",
     file: "inspector-styles.spec.ts",
     title: "selection hide and Appearance visibility stay in sync with opacity",
   },

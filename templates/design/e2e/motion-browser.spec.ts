@@ -1502,21 +1502,24 @@ test("Motion path edits persist for a single Position track", async ({
       .getByRole("button", { name: "Motion dock", exact: true })
       .click();
     const dock = page.getByRole("region", { name: "Motion dock" }).first();
-    const positionStyle = dock.locator(
-      '[data-motion-native-style-row="Position"] [data-motion-select-native-style]',
+    const positionTrack = dock.locator(
+      '[data-motion-property-row="translate"][data-motion-target-node-id="e2e-alpha-button"]',
     );
-    await expect(positionStyle).toBeVisible();
-    await positionStyle.click();
+    await expect(positionTrack).toBeVisible();
+    await positionTrack.click();
 
     const motionFrame = designFrame(page, pathFileId);
     const pathOverlay = motionFrame.locator("svg[data-motion-path-overlay]");
     await expect(pathOverlay).toBeVisible();
     await expect(
       pathOverlay.locator("[data-motion-path-keyframe]"),
-    ).toHaveCount(7);
+    ).toHaveCount(8);
+    await expect(
+      pathOverlay.locator('[data-motion-path-keyframe="0"]'),
+    ).toBeVisible();
     await expect(
       pathOverlay.locator("[data-motion-path-easing-dot]"),
-    ).toHaveCount(42);
+    ).toHaveCount(49);
     const motionStyle = motionFrame.locator("style[data-agent-native-motion]");
     const initialPathSource = (await motionStyle.textContent()) ?? "";
     expect(initialPathSource).not.toContain("offset-path: path(");
@@ -1600,6 +1603,32 @@ test("Motion path edits persist for a single Position track", async ({
     await expect
       .poll(() => motionStyle.textContent())
       .not.toBe(endpointPathSource);
+
+    await gotoEditor(page, pathDesignId);
+    await selectByText(page, "Alpha Button", { screenId: pathFileId });
+    await page
+      .getByRole("button", { name: "Motion dock", exact: true })
+      .click();
+    const restoredMotionStyle = designFrame(page, pathFileId).locator(
+      "style[data-agent-native-motion]",
+    );
+    await expect
+      .poll(() => restoredMotionStyle.textContent())
+      .toContain("offset-path: path(");
+    const restoredTimeline = await getAction(request, "get-motion-timeline", {
+      designId: pathDesignId,
+      sourceRef: pathFileId,
+    });
+    const restoredTranslateTrack =
+      restoredTimeline.timelines?.[0]?.tracks?.find(
+        (track: { property: string }) => track.property === "translate",
+      );
+    expect(
+      restoredTranslateTrack?.keyframes?.some(
+        (keyframe: { motionPath?: unknown }) =>
+          keyframe.motionPath !== undefined,
+      ),
+    ).toBe(true);
   } finally {
     await page.goto(e2eBaseURL());
     await postAction(request, "delete-design", { id: pathDesignId });
