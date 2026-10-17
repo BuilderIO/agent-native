@@ -292,7 +292,10 @@ export function mergeTemplateTrees(
     }
     const base = readFileOrNull(path.join(baseDir, rel));
     const theirs = readFileOrNull(path.join(theirsDir, rel));
-    const ours = readFileOrNull(oursPath);
+    const app = readAppFile(oursPath, base ?? theirs);
+    const ours = app.content;
+    const writeOurs = (content: Buffer) =>
+      writeFile(oursPath, app.crlf ? withCrlf(content) : content);
 
     if (equalBuffers(base, theirs)) continue;
 
@@ -319,7 +322,7 @@ export function mergeTemplateTrees(
 
     if (equalBuffers(ours, theirs)) continue;
     if (equalBuffers(ours, base)) {
-      if (!options.dryRun) writeFile(oursPath, theirs);
+      if (!options.dryRun) writeOurs(theirs);
       result.updated.push(rel);
       continue;
     }
@@ -334,7 +337,9 @@ export function mergeTemplateTrees(
       result.manual.push(`${rel} (merge failed)`);
       continue;
     }
-    if (!options.dryRun) writeFile(oursPath, merged.content);
+    if (!options.dryRun && !equalBuffers(merged.content, ours)) {
+      writeOurs(merged.content);
+    }
     if (merged.conflicts > 0) result.conflicted.push(rel);
     else result.updated.push(rel);
   }
@@ -878,14 +883,17 @@ function backfillProvenance(
     shape: target.shape,
   };
   pkg["agent-native"] = agentNative;
-  fs.writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
+  const json = Buffer.from(`${JSON.stringify(pkg, null, 2)}\n`);
+  const app = readAppFile(pkgPath, json);
+  if (equalBuffers(app.content, json)) return;
+  fs.writeFileSync(pkgPath, app.crlf ? withCrlf(json) : json);
 }
 
 function countLocallyModified(appDir: string, baseDir: string): number {
   let count = 0;
   for (const rel of listMergeableFiles(baseDir)) {
     const base = readFileOrNull(path.join(baseDir, rel));
-    const ours = readFileOrNull(path.join(appDir, rel));
+    const ours = readAppFile(path.join(appDir, rel), base).content;
     if (!equalBuffers(base, ours)) count++;
   }
   return count;
@@ -1050,6 +1058,36 @@ function removeFile(file: string): void {
 function equalBuffers(a: Buffer | null, b: Buffer | null): boolean {
   if (a === null || b === null) return a === b;
   return a.equals(b);
+}
+
+// CRLF from a core.autocrlf=true checkout is not a local edit.
+function readAppFile(
+  file: string,
+  template: Buffer | null,
+): { content: Buffer | null; crlf: boolean } {
+  const content = readFileOrNull(file);
+  if (
+    content === null ||
+    template === null ||
+    template.includes(0x0d) ||
+    !isTextBuffer(content) ||
+    !isTextBuffer(template)
+  ) {
+    return { content, crlf: false };
+  }
+  const text = content.toString("utf-8");
+  if (!text.includes("\r\n") || /\r(?!\n)/.test(text)) {
+    return { content, crlf: false };
+  }
+  return {
+    content: Buffer.from(text.replace(/\r\n/g, "\n")),
+    crlf: !/(^|[^\r])\n/.test(text),
+  };
+}
+
+function withCrlf(content: Buffer): Buffer {
+  if (!isTextBuffer(content)) return content;
+  return Buffer.from(content.toString("utf-8").replace(/\r?\n/g, "\r\n"));
 }
 
 function isTextBuffer(buf: Buffer | null): boolean {

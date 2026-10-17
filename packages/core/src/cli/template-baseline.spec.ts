@@ -191,6 +191,40 @@ describe("template baseline store", () => {
     fs.rmSync(out, { recursive: true, force: true });
   });
 
+  it.each([
+    {
+      setting: "core.autocrlf=true",
+      config: { "core.autocrlf": "true" },
+      files: {
+        "package.json": '{"name":"demo"}\n',
+        "scripts/setup.cmd": "@echo off\r\necho ok\r\n",
+      },
+    },
+    {
+      setting: "core.eol=crlf",
+      config: { "core.autocrlf": "false", "core.eol": "crlf" },
+      files: {
+        ".gitattributes": "* text=auto\n",
+        "package.json": '{"name":"demo"}\n',
+      },
+    },
+  ])(
+    "keeps the template's line endings when the repo sets $setting",
+    ({ config, files }) => {
+      const { repoRoot, appDir } = makeRepo();
+      for (const [key, value] of Object.entries(config)) {
+        git(repoRoot, ["config", key, value]);
+      }
+      const store = resolveBaselineStore(appDir);
+      writeBaseline(store, makeUpstream(files), "baseline", META);
+      const out = materializeBaseline(store, "baseline")!;
+      for (const [rel, content] of Object.entries(files)) {
+        expect(fs.readFileSync(path.join(out, rel), "utf-8")).toBe(content);
+      }
+      fs.rmSync(out, { recursive: true, force: true });
+    },
+  );
+
   it("configures fetch and push refspecs once, on first baseline", () => {
     const { repoRoot, appDir } = makeRepo();
     git(repoRoot, [

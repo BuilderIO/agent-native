@@ -227,6 +227,55 @@ describe("mergeTemplateTrees", () => {
     expect(result.conflicted).toEqual([]);
   });
 
+  it("treats a CRLF checkout of unmodified files as unmodified", () => {
+    const base = tree({ "a.ts": "one\ntwo\n", "gone.ts": "bye\n" });
+    const theirs = tree({ "a.ts": "one\nTWO\n" });
+    const app = tree({ "a.ts": "one\r\ntwo\r\n", "gone.ts": "bye\r\n" });
+    const result = mergeTemplateTrees(app, base, theirs);
+    expect(read(app, "a.ts")).toBe("one\r\nTWO\r\n");
+    expect(result.updated).toEqual(["a.ts"]);
+    expect(result.conflicted).toEqual([]);
+    expect(fs.existsSync(path.join(app, "gone.ts"))).toBe(false);
+    expect(result.deleted).toEqual(["gone.ts"]);
+  });
+
+  it("merges local edits in a CRLF checkout and keeps CRLF", () => {
+    const base = tree({ "a.ts": "one\ntwo\nthree\nfour\nfive\n" });
+    const theirs = tree({ "a.ts": "ONE\ntwo\nthree\nfour\nfive\n" });
+    const app = tree({ "a.ts": "one\r\ntwo\r\nthree\r\nfour\r\nFIVE\r\n" });
+    const result = mergeTemplateTrees(app, base, theirs);
+    expect(read(app, "a.ts")).toBe("ONE\r\ntwo\r\nthree\r\nfour\r\nFIVE\r\n");
+    expect(result.conflicted).toEqual([]);
+    expect(result.updated).toEqual(["a.ts"]);
+  });
+
+  it("merges a CRLF checkout with an LF-edited line as LF", () => {
+    const base = tree({ "a.ts": "one\ntwo\nthree\nfour\nfive\n" });
+    const theirs = tree({ "a.ts": "ONE\ntwo\nthree\nfour\nfive\n" });
+    const app = tree({ "a.ts": "one\r\ntwo\r\nthree\r\nfour\r\nFIVE\n" });
+    const result = mergeTemplateTrees(app, base, theirs);
+    expect(read(app, "a.ts")).toBe("ONE\ntwo\nthree\nfour\nFIVE\n");
+    expect(result.conflicted).toEqual([]);
+    expect(result.updated).toEqual(["a.ts"]);
+  });
+
+  it("does not rewrite a file that already has the upstream change", () => {
+    const base = tree({ "a.ts": "one\ntwo\nthree\nfour\nfive\n" });
+    const theirs = tree({ "a.ts": "ONE\ntwo\nthree\nfour\nfive\n" });
+    const app = tree({ "a.ts": "ONE\r\ntwo\r\nthree\r\nfour\r\nFIVE\n" });
+    mergeTemplateTrees(app, base, theirs);
+    expect(read(app, "a.ts")).toBe("ONE\r\ntwo\r\nthree\r\nfour\r\nFIVE\n");
+  });
+
+  it("keeps a stray CR byte for byte", () => {
+    const base = tree({ "a.ts": "one\ntwo\nthree\nfour\nfive\n" });
+    const theirs = tree({ "a.ts": "ONE\ntwo\nthree\nfour\nfive\n" });
+    const app = tree({ "a.ts": "one\r\ntwo\r\nthree\r\nfour\r\nfive\r\r\n" });
+    const result = mergeTemplateTrees(app, base, theirs);
+    expect(read(app, "a.ts")).toContain("five\r\r\n");
+    expect(result.conflicted).toEqual(["a.ts"]);
+  });
+
   it("honors the never-touch list on both sides", () => {
     const base = tree({ ".env": "A=1\n", "learnings.md": "old\n" });
     const theirs = tree({ ".env": "A=2\n", "learnings.md": "new\n" });
@@ -541,6 +590,26 @@ describe("agent-native template commands", () => {
     const dirty = collectIO();
     expect(await runTemplate(["status"], dirty.io)).toBe(0);
     expect(dirty.text()).toContain("locally modified files: 1");
+  }, 180_000);
+
+  it("reports clean status and syncs an app checked out with core.autocrlf=true", async () => {
+    const { repoRoot, appDir } = await scaffoldInRepo();
+    git(repoRoot, ["config", "core.autocrlf", "true"]);
+    fs.rmSync(appDir, { recursive: true, force: true });
+    git(repoRoot, ["checkout", "--", "."]);
+    expect(read(appDir, "AGENTS.md")).toContain("\r\n");
+    process.chdir(appDir);
+
+    expect(await runTemplate(["baseline"], collectIO().io)).toBe(0);
+    const status = collectIO();
+    expect(await runTemplate(["status"], status.io)).toBe(0);
+    expect(status.text()).toContain("locally modified files: 0");
+    expect(status.text()).toContain("upstream-changed files: 0");
+
+    const sync = collectIO();
+    expect(await runTemplate(["sync"], sync.io)).toBe(0);
+    expect(sync.text()).toContain("updated:    0");
+    expect(sync.text()).toContain("conflicted: 0");
   }, 180_000);
 
   it("syncing against an unchanged upstream is a no-op that advances the baseline", async () => {
