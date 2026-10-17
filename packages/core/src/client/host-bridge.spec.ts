@@ -333,6 +333,47 @@ describe("createAgentNativeHostBridge", () => {
     bridge.stop();
   });
 
+  it("returns an error when a WebMCP result cannot be cloned", async () => {
+    const target = targetWindow();
+    const webmcp = {
+      supported: true,
+      listTools: vi.fn(async () => [
+        {
+          name: "get-order",
+          description: "Read an order",
+          origin: "https://shop.example",
+          inputSchema: { type: "object" },
+        },
+      ]),
+      executeTool: vi.fn(async () => undefined),
+      executeListedTool: vi.fn(async () => () => undefined),
+    };
+    const bridge = createAgentNativeHostBridge({
+      targetWindow: target.win,
+      agentOrigin: "https://agent.example",
+      commands: { requestApproval: vi.fn(() => ({ approved: true })) },
+      webmcp,
+    }).start();
+
+    dispatchFromAgent(target.win, "https://agent.example", {
+      type: AGENT_NATIVE_HOST_MESSAGE_TYPES.RUN_WEBMCP_TOOL,
+      requestId: "webmcp-uncloneable-1",
+      name: "get-order",
+      origin: "https://shop.example",
+      args: { id: "order-1" },
+    });
+    await nextTick();
+
+    expect(target.sent).toHaveLength(1);
+    expect(target.sent[0].message).toMatchObject({
+      type: AGENT_NATIVE_HOST_MESSAGE_TYPES.WEBMCP_TOOL_RESULT,
+      ok: false,
+      requestId: "webmcp-uncloneable-1",
+      error: expect.any(String),
+    });
+    bridge.stop();
+  });
+
   it("requires host approval before running destructive client actions", async () => {
     const target = targetWindow();
     const run = vi.fn(() => ({ deleted: true }));

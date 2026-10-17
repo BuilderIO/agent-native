@@ -48,6 +48,43 @@ describe("AgentNativeExtensionFrame", () => {
     );
   });
 
+  it("reconnects the link channel when the extension srcdoc changes", async () => {
+    const extension = {
+      id: "ext-1",
+      name: "Customer panel",
+      content: "<section>Customer health</section>",
+    };
+
+    await act(async () => {
+      root.render(
+        <AgentNativeExtensionFrame extension={extension} title="First title" />,
+      );
+    });
+
+    const firstFrame = container.querySelector("iframe");
+    const firstNonce = firstFrame
+      ?.getAttribute("srcdoc")
+      ?.match(/data-link-nonce="([0-9a-f]+)"/)?.[1];
+    expect(firstNonce).toBeTruthy();
+
+    await act(async () => {
+      root.render(
+        <AgentNativeExtensionFrame
+          extension={extension}
+          title="Updated title"
+        />,
+      );
+    });
+
+    const updatedFrame = container.querySelector("iframe");
+    const updatedNonce = updatedFrame
+      ?.getAttribute("srcdoc")
+      ?.match(/data-link-nonce="([0-9a-f]+)"/)?.[1];
+    expect(updatedFrame).not.toBe(firstFrame);
+    expect(updatedNonce).toBeTruthy();
+    expect(updatedNonce).not.toBe(firstNonce);
+  });
+
   it("renders one iframe per extension in a portable slot", async () => {
     await act(async () => {
       root.render(

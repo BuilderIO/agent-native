@@ -1081,7 +1081,7 @@ export function createAgentNativeHostBridge(
         type: AGENT_NATIVE_HOST_MESSAGE_TYPES.WEBMCP_TOOL_RESULT,
         ok: true,
         requestId,
-        result,
+        result: structuredClone(result),
       });
     } catch (error) {
       const err = messageError(error);

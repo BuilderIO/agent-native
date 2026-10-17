@@ -398,10 +398,34 @@ export const AgentNativeExtensionFrame = forwardRef<
     },
     [extension.id, onFramePortMessage, slotId],
   );
-  const linkNonce = useExternalExtensionLinks(iframeRef, extensionFrameKey, {
-    onReady: onLinkChannelReady,
-    onHostPortReady: onLinkPortReady,
-  });
+  const extensionDocumentIdentity = useMemo(
+    () => ({
+      extensionFrameKey,
+      content: extension.content,
+      name: extension.name,
+      title,
+      slotId,
+      themeCss,
+      isDark,
+    }),
+    [
+      extension.content,
+      extension.name,
+      extensionFrameKey,
+      isDark,
+      slotId,
+      themeCss,
+      title,
+    ],
+  );
+  const linkNonce = useExternalExtensionLinks(
+    iframeRef,
+    extensionDocumentIdentity,
+    {
+      onReady: onLinkChannelReady,
+      onHostPortReady: onLinkPortReady,
+    },
+  );
   const localStorageAdapter = useMemo(
     () => createLocalStorageAgentNativeExtensionStorage(storageNamespace),
     [storageNamespace],
