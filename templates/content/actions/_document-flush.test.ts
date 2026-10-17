@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   getRequestUserEmail: vi.fn(),
   hasCollabState: vi.fn(),
   isLiveBodyWriterPage: vi.fn(),
+  liveBodyWriterPageIds: vi.fn(),
   loadAwarenessRowsStrict: vi.fn(),
 }));
 
@@ -43,9 +44,13 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 
 vi.mock("../server/lib/live-body-writer.js", () => ({
   isLiveBodyWriterPage: mocks.isLiveBodyWriterPage,
+  liveBodyWriterPageIds: mocks.liveBodyWriterPageIds,
 }));
 
-import { flushOpenDocumentEditorToSql } from "./_document-flush";
+import {
+  flushOpenDocumentEditorToSql,
+  saveOpenEditorTitles,
+} from "./_document-flush";
 
 describe("flushOpenDocumentEditorToSql", () => {
   beforeEach(() => {
@@ -320,6 +325,116 @@ describe("flushOpenDocumentEditorToSql", () => {
         details: { reason: "request_not_delivered" },
       });
       expect(mocks.appStatePut).not.toHaveBeenCalled();
+    });
+
+    it("refuses when an editor without a session to ask sits beside an old tab without one either", async () => {
+      mocks.loadAwarenessRowsStrict.mockResolvedValue([
+        titleEditor(" "),
+        {
+          clientId: 300,
+          state: JSON.stringify({
+            canFlushDocument: true,
+            visible: true,
+            user: {},
+          }),
+          lastSeen: Date.now(),
+        },
+      ]);
+
+      const error = await refusal(
+        flushOpenDocumentEditorToSql({ documentId: "doc-1" }),
+      );
+
+      expect(error).toMatchObject({
+        errorCode: "OPEN_EDITOR_TITLE_NOT_SAVED",
+        details: { reason: "request_not_delivered" },
+      });
+      expect(mocks.appStatePut).not.toHaveBeenCalled();
+    });
+
+    it("takes back the request it delivered, and refuses typed, when another session's mailbox can't be read", async () => {
+      const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+      const warned = vi.spyOn(console, "warn").mockImplementation(() => {});
+      mocks.loadAwarenessRowsStrict.mockResolvedValue([
+        titleEditor("a@example.com"),
+        titleEditor("b@example.com"),
+      ]);
+      mocks.appStateCompareAndSet.mockImplementation(
+        async (session: string, _key: string, _expected: unknown, next) =>
+          session === "a@example.com" || next === null,
+      );
+      mocks.appStateGet.mockImplementation(async (session: string) => {
+        if (session === "b@example.com") throw new Error("mailbox unreadable");
+        return sentRequest();
+      });
+
+      const error = await refusal(
+        flushOpenDocumentEditorToSql({ documentId: "doc-1" }),
+      );
+
+      expect(error).toMatchObject({
+        errorCode: "OPEN_EDITOR_TITLE_NOT_SAVED",
+        details: { reason: "request_not_delivered", retryable: true },
+      });
+      expect(mocks.appStateDelete).toHaveBeenCalledWith(
+        "a@example.com",
+        "flush-request-doc-1",
+        { requestSource: "agent" },
+      );
+      expect(logged).toHaveBeenCalledWith(
+        "Failed to ask an open editor to save a page title",
+        expect.objectContaining({ documentId: "doc-1" }),
+      );
+      logged.mockRestore();
+      warned.mockRestore();
+    });
+
+    it("gives up on a silent editor at its deadline, not a poll interval after it", async () => {
+      mocks.loadAwarenessRowsStrict.mockImplementation(
+        () =>
+          new Promise((resolve) =>
+            setTimeout(
+              () => resolve([titleEditor("owner@example.com")]),
+              3_900,
+            ),
+          ),
+      );
+      mocks.appStateGet.mockImplementation(async () => sentRequest());
+      let settled: unknown;
+      void flushOpenDocumentEditorToSql({ documentId: "doc-1" }).catch(
+        (error: unknown) => {
+          settled = error;
+        },
+      );
+
+      await vi.advanceTimersByTimeAsync(4_000);
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(settled).toMatchObject({
+        errorCode: "OPEN_EDITOR_TITLE_NOT_SAVED",
+        details: { reason: "timeout" },
+      });
+    });
+
+    it("answers by its deadline when it can't read every page's open editors in time", async () => {
+      const ids = Array.from({ length: 50 }, (_, index) => `page-${index}`);
+      mocks.liveBodyWriterPageIds.mockResolvedValue(new Set(ids));
+      mocks.loadAwarenessRowsStrict.mockImplementation(
+        () => new Promise((resolve) => setTimeout(() => resolve([]), 1_000)),
+      );
+      let settled: unknown;
+      void saveOpenEditorTitles(ids).then((flush) => {
+        settled = flush;
+      });
+
+      await vi.advanceTimersByTimeAsync(4_000);
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(settled).toEqual({
+        status: "failed",
+        reason: "timeout",
+        documentId: "page-40",
+      });
     });
   });
 

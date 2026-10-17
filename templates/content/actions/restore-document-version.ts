@@ -347,6 +347,7 @@ export default defineAction({
       }
       return current;
     };
+    let preparedUpdatedAt = args.expectedUpdatedAt;
     if (await isLiveBodyWriterPage(documentId)) {
       const prepared = await readCurrent();
       if (prepared.updatedAt !== args.expectedUpdatedAt) {
@@ -378,6 +379,9 @@ export default defineAction({
           ...(titleFlush ? { titleFlush } : {}),
         };
       }
+      // The page left its live copy before anything committed. The title
+      // save this restore asked for moved it on, which is no conflict.
+      preparedUpdatedAt = current.updatedAt;
     }
     const [versionForScope] = await db
       .select({ title: schema.documentVersions.title })
@@ -406,9 +410,9 @@ export default defineAction({
         statusCode: 404,
       });
     }
-    if (beforeFlush.updatedAt !== args.expectedUpdatedAt) {
+    if (beforeFlush.updatedAt !== preparedUpdatedAt) {
       restoreConflict("The document changed after this restore was prepared.", {
-        expectedUpdatedAt: args.expectedUpdatedAt,
+        expectedUpdatedAt: preparedUpdatedAt,
         currentUpdatedAt: beforeFlush.updatedAt,
       });
     }
@@ -537,7 +541,7 @@ export default defineAction({
           and(
             eq(schema.documents.id, documentId),
             eq(schema.documents.ownerEmail, ownerEmail),
-            eq(schema.documents.updatedAt, args.expectedUpdatedAt),
+            eq(schema.documents.updatedAt, preparedUpdatedAt),
           ),
         )
         .returning();

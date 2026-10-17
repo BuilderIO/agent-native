@@ -11,19 +11,25 @@ import {
   loadAwarenessRowsStrict,
 } from "@agent-native/core/collab";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { and, inArray, isNotNull } from "drizzle-orm";
 
-import { getDb, schema } from "../server/db/index.js";
 import {
   isLiveBodyWriterPage,
-  liveBodyWriterGatesForRows,
-  liveBodyWriterPageColumns,
-  type LiveBodyWriterPageRow,
+  liveBodyWriterPageIds,
 } from "../server/lib/live-body-writer.js";
 
 const FLUSH_POLL_INTERVAL_MS = 200;
 const FLUSH_TIMEOUT_MS = 4000;
-const TITLE_FLUSH_PAGE_GROUP = 90;
+const TITLE_FLUSH_PLAN_CONCURRENCY = 10;
+
+// A wait that ends at the deadline rather than a poll interval past it.
+function pollWait(deadline: number) {
+  return new Promise((resolve) =>
+    setTimeout(
+      resolve,
+      Math.max(0, Math.min(FLUSH_POLL_INTERVAL_MS, deadline - Date.now())),
+    ),
+  );
+}
 
 /**
  * What a switched page's open editors answered when asked to save its title.
@@ -139,7 +145,7 @@ async function deliverFlushRequest(
         requestSource: "agent",
       });
     }
-    await new Promise((resolve) => setTimeout(resolve, FLUSH_POLL_INTERVAL_MS));
+    await pollWait(deadline);
   }
   return false;
 }
@@ -180,7 +186,6 @@ type TitleFlushPlan = {
 async function planTitleFlush(
   documentId: string,
 ): Promise<TitleFlushPlan | null> {
-  if (!(await hasCollabState(documentId))) return null;
   const candidates = (await loadAwarenessRowsStrict(documentId))
     .map(awarenessTitleFlushCandidate)
     .filter((candidate): candidate is NonNullable<typeof candidate> => {
@@ -189,22 +194,26 @@ async function planTitleFlush(
   if (candidates.length === 0) return null;
   // The mailbox holds one request per session, so a session with any tab
   // too old for the title flush gets none: that tab would run a whole save.
-  const legacySessions = new Set(
-    candidates
-      .filter((candidate) => !candidate.canFlushTitle)
-      .map((candidate) => candidate.sessionEmail),
-  );
+  const legacySessions = new Set<string>();
+  let legacyEditor = false;
+  for (const candidate of candidates) {
+    if (candidate.canFlushTitle) continue;
+    legacyEditor = true;
+    if (candidate.sessionEmail) legacySessions.add(candidate.sessionEmail);
+  }
   const sessions = new Set<string>();
   let unaddressedEditor = false;
   for (const candidate of candidates) {
-    if (legacySessions.has(candidate.sessionEmail)) continue;
-    if (candidate.sessionEmail) sessions.add(candidate.sessionEmail);
-    else unaddressedEditor = true;
+    if (!candidate.canFlushTitle) continue;
+    if (!candidate.sessionEmail) unaddressedEditor = true;
+    else if (!legacySessions.has(candidate.sessionEmail)) {
+      sessions.add(candidate.sessionEmail);
+    }
   }
   return {
     documentId,
     sessions: [...sessions],
-    legacyEditor: legacySessions.size > 0,
+    legacyEditor,
     unaddressedEditor,
   };
 }
@@ -214,6 +223,12 @@ async function requestTitleSave(
   deadline: number,
 ): Promise<OpenEditorTitleFlushFailure | null> {
   const { documentId } = plan;
+  if (plan.unaddressedEditor) {
+    return { status: "failed", reason: "request_not_delivered", documentId };
+  }
+  if (Date.now() >= deadline) {
+    return { status: "failed", reason: "timeout", documentId };
+  }
   const flushKey = `flush-request-${documentId}`;
   const requestId = randomUUID();
   const flushValue = {
@@ -223,27 +238,32 @@ async function requestTitleSave(
     scope: "title",
     status: "pending",
   };
-  const delivered = await Promise.all(
-    plan.sessions.map((session) =>
-      deliverFlushRequest(session, flushKey, flushValue, deadline),
-    ),
-  );
-  const writtenSessions = plan.sessions.filter(
-    (_session, index) => delivered[index],
-  );
   try {
+    const delivered = await Promise.allSettled(
+      plan.sessions.map((session) =>
+        deliverFlushRequest(session, flushKey, flushValue, deadline),
+      ),
+    );
+    for (const delivery of delivered) {
+      if (delivery.status === "rejected") {
+        console.error("Failed to ask an open editor to save a page title", {
+          error: delivery.reason,
+          documentId,
+          requestId,
+        });
+      }
+    }
     if (
-      plan.unaddressedEditor ||
-      writtenSessions.length < plan.sessions.length
+      delivered.some(
+        (delivery) => delivery.status === "rejected" || !delivery.value,
+      )
     ) {
       return { status: "failed", reason: "request_not_delivered", documentId };
     }
     while (Date.now() < deadline) {
-      await new Promise((resolve) =>
-        setTimeout(resolve, FLUSH_POLL_INTERVAL_MS),
-      );
+      await pollWait(deadline);
       const responses = await Promise.all(
-        writtenSessions.map((session) => appStateGet(session, flushKey)),
+        plan.sessions.map((session) => appStateGet(session, flushKey)),
       );
       let saved = 0;
       for (const response of responses) {
@@ -263,11 +283,13 @@ async function requestTitleSave(
         }
         if (response.status === "success") saved += 1;
       }
-      if (saved === writtenSessions.length) return null;
+      if (saved === plan.sessions.length) return null;
     }
     return { status: "failed", reason: "timeout", documentId };
   } finally {
-    await clearFlushRequests(writtenSessions, flushKey, requestId);
+    // A delivery that threw may still have written the request; this clears
+    // only this request's.
+    await clearFlushRequests(plan.sessions, flushKey, requestId);
   }
 }
 
@@ -276,16 +298,37 @@ async function saveLiveBodyPageTitles(
 ): Promise<OpenEditorTitleFlush> {
   const deadline = Date.now() + FLUSH_TIMEOUT_MS;
   const plans: TitleFlushPlan[] = [];
-  for (const documentId of documentIds) {
-    const plan = await planTitleFlush(documentId);
-    if (plan) plans.push(plan);
+  for (
+    let offset = 0;
+    offset < documentIds.length;
+    offset += TITLE_FLUSH_PLAN_CONCURRENCY
+  ) {
+    // A page whose editors weren't read in time may have one open.
+    if (Date.now() >= deadline) {
+      return {
+        status: "failed",
+        reason: "timeout",
+        documentId: documentIds[offset]!,
+      };
+    }
+    const group = documentIds.slice(
+      offset,
+      offset + TITLE_FLUSH_PLAN_CONCURRENCY,
+    );
+    for (const plan of await Promise.all(group.map(planTitleFlush))) {
+      if (plan) plans.push(plan);
+    }
   }
   if (plans.length === 0) return { status: "no_open_editor" };
-  const failures = await Promise.all(
+  const asked = await Promise.allSettled(
     plans
       .filter((plan) => plan.sessions.length > 0 || plan.unaddressedEditor)
       .map((plan) => requestTitleSave(plan, deadline)),
   );
+  const failures = asked.map((result) => {
+    if (result.status === "rejected") throw result.reason;
+    return result.value;
+  });
   const failure = failures.find((result) => result !== null);
   if (failure) return failure;
   const unconfirmed = plans
@@ -310,32 +353,7 @@ async function saveLiveBodyPageTitles(
 export async function saveOpenEditorTitles(
   documentIds: readonly string[],
 ): Promise<OpenEditorTitleFlush | undefined> {
-  const rows: LiveBodyWriterPageRow[] = [];
-  for (
-    let offset = 0;
-    offset < documentIds.length;
-    offset += TITLE_FLUSH_PAGE_GROUP
-  ) {
-    const group = documentIds.slice(offset, offset + TITLE_FLUSH_PAGE_GROUP);
-    rows.push(
-      // guard:allow-unscoped — the caller checked access to these pages; this reads only their write-path markers.
-      ...(await getDb()
-        .select(liveBodyWriterPageColumns)
-        .from(schema.documents)
-        .where(
-          and(
-            inArray(schema.documents.id, group),
-            isNotNull(schema.documents.liveBodySwitchedAt),
-          ),
-        )),
-    );
-  }
-  const gates = await liveBodyWriterGatesForRows(rows);
-  const liveBodyIds = new Set(
-    rows
-      .filter((_row, index) => gates[index]?.writePath === "live_copy")
-      .map((row) => row.id),
-  );
+  const liveBodyIds = await liveBodyWriterPageIds(documentIds);
   if (liveBodyIds.size === 0) return undefined;
   return saveLiveBodyPageTitles(
     documentIds.filter((id) => liveBodyIds.has(id)),

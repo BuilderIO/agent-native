@@ -2827,6 +2827,59 @@ describe("a version restore on a switched page", () => {
     ).resolves.toBeNull();
   });
 
+  it("restores on main's path, not as a conflict, when the page's flags go off after the title save it asked for", async () => {
+    await switchedPage("restore-left", "First draft");
+    await serverEdit("restore-left", "Second draft");
+    const versionId = await versionHolding("restore-left", "First draft");
+    const prepared = await metadata("restore-left");
+    await openEditorTab("restore-left", OWNER, { canFlushTitle: true });
+    const tab = (async () => {
+      const titleRequest = await answerFlushRequest(
+        "restore-left",
+        OWNER,
+        { status: "success", scope: "title", saved: true },
+        async () => {
+          await getDb()
+            .update(schema.documents)
+            .set({
+              title: "Typed title",
+              updatedAt: new Date(
+                Date.parse(prepared.updatedAt) + 1_000,
+              ).toISOString(),
+            })
+            .where(eq(schema.documents.id, "restore-left"));
+          await setFlags(false);
+        },
+      );
+      // Main's path asks the tab again before it restores.
+      await answerFlushRequest("restore-left", OWNER, { status: "success" });
+      return titleRequest;
+    })();
+
+    const restored = await restore(
+      "restore-left",
+      versionId,
+      prepared.updatedAt,
+    );
+
+    expect(await tab).toMatchObject({ scope: "title" });
+    expect(restored).toMatchObject({ content: "First draft" });
+    expect(await gateFor("restore-left")).not.toEqual({
+      writePath: "live_copy",
+    });
+    const versions = await getDb()
+      .select({
+        title: schema.documentVersions.title,
+        content: schema.documentVersions.content,
+      })
+      .from(schema.documentVersions)
+      .where(eq(schema.documentVersions.documentId, "restore-left"));
+    expect(versions).toContainEqual({
+      title: "Typed title",
+      content: "Second draft",
+    });
+  });
+
   it("restores a version's private callout icon in the page's canonical form", async () => {
     const icon = serializeIconValue({
       version: 1,
