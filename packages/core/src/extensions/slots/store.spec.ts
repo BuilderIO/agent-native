@@ -151,6 +151,11 @@ beforeEach(async () => {
       identity_id TEXT
     );
   `);
+  await pglite.query(
+    `INSERT INTO organizations (id, name, created_by, created_at, identity_authority, identity_id)
+     VALUES (?, ?, ?, ?, NULL, NULL)`,
+    [ORG, "Slot fixture organization", OWNER, Date.now()],
+  );
   await pglite.exec(EXTENSION_SLOTS_CREATE_SQL);
   await pglite.exec(EXTENSION_SLOTS_BY_SLOT_INDEX_SQL);
   await pglite.exec(EXTENSION_SLOTS_BY_EXTENSION_INDEX_SQL);
