@@ -496,7 +496,7 @@ export const DESIGN_E2E_REGRESSION_PINS = [
     title: "Cmd+Shift+R replaces a flow text root at its measured origin",
   },
   {
-    shard: "inspector-1a",
+    shard: "inspector-3b",
     file: "canvas-chords.spec.ts",
     title: "Cmd+Shift+R uses rendered flow offsets for relative text",
   },
