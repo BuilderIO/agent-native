@@ -230,7 +230,7 @@
     "@changesets/cli": "2.31.0",
     "@cloudflare/vite-plugin": "^1.31.0",
     "@playwright/test": "catalog:",
-    "@shadcn/lint": "0.1.0",
+    "@shadcn/lint": "0.2.1",
     "ajv": "8.20.0",
     "ajv-formats": "3.0.1",
     "concurrently": "^9.1.0",
