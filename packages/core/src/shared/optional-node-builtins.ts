@@ -28,6 +28,14 @@ export function getAsyncLocalStorageCtor(): AsyncLocalStorageCtor | undefined {
   )?.AsyncLocalStorage;
 }
 
+export function getWorkerThreads():
+  | typeof import("node:worker_threads")
+  | undefined {
+  return nodeBuiltin<typeof import("node:worker_threads")>(
+    "node:worker_threads",
+  );
+}
+
 type EventEmitterCtor = new () => EventEmitter;
 
 export function createEventEmitter(): EventEmitter {

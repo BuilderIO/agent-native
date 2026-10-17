@@ -402,3 +402,34 @@ describe("validateDashboardConfig multi-select options", () => {
     });
   });
 });
+
+describe("validateDashboardConfig annotations", () => {
+  const config = (annotations: unknown) => ({
+    name: "Onboarding",
+    panels: [panel("a")],
+    annotations,
+  });
+
+  it("accepts the key-date sets and data notes a dashboard hides", () => {
+    expect(
+      validateDashboardConfig(
+        config({
+          hiddenKeyDateSets: ["launches"],
+          hiddenDataNotes: [{ noteId: "note-1", panelId: "a" }],
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it("rejects malformed annotations instead of saving them", () => {
+    expect(validateDashboardConfig(config("launches"))).toMatch(
+      /config\.annotations must be an object/,
+    );
+    expect(
+      validateDashboardConfig(config({ hiddenKeyDateSets: "launches" })),
+    ).toMatch(/hiddenKeyDateSets must be an array/);
+    expect(
+      validateDashboardConfig(config({ hiddenDataNotes: ["note-1"] })),
+    ).toMatch(/hiddenDataNotes must be/);
+  });
+});

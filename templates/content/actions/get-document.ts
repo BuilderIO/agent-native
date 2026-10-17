@@ -15,6 +15,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { parseDocumentHideFromSearch } from "../server/lib/documents.js";
+import { liveBodyWriterGate } from "../server/lib/live-body-writer.js";
 import { favoriteDocumentIds } from "./_content-favorites.js";
 import {
   getDatabaseByDocumentId,
@@ -419,6 +420,7 @@ export default defineAction({
       bodyRevision: doc.bodyRevision,
       collabContentRevision:
         doc.collabBodyRevision === doc.bodyRevision ? revision : null,
+      writePath: (await liveBodyWriterGate(doc.id)).writePath,
       contentHash: documentContentHash(doc.content ?? ""),
       description: doc.description,
       icon: doc.icon,

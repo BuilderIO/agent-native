@@ -403,6 +403,7 @@
     },
     "./router": "./dist/router/index.js",
     "./collab": "./dist/collab/index.js",
+    "./collab/live-copy-tasks": "./dist/collab/live-copy-tasks.js",
     "./a2a": "./dist/a2a/index.js",
     "./mcp": "./dist/mcp/index.js",
     "./mcp-client": "./dist/mcp-client/index.js",

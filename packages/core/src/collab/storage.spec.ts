@@ -6,6 +6,7 @@ import {
   loadYDocRecordWithClient,
   saveYDocState,
   hasCollabState,
+  strictBase64ToUint8Array,
   trySaveYDocState,
   trySaveYDocStateWithClient,
 } from "./storage.js";
@@ -163,5 +164,33 @@ describe("collab storage optimistic saves", () => {
 
     await expect(hasCollabState("empty")).resolves.toBe(false);
     await expect(hasCollabState("seeded")).resolves.toBe(true);
+  });
+});
+
+describe("strictBase64ToUint8Array", () => {
+  it("decodes canonical base64 and refuses anything else", () => {
+    expect(strictBase64ToUint8Array("")).toEqual(new Uint8Array(0));
+    expect(strictBase64ToUint8Array("AAEC")).toEqual(new Uint8Array([0, 1, 2]));
+    expect(strictBase64ToUint8Array("AA==")).toEqual(new Uint8Array([0]));
+    for (const junk of [
+      "!!!",
+      "AA=",
+      "AA",
+      "AB==",
+      "AA==AA==",
+      "AA AA",
+      "AA\n",
+    ]) {
+      expect(strictBase64ToUint8Array(junk)).toBeNull();
+    }
+  });
+
+  it("decodes a state of several megabytes without overflowing the stack", () => {
+    const bytes = new Uint8Array(5 * 1024 * 1024).map(
+      (_, index) => index % 251,
+    );
+    const decoded = strictBase64ToUint8Array(toBase64(bytes));
+    // Element-wise toEqual on 5 MiB takes most of the test timeout.
+    expect(decoded && Buffer.from(decoded).equals(bytes)).toBe(true);
   });
 });

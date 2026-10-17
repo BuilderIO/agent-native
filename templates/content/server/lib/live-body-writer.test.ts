@@ -7,6 +7,7 @@ import { runWithRequestContext } from "@agent-native/core/server";
 import { putOrgSetting, putSetting } from "@agent-native/core/settings";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import * as Y from "yjs";
 
 const TEST_DB_PATH = join(
   tmpdir(),
@@ -21,6 +22,7 @@ const WRITER = "feature-flag:content.live-body-writer";
 let getDb: typeof import("../db/index.js").getDb;
 let schema: typeof import("../db/schema.js");
 let gate: typeof import("./live-body-writer.js");
+let collab: typeof import("@agent-native/core/collab");
 
 function rules(targets: { emails?: string[]; orgIds?: string[] }) {
   return {
@@ -48,6 +50,7 @@ async function insertPage(
     switched?: boolean;
     bodyRevision?: number;
     collabBodyRevision?: number | null;
+    liveCopyVersion?: number | null;
     orgId?: string | null;
   } = {},
 ) {
@@ -64,9 +67,13 @@ async function insertPage(
       collabBodyRevision:
         page.collabBodyRevision === undefined ? 3 : page.collabBodyRevision,
       liveBodySwitchedAt: page.switched === false ? null : now,
+      liveCopyVersion:
+        page.liveCopyVersion === undefined ? 0 : page.liveCopyVersion,
       createdAt: now,
       updatedAt: now,
     });
+  // Its collab doc, created at version 0.
+  await collab.saveYDocState(id, Y.encodeStateAsUpdate(new Y.Doc()), "Body");
 }
 
 beforeAll(async () => {
@@ -82,11 +89,36 @@ beforeAll(async () => {
     await import("../../shared/feature-flags.js");
   registerFeatureFlags(CONTENT_FEATURE_FLAGS);
   gate = await import("./live-body-writer.js");
+  collab = await import("@agent-native/core/collab");
+  await getDbExec().execute(`CREATE TABLE IF NOT EXISTS org_members (
+    id TEXT PRIMARY KEY,
+    org_id TEXT NOT NULL,
+    email TEXT NOT NULL,
+    role TEXT NOT NULL,
+    joined_at BIGINT NOT NULL,
+    federation_removal_pending_at BIGINT
+  )`);
 }, 60_000);
+
+async function joinOrg(email: string, orgId: string) {
+  await getDbExec().execute({
+    sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
+    args: [`${orgId}:${email}`, orgId, email, "owner", Date.now()],
+  });
+}
 
 beforeEach(async () => {
   await getDb().delete(schema.documents);
+  await getDbExec()
+    .execute("DELETE FROM _collab_docs")
+    .catch((error) => {
+      // The first test runs before core creates the table.
+      if (!/_collab_docs" does not exist/.test(String(error))) throw error;
+    });
+  await getDbExec().execute("DELETE FROM org_members");
+  // Global rules first: the settings table is created by its first write.
   await setFlags({});
+  await getDbExec().execute("DELETE FROM public.settings WHERE key LIKE 'o:%'");
 });
 
 afterAll(() => {
@@ -159,11 +191,47 @@ describe("live-body writer gate", () => {
   it("follows an organization rollout for the page's organization", async () => {
     await insertPage("org-page", { orgId: ORG });
     await insertPage("personal-page");
+    await joinOrg(OWNER, ORG);
     await putOrgSetting(ORG, SHADOW, rules({ orgIds: [ORG] }));
     await putOrgSetting(ORG, WRITER, rules({ orgIds: [ORG] }));
 
     await expect(gate.liveBodyWriterGate("org-page")).resolves.toEqual({
       writePath: "live_copy",
+    });
+    await expect(gate.liveBodyWriterGate("personal-page")).resolves.toEqual({
+      writePath: "legacy",
+      reason: "flag_off",
+    });
+  });
+
+  it("switches an owner's personal pages on their own enablement in one of their orgs, whoever is calling", async () => {
+    await insertPage("personal-page");
+    await joinOrg(OWNER, ORG);
+    await joinOrg(COLLABORATOR, ORG);
+    // What enable-for-current-user stores for a manager whose active org is ORG.
+    await putOrgSetting(ORG, SHADOW, rules({ emails: [OWNER] }));
+    await putOrgSetting(ORG, WRITER, rules({ emails: [OWNER] }));
+
+    await expect(
+      runWithRequestContext({ userEmail: COLLABORATOR, orgId: ORG }, () =>
+        gate.liveBodyWriterGate("personal-page"),
+      ),
+    ).resolves.toEqual({ writePath: "live_copy" });
+
+    // A collaborator's own enablement does not switch the owner's page.
+    await putOrgSetting(ORG, SHADOW, rules({ emails: [COLLABORATOR] }));
+    await putOrgSetting(ORG, WRITER, rules({ emails: [COLLABORATOR] }));
+    await expect(gate.liveBodyWriterGate("personal-page")).resolves.toEqual({
+      writePath: "legacy",
+      reason: "flag_off",
+    });
+
+    // Nor does the owner's listing in an org they have left.
+    await putOrgSetting(ORG, SHADOW, rules({ emails: [OWNER] }));
+    await putOrgSetting(ORG, WRITER, rules({ emails: [OWNER] }));
+    await getDbExec().execute({
+      sql: "UPDATE org_members SET federation_removal_pending_at = ? WHERE email = ?",
+      args: [Date.now(), OWNER],
     });
     await expect(gate.liveBodyWriterGate("personal-page")).resolves.toEqual({
       writePath: "legacy",
@@ -186,6 +254,38 @@ describe("live-body writer gate", () => {
     await expect(gate.liveBodyWriterGate("never-synced")).resolves.toEqual({
       writePath: "legacy",
       reason: "live_copy_behind",
+    });
+  });
+
+  it("keeps a switched page on the legacy path once its live copy has moved past the stored body", async () => {
+    await setFlags({
+      shadow: { emails: [OWNER] },
+      writer: { emails: [OWNER] },
+    });
+    await insertPage("moved", { liveCopyVersion: 0 });
+    await insertPage("never-derived", { liveCopyVersion: null });
+    // An editor update committed on main's path while the flags were off.
+    await collab.saveYDocState(
+      "moved",
+      Y.encodeStateAsUpdate(new Y.Doc()),
+      "Body",
+    );
+
+    await expect(gate.liveBodyWriterGate("moved")).resolves.toEqual({
+      writePath: "legacy",
+      reason: "stored_body_behind",
+    });
+    await expect(gate.liveBodyWriterGate("never-derived")).resolves.toEqual({
+      writePath: "legacy",
+      reason: "stored_body_behind",
+    });
+    await getDbExec().execute({
+      sql: "DELETE FROM _collab_docs WHERE doc_id = ?",
+      args: ["moved"],
+    });
+    await expect(gate.liveBodyWriterGate("moved")).resolves.toEqual({
+      writePath: "legacy",
+      reason: "stored_body_behind",
     });
   });
 

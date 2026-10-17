@@ -1,5 +1,7 @@
 import type { ViteUserConfig } from "vitest/config";
 
+import { boundedTaskSourcePlugin } from "./vite/bounded-task-plugin.js";
+
 const DEFAULT_MAX_WORKERS = "25%";
 const ENV_KEYS = ["VITEST_CONCURRENCY", "AGENT_NATIVE_VITEST_CONCURRENCY"];
 
@@ -38,6 +40,8 @@ export function resolveMaxWorkers(
 }
 
 const vitestBaseConfig: ViteUserConfig = {
+  // App tests import server modules that load `?bounded-task` sources.
+  plugins: [boundedTaskSourcePlugin()],
   test: {
     maxWorkers: resolveMaxWorkers(),
     // Vitest's 5 s default only holds while a worker has a core to itself.

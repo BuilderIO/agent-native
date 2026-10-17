@@ -267,6 +267,61 @@ optimizeDeps: {
 | `POST /_agent-native/collab/:docId/awareness` | Sync cursor/presence state |
 | `GET /_agent-native/collab/:docId/users` | List active users |
 
+## Live Copies
+
+A live copy is a document whose Yjs state is the only writable copy of a body;
+the server derives its text on every commit. Declare one with `defineLiveCopy`
+from `@agent-native/core/collab` and pass it to `createCollabPlugin({ liveCopy,
+autoSeed: false })`. Its `name` is its identity: defining the same name again
+replaces the old binding, so a dev reload never leaves a stale one in front;
+work the old binding started commits nothing unless its transaction was
+already committing. Then:
+
+- A live copy's Yjs work (merge, derive, seed, edits) runs only in the
+  binding's `createBoundedTaskRunner`, never on the request thread. Writes to
+  one document wait their turn ahead of that runner, so the binding's
+  `maxWaitingWrites` (default 16), not the runner's queue, bounds them; past
+  it a write fails with `build_failed` / `queue_full`, a 503. Readers of a
+  row this instance has not cached share one runner task, and its text is
+  cached with it, so `readLiveCopy` of a cached row runs none. Its module
+  exports `tasks = defineLiveCopyTasks({ derive, seed, edits })` from
+  `@agent-native/core/collab/live-copy-tasks` and is imported as
+  `./tasks.ts?bounded-task`, which the app's Vite build, server build and
+  `@agent-native/core/vitest-config` already resolve; declare that module
+  pattern's default export as a `BoundedTaskSource` in the app's `*.d.ts`. A
+  handler returns `{ kind: "refused", reason }` for content it cannot
+  represent; never drop it.
+- Edit on the server with `mutateLiveCopy(binding, docId, { edit, input })`,
+  where `edit` names one of the module's edits, and seed with `seedLiveCopy`.
+  Other write helpers throw `write_refused` for covered documents, and
+  `getDoc`, `getText` and `getJson` throw `read_refused`; read with
+  `readLiveCopy`. Do not work around either. All three throw `not_live_copy`
+  for a document the binding does not cover, and for a binding that was
+  released or replaced; call them with the binding `defineLiveCopy` returned
+  last. Only the first means the document left its live copy; the second has
+  reason `binding_inactive`, and retrying with the same handle cannot succeed. Call these writers, and `applyUpdate` on a live copy, outside any
+  transaction; they refuse a caller's, including a persist hook's, so a hook
+  reads its own document with `getState` or `readLiveCopy` but never writes
+  it. Rows that must commit with one edit
+  (say, the suggestion it accepts) go in `mutateLiveCopy`'s `persist` option,
+  which runs in the edit's own transaction. On a changed edit, core stops an
+  attempt a peer overtook before that persist runs, so a persist that checks
+  the app's rows against the edit sees the edit's own base. That check is
+  exact only when the binding's persist takes the lock every commit of the
+  document shares, such as the page row. An edit that changes nothing commits
+  no row core can check first: lock the app's rows, compare
+  `loadYDocVersion(docId)` with `change.version`, and return without writing
+  when it moved; core then redoes the edit. A persist's error is never retried.
+- Write the app's own rows in the binding's `persist` hook, which runs in the
+  commit transaction before `_collab_docs`. Do not save derived text elsewhere.
+  Return `{ derived: false, reason }` when it leaves them alone: the Yjs state
+  still commits, and the update ack says `liveCopy: "not_derived"`, so the
+  client can resume its own saves. An ack without `liveCopy` means unknown.
+- Handle `LiveCopyError` by `code`. Absent, unseeded and `malformed_state` are
+  different states; never treat malformed state as empty. Only an empty field
+  is unseeded, so an update or edit that would empty it is refused; editors
+  keep one empty block instead.
+
 ## Granular Server-Side Merge Pattern
 
 For structured documents (slides, forms, design files) where body collab would
