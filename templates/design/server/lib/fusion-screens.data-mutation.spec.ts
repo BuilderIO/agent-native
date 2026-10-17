@@ -127,4 +127,43 @@ describe("fusion screen designs.data mutation", () => {
       },
     });
   });
+
+  it("renames an earlier fusion-prefixed screen instead of adding a new one", async () => {
+    state.existingFiles = [
+      { id: "legacy-home", filename: "fusion-home.html", content: "https://example.test/" },
+    ];
+    const rows = state.existingFiles;
+    // One read lists the design's files, the other re-reads the row in the
+    // update transaction.
+    const selectWithLimit = () => ({
+      from: vi.fn(() => ({
+        where: vi.fn(() =>
+          Object.assign(Promise.resolve(rows), {
+            limit: vi.fn(async () => [{ id: "legacy-home" }]),
+          }),
+        ),
+      })),
+    });
+    state.db.select
+      .mockImplementationOnce(selectWithLimit)
+      .mockImplementationOnce(selectWithLimit);
+    const set = vi.fn(() => ({ where: vi.fn(async () => undefined) }));
+    state.db.update.mockImplementationOnce(() => ({ set }));
+    state.hasCollabState.mockResolvedValue(false);
+
+    const result = await upsertFusionScreens({
+      designId: "design-1",
+      previewUrl: "https://example.test",
+      paths: ["/"],
+      width: 800,
+      height: 600,
+      gap: 100,
+    });
+
+    expect(result.screens).toEqual([
+      expect.objectContaining({ fileId: "legacy-home", filename: "home.html", title: "Home" }),
+    ]);
+    expect(set).toHaveBeenCalledWith(expect.objectContaining({ filename: "home.html" }));
+    expect(state.insertChain.values).not.toHaveBeenCalled();
+  });
 });

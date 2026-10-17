@@ -35,7 +35,7 @@ export default defineAction({
     "design. Use this when the user requests a change to a screen backed by a " +
     "running app container (sourceType 'fusion') — the edit cannot be applied " +
     "synchronously like inline HTML, so it queues as a pending row. Call " +
-    "apply-fusion-edits to dispatch all pending edits to the in-container app " +
+    "apply-builder-edits to dispatch all pending edits to the in-container app " +
     "agent in one batch. Pass screenFileId and/or target (selector/path/url/" +
     "nodeName) when the user has a specific screen or element selected so the " +
     "app agent has enough context to locate the change.",

@@ -316,6 +316,13 @@ export async function sendFusionBranchMessage(
     fireAndForget?: boolean;
     timeoutMs?: number;
     userEmail?: string;
+    /**
+     * Every coding-agent step as it streams (`GenerateCompletionStep`:
+     * text, thinking, tool, tool_result, file, diff, done, error, ...), so a
+     * delegating agent can show the Builder agent's work live instead of only
+     * its final message. Pair with `fireAndForget: false`.
+     */
+    onEvent?: (step: Record<string, unknown>) => void;
   },
 ): Promise<SendFusionMessageResult> {
   const prompt = args.prompt?.trim();
@@ -378,6 +385,7 @@ export async function sendFusionBranchMessage(
         const event = chunk.event;
         if (event && typeof event === "object") {
           const ev = event as Record<string, unknown>;
+          args.onEvent?.(ev);
           if (asString(ev.type) === "done" && Array.isArray(ev.actions)) {
             for (const action of ev.actions) {
               if (

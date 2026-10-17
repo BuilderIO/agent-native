@@ -39,7 +39,7 @@ export default defineAction({
     "returns a connect CTA — never throws. If the design already has a " +
     "fusion app, returns the existing linkage instead of creating a second " +
     "branch. The branch container may still be booting after this call — " +
-    "call sync-fusion-app to poll for the preview URL.",
+    "call sync-builder-app to poll for the preview URL.",
   schema: z.object({
     designId: z.string().describe("Design project ID to back with a full app."),
     prompt: z
@@ -73,8 +73,8 @@ export default defineAction({
         editorUrl: existingApp.editorUrl,
         message:
           `This design is already backed by fusion branch ` +
-          `"${existingApp.branchName}". Call sync-fusion-app to check its ` +
-          `status, or send-fusion-message to continue building on it.`,
+          `"${existingApp.branchName}". Call sync-builder-app to check its ` +
+          `status, or send-builder-message to continue building on it.`,
       };
     }
 
@@ -102,7 +102,7 @@ export default defineAction({
             connectUrl,
           },
           message:
-            "Builder is not connected. Direct the user to the in-app Use Builder.io choice to create and activate in one click or sign in to an existing account, then retry create-fusion-app.",
+            "Builder is not connected. Direct the user to the in-app Use Builder.io choice to create and activate in one click or sign in to an existing account, then retry create-builder-app.",
         };
       }
 
@@ -155,7 +155,7 @@ export default defineAction({
       editorUrl: result.url,
       status: "building" as const,
       statusMessage:
-        "App is being generated. Call sync-fusion-app to check progress.",
+        "App is being generated. Call sync-builder-app to check progress.",
       createdAt: now,
       updatedAt: now,
     };
@@ -179,7 +179,7 @@ export default defineAction({
       editorUrl: result.url,
       message:
         `Started building "${design.title}" as a full app on branch ` +
-        `"${result.branchName}". Call sync-fusion-app to poll for the ` +
+        `"${result.branchName}". Call sync-builder-app to poll for the ` +
         `preview URL once the container finishes booting.`,
     };
   },

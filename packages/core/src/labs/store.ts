@@ -42,7 +42,7 @@ async function getStoredLabs(
 
 export interface UserLabState {
   enabled: boolean;
-  source: "choice" | "legacy" | "default";
+  source: "choice" | "legacy" | "default" | "host";
   legacyValues?: Record<string, boolean>;
   mixed: boolean;
 }
@@ -104,6 +104,22 @@ export async function getUserLabStates(
   return resolveStoredLabStates(email, stored, scope);
 }
 
+/**
+ * Host hook: when an app runs inside another product (e.g. Builder), the host
+ * owns rollout decisions. A host override wins over the user's saved choice
+ * and the lab default; return `undefined` to defer.
+ */
+type HostLabOverride = (
+  key: string,
+  scope: FeatureFlagScope & { userEmail: string },
+) => boolean | undefined;
+
+let hostLabOverride: HostLabOverride | null = null;
+
+export function registerHostLabOverrides(override: HostLabOverride | null): void {
+  hostLabOverride = override;
+}
+
 async function resolveStoredLabStates(
   email: string,
   stored: Record<string, unknown> | null,
@@ -143,6 +159,10 @@ async function resolveStoredLabStates(
   );
   return Object.fromEntries(
     definitions.map((lab) => {
+      const hosted = hostLabOverride?.(lab.key, evaluationScope);
+      if (typeof hosted === "boolean") {
+        return [lab.key, { enabled: hosted, source: "host", mixed: false }];
+      }
       if (invalidChoices.has(lab.key)) {
         return [lab.key, { error: "invalid-choice" }];
       }

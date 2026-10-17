@@ -23,7 +23,7 @@ export default defineAction({
   description:
     "List queued fusion (full-app) visual edit instructions for a design, " +
     "oldest first. Optionally filter by status (pending|sent|error). Use to " +
-    "review what's queued before calling apply-fusion-edits, or to check the " +
+    "review what's queued before calling apply-builder-edits, or to check the " +
     "outcome of a previous batch.",
   schema: z.object({
     designId: z.string().describe("Design project ID backed by a fusion app."),

@@ -17,7 +17,7 @@ export default defineAction({
     "Push a fusion (full-app) design's branch code to its git remote. Use " +
     "when the user wants the current app code synced to git as a checkpoint " +
     "or before handing off elsewhere. Does not deploy or affect the live " +
-    "container preview — use deploy-fusion-app for a hosted deploy.",
+    "container preview — use deploy-builder-app for a hosted deploy.",
   schema: z.object({
     designId: z.string().describe("Design project ID backed by a fusion app."),
   }),
@@ -31,7 +31,7 @@ export default defineAction({
     const fusionApp = readFusionApp(design.data);
     if (!fusionApp) {
       throw new Error(
-        "This design has no fusion app linkage. Call create-fusion-app first.",
+        "This design has no fusion app linkage. Call create-builder-app first.",
       );
     }
 

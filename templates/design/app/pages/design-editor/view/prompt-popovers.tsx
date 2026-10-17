@@ -1,4 +1,5 @@
 import { readCreativeContextState } from "@agent-native/creative-context/client";
+import { getDesignHostChannel } from "@/host/design-host-channel";
 import { type PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
 import { InvalidCanvasDimensionsError } from "@shared/canvas-dimensions";
 import { getOverviewScreenFileIds } from "@shared/design-files";
@@ -125,13 +126,10 @@ export function renderPromptPopovers({
           const images = imageAttachmentsFromUploadedFiles(files);
           if (isBuilderDesignEmbed) {
             const data = builderDesignEmbedSubmitData(prompt, images);
-            window.parent.postMessage(
-              {
-                type: "agentNative.submitChat",
-                data,
-              },
-              parentOriginRef.current ?? window.location.origin,
-            );
+            getDesignHostChannel().send({
+              type: "agentNative.submitChat",
+              data,
+            });
             handlePromptOpenChange(false);
             return;
           }

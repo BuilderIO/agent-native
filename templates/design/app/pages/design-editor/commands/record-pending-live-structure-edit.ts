@@ -1,3 +1,4 @@
+import { isRunningAppSourceType } from "@shared/source-mode";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 
 import type { ElementInfo } from "@/components/design/types";
@@ -213,7 +214,9 @@ export function preparePendingLiveStructureEdit(
     info: details?.anchorElementInfo,
     sourceAnchor: nextEdit.anchorSourceAnchor,
   });
-  const isRunningLocalhostScreen = overviewScreen?.sourceType === "localhost";
+  const isRunningLocalhostScreen = isRunningAppSourceType(
+    overviewScreen?.sourceType,
+  );
   if (
     !isRunningLocalhostScreen &&
     isPendingStructureDropNoOp(
@@ -416,11 +419,10 @@ export function runRecordPendingLiveStructureEdit(
         recordPendingHistoryEntry,
         setPendingLiveNonStyleEdits,
       },
-      replayEdits.map(
-        (expected) =>
-          prepared.find((edit) =>
-            pendingLiveStructureEditsMatch(edit, expected),
-          )!,
+      replayEdits.map((expected) =>
+        prepared.find((edit) =>
+          pendingLiveStructureEditsMatch(edit, expected),
+        )!,
       ),
     );
     return;

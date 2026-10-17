@@ -5,8 +5,8 @@ import {
   type AgentChatMessage,
   type SendToAgentChatAndConfirmResult,
 } from "@agent-native/core/client/agent-chat";
-import { sendToBuilderChat } from "@agent-native/core/client/host";
 
+import { sendToHostChat } from "@/lib/builder-host-chat";
 import {
   getVerifiedBuilderHostOrigin,
   isBuilderHostEmbed,
@@ -50,7 +50,7 @@ export async function sendDesignSourceHandoffAndConfirm(
   options?: { timeoutMs?: number },
 ): Promise<DesignSourceHandoffResult> {
   if (isEmbedChromeRequested() && isBuilderHostEmbed()) {
-    const posted = sendToBuilderChat({
+    const posted = sendToHostChat({
       message: opts.message,
       context: opts.context,
       submit: true,

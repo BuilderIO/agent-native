@@ -2,6 +2,7 @@ import { useTheme } from "next-themes";
 import { Link } from "react-router";
 
 import { AgentNativeMenuMark } from "@/components/design/editor/AgentNativeMenuMark";
+import { getDesignHostMenuItems } from "@/host/host-menu-items";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -129,6 +130,12 @@ export function renderProjectMenu({
           suppressProjectMenuReturnFocusRef.current = false;
         }}
       >
+        {getDesignHostMenuItems().map((item) => (
+          <DropdownMenuItem key={item.id} onClick={item.onSelect}>
+            {item.label}
+          </DropdownMenuItem>
+        ))}
+        {getDesignHostMenuItems().length > 0 ? <DropdownMenuSeparator /> : null}
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>
             {t("designEditor.appMenu.file")}

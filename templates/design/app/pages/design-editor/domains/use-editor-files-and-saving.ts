@@ -1,4 +1,5 @@
 import { appBasePath } from "@agent-native/core/client/api-path";
+import { isHostedInProcess } from "@/host/design-host-channel";
 import {
   useActionQuery,
   callAction,
@@ -795,7 +796,8 @@ export function useEditorFilesAndSaving({
   );
 
   useEffect(() => {
-    if (!design?.title) return;
+    // The page title belongs to an in-process host, not the editor.
+    if (!design?.title || isHostedInProcess()) return;
     const nextTitle = `${normalizeDocumentTitle(design.title, "Untitled design")} — Design`;
     const previousTitle = document.title;
     document.title = nextTitle;

@@ -1,3 +1,4 @@
+import { isRunningAppSourceType } from "@shared/source-mode";
 import {
   usePresence,
   useFollowUser,
@@ -819,10 +820,7 @@ export function useEditorLiveEditsAndPresence({
       if (!other.isAgent || other.presence.cursor) return other;
       let rect: DOMRect | null = null;
       const selection = other.presence.selection as
-        | string
-        | { selector?: string }
-        | null
-        | undefined;
+        string | { selector?: string } | null | undefined;
       const selector =
         typeof selection === "string" ? selection : selection?.selector;
       if (selector) rect = resolveSelectorRect(selector);
@@ -1114,10 +1112,10 @@ export function useEditorLiveEditsAndPresence({
     () =>
       new Set(
         overviewScreens
-          .filter(
-            (screen) =>
-              resolveOverviewScreenSourceType(screen, designSourceType) ===
-              "localhost",
+          .filter((screen) =>
+            isRunningAppSourceType(
+              resolveOverviewScreenSourceType(screen, designSourceType),
+            ),
           )
           .map((screen) => screen.id),
       ),

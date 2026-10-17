@@ -6132,6 +6132,9 @@ importers:
       isbot:
         specifier: ^5
         version: 5.1.44
+      jose:
+        specifier: ^6.2.2
+        version: 6.2.3
       jspdf:
         specifier: ^4.2.1
         version: 4.2.1
