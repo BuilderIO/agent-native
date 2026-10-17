@@ -36,6 +36,7 @@ import {
 } from "../server/lib/document-attribution.js";
 import {
   findDocumentBodyIntent,
+  hasWholeDocumentBodyAfterGeneration,
   preserveDocumentBodyIntent,
   readDocumentBodyIntents,
   recordDocumentBodyIntent,
@@ -53,6 +54,7 @@ import {
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
 import {
+  authorizePrivateCalloutIcons,
   syncPrivateCalloutReferences,
   syncPrivateIconReference,
   verifyPrivateIconAssignment,
@@ -626,6 +628,12 @@ const updateDocumentAction = defineAction({
       .describe(
         "Immutable browser save attempt ID; retry with the exact same payload",
       ),
+    journalReplay: z
+      .literal(true)
+      .optional()
+      .describe(
+        "Browser-only: set when the page's draft journal resends a closed editor's unsaved edits",
+      ),
     preserveLeadingTitleHeading: z
       .boolean()
       .optional()
@@ -1142,6 +1150,7 @@ const updateDocumentAction = defineAction({
               return;
             }
           }
+          let replayExtendsDiscardedGeneration = false;
           if (settlesPreviewDraft) {
             await lockPreviewDocumentDraftSettlement({
               db: tx,
@@ -1167,6 +1176,23 @@ const updateDocumentAction = defineAction({
               measurement.outcome = "superseded";
               return;
             }
+            // A journal replay resends typing from an editor that is no
+            // longer open. If recovery discarded one of its generations and
+            // no later body from the session was applied here whole, a later
+            // generation was typed on top of the discarded edits and still
+            // holds them. The settled generation cannot tell: Save separately
+            // settles one without applying its body here, and a body applied
+            // under a title another writer changed settles none.
+            replayExtendsDiscardedGeneration =
+              args.journalReplay === true &&
+              discardedGeneration !== null &&
+              !(await hasWholeDocumentBodyAfterGeneration({
+                db: tx as ReturnType<typeof getDb>,
+                ownerEmail,
+                documentId: id,
+                writerId: `browser:${(requestUserEmail as string).toLowerCase()}:${args.editorSessionId}`,
+                generation: discardedGeneration,
+              }));
           }
           const [historyBefore] = await tx
             .select({
@@ -1428,6 +1454,40 @@ const updateDocumentAction = defineAction({
           ) {
             measurement.reason_code = "title_base_changed";
             contentCasConflict = true;
+            return;
+          }
+          // The write below checks the same base; the row is locked, so this
+          // refuses exactly what it would.
+          if (
+            useDocumentCas &&
+            !intentMerge &&
+            historyBefore.updatedAt !== args.baseUpdatedAt
+          ) {
+            measurement.reason_code = "timestamp_cas_conflict";
+            contentCasConflict = true;
+            return;
+          }
+          // After every refusal an unmarked save would reach, including the
+          // callout icon check its reference sync makes after the write.
+          if (replayExtendsDiscardedGeneration && content !== undefined) {
+            if (lockedContentChanged) {
+              await authorizePrivateCalloutIcons(
+                tx as unknown as ReturnType<typeof getDb>,
+                {
+                  documentId: id,
+                  before: historyBefore.content,
+                  after: content,
+                  userEmail: actor,
+                  ownerEmail,
+                  orgId: (existing.orgId as string | null) ?? null,
+                },
+              );
+            }
+            await preserveUnmergedContent(
+              authoredCandidateContent ?? content,
+              "provenance",
+            );
+            measurement.reason_code = "discarded_generation_replay";
             return;
           }
           const updatedAt =

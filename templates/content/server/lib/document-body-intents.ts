@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { and, asc, desc, eq, gt, lte } from "drizzle-orm";
+import { and, asc, desc, eq, gt, isNull, lte } from "drizzle-orm";
 
 import type { PriorDocumentBodyIntent } from "../../shared/document-intent-merge.js";
 import type { DocumentBodyIntent } from "../../shared/document-intent-order.js";
@@ -58,6 +58,34 @@ export async function findDocumentBodyIntent(args: {
     )
     .limit(1);
   return intent ?? null;
+}
+
+/**
+ * Whether a body from `writerId` after `generation` was applied to the page
+ * whole. A merge that moved any of a body to History may have left out the
+ * very text a caller asks about.
+ */
+export async function hasWholeDocumentBodyAfterGeneration(args: {
+  db: ContentDb;
+  ownerEmail: string;
+  documentId: string;
+  writerId: string;
+  generation: number;
+}): Promise<boolean> {
+  const [intent] = await args.db
+    .select({ id: schema.documentBodyIntents.id })
+    .from(schema.documentBodyIntents)
+    .where(
+      and(
+        eq(schema.documentBodyIntents.ownerEmail, args.ownerEmail),
+        eq(schema.documentBodyIntents.documentId, args.documentId),
+        eq(schema.documentBodyIntents.writerId, args.writerId),
+        gt(schema.documentBodyIntents.generation, args.generation),
+        isNull(schema.documentBodyIntents.displacedCheckpointId),
+      ),
+    )
+    .limit(1);
+  return intent !== undefined;
 }
 
 export async function findDocumentBodyBase(args: {

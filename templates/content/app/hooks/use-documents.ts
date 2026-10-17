@@ -308,6 +308,7 @@ export type DocumentUpdateRequestWithCas = DocumentUpdateRequest & {
   editorSessionId?: string;
   editorEditGeneration?: number;
   browserSaveAttemptId?: string;
+  journalReplay?: true;
   authoredBaseRevision?: string;
   authoredBaseContent?: string;
   authoredCandidateContent?: string;

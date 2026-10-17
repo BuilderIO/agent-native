@@ -136,22 +136,25 @@ export function calloutPrivateIconAssetIds(content: string): Set<string> {
   return found;
 }
 
-export async function syncPrivateCalloutReferences(
+interface CalloutReferenceChange {
+  documentId: string;
+  before: string;
+  after: string;
+  userEmail: string;
+  ownerEmail: string;
+  orgId: string | null;
+  source?:
+    | { kind: "document"; documentId: string }
+    | { kind: "version"; versionId: string };
+}
+
+/** Throws the refusal syncPrivateCalloutReferences would, and writes nothing. */
+export async function authorizePrivateCalloutIcons(
   db: Database,
-  input: {
-    documentId: string;
-    before: string;
-    after: string;
-    userEmail: string;
-    ownerEmail: string;
-    orgId: string | null;
-    source?:
-      | { kind: "document"; documentId: string }
-      | { kind: "version"; versionId: string };
-  },
-): Promise<void> {
+  input: CalloutReferenceChange,
+): Promise<{ added: string[]; removed: string[] }> {
   if (!input.before.includes("<callout") && !input.after.includes("<callout"))
-    return;
+    return { added: [], removed: [] };
   const before = calloutPrivateIconAssetIds(input.before);
   const after = calloutPrivateIconAssetIds(input.after);
   let authorizedSourceAssets: Set<string> | undefined;
@@ -205,6 +208,7 @@ export async function syncPrivateCalloutReferences(
     }
     authorizedSourceAssets = calloutPrivateIconAssetIds(source.content);
   }
+  const added: string[] = [];
   for (const assetId of after) {
     if (before.has(assetId)) continue;
     if (authorizedSourceAssets) {
@@ -243,6 +247,20 @@ export async function syncPrivateCalloutReferences(
         orgId: input.orgId,
       });
     }
+    added.push(assetId);
+  }
+  return {
+    added,
+    removed: [...before].filter((assetId) => !after.has(assetId)),
+  };
+}
+
+export async function syncPrivateCalloutReferences(
+  db: Database,
+  input: CalloutReferenceChange,
+): Promise<void> {
+  const { added, removed } = await authorizePrivateCalloutIcons(db, input);
+  for (const assetId of added) {
     await db
       .insert(schema.privateIconReferences)
       .values({
@@ -255,8 +273,7 @@ export async function syncPrivateCalloutReferences(
       })
       .onConflictDoNothing();
   }
-  for (const assetId of before) {
-    if (after.has(assetId)) continue;
+  for (const assetId of removed) {
     await db
       .delete(schema.privateIconReferences)
       .where(

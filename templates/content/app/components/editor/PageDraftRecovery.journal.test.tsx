@@ -434,12 +434,67 @@ describe("Page browser journal recovery", () => {
         baseRevision: "body:1:sha256:base",
         authoredBaseRevision: "body:1:sha256:base",
         browserSaveAttemptId: expect.any(String),
+        journalReplay: true,
         editorSnapshotTitle: "Saved",
       }),
     );
     expect(state.update.mock.calls[0]?.[0]).not.toHaveProperty("title");
     expect(state.update.mock.calls[0]?.[0]).not.toHaveProperty("baseTitle");
     expect(state.entries).toEqual([]);
+    expect(toast.success).not.toHaveBeenCalled();
+    expect(container.querySelector("textarea")).not.toBeNull();
+  });
+
+  it("keeps the journal entry when a replay's retry is refused as a reused attempt, then settles it from the first attempt's receipt", async () => {
+    state.entries = [entry("first", "Local")];
+    state.update.mockRejectedValue(
+      Object.assign(new Error("Attempt reused"), {
+        errorCode: "BROWSER_SAVE_ATTEMPT_REUSED",
+        statusCode: 409,
+      }),
+    );
+    state.rebase.mockImplementation(
+      async (args: {
+        base: { content: string; updatedAt: string; revision?: string };
+        content: string;
+        persist: (
+          content: string,
+          base: { content: string; updatedAt: string; revision?: string },
+        ) => Promise<Document>;
+      }) => ({
+        status: "saved",
+        document: await args.persist(args.content, args.base),
+      }),
+    );
+    await act(async () => render());
+
+    const sent = state.update.mock.calls[0]?.[0] as {
+      browserSaveAttemptId: string;
+      journalReplay?: true;
+    };
+    expect(sent.journalReplay).toBe(true);
+    expect(state.entries).toHaveLength(1);
+    expect(state.entries[0]?.snapshot.saveAttemptId).toBe(
+      sent.browserSaveAttemptId,
+    );
+    expect(state.cleared).not.toHaveBeenCalled();
+    expect(toast.success).not.toHaveBeenCalled();
+    expect(container.querySelector("textarea")).toBeNull();
+    const retry = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "database.retry",
+    );
+    expect(retry).toBeDefined();
+
+    state.receipt.mockImplementation(
+      async (_action: string, args: { browserSaveAttemptId: string }) => ({
+        found: args.browserSaveAttemptId === sent.browserSaveAttemptId,
+      }),
+    );
+    await act(async () => retry!.click());
+
+    expect(state.update).toHaveBeenCalledTimes(1);
+    expect(state.entries).toEqual([]);
+    expect(toast.success).not.toHaveBeenCalled();
     expect(container.querySelector("textarea")).not.toBeNull();
   });
 
@@ -483,7 +538,7 @@ describe("Page browser journal recovery", () => {
 
     await act(async () => render());
     expect(state.update).toHaveBeenCalledWith(
-      expect.objectContaining({ content: "Local Peer" }),
+      expect.objectContaining({ content: "Local Peer", journalReplay: true }),
     );
     expect(state.update.mock.calls[0]?.[0]).not.toHaveProperty(
       "authoredCandidateContent",
