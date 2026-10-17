@@ -101,10 +101,15 @@ export function clampFrameSheetRange(
 ): FrameSheetResult<FrameSheetRequest> {
   const duration =
     typeof durationMs === "number" && durationMs > 0 ? durationMs : null;
+  // The first cell must start before the video ends even after the cell
+  // tolerance moves it later, or ffmpeg ends the stream before any cell.
   const startMs =
     duration === null
       ? request.startMs
-      : Math.min(request.startMs, Math.max(0, duration - 1));
+      : Math.min(
+          request.startMs,
+          Math.max(0, duration - 1 - CELL_TOLERANCE_MS),
+        );
   const endMs =
     request.endMs === null || duration === null
       ? request.endMs

@@ -73,7 +73,7 @@ describe("clampFrameSheetRange", () => {
     });
     expect(
       clampFrameSheetRange(request({ startMs: 15_000, endMs: null }), 10_000),
-    ).toMatchObject({ ok: true, value: { startMs: 9999 } });
+    ).toMatchObject({ ok: true, value: { startMs: 9997 } });
   });
 
   it("refuses a range longer than a minute", () => {

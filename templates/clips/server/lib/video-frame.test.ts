@@ -8,7 +8,7 @@ import { promisify } from "node:util";
 import ffmpegPath from "ffmpeg-static";
 import { describe, expect, it } from "vitest";
 
-import { planFrameSheet } from "./video-frame-sheet.js";
+import { clampFrameSheetRange, planFrameSheet } from "./video-frame-sheet.js";
 import {
   extractJpegFrameFromFile,
   extractJpegFrameSheetFromFile,
@@ -588,6 +588,25 @@ describe("extractJpegFrameSheetFromFile", () => {
         },
         { dropFrames: [5, 80], durationSeconds: 3 },
       );
+    },
+  );
+
+  it.skipIf(!availableFfmpegPath)(
+    "shows the last frame for a range in the video's final milliseconds",
+    async () => {
+      await withNumberedVideo(async ({ root, videoPath }) => {
+        const range = clampFrameSheetRange(
+          { startMs: 1499, endMs: 1500, fps: 30 },
+          1500,
+        );
+        if (!range.ok) throw new Error(range.error);
+        const { frames } = await sheetFrames(root, videoPath, {
+          startMs: range.value.startMs,
+          endMs: range.value.endMs!,
+          fps: 30,
+        });
+        expect(frames).toEqual([44]);
+      });
     },
   );
 
