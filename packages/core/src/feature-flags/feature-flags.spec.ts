@@ -1,7 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const globalSettings = new Map<string, Record<string, unknown>>();
-const orgSettings = new Map<string, Record<string, unknown>>();
+const globalSettings = new Map<string, Record<string, unknown> | null>();
+const orgSettings = new Map<string, Record<string, unknown> | null>();
+const corruptSettings = new Set<string>();
+const entry = (settings: typeof globalSettings, key: string) => {
+  if (corruptSettings.has(key)) throw new SyntaxError("Unexpected token");
+  return settings.has(key)
+    ? { found: true as const, value: settings.get(key) }
+    : { found: false as const };
+};
 const executeMock = vi.fn(async () => ({ rows: [] }));
 const getSettingMock = vi.fn(
   async (key: string) => globalSettings.get(key) ?? null,
@@ -28,6 +35,7 @@ const getSettingsMock = vi.fn(async (keys: readonly string[]) => {
 vi.mock("../settings/store.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../settings/store.js")>()),
   getSetting: (...args: any[]) => getSettingMock(...args),
+  getSettingEntry: async (key: string) => entry(globalSettings, key),
   getSettings: (...args: any[]) => getSettingsMock(...args),
   putSetting: vi.fn(),
   mutateSetting: async (
@@ -46,6 +54,8 @@ vi.mock("../db/client.js", () => ({
 }));
 vi.mock("../settings/org-settings.js", () => ({
   getOrgSetting: (...args: any[]) => getOrgSettingMock(...args),
+  getOrgSettingEntry: async (orgId: string, key: string) =>
+    entry(orgSettings, `${orgId}:${key}`),
   putOrgSetting: vi.fn(),
   mutateOrgSetting: async (
     orgId: string,
@@ -68,6 +78,7 @@ beforeEach(() => {
   registry._resetFeatureFlagRegistryForTests();
   globalSettings.clear();
   orgSettings.clear();
+  corruptSettings.clear();
   vi.clearAllMocks();
   executeMock.mockResolvedValue({ rows: [] });
 });
@@ -287,5 +298,70 @@ describe("feature flag evaluator", () => {
         orgIds: ["org-1"],
       },
     );
+  });
+
+  it("reads routing rules strictly: unconfigured is off, malformed or unregistered throws", async () => {
+    registry.registerFeatureFlags([{ key: "write-path" }]);
+    await expect(
+      store.getFeatureFlagRulesStrict("write-path", {}),
+    ).resolves.toEqual(store.defaultFeatureFlagRules());
+
+    globalSettings.set("feature-flag:write-path", {
+      version: 1,
+      mode: "rules",
+      emails: ["Owner@Example.com"],
+    });
+    await expect(
+      store.getFeatureFlagRulesStrict("write-path", {}),
+    ).resolves.toMatchObject({ mode: "rules", emails: ["owner@example.com"] });
+
+    globalSettings.set("feature-flag:write-path", {
+      version: 1,
+      mode: "rules",
+      percentage: 25,
+    });
+    await expect(
+      store.getFeatureFlagRulesStrict("write-path", {}),
+    ).resolves.toMatchObject({ mode: "rules", percentage: 25 });
+
+    for (const malformed of [
+      null,
+      { mode: "on" },
+      { version: 2, mode: "on" },
+      { version: 1, mode: "onn" },
+      { version: 1, emails: ["owner@example.com"] },
+      { version: 1, mode: "rules", emails: "owner@example.com" },
+      { version: 1, mode: "rules", orgIds: ["org-1", 7] },
+      { version: 1, mode: "rules", percentage: 150 },
+      { version: 1, mode: "rules", percentage: 0.5 },
+    ]) {
+      globalSettings.set("feature-flag:write-path", malformed);
+      await expect(
+        store.getFeatureFlagRules("write-path", {}),
+      ).resolves.toMatchObject({ mode: expect.any(String) });
+      await expect(
+        store.getFeatureFlagRulesStrict("write-path", {}),
+      ).rejects.toMatchObject({ code: "malformed", key: "write-path" });
+    }
+
+    globalSettings.set("feature-flag:write-path", { version: 1, mode: "on" });
+    for (const malformed of [null, { version: 1, mode: "onn" }]) {
+      orgSettings.set("org-1:feature-flag:write-path", malformed);
+      await expect(
+        store.getFeatureFlagRulesStrict("write-path", { orgId: "org-1" }),
+      ).rejects.toMatchObject({ code: "malformed" });
+    }
+
+    corruptSettings.add("org-1:feature-flag:write-path");
+    await expect(
+      store.getFeatureFlagRulesStrict("write-path", { orgId: "org-1" }),
+    ).rejects.toMatchObject({
+      name: "FeatureFlagRulesError",
+      code: "malformed",
+    });
+
+    await expect(
+      store.getFeatureFlagRulesStrict("never-registered", {}),
+    ).rejects.toMatchObject({ code: "unregistered", key: "never-registered" });
   });
 });
