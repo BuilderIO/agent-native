@@ -22,6 +22,7 @@ const WRITER = "feature-flag:content.live-body-writer";
 let getDb: typeof import("../db/index.js").getDb;
 let schema: typeof import("../db/schema.js");
 let gate: typeof import("./live-body-writer.js");
+let bodyRevision: typeof import("./document-body-revision.js");
 let collab: typeof import("@agent-native/core/collab");
 
 function rules(targets: { emails?: string[]; orgIds?: string[] }) {
@@ -89,6 +90,7 @@ beforeAll(async () => {
     await import("../../shared/feature-flags.js");
   registerFeatureFlags(CONTENT_FEATURE_FLAGS);
   gate = await import("./live-body-writer.js");
+  bodyRevision = await import("./document-body-revision.js");
   collab = await import("@agent-native/core/collab");
   await getDbExec().execute(`CREATE TABLE IF NOT EXISTS org_members (
     id TEXT PRIMARY KEY,
@@ -349,6 +351,135 @@ describe("live-body writer gate", () => {
           gate.liveBodyWriterGateForRow(row, { transaction: getDbExec() }),
         ).resolves.toEqual({ writePath: "legacy", reason: "flag_off" });
       });
+    });
+  });
+});
+
+describe("lockLegacyBodyWrites", () => {
+  const WRITER_FLAGS = {
+    shadow: { emails: [OWNER] },
+    writer: { emails: [OWNER] },
+  };
+
+  async function body(id: string) {
+    const [row] = await getDb()
+      .select({
+        content: schema.documents.content,
+        bodyRevision: schema.documents.bodyRevision,
+      })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, id));
+    return row;
+  }
+
+  async function write(
+    ids: string[],
+    content: string,
+    options: { operation: string; routed?: boolean; instead?: string } = {
+      operation: "test-writer",
+    },
+  ) {
+    await getDb().transaction(async (tx) => {
+      const legacy = await bodyRevision.lockLegacyBodyWrites(tx, ids, options);
+      for (const id of ids) {
+        await tx
+          .update(schema.documents)
+          .set({ content, bodyRevision: legacy.bodyRevision(content) })
+          .where(eq(schema.documents.id, id));
+      }
+    });
+  }
+
+  it("bumps a legacy page's body revision only when its body changes", async () => {
+    await setFlags(WRITER_FLAGS);
+    await insertPage("legacy", { switched: false });
+
+    await write(["legacy"], "New body");
+    expect(await body("legacy")).toEqual({
+      content: "New body",
+      bodyRevision: 4,
+    });
+    await write(["legacy"], "New body");
+    expect((await body("legacy")).bodyRevision).toBe(4);
+  });
+
+  it("refuses every page of a write when one takes body writes through its live copy", async () => {
+    await setFlags(WRITER_FLAGS);
+    await insertPage("legacy", { switched: false });
+    await insertPage("switched");
+
+    const refused = write(["legacy", "switched"], "New body", {
+      operation: "test-writer",
+      instead: "Write it some other way.",
+    });
+
+    await expect(refused).rejects.toMatchObject({
+      errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+      statusCode: 409,
+      details: { documentId: "switched", operation: "test-writer" },
+      message: expect.stringMatching(
+        /Retrying won't change that\. Write it some other way\.$/,
+      ),
+    });
+    await expect(refused.catch((error) => error)).resolves.toSatisfy(
+      bodyRevision.isUnsupportedBodyWriter,
+    );
+    expect(await body("legacy")).toEqual({ content: "Body", bodyRevision: 3 });
+    expect(await body("switched")).toEqual({
+      content: "Body",
+      bodyRevision: 3,
+    });
+  });
+
+  it("refuses a routed writer's page that switched in flight as retryable", async () => {
+    await setFlags(WRITER_FLAGS);
+    await insertPage("switched");
+
+    await expect(
+      write(["switched"], "New body", {
+        operation: "test-writer",
+        routed: true,
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "LIVE_BODY_WRITE_PATH_CHANGED",
+      details: { documentId: "switched", reason: "live_copy" },
+    });
+    expect(await body("switched")).toEqual({
+      content: "Body",
+      bodyRevision: 3,
+    });
+  });
+
+  it("lets a switched page take legacy writes while its flags are off (SF-11)", async () => {
+    await insertPage("switched");
+
+    await write(["switched"], "New body");
+
+    expect(await body("switched")).toEqual({
+      content: "New body",
+      bodyRevision: 4,
+    });
+  });
+
+  it("leaves a page that doesn't exist to the writer", async () => {
+    await setFlags(WRITER_FLAGS);
+
+    await expect(write(["missing"], "New body")).resolves.toBeUndefined();
+  });
+
+  it("refuses a page on its live copy up front, before a writer changes anything outside Content", async () => {
+    await setFlags(WRITER_FLAGS);
+    await insertPage("legacy", { switched: false });
+    await insertPage("switched");
+
+    await expect(
+      bodyRevision.assertLegacyBodyWriter("legacy", { operation: "push" }),
+    ).resolves.toBeUndefined();
+    await expect(
+      bodyRevision.assertLegacyBodyWriter("switched", { operation: "push" }),
+    ).rejects.toMatchObject({
+      errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+      details: { documentId: "switched", operation: "push" },
     });
   });
 });

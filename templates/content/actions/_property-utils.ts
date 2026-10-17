@@ -17,7 +17,7 @@ import {
 } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
-import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
+import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
 import type {
   ContentDatabaseFilter,
   ContentDatabaseFilterMode,
@@ -1411,15 +1411,19 @@ export async function writePrimaryBlocksContent(args: {
   now: string;
 }): Promise<void> {
   await assertAccess("document", args.documentId, "editor");
-  const db = getDb();
-  await db
-    .update(schema.documents)
-    .set({
-      content: args.content,
-      bodyRevision: bodyRevisionForContent(args.content),
-      updatedAt: args.now,
-    })
-    .where(eq(schema.documents.id, args.documentId));
+  await getDb().transaction(async (tx) => {
+    const legacy = await lockLegacyBodyWrites(tx, [args.documentId], {
+      operation: "writePrimaryBlocksContent",
+    });
+    await tx
+      .update(schema.documents)
+      .set({
+        content: args.content,
+        bodyRevision: legacy.bodyRevision(args.content),
+        updatedAt: args.now,
+      })
+      .where(eq(schema.documents.id, args.documentId));
+  });
 }
 
 export async function getPropertyDefinitionForDatabase(args: {

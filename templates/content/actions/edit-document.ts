@@ -20,6 +20,7 @@ import {
   documentEditAttribution,
   requireDocumentRequestActor,
 } from "../server/lib/document-attribution.js";
+import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
 import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
@@ -586,6 +587,11 @@ export default defineAction({
     try {
       await db.transaction(async (tx: any) => {
         const primaryBlocksFields = await lockPrimaryBlocksFields(tx, id);
+        // The page may have switched since editThroughLiveCopy read it.
+        await lockLegacyBodyWrites(tx, [id], {
+          operation: "edit-document",
+          routed: true,
+        });
         const mirrored = await tx
           .update(schema.documents)
           .set({
@@ -603,8 +609,9 @@ export default defineAction({
           )
           .returning({ id: schema.documents.id });
         if (mirrored.length !== 1) {
-          throw new Error(
-            "The document changed before Content history could be updated.",
+          throw new ActionContractError(
+            "The document changed before this edit could be written. Read it again and retry.",
+            { errorCode: "DOCUMENT_REVISION_CONFLICT", statusCode: 409 },
           );
         }
         for (const field of primaryBlocksFields) {

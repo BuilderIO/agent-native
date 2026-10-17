@@ -25,6 +25,8 @@ const testState = vi.hoisted(() => ({
   versions: [] as Array<Record<string, unknown>>,
 }));
 
+const liveCopyPages = vi.hoisted(() => new Set<string>());
+
 const notionMocks = vi.hoisted(() => {
   class MockNotionApiError extends Error {
     status: number;
@@ -100,7 +102,8 @@ vi.mock("@agent-native/core/collab", () => ({
   releaseDoc: vi.fn(),
 }));
 
-vi.mock("../db/index.js", () => {
+vi.mock("../db/index.js", async () => {
+  const { getTableName } = await import("drizzle-orm");
   const schema = {
     documents: {
       id: "documents.id",
@@ -161,16 +164,28 @@ vi.mock("../db/index.js", () => {
   const db: any = {
     select: () => ({
       from: (table: unknown) => ({
-        where: async (where: unknown) => {
-          if (table === schema.documents)
-            return matches(testState.document, where)
-              ? [testState.document]
-              : [];
-          if (table === schema.documentSyncLinks) {
-            return testState.link ? [testState.link] : [];
-          }
-          if (table === schema.documentComments) return testState.comments;
-          return [];
+        where: (where: unknown) => {
+          const rows = async () => {
+            // The body-write lock reads the page through the real table, from
+            // a schema module `vi.resetModules()` may have loaded again.
+            if (
+              table === schema.documents ||
+              getTableName(table as never) === "documents"
+            )
+              return matches(testState.document, where)
+                ? [testState.document]
+                : [];
+            if (table === schema.documentSyncLinks) {
+              return testState.link ? [testState.link] : [];
+            }
+            if (table === schema.documentComments) return testState.comments;
+            return [];
+          };
+          return {
+            then: (...args: Parameters<Promise<unknown>["then"]>) =>
+              rows().then(...args),
+            orderBy: () => ({ for: rows }),
+          };
         },
       }),
     }),
@@ -248,6 +263,16 @@ vi.mock("./documents.js", () => ({
 }));
 
 vi.mock("./notion.js", () => notionMocks);
+
+vi.mock("./live-body-writer.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./live-body-writer.js")>()),
+  isLiveBodyWriterPage: async (documentId: string) =>
+    liveCopyPages.has(documentId),
+  liveBodyWriterGateForRow: async (row: { id: string }) =>
+    liveCopyPages.has(row.id)
+      ? { writePath: "live_copy" }
+      : { writePath: "legacy", reason: "not_switched" },
+}));
 
 describe("createAndLinkNotionPage", () => {
   beforeEach(() => {
@@ -1383,5 +1408,166 @@ describe("resolveDocumentSyncConflict", () => {
       ),
     ).rejects.toThrow(/pull.*push/i);
     expect(notionMocks.pushDocumentToNotionPage).not.toHaveBeenCalled();
+  });
+});
+
+describe("a page that takes body writes through its live copy", () => {
+  const page = {
+    id: "doc-1",
+    ownerEmail: "alice@example.com",
+    title: "Local title",
+    content: "Local body",
+    icon: null as string | null,
+    updatedAt: "2026-06-01T10:00:00.000Z",
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    testState.document = { ...page };
+    testState.link = {
+      documentId: "doc-1",
+      ownerEmail: "alice@example.com",
+      remotePageId: "notion-page",
+      state: "linked",
+      lastSyncedAt: "2026-06-01T09:00:00.000Z",
+      lastPulledRemoteUpdatedAt: "2026-06-01T09:00:00.000Z",
+      lastPushedLocalUpdatedAt: "2026-06-01T09:00:00.000Z",
+      lastKnownRemoteUpdatedAt: "2026-06-01T09:00:00.000Z",
+      lastSyncedContentHash: hashContentForTest("Local body"),
+      hasConflict: false,
+      warningsJson: "[]",
+      syncClaimedAt: null as string | null,
+    };
+    testState.versions = [];
+    liveCopyPages.add("doc-1");
+
+    notionMocks.getNotionConnectionForOwner.mockResolvedValue({
+      accessToken: "notion-token",
+    });
+  });
+
+  afterEach(() => {
+    liveCopyPages.clear();
+  });
+
+  it("refuses a pull that changes the body and leaves the page as it was", async () => {
+    const { pullDocumentFromNotion } = await import("./notion-sync.js");
+    notionMocks.readNotionPageAsDocument.mockResolvedValue({
+      pageId: "notion-page",
+      title: "Local title",
+      icon: null,
+      content: "Remote edit from Notion",
+      lastEditedTime: "2026-06-01T10:00:10.000Z",
+      warnings: [],
+    });
+
+    await expect(
+      pullDocumentFromNotion("alice@example.com", "doc-1", true),
+    ).rejects.toMatchObject({
+      errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+      statusCode: 409,
+      details: { documentId: "doc-1", operation: "Notion sync" },
+    });
+
+    expect(testState.document).toEqual(page);
+    expect(testState.versions).toEqual([]);
+    expect(testState.link?.lastSyncedContentHash).toBe(
+      hashContentForTest("Local body"),
+    );
+    expect(testState.link?.syncClaimedAt).toBeNull();
+  });
+
+  it("applies a pull that changes only the title", async () => {
+    const { pullDocumentFromNotion } = await import("./notion-sync.js");
+    notionMocks.readNotionPageAsDocument.mockResolvedValue({
+      pageId: "notion-page",
+      title: "Remote title",
+      icon: null,
+      content: "Local body",
+      lastEditedTime: "2026-06-01T10:00:10.000Z",
+      warnings: [],
+    });
+
+    const status = await pullDocumentFromNotion(
+      "alice@example.com",
+      "doc-1",
+      true,
+    );
+
+    expect(testState.document.title).toBe("Remote title");
+    expect(testState.document.content).toBe("Local body");
+    expect(testState.link?.state).toBe("linked");
+    expect(status.hasConflict).toBe(false);
+  });
+
+  it("refuses a push before it writes to Notion", async () => {
+    const { pushDocumentToNotion } = await import("./notion-sync.js");
+    testState.document.content = "Local edit typed just now";
+    notionMocks.fetchNotionPage.mockResolvedValue({
+      id: "notion-page",
+      last_edited_time: "2026-06-01T09:00:00.000Z",
+    });
+    notionMocks.readNotionPageAsDocument.mockResolvedValue({
+      pageId: "notion-page",
+      title: "Local title",
+      icon: null,
+      content: "Local body",
+      lastEditedTime: "2026-06-01T09:00:00.000Z",
+      warnings: [],
+    });
+
+    await expect(
+      pushDocumentToNotion("alice@example.com", "doc-1", false),
+    ).rejects.toMatchObject({
+      errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+      statusCode: 409,
+      details: { documentId: "doc-1", operation: "Notion push" },
+    });
+
+    expect(notionMocks.pushDocumentToNotionPage).not.toHaveBeenCalled();
+    expect(notionMocks.createNotionPageWithMarkdown).not.toHaveBeenCalled();
+    expect(notionMocks.notionFetch).not.toHaveBeenCalled();
+    expect(testState.document).toEqual({
+      ...page,
+      content: "Local edit typed just now",
+    });
+    expect(testState.versions).toEqual([]);
+    expect(testState.link?.syncClaimedAt).toBeNull();
+  });
+
+  it("refuses to link the page before it makes any Notion request", async () => {
+    const { createAndLinkNotionPage } = await import("./notion-sync.js");
+    testState.link = null;
+
+    await expect(
+      createAndLinkNotionPage("alice@example.com", "doc-1", "parent-page"),
+    ).rejects.toMatchObject({
+      errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+      statusCode: 409,
+      details: { documentId: "doc-1", operation: "Notion link" },
+    });
+
+    expect(notionMocks.fetchNotionPage).not.toHaveBeenCalled();
+    expect(notionMocks.notionFetch).not.toHaveBeenCalled();
+    expect(notionMocks.createNotionPageWithMarkdown).not.toHaveBeenCalled();
+    expect(notionMocks.readNotionPageAsDocument).not.toHaveBeenCalled();
+    expect(testState.link).toBeNull();
+    expect(testState.document).toEqual(page);
+  });
+
+  it("refuses to relink an already linked page instead of answering with its link", async () => {
+    const { createAndLinkNotionPage } = await import("./notion-sync.js");
+    const link = testState.link;
+
+    await expect(
+      createAndLinkNotionPage("alice@example.com", "doc-1", "parent-page"),
+    ).rejects.toMatchObject({
+      errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+      details: { documentId: "doc-1", operation: "Notion link" },
+    });
+
+    expect(notionMocks.readNotionPageAsDocument).not.toHaveBeenCalled();
+    expect(testState.link).toEqual(link);
+    expect(testState.document).toEqual(page);
   });
 });

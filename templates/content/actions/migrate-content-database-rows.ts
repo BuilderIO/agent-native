@@ -6,7 +6,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
+import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
 import { chunks } from "./_batch-utils.js";
 import {
   lockContentDatabaseMutation,
@@ -697,6 +697,13 @@ export async function runMigration(args: MigrationInput) {
       const rollback = parseJson(receipt.rollbackJson);
       const now = new Date().toISOString();
       if (args.phase === "rollback") {
+        const legacy = await lockLegacyBodyWrites(
+          tx,
+          (rollback.versions ?? []).map(
+            (prior: { documentId: string }) => prior.documentId,
+          ),
+          { operation: "migrate-content-database-rows" },
+        );
         for (const prior of rollback.versions ?? []) {
           const [version] = await tx
             .select()
@@ -708,7 +715,7 @@ export async function runMigration(args: MigrationInput) {
             .set({
               title: version.title,
               content: version.content,
-              bodyRevision: bodyRevisionForContent(version.content),
+              bodyRevision: legacy.bodyRevision(version.content),
               updatedAt: now,
             })
             .where(

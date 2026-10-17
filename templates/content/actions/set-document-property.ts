@@ -5,7 +5,7 @@ import { and, eq, isNull, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
+import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import {
   blocksStorageTarget,
@@ -190,6 +190,9 @@ export default defineAction({
         );
         let previousContent = "";
         if (target === "document_body") {
+          const legacy = await lockLegacyBodyWrites(tx, [documentId], {
+            operation: "set-document-property",
+          });
           const [currentDocument] = await tx
             .select({ content: schema.documents.content })
             .from(schema.documents)
@@ -202,7 +205,7 @@ export default defineAction({
             .update(schema.documents)
             .set({
               content,
-              bodyRevision: bodyRevisionForContent(content),
+              bodyRevision: legacy.bodyRevision(content),
               updatedAt: now,
             })
             .where(eq(schema.documents.id, documentId));

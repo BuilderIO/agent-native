@@ -9,7 +9,11 @@ import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
+import {
+  assertLegacyBodyWriter,
+  isUnsupportedBodyWriter,
+  lockLegacyBodyWrites,
+} from "../server/lib/document-body-revision.js";
 import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
 import {
   syncPrivateCalloutReferences,
@@ -409,165 +413,198 @@ export default defineAction({
           continue;
         }
 
+        // A page on its live copy refuses the file's body, so none of that
+        // file lands, and the rest of the import still does.
+        const refuseFile = (error: unknown) => {
+          if (!isUnsupportedBodyWriter(error)) throw error;
+          errors.push({ path: file.path, reason: error.message });
+          desiredParentById.delete(id);
+          desiredPositionById.delete(id);
+          return null;
+        };
+        if (contentChanged) {
+          try {
+            await assertLegacyBodyWriter(id, {
+              operation: "import-content-source",
+            });
+          } catch (error) {
+            refuseFile(error);
+            continue;
+          }
+        }
+
         if (dryRun) {
           updated.push({ id, path: file.path, title: file.title });
           continue;
         }
 
-        const mutation = await db.transaction(async (tx) => {
-          await tx
-            .select({ id: schema.documents.id })
-            .from(schema.documents)
-            .where(
-              and(
-                eq(schema.documents.id, id),
-                eq(schema.documents.ownerEmail, existing.ownerEmail as string),
-              ),
-            )
-            .for("update");
-          const [locked] = await tx
-            .select()
-            .from(schema.documents)
-            .where(
-              and(
-                eq(schema.documents.id, id),
-                eq(schema.documents.ownerEmail, existing.ownerEmail as string),
-              ),
-            )
-            .limit(1);
-          if (!locked) {
-            throw new Error(`Document "${id}" no longer exists.`);
-          }
+        const mutation = await db
+          .transaction(async (tx) => {
+            await tx
+              .select({ id: schema.documents.id })
+              .from(schema.documents)
+              .where(
+                and(
+                  eq(schema.documents.id, id),
+                  eq(
+                    schema.documents.ownerEmail,
+                    existing.ownerEmail as string,
+                  ),
+                ),
+              )
+              .for("update");
+            const [locked] = await tx
+              .select()
+              .from(schema.documents)
+              .where(
+                and(
+                  eq(schema.documents.id, id),
+                  eq(
+                    schema.documents.ownerEmail,
+                    existing.ownerEmail as string,
+                  ),
+                ),
+              )
+              .limit(1);
+            if (!locked) {
+              throw new Error(`Document "${id}" no longer exists.`);
+            }
 
-          const lockedTitleChanged = file.title !== locked.title;
-          const lockedContentChanged = file.content !== locked.content;
-          const lockedDescriptionChanged =
-            file.description !== undefined &&
-            file.description !== locked.description;
-          const lockedIconChanged =
-            file.icon !== undefined && file.icon !== locked.icon;
-          const lockedFavoriteIds =
-            file.isFavorite === undefined
-              ? null
-              : await favoriteDocumentIds(tx, currentUserEmail, [id]);
-          const lockedFavoriteChanged =
-            file.isFavorite !== undefined &&
-            file.isFavorite !== lockedFavoriteIds?.has(id);
-          const lockedDiscoverabilityChanged =
-            file.hideFromSearch !== undefined &&
-            boolToInt(file.hideFromSearch) !== (locked.hideFromSearch ?? 0);
-          const lockedVisibilityChanged =
-            file.visibility !== undefined &&
-            file.visibility !== locked.visibility;
-          if (
-            lockedVisibilityChanged &&
-            (!existingRole || !canAdminRole(existingRole))
-          ) {
-            return { changed: false, visibilityForbidden: true };
-          }
-          const lockedSourceChanged =
-            locked.sourceMode !== sourceUpdates.sourceMode ||
-            locked.sourceKind !== sourceUpdates.sourceKind ||
-            locked.sourcePath !== sourceUpdates.sourcePath ||
-            locked.sourceRootPath !== sourceUpdates.sourceRootPath;
-          const lockedSpaceChanged = !locked.spaceId;
-          const lockedAnyChange =
-            lockedTitleChanged ||
-            lockedContentChanged ||
-            lockedDescriptionChanged ||
-            lockedIconChanged ||
-            lockedFavoriteChanged ||
-            lockedDiscoverabilityChanged ||
-            lockedVisibilityChanged ||
-            lockedSourceChanged ||
-            lockedSpaceChanged;
-          if (!lockedAnyChange) {
-            return { changed: false, visibilityForbidden: false };
-          }
+            const lockedTitleChanged = file.title !== locked.title;
+            const lockedContentChanged = file.content !== locked.content;
+            const lockedDescriptionChanged =
+              file.description !== undefined &&
+              file.description !== locked.description;
+            const lockedIconChanged =
+              file.icon !== undefined && file.icon !== locked.icon;
+            const lockedFavoriteIds =
+              file.isFavorite === undefined
+                ? null
+                : await favoriteDocumentIds(tx, currentUserEmail, [id]);
+            const lockedFavoriteChanged =
+              file.isFavorite !== undefined &&
+              file.isFavorite !== lockedFavoriteIds?.has(id);
+            const lockedDiscoverabilityChanged =
+              file.hideFromSearch !== undefined &&
+              boolToInt(file.hideFromSearch) !== (locked.hideFromSearch ?? 0);
+            const lockedVisibilityChanged =
+              file.visibility !== undefined &&
+              file.visibility !== locked.visibility;
+            if (
+              lockedVisibilityChanged &&
+              (!existingRole || !canAdminRole(existingRole))
+            ) {
+              return { changed: false, visibilityForbidden: true };
+            }
+            const lockedSourceChanged =
+              locked.sourceMode !== sourceUpdates.sourceMode ||
+              locked.sourceKind !== sourceUpdates.sourceKind ||
+              locked.sourcePath !== sourceUpdates.sourcePath ||
+              locked.sourceRootPath !== sourceUpdates.sourceRootPath;
+            const lockedSpaceChanged = !locked.spaceId;
+            const lockedAnyChange =
+              lockedTitleChanged ||
+              lockedContentChanged ||
+              lockedDescriptionChanged ||
+              lockedIconChanged ||
+              lockedFavoriteChanged ||
+              lockedDiscoverabilityChanged ||
+              lockedVisibilityChanged ||
+              lockedSourceChanged ||
+              lockedSpaceChanged;
+            if (!lockedAnyChange) {
+              return { changed: false, visibilityForbidden: false };
+            }
 
-          const updatedAt = nextDocumentUpdatedAt(locked.updatedAt);
-          if (lockedTitleChanged || lockedContentChanged) {
-            await maybeSnapshotExistingDocument(tx, {
-              documentId: id,
-              ownerEmail: locked.ownerEmail,
-              title: locked.title,
-              content: locked.content,
-              createdAt: updatedAt,
-            });
-          }
-
-          const updates: Record<string, unknown> = { updatedAt };
-          if (lockedSpaceChanged) updates.spaceId = existingSpaceId;
-          if (lockedTitleChanged) updates.title = file.title;
-          if (lockedContentChanged) {
-            updates.content = file.content;
-            updates.bodyRevision = bodyRevisionForContent(file.content);
-          }
-          if (lockedDescriptionChanged) updates.description = file.description;
-          if (lockedIconChanged) updates.icon = file.icon ?? null;
-          if (lockedIconChanged) {
-            await verifyPrivateIconAssignment({
-              icon: file.icon === undefined ? null : file.icon,
-              userEmail: currentUserEmail,
-              orgId: locked.orgId,
-            });
-          }
-          if (lockedFavoriteChanged) {
-            updates.isFavorite = boolToInt(file.isFavorite);
-          }
-          if (lockedDiscoverabilityChanged) {
-            updates.hideFromSearch = boolToInt(file.hideFromSearch);
-          }
-          if (lockedVisibilityChanged) updates.visibility = file.visibility;
-          Object.assign(updates, localSourceFields(file.path, updatedAt));
-
-          await tx
-            .update(schema.documents)
-            .set(updates)
-            .where(
-              and(
-                eq(schema.documents.id, id),
-                eq(schema.documents.ownerEmail, locked.ownerEmail),
-              ),
-            );
-          if (lockedIconChanged) {
-            await syncPrivateIconReference(
-              tx as unknown as ReturnType<typeof getDb>,
-              {
-                elementType: "document",
-                elementId: id,
+            const updatedAt = nextDocumentUpdatedAt(locked.updatedAt);
+            if (lockedTitleChanged || lockedContentChanged) {
+              await maybeSnapshotExistingDocument(tx, {
                 documentId: id,
-                icon: file.icon ?? null,
                 ownerEmail: locked.ownerEmail,
-                orgId: locked.orgId,
-              },
-            );
-          }
-          if (lockedContentChanged) {
-            await syncPrivateCalloutReferences(
-              tx as unknown as ReturnType<typeof getDb>,
-              {
-                documentId: id,
-                before: locked.content,
-                after: file.content,
+                title: locked.title,
+                content: locked.content,
+                createdAt: updatedAt,
+              });
+            }
+
+            const updates: Record<string, unknown> = { updatedAt };
+            if (lockedSpaceChanged) updates.spaceId = existingSpaceId;
+            if (lockedTitleChanged) updates.title = file.title;
+            if (lockedContentChanged) {
+              const legacy = await lockLegacyBodyWrites(tx, [id], {
+                operation: "import-content-source",
+              });
+              updates.content = file.content;
+              updates.bodyRevision = legacy.bodyRevision(file.content);
+            }
+            if (lockedDescriptionChanged)
+              updates.description = file.description;
+            if (lockedIconChanged) updates.icon = file.icon ?? null;
+            if (lockedIconChanged) {
+              await verifyPrivateIconAssignment({
+                icon: file.icon === undefined ? null : file.icon,
                 userEmail: currentUserEmail,
-                ownerEmail: locked.ownerEmail,
                 orgId: locked.orgId,
-              },
-            );
-          }
-          if (lockedFavoriteChanged) {
-            await setFavoriteMembership({
-              db: tx,
-              userEmail: currentUserEmail,
-              documentId: id,
-              favorite: file.isFavorite === true,
-              now: updatedAt,
-            });
-          }
-          return { changed: true, visibilityForbidden: false };
-        });
+              });
+            }
+            if (lockedFavoriteChanged) {
+              updates.isFavorite = boolToInt(file.isFavorite);
+            }
+            if (lockedDiscoverabilityChanged) {
+              updates.hideFromSearch = boolToInt(file.hideFromSearch);
+            }
+            if (lockedVisibilityChanged) updates.visibility = file.visibility;
+            Object.assign(updates, localSourceFields(file.path, updatedAt));
 
+            await tx
+              .update(schema.documents)
+              .set(updates)
+              .where(
+                and(
+                  eq(schema.documents.id, id),
+                  eq(schema.documents.ownerEmail, locked.ownerEmail),
+                ),
+              );
+            if (lockedIconChanged) {
+              await syncPrivateIconReference(
+                tx as unknown as ReturnType<typeof getDb>,
+                {
+                  elementType: "document",
+                  elementId: id,
+                  documentId: id,
+                  icon: file.icon ?? null,
+                  ownerEmail: locked.ownerEmail,
+                  orgId: locked.orgId,
+                },
+              );
+            }
+            if (lockedContentChanged) {
+              await syncPrivateCalloutReferences(
+                tx as unknown as ReturnType<typeof getDb>,
+                {
+                  documentId: id,
+                  before: locked.content,
+                  after: file.content,
+                  userEmail: currentUserEmail,
+                  ownerEmail: locked.ownerEmail,
+                  orgId: locked.orgId,
+                },
+              );
+            }
+            if (lockedFavoriteChanged) {
+              await setFavoriteMembership({
+                db: tx,
+                userEmail: currentUserEmail,
+                documentId: id,
+                favorite: file.isFavorite === true,
+                now: updatedAt,
+              });
+            }
+            return { changed: true, visibilityForbidden: false };
+          })
+          .catch(refuseFile);
+
+        if (!mutation) continue;
         if (mutation.visibilityForbidden) {
           skipped.push({
             path: file.path,

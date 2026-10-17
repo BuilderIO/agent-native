@@ -8,7 +8,7 @@ import { and, eq, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
+import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
 import {
   syncPrivateCalloutReferences,
   syncPrivateIconReference,
@@ -294,6 +294,9 @@ export default defineAction({
             ),
           );
       } else if (decision === "accept_source") {
+        const legacy = await lockLegacyBodyWrites(tx, [target.document.id], {
+          operation: "resolve-local-folder-conflict",
+        });
         const [currentDocument] = await tx
           .select()
           .from(schema.documents)
@@ -368,7 +371,7 @@ export default defineAction({
           .update(schema.documents)
           .set({
             content: sourceContent!,
-            bodyRevision: bodyRevisionForContent(sourceContent!),
+            bodyRevision: legacy.bodyRevision(sourceContent!),
             ...(Object.prototype.hasOwnProperty.call(metadata, "title")
               ? { title: metadata.title ?? "" }
               : {}),

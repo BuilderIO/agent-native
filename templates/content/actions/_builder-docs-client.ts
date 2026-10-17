@@ -8,7 +8,10 @@ import { ROLE_RANK, resolveAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
-import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
+import {
+  assertLegacyBodyWriter,
+  lockLegacyBodyWrites,
+} from "../server/lib/document-body-revision.js";
 import { BUILDER_CMS_SAFE_WRITE_MODEL } from "../shared/api.js";
 import {
   builderSourceKindForModel,
@@ -700,17 +703,22 @@ export async function pullBuilderDocIntoContent(args: {
 
   if (!args.dryRun) {
     if (existing) {
-      await db
-        .update(schema.documents)
-        .set({
-          spaceId: existing.spaceId ?? targetSpaceId,
-          title: bundle.mdx.title,
-          content: bundle.mdx.body,
-          bodyRevision: bodyRevisionForContent(bundle.mdx.body),
-          updatedAt: now,
-          ...sourceFields,
-        })
-        .where(eq(schema.documents.id, documentId));
+      await db.transaction(async (tx) => {
+        const legacy = await lockLegacyBodyWrites(tx, [documentId], {
+          operation: "pull-builder-doc",
+        });
+        await tx
+          .update(schema.documents)
+          .set({
+            spaceId: existing.spaceId ?? targetSpaceId,
+            title: bundle.mdx.title,
+            content: bundle.mdx.body,
+            bodyRevision: legacy.bodyRevision(bundle.mdx.body),
+            updatedAt: now,
+            ...sourceFields,
+          })
+          .where(eq(schema.documents.id, documentId));
+      });
     } else {
       await db.insert(schema.documents).values({
         id: documentId,
@@ -843,16 +851,21 @@ async function refreshBuilderDocumentAfterPush(args: {
     args.documentId,
   );
 
-  await db
-    .update(schema.documents)
-    .set({
-      title: bundle.mdx.title,
-      content: bundle.mdx.body,
-      bodyRevision: bodyRevisionForContent(bundle.mdx.body),
-      updatedAt: now,
-      ...builderDocumentSourceFields(bundle, now),
-    })
-    .where(eq(schema.documents.id, args.documentId));
+  await db.transaction(async (tx) => {
+    const legacy = await lockLegacyBodyWrites(tx, [args.documentId], {
+      operation: "push-builder-doc",
+    });
+    await tx
+      .update(schema.documents)
+      .set({
+        title: bundle.mdx.title,
+        content: bundle.mdx.body,
+        bodyRevision: legacy.bodyRevision(bundle.mdx.body),
+        updatedAt: now,
+        ...builderDocumentSourceFields(bundle, now),
+      })
+      .where(eq(schema.documents.id, args.documentId));
+  });
   await replaceBuilderDocumentSidecars({
     db,
     documentId: args.documentId,
@@ -1103,6 +1116,12 @@ export async function pushBuilderDocsSource(args: {
     };
   }
 
+  // A push writes Builder's copy of the body back to the page.
+  if (args.documentId) {
+    await assertLegacyBodyWriter(args.documentId, {
+      operation: "push-builder-doc",
+    });
+  }
   const writeResult = await executeBuilderCmsWrite({
     request,
     fetchImpl: args.fetchImpl,

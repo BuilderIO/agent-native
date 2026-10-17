@@ -14,7 +14,10 @@ import { ensureDocumentFilesMembership } from "../../actions/_content-files.js";
 import type { DocumentSyncStatus } from "../../shared/api.js";
 import { canonicalizeNfm, nfmToDoc, type PMNode } from "../../shared/nfm.js";
 import { getDb, schema } from "../db/index.js";
-import { bodyRevisionForContent } from "./document-body-revision.js";
+import {
+  assertLegacyBodyWriter,
+  lockLegacyBodyWrites,
+} from "./document-body-revision.js";
 import { nextDocumentUpdatedAt } from "./document-updated-at.js";
 import { getCurrentOwnerEmail } from "./documents.js";
 import {
@@ -71,12 +74,22 @@ async function replaceDocumentFromExternal(args: {
 }): Promise<boolean> {
   const db = getDb();
   return db.transaction(async (tx) => {
+    const legacy =
+      args.content === args.document.content
+        ? undefined
+        : await lockLegacyBodyWrites(tx, [args.document.id], {
+            operation: "Notion sync",
+          });
     const applied = await tx
       .update(schema.documents)
       .set({
         title: args.title,
-        content: args.content,
-        bodyRevision: bodyRevisionForContent(args.content),
+        ...(legacy
+          ? {
+              content: args.content,
+              bodyRevision: legacy.bodyRevision(args.content),
+            }
+          : {}),
         icon: args.icon,
         updatedAt: args.updatedAt,
       })
@@ -1194,6 +1207,8 @@ async function pushDocumentToNotionInner(
     });
   }
 
+  // A push writes Notion's copy of the body back to the page.
+  await assertLegacyBodyWriter(documentId, { operation: "Notion push" });
   const remote = await pushDocumentToNotionPage({
     accessToken: connection.accessToken,
     pageId: link.remotePageId,
@@ -1461,6 +1476,8 @@ export async function createAndLinkNotionPage(
     "creating a page",
   );
   const document = await getDocument(documentId, owner);
+  // Linking ends in a pull, whose refusal the fallbacks below would hide.
+  await assertLegacyBodyWriter(documentId, { operation: "Notion link" });
 
   const existingLink = await getSyncLink(documentId, owner);
   if (existingLink) {

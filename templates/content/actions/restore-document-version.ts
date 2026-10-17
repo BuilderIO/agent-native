@@ -1,7 +1,6 @@
 import { ActionContractError } from "@agent-native/core";
 import { defineAction, type ActionRunContext } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
-import { getDbExec } from "@agent-native/core/db";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, asc, eq } from "drizzle-orm";
@@ -9,7 +8,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { requireDocumentRequestActor } from "../server/lib/document-attribution.js";
-import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
+import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
 import {
@@ -25,10 +24,7 @@ import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
-import {
-  assertLegacyBodyWritePath,
-  isLiveBodyWriterPage,
-} from "../server/lib/live-body-writer.js";
+import { isLiveBodyWriterPage } from "../server/lib/live-body-writer.js";
 import { syncPrivateCalloutReferences } from "../server/lib/private-icon-references.js";
 import { CONTENT_LIVE_COPY_EDITS } from "../server/live-copy/binding.js";
 import { drizzleOverExec } from "../server/live-copy/exec-db.js";
@@ -492,7 +488,10 @@ export default defineAction({
       ) {
         return current;
       }
-      await assertLegacyBodyWritePath(current, { transaction: getDbExec() });
+      const legacy = await lockLegacyBodyWrites(tx, [documentId], {
+        operation: "restore-document-version",
+        routed: true,
+      });
       const now =
         current.title !== version.title
           ? await nextDocumentMetadataUpdatedAt({
@@ -512,7 +511,7 @@ export default defineAction({
         .set({
           title: version.title,
           content: version.content,
-          bodyRevision: bodyRevisionForContent(version.content),
+          bodyRevision: legacy.bodyRevision(version.content),
           updatedAt: now,
         })
         .where(

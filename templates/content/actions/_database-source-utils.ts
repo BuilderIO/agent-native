@@ -3,7 +3,10 @@ import { createHash } from "node:crypto";
 import { and, asc, eq, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
-import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
+import {
+  isUnsupportedBodyWriter,
+  lockLegacyBodyWrites,
+} from "../server/lib/document-body-revision.js";
 import type {
   ContentDatabase,
   ContentDatabaseBodyHydration,
@@ -985,6 +988,14 @@ class BuilderBodyHydrationError extends Error {
 }
 
 function builderBodyHydrationFailureEvidence(error: unknown) {
+  if (isUnsupportedBodyWriter(error)) {
+    return {
+      reason: "unsupported_content" as const,
+      providerStatus: "live_copy",
+      retryable: false,
+      message: error.message,
+    };
+  }
   if (
     error instanceof BuilderCmsContentEntryReadError ||
     error instanceof BuilderBodyHydrationError
@@ -2381,11 +2392,14 @@ async function processBuilderBodyHydrationJob(
             ? isNull(schema.documents.content)
             : eq(schema.documents.content, documentContent)
           : eq(schema.documents.content, currentContent);
+      const legacy = await lockLegacyBodyWrites(tx, [row.documentId], {
+        operation: "Builder body hydration",
+      });
       const [updatedDocument] = await tx
         .update(schema.documents)
         .set({
           content: nextContent,
-          bodyRevision: bodyRevisionForContent(nextContent),
+          bodyRevision: legacy.bodyRevision(nextContent),
           updatedAt: now,
         })
         .where(and(eq(schema.documents.id, row.documentId), contentCas))
@@ -2633,11 +2647,24 @@ async function persistPristineBuilderBodyHydrationsInBulk(
             value: row.content,
           })),
         );
+        const legacy = await lockLegacyBodyWrites(
+          tx,
+          batch.map((row) => row.job.documentId),
+          { operation: "Builder body hydration" },
+        ).catch((error: unknown) => {
+          // The per-row path below refuses that page's job on its own.
+          if (isUnsupportedBodyWriter(error)) {
+            throw new PristineBuilderBodyHydrationCasMiss(
+              "A Builder body hydration page takes body writes through its live copy.",
+            );
+          }
+          throw error;
+        });
         const updatedDocuments = await tx
           .update(schema.documents)
           .set({
             content: hydratedContent,
-            bodyRevision: bodyRevisionForContent(hydratedContent),
+            bodyRevision: legacy.bodyRevision(hydratedContent),
             updatedAt: now,
           })
           .where(
