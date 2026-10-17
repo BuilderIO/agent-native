@@ -1,3 +1,4 @@
+import Ajv from "ajv";
 import Ajv2020 from "ajv/dist/2020.js";
 import { describe, expect, it } from "vitest";
 
@@ -813,6 +814,21 @@ const IMPLICATION_CORPUS: {
     inputs: [{ value: "x" }, {}],
   },
   {
+    name: "boolean branch inside a nested anyOf",
+    schema: {
+      type: "object",
+      anyOf: [
+        {
+          type: "object",
+          properties: { value: { anyOf: [true, { type: "string" }] } },
+        },
+        { type: "object", properties: { value: { type: "number" } } },
+      ],
+    },
+    inputs: [{ value: false }, { value: "x" }, { value: 1 }, { value: {} }],
+    deepInputs: [{ value: [[1]] }],
+  },
+  {
     name: "root definition referenced from branches",
     schema: {
       type: "object",
@@ -862,6 +878,267 @@ describe("normalized schemas never reject an input the original accepts", () => 
     for (const input of inputs) {
       expect(original(input), JSON.stringify(input)).toBe(true);
       expect(normalized(input), JSON.stringify(input)).toBe(true);
+    }
+  });
+});
+
+/** A deterministic PRNG, so a failure names a schema the next run rebuilds. */
+function seededRandom(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const SAMPLE_VALUES: unknown[] = [
+  false,
+  true,
+  0,
+  2.5,
+  "",
+  "x",
+  null,
+  [],
+  [1],
+  ["x", null],
+  [[1]],
+  {},
+  { a: 1 },
+  { a: "x", b: null },
+];
+
+/** Every object over keys `a` and `b`, each absent or one sample value. */
+const SAMPLE_INSTANCES: Record<string, unknown>[] = [
+  ...[undefined, ...SAMPLE_VALUES].flatMap((a) =>
+    [undefined, ...SAMPLE_VALUES].map((b) => ({
+      ...(a === undefined ? {} : { a }),
+      ...(b === undefined ? {} : { b }),
+    })),
+  ),
+  { c: 1 },
+  { a: "x", c: null },
+];
+
+function containsNestedArray(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(Array.isArray);
+  if (value && typeof value === "object") {
+    return Object.values(value).some(containsNestedArray);
+  }
+  return false;
+}
+
+/**
+ * Random object-only tool schemas built from the shapes the rewrites treat
+ * specially: nested anyOf/oneOf/allOf, boolean subschemas, `$ref` into root
+ * and branch `$defs`, nullable types, `const`/`enum` and the object keywords
+ * (`propertyNames`, `patternProperties`, property counts) the flattener
+ * carries as constraints.
+ */
+function schemaGenerator(random: () => number) {
+  const pick = <T>(items: readonly T[]): T =>
+    items[Math.floor(random() * items.length)]!;
+  const chance = (p: number) => random() < p;
+  const keys = ["a", "b"] as const;
+
+  function value(depth: number, refs: readonly string[]): unknown {
+    const leaves: (() => unknown)[] = [
+      () => true,
+      () => false,
+      () => ({}),
+      () => ({ type: pick(["string", "number", "boolean", "null"]) }),
+      () => ({ type: [pick(["string", "number", "object"]), "null"] }),
+      () => ({ const: pick(["x", "", 0, false, null]) }),
+      () => ({
+        enum: ["", 0, false, null].filter(() => chance(0.5)).concat("x"),
+      }),
+      ...(refs.length > 0 ? [() => ({ $ref: pick(refs) })] : []),
+    ];
+    if (depth <= 0) return pick(leaves)();
+    const nested = () =>
+      Array.from({ length: 1 + Math.floor(random() * 3) }, () =>
+        value(depth - 1, refs),
+      );
+    return pick<() => unknown>([
+      ...leaves,
+      () => ({ anyOf: nested() }),
+      () => ({ allOf: nested() }),
+      () => ({ oneOf: nested() }),
+      () => ({ anyOf: [value(depth - 1, refs), { type: "null" }] }),
+      () => ({
+        type: "array",
+        items: value(depth - 1, refs),
+        ...(chance(0.3) ? { maxItems: 1 } : {}),
+      }),
+      () => object(depth - 1, refs, ""),
+    ])();
+  }
+
+  function object(
+    depth: number,
+    refs: readonly string[],
+    pointer: string,
+  ): JsonSchema {
+    const schema: JsonSchema = chance(0.8) ? { type: "object" } : {};
+    const localRefs = [...refs];
+    if (pointer && chance(0.25)) {
+      schema.$defs = { Local: value(1, []) };
+      localRefs.push(`#${pointer}/$defs/Local`);
+    }
+    const properties: JsonSchema = {};
+    for (const key of keys) {
+      if (chance(0.6)) properties[key] = value(depth, localRefs);
+    }
+    if (Object.keys(properties).length > 0) schema.properties = properties;
+    const required = keys.filter(() => chance(0.3));
+    if (required.length > 0) schema.required = required;
+    if (chance(0.3)) {
+      schema.additionalProperties = chance(0.5)
+        ? chance(0.5)
+        : value(0, localRefs);
+    }
+    if (chance(0.1)) schema.patternProperties = { "^a$": value(0, []) };
+    if (chance(0.1)) {
+      schema.propertyNames = pick([true, false, { pattern: "^[ab]$" }]);
+    }
+    if (chance(0.1)) schema.minProperties = 1;
+    if (chance(0.1)) schema.maxProperties = 1;
+    return schema;
+  }
+
+  function branch(
+    depth: number,
+    refs: readonly string[],
+    pointer: string,
+  ): unknown {
+    return pick<() => unknown>([
+      () => true,
+      () => false,
+      () => ({ type: "string" }),
+      () => ({ $ref: "#/$defs/Shape" }),
+      () => object(depth, refs, pointer),
+      () => object(depth, refs, pointer),
+      () => object(depth, refs, pointer),
+      () => {
+        const keyword = pick(["anyOf", "allOf"]);
+        return {
+          [keyword]: [0, 1].map((index) =>
+            branch(depth - 1, refs, `${pointer}/${keyword}/${index}`),
+          ),
+        };
+      },
+    ])();
+  }
+
+  return (): JsonSchema => {
+    const refs = ["#/$defs/Scalar", "#/$defs/Wrapped"];
+    const root = object(2, refs, "");
+    root.type = "object";
+    root.$defs = {
+      Scalar: value(1, []),
+      Wrapped: value(1, ["#/$defs/Scalar"]),
+      Shape: object(1, ["#/$defs/Scalar"], "/$defs/Shape"),
+    };
+    for (const keyword of ["anyOf", "oneOf", "allOf"] as const) {
+      if (!chance(0.5)) continue;
+      root[keyword] = Array.from(
+        { length: 1 + Math.floor(random() * 3) },
+        (_, index) => branch(2, refs, `/${keyword}/${index}`),
+      );
+    }
+    return root;
+  };
+}
+
+/**
+ * Draft-07 Ajv: Ajv2020's evaluated-property tracking throws on some
+ * generated shapes (a `true` oneOf branch beside `patternProperties`),
+ * and the generator uses no keyword the two drafts read differently.
+ */
+const draft07 = () => new Ajv({ strict: false, validateFormats: false });
+
+describe("generated schemas: whatever the original accepts, the rewrite accepts", () => {
+  const generate = schemaGenerator(seededRandom(6889));
+  const schemas = Array.from({ length: 400 }, generate);
+
+  it("holds for the MCP schema, its Codex lowering, the in-app schema and the bare flattener", () => {
+    const failures: string[] = [];
+    let accepted = 0;
+    for (const [index, schema] of schemas.entries()) {
+      const original = draft07().compile(schema);
+      const advertised = mcpToolInputSchema("generated", schema);
+      const engineSchema = normalizeToolInputSchema(schema as never);
+      if (!engineSchema) throw new Error(`schema ${index} is not object-only`);
+      const rewrites: [string, () => unknown, boolean][] = [
+        ["MCP", () => advertised, false],
+        ["Codex", () => codexLowered(advertised), false],
+        ["in-app", () => flattenComposedRootSchema(engineSchema), true],
+        [
+          "flattener",
+          () =>
+            flattenComposedRootSchema(structuredClone(schema), {
+              anyValue: () => ({}),
+            }),
+          false,
+        ],
+      ];
+      const checks: [string, (input: unknown) => boolean, boolean][] = [];
+      for (const [label, rewrite, bounded] of rewrites) {
+        try {
+          checks.push([
+            label,
+            draft07().compile(rewrite() as JsonSchema),
+            bounded,
+          ]);
+        } catch (error) {
+          failures.push(`#${index} ${label}: ${String(error)}`);
+        }
+      }
+      const violations = providerSchemaViolations({
+        name: "generated",
+        inputSchema: advertised,
+      });
+      if (violations.length > 0) {
+        failures.push(`#${index} violations ${JSON.stringify(violations)}`);
+      }
+      for (const input of SAMPLE_INSTANCES) {
+        if (!original(input)) continue;
+        accepted++;
+        for (const [label, validate, bounded] of checks) {
+          if (bounded && containsNestedArray(input)) continue;
+          if (!validate(input)) {
+            failures.push(
+              `#${index} ${label} rejects ${JSON.stringify(input)}: ${JSON.stringify(schema)}`,
+            );
+          }
+        }
+      }
+    }
+    expect(failures.slice(0, 5)).toEqual([]);
+    expect(failures).toHaveLength(0);
+    // A generator that only builds unsatisfiable schemas would pass vacuously.
+    expect(accepted).toBeGreaterThan(schemas.length * 20);
+  });
+
+  it("covers every shape the rewrites treat specially", () => {
+    const text = JSON.stringify(schemas);
+    for (const shape of [
+      '"anyOf":[true',
+      '"allOf":[false',
+      '"oneOf"',
+      '"$ref":"#/$defs/Wrapped"',
+      '/$defs/Local"',
+      '"null"]',
+      '"const"',
+      '"enum"',
+      '"propertyNames":true',
+      '"patternProperties"',
+      '"maxItems"',
+    ]) {
+      expect(text, shape).toContain(shape);
     }
   });
 });

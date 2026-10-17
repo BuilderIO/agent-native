@@ -453,6 +453,99 @@ describe("flattenComposedRootSchema", () => {
     });
   });
 
+  describe("boolean subschemas", () => {
+    it("keeps a nested anyOf whole when one of its branches is true", () => {
+      const schema = {
+        type: "object",
+        anyOf: [
+          {
+            type: "object",
+            properties: { value: { anyOf: [true, { type: "string" }] } },
+          },
+          { type: "object", properties: { value: { type: "number" } } },
+        ],
+      };
+      const { flat } = flatten(schema, [{ value: false }, { value: "x" }]);
+
+      expect(flat.properties.value).toEqual({
+        anyOf: [{ anyOf: [true, { type: "string" }] }, { type: "number" }],
+      });
+    });
+
+    it("leaves out only the boolean that cannot change a nested composition", () => {
+      const union = flatten({
+        type: "object",
+        anyOf: [
+          { properties: { a: { anyOf: [false, { type: "string" }] } } },
+          { properties: { a: { type: "number" } } },
+        ],
+      }).flat;
+      const intersection = flatten({
+        type: "object",
+        allOf: [
+          {
+            properties: {
+              b: { allOf: [true, { type: "string" }] },
+              c: { allOf: [false, { type: "string" }] },
+            },
+          },
+          { properties: { b: { minLength: 1 }, c: { minLength: 1 } } },
+        ],
+      }).flat;
+
+      expect(union.properties.a).toEqual({
+        anyOf: [{ type: "string" }, { type: "number" }],
+      });
+      expect(intersection.properties.b).toEqual({
+        allOf: [{ type: "string" }, { minLength: 1 }],
+      });
+      expect(intersection.properties.c).toEqual({
+        allOf: [{ allOf: [false, { type: "string" }] }, { minLength: 1 }],
+      });
+    });
+
+    it("conjoins pattern and name constraints with false deciding them", () => {
+      const { flat, admits } = flatten({
+        type: "object",
+        allOf: [
+          { patternProperties: { "^x": false }, propertyNames: true },
+          {
+            patternProperties: { "^x": { type: "string" } },
+            propertyNames: true,
+          },
+        ],
+      });
+
+      expect(flat.patternProperties).toEqual({ "^x": false });
+      expect(flat).not.toHaveProperty("propertyNames");
+      expect(admits({ xa: "s" })).toBe(false);
+    });
+
+    it("lists no argument sets when one branch admits any of them", () => {
+      for (const open of [
+        true,
+        { type: "object", properties: { note: { type: "string" } } },
+      ]) {
+        const flat = flattenComposedRootSchema({
+          type: "object",
+          anyOf: [
+            {
+              properties: { mode: { const: "a" }, x: { type: "string" } },
+              required: ["mode", "x"],
+            },
+            {
+              properties: { mode: { const: "b" }, y: { type: "string" } },
+              required: ["mode", "y"],
+            },
+            open,
+          ],
+        });
+
+        expect(flat).not.toHaveProperty("description");
+      }
+    });
+  });
+
   describe("local references", () => {
     it("rebases definitions local to a removed branch", () => {
       const schema = {

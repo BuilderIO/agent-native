@@ -59,11 +59,22 @@ function same(a: unknown, b: unknown): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
+/**
+ * The branches of a bare nested anyOf/allOf that `combine` can splice into
+ * its own list. Only the boolean that cannot change the result is left out
+ * (`false` in an anyOf, `true` in an allOf); any other branch that is not a
+ * schema object keeps the nested composition whole, because `true` in an
+ * anyOf and `false` in an allOf decide it.
+ */
 function variantsOf(schema: JsonSchema, keyword: "anyOf" | "allOf") {
-  if (Object.keys(schema).length === 1 && Array.isArray(schema[keyword])) {
-    return (schema[keyword] as unknown[]).filter(isSchema);
+  if (Object.keys(schema).length !== 1 || !Array.isArray(schema[keyword])) {
+    return [schema];
   }
-  return [schema];
+  const neutral = keyword === "allOf";
+  const branches = (schema[keyword] as unknown[]).filter(
+    (branch) => branch !== neutral,
+  );
+  return branches.length > 0 && branches.every(isSchema) ? branches : [schema];
 }
 
 function combine(
@@ -82,6 +93,19 @@ function combine(
   return { [keyword]: variants };
 }
 
+/**
+ * The allOf of subschema positions: `false` anywhere admits nothing and
+ * `true` adds nothing. A value that is not a schema at all constrains
+ * nothing a validator could enforce, so it widens to `true` rather than
+ * being dropped from a conjunction that `false` would otherwise decide.
+ */
+function conjoinSubschemas(values: unknown[]): unknown {
+  if (values.some((value) => value === false)) return false;
+  const schemas = values.filter(isSchema);
+  return schemas.length === 0 ? true : combine(schemas, "allOf");
+}
+
+/** `false` admits nothing; `true`, `{}` and a non-schema admit anything. */
 function sideOf(value: unknown): Side {
   if (value === false) return NEVER;
   if (!isSchema(value) || Object.keys(value).length === 0) return ANY;
@@ -135,24 +159,24 @@ function conjoinConstraints(views: ObjectView[]): Constraints {
   const names = pick("propertyNames");
   const mins = pick("minProperties") as number[];
   const maxes = pick("maxProperties") as number[];
-  const patternProperties: JsonSchema = {};
+  const byPattern = new Map<string, unknown[]>();
   for (const map of patterns) {
     for (const [pattern, schema] of Object.entries(map)) {
-      const existing = patternProperties[pattern];
-      patternProperties[pattern] =
-        existing === undefined || !isSchema(schema) || !isSchema(existing)
-          ? schema
-          : combine([existing, schema], "allOf");
+      byPattern.set(pattern, [...(byPattern.get(pattern) ?? []), schema]);
     }
   }
+  const propertyNames = names.length === 0 ? true : conjoinSubschemas(names);
   return {
-    patternProperties: patterns.length > 0 ? patternProperties : undefined,
-    propertyNames:
-      names.length === 0
-        ? undefined
-        : names.length === 1
-          ? names[0]
-          : combine(names.filter(isSchema), "allOf"),
+    patternProperties:
+      patterns.length > 0
+        ? Object.fromEntries(
+            [...byPattern].map(([pattern, schemas]) => [
+              pattern,
+              conjoinSubschemas(schemas),
+            ]),
+          )
+        : undefined,
+    propertyNames: propertyNames === true ? undefined : propertyNames,
     minProperties: mins.length > 0 ? Math.max(...mins) : undefined,
     maxProperties: maxes.length > 0 ? Math.min(...maxes) : undefined,
   };
@@ -261,11 +285,13 @@ function ownView(schema: JsonSchema): ObjectView {
 
 /**
  * The object view of a branch: its own keywords conjoined with its `$ref`
- * target and nested compositions. Keywords the view cannot express (`not`,
- * `if`, `dependentRequired`, ...) are dropped, which only widens it. A
- * reference cycle adds nothing past its first visit. A reference with no
- * target throws: treating it as unconstrained would turn a schema no
- * validator compiles into a clean one once its branch is flattened away.
+ * target and nested compositions. `true` is the full view and `false` the
+ * empty one; a value that is not a schema widens to the full view. Keywords
+ * the view cannot express (`not`, `if`, `dependentRequired`, ...) are
+ * dropped, which only widens it. A reference cycle adds nothing past its
+ * first visit. A reference with no target throws: treating it as
+ * unconstrained would turn a schema no validator compiles into a clean one
+ * once its branch is flattened away.
  */
 function viewOf(
   value: unknown,
@@ -303,11 +329,17 @@ function quoted(value: unknown): string {
  * One line per root anyOf/oneOf branch naming its fixed values and required
  * fields. Flattening keeps every branch's fields but loses which ones go
  * together, so the guidance moves into the description the model reads.
+ * A branch that admits no object is left out. One that admits objects but
+ * names nothing to pass (`true`, or no fixed or required field) means any
+ * set will do, so the description then lists none rather than imply that
+ * the others are the only choices.
  */
 function argumentSetGuidance(branches: unknown[]): string | undefined {
   const lines: string[] = [];
   for (const branch of branches) {
-    if (!isSchema(branch)) continue;
+    if (branch === false) continue;
+    if (!isSchema(branch)) return undefined;
+    if (!admitsObjects(branch)) continue;
     const properties = isSchema(branch.properties) ? branch.properties : {};
     const fixed: string[] = [];
     for (const [key, schema] of Object.entries(properties)) {
@@ -324,7 +356,7 @@ function argumentSetGuidance(branches: unknown[]): string | undefined {
     ).filter(
       (key): key is string => typeof key === "string" && !fixedKeys.has(key),
     );
-    if (fixed.length === 0 && required.length === 0) continue;
+    if (fixed.length === 0 && required.length === 0) return undefined;
     const parts = [
       ...(fixed.length > 0 ? [fixed.join(", ")] : []),
       ...(required.length > 0 ? [`requires ${required.join(", ")}`] : []),
@@ -354,13 +386,15 @@ function writeSide(side: Side, anyValue: () => JsonSchema): JsonSchema {
 /**
  * Rewrites a root anyOf/oneOf/allOf into one object schema, because Anthropic
  * rejects a composed root ("input_schema does not support oneOf, allOf, or
- * anyOf at the top level"). The result accepts every input the original
+ * anyOf at the top level"). The result accepts every object the original
  * accepts and may accept more: a key one open branch leaves unconstrained
  * stays unconstrained, and keywords a flat object cannot express are
- * dropped. Callers validate against the action's own schema, so the looser
- * advertised copy never lets a bad call through. Local references into the
- * removed compositions are rebased into root `$defs` first, and a reference
- * that does not resolve throws `SchemaReferenceError`.
+ * dropped. The one exception is the default `anyValue`, whose bounded union
+ * admits no nested arrays; MCP passes an unbounded one. Callers validate
+ * against the action's own schema, so the looser advertised copy never lets
+ * a bad call through. Local references into the removed compositions are
+ * rebased into root `$defs` first, and a reference that does not resolve
+ * throws `SchemaReferenceError`.
  */
 export function flattenComposedRootSchema(
   schema: JsonSchema,
