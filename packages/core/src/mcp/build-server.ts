@@ -13,8 +13,10 @@ import {
   verifyA2AOrganizationIdentity,
 } from "../a2a/organization-identity.js";
 import {
-  actionCallEmitsChange,
+  actionCallReadOnly,
   actionChangeResource,
+  actionOutputEffect,
+  classifiedCallEmitsChange,
 } from "../action-call-classification.js";
 import {
   MCP_APP_EXTENSION_ID,
@@ -25,9 +27,13 @@ import {
 } from "../action.js";
 import type { ActionRunContext } from "../action.js";
 import {
+  actionCallRecord,
+  ActionOutputContractError,
   isActionContractError,
   isActionExposedToExternalAgents,
   isActionHiddenFromEveryAgentSurface,
+  isActionOutputContractError,
+  outputContractFailureEmitsChange,
 } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import {
@@ -97,6 +103,13 @@ import {
   type StoredConnectTokenIdentity,
 } from "./connect-store.js";
 import { MCP_APP_REQUEST_ORIGIN_CSP_SOURCE } from "./embed-app.js";
+import {
+  CIRCULAR_RESULT,
+  EMBED_RESULT_SENSITIVE_KEYS,
+  HIDDEN_EMBED_URL,
+  isEmbedCredentialKey,
+  isEmbedStartUrl,
+} from "./embed-redaction.js";
 import type { ExternalAgentPolicy } from "./external-agent-policy.js";
 import {
   MCP_OAUTH_SCOPES,
@@ -105,6 +118,7 @@ import {
   parseMcpOAuthOrgIdClaim,
   verifyMcpOAuthAccessToken,
 } from "./oauth-token.js";
+import { mcpContractValue, mcpResponseOutputCheck } from "./output-contract.js";
 import { mcpToolInputSchema } from "./tool-input-schema.js";
 
 const PRESERVE_MCP_OBJECT_RESULT = Symbol("preserveMcpObjectResult");
@@ -1084,16 +1098,6 @@ function withMcpChatBridgeParam(urlOrPath: string): string {
   }
 }
 
-function isEmbedStartUrl(value: string): boolean {
-  try {
-    const base = "http://agent-native.invalid";
-    const url = value.startsWith("/") ? new URL(value, base) : new URL(value);
-    return url.pathname.includes("/_agent-native/embed/start");
-  } catch {
-    return value.includes("/_agent-native/embed/start");
-  }
-}
-
 function routePathFromOpenUrl(value: string): string | null {
   try {
     const hasScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(value);
@@ -1126,16 +1130,6 @@ function routePathFromOpenUrl(value: string): string | null {
  * removed only inside an embed-signaled object/branch, so ordinary business
  * fields from unrelated read actions remain faithful.
  */
-const EMBED_RESULT_SENSITIVE_KEYS = new Set([
-  "embedTargetPath",
-  "embedExpiresAt",
-  "embedTicket",
-]);
-
-function isEmbedCredentialKey(key: string): boolean {
-  return key === "ticket" || /Ticket$/.test(key);
-}
-
 function containsEmbedRoutingSignal(
   value: unknown,
   seen = new WeakSet<object>(),
@@ -1167,25 +1161,26 @@ function purgeEmbedStartUrls(
   value: unknown,
   seen = new WeakSet<object>(),
   embedContext = false,
+  maskUrlFields = false,
 ): unknown {
   if (typeof value === "string") {
-    return isEmbedStartUrl(value) ? "[hidden embed URL]" : value;
+    return isEmbedStartUrl(value) ? HIDDEN_EMBED_URL : value;
   }
   if (Array.isArray(value)) {
-    if (seen.has(value)) return "[circular result]";
+    if (seen.has(value)) return CIRCULAR_RESULT;
     seen.add(value);
     // An embed marker in one array item puts the whole result in the embed
     // routing context. Credential fields in sibling items must not survive
     // just because the marker lives elsewhere in the array.
     const arrayEmbedContext = embedContext || containsEmbedRoutingSignal(value);
     const out = value.map((item) =>
-      purgeEmbedStartUrls(item, seen, arrayEmbedContext),
+      purgeEmbedStartUrls(item, seen, arrayEmbedContext, maskUrlFields),
     );
     seen.delete(value);
     return out;
   }
   if (value && typeof value === "object") {
-    if (seen.has(value)) return "[circular result]";
+    if (seen.has(value)) return CIRCULAR_RESULT;
     seen.add(value);
     const entries = Object.entries(value as Record<string, unknown>);
     const localEmbedContext = embedContext || containsEmbedRoutingSignal(value);
@@ -1197,10 +1192,17 @@ function purgeEmbedStartUrls(
       ) {
         continue;
       }
-      if (typeof val === "string" && isEmbedStartUrl(val)) {
+      // A field holding an embed URL is deleted, or masked in place where an
+      // output contract may require the field.
+      if (typeof val === "string" && isEmbedStartUrl(val) && !maskUrlFields) {
         continue;
       }
-      out[key] = purgeEmbedStartUrls(val, seen, localEmbedContext);
+      out[key] = purgeEmbedStartUrls(
+        val,
+        seen,
+        localEmbedContext,
+        maskUrlFields,
+      );
     }
     seen.delete(value);
     return out;
@@ -1982,6 +1984,27 @@ export function buildLinkArtifacts(
   }
 }
 
+async function writeMcpActionChangeMarker(
+  entry: ActionEntry,
+  name: string,
+  args: unknown,
+  result: unknown,
+): Promise<void> {
+  try {
+    await writeActionChangeMarker({
+      actionName: name,
+      ...actionChangeResource(entry, args, result),
+      owner: getRequestUserEmail() ?? undefined,
+      orgId: getRequestOrgId() ?? undefined,
+    });
+  } catch (error) {
+    console.warn(
+      "Could not write the action-change marker after an MCP tool call",
+      error,
+    );
+  }
+}
+
 function mergeBuiltinTools(
   config: MCPConfig,
   baseActions: Record<string, ActionEntry>,
@@ -2569,8 +2592,16 @@ function primitiveValue(value: unknown): value is string | number | boolean {
 function mcpAppStructuredContent(
   result: unknown,
   meta: Record<string, unknown> | undefined,
+  options: { contracted?: boolean } = {},
 ): Record<string, unknown> {
-  const purged = purgeEmbedStartUrls(result);
+  const done = (out: Record<string, unknown>) =>
+    options.contracted || Object.keys(out).length > 0 ? out : { status: "ok" };
+  const purged = purgeEmbedStartUrls(
+    result,
+    undefined,
+    false,
+    options.contracted === true,
+  );
   const out: Record<string, unknown> =
     purged && typeof purged === "object" && !Array.isArray(purged)
       ? { ...(purged as Record<string, unknown>) }
@@ -2588,12 +2619,38 @@ function mcpAppStructuredContent(
   if (openLink && typeof openLink === "object" && !Array.isArray(openLink)) {
     const webUrl = (openLink as Record<string, unknown>).webUrl;
     if (typeof webUrl === "string" && isEmbedStartUrl(webUrl)) {
-      return Object.keys(out).length > 0 ? out : { status: "ok" };
+      return done(out);
     }
     out.openLink = openLink;
-    if (typeof webUrl === "string" && !out.url) out.url = webUrl;
+    if (
+      typeof webUrl === "string" &&
+      (!out.url || out.url === HIDDEN_EMBED_URL)
+    ) {
+      out.url = webUrl;
+    }
   }
-  return Object.keys(out).length > 0 ? out : { status: "ok" };
+  return done(out);
+}
+
+/**
+ * The transport transform from an action's sanitized result to
+ * `structuredContent`. An opted-in action's advertised `outputSchema` is
+ * derived from its own by these same steps (`deriveMcpResponseOutputSchema`),
+ * so a change here must change that derivation too. Opted-in (`contracted`)
+ * actions keep an empty object as `{}`, since the `{ status: "ok" }`
+ * placeholder is not in their contract, and mask an embed URL field in place
+ * rather than deleting a field their contract may require.
+ */
+function mcpResponseStructuredContent(
+  result: unknown,
+  meta: Record<string, unknown> | undefined,
+  options: { contracted?: boolean } = {},
+): Record<string, unknown> {
+  return mcpAppStructuredContent(
+    Array.isArray(result) ? { items: result } : result,
+    meta,
+    options,
+  );
 }
 
 const MCP_TEXT_PAGING_INPUTS = [
@@ -3296,6 +3353,11 @@ export async function createMCPServerForRequest(
             } else if (hasLink) {
               annotations["agent-native/producesOpenLink"] = true;
             }
+            const outputSchema = directoryCatalog
+              ? mcpAppResource
+                ? { type: "object", additionalProperties: true }
+                : undefined
+              : entry.mcpOutputContract?.response;
             return {
               name,
               description:
@@ -3303,14 +3365,7 @@ export async function createMCPServerForRequest(
                   ? `${baseDescription} After calling, surface the returned "Open in … →" link to the user.`
                   : baseDescription,
               inputSchema,
-              ...(directoryCatalog && mcpAppResource
-                ? {
-                    outputSchema: {
-                      type: "object",
-                      additionalProperties: true,
-                    },
-                  }
-                : {}),
+              ...(outputSchema ? { outputSchema } : {}),
               ...(Object.keys(toolMeta).length > 0 ? { _meta: toolMeta } : {}),
               annotations,
             } as Tool;
@@ -3535,6 +3590,25 @@ export async function createMCPServerForRequest(
           };
         }
 
+        let rawResult: unknown;
+        let callArgs: Record<string, unknown> =
+          (args as Record<string, unknown>) ?? {};
+        // Set once `run` returns: any failure after it is an output-contract
+        // failure of a call that already ran.
+        let ran = false;
+        let callReadOnly: boolean | undefined;
+        const runContext: ActionRunContext = {
+          userEmail: getRequestUserEmail(),
+          orgId: getRequestOrgId() ?? null,
+          appId: config.appId,
+          caller: "mcp",
+          actionName: name,
+        };
+        // A directory profile may project results arbitrarily, so the derived
+        // contract is advertised and enforced on app catalogs only.
+        const outputContract = directoryCatalog
+          ? undefined
+          : entry.mcpOutputContract;
         try {
           const approvalResult = await requireMcpActionApproval(
             entry,
@@ -3546,25 +3620,31 @@ export async function createMCPServerForRequest(
             approvalResult === MCP_ACTION_ELICITATION_ACCEPTED;
           if (approvalResult !== undefined && !clientAccepted)
             return approvalResult;
-
-          const result = await entry.run(
-            (args as Record<string, string>) ?? {},
-            {
-              userEmail: getRequestUserEmail(),
-              orgId: getRequestOrgId() ?? null,
-              appId: config.appId,
-              caller: "mcp",
-              actionName: name,
-              ...mcpCallAttribution({
-                request,
-                envelope: ctx.mcpReq.envelope,
-                oauthClientId: effectiveIdentity?.oauthClientId,
-                clientAccepted,
-              }),
-            },
+          Object.assign(
+            runContext,
+            mcpCallAttribution({
+              request,
+              envelope: ctx.mcpReq.envelope,
+              oauthClientId: effectiveIdentity?.oauthClientId,
+              clientAccepted,
+            }),
           );
+
+          const checkOutput = outputContract
+            ? mcpResponseOutputCheck(outputContract)
+            : undefined;
+
+          const result = await entry.run(callArgs, runContext);
+          ran = true;
+          // Links, the change marker, and the effect follow the arguments the
+          // call ran with, defaults applied, classified before it ran.
+          const call = actionCallRecord(runContext);
+          if (call) callArgs = call.args as Record<string, unknown>;
+          callReadOnly = call
+            ? call.readOnly
+            : actionCallReadOnly(entry, callArgs);
           const mcpResult = isMcpActionResult(result) ? result : null;
-          const rawResult = mcpResult ? mcpResult.raw : result;
+          rawResult = mcpResult ? mcpResult.raw : result;
           const resultForClient = mcpResult ? mcpResult.text : result;
           const projectDirectoryResult = directoryCatalog
             ? config.directoryProfile?.projectResult
@@ -3593,7 +3673,7 @@ export async function createMCPServerForRequest(
           let directoryLinkUrl: string | undefined;
           if (config.catalogMode === "directory" && entry.link) {
             const linked = entry.link({
-              args: (args as Record<string, any>) ?? {},
+              args: callArgs,
               result: rawResult,
             });
             directoryLinkUrl = linked?.url ?? undefined;
@@ -3661,9 +3741,17 @@ export async function createMCPServerForRequest(
             images: resultImages,
             notes: resultImageNotes,
           } = extractAgentImagesFromActionResult(rawResultForClient);
+          // Normalize once, so the structured check and the text read the same
+          // plain data and no `toJSON` runs twice.
+          const contractResult = outputContract
+            ? mcpContractValue(actionResultForClient, {
+                actionName: name,
+                effect: actionOutputEffect(callReadOnly),
+              })
+            : actionResultForClient;
           const textResultForClient = mcpResult
             ? projectedResultForClient
-            : actionResultForClient;
+            : contractResult;
           const embedHasContent =
             resultImages.length > 0 ||
             mcpResultHasContent(actionResultForClient);
@@ -3678,7 +3766,7 @@ export async function createMCPServerForRequest(
             !!mcpAppResourceCandidate && !mcpResultIsError && !embedHasContent;
           const { block, _meta } = buildLinkArtifacts(
             entry,
-            (args as Record<string, any>) ?? {},
+            callArgs,
             actionResultForClient,
             requestMeta,
           );
@@ -3705,25 +3793,39 @@ export async function createMCPServerForRequest(
             Array.isArray(toolVisibility) &&
             toolVisibility.length > 0 &&
             toolVisibility.every((v) => v === "app");
-          const structuredResult =
+          const wantsStructuredResult =
             (returnsQueryPayload(entry) ||
               entry.mcpApp?.structuredContent === true) &&
             actionResultForClient &&
-            typeof actionResultForClient === "object"
-              ? Array.isArray(actionResultForClient)
-                ? { items: actionResultForClient }
-                : actionResultForClient
-              : undefined;
-          const structuredContent = mcpAppResource
-            ? mcpAppStructuredContent(actionResultForClient, responseMeta)
-            : isAppOnlyVisibility &&
-                actionResultForClient &&
-                typeof actionResultForClient === "object" &&
-                !Array.isArray(actionResultForClient)
-              ? (actionResultForClient as Record<string, unknown>)
-              : structuredResult
-                ? mcpAppStructuredContent(structuredResult, responseMeta)
-                : undefined;
+            typeof actionResultForClient === "object";
+          const structuredContent = outputContract
+            ? checkOutput && !mcpResultIsError && !embedProducedNothing
+              ? checkOutput(
+                  () =>
+                    mcpResponseStructuredContent(contractResult, responseMeta, {
+                      contracted: true,
+                    }),
+                  {
+                    actionName: name,
+                    effect: actionOutputEffect(callReadOnly),
+                  },
+                )
+              : mcpResponseStructuredContent(contractResult, responseMeta, {
+                  contracted: true,
+                })
+            : mcpAppResource
+              ? mcpAppStructuredContent(actionResultForClient, responseMeta)
+              : isAppOnlyVisibility &&
+                  actionResultForClient &&
+                  typeof actionResultForClient === "object" &&
+                  !Array.isArray(actionResultForClient)
+                ? (actionResultForClient as Record<string, unknown>)
+                : wantsStructuredResult
+                  ? mcpResponseStructuredContent(
+                      actionResultForClient,
+                      responseMeta,
+                    )
+                  : undefined;
           const paging = textPagingInputs(
             entry.tool.parameters,
             entry.readOnly === true,
@@ -3776,24 +3878,35 @@ export async function createMCPServerForRequest(
           };
           if (
             response.isError !== true &&
-            actionCallEmitsChange(entry, args, false)
+            classifiedCallEmitsChange(entry, callReadOnly, false)
           ) {
-            try {
-              await writeActionChangeMarker({
-                actionName: name,
-                ...actionChangeResource(entry, args, rawResult),
-                owner: getRequestUserEmail() ?? undefined,
-                orgId: getRequestOrgId() ?? undefined,
-              });
-            } catch (error) {
-              console.warn(
-                "Could not write the action-change marker after an MCP tool call",
-                error,
-              );
-            }
+            await writeMcpActionChangeMarker(entry, name, callArgs, rawResult);
           }
           return response;
-        } catch (err: any) {
+        } catch (caught: any) {
+          let err = caught;
+          if (ran && outputContract && !isActionOutputContractError(err)) {
+            // Only the error's type: its message may repeat the result.
+            console.warn(
+              `[mcp] Building the contracted result of "${name}" failed after it ran (${err instanceof Error ? err.name : typeof err})`,
+            );
+            err = new ActionOutputContractError({
+              actionName: name,
+              effect: actionOutputEffect(callReadOnly),
+              contract: "mcp",
+              issues: ["(root): transform_failed"],
+            });
+          }
+          // A write whose result broke its output contract is still applied,
+          // so other sessions must refresh exactly as after a success.
+          if (outputContractFailureEmitsChange(entry, err)) {
+            await writeMcpActionChangeMarker(
+              entry,
+              name,
+              actionCallRecord(runContext)?.args ?? callArgs,
+              rawResult,
+            );
+          }
           const errorCode =
             isActionContractError(err) && err.errorCode !== "action_failed"
               ? ` (errorCode: ${err.errorCode})`

@@ -16,12 +16,15 @@ import { isA2AIdentityVerificationUnavailableError } from "../a2a/server.js";
 import {
   actionCallEmitsChange,
   actionChangeResource,
+  classifiedCallEmitsChange,
 } from "../action-call-classification.js";
 import {
+  actionCallRecord,
   ActionContractError,
   isActionContractError,
   isActionExposedToExternalAgents,
   isAgentActionStopError,
+  outputContractFailureEmitsChange,
   validateActionArgs,
 } from "../action.js";
 import type { ActionRunContext } from "../action.js";
@@ -1269,6 +1272,34 @@ function mountActionRoutesInternal(
               paramsError = "Request body must be a valid JSON object.";
             }
 
+            let runContext: ActionRunContext | undefined;
+            const publishActionChange = async (
+              callArgs: unknown,
+              result: unknown,
+            ) => {
+              if (runContext?.caller === "mcp-widget") return;
+              const markerLanded = await notifyActionChangeForResponse({
+                actionName: name,
+                ...actionChangeResource(entry, callArgs, result),
+                ...(userEmail ? { owner: userEmail } : {}),
+                ...(getHeader(event, "x-request-source")
+                  ? {
+                      requestSource: getHeader(
+                        event,
+                        "x-request-source",
+                      ) as string,
+                    }
+                  : {}),
+              });
+              if (!markerLanded) {
+                setResponseHeader(
+                  event,
+                  ACTION_CHANGE_MARKER_HEADER,
+                  ACTION_CHANGE_MARKER_FAILED,
+                );
+              }
+            };
+
             try {
               if (paramsError) {
                 throw new ActionContractError(paramsError, {
@@ -1370,7 +1401,7 @@ function mountActionRoutesInternal(
                       : isFrontendActionRequest(event)
                         ? "frontend"
                         : "http"));
-              const runContext: ActionRunContext = {
+              runContext = {
                 userEmail,
                 orgId: orgId ?? null,
                 appId: options?.appId,
@@ -1498,30 +1529,19 @@ function mountActionRoutesInternal(
               }
               const result = await entry.run(params, runContext);
 
+              // The change follows the arguments the call ran with, defaults
+              // applied, classified before it ran.
+              const call = actionCallRecord(runContext);
               if (
-                caller !== "mcp-widget" &&
-                actionCallEmitsChange(entry, params, method === "GET")
+                call
+                  ? classifiedCallEmitsChange(
+                      entry,
+                      call.readOnly,
+                      method === "GET",
+                    )
+                  : actionCallEmitsChange(entry, params, method === "GET")
               ) {
-                const markerLanded = await notifyActionChangeForResponse({
-                  actionName: name,
-                  ...actionChangeResource(entry, params, result),
-                  ...(userEmail ? { owner: userEmail } : {}),
-                  ...(getHeader(event, "x-request-source")
-                    ? {
-                        requestSource: getHeader(
-                          event,
-                          "x-request-source",
-                        ) as string,
-                      }
-                    : {}),
-                });
-                if (!markerLanded) {
-                  setResponseHeader(
-                    event,
-                    ACTION_CHANGE_MARKER_HEADER,
-                    ACTION_CHANGE_MARKER_FAILED,
-                  );
-                }
+                await publishActionChange(call ? call.args : params, result);
               }
 
               if (typeof result === "string") {
@@ -1535,6 +1555,14 @@ function mountActionRoutesInternal(
 
               return result;
             } catch (err: any) {
+              // A write whose result broke its output contract is applied,
+              // so other sessions refresh exactly as after a success.
+              if (outputContractFailureEmitsChange(entry, err)) {
+                await publishActionChange(
+                  actionCallRecord(runContext)?.args ?? params,
+                  undefined,
+                );
+              }
               const msg = err?.message ?? String(err);
               const isValidationError = msg.startsWith(
                 "Invalid action parameters",
