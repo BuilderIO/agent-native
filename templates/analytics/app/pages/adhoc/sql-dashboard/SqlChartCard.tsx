@@ -41,6 +41,7 @@ import {
   SqlChart,
   type ChartDatum,
 } from "@/components/dashboard/SqlChart";
+import { InlineMarkdownLinks } from "@/components/Markdown";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -542,7 +543,7 @@ export function SqlChartCard({
         </div>
         {panel.config?.description && (
           <p className="text-sm text-muted-foreground mt-1">
-            {panel.config.description}
+            <InlineMarkdownLinks content={panel.config.description} />
           </p>
         )}
         {editable ? (
