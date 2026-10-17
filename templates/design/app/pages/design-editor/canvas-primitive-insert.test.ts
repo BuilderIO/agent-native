@@ -26,6 +26,7 @@ import {
 } from "./canvas-primitive-insert";
 import { writeBackVectorEditedPenPath } from "./clone-and-pen-edit";
 import { cssStyleAliases, parseInlineStyleAttribute } from "./code-layer-state";
+import { destinationBackgroundLightness } from "./cross-screen-text-color";
 
 describe("blankScreenHtml", () => {
   const html = blankScreenHtml("Screen 1");
@@ -105,8 +106,9 @@ describe("appendCanvasPrimitiveToHtml on a URL-backed live screen", () => {
     expect(textAt("background:#0b0f19")).toContain("color: #ffffff");
   });
 
-  it("leaves drawn text inheriting currentColor on a light screen", () => {
-    expect(textAt("background:#ffffff")).toContain("color: currentcolor");
+  it("chooses the higher-contrast text color instead of a luminance cutoff", () => {
+    expect(textAt("background:#777777")).toContain("color: #000000");
+    expect(textAt("background:#8c8c8c")).toContain("color: #000000");
   });
 
   it("makes click-created text intrinsic instead of shrinking to the screen remainder", () => {
@@ -535,6 +537,87 @@ describe("text takes its colour from what it lands on", () => {
       "i",
     ).exec(html)?.[1] ?? "";
 
+  const textColorOnBoard = (
+    paints: string[],
+    boardBackground: string,
+  ): string => {
+    const content = `<!doctype html><html><body>${paints
+      .map(
+        (background, index) =>
+          `<div data-surface="${index}" style="background:${background}"></div>`,
+      )
+      .join("")}</body></html>`;
+    const liveDocument = new DOMParser().parseFromString(content, "text/html");
+    const surfaces = Array.from(
+      liveDocument.querySelectorAll<HTMLElement>("[data-surface]"),
+    );
+    Object.defineProperty(liveDocument, "elementsFromPoint", {
+      value: () => surfaces,
+    });
+
+    const html = appendCanvasPrimitiveToHtml(
+      content,
+      {
+        kind: "text",
+        nodeId: "t",
+        geometry: { x: 10, y: 10, width: 120, height: 24 },
+        text: "on the board",
+      },
+      { isBoardTarget: true, boardBackground, liveDocument },
+    );
+    return styleOf(html ?? "", "t");
+  };
+
+  const textColorOnSvgPaint = (shape: string, underlay = ""): string => {
+    const content = `<!doctype html><html><body>${underlay}<svg xmlns="http://www.w3.org/2000/svg">${shape}</svg></body></html>`;
+    const liveDocument = new DOMParser().parseFromString(content, "text/html");
+    const svgPaint = liveDocument.querySelector("[data-svg-paint]");
+    if (!svgPaint) throw new Error("SVG paint fixture is missing its target");
+    Object.defineProperty(liveDocument, "elementsFromPoint", {
+      value: () => [
+        svgPaint,
+        ...Array.from(liveDocument.querySelectorAll("[data-underlay]")),
+      ],
+    });
+
+    const html = appendCanvasPrimitiveToHtml(
+      content,
+      {
+        kind: "text",
+        nodeId: "t",
+        geometry: { x: 10, y: 10, width: 120, height: 24 },
+        text: "on the board",
+      },
+      { isBoardTarget: true, boardBackground: "#111111", liveDocument },
+    );
+    return styleOf(html ?? "", "t");
+  };
+
+  const textColorOnMediaHit = (tagName: "img" | "video" | "canvas") => {
+    const media =
+      tagName === "img"
+        ? '<img data-agent-native-node-id="media" data-media-hit style="position:absolute;left:0;top:0;width:100px;height:100px;background:#ffffff">'
+        : `<${tagName} data-agent-native-node-id="media" data-media-hit style="position:absolute;left:0;top:0;width:100px;height:100px;background:#ffffff"></${tagName}>`;
+    const content = `<!doctype html><html><body>${media}</body></html>`;
+    const liveDocument = new DOMParser().parseFromString(content, "text/html");
+    const mediaHit = liveDocument.querySelector("[data-media-hit]");
+    if (!mediaHit) throw new Error("Media fixture is missing its hit target");
+    Object.defineProperty(liveDocument, "elementsFromPoint", {
+      value: () => [mediaHit],
+    });
+    const html = appendCanvasPrimitiveToHtml(
+      content,
+      {
+        kind: "text",
+        nodeId: "t",
+        geometry: { x: 10, y: 10, width: 120, height: 24 },
+        text: "on the board",
+      },
+      { isBoardTarget: true, boardBackground: "#111111", liveDocument },
+    );
+    return styleOf(html ?? "", "t");
+  };
+
   it("is not white when dropped into a white frame on the board", () => {
     const withFrame =
       appendCanvasPrimitiveToHtml(
@@ -607,9 +690,9 @@ describe("text takes its colour from what it lands on", () => {
       },
     ) ?? "";
 
-  it("is not white over a light rectangle on a dark screen", () => {
+  it("avoids white text when it lands on a light rectangle over a dark screen", () => {
     const html = textOverBox("#0f1115", "#D9D9D9");
-    expect(styleOf(html, "t")).toMatch(/color:\s*currentColor/i);
+    expect(styleOf(html, "t")).not.toMatch(/color:\s*#ffffff/i);
     expect(html).toMatch(
       /<body[^>]*>\s*<div data-agent-native-node-id="box"[^>]*><\/div>\s*<div data-agent-native-node-id="t"/,
     );
@@ -621,7 +704,366 @@ describe("text takes its colour from what it lands on", () => {
     );
   });
 
-  it("inherits instead of going white on a light canvas", () => {
+  it("uses the flow host color instead of the click point's child surface", () => {
+    const content = `<!doctype html><html><head><title>S</title></head><body>
+      <div data-agent-native-node-id="host" data-an-primitive="frame" style="position:absolute;left:100px;top:100px;width:300px;height:200px;background:#111111">
+        <div style="position:absolute;left:20px;top:20px;width:100px;height:80px;background:#ffffff"></div>
+      </div>
+    </body></html>`;
+    const html =
+      appendCanvasPrimitiveToHtml(
+        content,
+        {
+          kind: "text",
+          nodeId: "t",
+          geometry: { x: 130, y: 130, width: 120, height: 24 },
+          text: "append to the host",
+        },
+        { positioning: "flow" },
+      ) ?? "";
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const text = doc.querySelector<HTMLElement>(
+      '[data-agent-native-node-id="t"]',
+    );
+
+    expect(styleOf(html, "t")).toMatch(/color:\s*#ffffff/i);
+    expect(text?.parentElement?.getAttribute("data-agent-native-node-id")).toBe(
+      "host",
+    );
+    expect(text?.style.position).toBe("relative");
+  });
+
+  it("keeps inherited text color when a positioned child can cover appended flow text", () => {
+    const content = `<!doctype html><html><body>
+      <div data-agent-native-node-id="host" data-an-primitive="frame" style="position:absolute;left:100px;top:100px;width:300px;height:200px;background:#111111">
+        <div class="overlay" style="position:absolute;inset:0;width:300px;height:200px;background:#ffffff"></div>
+      </div>
+    </body></html>`;
+    const liveDocument = new DOMParser().parseFromString(content, "text/html");
+    const liveHost = liveDocument.querySelector<HTMLElement>(
+      '[data-agent-native-node-id="host"]',
+    )!;
+    const overlay = liveDocument.querySelector<HTMLElement>(".overlay")!;
+    const coveredRect = {
+      left: 100,
+      top: 100,
+      right: 400,
+      bottom: 300,
+      width: 300,
+      height: 200,
+    };
+    Object.defineProperty(liveHost, "getBoundingClientRect", {
+      value: () => coveredRect,
+    });
+    Object.defineProperty(overlay, "getBoundingClientRect", {
+      value: () => coveredRect,
+    });
+
+    const html =
+      appendCanvasPrimitiveToHtml(
+        content,
+        {
+          kind: "text",
+          nodeId: "t",
+          geometry: { x: 130, y: 130, width: 120, height: 24 },
+          text: "append to the host",
+        },
+        { positioning: "flow", liveDocument },
+      ) ?? "";
+
+    expect(styleOf(html, "t")).toMatch(/color:\s*currentcolor/i);
+  });
+
+  it("keeps the flow host stylesheet paint separate from the cursor child", () => {
+    const content = `<!doctype html><html><head><title>S</title></head><body>
+      <div data-agent-native-node-id="host" data-an-primitive="frame" class="host" style="position:absolute;left:100px;top:100px;width:300px;height:200px">
+        <div class="dark-child" style="position:absolute;left:20px;top:20px;width:100px;height:80px"></div>
+      </div>
+    </body></html>`;
+    const liveDocument = new DOMParser().parseFromString(
+      `<!doctype html><html><head><style>
+        .host { background: #ffffff; }
+        .dark-child { background: #111111; }
+      </style></head><body>
+        <div data-agent-native-node-id="host" data-an-primitive="frame" class="host">
+          <div class="dark-child"></div>
+        </div>
+      </body></html>`,
+      "text/html",
+    );
+    expect(
+      liveDocument.defaultView?.getComputedStyle(
+        liveDocument.querySelector('[data-agent-native-node-id="host"]')!,
+      ).backgroundColor,
+    ).toBe("#ffffff");
+    expect(
+      liveDocument.defaultView?.getComputedStyle(
+        liveDocument.querySelector(".dark-child")!,
+      ).backgroundColor,
+    ).toBe("#111111");
+    const sourceDocument = new DOMParser().parseFromString(
+      content,
+      "text/html",
+    );
+    expect(
+      destinationBackgroundLightness(
+        sourceDocument.querySelector('[data-agent-native-node-id="host"]')!,
+        liveDocument,
+      ),
+    ).toBe(true);
+    const html =
+      appendCanvasPrimitiveToHtml(
+        content,
+        {
+          kind: "text",
+          nodeId: "t",
+          geometry: { x: 130, y: 130, width: 120, height: 24 },
+          text: "append to the host",
+        },
+        {
+          positioning: "flow",
+          isBoardTarget: true,
+          boardBackground: "#111111",
+          liveDocument,
+        },
+      ) ?? "";
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const text = doc.querySelector<HTMLElement>(
+      '[data-agent-native-node-id="t"]',
+    );
+
+    expect(styleOf(html, "t")).toMatch(/color:\s*#000000/i);
+    expect(text?.parentElement?.getAttribute("data-agent-native-node-id")).toBe(
+      "host",
+    );
+  });
+
+  it("uses class-based dark surfaces when live computed paint is unavailable", () => {
+    const content =
+      "<!doctype html><html><head><title>S</title></head>" +
+      '<body style="background:#ffffff">' +
+      '<div class="bg-slate-900" style="position:absolute;left:20px;top:150px;width:280px;height:300px"></div>' +
+      "</body></html>";
+    const html =
+      appendCanvasPrimitiveToHtml(content, {
+        kind: "text",
+        nodeId: "t",
+        geometry: { x: 60, y: 260, width: 120, height: 24 },
+        text: "on a class-painted dark surface",
+      }) ?? "";
+
+    expect(styleOf(html, "t")).toMatch(/color:\s*#ffffff/i);
+  });
+
+  it("uses class-based light surfaces over a dark board without a live preview", () => {
+    const content = `<!doctype html><html><body>
+      <div class="p-4 bg-white" style="position:absolute;left:20px;top:150px;width:280px;height:300px"></div>
+    </body></html>`;
+    const parsed = new DOMParser().parseFromString(content, "text/html");
+    expect(
+      destinationBackgroundLightness(parsed.querySelector(".bg-white")!),
+    ).toBe(true);
+    const html =
+      appendCanvasPrimitiveToHtml(
+        content,
+        {
+          kind: "text",
+          nodeId: "t",
+          geometry: { x: 60, y: 260, width: 120, height: 24 },
+          text: "on a class-painted light surface",
+        },
+        { isBoardTarget: true, boardBackground: "#111111" },
+      ) ?? "";
+
+    expect(styleOf(html, "t")).toMatch(/color:\s*#000000/i);
+  });
+
+  it.each([
+    ["p-4 bg-white", true],
+    ["p-4 bg-slate-900", false],
+  ])(
+    "recognizes a class background utility after earlier class tokens (%s)",
+    (className, isLight) => {
+      const parsed = new DOMParser().parseFromString(
+        `<div class="${className}"></div>`,
+        "text/html",
+      );
+
+      expect(destinationBackgroundLightness(parsed.querySelector("div")!)).toBe(
+        isLight,
+      );
+    },
+  );
+
+  it("uses a dark fill for translucent dark-class paint when no board is measured", () => {
+    const content = `<!doctype html><html><body>
+      <div class="bg-slate-900" style="position:absolute;left:20px;top:150px;width:280px;height:300px;opacity:0.5"></div>
+    </body></html>`;
+    const html =
+      appendCanvasPrimitiveToHtml(
+        content,
+        {
+          kind: "text",
+          nodeId: "t",
+          geometry: { x: 60, y: 260, width: 120, height: 24 },
+          text: "on a translucent dark surface",
+        },
+        { isBoardTarget: true },
+      ) ?? "";
+
+    expect(styleOf(html, "t")).toMatch(/color:\s*#ffffff/i);
+  });
+
+  it("does not treat the fallback color as measured stylesheet paint", () => {
+    const content = `<!doctype html><html><head><style>
+      .dark-surface { background: #111111; color: #ffffff; }
+    </style></head><body>
+      <div class="dark-surface" style="position:absolute;left:20px;top:150px;width:280px;height:300px"></div>
+    </body></html>`;
+    const html =
+      appendCanvasPrimitiveToHtml(content, {
+        kind: "text",
+        nodeId: "t",
+        geometry: { x: 60, y: 260, width: 120, height: 24 },
+        text: "on a stylesheet-painted dark surface",
+      }) ?? "";
+
+    expect(styleOf(html, "t")).toMatch(/color:\s*currentcolor/i);
+  });
+
+  it("composites a translucent surface over the surface below it", () => {
+    expect(textColorOnBoard(["rgba(255, 255, 255, 0.4)"], "#111111")).toMatch(
+      /color:\s*#ffffff/i,
+    );
+  });
+
+  it("composites multiple translucent surfaces before choosing text color", () => {
+    expect(
+      textColorOnBoard(
+        ["rgba(255, 255, 255, 0.3)", "rgba(255, 255, 255, 0.3)"],
+        "#111111",
+      ),
+    ).toMatch(/color:\s*#000000/i);
+  });
+
+  it("preserves inherited text color when translucent paint has no known base", () => {
+    expect(
+      textColorOnBoard(["rgba(255, 255, 255, 0.4)"], "transparent"),
+    ).toMatch(/color:\s*currentcolor/i);
+  });
+
+  it("uses the dark-board fallback when a surface has a background image", () => {
+    expect(
+      textColorOnBoard(["linear-gradient(90deg, #ffffff, #111111)"], "#111111"),
+    ).toMatch(/color:\s*#ffffff/i);
+  });
+
+  it("samples a supported SVG fill when choosing text color", () => {
+    expect(
+      textColorOnSvgPaint(
+        '<rect data-svg-paint="" fill="#ffffff" width="100" height="100"/>',
+      ),
+    ).toMatch(/color:\s*#000000/i);
+  });
+
+  it("resolves inherited currentColor for an SVG fill", () => {
+    expect(
+      textColorOnSvgPaint(
+        '<g style="color:#ffffff"><rect data-svg-paint="" fill="currentColor" width="100" height="100"/></g>',
+      ),
+    ).toMatch(/color:\s*#000000/i);
+  });
+
+  it("composites SVG fill opacity over the board", () => {
+    expect(
+      textColorOnSvgPaint(
+        '<rect data-svg-paint="" fill="#ffffff" fill-opacity=".5" width="100" height="100"/>',
+      ),
+    ).toMatch(/color:\s*#000000/i);
+  });
+
+  it("samples a supported SVG stroke when choosing text color", () => {
+    expect(
+      textColorOnSvgPaint(
+        '<line data-svg-paint="" fill="none" stroke="#ffffff" stroke-width="12" x1="0" y1="0" x2="100" y2="100"/>',
+      ),
+    ).toMatch(/color:\s*#000000/i);
+  });
+
+  it("samples an SVG line stroke without treating its default fill as paint", () => {
+    expect(
+      textColorOnSvgPaint(
+        '<line data-svg-paint="" stroke="#ffffff" stroke-width="12" x1="0" y1="0" x2="100" y2="100"/>',
+      ),
+    ).toMatch(/color:\s*#000000/i);
+  });
+
+  it("uses the board fallback for an unsupported SVG paint server", () => {
+    expect(
+      textColorOnSvgPaint(
+        '<rect data-svg-paint="" fill="url(#wash)" width="100" height="100"/>',
+        '<div data-underlay="" style="background:#ffffff;width:100px;height:100px"></div>',
+      ),
+    ).toMatch(/color:\s*#ffffff/i);
+  });
+
+  it.each(["img", "video", "canvas"] as const)(
+    "uses the dark-board fallback when an HTML <%s> hit contains raster paint",
+    (tagName) => {
+      expect(textColorOnMediaHit(tagName)).toMatch(/color:\s*#ffffff/i);
+    },
+  );
+
+  it("ignores an unmeasured SVG image behind an opaque SVG surface", () => {
+    expect(
+      textColorOnSvgPaint(
+        '<rect data-svg-paint="" fill="#ffffff" width="100" height="100"/>',
+        '<image data-underlay="" width="100" height="100"/>',
+      ),
+    ).toMatch(/color:\s*#000000/i);
+  });
+
+  it("skips a zero-opacity hit and its descendants before sampling below", () => {
+    const content = `<!doctype html><html><body>
+      <div class="light-board" style="background:#ffffff;width:100px;height:100px"></div>
+      <div class="transparent" style="position:absolute;left:0;top:0;width:100px;height:100px;background:#111111;opacity:0">
+        <div class="hidden-child" style="background:#000000;width:100px;height:100px"></div>
+      </div>
+    </body></html>`;
+    const liveDocument = new DOMParser().parseFromString(content, "text/html");
+    const board = liveDocument.querySelector<HTMLElement>(".light-board")!;
+    const transparent =
+      liveDocument.querySelector<HTMLElement>(".transparent")!;
+    const child = liveDocument.querySelector<HTMLElement>(".hidden-child")!;
+    Object.defineProperty(liveDocument, "elementsFromPoint", {
+      value: () => [child, transparent, board],
+    });
+
+    const html = appendCanvasPrimitiveToHtml(
+      content,
+      {
+        kind: "text",
+        nodeId: "t",
+        geometry: { x: 10, y: 10, width: 120, height: 24 },
+        text: "on the visible board",
+      },
+      {
+        isBoardTarget: true,
+        boardBackground: "#111111",
+        liveDocument,
+      },
+    );
+
+    expect(styleOf(html ?? "", "t")).toMatch(/color:\s*#000000/i);
+  });
+
+  it("keeps inherited text color when a surface is translucent", () => {
+    expect(textColorOnBoard(["#ffffff;opacity:0.5"], "#111111")).toMatch(
+      /color:\s*currentColor/i,
+    );
+  });
+
+  it("uses the higher-contrast text color on a light canvas", () => {
     const html =
       appendCanvasPrimitiveToHtml(
         blankScreenHtml("S"),
@@ -633,8 +1075,192 @@ describe("text takes its colour from what it lands on", () => {
         },
         { isBoardTarget: true, boardBackground: "rgb(235, 235, 235)" },
       ) ?? "";
-    expect(styleOf(html, "t")).not.toMatch(/color:\s*#fff/i);
-    expect(styleOf(html, "t")).toMatch(/color:\s*currentColor/i);
+    expect(styleOf(html, "t")).toMatch(/color:\s*#000000/i);
+  });
+
+  it("uses class fills and rendered stacking order for overlapping surfaces", () => {
+    const content = `<!doctype html><html><head><style>
+      .upper { position: absolute; left: 0; top: 0; width: 100px; height: 100px; background: #ffffff; z-index: 2; }
+      .lower { position: absolute; left: 0; top: 0; width: 100px; height: 100px; background: #111111; z-index: 1; }
+    </style></head><body><div class="upper"></div><div class="lower"></div></body></html>`;
+    const liveDocument = new DOMParser().parseFromString(content, "text/html");
+    const upper = liveDocument.querySelector<HTMLElement>(".upper");
+    const lower = liveDocument.querySelector<HTMLElement>(".lower");
+    expect(upper).not.toBeNull();
+    expect(lower).not.toBeNull();
+    Object.defineProperty(liveDocument, "elementsFromPoint", {
+      value: () => [upper!, lower!],
+    });
+
+    const html = appendCanvasPrimitiveToHtml(
+      content,
+      {
+        kind: "text",
+        nodeId: "t",
+        geometry: { x: 10, y: 10, width: 120, height: 24 },
+        text: "on the upper surface",
+      },
+      {
+        isBoardTarget: true,
+        boardBackground: "hsl(0 0% 10%)",
+        liveDocument,
+      },
+    );
+
+    expect(styleOf(html ?? "", "t")).toMatch(/color:\s*#000000/i);
+  });
+
+  it("does not sample an opaque ancestor outside its box for an overflowing child", () => {
+    const content = `<!doctype html><html><body>
+      <div class="card" style="position:absolute;left:0;top:0;width:20px;height:20px;background:#ffffff">
+        <div class="overflow" style="position:absolute;left:30px;top:30px;width:20px;height:20px"></div>
+      </div>
+    </body></html>`;
+    const liveDocument = new DOMParser().parseFromString(content, "text/html");
+    const card = liveDocument.querySelector<HTMLElement>(".card")!;
+    const overflow = liveDocument.querySelector<HTMLElement>(".overflow")!;
+    Object.defineProperty(card, "getBoundingClientRect", {
+      value: () => ({
+        left: 0,
+        top: 0,
+        right: 20,
+        bottom: 20,
+        width: 20,
+        height: 20,
+      }),
+    });
+    Object.defineProperty(liveDocument, "elementsFromPoint", {
+      value: () => [overflow],
+    });
+
+    const html = appendCanvasPrimitiveToHtml(
+      content,
+      {
+        kind: "text",
+        nodeId: "t",
+        geometry: { x: 30, y: 30, width: 120, height: 24 },
+        text: "on the board outside the card",
+      },
+      {
+        isBoardTarget: true,
+        boardBackground: "#111111",
+        liveDocument,
+      },
+    );
+
+    expect(styleOf(html ?? "", "t")).toMatch(/color:\s*#ffffff/i);
+  });
+
+  it("treats a pointer-transparent painted overlay as an unknown surface", () => {
+    const content = `<!doctype html><html><body>
+      <div class="light-board" style="background:#ffffff"></div>
+      <div class="dark-overlay" style="position:absolute;left:0;top:0;width:100px;height:100px;pointer-events:none;background-image:linear-gradient(#111111,#111111)"></div>
+    </body></html>`;
+    const liveDocument = new DOMParser().parseFromString(content, "text/html");
+    const board = liveDocument.querySelector<HTMLElement>(".light-board")!;
+    const overlay = liveDocument.querySelector<HTMLElement>(".dark-overlay")!;
+    const originalOverlayStyle = overlay.getAttribute("style");
+    Object.defineProperty(overlay, "getBoundingClientRect", {
+      value: () => ({
+        left: 0,
+        top: 0,
+        right: 100,
+        bottom: 100,
+        width: 100,
+        height: 100,
+      }),
+    });
+    Object.defineProperty(liveDocument, "elementsFromPoint", {
+      value: () =>
+        [overlay, board].filter(
+          (element) =>
+            liveDocument.defaultView?.getComputedStyle(element)
+              .pointerEvents !== "none",
+        ),
+    });
+
+    const html = appendCanvasPrimitiveToHtml(
+      content,
+      {
+        kind: "text",
+        nodeId: "t",
+        geometry: { x: 10, y: 10, width: 120, height: 24 },
+        text: "on a painted overlay",
+      },
+      {
+        isBoardTarget: true,
+        boardBackground: "#ffffff",
+        liveDocument,
+      },
+    );
+
+    expect(styleOf(html ?? "", "t")).toMatch(/color:\s*currentcolor/i);
+    expect(overlay.getAttribute("style")).toBe(originalOverlayStyle);
+  });
+
+  it("ignores unknown paint beneath an opaque foreground surface", () => {
+    const content = `<!doctype html><html><body>
+      <div class="image-board" style="background-image:linear-gradient(#111111,#111111)"></div>
+      <div class="white-card" style="background:#ffffff"></div>
+    </body></html>`;
+    const liveDocument = new DOMParser().parseFromString(content, "text/html");
+    const card = liveDocument.querySelector<HTMLElement>(".white-card")!;
+    const board = liveDocument.querySelector<HTMLElement>(".image-board")!;
+    Object.defineProperty(liveDocument, "elementsFromPoint", {
+      value: () => [card, board],
+    });
+
+    const html = appendCanvasPrimitiveToHtml(
+      content,
+      {
+        kind: "text",
+        nodeId: "t",
+        geometry: { x: 10, y: 10, width: 120, height: 24 },
+        text: "on the card",
+      },
+      {
+        isBoardTarget: true,
+        boardBackground: "#111111",
+        liveDocument,
+      },
+    );
+
+    expect(styleOf(html ?? "", "t")).toMatch(/color:\s*#000000/i);
+  });
+
+  it("checks lower painted siblings before a nested hit's painted ancestor", () => {
+    const content = `<!doctype html><html><head><style>
+      .parent { position: relative; width: 100px; height: 100px; background: #ffffff; }
+      .nested { position: absolute; inset: 0; z-index: 2; background: transparent; }
+      .lower { position: absolute; left: 0; top: 0; width: 100px; height: 100px; background: #111111; z-index: 1; }
+    </style></head><body><div class="parent"><div class="nested"></div></div><div class="lower"></div></body></html>`;
+    const liveDocument = new DOMParser().parseFromString(content, "text/html");
+    const parent = liveDocument.querySelector<HTMLElement>(".parent");
+    const nested = liveDocument.querySelector<HTMLElement>(".nested");
+    const lower = liveDocument.querySelector<HTMLElement>(".lower");
+    expect(parent).not.toBeNull();
+    expect(nested).not.toBeNull();
+    expect(lower).not.toBeNull();
+    Object.defineProperty(liveDocument, "elementsFromPoint", {
+      value: () => [nested!, lower!, parent!],
+    });
+
+    const html = appendCanvasPrimitiveToHtml(
+      content,
+      {
+        kind: "text",
+        nodeId: "t",
+        geometry: { x: 10, y: 10, width: 120, height: 24 },
+        text: "on the lower surface",
+      },
+      {
+        isBoardTarget: true,
+        boardBackground: "hsl(0 0% 10%)",
+        liveDocument,
+      },
+    );
+
+    expect(styleOf(html ?? "", "t")).toMatch(/color:\s*#ffffff/i);
   });
 });
 
