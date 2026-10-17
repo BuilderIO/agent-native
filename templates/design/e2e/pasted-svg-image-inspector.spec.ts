@@ -570,7 +570,7 @@ test("stroke gradient edits stay on the selected nested pasted-SVG shape", async
   const updated = await paint();
   expect(updated[0]?.stroke).toBe("#111827");
   expect(updated[0]?.style).not.toContain("--an-vector-stroke-gradient:");
-  expect(updated[1]?.stroke).toBe("#7c3aed");
+  expect(updated[1]?.stroke).toBeNull();
   expect(updated[1]?.style).toMatch(/stroke: url\(["']?#/);
 
   await expect

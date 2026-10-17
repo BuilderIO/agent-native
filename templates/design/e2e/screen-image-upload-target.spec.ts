@@ -222,12 +222,14 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
   });
   let releaseUpload!: () => void;
   let releaseScreenACollabPoll!: () => void;
+  let releaseBrowserDesignReads!: () => void;
   let markUploadStarted!: () => void;
   let markUploadCompleted!: () => void;
   let markScreenACollabPollObserved!: () => void;
   let markScreenACollabPollCompleted!: () => void;
   let holdNextScreenACollabPoll = false;
   let screenACollabPollHeld = false;
+  let holdBrowserDesignReads = false;
   const uploadGate = new Promise<void>((resolve) => {
     releaseUpload = resolve;
   });
@@ -239,6 +241,9 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
   });
   const screenACollabPollCompleted = new Promise<void>((resolve) => {
     markScreenACollabPollCompleted = resolve;
+  });
+  const browserDesignReadGate = new Promise<void>((resolve) => {
+    releaseBrowserDesignReads = resolve;
   });
   const uploadStarted = new Promise<void>((resolve) => {
     markUploadStarted = resolve;
@@ -252,6 +257,9 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
   const uploadRoute = "**/_agent-native/actions/upload-image";
   const pollRoute = "**/_agent-native/poll?*";
   const eventsRoute = "**/_agent-native/events*";
+  const designReadRoute = "**/_agent-native/actions/get-design*";
+  // The client also reads get-design inside batches; an unheld batch leaks the concurrent edit.
+  const batchedReadRoute = "**/_agent-native/actions/get-actions-batch*";
 
   try {
     await page.route(eventsRoute, async (route) => {
@@ -293,6 +301,43 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
       await route.fulfill({ response, body });
     });
     await app.open(designId);
+    await page.route(designReadRoute, async (route) => {
+      if (!holdBrowserDesignReads) {
+        await route.continue();
+        return;
+      }
+      const response = await route.fetch();
+      const body = await response.text();
+      let screenAHasConcurrentMarker: boolean | null = null;
+      try {
+        const design = JSON.parse(body) as DesignRecord;
+        const file = design.files?.find((entry) => entry.id === screenAId);
+        screenAHasConcurrentMarker =
+          file?.content.includes("Screen A source updated during upload") ??
+          null;
+      } catch {
+        screenAHasConcurrentMarker = null;
+      }
+      uploadTimeline.push({
+        ms: Date.now() - timelineStart,
+        event: "browser-get-design-held",
+        screenAHasConcurrentMarker,
+      });
+      await waitForGate(browserDesignReadGate, "browser get-design release");
+      await route.fulfill({ response, body });
+    });
+    await page.route(batchedReadRoute, async (route) => {
+      const readsDesign = (route.request().postData() ?? "").includes(
+        '"action":"get-design"',
+      );
+      if (holdBrowserDesignReads && readsDesign) {
+        await waitForGate(
+          browserDesignReadGate,
+          "browser batched get-design release",
+        );
+      }
+      await route.continue();
+    });
     const layers = page.getByRole("tree", { name: "Layers" });
     const screens = layers.locator('[role="treeitem"][aria-level="1"]');
     await expect(screens).toHaveCount(2);
@@ -383,6 +428,7 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
     expect(screenAHtmlWithConcurrentEdit).not.toBe(screenAHtmlBeforeEdit);
     expect(screenAHtmlWithConcurrentEdit).toContain("#2e4a62");
     holdNextScreenACollabPoll = true;
+    holdBrowserDesignReads = true;
     const externalUpdateResult = await postAction(page, "update-file", {
       id: screenAId,
       content: screenAHtmlWithConcurrentEdit,
@@ -408,6 +454,11 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
       ms: Date.now() - timelineStart,
       event: "upload-response-released",
       screenACollabPollHeld: screenACollabPollHeld,
+      browserHadObservedConcurrentMarker: uploadTimeline.some(
+        (event) =>
+          event.event === "browser-get-design-response" &&
+          event.screenAHasConcurrentMarker === true,
+      ),
     });
     const staleUpdateResponsePromise = page.waitForResponse(
       (response) => {
@@ -477,6 +528,17 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
           event.sequence < staleUploadSaveSequence,
       ),
     ).toBe(false);
+    expect(
+      uploadTimeline.some(
+        (event) =>
+          event.event === "browser-update-file-request" &&
+          event.fileId === screenAId &&
+          event.hasConcurrentMarker === false &&
+          typeof event.expectedVersionHash === "string",
+      ),
+    ).toBe(true);
+    releaseBrowserDesignReads();
+    holdBrowserDesignReads = false;
     releaseScreenACollabPoll();
     await screenACollabPollCompleted;
     await expect
@@ -608,6 +670,7 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
   } finally {
     releaseUpload?.();
     releaseScreenACollabPoll?.();
+    releaseBrowserDesignReads?.();
     await Promise.race([
       uploadCompleted,
       new Promise<void>((resolve) => setTimeout(resolve, 5_000)),
@@ -618,12 +681,14 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
         new Promise<void>((resolve) => setTimeout(resolve, 5_000)),
       ]);
     }
-    await page.unrouteAll({ behavior: "ignoreErrors" });
+    await page.unroute(uploadRoute).catch(() => {});
+    await page.unroute(pollRoute).catch(() => {});
+    await page.unroute(eventsRoute).catch(() => {});
+    await page.unroute(designReadRoute).catch(() => {});
+    await page.unroute(batchedReadRoute).catch(() => {});
   }
 });
-
-// fixme: product bug: After reload the client re-sends the rejected stale upload save (old #253b50 content + image URL) three times; the server answers 200
-test.fixme("active Screen upload conflict preserves SQL and live-collaboration source", async ({
+test("active Screen upload conflict preserves SQL and live-collaboration source", async ({
   app,
   page,
 }) => {

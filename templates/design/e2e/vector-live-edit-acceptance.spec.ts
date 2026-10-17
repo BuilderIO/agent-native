@@ -838,8 +838,7 @@ test("closing an edited pasted SVG restores authored fill opacity through histor
   await expect(reloadedPath).toHaveAttribute("d", /Z\s*$/i);
 });
 
-// fixme: product bug: After Enter the appended node is saved, but [data-vector-edit-overlay] stays (count 1) and the Pen tool stays active.
-test.fixme("Pen continues an open vector from its selected endpoint while editing", async ({
+test("Pen continues an open vector from its selected endpoint while editing", async ({
   app,
 }) => {
   const page = app.page;
@@ -883,7 +882,11 @@ test.fixme("Pen continues an open vector from its selected endpoint while editin
   ).toHaveCount(2);
   expect(await app.savedHtml(designId)).toBe(originalSource);
 
-  await page.mouse.click(start.x - 30, start.y + 28);
+  const appended = {
+    x: Math.round(start.x - 30),
+    y: Math.round(start.y + 28),
+  };
+  await page.mouse.click(appended.x, appended.y);
   await expect(
     page.locator("[data-pen-path-overlay] [data-pen-anchor]"),
   ).toHaveCount(3);
@@ -898,12 +901,11 @@ test.fixme("Pen continues an open vector from its selected endpoint while editin
   const nodes = pastedPathNodes(await app.savedHtml(designId));
   expect(nodes[1]?.slice(0, 2)).toEqual([70, 30]);
   expect(nodes[2]?.slice(0, 2)).toEqual([10, 30]);
-  expect(nodes[3]?.[0]).toBeCloseTo(10 - 30 / pathScale, 3);
-  expect(nodes[3]?.[1]).toBeCloseTo(30 + 28 / pathScale, 3);
+  expect(nodes[3]?.[0]).toBeCloseTo(10 + (appended.x - start.x) / pathScale, 1);
+  expect(nodes[3]?.[1]).toBeCloseTo(30 + (appended.y - start.y) / pathScale, 1);
 });
 
-// fixme: fails on current main after the merge: Error: expect(received).not.toBeNull()
-test.fixme("dragging a vector segment previews its bend and commits both handles", async ({
+test("dragging a vector segment previews its bend and commits both handles", async ({
   app,
 }) => {
   const page = app.page;
@@ -938,6 +940,7 @@ test.fixme("dragging a vector segment previews its bend and commits both handles
   await expect
     .poll(() => renderedPath.getAttribute("d"))
     .not.toBe(originalPathData);
+  await expect.poll(() => app.savedHtml(designId)).not.toBe(originalSource);
   const nodes = nestedPathNodes(await app.savedHtml(designId));
   expect(nodes[1]?.slice(0, 2)).toEqual([0, 0]);
   expect(nodes[2]?.slice(0, 2)).toEqual([100, 0]);

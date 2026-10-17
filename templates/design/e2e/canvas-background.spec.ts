@@ -125,8 +125,7 @@ for (const { theme, canvasHex, expectedCanvasRgb, boardTextColor } of [
     boardTextColor: "currentcolor",
   },
 ] as const) {
-  // fixme: light: board text committed with Escape is never saved; dark: fails in CI on current main: expect(received).toEqual(expect
-  test.fixme(`${theme} theme: the canvas keeps its colour when the board gains its first shape`, async ({
+  test(`${theme} theme: the canvas keeps its colour when the board gains its first shape`, async ({
     app,
     page,
   }) => {

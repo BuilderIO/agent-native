@@ -1,6 +1,11 @@
 import { type Page } from "@playwright/test";
 
-import { appPath, expandAllLayers, pickFrameMode } from "./helpers";
+import {
+  appPath,
+  expandAllLayers,
+  pickFrameMode,
+  selectionState,
+} from "./helpers";
 import {
   childrenOf,
   expect,
@@ -85,11 +90,7 @@ async function filenames(app: App, designId: string) {
 }
 
 async function selectedScreenIds(page: Page): Promise<string[]> {
-  const response = await page.request.get(
-    appPath("/_agent-native/application-state/design-selection"),
-  );
-  expect(response.ok()).toBe(true);
-  return ((await response.json()).selectedScreenIds ?? []) as string[];
+  return (await selectionState(page))?.selectedScreenIds ?? [];
 }
 
 async function setFrames(
@@ -268,8 +269,7 @@ test("Frame Selection wraps two board frames in one frame at their union bounds,
   expectOnlyChanged(wrapped, await app.savedNodes(id, BOARD), []);
 });
 
-// fixme: product bug: Minor source cruft: Remove fill keeps background: rgb(255,255,255) and adds background-color: transparent (line 229); renders correctly.
-test.fixme("removing a board frame's fill in the inspector saves it without a background and changes nothing else", async ({
+test("removing a board frame's fill in the inspector saves it without a background and changes nothing else", async ({
   app,
 }) => {
   const id = await app.seed(BLANK_SCREEN("Home"));
@@ -302,8 +302,7 @@ test.fixme("removing a board frame's fill in the inspector saves it without a ba
   expectOnlyChanged(before, after, [frame.id]);
 });
 
-// fixme: product bug: Copy lands as a flow child at Home's top-left (no position/left/top) and its style is rewritten to computed longhands (background 'none
-test.fixme("Option-dragging a component instance onto another screen drops a copy at the cursor and leaves the source screen untouched", async ({
+test("Option-dragging a component instance onto another screen drops a copy at the cursor and leaves the source screen untouched", async ({
   app,
 }) => {
   const id = await app.seed(BLANK_SCREEN("Home"), {
@@ -356,8 +355,7 @@ test.fixme("Option-dragging a component instance onto another screen drops a cop
   expectOnlyChanged(navBefore, await app.savedNodes(id, "nav.html"), []);
 });
 
-// fixme: product bug: No wrapper: Shift+A re-applies auto layout to the nav itself, overwriting padding '12px 24px' with '12px' and stamping
-test.fixme("Shift+A on an element that already has auto layout wraps it in a new auto-layout frame without changing its own layout", async ({
+test("Shift+A on an element that already has auto layout wraps it in a new auto-layout frame without changing its own layout", async ({
   app,
 }) => {
   const id = await app.seed(PAGE_WITH_NAV);
@@ -384,6 +382,7 @@ test.fixme("Shift+A on an element that already has auto layout wraps it in a new
   expect(styleOf(after.get(wrapperId))).toEqual({
     display: "flex",
     "flex-direction": "column",
+    "align-items": "flex-start",
     gap: "10px",
     padding: "0px",
     width: "fit-content",
@@ -645,8 +644,31 @@ test("dragging Bio above Skills in the Layers panel reorders the saved children 
   ]).toEqual([200, 320]);
 });
 
-// fixme: product bug: The editor switches to Home at 100% with a blank canvas for 14s and selects the Home screen, not the main instance (line 491: selected
-test.fixme("'Go to main component' on a later instance selects the earliest instance on its screen", async ({
+/** The selected Layers row's name and the Screen row it is listed under. */
+async function selectedSourceId(page: Page) {
+  return (await selectionState(page))?.selectedElement?.sourceId ?? null;
+}
+
+function selectedRowPlace(page: Page) {
+  return page.evaluate(() => {
+    const rows = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="treeitem"]'),
+    );
+    const selected = rows.findIndex(
+      (row) => row.getAttribute("aria-selected") === "true",
+    );
+    const screen = rows
+      .slice(0, selected)
+      .reverse()
+      .find((row) => row.getAttribute("aria-level") === "1");
+    return {
+      screen: screen?.innerText.trim(),
+      layer: rows[selected]?.innerText.trim(),
+    };
+  });
+}
+
+test("'Go to main component' on a later instance selects the earliest instance on its screen", async ({
   app,
 }) => {
   const id = await app.seed(NAV_SCREEN, {
@@ -662,15 +684,17 @@ test.fixme("'Go to main component' on a later instance selects the earliest inst
   );
   await app.page.mouse.click(point.x, point.y);
   await expect.poll(() => app.selectedLayers()).toStrictEqual(["Navigation"]);
+  await app.settled();
   const before = await app.savedRecord(id);
 
   await app.page.getByRole("button", { name: "Go to main component" }).click();
 
-  await expect(
-    app.page.locator(
-      '[role="treeitem"][aria-selected="true"] [data-layer-row-button]',
-    ),
-  ).toHaveAttribute("data-layer-node-id", "nav-root");
+  await expect
+    .poll(() => selectedRowPlace(app.page), "the main on Home is selected")
+    .toEqual({ screen: "Home", layer: "Navigation" });
+  await expect
+    .poll(() => selectedSourceId(app.page), "the selected element is the main")
+    .toBe("nav-root");
   await expect.poll(() => app.selectedLayers()).toStrictEqual(["Navigation"]);
   await app.settled();
   expect((await app.savedRecord(id)).files).toEqual(before.files);

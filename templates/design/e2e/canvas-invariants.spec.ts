@@ -240,8 +240,7 @@ async function layoutGrid(app: App, designId: string, size: number) {
 }
 
 test.describe("inspector reports the truth", () => {
-  // fixme: product bug: Known family, clipped inspector fields: the H control's accessible name is 'H 115.4 Hug' but it displays 'H 11... Hug'. X/Y/W pass.
-  test.fixme("selecting Intro shows its authored X, Y and W and its measured hug height", async ({
+  test("selecting Intro shows its authored X, Y and W and its measured hug height", async ({
     app,
   }) => {
     await openPage(app);
@@ -748,8 +747,7 @@ test.describe("persistence and history", () => {
 });
 
 test.describe("layers panel", () => {
-  // fixme: fails on current main after the merge: Error: expect(received).toEqual(expected) // deep equality
-  test.fixme("the tree mirrors DOM nesting with the last child on top", async ({
+  test("the tree mirrors DOM nesting: freeform children last-on-top, auto-layout children in layout order", async ({
     app,
   }) => {
     await openPage(app);
@@ -766,9 +764,9 @@ test.describe("layers panel", () => {
       ["Home", "1"],
       ["Plain Box", "2"],
       ["Intro", "2"],
-      ["Body", "3"],
-      ["Sub", "3"],
       ["Title", "3"],
+      ["Sub", "3"],
+      ["Body", "3"],
     ]);
   });
 

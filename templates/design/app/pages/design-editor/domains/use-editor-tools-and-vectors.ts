@@ -136,6 +136,7 @@ export function useEditorToolsAndVectors({
     shellMode,
     embedded,
     embedChromeRequested,
+    widgetEmbed,
     mode,
     setMode,
     activeTool,
@@ -1707,6 +1708,7 @@ export function useEditorToolsAndVectors({
                 height: geometry.height as number,
               },
             }).camera,
+            revealOnly: !widgetEmbed,
             nonce: cameraCommandNonceRef.current,
           });
         }
@@ -1723,6 +1725,7 @@ export function useEditorToolsAndVectors({
       overviewInteractScreenIdRef,
       setOverviewInteractScreenId,
       setCameraCommand,
+      widgetEmbed,
     ],
   );
 

@@ -85,13 +85,13 @@ const REQUIRED_CORE_COVERAGE = [
     title: "clicking a child inside Card selects Card, not Kid A",
   },
   {
-    shard: "drag-1b",
+    shard: "inspector-3a",
     file: "canvas-invariants.spec.ts",
     title:
       "Escape on a rectangle just drawn inside a frame clears the selection without selecting the screen",
   },
   {
-    shard: "drag-2a",
+    shard: "inspector-3b",
     file: "canvas-invariants.spec.ts",
     title:
       "drawing two shapes then undo removes only the frame, and redo restores it selected",
@@ -367,7 +367,7 @@ test("required core Design interaction coverage has explicit regression pins", (
 });
 
 test("regression pins resolve unique test titles to the current source lines", () => {
-  assert.equal(DESIGN_E2E_REGRESSION_PINS.length, 96);
+  assert.equal(DESIGN_E2E_REGRESSION_PINS.length, 102);
   assert.deepEqual(
     [...new Set(DESIGN_E2E_REGRESSION_PINS.map(({ shard }) => shard))],
     DESIGN_E2E_REGRESSION_SHARDS,

@@ -119,8 +119,7 @@ async function firstPdfPagePng(pdf: Buffer) {
   }
 }
 
-// fixme: product bug: During the export the app logs twice "Blocked script execution in 'about:srcdoc' because the document's frame is sandboxed and the
-test.fixme("single-screen PDF download preserves localhost source pixels", async ({
+test("single-screen PDF download preserves localhost source pixels", async ({
   page: basePage,
   browser,
   request,

@@ -398,8 +398,7 @@ test("Shift+X swaps a board SVG fill and stroke as one undoable edit", async ({
   expect(sourceAfterRedo?.stroke).toMatch(/218\s+218\s+218|218,\s*218,\s*218/i);
 });
 
-// fixme: product bug: After the Linear stroke gradient is saved, Cmd+Z leaves gradientCount 1 and the url() reference live. No update-file follows the undo
-test.fixme("vector stroke gradient is visible, persisted, undoable, and reloadable", async ({
+test("vector stroke gradient is visible, persisted, undoable, and reloadable", async ({
   app,
   page,
   request,

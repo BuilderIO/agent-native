@@ -156,6 +156,9 @@ const STATE_VECTOR_FETCH_INTERVAL = 15;
 
 const STATE_VECTOR_FETCH_TIMEOUT_MS = 15_000;
 
+// A poll that never settles would hold the in-flight guard and stop polling.
+const POLL_FETCH_TIMEOUT_MS = 15_000;
+
 const POLL_RING_BUFFER_SIZE = 200;
 
 const BACKOFF_BASE_MS = 500;
@@ -277,6 +280,10 @@ class CollabDocConnection {
   private syncActive = false;
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
   private pollGeneration = 0;
+  // A poll asked for while one is in flight runs once after it, so focus,
+  // visibility and a sync restart never start a second polling chain.
+  private pollInFlight = false;
+  private pollRequested = false;
   private consecutiveErrors = 0;
   private pollCycleCount = 0;
   private pollVersion = 0;
@@ -345,6 +352,7 @@ class CollabDocConnection {
       this.startTransport();
     } else {
       this.resubscribeCollabEventsIfPauseChanged();
+      if (this.snapshot.initialization.status === "ready") this.startSync();
       this.reschedulePoll();
     }
   }
@@ -352,8 +360,9 @@ class CollabDocConnection {
   remove(id: symbol): void {
     this.subscribers.delete(id);
     if (this.subscribers.size === 0) {
-      this.stopSync();
       cancelAwarenessPush(this.baseUrl, this.docId, this.ydoc.clientID);
+      // A lingering connection may outlive its document (a deleted Screen).
+      this.stopSync();
       this.scheduleDispose();
     } else {
       this.resubscribeCollabEventsIfPauseChanged();
@@ -537,6 +546,7 @@ class CollabDocConnection {
       this.lastSetUser &&
       this.snapshot.isSynced &&
       origin === "local" &&
+      this.syncActive &&
       !this.disposed
     ) {
       scheduleAwarenessPush(
@@ -835,8 +845,9 @@ class CollabDocConnection {
       this.docMissing ||
       this.disposed ||
       this.subscribers.size === 0
-    )
+    ) {
       return;
+    }
     this.syncActive = true;
     const pollGeneration = ++this.pollGeneration;
 
@@ -853,6 +864,7 @@ class CollabDocConnection {
     if (!this.syncActive) return;
     this.syncActive = false;
     this.pollGeneration++;
+    this.pollRequested = false;
     this.setCollabPollBoost(false);
     this.sseActive = false;
     this.sseAwarenessCovered = false;
@@ -1054,14 +1066,39 @@ class CollabDocConnection {
 
   private async poll(generation: number): Promise<void> {
     if (!this.isPollCurrent(generation)) return;
+    if (this.pollInFlight) {
+      this.pollRequested = true;
+      return;
+    }
+    this.pollInFlight = true;
+    try {
+      await this.pollOnce(generation);
+    } finally {
+      this.pollInFlight = false;
+    }
+    if (this.pollRequested) {
+      this.pollRequested = false;
+      if (this.isPollCurrent(this.pollGeneration)) this.pollNow();
+    }
+  }
+
+  private async pollOnce(generation: number): Promise<void> {
+    if (!this.isPollCurrent(generation)) return;
 
     this.flushPendingUpdates();
 
+    const pollAbort = new AbortController();
+    const pollTimeout = setTimeout(
+      () => pollAbort.abort(),
+      POLL_FETCH_TIMEOUT_MS,
+    );
     try {
       const pollUrl = this.pollCursor
         ? `/_agent-native/poll?cursor=${encodeURIComponent(this.pollCursor)}`
         : `/_agent-native/poll?since=${this.pollVersion}`;
-      const res = await fetch(agentNativePath(pollUrl));
+      const res = await fetch(agentNativePath(pollUrl), {
+        signal: pollAbort.signal,
+      });
       if (!this.isPollCurrent(generation)) return;
       if (!res.ok) throw new Error("HTTP " + res.status);
 
@@ -1186,6 +1223,8 @@ class CollabDocConnection {
       const backoff = calcBackoff(this.consecutiveErrors);
       this.schedulePoll(generation, backoff);
       return;
+    } finally {
+      clearTimeout(pollTimeout);
     }
 
     this.schedulePoll(generation);

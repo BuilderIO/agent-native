@@ -64,8 +64,7 @@ async function computedFromSaved(
   );
 }
 
-// fixme: product bug: The in-iframe gradient overlay ([data-agent-native-edit-overlay=gradient]) stays visible, with green/magenta stop handles, while the
-test.fixme("Add fill puts a #123456 Solid layer on top, keeps the gradient layers' size, repeat and position aligned, and saves it", async ({
+test("Add fill puts a #123456 Solid layer on top, keeps the gradient layers' size, repeat and position aligned, and saves it", async ({
   app,
 }) => {
   const id = await app.seed(LAYERED_FILL);
@@ -263,8 +262,7 @@ test("Add fill and Add stroke on a path and a rectangle paint both as SVG fill a
   expectOnlyChanged(before, after, ["vector-path", "vector-rect"]);
 });
 
-// fixme: product bug: The 'Inside' stroke is a plain content-box border, so the element renders 202x122 while the inspector W/H still says 200x120. Every other
-test.fixme("the + on an empty Stroke heading adds one 1px black Inside stroke that saves and keeps the box 200×120", async ({
+test("the + on an empty Stroke heading adds one 1px black Inside stroke that saves and keeps the box 200×120", async ({
   app,
 }) => {
   const id = await app.seed(UNSTROKED);

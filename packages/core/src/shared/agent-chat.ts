@@ -1,3 +1,7 @@
+// A thread read or save that sends this header with "typed" gets { absent: true }
+// for a thread no run has saved yet, instead of a 404.
+export const AGENT_CHAT_THREAD_ABSENCE_HEADER = "x-agent-native-thread-absence";
+
 export interface AgentChatMessage {
   message: string;
   context?: string;

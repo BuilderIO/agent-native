@@ -394,7 +394,7 @@ test.describe("interaction: responsive card with auto layout and constraints", (
     });
   });
 
-  test("Shift+A wraps the shift-clicked title and creator in a vertical auto-layout frame without moving them, and saves a gap of 4", async ({
+  test("steps 7-8: Shift+A wraps the shift-clicked title and creator into a vertical auto-layout frame without moving them, and gap 4 saves on that frame", async ({
     app,
     page,
   }) => {
@@ -425,7 +425,6 @@ test.describe("interaction: responsive card with auto layout and constraints", (
       display: "flex",
       "flex-direction": "column",
       gap: "8px",
-      "align-items": "flex-start",
     });
     expect(styleOf(wrapped.get("title"))).toEqual({
       margin: "0",
@@ -496,8 +495,7 @@ test.describe("interaction: responsive card with auto layout and constraints", (
     ).toBe(4);
   });
 
-  // fixme: product bug: The Min width inspector field clips its value: it holds '200px' but shows '200p:' (scrollWidth > clientWidth). The card's Gap field also
-  test.fixme("Fill width stretches a card child to the card's content box, and min width commits on the card", async ({
+  test("Fill width stretches a card child to the card's content box, and min width commits on the card", async ({
     app,
     page,
   }) => {

@@ -435,8 +435,7 @@ test.describe("mobile app build", () => {
     ).toHaveCount(1);
   });
 
-  // fixme: fails on current main after the merge: Error: saved design has no __board__.html
-  test.fixme("dragging Card out of the Home screen onto the board reparents it to the board, and one undo restores it inside Home at the exact original position", async ({
+  test("dragging Card out of the Home screen onto the board reparents it to the board, and one undo restores it inside Home at the exact original position", async ({
     app,
   }) => {
     const id = await openSeeded(app, MOBILE_HOME_HTML);

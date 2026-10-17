@@ -238,7 +238,7 @@ test.describe("editor keyboard layer clipboard", () => {
       position: "absolute",
       width: "260px",
       "border-radius": "16px",
-      transform: "matrix(0.999391, 0.0348995, -0.0348995, 0.999391, 0, 0)",
+      transform: "rotate(2deg)",
     });
     expect
       .soft(

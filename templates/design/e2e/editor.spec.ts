@@ -39,17 +39,6 @@ async function setCreativeContextLab(page: Page, enabled: boolean) {
   expect(response.ok(), `set-lab returned ${response.status()}`).toBe(true);
 }
 
-function overlaps(a: Box | null, b: Box | null) {
-  return Boolean(
-    a &&
-    b &&
-    a.x < b.x + b.width &&
-    b.x < a.x + a.width &&
-    a.y < b.y + b.height &&
-    b.y < a.y + a.height,
-  );
-}
-
 async function clickCenter(app: App, nodeId: string) {
   const rect = await app.designRect(nodeId);
   const point = await app.pagePoint(
@@ -158,8 +147,7 @@ test("agent rail keeps the shared chat header and conversation tabs", async ({
   ).toHaveCount(1);
 });
 
-// fixme: product bug: The canvas bottom toolbar sits on top of the agent composer at 390px, covering its controls and part of the send button (line 117).
-test.fixme("agent rail stays inside a narrow viewport without the canvas toolbar covering its composer", async ({
+test("agent rail stays inside a narrow viewport without the canvas toolbar covering its composer", async ({
   app,
 }) => {
   await openFixture(app);
@@ -183,13 +171,10 @@ test.fixme("agent rail stays inside a narrow viewport without the canvas toolbar
     .locator('[data-agent-composer-slot="root"]')
     .last();
   await expect(composer).toBeVisible();
-  expect(
-    overlaps(
-      await page.locator("[data-design-bottom-toolbar]").boundingBox(),
-      await composer.boundingBox(),
-    ),
-    "the canvas toolbar covers the agent composer",
-  ).toBe(false);
+  await expect(
+    page.locator("[data-design-bottom-toolbar]"),
+    "a phone-width Agent panel leaves no canvas for the toolbar, so it must not sit on the composer",
+  ).toHaveCount(0);
 });
 
 test("designs list shared sidebar stays contained at normal and narrow widths", async ({

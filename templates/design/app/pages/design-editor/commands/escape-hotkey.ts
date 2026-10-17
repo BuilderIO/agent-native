@@ -97,6 +97,7 @@ export function runEscapeHotkey({
   }
   setSelectedElement(null);
   setHoveredElement(null);
+  setCreatedOverviewLayerSelection(null);
   setOverviewSelectedScreenIds([]);
   setSelectedLayerIdsState([]);
   setCreatedOverviewLayerSelection(null);
