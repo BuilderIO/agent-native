@@ -71,13 +71,14 @@ before recording it.
 
 The parent inventory must retain the reaction-owner IDs and the same-parent
 reply timestamp, author ID, disposition, evidence, and read-back text for every
-owned root eye. Record an explicit decision for both `✅` and `🎫` on every owned
-eye: `present` with its scope, or `none` with the reason no mark applies. Record
-verified fixed scopes with their proof and each distinct human handoff with its
-scope, owner, and action. In the framework repository, run
+root this actor marks with `👀`, `✅`, or `🎫`. Record an explicit decision for
+both `✅` and `🎫` on every such root: `present` with its scope, or `none` with
+the reason no mark applies. Record verified fixed scopes with their proof and
+each distinct human handoff with its scope, owner, and action. In the framework
+repository, run
 `pnpm feedback:inventory-check -- .tmp/feedback-inventory.json .tmp/feedback-source-receipt.json .tmp/feedback-source-pages`
 before the recap; all three inputs are required and a failed check means source
-coverage or owned-eye reconciliation is incomplete. The checker
+coverage or owned-root reconciliation is incomplete. The checker
 does not authorize changing another actor's reactions or replies.
 
 ## Prior questions and reporter replies
