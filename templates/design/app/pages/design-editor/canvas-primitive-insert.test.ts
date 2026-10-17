@@ -108,6 +108,7 @@ describe("appendCanvasPrimitiveToHtml on a URL-backed live screen", () => {
 
   it("chooses the higher-contrast text color instead of a luminance cutoff", () => {
     expect(textAt("background:#777777")).toContain("color: #000000");
+    expect(textAt("background:#8c8c8c")).toContain("color: #000000");
   });
 
   it("makes click-created text intrinsic instead of shrinking to the screen remainder", () => {
