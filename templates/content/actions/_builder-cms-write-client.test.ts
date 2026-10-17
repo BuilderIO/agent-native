@@ -192,6 +192,10 @@ describe("Builder CMS write client", () => {
       {
         errorCode: "builder_oauth_reauthorization_required",
         statusCode: 400,
+        details: {
+          reason: "missing_scope",
+          scope: "builder:content:write",
+        },
       },
     );
     const request = {
@@ -245,6 +249,29 @@ describe("Builder CMS write client", () => {
           fetchImpl: fetchImpl as unknown as typeof fetch,
         }),
       ).rejects.toBe(reauthorizationRequired);
+      expect(
+        resolveBuilderLegacyRequestAuthorizationMock,
+      ).not.toHaveBeenCalled();
+      expect(fetchImpl).not.toHaveBeenCalled();
+    });
+
+    it("does not use a deploy key when OAuth expired", async () => {
+      const expired = new ActionContractError(
+        "Builder.io access expired. Re-authorize Builder.io in Settings to continue.",
+        {
+          errorCode: "builder_oauth_reauthorization_required",
+          statusCode: 400,
+        },
+      );
+      resolveBuilderRequestAuthorizationMock.mockRejectedValue(expired);
+      const fetchImpl = vi.fn();
+
+      await expect(
+        executeBuilderCmsWrite({
+          request,
+          fetchImpl: fetchImpl as unknown as typeof fetch,
+        }),
+      ).rejects.toBe(expired);
       expect(
         resolveBuilderLegacyRequestAuthorizationMock,
       ).not.toHaveBeenCalled();

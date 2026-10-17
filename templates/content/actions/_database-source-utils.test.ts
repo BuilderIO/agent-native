@@ -39,6 +39,7 @@ import {
   builderCmsEntryAlreadyRepresented,
   builderCmsSourceContinuationIsCurrent,
   builderExecutionIsProvablyLocallyBlockedUnsent,
+  hydrateSnapshotExecutionRows,
   canRefreshLocallyBlockedBuilderReview,
   buildMockBodyChange,
   buildMockFieldChange,
@@ -62,6 +63,34 @@ import {
   sortBuilderBodyHydrationQueueForProcessing,
 } from "./_database-source-utils";
 import { serializeBodyHydration } from "./_database-utils";
+
+describe("Builder execution snapshot payload hydration", () => {
+  it("bounds concurrent reads and isolates unavailable payloads", async () => {
+    const rows = Array.from({ length: 9 }, (_, index) => ({
+      id: `execution-${index}`,
+      payloadJson: `payload-${index}`,
+    })) as unknown as Parameters<typeof hydrateSnapshotExecutionRows>[0];
+    let inFlight = 0;
+    let maximumInFlight = 0;
+
+    const hydrated = await hydrateSnapshotExecutionRows(rows, async (row) => {
+      inFlight += 1;
+      maximumInFlight = Math.max(maximumInFlight, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      inFlight -= 1;
+      if (row.id === "execution-3") throw new Error("payload unavailable");
+      return row;
+    });
+
+    expect(maximumInFlight).toBe(4);
+    expect(hydrated).toHaveLength(rows.length);
+    expect(hydrated[3]).toMatchObject({
+      payloadJson: JSON.stringify({ unavailable: true }),
+      payloadUnavailable: true,
+    });
+    expect(hydrated.filter((row) => row.payloadUnavailable)).toHaveLength(1);
+  });
+});
 
 function property(
   type: DocumentProperty["definition"]["type"],

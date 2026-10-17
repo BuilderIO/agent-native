@@ -841,6 +841,7 @@ export interface ContentDatabaseSourceExecution {
   idempotencyKey: string;
   summary: string;
   payload: Record<string, unknown>;
+  payloadUnavailable?: true;
   lastError: string | null;
   createdAt: string;
   updatedAt: string;

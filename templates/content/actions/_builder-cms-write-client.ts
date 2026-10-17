@@ -57,7 +57,9 @@ async function readBuilderWriteAuthorization(sourceBound: boolean) {
     if (
       sourceBound ||
       !isActionContractError(error) ||
-      error.errorCode !== "builder_oauth_reauthorization_required"
+      error.errorCode !== "builder_oauth_reauthorization_required" ||
+      error.details?.reason !== "missing_scope" ||
+      error.details.scope !== BUILDER_CONTENT_WRITE_SCOPE
     ) {
       throw error;
     }

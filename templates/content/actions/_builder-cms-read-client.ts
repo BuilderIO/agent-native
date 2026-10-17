@@ -1707,9 +1707,9 @@ export async function readBuilderCmsContentEntryResult(args: {
         false,
       );
     }
-    let rawEntry: unknown;
+    let entries: unknown[];
     try {
-      rawEntry = parseBuilderGeneralQueryDataResponse(json).results[0];
+      entries = parseBuilderGeneralQueryDataResponse(json).results;
     } catch (error) {
       throw new BuilderCmsContentEntryReadError(
         error instanceof Error
@@ -1720,13 +1720,22 @@ export async function readBuilderCmsContentEntryResult(args: {
         false,
       );
     }
-    const entry = normalizeBuilderCmsApiEntry(rawEntry, args.model);
-    if (!entry) {
+    if (entries.length === 0) {
       return {
         state: "not_found",
         entry: null,
         providerStatus: "http_200_not_found",
       };
+    }
+    const rawEntry = entries[0];
+    const entry = normalizeBuilderCmsApiEntry(rawEntry, args.model);
+    if (!entry) {
+      throw new BuilderCmsContentEntryReadError(
+        "Builder CMS entry read returned a malformed entry payload.",
+        "malformed_body",
+        "http_200_invalid_entry",
+        false,
+      );
     }
     if (entry.id !== args.entryId) {
       if (args.strictEntryIdentity === false) {

@@ -113,6 +113,12 @@ export default defineAction({
         "Prepare the Builder execution gate before validating it.",
       );
     }
+    if (execution.state === "running" || execution.attemptToken) {
+      fail("Builder execution is already running.", {
+        errorCode: "builder_execution_running",
+        statusCode: 409,
+      });
+    }
 
     const now = new Date().toISOString();
     const binding = {

@@ -153,6 +153,7 @@ describe("resolveBuilderApiAuthorization", () => {
       message:
         "Builder.io access needs re-authorizing to grant builder:assets:write. Open Settings and authorize Builder.io again.",
       statusCode: 400,
+      details: { reason: "missing_scope", scope: ASSETS_WRITE },
     });
     expect(resolveBuilderCredentialMock).not.toHaveBeenCalled();
   });

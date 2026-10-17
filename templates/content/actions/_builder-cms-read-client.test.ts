@@ -2329,6 +2329,46 @@ describe("Builder CMS read client", () => {
     });
   });
 
+  it("treats a present malformed general exact-query entry as invalid", async () => {
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "general-oauth-token",
+      authorization: "Bearer general-oauth-token",
+      source: "oauth",
+      oauthResource: "general",
+      oauthSelectedPublicKey: "selected-space-key",
+    });
+    const fetchImpl = vi.fn(async (input: URL) =>
+      input.pathname === "/api/v1/models"
+        ? new Response(
+            JSON.stringify({
+              models: [{ id: "model-uuid", name: "blog_article", fields: [] }],
+            }),
+            { status: 200 },
+          )
+        : new Response(
+            JSON.stringify({
+              results: [
+                { modelId: "model-uuid", data: { title: "Malformed" } },
+              ],
+              totalCount: 1,
+            }),
+            { status: 200 },
+          ),
+    );
+
+    await expect(
+      readBuilderCmsContentEntryResult({
+        model: "blog_article",
+        entryId: "expected-entry",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).rejects.toMatchObject<Partial<BuilderCmsContentEntryReadError>>({
+      reason: "malformed_body",
+      providerStatus: "http_200_invalid_entry",
+      retryable: false,
+    });
+  });
+
   it("rejects a wrong-ID result during the general OAuth live preflight", async () => {
     resolveBuilderRequestAuthorizationMock.mockResolvedValue({
       token: "general-oauth-token",

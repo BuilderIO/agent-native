@@ -945,6 +945,86 @@ describe("Builder source review execution gates", () => {
     expect(payload.dryRun.status).toBe("validated");
   });
 
+  it("does not validate over a Builder execution with an active attempt", async () => {
+    const seeded = await seedBuilderSource({
+      sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
+      changeSetState: "approved",
+    });
+    const args = {
+      documentId: seeded.databaseDocumentId,
+      sourceId: seeded.sourceId,
+      changeSetId: seeded.changeSetId,
+      pushModeConfirmation: "autosave" as const,
+    };
+    await asOwner(() => prepareExecution.run(args));
+    const [execution] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceExecutions)
+      .where(
+        eq(schema.contentDatabaseSourceExecutions.sourceId, seeded.sourceId),
+      );
+    const attemptToken = "active-builder-attempt";
+    await getDb()
+      .update(schema.contentDatabaseSourceExecutions)
+      .set({ state: "running", attemptToken })
+      .where(eq(schema.contentDatabaseSourceExecutions.id, execution.id));
+
+    await expect(
+      asOwner(() => validateExecution.run(args)),
+    ).rejects.toMatchObject({
+      errorCode: "builder_execution_running",
+      statusCode: 409,
+    });
+
+    const [after] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceExecutions)
+      .where(eq(schema.contentDatabaseSourceExecutions.id, execution.id));
+    expect(after).toMatchObject({
+      state: "running",
+      attemptToken,
+      payloadJson: execution.payloadJson,
+    });
+  });
+
+  it("refuses to replace a prepared gate after its reviewed Builder baseline moves", async () => {
+    const seeded = await seedBuilderSource({
+      sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
+      changeSetState: "approved",
+      lastSourceUpdatedAt: "2026-06-29T14:00:00.000Z",
+    });
+    const args = {
+      documentId: seeded.databaseDocumentId,
+      sourceId: seeded.sourceId,
+      changeSetId: seeded.changeSetId,
+      pushModeConfirmation: "autosave" as const,
+    };
+    await asOwner(() => prepareExecution.run(args));
+    const [before] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceExecutions)
+      .where(
+        eq(schema.contentDatabaseSourceExecutions.sourceId, seeded.sourceId),
+      );
+    await getDb()
+      .update(schema.contentDatabaseSourceRows)
+      .set({ lastSourceUpdatedAt: "2026-06-29T14:30:00.000Z" })
+      .where(eq(schema.contentDatabaseSourceRows.sourceId, seeded.sourceId));
+
+    await expect(asOwner(() => prepareExecution.run(args))).rejects.toThrow(
+      /changed since this change was reviewed/,
+    );
+
+    const [after] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceExecutions)
+      .where(eq(schema.contentDatabaseSourceExecutions.id, before.id));
+    expect(after).toMatchObject({
+      state: before.state,
+      payloadJson: before.payloadJson,
+    });
+  });
+
   it("prepares a publish-key gate that still creates a draft for an unmatched row", async () => {
     const seeded = await seedBuilderSource({
       sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,

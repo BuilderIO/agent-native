@@ -755,7 +755,7 @@ function serializeReviewEvent(
 }
 
 function serializeExecution(
-  row: ContentDatabaseSourceExecutionRowDb,
+  row: ContentDatabaseSourceExecutionRowDb & { payloadUnavailable?: true },
 ): ContentDatabaseSourceExecution {
   return {
     id: row.id,
@@ -765,7 +765,10 @@ function serializeExecution(
     state: normalizeExecutionState(row.state),
     idempotencyKey: row.idempotencyKey,
     summary: row.summary,
-    payload: parseObject<Record<string, unknown>>(row.payloadJson) ?? {},
+    payload: row.payloadUnavailable
+      ? { unavailable: true }
+      : (parseObject<Record<string, unknown>>(row.payloadJson) ?? {}),
+    ...(row.payloadUnavailable ? { payloadUnavailable: true } : {}),
     lastError: row.lastError,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -4503,6 +4506,45 @@ async function hydrateSnapshotExecutionRow(
   }
 }
 
+const SNAPSHOT_EXECUTION_HYDRATION_CONCURRENCY = 4;
+
+export async function hydrateSnapshotExecutionRows(
+  rows: ContentDatabaseSourceExecutionRowDb[],
+  hydrate: (
+    row: ContentDatabaseSourceExecutionRowDb,
+  ) => Promise<ContentDatabaseSourceExecutionRowDb> = hydrateSnapshotExecutionRow,
+): Promise<
+  Array<ContentDatabaseSourceExecutionRowDb & { payloadUnavailable?: true }>
+> {
+  const hydrated = new Array<
+    ContentDatabaseSourceExecutionRowDb & { payloadUnavailable?: true }
+  >(rows.length);
+  let nextIndex = 0;
+  const workerCount = Math.min(
+    SNAPSHOT_EXECUTION_HYDRATION_CONCURRENCY,
+    rows.length,
+  );
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (nextIndex < rows.length) {
+        const index = nextIndex++;
+        const row = rows[index];
+        if (!row) continue;
+        try {
+          hydrated[index] = await hydrate(row);
+        } catch {
+          hydrated[index] = {
+            ...row,
+            payloadJson: JSON.stringify({ unavailable: true }),
+            payloadUnavailable: true,
+          };
+        }
+      }
+    }),
+  );
+  return hydrated;
+}
+
 async function loadSourceSnapshot(
   source: ContentDatabaseSourceRowDb,
   database: ContentDatabaseRow | ContentDatabase,
@@ -4618,9 +4660,8 @@ async function loadSourceSnapshot(
     string,
     ContentDatabaseSourceExecution[]
   >();
-  const hydratedExecutionRows = await Promise.all(
-    executionRows.map(hydrateSnapshotExecutionRow),
-  );
+  const hydratedExecutionRows =
+    await hydrateSnapshotExecutionRows(executionRows);
   for (const row of hydratedExecutionRows) {
     const executions = executionsByChangeSetId.get(row.changeSetId) ?? [];
     executions.push(serializeExecution(row));

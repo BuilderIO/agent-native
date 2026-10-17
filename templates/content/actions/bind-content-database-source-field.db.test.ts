@@ -829,6 +829,21 @@ describe("add-content-database-source-field-property Builder refresh", () => {
 
   it("refreshes a stale Builder snapshot before creating and populating a Topics property", async () => {
     const f = await seedStaleBuilderTopicsSnapshot();
+    const db = getDb();
+    const [source] = await db
+      .select({ metadataJson: schema.contentDatabaseSources.metadataJson })
+      .from(schema.contentDatabaseSources)
+      .where(eq(schema.contentDatabaseSources.id, f.sourceId));
+    await db
+      .update(schema.contentDatabaseSources)
+      .set({
+        metadataJson: JSON.stringify({
+          ...JSON.parse(source.metadataJson),
+          builderSpacePublicKey: "source-space",
+          connectionId: "source-connection",
+        }),
+      })
+      .where(eq(schema.contentDatabaseSources.id, f.sourceId));
     const readBuilderEntries = vi
       .spyOn(
         await import("./_builder-cms-read-client.js"),
@@ -878,6 +893,8 @@ describe("add-content-database-source-field-property Builder refresh", () => {
     expect(readBuilderEntries).toHaveBeenCalledOnce();
     expect(readBuilderEntries).toHaveBeenCalledWith({
       model: "blog-article",
+      expectedSourceSpace: "source-space",
+      expectedSourceConnectionId: "source-connection",
       fieldPaths: ["data.topics"],
       limit: 500,
       offset: 0,
@@ -895,7 +912,6 @@ describe("add-content-database-source-field-property Builder refresh", () => {
       },
     ]);
 
-    const db = getDb();
     const sourceRows = await db
       .select()
       .from(schema.contentDatabaseSourceRows)

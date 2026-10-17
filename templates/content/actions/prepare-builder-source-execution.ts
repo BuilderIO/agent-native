@@ -12,9 +12,13 @@ import {
   builderExecutionPayloadReference,
   cleanupBuilderPrivatePayload,
   deleteBuilderPrivatePayload,
+  readBuilderExecutionPayload,
   storeBuilderExecutionPayload,
 } from "./_builder-cms-blob-custody.js";
-import { buildBuilderCmsExecutionPlan } from "./_builder-cms-write-adapter.js";
+import {
+  buildBuilderCmsExecutionPlan,
+  validateBuilderCmsExecutionDryRun,
+} from "./_builder-cms-write-adapter.js";
 import { claimBuilderSourceExecutionGate } from "./_builder-source-execution-claim.js";
 import { shouldPreserveBuilderExecution } from "./_builder-source-execution-preservation.js";
 import { createBuilderSourceTiming } from "./_builder-source-timings.js";
@@ -118,6 +122,32 @@ export default defineAction({
             });
 
           if (existing && !preserve) {
+            const storedPayload = await readBuilderExecutionPayload({
+              payloadJson: existing.payloadJson,
+              binding: {
+                ownerEmail: database.ownerEmail,
+                sourceId: source.id,
+                changeSetId: changeSet.id,
+                executionId: existing.id,
+                idempotencyKey: plan.idempotencyKey,
+              },
+            });
+            const existingDryRun = validateBuilderCmsExecutionDryRun({
+              storedPayload,
+              plan,
+              now,
+            }).dryRun;
+            if (existingDryRun?.status === "stale") {
+              fail(
+                "Builder execution changed since this change was reviewed. Refresh and review it again.",
+                {
+                  errorCode: "builder_execution_stale",
+                  statusCode: 409,
+                  details: { mismatches: existingDryRun.mismatches },
+                },
+              );
+            }
+
             const payloadJson = await storeBuilderExecutionPayload({
               payload: plan.payload as unknown as Record<string, unknown>,
               binding: {

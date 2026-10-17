@@ -282,6 +282,7 @@ export async function resolveBuilderRequestAuthorization(
           {
             errorCode: "builder_oauth_reauthorization_required",
             statusCode: 400,
+            details: { reason: "missing_scope", scope: input.requiredScope },
           },
         );
       }
@@ -302,6 +303,7 @@ export async function resolveBuilderRequestAuthorization(
         {
           errorCode: "builder_oauth_reauthorization_required",
           statusCode: 400,
+          details: { reason: "missing_scope", scope: input.requiredScope },
         },
       );
     }
