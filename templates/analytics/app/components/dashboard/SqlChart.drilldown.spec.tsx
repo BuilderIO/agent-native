@@ -233,7 +233,7 @@ describe("SqlChart drilldown clicks", () => {
 
     const disclosure = container.querySelector<HTMLDetailsElement>("details");
     const summary = disclosure?.querySelector<HTMLElement>("summary");
-    expect(summary?.textContent).toBe("sqlDashboard.drilldownFilterRows");
+    expect(summary?.textContent).toBe("sqlDashboard.drilldownChartPoints");
 
     expect(disclosure?.querySelector("button")).toBeNull();
     await act(async () => {
@@ -293,7 +293,7 @@ describe("SqlChart drilldown clicks", () => {
     await act(async () => {
       disclosure!
         .querySelector<HTMLButtonElement>(
-          'button[aria-label="common.nextPage"]',
+          'button[aria-label="sqlDashboard.drilldownNextPage"]',
         )!
         .click();
     });
@@ -303,14 +303,14 @@ describe("SqlChart drilldown clicks", () => {
     await act(async () => {
       disclosure!
         .querySelector<HTMLButtonElement>(
-          'button[aria-label="common.nextPage"]',
+          'button[aria-label="sqlDashboard.drilldownNextPage"]',
         )!
         .click();
     });
     expect(pointButtons()).toHaveLength(2);
     expect(
       disclosure!.querySelector<HTMLButtonElement>(
-        'button[aria-label="common.nextPage"]',
+        'button[aria-label="sqlDashboard.drilldownNextPage"]',
       )?.disabled,
     ).toBe(true);
   });

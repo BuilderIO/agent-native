@@ -1367,7 +1367,7 @@ function ChartDrilldownList({
   );
   if (!onDatumClick || !getItems) return null;
 
-  const actionLabel = t("sqlDashboard.drilldownFilterRows");
+  const actionLabel = t("sqlDashboard.drilldownChartPoints");
   const total = result?.total ?? 0;
   const start = page * DRILLDOWN_PAGE_SIZE;
   const end = Math.min(start + DRILLDOWN_PAGE_SIZE, total);
@@ -1418,7 +1418,7 @@ function ChartDrilldownList({
             variant="ghost"
             size="sm"
             className="h-7 px-2"
-            aria-label={t("common.previousPage")}
+            aria-label={t("sqlDashboard.drilldownPreviousPage")}
             onClick={() => updatePage((current) => current - 1)}
             disabled={page === 0}
           >
@@ -1429,7 +1429,7 @@ function ChartDrilldownList({
             variant="ghost"
             size="sm"
             className="h-7 px-2"
-            aria-label={t("common.nextPage")}
+            aria-label={t("sqlDashboard.drilldownNextPage")}
             onClick={() => updatePage((current) => current + 1)}
             disabled={end >= total}
           >
