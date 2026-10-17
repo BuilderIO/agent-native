@@ -138,6 +138,7 @@ vi.mock("../db/ddl-guard.js", () => ({
 const {
   createProviderApiRuntime,
   getProviderApiConfig,
+  isValidProviderApiBaseUrl,
   resolveProviderApiOAuthAccessToken,
 } = await import("./index.js");
 const { createGitHubRepoFilesAction } =
@@ -148,6 +149,27 @@ const credentialContext = {
   userEmail: "ada@example.com",
   orgId: "org-1",
 };
+
+describe("provider API base URL validation", () => {
+  it.each([
+    ["https://api.gong.io/v2", true],
+    ["https://api.gong.io/v2/", true],
+    ["https://us-88601.api.gong.io/v2", true],
+    ["https://company-17.api.gong.io/v2", true],
+    ["https://api.gong.io", false],
+    ["https://api.gong.io/v1", false],
+    ["https://api.gong.io/v2/calls", false],
+    ["https://nested.us-88601.api.gong.io/v2", false],
+    ["http://us-88601.api.gong.io/v2", false],
+    ["https://attacker.example/v2", false],
+    ["https://user:secret@api.gong.io/v2", false],
+    ["https://api.gong.io:8443/v2", false],
+    ["https://api.gong.io/v2?redirect=elsewhere", false],
+    ["not a URL", false],
+  ])("validates Gong base URL %s", (value, expected) => {
+    expect(isValidProviderApiBaseUrl("gong", value)).toBe(expected);
+  });
+});
 
 describe("provider API runtime", () => {
   beforeEach(() => {
@@ -2742,6 +2764,74 @@ describe("provider API runtime", () => {
     );
   });
 
+  it("documents Brain-compatible Gong account-call queries with complete CRM context", () => {
+    const gong = getProviderApiConfig("gong");
+    const extensiveExample = gong.examples?.find(
+      (example) => example.path === "/calls/extensive",
+    );
+    const accountRecipe = gong.corpusRecipes?.find(
+      (recipe) =>
+        recipe.label === "Find Gong calls for an account with CRM context",
+    );
+
+    expect(extensiveExample?.body).toMatchObject({
+      filter: {
+        fromDateTime: "<start-iso-date-time>",
+        toDateTime: "<end-iso-date-time>",
+      },
+      contentSelector: {
+        context: "Extended",
+        contextTiming: ["TimeOfCall"],
+        exposedFields: {
+          parties: true,
+          content: { brief: true, keyPoints: true },
+        },
+      },
+    });
+    expect(accountRecipe).toMatchObject({
+      request: {
+        method: "POST",
+        path: "/calls/extensive",
+        body: {
+          filter: {
+            fromDateTime: "<start-iso-date-time>",
+            toDateTime: "<end-iso-date-time>",
+          },
+          contentSelector: {
+            context: "Extended",
+            contextTiming: ["TimeOfCall"],
+            exposedFields: {
+              parties: true,
+              content: { brief: true, keyPoints: true },
+            },
+          },
+        },
+      },
+      pagination: {
+        itemsPath: "calls",
+        nextCursorPath: "records.cursor",
+        cursorBodyPath: "cursor",
+        maxPages: 200,
+      },
+    });
+
+    const guidance = [
+      ...(gong.notes ?? []),
+      ...(accountRecipe?.workflow ?? []),
+    ].join(" ");
+    expect(guidance).toContain("organization's Gong credentials");
+    expect(guidance).toContain("personal Gong seat");
+    expect(accountRecipe?.workflow.join(" ")).toContain("providerFetchAll");
+    expect(guidance).toContain("customer versus prospect");
+    expect(guidance).toContain("unclassified");
+    expect(guidance).toContain("truncated");
+    expect(accountRecipe?.workflow.join(" ")).toContain("hasMore");
+    expect(accountRecipe?.workflow.join(" ")).toContain("stoppedReason");
+    expect(JSON.stringify(gong.corpusRecipes)).not.toContain(
+      "provider-corpus-job",
+    );
+  });
+
   it("refreshes Salesforce OAuth before calling the connection instance", async () => {
     resolveSecret.mockImplementation(async (key: string) =>
       key === "SALESFORCE_CLIENT_ID"
@@ -3802,6 +3892,90 @@ describe("provider API runtime", () => {
       }),
     );
   });
+
+  it("allows a regional Gong API base URL and sends Basic Auth to it", async () => {
+    resolveCredential.mockImplementation(async (key: string) => {
+      if (key === "GONG_API_BASE") {
+        return "https://us-88601.api.gong.io/v2";
+      }
+      return key === "GONG_ACCESS_KEY" || key === "GONG_ACCESS_SECRET"
+        ? `${key.toLowerCase()}-test-value`
+        : null;
+    });
+    const fetchMock = vi.mocked(globalThis.fetch);
+    const runtime = createProviderApiRuntime({
+      appId: "brain",
+      providerIds: ["gong"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    await runtime.executeRequest({ provider: "gong", path: "/calls" });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://us-88601.api.gong.io/v2/calls",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: expect.stringMatching(/^Basic /),
+        }),
+      }),
+    );
+  });
+
+  it("keeps Gong Basic Auth on the configured tenant host", async () => {
+    resolveCredential.mockImplementation(async (key: string) =>
+      key === "GONG_API_BASE"
+        ? "https://company-17.api.gong.io/v2"
+        : "gong-test-value",
+    );
+    const fetchMock = vi.mocked(globalThis.fetch);
+    const runtime = createProviderApiRuntime({
+      appId: "brain",
+      providerIds: ["gong"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    await expect(
+      runtime.executeRequest({
+        provider: "gong",
+        path: "https://company-18.api.gong.io/v2/calls",
+      }),
+    ).rejects.toThrow(/configured provider host/);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(resolveCredential.mock.calls.map(([key]) => key)).toEqual([
+      "GONG_API_BASE",
+    ]);
+  });
+
+  it.each([
+    "https://attacker.example/v2",
+    "https://nested.us-88601.api.gong.io/v2",
+    "http://us-88601.api.gong.io/v2",
+  ])(
+    "rejects an unsafe Gong API base URL before sending Basic Auth: %s",
+    async (baseUrl) => {
+      resolveCredential.mockImplementation(async (key: string) => {
+        if (key === "GONG_API_BASE") return baseUrl;
+        return key === "GONG_ACCESS_KEY" || key === "GONG_ACCESS_SECRET"
+          ? `${key.toLowerCase()}-test-value`
+          : null;
+      });
+      const fetchMock = vi.mocked(globalThis.fetch);
+      const runtime = createProviderApiRuntime({
+        appId: "brain",
+        providerIds: ["gong"],
+        getCredentialContext: () => credentialContext,
+      });
+
+      await expect(
+        runtime.executeRequest({ provider: "gong", path: "/calls" }),
+      ).rejects.toThrow(/configured provider host/);
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(resolveCredential.mock.calls.map(([key]) => key)).toEqual([
+        "GONG_API_BASE",
+      ]);
+    },
+  );
 
   it("extracts provider docs HTML into compact markdown content", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(

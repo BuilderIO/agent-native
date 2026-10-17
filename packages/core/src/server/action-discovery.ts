@@ -450,7 +450,7 @@ export const ALWAYS_ON_CORE_ACTIONS: ReadonlySet<string> = new Set([
   "set-tool-approval-policy",
   // The client's same-tick GET batching depends on it, so it cannot be gated.
   "get-actions-batch",
-  // The shared Report a problem entry calls these in every app.
+  // Any app can mount ReportProblemButton, which needs these.
   "save-problem-report",
   "read-problem-report",
 ]);

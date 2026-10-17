@@ -104,6 +104,7 @@ import {
 } from "../localhost-consent-request";
 import {
   applyMotionStyleKeyframeEdit,
+  motionSourceReadUnavailableMessageKey,
   motionSourceWriteCapabilityAllowsTargets,
   type MotionSourceWriteCapabilitySnapshot,
   motionSourcePreviewProofForTargets,
@@ -411,9 +412,10 @@ export function useEditorContentAndComponents({
     ],
     activeFile?.id,
   );
-  const motionSourceReadUnavailableReason = activeMotionSourceReadCapability
-    ? t("designEditor.motion.sourceReadUnavailable")
-    : null;
+  const messageKey = motionSourceReadUnavailableMessageKey(
+    activeMotionSourceReadCapability,
+  );
+  const motionSourceReadUnavailableReason = messageKey ? t(messageKey) : null;
   const motionSourceReadable = motionSourceReadAllowsWrites(
     activeMotionSourceReadCapability,
   );

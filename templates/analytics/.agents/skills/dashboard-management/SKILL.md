@@ -81,7 +81,7 @@ Saved analyses follow the same undo model with `analysis_revisions`,
 `list-analysis-revisions`, and `restore-analysis-revision`.
 
 Dashboards open in View mode. An editor switches the header toggle to Edit
-before drags, renames, column edits, and adding, editing, showing or hiding key
+before drags, panel resizing, renames, column edits, and adding, editing, showing or hiding key
 dates and data notes on the page save for everyone; the chat context reports the current
 mode. A table column width dragged in View mode is
 stored only in that person's browser, so "widen this column for me" is a drag
@@ -165,7 +165,7 @@ When the user asks for a dashboard:
 2. If a metric definition, date range, or grain is ambiguous and the choice would change the panel's numbers, use the `ask-question` clarifying tool once before building. Skip it when the dictionary or the user already settled it.
 3. If a metric is not documented, do not guess column names and do not ask the user for them. Find the table and columns with `search-bigquery-schema` (or the provider's own schema action), then propose a dictionary entry with `save-data-dictionary-entry`.
 4. Build a complete `SqlDashboardConfig` with `name` and `panels`. Optionally set top-level `columns` (1–6, default 2) to control how many grid columns the panels before any section use.
-5. Every panel needs `id`, `title`, `source`, `chartType`, `width`, and `sql`. `width` is the number of grid columns the panel spans (1..6, clamped to the active section's column count). Section panels skip `source` and `sql` and may set their own `columns` (1–6) to override the dashboard default for the panels following the section. Extension panels (`chartType: "extension"`) also skip `source` and `sql`; use `config.extensionId` for ordinary author-selected shared embeds. Use `config.extensionSlotId` only when the user explicitly asks for a personal/per-viewer slot (see "Embedding An Extension As A Panel").
+5. Every panel needs `id`, `title`, `source`, `chartType`, `width`, and `sql`. `width` is the number of grid columns the panel spans (1..6, clamped to the active section's column count). `height` is optional; when set, it is 1–6 units of 180px, and when omitted the panel sizes to its content. Section panels skip `source` and `sql` and may set their own `columns` (1–6) to override the dashboard default for the panels following the section. Extension panels (`chartType: "extension"`) also skip `source` and `sql`; use `config.extensionId` for ordinary author-selected shared embeds. Use `config.extensionSlotId` only when the user explicitly asks for a personal/per-viewer slot (see "Embedding An Extension As A Panel").
 6. Persist with `update-dashboard` (load it with `tool-search` — it is not on the
    initial tool surface), not raw SQL or settings writes. For a large first-party
    dashboard, load `compose-dashboard` the same way in one `tool-search` call.
@@ -179,6 +179,8 @@ is materially ambiguous, the change is destructive, or it has an external side
 effect such as sending email or outreach.
 
 Layout is always **1 column when the available content width is below the `md` threshold** (panels stack), then expands to the configured column count at/above it. The grid uses a container query, so it also stacks when the agent sidebar narrows the content pane — not only at narrow viewports. So picking 3 or 4 columns is fine — the renderer keeps narrow layouts readable automatically.
+
+In Edit mode, drag a panel's right edge to change its grid width and its bottom edge to set a fixed height. Width is saved as grid columns; height is saved in 180px units. Existing panels without `height` keep content-based height until resized.
 
 ```bash
 pnpm action update-dashboard --dashboardId weekly-metrics --config '<full json>'
@@ -596,11 +598,11 @@ The complete typed API (`dashboard.*`, panel selections, `PanelPatch`,
 `panels`, `panelsMatching`, `section`, `insertPanel`. Selection methods:
 `moveToTop`, `moveToBottom`, `moveBefore`, `moveAfter`, `moveToIndex`,
 `moveNextTo`, `moveToRow`, `remove`, `set`, `setTitle`, `setSql`, `setWidth`,
-`setConfig`, `setConfigPath`, `duplicate`. Inserted and duplicated panels take
+`setHeight`, `clearHeight`, `setConfig`, `setConfigPath`, `duplicate`. Inserted and duplicated panels take
 one chained placement: `atTop`, `atBottom`, `before`, `after`, `atIndex`,
 `nextTo`, `atRow`, `atRowStart`, `atRowEnd`. Panel `config` holds renderer
 options (`xKey`, `yKey`, `columns`, formatters); `sql`, `chartType`, `source`,
-`title`, and `width` are panel fields set with `setSql` or `set`.
+`title`, `width`, and `height` are panel fields set with `setSql` or `set`.
 
 Examples:
 
@@ -617,9 +619,12 @@ dashboard.setFilterDefault("emailFilter", "exclude_builder");
 dashboard.panel("top-referrers").setTitle("Top Referrers by Domain");
 dashboard.panel("retention").set({
   width: 2,
+  height: 2,
   config: { description: "Updated definition." },
 });
 dashboard.panelsMatching({ source: "first-party" }).setWidth(2);
+dashboard.panel("retention").setHeight(2);
+dashboard.panel("retention").clearHeight(); // return to content-based height
 dashboard
   .panelsMatching({ titleIncludes: "Revenue" })
   .setConfigPath("yAxis.format", "currency");

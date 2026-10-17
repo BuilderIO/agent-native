@@ -19,14 +19,18 @@ export function micSignalWarning({
   microphoneEnabled,
   paused,
   silentForMs,
+  hasHeardAudio,
 }: {
   microphoneEnabled: boolean | null;
   paused: boolean;
   silentForMs: number;
+  hasHeardAudio: boolean;
 }): MicSignalWarning {
   if (paused || microphoneEnabled === null) return null;
   if (!microphoneEnabled) return "muted";
-  return silentForMs >= MIC_SILENCE_WARNING_MS ? "silent" : null;
+  return !hasHeardAudio && silentForMs >= MIC_SILENCE_WARNING_MS
+    ? "silent"
+    : null;
 }
 
 export interface WaveformState {

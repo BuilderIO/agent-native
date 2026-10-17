@@ -1123,14 +1123,17 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     label: "Gong",
     defaultBaseUrl: "https://api.gong.io/v2",
     baseUrlCredentialKey: "GONG_API_BASE",
+    baseUrlMustMatchAllowedHost: true,
+    requireHttps: true,
+    allowedHostSuffixes: ["api.gong.io"],
     auth: {
       type: "basic",
       usernameKey: "GONG_ACCESS_KEY",
       passwordKey: "GONG_ACCESS_SECRET",
     },
-    credentialKeys: ["GONG_ACCESS_KEY", "GONG_ACCESS_SECRET", "GONG_API_BASE"],
+    credentialKeys: ["GONG_ACCESS_KEY", "GONG_ACCESS_SECRET"],
     docsUrls: ["https://gong.app.gong.io/settings/api/documentation"],
-    templateUses: ["analytics", "calendar"],
+    templateUses: ["analytics", "brain", "calendar"],
     examples: [
       { label: "List calls", method: "GET", path: "/calls" },
       {
@@ -1140,12 +1143,17 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
         body: { filter: { callIds: ["<call-id>"] } },
       },
       {
-        label: "Calls with parties/content",
+        label: "Calls with CRM context and summaries",
         method: "POST",
         path: "/calls/extensive",
         body: {
-          filter: { fromDateTime: "<iso-date-time>" },
+          filter: {
+            fromDateTime: "<start-iso-date-time>",
+            toDateTime: "<end-iso-date-time>",
+          },
           contentSelector: {
+            context: "Extended",
+            contextTiming: ["TimeOfCall"],
             exposedFields: {
               parties: true,
               content: { brief: true, keyPoints: true },
@@ -1155,26 +1163,67 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
       },
     ],
     notes: [
-      "To answer a question about a Gong account, deal, customer, or topic, use Gong's connected MCP tools (ask_account, ask_deal, generate_brief) when available; Gong searches the calls server-side and answers in one request. Gong's REST API has no account, company, or topic filter, so finding one account's calls or a topic through /calls or /calls/extensive means scanning the whole org, and those responses truncate at the size limit. If the Analytics app is connected, ask it with call-agent; it owns Gong search. Use the REST endpoints below only for exact counts, verbatim quotes, or proof of absence across a bounded cohort.",
-      "For broad corpus work, call /calls/extensive with provider-api-request and stageAs/saveToFile. Gong returns the next cursor at records.cursor and expects the next cursor in the POST body at cursor, so use pagination { nextCursorPath: 'records.cursor', cursorBodyPath: 'cursor' } for stageAs or fetchAllPages { cursorPath: 'records.cursor', cursorBodyPath: 'cursor' } for saveToFile.",
-      "The public Gong REST API does not expose an arbitrary transcript-text filter. Use configured keyword tracker results from /calls/extensive when they cover the requested term; otherwise batch transcripts with POST /calls/transcript and body { filter: { callIds: [...] } } after narrowing or staging call ids.",
+      "Brain uses provider-api-request with the organization's GONG_ACCESS_KEY and GONG_ACCESS_SECRET for on-demand Gong queries; Gong calls are not indexed Brain Sources, and the caller does not need a personal Gong seat or Gong MCP connection. Other apps may use connected Gong MCP account/deal tools for native Gong search; Analytics may use call-agent for CRM or warehouse joins.",
+      "The Gong REST API has no account, company, customer/prospect, or topic filter. For account-call reports, scan only an explicit bounded date/workspace cohort, match calls by returned CRM context, and report scanned and matched counts. Mark results partial when response or page limits leave records unread.",
+      "For complete /calls/extensive cohorts, use provider-api-request with stageAs and pagination { nextCursorPath: 'records.cursor', cursorBodyPath: 'cursor', maxPages: 200 }, or run-code's providerFetchAll with the same cursor paths. Gong returns the next cursor at records.cursor and expects it in the next POST JSON body at cursor. Report staging's truncated flag or fetchAll's hasMore/stoppedReason and lastCursor; provider response-size truncation is an incomplete result.",
+      "The public Gong REST API does not expose an arbitrary transcript-text filter. Use configured keyword tracker results from /calls/extensive when they cover the requested term; otherwise use the bounded call-id transcript recipe below. Non-Brain apps may use connected Gong MCP search for open-ended questions.",
     ],
     corpusRecipes: [
       {
-        label: "Stage Gong calls with configured keyword tracker hits",
+        label: "Find Gong calls for an account with CRM context",
         useWhen:
-          "Use when the requested term or phrase already exists as a Gong keyword tracker and the answer can use tracker matches instead of arbitrary transcript-text search.",
+          "Use for weekly account-call reports or customer/prospect call counts for a bounded date range.",
         workflow: [
-          "Call /calls/extensive with the narrowest date, workspace, or owner filters available and contentSelector.exposedFields.content.trackers = true.",
-          "Stage the calls pages with provider-api-request stageAs or saveToFile; use the POST-body cursor at records.cursor for complete pagination.",
-          "Use query-staged-dataset or a Data Program to flatten content.trackers, filter by tracker id/name/phrase, and aggregate counts or occurrences.",
-          "Tracker results are provider-indexed evidence for configured trackers, not an arbitrary transcript search. For an unconfigured term, use Gong native Search when connected or the transcript batch recipe below.",
+          "In Brain, use run-code with providerFetchAll to call the Gong REST endpoint; it uses the organization's Gong credentials through provider-api-request and does not require the caller's personal Gong seat or Gong MCP connection.",
+          "Set both fromDateTime and toDateTime to the requested ISO-8601 range (start inclusive, end exclusive). Gong has no server-side account filter, so this returns the full date/workspace cohort.",
+          "Request Extended CRM context at TimeOfCall plus parties, brief, and keyPoints. Set pagination { itemsPath: 'calls', nextCursorPath: 'records.cursor', cursorBodyPath: 'cursor', maxPages: 200 } and continue until the cursor is empty; flatten and reduce the nested CRM fields inside run-code.",
+          "Associate each call with its Account or Opportunity using calls[].context[].objects[] CRM IDs and fields; for a named account, prefer its CRM object ID and otherwise match exact name or website. Treat missing or ambiguous links separately; do not match only on call title or participant names.",
+          "Classify customer versus prospect only when the returned CRM context contains an organization-defined lifecycle/customer-status field at TimeOfCall or an opportunity stage with an explicit stage-to-cohort mapping. Otherwise count the call as unclassified rather than inferring status from Gong content.",
+          "Report the date range, calls scanned, CRM-linked calls, customer/prospect/unclassified/ambiguous counts, and pageCount/itemCount. Include hasMore, stoppedReason, and lastCursor for coverage/resume context; if hasMore is true or stoppedReason is not completed, label counts partial. Compare itemCount with records.totalRecords when present, and treat response-size errors as incomplete rather than as zero calls.",
         ],
         request: {
           method: "POST",
           path: "/calls/extensive",
           body: {
-            filter: { fromDateTime: "<iso-date-time>" },
+            filter: {
+              fromDateTime: "<start-iso-date-time>",
+              toDateTime: "<end-iso-date-time>",
+            },
+            contentSelector: {
+              context: "Extended",
+              contextTiming: ["TimeOfCall"],
+              exposedFields: {
+                parties: true,
+                content: { brief: true, keyPoints: true },
+              },
+            },
+          },
+        },
+        pagination: {
+          itemsPath: "calls",
+          nextCursorPath: "records.cursor",
+          cursorBodyPath: "cursor",
+          maxPages: 200,
+        },
+      },
+      {
+        label: "Stage Gong calls with configured keyword tracker hits",
+        useWhen:
+          "Use when the requested term or phrase already exists as a Gong keyword tracker and the answer can use tracker matches instead of arbitrary transcript-text search.",
+        workflow: [
+          "Call /calls/extensive with an explicit bounded date range and the narrowest workspace or owner filters available, and contentSelector.exposedFields.content.trackers = true.",
+          "Stage the calls pages with provider-api-request stageAs or saveToFile; use the POST-body cursor at records.cursor for complete pagination.",
+          "Use query-staged-dataset or a Data Program to flatten content.trackers, filter by tracker id/name/phrase, and aggregate counts or occurrences.",
+          "Tracker results are provider-indexed evidence for configured trackers, not an arbitrary transcript search. For an unconfigured term, use the transcript batch recipe below; non-Brain apps may also use connected Gong MCP search.",
+        ],
+        request: {
+          method: "POST",
+          path: "/calls/extensive",
+          body: {
+            filter: {
+              fromDateTime: "<start-iso-date-time>",
+              toDateTime: "<end-iso-date-time>",
+            },
             contentSelector: {
               exposedFields: {
                 content: { trackers: true, trackerOccurrences: true },
@@ -1194,10 +1243,10 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
         useWhen:
           "Use when the user asks to search, count, or prove absence across Gong transcript text for a bounded cohort of call ids.",
         workflow: [
-          "Stage or otherwise collect the exact call ids in scope first.",
-          "Start provider-corpus-job with mode=batch-search against /calls/transcript.",
-          "Inject each batch into body path filter.callIds and search responseItemsPath callTranscripts.",
-          "Search transcript.sentence text fields, then report call-id coverage, batches processed, matches, and gaps.",
+          "Stage or otherwise collect the exact call ids in scope first, and confirm that the source cohort was not truncated.",
+          "Use provider-api-request to POST /calls/transcript with body.filter.callIds in batches of at most 20 ids; repeat until every id has been attempted.",
+          "Match response callTranscripts by callId and search transcript.sentence text fields.",
+          "Report ids requested, calls returned, batches processed, matches, missing ids, and any incomplete source or transcript response.",
         ],
         request: {
           method: "POST",
@@ -1229,8 +1278,15 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
           method: "POST",
           path: "/calls/extensive",
           body: {
-            filter: { fromDateTime: "<iso-date-time>" },
-            contentSelector: { exposedFields: { parties: true } },
+            filter: {
+              fromDateTime: "<start-iso-date-time>",
+              toDateTime: "<end-iso-date-time>",
+            },
+            contentSelector: {
+              context: "Extended",
+              contextTiming: ["TimeOfCall"],
+              exposedFields: { parties: true },
+            },
           },
         },
         pagination: {
@@ -1786,6 +1842,49 @@ export function getProviderApiConfig(
   );
   if (!config) throw new Error(`Unsupported provider API: ${provider}`);
   return config;
+}
+
+export function isValidProviderApiBaseUrl(
+  provider: ProviderApiId | string,
+  value: string,
+  overrides: readonly ProviderApiConfig[] = [],
+): boolean {
+  return isValidProviderApiBaseUrlForConfig(
+    getProviderApiConfig(provider, overrides),
+    value,
+  );
+}
+
+function isValidProviderApiBaseUrlForConfig(
+  config: ProviderApiConfig,
+  value: string,
+): boolean {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch (error) {
+    if (error instanceof TypeError) return false;
+    throw error;
+  }
+
+  if (
+    (url.protocol !== "https:" && url.protocol !== "http:") ||
+    (config.requireHttps && url.protocol !== "https:")
+  ) {
+    return false;
+  }
+
+  if (!config.baseUrlMustMatchAllowedHost) return true;
+  return (
+    !url.username &&
+    !url.password &&
+    !url.port &&
+    !url.search &&
+    !url.hash &&
+    // Gong request paths are relative to its versioned API base.
+    (config.id !== "gong" || url.pathname.replace(/\/+$/, "") === "/v2") &&
+    isAllowedProviderHost(url.hostname, config)
+  );
 }
 
 export function mergeProviderApiConfigs(
@@ -3676,16 +3775,14 @@ async function resolveBaseUrl(
     workspaceProvider,
   });
   const url = (configured?.value || config.defaultBaseUrl).replace(/\/+$/, "");
-  if (config.id === "sigma" && !normalizeSigmaDirectApiBaseUrl(url)) {
-    throw new Error(`${config.label} API region is not supported.`);
-  }
   if (
-    config.id !== "sigma" &&
-    config.baseUrlMustMatchAllowedHost &&
-    !isAllowedProviderHost(new URL(url).hostname, config)
+    !isValidProviderApiBaseUrlForConfig(config, url) ||
+    (config.id === "sigma" && !normalizeSigmaDirectApiBaseUrl(url))
   ) {
     throw new Error(
-      `${config.label} API requests must stay on the configured provider host or registered provider host suffix.`,
+      config.id === "sigma"
+        ? `${config.label} API region is not supported.`
+        : `${config.label} API base URL is invalid or must use the configured provider host or registered provider host suffix.`,
     );
   }
   return {
@@ -3942,6 +4039,7 @@ function isAllowedProviderUrl(
 ): boolean {
   if (url.protocol !== "https:" && url.protocol !== "http:") return false;
   if (config.requireHttps && url.protocol !== "https:") return false;
+  if (config.id === "gong") return url.origin === base.origin;
   return (
     url.origin === base.origin || isAllowedProviderHost(url.hostname, config)
   );
@@ -3952,6 +4050,13 @@ function isAllowedProviderHost(
   config: ProviderApiConfig,
 ): boolean {
   const host = hostname.toLowerCase();
+  if (config.id === "gong") {
+    // Gong assigns one tenant or region label before api.gong.io.
+    return (
+      host === "api.gong.io" ||
+      /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.api\.gong\.io$/.test(host)
+    );
+  }
   return (config.allowedHostSuffixes ?? []).some((suffix) => {
     const normalized = suffix.toLowerCase().replace(/^\./, "");
     return host === normalized || host.endsWith(`.${normalized}`);
