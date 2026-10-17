@@ -27,6 +27,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 - Design Motion keeps supported React and HTML motion edits in sync with their source code.
 - Motion can import supported inline CSS keyframes and round-trip them through the timeline editor.
 - Motion timeline duration fields support keyboard stepping
+- Text motion presets now include editable direction, grouping, order, overlap, and space handling.
 - Show Figma fidelity warnings in Home URL imports
 
 ### Fixed
@@ -39,6 +40,8 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 - Motion source editing now refuses targets with dynamic styles, Alpine transitions, or inline CSS motion declarations that cannot be synchronized safely
 - Screen undo keeps the original order, deselected Screens clear from Layers, and clipboard pastes preserve placement across responsive previews.
 - Selection stays precise in deeply nested layers, and pasted content keeps its size, styling, and editing history
+- Text animations preserve whitespace layout, punctuation, legacy timing, and outgoing easing
+- Text animation edits preserve collapsed whitespace and reset ordering when grouping changes
 
 ## 2026-10-13
 

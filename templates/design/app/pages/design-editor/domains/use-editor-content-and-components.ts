@@ -14,7 +14,11 @@ import { readLiteralJsxPropsAtAnchor } from "@shared/local-jsx-visual-edit";
 import type { MotionAnimationStyleDefinition } from "@shared/motion-animation-styles";
 import type { MotionAudioClip } from "@shared/motion-code";
 import type { MotionNativeStyleInstance } from "@shared/motion-native-style";
-import { motionNativeStyleWithPositionTrack } from "@shared/motion-native-style-runtime";
+import {
+  motionNativeStyleWithPositionTrack,
+  motionNativeStyleWithTextAnimationSettings,
+  motionTextDocumentWithNativeStyleSettings,
+} from "@shared/motion-native-style-runtime";
 import {
   motionSourceReadCapabilityForSource,
   motionSourceReadAllowsWrites,
@@ -24,6 +28,7 @@ import type {
   MotionTextAnimation,
   MotionTextDocument,
 } from "@shared/motion-text-code";
+import { MOTION_TEXT_SOURCE_VERSION } from "@shared/motion-text-code";
 import {
   motionTimelineDurationForContent,
   type MotionPlaybackMode,
@@ -47,6 +52,7 @@ import {
 } from "@/components/design/inspector/GlslShaderPanel";
 import { type LocalhostWriteConsentPayload } from "@/components/design/LocalhostWriteConsentDialog";
 import { type MotionDockTrack } from "@/components/design/MotionDock";
+import type { MotionNativeStyleIdentity } from "@/components/design/MotionNativeStyleEditor";
 import type { ScreenProjectionNodeIdentity } from "@/components/design/multi-screen/types";
 import type { ReviewPanelProps } from "@/components/design/ReviewPanel";
 import type { ElementInfo } from "@/components/design/types";
@@ -98,6 +104,7 @@ import {
 } from "../localhost-consent-request";
 import {
   applyMotionStyleKeyframeEdit,
+  motionSourceReadUnavailableMessageKey,
   motionSourceWriteCapabilityAllowsTargets,
   type MotionSourceWriteCapabilitySnapshot,
   motionSourcePreviewProofForTargets,
@@ -269,6 +276,7 @@ export function useEditorContentAndComponents({
     setMotionPlaybackMode,
     motionDefaultEase,
     motionPlayhead,
+    motionDockLiveState,
     motionAutoKeyframeEnabled,
     motionTracksDirty,
     setMotionTracksDirty,
@@ -404,9 +412,10 @@ export function useEditorContentAndComponents({
     ],
     activeFile?.id,
   );
-  const motionSourceReadUnavailableReason = activeMotionSourceReadCapability
-    ? t("designEditor.motion.sourceReadUnavailable")
-    : null;
+  const messageKey = motionSourceReadUnavailableMessageKey(
+    activeMotionSourceReadCapability,
+  );
+  const motionSourceReadUnavailableReason = messageKey ? t(messageKey) : null;
   const motionSourceReadable = motionSourceReadAllowsWrites(
     activeMotionSourceReadCapability,
   );
@@ -638,7 +647,10 @@ export function useEditorContentAndComponents({
       if (remainingTextAnimations.length !== textAnimations.length) {
         setMotionTextDocument(
           remainingTextAnimations.length > 0
-            ? { version: 1, animations: remainingTextAnimations }
+            ? {
+                version: MOTION_TEXT_SOURCE_VERSION,
+                animations: remainingTextAnimations,
+              }
             : null,
         );
         markMotionTracksDirty();
@@ -656,7 +668,11 @@ export function useEditorContentAndComponents({
   );
 
   const handleMotionTracksChange = useCallback(
-    (tracks: MotionDockTrack[]) => {
+    (
+      tracks:
+        | MotionDockTrack[]
+        | ((current: MotionDockTrack[]) => MotionDockTrack[]),
+    ) => {
       if (!writeMotionAvailable || activeCanvasSourceType !== "inline") return;
       setMotionTracks(tracks);
       markMotionTracksDirty();
@@ -676,7 +692,10 @@ export function useEditorContentAndComponents({
       );
       const nextDocument =
         nextAnimations.length > 0
-          ? { version: 1 as const, animations: nextAnimations }
+          ? {
+              version: MOTION_TEXT_SOURCE_VERSION,
+              animations: nextAnimations,
+            }
           : null;
       if (JSON.stringify(nextDocument) !== JSON.stringify(motionTextDocument)) {
         setMotionTextDocument(nextDocument);
@@ -705,11 +724,13 @@ export function useEditorContentAndComponents({
     (
       tracks: MotionTrackWire[],
       targetNodeId: string,
+      trackId?: string,
     ): MotionPathTracksChangeResult | void => {
       if (!writeMotionAvailable) return;
       const updatedPositionTrack = motionPathTrackForTarget(
         tracks,
         targetNodeId,
+        trackId,
       );
       if (!updatedPositionTrack) {
         return {
@@ -754,10 +775,17 @@ export function useEditorContentAndComponents({
         return { status: "updated" };
       }
 
-      const currentPositionTrack = motionTracks.find(
+      const matchingPositionTracks = motionTracks.filter(
         (track) =>
           track.targetNodeId === targetNodeId && track.property === "translate",
       );
+      const currentPositionTrack = updatedPositionTrack.id
+        ? matchingPositionTracks.find(
+            (track) => track.id === updatedPositionTrack.id,
+          )
+        : matchingPositionTracks.length === 1
+          ? matchingPositionTracks[0]
+          : undefined;
       if (
         !currentPositionTrack ||
         JSON.stringify(currentPositionTrack.keyframes) ===
@@ -766,11 +794,15 @@ export function useEditorContentAndComponents({
         return currentPositionTrack ? { status: "updated" } : undefined;
       }
       setMotionTracks((current) =>
-        current.map((track) =>
-          track.targetNodeId === targetNodeId && track.property === "translate"
+        current.map((track) => {
+          const matchesTrack = updatedPositionTrack.id
+            ? track.id === updatedPositionTrack.id
+            : track.targetNodeId === targetNodeId &&
+              track.property === "translate";
+          return matchesTrack
             ? { ...track, keyframes: updatedPositionTrack.keyframes }
-            : track,
-        ),
+            : track;
+        }),
       );
       markMotionTracksDirty();
       return { status: "updated" };
@@ -848,13 +880,188 @@ export function useEditorContentAndComponents({
         }
       }
       if (!inserted) nextAnimations.push(...targetAnimations);
-      handleMotionTextDocumentChange(
+      let nextDocument: MotionTextDocument | null =
         nextAnimations.length > 0
-          ? { version: 1, animations: nextAnimations }
-          : null,
-      );
+          ? { version: MOTION_TEXT_SOURCE_VERSION, animations: nextAnimations }
+          : null;
+      let nextNativeStyles = motionNativeStyles;
+      if (targetAnimations.length > 0) {
+        const targetTextStyles = motionNativeStyles.filter(
+          (style) =>
+            style.styleKey === "TextStagger" &&
+            style.targetNodeId === targetNodeId,
+        );
+        if (targetTextStyles.length > 1) {
+          toast.error(t("designEditor.motion.textSyncUnsupported"));
+          return;
+        }
+        try {
+          const alreadyAnimated = motionNativeStyles.some(
+            (style) =>
+              style.styleKey === "TextStagger" &&
+              style.targetNodeId === targetNodeId &&
+              ((targetAnimations.some(
+                (animation) => animation.property === "translate",
+              ) &&
+                style.props.positionEnabled === true) ||
+                (targetAnimations.some(
+                  (animation) => animation.property === "rotate",
+                ) &&
+                  style.props.rotationEnabled === true) ||
+                (targetAnimations.some(
+                  (animation) => animation.property === "scale",
+                ) &&
+                  style.props.scaleEnabled === true) ||
+                (targetAnimations.some(
+                  (animation) => animation.property === "opacity",
+                ) &&
+                  style.props.opacityEnabled === true) ||
+                (targetAnimations.some(
+                  (animation) => animation.property === "filter",
+                ) &&
+                  style.props.blurEnabled === true)),
+          );
+          if (alreadyAnimated) {
+            toast.info(t("designEditor.motion.textPropertyAlreadyAnimated"));
+          }
+          nextNativeStyles = motionNativeStyles.map((style) =>
+            style.styleKey === "TextStagger" &&
+            style.targetNodeId === targetNodeId
+              ? motionNativeStyleWithTextAnimationSettings(
+                  style,
+                  targetAnimations[0]!,
+                )
+              : style,
+          );
+          for (const style of nextNativeStyles) {
+            if (
+              style.styleKey === "TextStagger" &&
+              style.targetNodeId === targetNodeId
+            ) {
+              nextDocument = motionTextDocumentWithNativeStyleSettings(
+                nextDocument,
+                style,
+              );
+            }
+          }
+        } catch {
+          toast.error(t("designEditor.motion.textSyncUnsupported"));
+          return;
+        }
+      }
+      if (
+        JSON.stringify(nextNativeStyles) !== JSON.stringify(motionNativeStyles)
+      ) {
+        setMotionNativeStyles(nextNativeStyles);
+      }
+      handleMotionTextDocumentChange(nextDocument);
     },
-    [handleMotionTextDocumentChange, motionTextDocument, writeMotionAvailable],
+    [
+      handleMotionTextDocumentChange,
+      motionNativeStyles,
+      motionTextDocument,
+      setMotionNativeStyles,
+      t,
+      writeMotionAvailable,
+    ],
+  );
+
+  const handleMotionNativeStyleChange = useCallback(
+    (
+      instance: MotionNativeStyleInstance,
+      identity: MotionNativeStyleIdentity,
+    ) => {
+      if (!writeMotionAvailable) return;
+      const index = identity.sourceInstanceId
+        ? motionNativeStyles.findIndex(
+            (candidate) =>
+              candidate.sourceInstanceId === identity.sourceInstanceId &&
+              candidate.styleKey === identity.styleKey &&
+              candidate.targetNodeId === identity.targetNodeId,
+          )
+        : identity.index;
+      const previous = motionNativeStyles[index];
+      if (
+        !previous ||
+        previous.styleKey !== identity.styleKey ||
+        previous.targetNodeId !== identity.targetNodeId
+      ) {
+        return;
+      }
+
+      let nextStyles = [...motionNativeStyles];
+      nextStyles[index] = instance;
+      let nextDocument = motionTextDocument;
+      const targetAnimations =
+        motionTextDocument?.animations.filter(
+          (animation) => animation.targetNodeId === instance.targetNodeId,
+        ) ?? [];
+      if (instance.styleKey === "TextStagger" && targetAnimations.length > 0) {
+        const targetTextStyles = motionNativeStyles.filter(
+          (style) =>
+            style.styleKey === "TextStagger" &&
+            style.targetNodeId === instance.targetNodeId,
+        );
+        if (targetTextStyles.length > 1) {
+          toast.error(t("designEditor.motion.textSyncUnsupported"));
+          return;
+        }
+        try {
+          const duplicateEffect =
+            (previous.props.positionEnabled !== true &&
+              instance.props.positionEnabled === true &&
+              targetAnimations.some(
+                (animation) => animation.property === "translate",
+              )) ||
+            (previous.props.rotationEnabled !== true &&
+              instance.props.rotationEnabled === true &&
+              targetAnimations.some(
+                (animation) => animation.property === "rotate",
+              )) ||
+            (previous.props.scaleEnabled !== true &&
+              instance.props.scaleEnabled === true &&
+              targetAnimations.some(
+                (animation) => animation.property === "scale",
+              )) ||
+            (previous.props.opacityEnabled !== true &&
+              instance.props.opacityEnabled === true &&
+              targetAnimations.some(
+                (animation) => animation.property === "opacity",
+              )) ||
+            (previous.props.blurEnabled !== true &&
+              instance.props.blurEnabled === true &&
+              targetAnimations.some(
+                (animation) => animation.property === "filter",
+              ));
+          if (duplicateEffect) {
+            toast.info(t("designEditor.motion.textPropertyAlreadyAnimated"));
+          }
+          nextDocument = motionTextDocumentWithNativeStyleSettings(
+            motionTextDocument,
+            instance,
+            previous,
+          );
+        } catch {
+          toast.error(t("designEditor.motion.textSyncUnsupported"));
+          return;
+        }
+      }
+
+      setMotionNativeStyles(nextStyles);
+      if (JSON.stringify(nextDocument) !== JSON.stringify(motionTextDocument)) {
+        setMotionTextDocument(nextDocument);
+      }
+      markMotionTracksDirty();
+    },
+    [
+      markMotionTracksDirty,
+      motionNativeStyles,
+      motionTextDocument,
+      setMotionNativeStyles,
+      setMotionTextDocument,
+      t,
+      writeMotionAvailable,
+    ],
   );
 
   const handleMotionDurationChange = useCallback(
@@ -863,7 +1070,7 @@ export function useEditorContentAndComponents({
       setMotionDurationMs(
         motionTimelineDurationForContent(
           durationMs,
-          motionTracks,
+          [],
           motionTextDocument?.animations ?? [],
         ),
       );
@@ -871,7 +1078,6 @@ export function useEditorContentAndComponents({
     },
     [
       markMotionTracksDirty,
-      motionTracks,
       motionTextDocument?.animations,
       writeMotionAvailable,
     ],
@@ -910,6 +1116,7 @@ export function useEditorContentAndComponents({
         timelineDurationMs: motionDurationMs,
         defaultEase: motionDefaultEase,
         autoKeyframeEnabled: motionAutoKeyframeEnabled,
+        trackId: motionDockLiveState.selectedTrackId ?? undefined,
       };
       if (applyMotionStyleKeyframeEdit(motionTracks, edit) === motionTracks) {
         return;
@@ -924,6 +1131,7 @@ export function useEditorContentAndComponents({
       markMotionTracksDirty,
       motionAutoKeyframeEnabled,
       motionDefaultEase,
+      motionDockLiveState.selectedTrackId,
       motionDockOpen,
       motionDurationMs,
       motionPlayhead,
@@ -947,6 +1155,7 @@ export function useEditorContentAndComponents({
           selectedCodeLayerNode,
           selectedElement,
           selectedMotionTargetNodeId,
+          selectedMotionTrackId: motionDockLiveState.selectedTrackId,
           setMotionTracks,
         },
         cssProperty,
@@ -957,6 +1166,7 @@ export function useEditorContentAndComponents({
       markMotionTracksDirty,
       motionDefaultEase,
       motionPlayhead,
+      motionDockLiveState.selectedTrackId,
       selectedCodeLayerNode,
       selectedElement?.computedStyles,
       selectedElement?.tagName,
@@ -1565,6 +1775,9 @@ export function useEditorContentAndComponents({
         sourceWriteUnavailableMessage:
           motionSourceReadUnavailableReason ??
           t("designEditor.motion.sourceWriteUnavailable"),
+        unresolvedStylesheetsMessage: t(
+          "designEditor.motion.unresolvedStylesheets",
+        ),
         motionSourceConflictMessage: t("designEditor.motion.sourceConflict"),
         motionReloadFromSourceLabel: t("designEditor.motion.reloadFromSource"),
       }),
@@ -1914,6 +2127,7 @@ export function useEditorContentAndComponents({
     handleMotionAnimationStyleRemoved,
     handleMotionTextDocumentChange,
     handleMotionTextAnimationsChange,
+    handleMotionNativeStyleChange,
     handleMotionDurationChange,
     upsertMotionKeyframesFromStyles,
     handleToggleMotionKeyframe,

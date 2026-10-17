@@ -1098,7 +1098,7 @@ pub(crate) async fn rewind_agent_handoff_upload(
         &app,
         &artifact,
         server_url,
-        recording_id,
+        recording_id.clone(),
         auth_token.unwrap_or_default(),
         cookie.unwrap_or_default(),
         NativeUploadMode::from_option(upload_mode),
@@ -1106,6 +1106,7 @@ pub(crate) async fn rewind_agent_handoff_upload(
         false,
     )
     .await;
+    native_screen::clear_native_upload_retry_cancelled(&recording_id);
     let _ = std::fs::remove_file(output);
     result
 }

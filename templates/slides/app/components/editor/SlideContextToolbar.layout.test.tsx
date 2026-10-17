@@ -222,7 +222,8 @@ describe("contextual toolbar object layout", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Group" }));
-    fireEvent.click(screen.getByRole("button", { name: "Bring forward" }));
+    openMenu("Order");
+    fireEvent.click(screen.getByRole("menuitem", { name: "Bring forward" }));
 
     expect(onGroup).toHaveBeenCalledOnce();
     expect(onArrange).toHaveBeenCalledWith("forward");
@@ -270,7 +271,6 @@ describe("contextual toolbar object layout", () => {
       </TooltipProvider>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Controls" }));
     const input = screen.getByRole("textbox", {
       name: "Rotation",
     }) as HTMLInputElement;
@@ -295,9 +295,8 @@ describe("contextual toolbar object layout", () => {
     expect(screen.getByRole("textbox", { name: "Rotation" })).not.toBe(input);
   });
 
-  it("keeps zoom controls inside the style toolbar", () => {
-    const onZoomOut = vi.fn();
-    const onZoomIn = vi.fn();
+  it("picks a zoom level from the style toolbar", () => {
+    const onSelect = vi.fn();
 
     render(
       <TooltipProvider>
@@ -306,26 +305,16 @@ describe("contextual toolbar object layout", () => {
           background="#000000"
           onChange={vi.fn()}
           onBackgroundChange={vi.fn()}
-          zoomControls={{
-            value: 100,
-            onZoomOut,
-            onZoomIn,
-            canZoomOut: true,
-            canZoomIn: true,
-          }}
+          zoomControls={{ value: 100, presets: [50, 100, 200], onSelect }}
         />
       </TooltipProvider>,
     );
 
     const toolbar = screen.getByRole("toolbar");
     expect(within(toolbar).getByText("100%")).toBeTruthy();
-    fireEvent.click(within(toolbar).getByRole("button", { name: "Zoom out" }));
-    fireEvent.click(within(toolbar).getByRole("button", { name: "Zoom in" }));
+    openMenu("Zoom");
+    fireEvent.click(screen.getByRole("menuitem", { name: "200%" }));
 
-    expect(onZoomOut).toHaveBeenCalledOnce();
-    expect(onZoomIn).toHaveBeenCalledOnce();
-    expect(
-      within(toolbar).queryByRole("button", { name: "Fit slide to screen" }),
-    ).toBeNull();
+    expect(onSelect).toHaveBeenCalledWith(200);
   });
 });

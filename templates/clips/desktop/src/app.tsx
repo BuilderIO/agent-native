@@ -76,7 +76,7 @@ import {
   CLIPS_LABS,
   CLIPS_LOOKBACK_CONTEXT,
   CLIPS_MEETINGS,
-  CLIPS_WISPRFLOW,
+  CLIPS_VOICE_DICTATION,
   isLabEnabled,
 } from "../../shared/labs";
 import { rememberLookbackSeconds } from "../../shared/screen-history-context";
@@ -174,6 +174,8 @@ import {
 import {
   createPrivateAgentRewindRecording,
   exportBrowserRecordingBackup,
+  forgetRewindClipOrigin,
+  forgetRewindClipOriginIfNoRequest,
   getRewindClipOrigin,
   listBrowserRecordingBackups,
   queueRecordFirstUpload,
@@ -269,8 +271,14 @@ import { whisperModelOptionLabel } from "./lib/whisper-model-picker";
 import {
   getRecordingContextItem,
   listPendingRecordingContext,
-  removeRecordingContext,
   requestRecordingContext,
+  requestRecordingContextOnce,
+  settleRecordingContextRequest,
+  visitPendingRecordingContextPage,
+  LOOKBACK_ACTION_TIMEOUT_MS,
+  type PendingRecordingContextCursor,
+  type RecordingContextRequestInput,
+  removeRecordingContext,
   type RecordingContextItem,
   updateRecordingContext,
 } from "./lookback/context-api";
@@ -282,7 +290,39 @@ import {
   saveRecentLookbackSeconds,
 } from "./lookback/lookback-settings";
 import { LookbackRow } from "./lookback/LookbackRow";
-import { processRecordingContextItem } from "./lookback/worker";
+import {
+  clearPendingLookbackCleanupIntent,
+  hasPendingLookbackCleanupIntentWarning,
+  persistPendingLookbackCleanupIntent,
+  readPendingLookbackCleanupIntents,
+  retryPendingLookbackCleanupIntents,
+} from "./lookback/pending-lookback-cleanup-intent";
+import {
+  hasPendingFailedLookbackRemoval,
+  isLookbackContextAwaitingStop,
+  pendingFailedLookbackContexts,
+  pendingSuccessfulLookbackRequests,
+  settlePendingLookbackContextAfterStop,
+  takePendingLookbackContextAfterStop,
+  type PendingLookbackCleanupLifecycle,
+  type PendingLookbackContext,
+} from "./lookback/pending-lookback-context";
+import {
+  hasPendingLookbackRemovalWarning,
+  pendingLookbackRemovalRetryIds,
+  persistPendingLookbackRemoval,
+  recordLookbackRemovalRetryFailure,
+  readPendingLookbackRemovals,
+  retryPendingLookbackRemovals,
+  sameLookbackRemovalScope,
+  shouldProcessLookbackItem,
+  type LookbackRemovalRetry,
+  type LookbackRemovalStorage,
+} from "./lookback/pending-lookback-removal";
+import {
+  lookbackOriginForItem,
+  processRecordingContextItem,
+} from "./lookback/worker";
 import { PillLogo } from "./overlays/pill-logo";
 import {
   useFeatureConfig,
@@ -1225,6 +1265,7 @@ export function App({
     loadRecentLookbackSeconds,
   );
   const [lookbackNotice, setLookbackNotice] = useState<string | null>(null);
+  const [lookbackRemovalFailed, setLookbackRemovalFailed] = useState(false);
   const [lookbackRewindConsentOpen, setLookbackRewindConsentOpen] =
     useState(false);
   const [lookbackRewindConsentBusy, setLookbackRewindConsentBusy] =
@@ -1232,12 +1273,18 @@ export function App({
   const [lookbackRewindConsentError, setLookbackRewindConsentError] = useState<
     string | null
   >(null);
-  // The context request for the current recording. It keeps its own target so
-  // a later cancel removes the item from the server that created it.
-  const lookbackContextRef = useRef<{
-    target: { serverUrl: string; authToken: string };
-    item: Promise<RecordingContextItem | null>;
-  } | null>(null);
+  // Failed starts can settle after a newer request begins, so keep each
+  // cleanup target keyed until its recording fails, is cancelled, or stops.
+  const lookbackContextRef = useRef(new Map<string, PendingLookbackContext>());
+  const lookbackRemovalRetriesRef = useRef(
+    new Map<string, LookbackRemovalRetry>(),
+  );
+  const lookbackCleanupIntentRetriesRef = useRef(
+    new Map<string, LookbackRemovalRetry>(),
+  );
+  const pendingLookbackCursorRef = useRef<PendingRecordingContextCursor | null>(
+    null,
+  );
   const processingLookbackIdsRef = useRef<Set<string>>(new Set());
   // Pending items whose footage was captured on another device. Session-scoped,
   // so a restart checks them against local origins again.
@@ -1249,6 +1296,8 @@ export function App({
   const [videoStorageStatus, setVideoStorageStatus] =
     useState<VideoStorageStatus>("checking");
   const [signedInAs, setSignedInAs] = useState<string | null>(null);
+  const signedInAsRef = useRef(signedInAs);
+  signedInAsRef.current = signedInAs;
   const [signInPending, setSignInPending] = useState<
     "google" | "magic-link" | null
   >(null);
@@ -1299,13 +1348,13 @@ export function App({
   });
   const meetingsLabEnabled =
     authStatus === "authed" && isLabEnabled(labValues, CLIPS_MEETINGS);
-  const wisprFlowLabEnabled =
-    authStatus === "authed" && isLabEnabled(labValues, CLIPS_WISPRFLOW);
+  const voiceDictationLabEnabled =
+    authStatus === "authed" && isLabEnabled(labValues, CLIPS_VOICE_DICTATION);
   const lookbackLabEnabled =
     authStatus === "authed" && isLabEnabled(labValues, CLIPS_LOOKBACK_CONTEXT);
   const rewindOn = featureConfig?.screenMemory?.enabled === true;
   const voiceDictationEnabled =
-    wisprFlowLabEnabled && featureConfig?.voiceEnabled !== false;
+    voiceDictationLabEnabled && featureConfig?.voiceEnabled !== false;
   const fnShortcutEnabled =
     voiceDictationEnabled &&
     (voiceShortcut === "fn" || voiceShortcut === "both");
@@ -1680,7 +1729,11 @@ export function App({
     <T,>(
       name: string,
       body: Record<string, unknown>,
-      opts?: { method?: "GET" | "POST"; signal?: AbortSignal },
+      opts?: {
+        method?: "GET" | "POST";
+        signal?: AbortSignal;
+        timeoutMs?: number;
+      },
     ): Promise<T> =>
       callClipsActionFor<T>(
         { serverUrl, authToken: loadDesktopAuthToken(serverUrl) },
@@ -1954,56 +2007,233 @@ export function App({
     return { serverUrl, authToken: loadDesktopAuthToken(serverUrl) };
   }
 
+  function lookbackRemovalStorage(): LookbackRemovalStorage {
+    return {
+      getItem: (key) => window.localStorage.getItem(key),
+      setItem: (key, value) => window.localStorage.setItem(key, value),
+      removeItem: (key) => window.localStorage.removeItem(key),
+    };
+  }
+
+  function lookbackCleanupLifecycle(
+    storage: LookbackRemovalStorage,
+  ): PendingLookbackCleanupLifecycle {
+    return {
+      persistIntent: (context, itemId, mode) =>
+        persistPendingLookbackCleanupIntent(
+          storage,
+          context.target.serverUrl,
+          context.account,
+          context.request,
+          itemId,
+          mode,
+        ),
+      persistRemovalItem: (context, itemId) =>
+        persistPendingLookbackRemoval(
+          storage,
+          context.target.serverUrl,
+          context.account,
+          itemId,
+        ),
+      clearIntent: (context) =>
+        clearPendingLookbackCleanupIntent(
+          storage,
+          context.target.serverUrl,
+          context.account,
+          context.recordingId,
+        ),
+    };
+  }
+
+  const updateLookbackRemovalWarning = useCallback(() => {
+    const activeServerUrl = authServerUrlRef.current;
+    const activeAccount = signedInAsRef.current;
+    if (!activeAccount) {
+      setLookbackRemovalFailed(false);
+      return;
+    }
+    const scope = { serverUrl: activeServerUrl, account: activeAccount };
+    const stored = readPendingLookbackRemovals(
+      lookbackRemovalStorage(),
+      activeServerUrl,
+      activeAccount,
+    );
+    const cleanupIntents = readPendingLookbackCleanupIntents(
+      lookbackRemovalStorage(),
+      activeServerUrl,
+      activeAccount,
+    );
+    setLookbackRemovalFailed(
+      hasPendingFailedLookbackRemoval(lookbackContextRef.current, scope) ||
+        hasPendingLookbackRemovalWarning(stored) ||
+        hasPendingLookbackCleanupIntentWarning(cleanupIntents),
+    );
+  }, []);
+
+  useEffect(() => {
+    updateLookbackRemovalWarning();
+  }, [serverUrl, signedInAs, updateLookbackRemovalWarning]);
+
+  async function removeFailedLookbackItem(
+    target: PendingLookbackContext["target"],
+    itemId: string,
+    account: string,
+  ): Promise<void> {
+    const storage = lookbackRemovalStorage();
+    persistPendingLookbackRemoval(storage, target.serverUrl, account, itemId);
+    if (
+      !sameLookbackRemovalScope(
+        { serverUrl: target.serverUrl, account },
+        {
+          serverUrl: authServerUrlRef.current,
+          account: signedInAsRef.current,
+        },
+      )
+    ) {
+      return;
+    }
+    updateLookbackRemovalWarning();
+    const state = await retryPendingLookbackRemovals({
+      storage,
+      serverUrl: target.serverUrl,
+      account,
+      target: {
+        serverUrl: target.serverUrl,
+        authToken: loadDesktopAuthToken(target.serverUrl),
+      },
+      skipIds: pendingLookbackRemovalRetryIds(
+        lookbackRemovalRetriesRef.current,
+      ),
+      removeItem: retryLookbackRemoval,
+    });
+    if (state.status === "unreadable") {
+      throw new Error("Earlier screen time removal is still pending.");
+    }
+  }
+
+  async function retryLookbackRemoval(
+    target: { serverUrl: string; authToken: string },
+    itemId: string,
+  ) {
+    try {
+      const item = await removeRecordingContext(
+        {
+          serverUrl: target.serverUrl,
+          authToken: loadDesktopAuthToken(target.serverUrl),
+        },
+        itemId,
+      );
+      lookbackRemovalRetriesRef.current.delete(itemId);
+      return item;
+    } catch (error) {
+      recordLookbackRemovalRetryFailure(
+        lookbackRemovalRetriesRef.current,
+        itemId,
+      );
+      throw error;
+    }
+  }
+
   // Runs beside the recording, never ahead of it: a failed request only raises
   // the notice, and the recording continues.
   function requestLookbackForRecording(seconds: number) {
-    lookbackContextRef.current = null;
-    if (seconds <= 0) return;
     const recordingId = sessionRecordingIdRef.current;
-    const origin = recordingId ? getRewindClipOrigin(recordingId) : null;
-    if (!recordingId || !origin) {
+    if (!(seconds > 0)) {
+      forgetRewindClipOriginIfNoRequest(recordingId, seconds);
+      return;
+    }
+    if (!recordingId) {
       setLookbackNotice(t("lookbackContext.localOnlyUnavailable"));
       return;
     }
-    const target = lookbackTarget();
-    const item = requestRecordingContext(target, {
-      recordingId,
-      seconds,
-      endedAt: origin.startedAt,
-      deviceId: clipsDeviceId(),
-    }).catch((error: unknown) => {
+    const onRequestError = (error: unknown) => {
       console.error(
         "[clips-popover] earlier screen time request failed:",
         error,
       );
       setLookbackNotice(t("lookbackContext.requestFailed"));
-      return null;
-    });
-    lookbackContextRef.current = { target, item };
+    };
+    let origin: ReturnType<typeof getRewindClipOrigin>;
+    try {
+      origin = getRewindClipOrigin(recordingId);
+    } catch (error) {
+      onRequestError(error);
+      return;
+    }
+    if (!origin) {
+      setLookbackNotice(t("lookbackContext.localOnlyUnavailable"));
+      return;
+    }
+    if (!signedInAs) {
+      onRequestError(
+        new Error("An account is required for earlier screen time."),
+      );
+      return;
+    }
+    try {
+      const target = lookbackTarget();
+      const request: RecordingContextRequestInput = {
+        recordingId,
+        seconds,
+        endedAt: origin.startedAt,
+        deviceId: clipsDeviceId(),
+        includeMicrophone: origin.includeMicrophone,
+        includeSystemAudio: origin.includeSystemAudio,
+      };
+      const item = settleRecordingContextRequest(
+        requestRecordingContext(target, request),
+        recordingId,
+        forgetRewindClipOrigin,
+        onRequestError,
+      );
+      lookbackContextRef.current.set(recordingId, {
+        recordingId,
+        request,
+        target,
+        account: signedInAs,
+        item,
+      });
+    } catch (error) {
+      onRequestError(error);
+    }
   }
 
-  // A discarded recording must not keep an item that the worker would export.
-  function removeLookbackContext() {
-    const pending = lookbackContextRef.current;
-    lookbackContextRef.current = null;
-    if (!pending) return;
-    void pending.item
-      .then((item) =>
-        item ? removeRecordingContext(pending.target, item.id) : null,
-      )
-      .catch((error: unknown) => {
-        console.error(
-          "[clips-popover] removing earlier screen time failed:",
-          error,
-        );
-        setLookbackNotice(t("lookbackContext.removeFailed"));
-      });
+  // Successful stops release the item only after its request settles or is durable.
+  function settleLookbackContextAfterStop(
+    recordingId: string | null | undefined,
+    stopSucceeded: boolean,
+  ) {
+    const storage = lookbackRemovalStorage();
+    const settling = settlePendingLookbackContextAfterStop(
+      lookbackContextRef.current,
+      recordingId,
+      stopSucceeded,
+      removeFailedLookbackItem,
+      lookbackCleanupLifecycle(storage),
+    );
+    if (!stopSucceeded && recordingId) forgetRewindClipOrigin(recordingId);
+    updateLookbackRemovalWarning();
+    void settling.then(updateLookbackRemovalWarning).catch((error: unknown) => {
+      console.error(
+        "[clips-popover] removing earlier screen time failed:",
+        error,
+      );
+      updateLookbackRemovalWarning();
+    });
+  }
+
+  function removeLookbackContext(recordingId?: string) {
+    settleLookbackContextAfterStop(
+      recordingId ?? sessionRecordingIdRef.current,
+      false,
+    );
   }
 
   const processLookbackItem = useCallback(
     (item: RecordingContextItem) => {
       const target = { serverUrl, authToken: loadDesktopAuthToken(serverUrl) };
       return processRecordingContextItem(item, {
+        deviceId: clipsDeviceId(),
         originFor: (recordingId) => {
           const origin = getRewindClipOrigin(recordingId);
           return origin
@@ -2013,15 +2243,17 @@ export function App({
               }
             : null;
         },
+        forgetOrigin: forgetRewindClipOrigin,
         update: (input) => updateRecordingContext(target, input),
         currentItem: (recordingId, itemId) =>
           getRecordingContextItem(target, recordingId, itemId),
-        createRecording: ({ hasAudio, startedAt }) =>
+        createRecording: ({ hasAudio, startedAt, signal }) =>
           createPrivateAgentRewindRecording(
             serverUrl,
             hasAudio,
             startedAt,
             target.authToken,
+            signal,
           ),
         uploadWindow: (input) =>
           invoke<NativeRewindUploadResult>("rewind_agent_handoff_upload", {
@@ -2037,50 +2269,194 @@ export function App({
             includeMic: input.includeMic,
             includeSystemAudio: input.includeSystemAudio,
           }),
-        trashRecording: (id) => callClipsAction("trash-recording", { id }),
+        cancelUpload: (recordingId) =>
+          invoke("native_fullscreen_recording_cancel_retry", { recordingId }),
+        trashRecording: (id) =>
+          callClipsAction(
+            "trash-recording",
+            { id },
+            { timeoutMs: LOOKBACK_ACTION_TIMEOUT_MS },
+          ),
       });
     },
     [callClipsAction, serverUrl],
   );
 
   useEffect(() => {
-    if (authStatus !== "authed" || !lookbackLabEnabled || !rewindOn) return;
+    pendingLookbackCursorRef.current = null;
+    if (authStatus !== "authed" || !signedInAs) return;
     let cancelled = false;
     let inFlight = false;
     const poll = async () => {
       if (inFlight) return;
       inFlight = true;
       try {
-        const items = await listPendingRecordingContext(
+        const successfulStopRetries = pendingSuccessfulLookbackRequests(
+          lookbackContextRef.current,
+          { serverUrl, account: signedInAs },
+        );
+        const failedStops = pendingFailedLookbackContexts(
+          lookbackContextRef.current,
+          { serverUrl, account: signedInAs },
+        );
+        await Promise.allSettled([
+          ...successfulStopRetries.map((context) =>
+            settlePendingLookbackContextAfterStop(
+              lookbackContextRef.current,
+              context.recordingId,
+              true,
+              removeFailedLookbackItem,
+              lookbackCleanupLifecycle(lookbackRemovalStorage()),
+            ),
+          ),
+          ...failedStops.map((context) =>
+            settlePendingLookbackContextAfterStop(
+              lookbackContextRef.current,
+              context.recordingId,
+              false,
+              removeFailedLookbackItem,
+              lookbackCleanupLifecycle(lookbackRemovalStorage()),
+            ),
+          ),
+        ]);
+        if (cancelled) return;
+        const storage = lookbackRemovalStorage();
+        const activeRecordingIds = new Set(lookbackContextRef.current.keys());
+        const cleanupIntents = await retryPendingLookbackCleanupIntents({
+          storage,
+          serverUrl,
+          account: signedInAs,
+          target: { serverUrl, authToken: loadDesktopAuthToken(serverUrl) },
+          skipRecordingIds: activeRecordingIds,
+          retries: lookbackCleanupIntentRetriesRef.current,
+          requestItem: requestRecordingContextOnce,
+          onTerminalRequestFailure: forgetRewindClipOrigin,
+        });
+        if (cancelled) return;
+        const storedRemovals = readPendingLookbackRemovals(
+          storage,
+          serverUrl,
+          signedInAs,
+        );
+        setLookbackRemovalFailed(
+          hasPendingFailedLookbackRemoval(lookbackContextRef.current, {
+            serverUrl,
+            account: signedInAs,
+          }) ||
+            hasPendingLookbackRemovalWarning(storedRemovals) ||
+            hasPendingLookbackCleanupIntentWarning(cleanupIntents),
+        );
+        if (storedRemovals.status === "unreadable") return;
+        const pendingRemovalIds = new Set(
+          pendingFailedLookbackContexts(lookbackContextRef.current, {
+            serverUrl,
+            account: signedInAs,
+          })
+            .map((context) => context.removalItemId)
+            .filter((id): id is string => Boolean(id)),
+        );
+        const retryLaterIds = pendingLookbackRemovalRetryIds(
+          lookbackRemovalRetriesRef.current,
+        );
+        for (const id of retryLaterIds) pendingRemovalIds.add(id);
+        const pendingRemovals = await retryPendingLookbackRemovals({
+          storage,
+          serverUrl,
+          account: signedInAs,
+          target: { serverUrl, authToken: loadDesktopAuthToken(serverUrl) },
+          skipIds: pendingRemovalIds,
+          removeItem: retryLookbackRemoval,
+        });
+        if (cancelled) return;
+        setLookbackRemovalFailed(
+          hasPendingFailedLookbackRemoval(lookbackContextRef.current, {
+            serverUrl,
+            account: signedInAs,
+          }) ||
+            hasPendingLookbackRemovalWarning(pendingRemovals) ||
+            hasPendingLookbackCleanupIntentWarning(cleanupIntents),
+        );
+        if (
+          cleanupIntents.status === "unreadable" ||
+          pendingRemovals.status === "unreadable"
+        ) {
+          return;
+        }
+        if (!lookbackLabEnabled || !rewindOn) return;
+
+        const cleanupRemovalIds = cleanupIntents.intents.flatMap((intent) =>
+          intent.mode !== "retain" && intent.itemId ? [intent.itemId] : [],
+        );
+        const excludeIds = [
+          ...new Set([
+            ...pendingRemovalIds,
+            ...pendingRemovals.pendingIds,
+            ...cleanupRemovalIds,
+            ...skippedLookbackIdsRef.current,
+          ]),
+        ].slice(0, 100);
+        const deviceId = clipsDeviceId();
+        const page = await listPendingRecordingContext(
           { serverUrl, authToken: loadDesktopAuthToken(serverUrl) },
           {
-            deviceId: clipsDeviceId(),
-            // The server accepts at most 100 excludeIds; any beyond that stay
-            // in the oldest-first batch.
-            excludeIds: [...skippedLookbackIdsRef.current].slice(0, 100),
+            deviceId,
+            cursor: pendingLookbackCursorRef.current,
+            // Prioritize cleanup IDs in the bounded list; cursor pages pass
+            // any remaining cleanup items without starving newer work.
+            excludeIds,
           },
         );
         if (cancelled) return;
-        for (const item of items) {
-          if (processingLookbackIdsRef.current.has(item.id)) continue;
-          if (!getRewindClipOrigin(item.recordingId)) {
-            // Not this device's footage. Excluding it keeps the batch from
-            // refilling with items this device will never export.
-            skippedLookbackIdsRef.current.add(item.id);
-            continue;
-          }
-          processingLookbackIdsRef.current.add(item.id);
-          void processLookbackItem(item)
-            .catch((error: unknown) => {
-              console.error(
-                "[clips-popover] earlier screen time export failed:",
-                error,
-              );
-            })
-            .finally(() => {
-              processingLookbackIdsRef.current.delete(item.id);
-            });
-        }
+        pendingLookbackCursorRef.current = visitPendingRecordingContextPage(
+          page,
+          (item) => {
+            if (!shouldProcessLookbackItem(item.id, pendingRemovals)) return;
+            if (cleanupIntents.pendingRecordingIds.has(item.recordingId))
+              return;
+            if (processingLookbackIdsRef.current.has(item.id)) return;
+            if (
+              isLookbackContextAwaitingStop(
+                lookbackContextRef.current,
+                item.recordingId,
+              )
+            ) {
+              return;
+            }
+            if (
+              !lookbackOriginForItem(item, deviceId, (recordingId) => {
+                const origin = getRewindClipOrigin(recordingId);
+                return origin
+                  ? {
+                      includeMicrophone: origin.includeMicrophone,
+                      includeSystemAudio: origin.includeSystemAudio,
+                    }
+                  : null;
+              })
+            ) {
+              // Not this device's footage. Excluding it keeps the batch from
+              // refilling with items this device will never export.
+              skippedLookbackIdsRef.current.add(item.id);
+              return;
+            }
+            processingLookbackIdsRef.current.add(item.id);
+            void processLookbackItem(item)
+              .catch((error: unknown) => {
+                console.error(
+                  "[clips-popover] earlier screen time export failed:",
+                  error,
+                );
+              })
+              .finally(() => {
+                processingLookbackIdsRef.current.delete(item.id);
+              });
+          },
+          (error) => {
+            console.warn(
+              "[clips-popover] inspecting a pending earlier screen time item failed; retrying after page traversal:",
+              error,
+            );
+          },
+        );
       } catch (error) {
         // Nothing starts on a failed read; the next tick reads again.
         console.warn(
@@ -2103,6 +2479,7 @@ export function App({
     processLookbackItem,
     rewindOn,
     serverUrl,
+    signedInAs,
   ]);
 
   useEffect(() => {
@@ -2319,6 +2696,7 @@ export function App({
       emit("meetings:start-transcription", {
         meetingId: meeting.id,
         joinUrl: meeting.joinUrl,
+        platform: meeting.platform,
         reason: "user",
         scheduledStart: meeting.scheduledStart,
         includeFromMeetingStart,
@@ -3498,6 +3876,10 @@ export function App({
       }
       await loadPendingUploads();
     } finally {
+      settleLookbackContextAfterStop(
+        stoppingRecordingId ?? stopResult?.recordingId,
+        stopResult !== null,
+      );
       recordingStopFinalizingRef.current = false;
       setRecordingStopFinalizing(false);
       setRecError((message) => clearResolvedFinalizationError(message, false));
@@ -3954,6 +4336,11 @@ export function App({
       (window as unknown as { clipsForceAlive?: boolean }).clipsForceAlive =
         true;
 
+      const lookbackSecondsForRecording = effectiveLookbackSeconds({
+        labEnabled: lookbackLabEnabled,
+        rewindOn,
+        seconds: lookbackSeconds,
+      });
       const recordingPromise = startRecording(
         {
           serverUrl,
@@ -3968,12 +4355,12 @@ export function App({
           micOn,
           systemAudioOn,
           voiceCleanupEnabled,
+          lookbackEnabled: lookbackSecondsForRecording > 0,
           localRecordingMode: recordingLocalMode,
           preAcquiredCameraStream,
           preAcquiredDisplayStream:
             options?.resumeCapture?.displayStream ?? null,
           preAcquiredAudioStream: options?.resumeCapture?.audioStream ?? null,
-          preAcquiredCaptureSuspension: attempt.captureSuspension,
           pendingTranscriptionTeardown:
             options?.resumeCapture?.transcriptionTornDown ?? null,
           signal: attempt.signal,
@@ -3991,6 +4378,21 @@ export function App({
             }
             sessionRecordingIdRef.current = recordingId;
             sessionCaptureIdentityRef.current = captureIdentity ?? recordingId;
+            requestLookbackForRecording(lookbackSecondsForRecording);
+          },
+          onCaptureStartFailed: (recordingId) =>
+            removeLookbackContext(recordingId),
+          onStartupAbortStop: (recordingId, stopPromise) => {
+            void stopPromise.then(
+              (result) =>
+                takePendingLookbackContextAfterStop(
+                  lookbackContextRef.current,
+                  recordingId,
+                  result.recordingId,
+                ),
+              // The recorder logs this failure and removes the failed request.
+              () => {},
+            );
           },
         },
         audioCue,
@@ -4012,7 +4414,6 @@ export function App({
         await boundedCleanup(started.cancel());
         attempt.ensureActive();
       }
-      attempt.captureSuspension = null;
       // Capture already began: an abandoned start stops and keeps the take.
       if (
         (stopRequestedDuringStart || attempt.signal.aborted) &&
@@ -4025,8 +4426,8 @@ export function App({
         );
       } else {
         handle = started;
-        console.log("[clips-popover] recorder handle received");
       }
+      if (handle) console.log("[clips-popover] recorder handle received");
     } catch (err) {
       startError = err;
       if (!isRecordingStartCancellation(err)) {
@@ -4075,13 +4476,6 @@ export function App({
     if (handle) {
       recorderRef.current = handle;
       setRecorder(handle);
-      requestLookbackForRecording(
-        effectiveLookbackSeconds({
-          labEnabled: lookbackLabEnabled,
-          rewindOn,
-          seconds: lookbackSeconds,
-        }),
-      );
       return handle;
     }
     if (stoppedDuringStart) return null;
@@ -4726,7 +5120,7 @@ export function App({
         <Setup
           surface="memory"
           meetingsLabEnabled={meetingsLabEnabled}
-          wisprFlowLabEnabled={wisprFlowLabEnabled}
+          voiceDictationLabEnabled={voiceDictationLabEnabled}
           labValues={labValues}
           labError={labError}
           labsSignedIn={authStatus === "authed"}
@@ -4779,7 +5173,7 @@ export function App({
           initialSettingsTab={initialSettingsTab}
           onSettingsTabChange={setInitialSettingsTab}
           meetingsLabEnabled={meetingsLabEnabled}
-          wisprFlowLabEnabled={wisprFlowLabEnabled}
+          voiceDictationLabEnabled={voiceDictationLabEnabled}
           labValues={labValues}
           labError={labError}
           labsSignedIn={authStatus === "authed"}
@@ -4973,6 +5367,11 @@ export function App({
         {lookbackNotice ? (
           <p role="status" className="setup-warning">
             {lookbackNotice}
+          </p>
+        ) : null}
+        {lookbackRemovalFailed ? (
+          <p role="status" className="setup-warning">
+            {t("lookbackContext.removeFailed")}
           </p>
         ) : null}
 
@@ -6518,7 +6917,7 @@ function Setup({
   initialSettingsTab,
   onSettingsTabChange,
   meetingsLabEnabled,
-  wisprFlowLabEnabled,
+  voiceDictationLabEnabled,
   labValues,
   labError,
   labsSignedIn,
@@ -6558,7 +6957,7 @@ function Setup({
   initialSettingsTab?: SettingsTabId;
   onSettingsTabChange?: (tab: SettingsTabId) => void;
   meetingsLabEnabled: boolean;
-  wisprFlowLabEnabled: boolean;
+  voiceDictationLabEnabled: boolean;
   labValues: Record<string, unknown>;
   labError: string | null;
   labsSignedIn: boolean;
@@ -7496,7 +7895,7 @@ function Setup({
     settingsTab === "rewind" ||
     settingsTab === "advanced" ||
     (settingsTab === "meetings" && meetingsLabEnabled) ||
-    (settingsTab === "dictation" && wisprFlowLabEnabled);
+    (settingsTab === "dictation" && voiceDictationLabEnabled);
 
   useEffect(() => {
     if (surface !== "settings" || settingsTabIsAvailable) return;
@@ -8146,8 +8545,11 @@ function Setup({
                 ) : null}
               </SettingsRow>
             </SettingsGroup>
-
-            <SettingsGroup label="Storage">
+          </>
+        ) : null}
+        <SettingsGroup label="Storage">
+          {rewindOn ? (
+            <>
               <SettingsRow
                 label="Search memory"
                 description="Find and replay a recent moment yourself"
@@ -8169,27 +8571,27 @@ function Setup({
                   </SettingsActionButton>
                 }
               />
-              <SettingsRow
-                label="On this device"
-                description={`${screenMemorySegments.length} ${screenMemorySegments.length === 1 ? "segment" : "segments"} · ${formatStorageBytes(screenMemoryTotalBytes)}`}
-                control={
-                  <>
-                    <SettingsActionButton onClick={openScreenMemoryFolder}>
-                      Open folder
-                    </SettingsActionButton>
-                    <SettingsActionButton
-                      emphasis="destructive"
-                      onClick={() => void clearScreenMemory()}
-                      disabled={screenMemoryBusy}
-                    >
-                      Delete all
-                    </SettingsActionButton>
-                  </>
-                }
-              />
-            </SettingsGroup>
-          </>
-        ) : null}
+            </>
+          ) : null}
+          <SettingsRow
+            label="On this device"
+            description={`${screenMemorySegments.length} ${screenMemorySegments.length === 1 ? "segment" : "segments"} · ${formatStorageBytes(screenMemoryTotalBytes)}`}
+            control={
+              <>
+                <SettingsActionButton onClick={openScreenMemoryFolder}>
+                  Open folder
+                </SettingsActionButton>
+                <SettingsActionButton
+                  emphasis="destructive"
+                  onClick={() => void clearScreenMemory()}
+                  disabled={screenMemoryBusy}
+                >
+                  Delete all
+                </SettingsActionButton>
+              </>
+            }
+          />
+        </SettingsGroup>
       </div>
     );
   }
@@ -8814,7 +9216,7 @@ function Setup({
           },
         ]
       : []),
-    ...(wisprFlowLabEnabled
+    ...(voiceDictationLabEnabled
       ? [
           {
             id: "dictation" as const,

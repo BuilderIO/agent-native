@@ -9,6 +9,7 @@ import {
 } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
+import { isStoreLedgerStatement } from "../db/store-ledger.test-helpers.js";
 import { decryptSharedSecretValue } from "./crypto.js";
 
 beforeAll(async () => {
@@ -157,10 +158,12 @@ describe("secrets storage bootstrap", () => {
     const { writeAppSecret } = await import("./storage.js");
     await writeAppSecret({ ...userRef, value: "example-secret" });
 
-    const allSql = execute.mock.calls.map((c) => {
-      const input = c[0] as string | { sql: string };
-      return typeof input === "string" ? input : input.sql;
-    });
+    const allSql = execute.mock.calls
+      .map((c) => {
+        const input = c[0] as string | { sql: string };
+        return typeof input === "string" ? input : input.sql;
+      })
+      .filter((sql) => !isStoreLedgerStatement(sql));
     const createSql = allSql.find((s) =>
       s.includes("CREATE TABLE IF NOT EXISTS app_secrets"),
     );
@@ -190,10 +193,12 @@ describe("secrets storage bootstrap", () => {
     const { writeAppSecret } = await import("./storage.js");
     await writeAppSecret({ ...userRef, value: "example-secret" });
 
-    const allSql = execute.mock.calls.map((c) => {
-      const input = c[0] as string | { sql: string };
-      return typeof input === "string" ? input : input.sql;
-    });
+    const allSql = execute.mock.calls
+      .map((c) => {
+        const input = c[0] as string | { sql: string };
+        return typeof input === "string" ? input : input.sql;
+      })
+      .filter((sql) => !isStoreLedgerStatement(sql));
     expect(allSql.some((s) => /CREATE TABLE/i.test(s))).toBe(false);
     expect(allSql.some((s) => /ALTER TABLE/i.test(s))).toBe(false);
   });
