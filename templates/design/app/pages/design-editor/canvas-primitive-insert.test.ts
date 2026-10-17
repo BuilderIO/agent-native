@@ -795,10 +795,10 @@ describe("text takes its colour from what it lands on", () => {
     ).toMatch(/color:\s*#000000/i);
   });
 
-  it("uses the dark-board fallback when a surface has a background image", () => {
+  it("preserves inherited text color when a surface has a background image", () => {
     expect(
       textColorOnBoard(["linear-gradient(90deg, #ffffff, #111111)"], "#111111"),
-    ).toMatch(/color:\s*#ffffff/i);
+    ).toMatch(/color:\s*currentcolor/i);
   });
 
   it("keeps inherited text color when a surface is translucent", () => {
