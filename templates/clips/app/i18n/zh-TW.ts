@@ -1996,6 +1996,7 @@ const messages = {
     flowPermissionFailed: "麥克風權限未開啟",
     flowMicrophoneUnavailable: "無法使用麥克風",
     flowProviderFailed: "無法轉錄語音",
+    flowMeetingCaptureActive: "請先停止會議錄音，再開始聽寫",
     flowPasteFailed: "無法貼上轉錄文字",
     flowCancelled: "已取消聽寫",
     flowRetryHistory: "重試儲存歷史記錄",

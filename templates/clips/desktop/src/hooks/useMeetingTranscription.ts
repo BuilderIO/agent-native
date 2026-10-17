@@ -279,28 +279,28 @@ export function useMeetingTranscription({
           session.flushTimer = null;
         }
         await session.audioTransitionInFlight?.catch(() => {});
-        let engineToStop: TranscriptionEngine | null = session.engine;
-        if (session.engineStarting) {
-          try {
-            engineToStop = await session.engineStarting;
-            session.engine = engineToStop;
-          } catch {
-            engineToStop = null;
-          }
-        }
         const stoppingRunId = session.audioRunId;
-        if (engineToStop) {
-          try {
-            await stopTranscriptionEngine(engineToStop, stoppingRunId);
-          } catch (err) {
-            console.warn("[clips-popover] meeting audio stop failed:", err);
-          }
-          if (!session.paused) {
-            session.settlingRunDeadlines.set(
-              stoppingRunId,
-              Date.now() + TRANSCRIPTION_STOP_SETTLE_MS,
+        const enginesToStop: TranscriptionEngine[] = session.engineStarting
+          ? ["whisper", "macos-native"]
+          : [session.engine];
+        const stopResults = await Promise.allSettled(
+          enginesToStop.map((engine) =>
+            stopTranscriptionEngine(engine, stoppingRunId),
+          ),
+        );
+        for (const result of stopResults) {
+          if (result.status === "rejected") {
+            console.warn(
+              "[clips-popover] meeting audio stop failed:",
+              result.reason,
             );
           }
+        }
+        if (!session.paused) {
+          session.settlingRunDeadlines.set(
+            stoppingRunId,
+            Date.now() + TRANSCRIPTION_STOP_SETTLE_MS,
+          );
         }
         await waitForSettlingRunDeadlines(session.settlingRunDeadlines);
         if (session.flushTimer) {
@@ -1134,6 +1134,7 @@ export function useMeetingTranscription({
 
         emit("meetings:hide-notification", { meetingId }).catch(() => {});
       } catch (err) {
+        const sessionWasStopping = startedSession?.stopping === true;
         if (startedSession) {
           startedSession.stopping = true;
           unlistenAll(startedSession.unlisten.splice(0));
@@ -1160,30 +1161,35 @@ export function useMeetingTranscription({
             token: historyPreparedRef.current.token,
           }).catch(() => {});
         }
-        const superseded =
-          sessionRef.current !== null && sessionRef.current !== startedSession;
-        if (!superseded) {
-          const failedSession = startedSession;
-          sessionRef.current = null;
-          if (failedSession?.meetingId) {
+        if (!sessionWasStopping) {
+          const superseded =
+            sessionRef.current !== null &&
+            sessionRef.current !== startedSession;
+          if (!superseded) {
+            const failedSession = startedSession;
+            sessionRef.current = null;
+            if (failedSession?.meetingId) {
+              await callClipsAction("stop-meeting-recording", {
+                meetingId: failedSession.meetingId,
+                reason: "start-failed",
+              }).catch(() => {});
+            }
+            pendingPillInitRef.current = null;
+            await invoke("recording_pill_hide").catch(() => {});
+            await invoke("set_recording_state", { active: false }).catch(
+              () => {},
+            );
+            await invoke("set_meeting_active", { active: false }).catch(
+              () => {},
+            );
+          } else if (startedSession?.meetingId) {
             await callClipsAction("stop-meeting-recording", {
-              meetingId: failedSession.meetingId,
-              reason: "start-failed",
+              meetingId: startedSession.meetingId,
+              reason: "superseded",
             }).catch(() => {});
           }
-          pendingPillInitRef.current = null;
-          await invoke("recording_pill_hide").catch(() => {});
-          await invoke("set_recording_state", { active: false }).catch(
-            () => {},
-          );
-          await invoke("set_meeting_active", { active: false }).catch(() => {});
-        } else if (startedSession?.meetingId) {
-          await callClipsAction("stop-meeting-recording", {
-            meetingId: startedSession.meetingId,
-            reason: "superseded",
-          }).catch(() => {});
         }
-        if (err !== MEETING_START_CANCELLED) {
+        if (err !== MEETING_START_CANCELLED && !sessionWasStopping) {
           const message = meetingStartErrorMessage(err);
           emit("meetings:transcription-error", {
             meetingId,

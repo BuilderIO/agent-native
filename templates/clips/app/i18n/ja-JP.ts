@@ -2131,6 +2131,8 @@ const messages = {
     flowPermissionFailed: "マイクの使用が許可されていません",
     flowMicrophoneUnavailable: "マイクを利用できません",
     flowProviderFailed: "音声を文字起こしできませんでした",
+    flowMeetingCaptureActive:
+      "文字起こしをする前に、会議の録音を停止してください",
     flowPasteFailed: "文字起こしを貼り付けできませんでした",
     flowCancelled: "音声入力をキャンセルしました",
     flowRetryHistory: "履歴の保存を再試行",

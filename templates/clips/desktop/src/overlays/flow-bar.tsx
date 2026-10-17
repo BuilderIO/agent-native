@@ -31,6 +31,7 @@ type FlowFailure =
   | "permission"
   | "microphone-unavailable"
   | "no-speech"
+  | "meeting-capture-active"
   | "provider"
   | "paste"
   | "history-save";
@@ -211,15 +212,17 @@ export function FlowBar() {
         ? t("dictateRoute.flowMicrophoneUnavailable")
         : payload.failure === "no-speech"
           ? t("dictateRoute.noSpeechCaptured")
-          : payload.failure === "provider"
-            ? t("dictateRoute.flowProviderFailed")
-            : payload.failure === "paste"
-              ? t("dictateRoute.flowPasteFailed")
-              : payload.failure === "history-save"
-                ? payload.insertion === "copied"
-                  ? t("dictateRoute.flowCopiedHistoryFailed")
-                  : t("dictateRoute.flowPastedHistoryFailed")
-                : t("dictateRoute.flowProviderFailed");
+          : payload.failure === "meeting-capture-active"
+            ? t("dictateRoute.flowMeetingCaptureActive")
+            : payload.failure === "provider"
+              ? t("dictateRoute.flowProviderFailed")
+              : payload.failure === "paste"
+                ? t("dictateRoute.flowPasteFailed")
+                : payload.failure === "history-save"
+                  ? payload.insertion === "copied"
+                    ? t("dictateRoute.flowCopiedHistoryFailed")
+                    : t("dictateRoute.flowPastedHistoryFailed")
+                  : t("dictateRoute.flowProviderFailed");
   const stateLabel =
     payload.state === "recording"
       ? t("dictateRoute.listening")

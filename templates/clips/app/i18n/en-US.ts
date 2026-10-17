@@ -2087,6 +2087,7 @@ const messages = {
     flowPermissionFailed: "Microphone permission is off",
     flowMicrophoneUnavailable: "Microphone unavailable",
     flowProviderFailed: "Couldn’t transcribe speech",
+    flowMeetingCaptureActive: "Stop the meeting recording before dictating",
     flowPasteFailed: "Couldn’t paste transcript",
     flowCancelled: "Dictation canceled",
     flowRetryHistory: "Retry saving history",

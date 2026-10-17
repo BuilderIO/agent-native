@@ -662,6 +662,24 @@ describe("desktop voice dictation runs", () => {
     });
   });
 
+  it("classifies meeting-owned speech engine as an actionable dictation failure", async () => {
+    const started = await startDictation("macos-native");
+    dispose = started.dispose;
+    for (const callback of tauri.transcripts.error) {
+      callback({
+        error: "speech-engine-busy-meeting",
+        source: "mic",
+        runId: started.runId,
+      });
+    }
+    await settle();
+
+    expect(stateChanges().at(-1)).toMatchObject({
+      state: "error",
+      failure: "meeting-capture-active",
+    });
+  });
+
   it("includes late final transcript events received just after stop", async () => {
     const started = await startDictation("macos-native");
     dispose = started.dispose;

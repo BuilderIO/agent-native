@@ -2160,6 +2160,7 @@ const messages = {
     flowPermissionFailed: "Mikrofonzugriff ist deaktiviert",
     flowMicrophoneUnavailable: "Mikrofon nicht verfügbar",
     flowProviderFailed: "Sprache konnte nicht transkribiert werden",
+    flowMeetingCaptureActive: "Beende die Meeting-Aufnahme, bevor du diktierst",
     flowPasteFailed: "Transkript konnte nicht eingefügt werden",
     flowCancelled: "Diktat abgebrochen",
     flowRetryHistory: "Verlauf erneut speichern",

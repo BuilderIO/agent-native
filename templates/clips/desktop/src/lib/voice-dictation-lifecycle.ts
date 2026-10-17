@@ -15,12 +15,13 @@ export type DictationFailure =
   | "permission"
   | "microphone-unavailable"
   | "no-speech"
+  | "meeting-capture-active"
   | "provider"
   | "paste"
   | "history-save";
 export type DictationEmptyFailure = Exclude<
   DictationFailure,
-  "paste" | "history-save"
+  "paste" | "history-save" | "meeting-capture-active"
 >;
 
 export type DictationInsertion = "inserted" | "copied";

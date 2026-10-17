@@ -2096,6 +2096,7 @@ const messages = {
     flowPermissionFailed: "إذن الميكروفون غير مفعّل",
     flowMicrophoneUnavailable: "الميكروفون غير متاح",
     flowProviderFailed: "تعذّر تحويل الكلام إلى نص",
+    flowMeetingCaptureActive: "أوقف تسجيل الاجتماع قبل الإملاء",
     flowPasteFailed: "تعذّر لصق النص المنسوخ",
     flowCancelled: "تم إلغاء الإملاء",
     flowRetryHistory: "إعادة محاولة الحفظ في السجل",

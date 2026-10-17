@@ -2007,6 +2007,7 @@ const messages = {
     flowPermissionFailed: "麦克风权限未开启",
     flowMicrophoneUnavailable: "麦克风不可用",
     flowProviderFailed: "无法转写语音",
+    flowMeetingCaptureActive: "请先停止会议录音，再开始听写",
     flowPasteFailed: "无法粘贴转写文本",
     flowCancelled: "听写已取消",
     flowRetryHistory: "重试保存历史记录",

@@ -2074,6 +2074,7 @@ const messages = {
     flowPermissionFailed: "माइक्रोफ़ोन की अनुमति बंद है",
     flowMicrophoneUnavailable: "माइक्रोफ़ोन उपलब्ध नहीं है",
     flowProviderFailed: "आवाज़ को टेक्स्ट में नहीं बदला जा सका",
+    flowMeetingCaptureActive: "डिक्टेशन शुरू करने से पहले मीटिंग रिकॉर्डिंग रोकें",
     flowPasteFailed: "ट्रांसक्रिप्ट पेस्ट नहीं हो सका",
     flowCancelled: "डिक्टेशन रद्द किया गया",
     flowRetryHistory: "इतिहास सेव करने की फिर कोशिश करें",

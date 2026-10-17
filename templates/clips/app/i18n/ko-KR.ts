@@ -2095,6 +2095,7 @@ const messages = {
     flowPermissionFailed: "마이크 권한이 꺼져 있습니다",
     flowMicrophoneUnavailable: "마이크를 사용할 수 없습니다",
     flowProviderFailed: "음성을 텍스트로 변환하지 못했습니다",
+    flowMeetingCaptureActive: "받아쓰기 전에 회의 녹음을 중지하세요",
     flowPasteFailed: "텍스트를 붙여넣지 못했습니다",
     flowCancelled: "받아쓰기가 취소되었습니다",
     flowRetryHistory: "기록 저장 재시도",

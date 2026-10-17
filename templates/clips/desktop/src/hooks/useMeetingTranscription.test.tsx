@@ -91,10 +91,12 @@ async function settle() {
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((resolvePromise) => {
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
     resolve = resolvePromise;
+    reject = rejectPromise;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 async function dispatch(name: string, payload: unknown = {}) {
@@ -263,6 +265,53 @@ describe("meeting transcription pause and resume", () => {
     expect(mocks.stopTranscriptionEngine).toHaveBeenCalledWith(
       "macos-native",
       runId,
+    );
+  });
+
+  it("cancels a pending engine start immediately when stopping", async () => {
+    const engineStart = deferred<"whisper" | "macos-native">();
+    mocks.startTranscriptionEngine.mockReturnValueOnce(engineStart.promise);
+
+    await act(async () => {
+      root.render(createElement(Harness));
+      await settle();
+    });
+    await dispatch("meetings:start-transcription", { meetingId: "meeting-1" });
+
+    const runId = mocks.startTranscriptionEngine.mock.calls[0][0]
+      .runId as number;
+    await dispatch("clips:pill-stop", { meetingId: "meeting-1" });
+
+    expect(mocks.stopTranscriptionEngine).toHaveBeenCalledWith(
+      "whisper",
+      runId,
+    );
+    expect(mocks.stopTranscriptionEngine).toHaveBeenCalledWith(
+      "macos-native",
+      runId,
+    );
+
+    await act(async () => {
+      engineStart.reject(new Error("speech-engine-start-superseded"));
+      await settle();
+      await vi.advanceTimersByTimeAsync(1_500);
+      await settle();
+    });
+
+    expect(
+      mocks.actions.filter(
+        (action) =>
+          action.name === "stop-meeting-recording" &&
+          action.body.reason === "start-failed",
+      ),
+    ).toHaveLength(0);
+    expect(mocks.actions).toContainEqual({
+      name: "stop-meeting-recording",
+      body: { meetingId: "meeting-1", reason: "manual" },
+    });
+    expect(mocks.emit).not.toHaveBeenCalledWith(
+      "meetings:transcription-error",
+      expect.anything(),
     );
   });
 

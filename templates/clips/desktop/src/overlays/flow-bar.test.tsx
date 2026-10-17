@@ -20,7 +20,11 @@ const mocks = vi.hoisted(() => {
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) =>
-    key === "dictateRoute.flowBusy" ? "Finishing the previous dictation…" : key,
+    key === "dictateRoute.flowBusy"
+      ? "Finishing the previous dictation…"
+      : key === "dictateRoute.flowMeetingCaptureActive"
+        ? "Stop the meeting recording before dictating"
+        : key,
 }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: mocks.invoke }));
 vi.mock("@tauri-apps/api/event", () => ({
@@ -133,5 +137,23 @@ describe("FlowBar", () => {
     expect(host.querySelector(".flow-bar-processing")?.textContent).toBe(
       "Finishing the previous dictation…",
     );
+  });
+
+  it("shows how to resolve a meeting-owned speech engine error", async () => {
+    const onStateChange = mocks.listeners.get("voice:state-change");
+    await act(async () => {
+      onStateChange?.({
+        payload: {
+          state: "error",
+          runId: 125,
+          failure: "meeting-capture-active",
+        },
+      });
+      await Promise.resolve();
+    });
+
+    expect(
+      host.querySelector(".flow-bar-error-heading strong")?.textContent,
+    ).toBe("Stop the meeting recording before dictating");
   });
 });

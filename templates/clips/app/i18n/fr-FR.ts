@@ -2163,6 +2163,8 @@ const messages = {
     flowPermissionFailed: "L’accès au microphone est désactivé",
     flowMicrophoneUnavailable: "Microphone indisponible",
     flowProviderFailed: "Impossible de transcrire la parole",
+    flowMeetingCaptureActive:
+      "Arrêtez l’enregistrement de la réunion avant de dicter",
     flowPasteFailed: "Impossible de coller la transcription",
     flowCancelled: "Dictée annulée",
     flowRetryHistory: "Réessayer l’enregistrement dans l’historique",

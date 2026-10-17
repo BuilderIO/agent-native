@@ -649,8 +649,13 @@ export function installDesktopVoiceDictation(
     );
   };
 
-  const microphoneFailure = (error: unknown): DictationFailure =>
-    isPermissionError(error) ? "permission" : "microphone-unavailable";
+  const microphoneFailure = (error: unknown): DictationFailure => {
+    const message = String(error).toLowerCase();
+    if (message.includes("speech-engine-busy-meeting")) {
+      return "meeting-capture-active";
+    }
+    return isPermissionError(error) ? "permission" : "microphone-unavailable";
+  };
 
   const recognitionFailure = (error: string): DictationEmptyFailure => {
     switch (error) {
@@ -668,6 +673,9 @@ export function installDesktopVoiceDictation(
 
   const speechFailure = (error: string): DictationFailure => {
     const message = error.toLowerCase();
+    if (message.includes("speech-engine-busy-meeting")) {
+      return "meeting-capture-active";
+    }
     if (
       message.includes("no-speech") ||
       message.includes("no speech") ||
