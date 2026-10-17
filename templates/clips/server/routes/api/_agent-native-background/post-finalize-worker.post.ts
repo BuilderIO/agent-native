@@ -18,6 +18,7 @@ import { z } from "zod";
 import exportToBrain from "../../../../actions/export-to-brain.js";
 import finalizeRecording from "../../../../actions/finalize-recording.js";
 import { ensureRecordingSeekable } from "../../../../actions/lib/ensure-seekable-video.js";
+import { finalizeEndedMeetingsForRecording } from "../../../../actions/lib/finalize-ended-meetings.js";
 import { runLoomImportJob } from "../../../../actions/lib/loom-import-job.js";
 import requestTranscript from "../../../../actions/request-transcript.js";
 import { getDb, schema } from "../../../db/index.js";
@@ -41,6 +42,7 @@ const bodySchema = z.object({
     "transcript",
     "brain-export",
     "loom-import",
+    "meeting-finalize",
   ]),
   token: z.string().min(1),
   delayMs: z.number().int().min(0).max(30_000).optional(),
@@ -53,8 +55,10 @@ const bodySchema = z.object({
 
 const LOOM_IMPORT_LEASE_MS = 30 * 60 * 1000;
 const MAX_THUMBNAIL_RETRIES = 5;
+// The backoff totals 155s, outlasting finalize-meeting's 2-minute pending lease.
+const MAX_MEETING_FINALIZE_RETRIES = 7;
 
-function thumbnailRetryDelayMs(retryAttempt: number): number {
+function postFinalizeRetryDelayMs(retryAttempt: number): number {
   return Math.min(30_000, 5_000 * 2 ** Math.max(0, retryAttempt));
 }
 
@@ -67,7 +71,23 @@ async function scheduleThumbnailRetry(
   await dispatchPostFinalizeJob({
     recordingId,
     kind: "thumbnail",
-    delayMs: thumbnailRetryDelayMs(retryAttempt ?? 0),
+    delayMs: postFinalizeRetryDelayMs(retryAttempt ?? 0),
+    retryAttempt: nextRetryAttempt,
+    requireAccepted: true,
+  });
+  return nextRetryAttempt;
+}
+
+async function scheduleMeetingFinalizeRetry(
+  recordingId: string,
+  retryAttempt: number | undefined,
+): Promise<number | null> {
+  const nextRetryAttempt = (retryAttempt ?? 0) + 1;
+  if (nextRetryAttempt > MAX_MEETING_FINALIZE_RETRIES) return null;
+  await dispatchPostFinalizeJob({
+    recordingId,
+    kind: "meeting-finalize",
+    delayMs: postFinalizeRetryDelayMs(retryAttempt ?? 0),
     retryAttempt: nextRetryAttempt,
     requireAccepted: true,
   });
@@ -155,7 +175,17 @@ export default defineEventHandler(async (event: H3Event) => {
   }
   const requiredStatus =
     kind === "media-ready" || kind === "loom-import" ? "processing" : "ready";
-  if (recording.status !== requiredStatus) {
+  const meetingFinalizeWaitingForRecording =
+    kind === "meeting-finalize" &&
+    (recording.status === "uploading" || recording.status === "processing");
+  const meetingFinalizeCanRun =
+    kind === "meeting-finalize" &&
+    (recording.status === "ready" || recording.status === "failed");
+  if (
+    recording.status !== requiredStatus &&
+    !meetingFinalizeWaitingForRecording &&
+    !meetingFinalizeCanRun
+  ) {
     return {
       ok: true,
       recordingId,
@@ -163,6 +193,25 @@ export default defineEventHandler(async (event: H3Event) => {
       skipped: true,
       reason: `recording-${recording.status}`,
     };
+  }
+  if (meetingFinalizeWaitingForRecording && !delayMs) {
+    const nextRetryAttempt = await scheduleMeetingFinalizeRetry(
+      recordingId,
+      retryAttempt,
+    );
+    if (nextRetryAttempt !== null) {
+      return {
+        ok: true,
+        recordingId,
+        kind,
+        retryScheduled: true,
+        retryAttempt: nextRetryAttempt,
+        reason: `recording-${recording.status}`,
+      };
+    }
+    throw new Error(
+      `Meeting finalization retries exhausted while recording ${recordingId} remained ${recording.status}`,
+    );
   }
 
   return runWithRequestContext(
@@ -185,7 +234,10 @@ export default defineEventHandler(async (event: H3Event) => {
             : {}),
           regenerate,
           replaceImportId,
-          requireAccepted: kind === "media-ready" || kind === "thumbnail",
+          requireAccepted:
+            kind === "media-ready" ||
+            kind === "thumbnail" ||
+            kind === "meeting-finalize",
         });
         return {
           ok: true,
@@ -278,6 +330,31 @@ export default defineEventHandler(async (event: H3Event) => {
           uploadGenerationId: expectedGenerationId,
         });
         return { ok: true, kind, result };
+      }
+
+      if (kind === "meeting-finalize") {
+        try {
+          await finalizeEndedMeetingsForRecording(getDb(), recordingId, {
+            throwOnFailure: true,
+          });
+          return { ok: true, recordingId, kind };
+        } catch (error) {
+          const nextRetryAttempt = await scheduleMeetingFinalizeRetry(
+            recordingId,
+            retryAttempt,
+          );
+          if (nextRetryAttempt !== null) {
+            return {
+              ok: true,
+              recordingId,
+              kind,
+              retryScheduled: true,
+              retryAttempt: nextRetryAttempt,
+              error: error instanceof Error ? error.message : String(error),
+            };
+          }
+          throw error;
+        }
       }
 
       if (kind === "loom-import") {

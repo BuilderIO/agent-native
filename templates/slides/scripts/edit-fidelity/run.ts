@@ -28,8 +28,12 @@ import {
   authoringFuzzUnavailableExitCode,
   authoringFuzzProfileIndex,
   canonicalizeAuthoringFuzzPersistence,
+  cleanupNavigationSessionCorrelation,
   formatAuthoringFuzzCleanupIssue,
   formatAuthoringFuzzUnavailable,
+  browserSessionNavigationRequestIdentity,
+  hasActiveCleanupNavigationSessionCompetitor,
+  isCleanupNavigationCompetitionPage,
   isExpectedCleanupNavigationError as isExpectedCleanupNavigationRequestError,
   isExpectedCleanupRecoveryPageBrowserSessionError,
   cleanupRecoveryClaimRequestAgeMs,
@@ -38,8 +42,12 @@ import {
   isFirefoxBrowserSessionConsoleError,
   lineNavigationKeys,
   normalizeFirefoxBrowserSessionConsoleError,
+  recordCleanupNavigationSessionCompetitor,
+  removeCleanupNavigationSessionCompetitor,
   recordCleanupRequestOutcome,
   retiredBrowserSessionPollConsoleGraceMs,
+  redactBrowserSessionRequestPath,
+  redactBrowserSessionSensitiveText,
   retryAuthoringFuzzScratchDeckLookup,
   runAuthoringFuzz,
   shouldRetainCleanupRecoveryClaimEvidence,
@@ -123,10 +131,18 @@ const getSlashListbox = async (page: any, editor: any) => {
     (element: HTMLElement) => {
       const listboxId = element.getAttribute("aria-controls");
       const listbox = listboxId ? document.getElementById(listboxId) : null;
-      return listbox?.getAttribute("role") === "listbox";
+      if (listbox?.getAttribute("role") !== "listbox") return false;
+      const style = getComputedStyle(listbox);
+      const rect = listbox.getBoundingClientRect();
+      return (
+        style.display !== "none" &&
+        style.visibility !== "hidden" &&
+        rect.width > 0 &&
+        rect.height > 0
+      );
     },
     editorHandle,
-    { timeout: 5_000 },
+    { polling: 50, timeout: 5_000 },
   );
   const listboxId = await editor.getAttribute("aria-controls");
   if (!listboxId) throw new Error("slash menu did not expose its listbox");
@@ -5602,45 +5618,111 @@ async function runAuthoringFuzzQa(
     let createError: unknown = null;
     let seedHarnessUnavailable: CouldNotRun | null = null;
     const unavailableCleanupPages = new Set<Page>();
+    type CleanupSessionIdentity = {
+      kind: "poll" | "heartbeat";
+      sessionId: string;
+      pathname: string;
+    };
     const cleanupRequestStartTimes = new Map<
       any,
-      { page: Page; startedAt: number }
+      {
+        page: Page;
+        startedAt: number;
+        requestSourceIsMainFrame: boolean;
+        requestFrameUrl: string | null;
+        outgoingDocumentUrl: string | null;
+        sessionIdentity: CleanupSessionIdentity | null;
+      }
     >();
     const cleanupRequestFinishedAt = new WeakMap<any, number>();
     const cleanupClaimSequenceByRequest = new WeakMap<any, number>();
+    const cleanupClaimSequenceByPage = new Map<Page, number>();
+    const cleanupClaimSequenceByPageAndUrl = new WeakMap<
+      Page,
+      Map<string, number>
+    >();
+    const cleanupPendingClaimRequestsByPage = new Map<Page, Set<any>>();
+    const cleanupMainFrameNavigationStartsByPage = new Map<Page, number[]>();
     const failedCleanupBrowserSessionClaims: Array<{
       page: Page;
       url: string;
       pathname: string;
       method: string;
+      sessionId: string;
       startedAt: number;
       failedAt: number;
       sameOrigin: boolean;
       sequence: number;
+      competingClaimPendingAtFailure: boolean;
+      competingSameUrlClaimStartedAfterFailure?: boolean;
+      competingSameUrlClaimPendingAtFailure: boolean;
+      requestWasPendingAtNavigation: boolean;
     }> = [];
     let cleanupClaimSequence = 0;
     let cleanupNavigationStarted = false;
     let cleanupNavigationPage: Page | null = null;
+    let cleanupNavigationCompetingPollStarted = false;
     let cleanupNavigationCompetingClaimStarted = false;
-    let cleanupNavigationCompetingRegistrationStarted = false;
+    const cleanupNavigationCompetingClaimUrls = new Set<string>();
     const cleanupNavigationCompetingRequestUrls = new Set<string>();
+    const cleanupNavigationCompetingSessionRequests = new Map<
+      string,
+      Set<object>
+    >();
+    const cleanupNavigationCompetingSessionRequestKeysByRequest = new Map<
+      object,
+      string[]
+    >();
+    const removePendingCleanupClaim = (target: Page, request: any) => {
+      const pendingClaims = cleanupPendingClaimRequestsByPage.get(target);
+      if (!pendingClaims) return;
+      pendingClaims.delete(request);
+      if (pendingClaims.size === 0) {
+        cleanupPendingClaimRequestsByPage.delete(target);
+      }
+    };
+    const cleanupSessionIdentityFor = (
+      request: any,
+    ): CleanupSessionIdentity | null => {
+      const requestUrl = new URL(request.url());
+      if (
+        !/^\/_agent-native\/browser-sessions(?:\/|$)/.test(requestUrl.pathname)
+      ) {
+        return null;
+      }
+      let postData: string | null = null;
+      if (request.method() === "POST") {
+        try {
+          postData = request.postData() ?? null;
+        } catch {
+          postData = null;
+        }
+      }
+      const identity = browserSessionNavigationRequestIdentity(
+        request.method(),
+        requestUrl.pathname,
+        postData,
+      );
+      if (identity?.status === "identified") {
+        return {
+          kind: identity.kind,
+          sessionId: identity.sessionId,
+          pathname: requestUrl.pathname,
+        };
+      }
+      return null;
+    };
     const isBrowserSessionRequest = (request: any) =>
       /^\/_agent-native\/browser-sessions(?:\/|$)/.test(
         new URL(request.url()).pathname,
       );
-    const isBrowserSessionClaimRequest = (request: any) =>
-      request.method() === "POST" &&
-      /^\/_agent-native\/browser-sessions\/[^/]+\/requests\/claim$/.test(
-        new URL(request.url()).pathname,
+    const isCleanupPollRequest = (request: any) => {
+      const requestUrl = new URL(request.url());
+      return (
+        request.method() === "GET" &&
+        requestUrl.pathname === "/_agent-native/poll"
       );
-    const isBrowserSessionRegistrationRequest = (request: any) =>
-      request.method() === "POST" &&
-      (/^\/_agent-native\/browser-sessions$/.test(
-        new URL(request.url()).pathname,
-      ) ||
-        /^\/_agent-native\/browser-sessions\/[^/]+\/heartbeat$/.test(
-          new URL(request.url()).pathname,
-        ));
+    };
     const cleanupRequestTrackingPages = new Map<
       Page,
       {
@@ -5652,46 +5734,138 @@ async function runAuthoringFuzzQa(
     const trackCleanupRequests = (target: Page) => {
       if (cleanupRequestTrackingPages.has(target)) return;
       const onRequest = (request: any) => {
-        if (isBrowserSessionClaimRequest(request)) {
+        let requestFrame: any = null;
+        const sessionIdentity = cleanupSessionIdentityFor(request);
+        try {
+          if (request.serviceWorker() === null) requestFrame = request.frame();
+        } catch {
+          requestFrame = null;
+        }
+        const startedAt = Date.now();
+        let isMainFrameNavigationRequest = false;
+        try {
+          isMainFrameNavigationRequest =
+            request.isNavigationRequest() &&
+            requestFrame === target.mainFrame();
+        } catch {
+          isMainFrameNavigationRequest = false;
+        }
+        if (isMainFrameNavigationRequest) {
+          const navigationStarts =
+            cleanupMainFrameNavigationStartsByPage.get(target) ?? [];
+          navigationStarts.push(startedAt);
+          cleanupMainFrameNavigationStartsByPage.set(
+            target,
+            navigationStarts.slice(-20),
+          );
+        }
+        if (sessionIdentity?.kind === "poll") {
           cleanupClaimSequence += 1;
           cleanupClaimSequenceByRequest.set(request, cleanupClaimSequence);
+          cleanupClaimSequenceByPage.set(target, cleanupClaimSequence);
+          const claimSequencesByUrl =
+            cleanupClaimSequenceByPageAndUrl.get(target) ?? new Map();
+          claimSequencesByUrl.set(request.url(), cleanupClaimSequence);
+          cleanupClaimSequenceByPageAndUrl.set(target, claimSequencesByUrl);
+          const pendingClaims =
+            cleanupPendingClaimRequestsByPage.get(target) ?? new Set();
+          pendingClaims.add(request);
+          cleanupPendingClaimRequestsByPage.set(target, pendingClaims);
         }
-        if (cleanupNavigationStarted && isBrowserSessionRequest(request)) {
+        if (
+          isCleanupNavigationCompetitionPage(
+            target,
+            cleanupNavigationPage,
+            cleanupNavigationStarted,
+          ) &&
+          isBrowserSessionRequest(request)
+        ) {
           cleanupNavigationCompetingRequestUrls.add(request.url());
-          if (isBrowserSessionClaimRequest(request)) {
-            cleanupNavigationCompetingClaimStarted = true;
+          if (sessionIdentity) {
+            recordCleanupNavigationSessionCompetitor(
+              request,
+              sessionIdentity,
+              cleanupNavigationCompetingSessionRequests,
+              cleanupNavigationCompetingSessionRequestKeysByRequest,
+            );
           }
-          if (isBrowserSessionRegistrationRequest(request)) {
-            cleanupNavigationCompetingRegistrationStarted = true;
-          }
+        }
+        if (
+          cleanupNavigationStarted &&
+          target === cleanupNavigationPage &&
+          isCleanupPollRequest(request)
+        ) {
+          cleanupNavigationCompetingPollStarted = true;
+        }
+        if (
+          cleanupNavigationStarted &&
+          target === cleanupNavigationPage &&
+          sessionIdentity?.kind === "poll"
+        ) {
+          cleanupNavigationCompetingClaimStarted = true;
+          cleanupNavigationCompetingClaimUrls.add(request.url());
         }
         cleanupRequestStartTimes.set(request, {
           page: target,
           startedAt: Date.now(),
+          requestSourceIsMainFrame: requestFrame === target.mainFrame(),
+          requestFrameUrl: requestFrame?.url() ?? null,
+          outgoingDocumentUrl: target.url() || null,
+          sessionIdentity,
         });
       };
       const onRequestFinished = (request: any) => {
+        removeCleanupNavigationSessionCompetitor(
+          request,
+          cleanupNavigationCompetingSessionRequests,
+          cleanupNavigationCompetingSessionRequestKeysByRequest,
+        );
         recordCleanupRequestOutcome(
           cleanupRequestFinishedAt,
           request,
           "finished",
           Date.now(),
         );
+        removePendingCleanupClaim(target, request);
         cleanupRequestStartTimes.delete(request);
       };
       const onRequestFailed = (request: any) => {
+        removeCleanupNavigationSessionCompetitor(
+          request,
+          cleanupNavigationCompetingSessionRequests,
+          cleanupNavigationCompetingSessionRequestKeysByRequest,
+        );
         const started = cleanupRequestStartTimes.get(request);
-        if (started && isBrowserSessionClaimRequest(request)) {
+        if (started && started.sessionIdentity?.kind === "poll") {
           const requestUrl = new URL(request.url());
+          const failedAt = Date.now();
           failedCleanupBrowserSessionClaims.push({
             page: target,
             url: request.url(),
             pathname: requestUrl.pathname,
             method: request.method(),
+            sessionId: started.sessionIdentity.sessionId,
             startedAt: started.startedAt,
-            failedAt: Date.now(),
+            failedAt,
             sameOrigin: requestUrl.origin === new URL(base).origin,
             sequence: cleanupClaimSequenceByRequest.get(request) ?? 0,
+            competingClaimPendingAtFailure: [
+              ...(cleanupPendingClaimRequestsByPage.get(target) ?? []),
+            ].some((pendingRequest) => pendingRequest !== request),
+            competingSameUrlClaimPendingAtFailure: [
+              ...(cleanupPendingClaimRequestsByPage.get(target) ?? []),
+            ].some(
+              (pendingRequest) =>
+                pendingRequest !== request &&
+                pendingRequest.url() === request.url(),
+            ),
+            requestWasPendingAtNavigation: (
+              cleanupMainFrameNavigationStartsByPage.get(target) ?? []
+            ).some(
+              (navigationStartedAt) =>
+                started.startedAt <= navigationStartedAt &&
+                navigationStartedAt <= failedAt,
+            ),
           });
         }
         recordCleanupRequestOutcome(
@@ -5700,6 +5874,7 @@ async function runAuthoringFuzzQa(
           "failed",
           Date.now(),
         );
+        removePendingCleanupClaim(target, request);
         cleanupRequestStartTimes.delete(request);
       };
       target.on("request", onRequest);
@@ -5898,7 +6073,12 @@ async function runAuthoringFuzzQa(
         pathname: string;
         method: string;
         startedAt: number;
+        sessionIdentity: CleanupSessionIdentity | null;
         sameOrigin: boolean;
+        requestSourceIsMainFrame: boolean;
+        requestFrameUrl: string | null;
+        outgoingDocumentUrl: string | null;
+        retiredSessionId: string | null;
         requestWasPendingAtNavigation: true;
       }> = [];
       let recoveryPage: Page | null = stableCleanupPage;
@@ -5909,7 +6089,9 @@ async function runAuthoringFuzzQa(
         target: Page | null = lastCleanupPage,
       ) => {
         cleanupErrors.push(
-          formatAuthoringFuzzCleanupIssue(label, deckId, error),
+          redactBrowserSessionSensitiveText(
+            formatAuthoringFuzzCleanupIssue(label, deckId, error),
+          ),
         );
         if (
           target &&
@@ -5925,8 +6107,16 @@ async function runAuthoringFuzzQa(
       const getCleanupNavigationCandidates = () => {
         const now = Date.now();
         return cleanupNavigationCandidates.map(
-          ({ request, startedAt, ...candidate }) => {
+          ({ request, startedAt, sessionIdentity, ...candidate }) => {
             const finishedAt = cleanupRequestFinishedAt.get(request);
+            const sessionCorrelation =
+              cleanupNavigationSessionCorrelation(sessionIdentity);
+            const competingSessionRequestStarted = sessionIdentity
+              ? hasActiveCleanupNavigationSessionCompetitor(
+                  sessionIdentity,
+                  cleanupNavigationCompetingSessionRequests,
+                )
+              : cleanupNavigationCompetingRequestUrls.has(candidate.url);
             return {
               ...candidate,
               ageMs: now - startedAt,
@@ -5937,11 +6127,22 @@ async function runAuthoringFuzzQa(
                     settledAgeMs: now - finishedAt,
                   }),
               competingRequestStartedAfterNavigation:
-                cleanupNavigationCompetingRequestUrls.has(candidate.url),
+                candidate.pathname === "/_agent-native/poll"
+                  ? cleanupNavigationCompetingPollStarted
+                  : competingSessionRequestStarted,
               competingClaimStartedAfterNavigation:
+                sessionIdentity?.kind === "poll" &&
                 cleanupNavigationCompetingClaimStarted,
+              competingSameUrlClaimStartedAfterNavigation:
+                cleanupNavigationCompetingClaimUrls.has(candidate.url),
               competingRegistrationStartedAfterNavigation:
-                cleanupNavigationCompetingRegistrationStarted,
+                sessionIdentity?.kind === "heartbeat" &&
+                competingSessionRequestStarted,
+              ...sessionCorrelation,
+              competingSameTypeRequest:
+                sessionIdentity?.kind === "heartbeat"
+                  ? competingSessionRequestStarted
+                  : undefined,
             };
           },
         );
@@ -5990,6 +6191,7 @@ async function runAuthoringFuzzQa(
             url: candidate.url,
             pathname: candidate.pathname,
             method: candidate.method,
+            sessionId: candidate.sessionId,
             requestAgeMs: cleanupRecoveryClaimRequestAgeMs(
               candidate.startedAt,
               pageErrorAt,
@@ -5997,7 +6199,19 @@ async function runAuthoringFuzzQa(
             failureOffsetMs: candidate.failedAt - pageErrorAt,
             sameOrigin: candidate.sameOrigin,
             competingClaimStartedAfterFailure:
-              cleanupClaimSequence > candidate.sequence,
+              (cleanupClaimSequenceByPage.get(target) ?? candidate.sequence) >
+              candidate.sequence,
+            competingClaimPendingAtFailure:
+              candidate.competingClaimPendingAtFailure,
+            competingSameUrlClaimStartedAfterFailure:
+              (cleanupClaimSequenceByPageAndUrl
+                .get(target)
+                ?.get(candidate.url) ?? candidate.sequence) >
+              candidate.sequence,
+            competingSameUrlClaimPendingAtFailure:
+              candidate.competingSameUrlClaimPendingAtFailure,
+            requestWasPendingAtNavigation:
+              candidate.requestWasPendingAtNavigation,
           }));
       };
       const isExpectedCleanupNavigationError = (
@@ -6039,17 +6253,26 @@ async function runAuthoringFuzzQa(
           const shouldIgnore = (normalized: string) =>
             isExpectedCleanupNavigationError(target, normalized);
           if (!isFirefoxBrowserSessionConsoleError(text)) {
-            if (!shouldIgnore(text)) cleanupErrors.push(`console: ${text}`);
+            if (!shouldIgnore(text))
+              cleanupErrors.push(
+                redactBrowserSessionSensitiveText(`console: ${text}`),
+              );
             return;
           }
           let inspection: Promise<void>;
           inspection = normalizeFirefoxBrowserSessionConsoleError(message)
             .then((normalized) => {
               if (!shouldIgnore(normalized))
-                cleanupErrors.push(`console: ${normalized}`);
+                cleanupErrors.push(
+                  redactBrowserSessionSensitiveText(`console: ${normalized}`),
+                );
             })
             .catch((error: unknown) => {
-              cleanupErrors.push(`console: ${text} (${String(error)})`);
+              cleanupErrors.push(
+                redactBrowserSessionSensitiveText(
+                  `console: ${text} (${String(error)})`,
+                ),
+              );
             })
             .finally(() => pendingCleanupErrorInspections.delete(inspection));
           pendingCleanupErrorInspections.add(inspection);
@@ -6068,7 +6291,9 @@ async function runAuthoringFuzzQa(
                   !isExpectedCleanupNavigationError(target, error, pageErrorAt)
                 ) {
                   cleanupErrors.push(
-                    `pageerror: ${error.stack ?? String(error)}`,
+                    redactBrowserSessionSensitiveText(
+                      `pageerror: ${error.stack ?? String(error)}`,
+                    ),
                   );
                 }
               })
@@ -6083,11 +6308,19 @@ async function runAuthoringFuzzQa(
           if (isExpectedCleanupNavigationError(target, error, pageErrorAt)) {
             return;
           }
-          cleanupErrors.push(`pageerror: ${error.stack ?? String(error)}`);
+          cleanupErrors.push(
+            redactBrowserSessionSensitiveText(
+              `pageerror: ${error.stack ?? String(error)}`,
+            ),
+          );
         };
         const onResponse = (response: { status(): number; url(): string }) => {
           if (response.status() >= 400) {
-            cleanupErrors.push(`HTTP ${response.status()} ${response.url()}`);
+            cleanupErrors.push(
+              redactBrowserSessionSensitiveText(
+                `HTTP ${response.status()} ${response.url()}`,
+              ),
+            );
           }
         };
         target.on("console", onConsole);
@@ -6239,7 +6472,7 @@ async function runAuthoringFuzzQa(
               ...cleanupRequestStartTimes.entries(),
             ]
               .filter(([, request]) => request.page === cleanupPage)
-              .map(([request, { startedAt }]) => {
+              .map(([request, tracked]) => {
                 const url = request.url();
                 const requestUrl = new URL(url);
                 return {
@@ -6247,8 +6480,13 @@ async function runAuthoringFuzzQa(
                   url,
                   pathname: requestUrl.pathname,
                   method: request.method(),
-                  startedAt,
+                  startedAt: tracked.startedAt,
+                  sessionIdentity: tracked.sessionIdentity,
                   sameOrigin: requestUrl.origin === cleanupUrl.origin,
+                  requestSourceIsMainFrame: tracked.requestSourceIsMainFrame,
+                  requestFrameUrl: tracked.requestFrameUrl,
+                  outgoingDocumentUrl: tracked.outgoingDocumentUrl,
+                  retiredSessionId: tracked.sessionIdentity?.sessionId ?? null,
                   requestWasPendingAtNavigation: true as const,
                 };
               });
@@ -7674,13 +7912,20 @@ async function main() {
             request.method() === "POST" && request.postData()
               ? request.postDataJSON()
               : undefined;
+          const pathname = new URL(request.url()).pathname;
           const response = authoringFuzzBrowserSessionResponse(
             request.method(),
-            new URL(request.url()).pathname,
+            pathname,
             requestBody,
           );
+          const status = response ? (response.ok ? 200 : 400) : 501;
+          if (!response) {
+            console.error(
+              `[edit-fidelity] unexpected browser-session mock request: ${request.method()} ${redactBrowserSessionRequestPath(pathname)} (${status})`,
+            );
+          }
           await route.fulfill({
-            status: response ? (response.ok ? 200 : 400) : 501,
+            status,
             contentType: "application/json",
             headers: corsHeaders,
             body: JSON.stringify(

@@ -2,6 +2,24 @@ const messages = {
   meetingAsk: {
     resizeOrDismissAnswers: "Redimensionner ou fermer les réponses",
   },
+  meetingBrowserConfirmation:
+    "Clips détecte une activité du micro dans ce navigateur, mais ne peut pas identifier l’onglet de la réunion.",
+  meetingReplacement: {
+    title: "Les notes de réunion nécessitent votre attention",
+    description:
+      "Les notes de la réunion précédente n’ont pas pu être enregistrées. Copiez-les avant de démarrer cette réunion.",
+    copyAndStart: "Copier les notes et démarrer",
+    actionFailed:
+      "Impossible de poursuivre la récupération de la réunion. Réessayez.",
+  },
+  quitRecovery: {
+    title: "Clips termine encore la réunion",
+    body: "Clips n’a pas encore terminé d’arrêter et d’enregistrer cette réunion. La transcription la plus récente risque d’être perdue si vous quittez maintenant.",
+    keepOpen: "Garder Clips ouvert",
+    quitAnyway: "Quitter quand même",
+    actionFailed:
+      "Clips n’a pas pu mettre à jour l’état de récupération. Réessayez.",
+  },
   lookbackContext: {
     includeLast: "Inclure les derniers",
     whatIsThis: "Qu'est-ce que c'est ?",
