@@ -1435,15 +1435,20 @@ describe("bug fixes — reliability sweep", () => {
     });
   });
 
-  describe("n20: canonicalization never trims intentional empty blocks", () => {
-    it("keeps a trailing <empty-block/> after a heading", () => {
-      const nfm = L("# H", "<empty-block/>");
-      expect(canonicalizeNfm(nfm)).toBe(nfm);
+  describe("n20: canonicalization trims only the editor's trailing filler", () => {
+    // The live copy saves without it, so canonical Markdown does too.
+    it("trims a trailing <empty-block/> after a heading or a list", () => {
+      expect(canonicalizeNfm(L("# H", "<empty-block/>"))).toBe("# H");
+      expect(canonicalizeNfm(L("- item", "<empty-block/>"))).toBe("- item");
     });
 
-    it("keeps a trailing <empty-block/> after a list", () => {
-      const nfm = L("- item", "<empty-block/>");
-      expect(canonicalizeNfm(nfm)).toBe(nfm);
+    it("keeps a trailing <empty-block/> after a paragraph, or one that is indented", () => {
+      for (const nfm of [
+        L("Text", "<empty-block/>"),
+        L("# H", "<empty-block/>", "<empty-block/>"),
+        L("# H", "\t<empty-block/>"),
+      ])
+        expect(canonicalizeNfm(nfm)).toBe(nfm);
     });
 
     it("keeps a trailing <empty-block/> nested inside a callout", () => {

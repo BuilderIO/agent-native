@@ -23,10 +23,12 @@ function matchGithubInlineMath(
 ): InlineMathMatch | null {
   if (!text.startsWith("$`", start)) return null;
 
-  const close = text.indexOf("`$", start + 2);
-  if (close === -1 || close - (start + 2) > MAX_INLINE_MATH_LENGTH) {
-    return null;
-  }
+  // Searched only as far as the longest math reaches: a line of openers with
+  // no closer would otherwise scan the rest of itself from each one.
+  const reach = text.slice(start + 2, start + 4 + MAX_INLINE_MATH_LENGTH);
+  const found = reach.indexOf("`$");
+  if (found === -1) return null;
+  const close = start + 2 + found;
 
   return {
     from: start,

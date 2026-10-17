@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { canonicalizeNfm } from "./nfm.js";
 import {
   markdownSuggestionOperations,
   markdownSuggestionOperationsForEditorRevision,
@@ -185,6 +186,48 @@ describe("suggestion decomposition", () => {
       anchor: { from: start, to: start + 3 },
     });
     expect(proposedFrom(before, operations)).toBe("The quick fox can sprint.");
+  });
+
+  const suggestsAnEdit = (before: string, find: string, replace: string) => {
+    const operations = markdownSuggestionOperationsForFindReplace({
+      before,
+      find,
+      replace,
+      start: before.indexOf(find),
+    });
+    expect(operations).toHaveLength(1);
+    expect(proposedFrom(before, operations)).toBe(
+      before.replace(find, replace),
+    );
+  };
+
+  it.each([
+    ["Call __init__ then **b**.", "then", "and then"],
+    ["Call snake\\_case then **b**.", "then", "and then"],
+    ["Say **a****b** now.", "now", "again"],
+    ["Say [a](u)[b](u) now.", "now", "again"],
+  ])(
+    "suggests an edit to %j, which spells formatting or an escape another way",
+    suggestsAnEdit,
+  );
+
+  // The parse reads these stored spellings, which the writer never writes.
+  // The L7 bridge in the source mapper maps them until L7 replaces it.
+  it.each([
+    ["Some _x_ text and **b**.", "text and", "words, and"],
+    ["Some _x_ text.", "Some _x_", "Some **x**"],
+  ])("suggests an edit to %j, which the L7 bridge maps", suggestsAnEdit);
+
+  it("replaces text that follows delimiters the stored source reopens", () => {
+    const before = "**b****b****b**";
+    const middle = before.indexOf("b", 3);
+    const operations = markdownSuggestionOperationsForEditorRevision({
+      before,
+      after: "**bXb**",
+      replacements: [{ from: middle, to: middle + 1 }],
+    });
+    expect(operations).toHaveLength(1);
+    expect(canonicalizeNfm(proposedFrom(before, operations))).toBe("**bXb**");
   });
 
   it("keeps selected sentence replacements granular", () => {

@@ -1,7 +1,10 @@
 import {
   canonicalizeNfm,
   docToNfm,
+  longestRun,
+  nfmContextualSpellings,
   nfmToDoc,
+  pushAll,
   serializeInlineTextNodeWithOffsets,
   type PMNode,
 } from "./nfm";
@@ -12,6 +15,8 @@ type TextRun = {
   markValues: PMNode["marks"];
   serialized: string;
   textOffsets: number[];
+  /** L7 bridge: offsets past a reopened delimiter, each a text boundary. */
+  reopened?: Map<number, number>;
   from: number;
   to: number;
   sourceFrom: number;
@@ -19,6 +24,10 @@ type TextRun = {
   nonTextBefore: boolean;
   verbatim?: boolean;
   emptyCell?: boolean;
+  /** The writer puts a `\` before this run, which belongs to the syntax gap. */
+  escapedBlockMarker?: boolean;
+  /** Its placeholder starts with a digit, as the run's bytes do. */
+  digitLead?: boolean;
 };
 type TextRange = { from: number; to: number };
 
@@ -55,7 +64,7 @@ function withoutMarks(node: PMNode): PMNode {
 }
 
 function longestBacktickRun(text: string): number {
-  return Math.max(0, ...(text.match(/`+/g) ?? []).map((run) => run.length));
+  return longestRun(text, /`+/g);
 }
 
 function formattingRuns(
@@ -69,6 +78,7 @@ function formattingRuns(
   emptyCells: Array<{ sourceOffset: number; textOffset: number }>;
 } | null {
   const doc = nfmToDoc(source);
+  const spellings = nfmContextualSpellings(doc);
   let markerPrefix = "suggestiontextboundary";
   while (source.includes(markerPrefix)) markerPrefix += "z";
   const runs: TextRun[] = [];
@@ -138,12 +148,18 @@ function formattingRuns(
     }
     if (node.type === "text" && node.text) {
       const index = runs.length;
-      const marker = `${markerPrefix}${index}x`;
-      const serialized = serializeInlineTextNodeWithOffsets(node);
+      const serialized = serializeInlineTextNodeWithOffsets(
+        node,
+        spellings.escapedUnderscores.has(node),
+      );
       if (!serialized) {
         nonTextPending = true;
         return node;
       }
+      // Inline math before a digit is written in another form, so the
+      // placeholder after it must start with a digit too.
+      const digitLead = /^\d/.test(serialized.source);
+      const marker = `${digitLead ? "0" : ""}${markerPrefix}${index}x`;
       runs.push({
         text: node.text,
         marks: JSON.stringify(node.marks ?? []),
@@ -155,6 +171,8 @@ function formattingRuns(
         sourceFrom: -1,
         sourceTo: -1,
         nonTextBefore: nonTextPending,
+        escapedBlockMarker: spellings.escapedBlockMarker.has(node),
+        digitLead,
       });
       nonTextPending = false;
       offset += node.text.length;
@@ -178,17 +196,19 @@ function formattingRuns(
   let delta = 0;
   const markers: string[] = [];
   const restored = withPlaceholders.replace(
-    new RegExp(`${markerPrefix}(\\d+)\`*x`, "g"),
-    (token, rawIndex: string, position: number) => {
+    new RegExp(`(0?)${markerPrefix}(\\d+)\`*x`, "g"),
+    (token, lead: string, rawIndex: string, position: number) => {
       const index = Number(rawIndex);
       const run = runs[index]!;
       markers[index] = token;
+      if (Boolean(lead) !== Boolean(run.digitLead)) unmappable = true;
       if (run.verbatim && !resolveVerbatimRun(run, withPlaceholders, position))
         unmappable = true;
-      run.sourceFrom = position + delta;
+      const escape = run.escapedBlockMarker ? "\\" : "";
+      run.sourceFrom = position + delta + escape.length;
       run.sourceTo = run.sourceFrom + run.serialized.length;
-      delta += run.serialized.length - token.length;
-      return run.serialized;
+      delta += escape.length + run.serialized.length - token.length;
+      return escape + run.serialized;
     },
   );
   if (unmappable || runs.some((run) => run.sourceFrom < 0)) return null;
@@ -215,12 +235,16 @@ function formattingRuns(
         from: run.sourceFrom,
         to: run.sourceTo,
         textOffsets: run.textOffsets,
+        reopened: run.reopened, // L7 bridge
       },
     })),
   };
 }
 
-type SourceSpan = TextRange & { textOffsets: number[] };
+type SourceSpan = TextRange & {
+  textOffsets: number[];
+  reopened?: Map<number, number>; // L7 bridge
+};
 type SourceSide = "canonical" | "stored";
 
 export type SuggestionSourceAlignment = {
@@ -261,6 +285,30 @@ function sourceAlignment(source: string): SuggestionSourceAlignment | null {
       map: (offset) => (inside(offset, source) ? offset : null),
       atTextEdge: (offset) => inside(offset, source),
     };
+  // L7 bridge: canonical Markdown drops the editor's trailing empty paragraph,
+  // which a stored page may still hold on its last line; that line has no
+  // image.
+  const lastLine = source.trimEnd().lastIndexOf("\n");
+  const kept = source.slice(0, lastLine).replace(/\r$/, "");
+  if (
+    lastLine >= 0 &&
+    canonicalizeNfm(source.slice(lastLine)) === "<empty-block/>" &&
+    canonicalizeNfm(kept) === canonical
+  ) {
+    const alignment = sourceAlignment(kept);
+    return (
+      alignment && {
+        canonical,
+        map: (offset, from) =>
+          from === "stored" && offset > kept.length
+            ? null
+            : alignment.map(offset, from),
+        atTextEdge: (offset, from) =>
+          !(from === "stored" && offset > kept.length) &&
+          alignment.atTextEdge(offset, from),
+      }
+    );
+  }
   const mapped = formattingRuns(source, true) ?? formattingRuns(source, false);
   if (!mapped || mapped.restored !== canonical) return null;
   const texts = { canonical, stored: source };
@@ -307,7 +355,11 @@ function sourceAlignment(source: string): SuggestionSourceAlignment | null {
           if (offset === own.from) return other.from;
           if (offset === own.to) return other.to;
           const index = own.textOffsets.indexOf(offset - own.from);
-          return index < 0 ? null : other.from + other.textOffsets[index]!;
+          const boundary =
+            index < 0 ? own.reopened?.get(offset - own.from) : index; // L7 bridge
+          return boundary === undefined
+            ? null
+            : other.from + other.textOffsets[boundary]!;
         }
         previous = { canonical: span.canonical.to, stored: span.stored.to };
       }
@@ -334,6 +386,8 @@ function normalizedSourceGap(source: string, from: number, to: number): string {
 }
 
 const TABLE_TAG = /<\/?(?:table|tr|td|th)\b[^>]*>/;
+
+const ASCII_PUNCTUATION = /^[!-/:-@[-`{-~]$/; // L7 bridge
 
 // Canonical NFM writes a stored pipe table as an HTML table. Both reduce to
 // "|" between cells and a newline between rows, with or without the stored
@@ -368,6 +422,17 @@ function mapStoredSourceRuns(
     for (let index = 0; index < token.length; index += 1) {
       if (remainingWork-- <= 0) return false;
       if (source[position + index] !== token[index]) return false;
+    }
+    return true;
+  };
+  // L7 bridge: agents spell emphasis with underscores where the writer uses
+  // stars; the final parse check proves the delimiters pair up the same way.
+  const matchesDelimiters = (token: string, position: number) => {
+    for (let index = 0; index < token.length; index += 1) {
+      if (remainingWork-- <= 0) return false;
+      const stored = source[position + index];
+      if (stored !== token[index] && !(token[index] === "*" && stored === "_"))
+        return false;
     }
     return true;
   };
@@ -440,6 +505,10 @@ function mapStoredSourceRuns(
     }
     const prefix = run.serialized.slice(0, run.textOffsets[0]);
     const suffix = run.serialized.slice(run.textOffsets[run.text.length]);
+    // L7 bridge: adjacent runs with the same formatting read as one, so the
+    // stored source may close and reopen the run's delimiters between two
+    // characters.
+    const reopen = prefix && suffix ? suffix + prefix : "";
     const tokens = run.text
       .split("")
       .map((_character, characterIndex) =>
@@ -451,9 +520,10 @@ function mapStoredSourceRuns(
     let found = false;
     for (let start = cursor; start < source.length; start += 1) {
       if (remainingWork < 0) return false;
-      if (!matches(prefix, start)) continue;
+      if (!matchesDelimiters(prefix, start)) continue; // L7 bridge
       let position = start + prefix.length;
       const textOffsets = [prefix.length];
+      let reopened: Map<number, number> | undefined; // L7 bridge
       let valid = true;
       for (
         let characterIndex = 0;
@@ -462,9 +532,29 @@ function mapStoredSourceRuns(
       ) {
         const token = tokens[characterIndex]!;
         const character = run.text[characterIndex]!;
+        // L7 bridge
+        if (
+          characterIndex > 0 &&
+          reopen &&
+          !matches(token, position) &&
+          matchesDelimiters(reopen, position)
+        ) {
+          position += reopen.length;
+          // The boundary before this character sits on both sides of the
+          // reopened delimiters.
+          (reopened ??= new Map()).set(position - start, characterIndex);
+        }
         if (matches(token, position)) position += token.length;
         // Inline math is an atom, so a dollar in a parsed text run is literal.
         else if (token === "\\$" && matches("$", position)) position += 1;
+        // L7 bridge: a backslash before any punctuation reads as that
+        // punctuation.
+        else if (
+          ASCII_PUNCTUATION.test(character) &&
+          token === character &&
+          matches(`\\${character}`, position)
+        )
+          position += 2;
         else if (character === "\n" && token.startsWith("\n")) {
           const indent = token.slice(1);
           if (matches(`\r\n${indent}`, position)) position += 2 + indent.length;
@@ -481,7 +571,7 @@ function mapStoredSourceRuns(
         if (!valid) break;
         textOffsets.push(position - start);
       }
-      if (!valid || !matches(suffix, position)) continue;
+      if (!valid || !matchesDelimiters(suffix, position)) continue; // L7 bridge
       position += suffix.length;
       if (!gapMatches(cursor, start, canonicalCursor, run.sourceFrom))
         return false;
@@ -491,6 +581,7 @@ function mapStoredSourceRuns(
       run.sourceFrom = start;
       run.sourceTo = position;
       run.textOffsets = textOffsets;
+      run.reopened = reopened; // L7 bridge
       found = true;
       break;
     }
@@ -590,7 +681,7 @@ export function suggestionFormattingSourceSlice(
   const appendStructuralGap = (gapFrom: number, gapTo: number) => {
     const gapParts = structuralGapParts(source, gapFrom, gapTo);
     if (!gapParts) return false;
-    parts.push(...gapParts);
+    pushAll(parts, gapParts);
     return true;
   };
   for (const run of mapped.runs) {
@@ -608,7 +699,7 @@ export function suggestionFormattingSourceSlice(
       for (let index = 0; index <= run.text.length; index += 1) {
         if (textBoundarySourceOffset(run, index) === offset) return index;
       }
-      return null;
+      return run.reopened?.get(offset - run.sourceFrom) ?? null; // L7 bridge
     };
     const start = textIndex(overlapFrom);
     const end = textIndex(overlapTo);
@@ -830,6 +921,13 @@ export function suggestionFormattingSourceRange(
             affinity: preferredAffinity,
           });
       }
+      // L7 bridge
+      const reopened = run.reopened?.get(offset - run.sourceFrom);
+      if (reopened !== undefined)
+        candidates.push({
+          offset: run.from + reopened,
+          affinity: preferredAffinity,
+        });
     }
     for (const gap of gaps) {
       if (offset < gap.sourceFrom || offset > gap.sourceTo) continue;

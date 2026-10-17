@@ -37,6 +37,7 @@ import {
   notionFetch,
   NotionApiError,
   pushDocumentToNotionPage,
+  readNotionPageAsDocument,
   resolveNotionMarkdownResponse,
   saveNotionTokensForOwner,
   type NotionPageMarkdown,
@@ -714,6 +715,63 @@ describe("pushDocumentToNotionPage icons", () => {
       }),
     ).rejects.toThrow("Private image icons cannot be pushed to Notion");
     expect(global.fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("a Notion page ending in an empty block", () => {
+  const originalFetch = global.fetch;
+  const remote = "# Plan\n<empty-block/>";
+
+  beforeEach(() => {
+    const page = {
+      id: "page-1",
+      properties: {
+        title: { type: "title", title: [{ plain_text: "Plan" }] },
+      },
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const body =
+          url.endsWith("/markdown") && !init?.method
+            ? { markdown: remote, unknown_block_ids: [] }
+            : page;
+        return new Response(JSON.stringify(body), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }),
+    );
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    global.fetch = originalFetch;
+  });
+
+  it("keeps the empty block through a pull and the push after it", async () => {
+    const pulled = await readNotionPageAsDocument("token", "page-1");
+    expect(pulled.content).toBe(remote);
+
+    await pushDocumentToNotionPage({
+      accessToken: "token",
+      pageId: "page-1",
+      title: "Plan",
+      content: pulled.content,
+    });
+    const replace = vi
+      .mocked(global.fetch)
+      .mock.calls.find(
+        ([url, init]) =>
+          String(url).endsWith("/pages/page-1/markdown") &&
+          init?.method === "PATCH",
+      );
+    expect(JSON.parse(String(replace?.[1]?.body)).replace_content.new_str).toBe(
+      remote,
+    );
+    // The stored form trims it, as the editor's save does.
+    expect(canonicalizeNfm(remote)).toBe("# Plan");
   });
 });
 
