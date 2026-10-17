@@ -302,7 +302,11 @@ describe("query-dbt-semantic-metric", () => {
       limit: 20,
     });
 
-    expect(result).toMatchObject({ status: "connection_error" });
+    expect(result).toMatchObject({
+      status: "connection_error",
+      message:
+        "The dbt token could not be checked. Retry the request or check the workspace secrets.",
+    });
     expect(result).not.toHaveProperty("connection");
     expect(mocks.executeProviderApiRequest).not.toHaveBeenCalled();
   });
@@ -319,7 +323,11 @@ describe("query-dbt-semantic-metric", () => {
       limit: 20,
     });
 
-    expect(result).toMatchObject({ status: "connection_error" });
+    expect(result).toMatchObject({
+      status: "connection_error",
+      message:
+        "The active organization is unavailable, so dbt connection readiness cannot be checked. Restore the organization context before retrying.",
+    });
     expect(result).not.toHaveProperty("connection");
     expect(mocks.hasAppSecret).not.toHaveBeenCalled();
     expect(mocks.executeProviderApiRequest).not.toHaveBeenCalled();

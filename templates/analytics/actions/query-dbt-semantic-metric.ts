@@ -518,6 +518,14 @@ export default defineAction({
     // Asking for a choice among rows that cannot run a query only sends the user
     // round in a circle. Offer only the rows that are ready to query.
     if (!connectionId && connections.length > 1) {
+      if (!orgId) {
+        return {
+          status: "connection_error",
+          metricName,
+          message:
+            "The active organization is unavailable, so dbt connection readiness cannot be checked. Restore the organization context before retrying.",
+        };
+      }
       const tokenConfigured = await tokenConfiguredFor(orgId);
       // A failed secret lookup is unknown, not a missing token, so it is not
       // reported as an unready connection.
