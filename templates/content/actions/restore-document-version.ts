@@ -2,7 +2,7 @@ import { ActionContractError } from "@agent-native/core";
 import { defineAction, type ActionRunContext } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { assertAccess } from "@agent-native/core/sharing";
+import { assertAccess, currentAccess } from "@agent-native/core/sharing";
 import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -166,6 +166,10 @@ async function restoreThroughLiveCopy(args: {
       edit: CONTENT_LIVE_COPY_EDITS.replaceBody,
       input: { content: version.content, expected: current.content },
       persist: async (tx) => {
+        await assertAccess("document", documentId, "editor", {
+          ...currentAccess(),
+          transaction: tx,
+        });
         const db = drizzleOverExec(tx);
         const committed = persistedContentBodyCommit(tx);
         // A commit can change the live copy and derive the same body; it

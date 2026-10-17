@@ -2258,13 +2258,14 @@ describe("a version restore on a switched page", () => {
     id: string,
     versionId: string,
     expectedUpdatedAt: string,
+    userEmail = OWNER,
   ) {
     const action = (await import("../../actions/restore-document-version.js"))
       .default;
-    return asOwner(async () =>
+    return runWithRequestContext({ userEmail }, async () =>
       action.run(
         { documentId: id, versionId, expectedUpdatedAt } as never,
-        { caller: "tool", userEmail: OWNER } as never,
+        { caller: "tool", userEmail } as never,
       ),
     ) as Promise<{ title: string; content: string; bodyRevision: number }>;
   }
@@ -2337,6 +2338,43 @@ describe("a version restore on a switched page", () => {
       content: "First draft",
       actorEmail: OWNER,
     });
+  });
+
+  it("refuses a restore whose editor access was revoked before it committed", async () => {
+    await switchedPage("restore-revoked", "First draft");
+    await serverEdit("restore-revoked", "Second draft");
+    const versionId = await versionHolding("restore-revoked", "First draft");
+    await getDb().insert(schema.documentShares).values({
+      id: "restore-revoked-share",
+      resourceId: "restore-revoked",
+      principalType: "user",
+      principalId: OTHER,
+      role: "editor",
+      createdBy: OWNER,
+      createdAt: new Date().toISOString(),
+    });
+    const before = await metadata("restore-revoked");
+    const version = await collabVersion("restore-revoked");
+    const runner = binding.contentLiveCopy.runner;
+    const run = runner.run.bind(runner);
+    const spy = vi.spyOn(runner, "run").mockImplementation(async (...args) => {
+      const result = await run(...args);
+      await getDb()
+        .delete(schema.documentShares)
+        .where(eq(schema.documentShares.id, "restore-revoked-share"));
+      return result;
+    });
+    try {
+      await expect(
+        restore("restore-revoked", versionId, before.updatedAt, OTHER),
+      ).rejects.toThrow("No access to document restore-revoked");
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect(await metadata("restore-revoked")).toEqual(before);
+    expect((await page("restore-revoked")).content).toBe("Second draft");
+    expect(await collabVersion("restore-revoked")).toBe(version);
   });
 
   it("takes the version's title with its body", async () => {
