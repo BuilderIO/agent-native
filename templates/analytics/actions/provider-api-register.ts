@@ -49,8 +49,7 @@ export default {
   mcpAnnotations: {
     readOnlyHint: false,
     destructiveHint: true,
-    openWorldHint: false,
-    idempotentHint: true,
+    openWorldHint: true,
   },
   http: { method: "POST" as const },
 };

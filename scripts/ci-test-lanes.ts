@@ -220,31 +220,33 @@ export function requiresFullCoreFastTests(paths: readonly string[]): boolean {
   });
 }
 
-// These specs build every template's MCP catalog by running its real agent-chat
-// plugin, which loads action modules, plugin options, and whatever they import
-// (server/lib, shared, app) through dynamic imports that `vitest --changed`
-// cannot follow. A template-only change, a new core action, or a change to the
-// plugin's catalog assembly would otherwise never reach them. The plugin also
-// imports the coding tools and the dev tool registry dynamically.
-const TEMPLATE_REGISTRY_CORE_SPECS = [
+// These specs build every app's MCP catalog by running each template's real
+// agent-chat plugin, which reaches template code, framework tools, and tools
+// that workspace packages register through dynamic imports `vitest --changed`
+// cannot follow. They run for any workspace source change and skip only files
+// that cannot change a catalog. Do not narrow this to the directories known to
+// register tools: a missed directory skips the contract without any failure.
+const CATALOG_CONTRACT_CORE_SPECS = [
   "src/mcp/advertised-tool-annotations.spec.ts",
   "src/mcp/instructions-name-advertised-tools.spec.ts",
 ] as const;
-const TEMPLATE_REGISTRY_SOURCE_RE =
-  /^(?:templates\/[^/]+\/(?:actions|server|shared|app|scripts)\/.+\.[cm]?[jt]sx?|packages\/core\/src\/(?:server\/(?:agent-chat-plugin|agent-chat\/.+)|coding-tools\/.+|scripts\/dev\/.+|(?:.+\/)?actions\/.+)\.[cm]?[jt]sx?)$/u;
+const NON_CODE_ASSET_RE =
+  /\.(?:css|scss|sass|less|png|jpe?g|gif|webp|avif|ico|svg|woff2?|ttf|otf|eot|mp3|mp4|wav|webm|mov)$/iu;
 
-export function templateRegistryCoreSpecs(
+export function catalogContractCoreSpecs(
   paths: readonly string[],
 ): readonly string[] {
   return paths.some((path) => {
     const normalized = normalizeChangedPath(path);
     return (
-      TEMPLATE_REGISTRY_SOURCE_RE.test(normalized) &&
+      /^(?:templates|packages)\//u.test(normalized) &&
+      !isDocsPath(normalized) &&
+      !TEST_FILE_RE.test(normalized) &&
       !/\.d\.[cm]?ts$/u.test(normalized) &&
-      !TEST_FILE_RE.test(normalized)
+      !NON_CODE_ASSET_RE.test(normalized)
     );
   })
-    ? TEMPLATE_REGISTRY_CORE_SPECS
+    ? CATALOG_CONTRACT_CORE_SPECS
     : [];
 }
 
@@ -632,7 +634,7 @@ function main(): void {
     coreTestFiles = [
       ...new Set([
         ...readCoreFastTestFiles(fullCore ? undefined : baseSha),
-        ...(fullCore ? [] : templateRegistryCoreSpecs(changedPaths)),
+        ...(fullCore ? [] : catalogContractCoreSpecs(changedPaths)),
       ]),
     ];
     coreFiles = coreTestFiles.length;
