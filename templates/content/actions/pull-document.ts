@@ -41,7 +41,7 @@ export default defineAction({
       throw new Error(`Document "${id}" not found`);
     }
 
-    await flushOpenDocumentEditorToSql({
+    const titleFlush = await flushOpenDocumentEditorToSql({
       documentId: id,
       ownerEmail: (access.resource.ownerEmail as string | undefined) || null,
     });
@@ -69,6 +69,7 @@ export default defineAction({
         view: "editor",
         params: { documentId: doc.id },
       }),
+      ...(titleFlush ? { titleFlush } : {}),
     };
   },
   link: ({ result }) => {

@@ -252,7 +252,37 @@ export async function movePageToSpace(args: {
 
       await db.transaction(async (tx) => {
         const idSet = new Set(ids);
+        const inSubtree = (id: string | null) => id !== null && idSet.has(id);
         for (const idGroup of groups(ids)) {
+          // The subtree was read before the title flush's wait, so a page
+          // moved out of it since must not move with it.
+          const pages: Array<{
+            id: string;
+            parentId: string | null;
+            trashParentId: string | null;
+          }> = await tx
+            .select({
+              id: schema.documents.id,
+              parentId: schema.documents.parentId,
+              trashParentId: schema.documents.trashParentId,
+            })
+            .from(schema.documents)
+            .where(inArray(schema.documents.id, idGroup))
+            .for("update");
+          if (
+            pages.length !== idGroup.length ||
+            pages.some(
+              (page) =>
+                page.id !== root.id &&
+                !inSubtree(page.parentId) &&
+                !inSubtree(page.trashParentId),
+            )
+          ) {
+            throw contractError(
+              "This page changed while it was being moved. Try again.",
+              "PAGE_SUBTREE_CHANGED",
+            );
+          }
           const children: Array<{ id: string }> = await tx
             .select({ id: schema.documents.id })
             .from(schema.documents)

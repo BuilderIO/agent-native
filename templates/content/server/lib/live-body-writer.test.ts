@@ -325,7 +325,7 @@ describe("live-body writer gate", () => {
     });
   });
 
-  it("answers for many pages as the gate does for each, with a commit between its reads leaving a page on its live copy", async () => {
+  it("answers for many pages as the gate does for each, counting a page that commits or switches between its reads", async () => {
     await setFlags({
       shadow: { emails: [OWNER] },
       writer: { emails: [OWNER] },
@@ -333,20 +333,27 @@ describe("live-body writer gate", () => {
     await insertPage("committing");
     await insertPage("behind", { collabBodyRevision: 2 });
     await insertPage("unswitched", { switched: false });
+    await insertPage("switching", { switched: false });
 
     const ids = await gate.liveBodyWriterPageIds(
-      ["committing", "behind", "unswitched", "missing"],
+      ["committing", "behind", "unswitched", "switching", "missing"],
       {
-        db: dbCommittingAfterFirstRead(() =>
-          commitThroughLiveCopy("committing"),
-        ),
+        db: dbCommittingAfterFirstRead(async () => {
+          await commitThroughLiveCopy("committing");
+          await getDb()
+            .update(schema.documents)
+            .set({ liveBodySwitchedAt: new Date().toISOString() })
+            .where(eq(schema.documents.id, "switching"));
+        }),
       },
     );
 
-    expect([...ids]).toEqual(["committing"]);
-    await expect(gate.liveBodyWriterGate("committing")).resolves.toEqual({
-      writePath: "live_copy",
-    });
+    expect([...ids].sort()).toEqual(["committing", "switching"]);
+    for (const id of ids) {
+      await expect(gate.liveBodyWriterGate(id)).resolves.toEqual({
+        writePath: "live_copy",
+      });
+    }
   });
 
   it("fails loudly on malformed flag state for a switched page instead of reading it as off", async () => {

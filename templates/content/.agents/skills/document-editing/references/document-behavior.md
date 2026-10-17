@@ -45,7 +45,8 @@ body, so the request carries `scope: "title"` and goes only to editors that
 advertise `canFlushTitle`; the editor saves its title alone, and a missing or
 failed acknowledgement fails with `OPEN_EDITOR_TITLE_NOT_SAVED`. It is
 GET + read-only + public-agent exposed (`requiresAuth: true`), returns
-`{ id, title, content, format, deepLink }`, and surfaces an "Open document"
+`{ id, title, content, format, deepLink }`, plus `titleFlush` on such a page,
+and surfaces an "Open document"
 deep link for external agents. Use `--format text` for a plain-text strip of
 the markdown.
 

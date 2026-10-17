@@ -49,6 +49,7 @@ import {
   assertOpenEditorTitlesSaved,
   flushOpenDocumentEditorToSql,
   saveOpenEditorTitles,
+  type OpenEditorTitleFlushProceed,
 } from "./_document-flush.js";
 
 function isLinkedLocalSource(
@@ -348,6 +349,7 @@ export default defineAction({
       return current;
     };
     let preparedUpdatedAt = args.expectedUpdatedAt;
+    let titleFlush: OpenEditorTitleFlushProceed | undefined;
     if (await isLiveBodyWriterPage(documentId)) {
       const prepared = await readCurrent();
       if (prepared.updatedAt !== args.expectedUpdatedAt) {
@@ -363,7 +365,7 @@ export default defineAction({
       // open editor may not have saved the title yet; its body is already in
       // the live copy.
       const flushed = await saveOpenEditorTitles([documentId]);
-      const titleFlush = flushed && assertOpenEditorTitlesSaved(flushed);
+      titleFlush = flushed && assertOpenEditorTitlesSaved(flushed);
       const current = await readCurrent();
       const restored = await restoreThroughLiveCopy({
         ctx,
@@ -416,7 +418,11 @@ export default defineAction({
         currentUpdatedAt: beforeFlush.updatedAt,
       });
     }
-    await flushOpenDocumentEditorToSql({ documentId, ownerEmail });
+    // Main's path asks again; a page it still finds on its live copy answers
+    // with a title flush, and without one the first answer stands.
+    titleFlush =
+      (await flushOpenDocumentEditorToSql({ documentId, ownerEmail })) ??
+      titleFlush;
     const [afterFlush] = await db
       .select({
         title: schema.documents.title,
@@ -617,6 +623,9 @@ export default defineAction({
     });
 
     await publishRestoreRefresh();
-    return restoreResult(updated, softDeletedDatabaseIds);
+    return {
+      ...restoreResult(updated, softDeletedDatabaseIds),
+      ...(titleFlush ? { titleFlush } : {}),
+    };
   },
 });

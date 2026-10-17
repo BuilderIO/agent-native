@@ -308,17 +308,20 @@ export async function liveBodyWriterPageIds(
   const pages: Array<LiveBodyWriterPageRow & { collabVersion: unknown }> = [];
   for (let offset = 0; offset < docIds.length; offset += GATE_PAGE_GROUP) {
     const group = docIds.slice(offset, offset + GATE_PAGE_GROUP);
+    const switchedPage = and(
+      inArray(schema.documents.id, group),
+      isNotNull(schema.documents.liveBodySwitchedAt),
+    );
+    // The marker read names `_collab_docs`, which exists once a page has
+    // switched, so it runs only for a group holding one. It asks the whole
+    // group again, so a page that switches between the reads counts.
     // guard:allow-unscoped — callers check access to the pages first, and this returns only their write paths.
-    const switched = await db
+    const [anySwitched] = await db
       .select({ id: schema.documents.id })
       .from(schema.documents)
-      .where(
-        and(
-          inArray(schema.documents.id, group),
-          isNotNull(schema.documents.liveBodySwitchedAt),
-        ),
-      );
-    if (switched.length === 0) continue;
+      .where(switchedPage)
+      .limit(1);
+    if (!anySwitched) continue;
     // guard:allow-unscoped — callers check access to the pages first, and this returns only their write paths.
     const markers = await db
       .select({
@@ -326,12 +329,7 @@ export async function liveBodyWriterPageIds(
         collabVersion: sql<unknown>`(SELECT collab.version FROM _collab_docs AS collab WHERE collab.doc_id = documents.id)`,
       })
       .from(schema.documents)
-      .where(
-        inArray(
-          schema.documents.id,
-          switched.map((page) => page.id),
-        ),
-      );
+      .where(switchedPage);
     pages.push(...markers);
   }
   const flagsOn = flagsOnByScope({});

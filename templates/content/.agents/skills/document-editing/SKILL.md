@@ -171,8 +171,8 @@ open editors of such a page save its title; its body is already in the live
 copy. `OPEN_EDITOR_TITLE_NOT_SAVED` (409, `retryable: true`) means an editor
 didn't confirm that save in time or couldn't make it, and nothing changed:
 retry, and if it refuses again, tell the user the open editor of page
-`details.documentId` didn't save. A restore or move result's `titleFlush` says
-what the editors answered. `unconfirmed` means an editor too old to ask was
+`details.documentId` didn't save. A restore, move or pull result's `titleFlush`
+says what the editors answered. `unconfirmed` means an editor too old to ask was
 open on the pages in `documentIds`, so a title it hadn't saved yet may be
 missing; tell the user.
 

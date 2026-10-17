@@ -546,6 +546,49 @@ describe("moving a page that takes body writes through its live copy", () => {
     );
   });
 
+  it("refuses a move to another space when a sub-page leaves the page while its editor saves the title", async () => {
+    const page = await as(OWNER, () => createDocument.run({ title: "Plan" }));
+    const child = await as(OWNER, () =>
+      createDocument.run({ title: "Details", parentId: page.id }),
+    );
+    await liveCopy.putPageOnLiveCopy(page.id);
+    await tabs.openEditorTab(page.id, EDITOR, { canFlushTitle: true });
+    const answered = tabs.answerFlushRequest(
+      page.id,
+      EDITOR,
+      { status: "success", scope: "title", saved: true },
+      async () => {
+        await getDb()
+          .update(schema.documents)
+          .set({ parentId: null })
+          .where(eq(schema.documents.id, child.id));
+      },
+    );
+
+    await expect(
+      as(OWNER, () =>
+        moveDocument.run({
+          id: page.id,
+          spaceId: organizationContentSpaceId(ORG_ID),
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "PAGE_SUBTREE_CHANGED" });
+    await answered;
+    expect(await documentRows([page.id, child.id])).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: page.id,
+          spaceId: personalContentSpaceId(OWNER),
+        }),
+        expect.objectContaining({
+          id: child.id,
+          spaceId: personalContentSpaceId(OWNER),
+          parentId: null,
+        }),
+      ]),
+    );
+  });
+
   it("moves to another space with an open editor too old for the title flush, and says so", async () => {
     const orgSpaceId = organizationContentSpaceId(ORG_ID);
     const page = await as(OWNER, () => createDocument.run({ title: "Plan" }));

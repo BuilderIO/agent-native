@@ -389,6 +389,53 @@ describe("flushOpenDocumentEditorToSql", () => {
       warned.mockRestore();
     });
 
+    it("refuses typed, not as a timeout, when it can't read an editor's answer before its deadline", async () => {
+      const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+      const warned = vi.spyOn(console, "warn").mockImplementation(() => {});
+      mocks.loadAwarenessRowsStrict.mockResolvedValue([
+        titleEditor("owner@example.com"),
+      ]);
+      mocks.appStateGet.mockRejectedValue(new Error("mailbox unreadable"));
+
+      const error = await refusal(
+        flushOpenDocumentEditorToSql({ documentId: "doc-1" }),
+      );
+
+      expect(error).toMatchObject({
+        errorCode: "OPEN_EDITOR_TITLE_NOT_SAVED",
+        details: {
+          documentId: "doc-1",
+          reason: "acknowledgement_unreadable",
+          retryable: true,
+        },
+      });
+      expect(logged).toHaveBeenCalledWith(
+        "Failed to read an open editor's answer about a page title",
+        expect.objectContaining({ documentId: "doc-1" }),
+      );
+      logged.mockRestore();
+      warned.mockRestore();
+    });
+
+    it("keeps waiting through a mailbox read that fails once, and takes the answer after it", async () => {
+      mocks.loadAwarenessRowsStrict.mockResolvedValue([
+        titleEditor("owner@example.com"),
+      ]);
+      mocks.appStateGet
+        .mockRejectedValueOnce(new Error("connection reset"))
+        .mockImplementation(async () => ({
+          ...sentRequest(),
+          status: "success",
+          scope: "title",
+          saved: true,
+        }));
+
+      const flush = flushOpenDocumentEditorToSql({ documentId: "doc-1" });
+      await vi.advanceTimersByTimeAsync(400);
+
+      await expect(flush).resolves.toEqual({ status: "flushed" });
+    });
+
     it("gives up on a silent editor at its deadline, not a poll interval after it", async () => {
       mocks.loadAwarenessRowsStrict.mockImplementation(
         () =>

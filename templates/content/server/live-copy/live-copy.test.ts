@@ -2863,7 +2863,10 @@ describe("a version restore on a switched page", () => {
     );
 
     expect(await tab).toMatchObject({ scope: "title" });
-    expect(restored).toMatchObject({ content: "First draft" });
+    expect(restored).toMatchObject({
+      content: "First draft",
+      titleFlush: { status: "flushed" },
+    });
     expect(await gateFor("restore-left")).not.toEqual({
       writePath: "live_copy",
     });
@@ -3007,6 +3010,38 @@ describe("pull-document on a switched page", () => {
         retryable: true,
       },
     });
+  });
+
+  it("reads the page with a tab too old for the title flush open, and says so", async () => {
+    await switchedPage("pull-legacy-tab", "Body");
+    await openEditorTab("pull-legacy-tab", OWNER);
+    const pull = (await import("../../actions/pull-document.js")).default;
+
+    const pulled = await asOwner(async () =>
+      pull.run({ id: "pull-legacy-tab", format: "markdown" } as never),
+    );
+
+    expect(pulled).toMatchObject({
+      content: "Body",
+      titleFlush: {
+        status: "unconfirmed",
+        reason: "legacy_editor",
+        documentIds: ["pull-legacy-tab"],
+      },
+    });
+  });
+
+  it("reads the page as main does once its flags are off (SF-11)", async () => {
+    await switchedPage("pull-off", "Body");
+    await setFlags(false);
+    const pull = (await import("../../actions/pull-document.js")).default;
+
+    const pulled = await asOwner(async () =>
+      pull.run({ id: "pull-off", format: "markdown" } as never),
+    );
+
+    expect(pulled).toMatchObject({ content: "Body" });
+    expect(pulled).not.toHaveProperty("titleFlush");
   });
 });
 

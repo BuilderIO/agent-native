@@ -42,7 +42,11 @@ export type OpenEditorTitleFlush =
   | { status: "unconfirmed"; reason: "legacy_editor"; documentIds: string[] }
   | {
       status: "failed";
-      reason: "timeout" | "editor_error" | "request_not_delivered";
+      reason:
+        | "timeout"
+        | "editor_error"
+        | "request_not_delivered"
+        | "acknowledgement_unreadable";
       documentId: string;
       code?: string;
       error?: string;
@@ -260,13 +264,22 @@ async function requestTitleSave(
     ) {
       return { status: "failed", reason: "request_not_delivered", documentId };
     }
+    // A mailbox read that fails counts as no answer yet, as on main's whole
+    // flush; the outcome says so if its session never answers.
+    let unreadable: { error: unknown } | null = null;
     while (Date.now() < deadline) {
       await pollWait(deadline);
-      const responses = await Promise.all(
+      const reads = await Promise.allSettled(
         plan.sessions.map((session) => appStateGet(session, flushKey)),
       );
+      unreadable = null;
       let saved = 0;
-      for (const response of responses) {
+      for (const read of reads) {
+        if (read.status === "rejected") {
+          unreadable = { error: read.reason };
+          continue;
+        }
+        const response = read.value;
         if (response?.requestId !== requestId) continue;
         if (response.status === "error") {
           return {
@@ -284,6 +297,21 @@ async function requestTitleSave(
         if (response.status === "success") saved += 1;
       }
       if (saved === plan.sessions.length) return null;
+    }
+    if (unreadable) {
+      console.error(
+        "Failed to read an open editor's answer about a page title",
+        {
+          error: unreadable.error,
+          documentId,
+          requestId,
+        },
+      );
+      return {
+        status: "failed",
+        reason: "acknowledgement_unreadable",
+        documentId,
+      };
     }
     return { status: "failed", reason: "timeout", documentId };
   } finally {
@@ -368,6 +396,8 @@ function openEditorTitleNotSavedMessage(flush: OpenEditorTitleFlushFailure) {
       return `An open editor couldn't save the title of page ${flush.documentId}${flush.error ? `: ${flush.error}` : "."}`;
     case "request_not_delivered":
       return `Couldn't ask the open editor of page ${flush.documentId} to save its title.`;
+    case "acknowledgement_unreadable":
+      return `Couldn't read whether the open editor of page ${flush.documentId} saved its title.`;
   }
 }
 

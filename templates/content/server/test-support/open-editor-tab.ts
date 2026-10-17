@@ -31,7 +31,9 @@ export async function openEditorTab(
 /**
  * The tab's side of a flush request: it waits for a request for page `id` in
  * `email`'s mailbox, runs `save`, answers with `answer`, and returns the
- * request it answered.
+ * request it answered. It reads the mailbox itself, not through the editor's
+ * sync wake, so a test using it proves nothing about a real tab hearing of
+ * the request.
  */
 export async function answerFlushRequest(
   id: string,
