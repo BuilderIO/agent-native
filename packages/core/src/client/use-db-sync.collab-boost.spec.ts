@@ -232,16 +232,12 @@ describe("collab poll boost", () => {
         resourceId: "d1",
         requestSource,
       });
-      const release = registerOwnCollabSource("chat-own-tab");
+      registerOwnCollabSource("chat-own-tab");
       expect(
         await pollsAfterFirstEvent(update("chat-own-tab")),
       ).toBeLessThanOrEqual(1);
       expect(
         await pollsAfterFirstEvent(update("chat-other-tab")),
-      ).toBeGreaterThanOrEqual(11);
-      release();
-      expect(
-        await pollsAfterFirstEvent(update("chat-own-tab")),
       ).toBeGreaterThanOrEqual(11);
     });
 

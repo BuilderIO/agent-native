@@ -343,6 +343,35 @@ describe("collab poll boost from presence", () => {
     expect(sharedPolls - otherAt).toBeGreaterThanOrEqual(10);
   });
 
+  // Plan keeps presence open on a resource under one source while its
+  // markdown editors come and go under another.
+  it("does not boost for a closed doc's late echo while another doc keeps the resource open", async () => {
+    await mountRefused("chat-closed-doc");
+    await advance(13_000);
+    act(() =>
+      roots[0].render(
+        <Probe docId="remaining-doc" requestSource="chat-remaining-doc" />,
+      ),
+    );
+    await advance(13_000);
+    ownPollEvents = [
+      {
+        source: "collab",
+        type: "yjs-update",
+        version: baselineVersion + 1,
+        cursorId: "late-echo",
+        docId: "boost-doc",
+        requestSource: "chat-closed-doc",
+        resourceType: "design",
+        resourceId: "d1",
+      },
+    ];
+    await advance(13_000);
+    const at = sharedPolls;
+    await advance(30_000);
+    expect(sharedPolls - at).toBeLessThanOrEqual(1);
+  });
+
   it("uses the server baseline cursor to detect fresh activity despite browser clock skew", async () => {
     vi.setSystemTime(9_000_000);
     baselineVersion = 100;
