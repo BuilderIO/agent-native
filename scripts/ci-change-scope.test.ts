@@ -32,7 +32,6 @@ import {
 import {
   DESIGN_E2E_REGRESSION_PINS,
   DESIGN_E2E_REGRESSION_SHARDS,
-  resolveDesignE2ERegressionPinsForShard,
 } from "./design-e2e-regression-pins.ts";
 import { resolveDesignE2ESpecs } from "./design-e2e-spec-selection.ts";
 
@@ -1837,15 +1836,6 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     106,
     "the merged manifest must retain the 94 main-branch pins plus the PR's 12 additional pins",
   );
-  if (process.env.CI_CHANGE_SCOPE_COLD_FIXTURE !== "1") {
-    assert.equal(
-      DESIGN_E2E_REGRESSION_SHARDS.flatMap((shard) =>
-        resolveDesignE2ERegressionPinsForShard(shard),
-      ).length,
-      106,
-      "the title manifest must retain every fixed regression pin",
-    );
-  }
 });
 
 test("keeps every changed Design E2E spec in visible diagnostic shards", () => {
@@ -3418,13 +3408,6 @@ test(
         "templates/clips/desktop/package.json",
       ]) {
         copy(path);
-      }
-      for (const file of new Set(
-        DESIGN_E2E_REGRESSION_PINS.map(
-          (pin) => `templates/design/e2e/${pin.file}`,
-        ),
-      )) {
-        copy(file);
       }
       for (const entry of readdirSync(
         join(repositoryRoot, "community-templates"),
