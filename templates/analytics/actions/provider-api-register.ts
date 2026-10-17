@@ -44,4 +44,13 @@ const action = createCustomProviderRegistrationAction({
     "Register or update an Analytics custom API provider. Stores credential key names only, never secret values. Requires a public HTTPS base URL and owner/admin organization access.",
 });
 
-export default { ...action, http: { method: "POST" as const } };
+export default {
+  ...action,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+    idempotentHint: true,
+  },
+  http: { method: "POST" as const },
+};

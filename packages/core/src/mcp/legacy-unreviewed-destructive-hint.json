@@ -191,7 +191,6 @@
     "mutate-dashboard",
     "navigate",
     "preview-dashboard-report",
-    "provider-api-register",
     "provider-api-request",
     "provider-corpus-job",
     "query-inbound-forms",
@@ -1070,7 +1069,6 @@
     "write-local-file"
   ],
   "dispatch": [
-    "apply-workspace-connection-setup",
     "bulk-update-workspace-user-groups",
     "connection-permissions",
     "consume-review-feedback",
@@ -1087,7 +1085,6 @@
     "delete-api-key",
     "delete-review-comment",
     "delete-staged-dataset",
-    "delete-workspace-connection",
     "delete-workspace-user-group",
     "disconnect-chatgpt-subscription",
     "manage-builder-connection",
@@ -1112,14 +1109,12 @@
     "set-review-thread-muted",
     "set-review-thread-unread",
     "set-review-threads-unread",
-    "set-workspace-connection-grant",
     "share-resource",
     "unshare-resource",
     "update-resource-suggestion",
     "update-review-comment",
     "update-review-comment-anchor",
     "upload-image",
-    "upsert-workspace-connection",
     "upsert-workspace-user-group",
     "view-screen"
   ],
