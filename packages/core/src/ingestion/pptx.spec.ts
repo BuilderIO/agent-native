@@ -1443,6 +1443,46 @@ describe("parsePptxPresentation", () => {
       shapeType: "ellipse",
     });
   });
+
+  it("reads each slide's speaker notes through its notesSlide relationship", async () => {
+    // PowerPoint numbers notes parts in the order the notes were written:
+    // with notes only on slide 2, they are notesSlide1.xml.
+    const notesXml = `<p:notes xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+      <p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="2" name="Notes"/><p:cNvSpPr/><p:nvPr><p:ph type="body" idx="1"/></p:nvPr></p:nvSpPr>
+        <p:txBody><a:bodyPr/><a:p><a:r><a:t>Note for slide 2</a:t></a:r></a:p></p:txBody>
+      </p:sp></p:spTree></p:cSld>
+    </p:notes>`;
+    const presentation = await parsePptxPresentation(
+      await buildPptxBufferWithParts({
+        slides: [
+          textSlideXml("Slide 1"),
+          textSlideXml("Slide 2"),
+          textSlideXml("Slide 3"),
+        ],
+        files: {
+          "ppt/slides/_rels/slide2.xml.rels": pptxRelsXml([
+            {
+              id: "rId1",
+              type: "slideLayout",
+              target: "../slideLayouts/slideLayout1.xml",
+            },
+            {
+              id: "rId2",
+              type: "notesSlide",
+              target: "../notesSlides/notesSlide1.xml",
+            },
+          ]),
+          "ppt/notesSlides/notesSlide1.xml": notesXml,
+        },
+      }),
+    );
+
+    expect(presentation.slides.map((slide) => slide.notes)).toEqual([
+      undefined,
+      "Note for slide 2",
+      undefined,
+    ]);
+  });
 });
 
 const TINY_PNG = Buffer.from(

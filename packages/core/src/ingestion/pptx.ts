@@ -376,9 +376,21 @@ export async function parsePptxPresentation(
       ),
     );
     const texts = flattenElementText(elements);
-    const notesXml = await zip
-      .file(`ppt/notesSlides/notesSlide${number}.xml`)
-      ?.async("string");
+    // Notes parts are numbered in the order the notes were written, not by
+    // slide (with notes only on slide 2, they are notesSlide1.xml), so the
+    // slide's notesSlide relationship names its notes. A slide without a
+    // relationships part keeps the old guess by number.
+    const notesRelationship = [...slideRelationships.values()].find(
+      (relationship) => relationship.type.endsWith("/notesSlide"),
+    );
+    const notesPath = notesRelationship
+      ? resolvePptxRelationshipPath("ppt/slides", notesRelationship.target)
+      : slideRelationshipsXml
+        ? undefined
+        : `ppt/notesSlides/notesSlide${number}.xml`;
+    const notesXml = notesPath
+      ? await zip.file(notesPath)?.async("string")
+      : undefined;
     let notes: string | undefined;
     if (notesXml) {
       const runs: ParsedPptxTextRun[] = [];
