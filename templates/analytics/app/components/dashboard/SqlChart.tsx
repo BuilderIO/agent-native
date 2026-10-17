@@ -142,6 +142,18 @@ import type {
 } from "@/pages/adhoc/sql-dashboard/types";
 
 import {
+  DashboardPanelDescription,
+  renderDashboardMarkdownLink,
+  safeDashboardLinkHref,
+} from "./DashboardPanelDescription";
+
+export {
+  DashboardPanelDescription,
+  renderDashboardMarkdownLink,
+  safeDashboardLinkHref,
+} from "./DashboardPanelDescription";
+
+import {
   usePanelDataNotes,
   usePanelEvents,
 } from "./dashboard-annotations-context";
@@ -1480,15 +1492,10 @@ export function SqlChart({
   if (isSection) {
     return (
       <div className="px-1 py-2">
-        {panel.config?.description && (
-          <InlineMarkdown
-            inline
-            content={panel.config.description}
-            className="text-sm text-muted-foreground"
-            linkClassName="text-current underline underline-offset-2 hover:opacity-80"
-            renderLink={renderDashboardMarkdownLink}
-          />
-        )}
+        <DashboardPanelDescription
+          description={panel.config?.description}
+          className="text-sm text-muted-foreground"
+        />
       </div>
     );
   }
@@ -1877,15 +1884,10 @@ function MetricRenderer({
   return (
     <div className="flex flex-1 flex-col items-center justify-center py-2 text-center">
       <div className="text-3xl font-bold">{value}</div>
-      {panel.config?.description && (
-        <InlineMarkdown
-          inline
-          content={panel.config.description}
-          className="mt-1 text-xs text-muted-foreground"
-          linkClassName="text-current underline underline-offset-2 hover:opacity-80"
-          renderLink={renderDashboardMarkdownLink}
-        />
-      )}
+      <DashboardPanelDescription
+        description={panel.config?.description}
+        className="mt-1 text-xs text-muted-foreground"
+      />
     </div>
   );
 }
@@ -2021,46 +2023,6 @@ export function buildTableClipboardText(
     ),
   ];
   return tableRows.map((row) => row.map(clipboardCell).join("\t")).join("\n");
-}
-
-export function safeDashboardLinkHref(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const href = value.trim();
-  if (!href) return null;
-  if (href.startsWith("//")) return null;
-
-  try {
-    const relativeBase = new URL("https://agent-native.local");
-    const parsed = href.startsWith("/")
-      ? new URL(href, relativeBase)
-      : new URL(href);
-    if (href.startsWith("/") && parsed.origin !== relativeBase.origin)
-      return null;
-    return parsed.protocol === "http:" || parsed.protocol === "https:"
-      ? href
-      : null;
-  } catch {
-    return null;
-  }
-}
-
-export function renderDashboardMarkdownLink(
-  href: string,
-  children: ReactNode,
-  className: string,
-): ReactNode {
-  const safeHref = safeDashboardLinkHref(href);
-  if (!safeHref) return children;
-  return (
-    <a
-      href={safeHref}
-      target="_blank"
-      rel="noopener noreferrer"
-      className={className}
-    >
-      {children}
-    </a>
-  );
 }
 
 function renderDeltaCell(value: unknown): ReactNode {

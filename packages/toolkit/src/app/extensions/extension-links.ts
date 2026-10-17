@@ -168,6 +168,23 @@ function connectExternalExtensionLinks(
     }, 2500);
   };
 
+  const onPageHide = (event: PageTransitionEvent) => {
+    if (!event.persisted) return;
+
+    acceptedNonceRef.current = null;
+    handshakeAcknowledged = false;
+    readyReported = false;
+    activeLinkPort?.close();
+    activeHostBridgePort?.close();
+    activeLinkPort = null;
+    activeHostBridgePort = null;
+    activePortWindow = null;
+    if (recoveryTimer) {
+      clearTimeout(recoveryTimer);
+      recoveryTimer = null;
+    }
+  };
+
   const onWindowMessage = (event: MessageEvent) => {
     if (
       event.source !== iframeRef.current?.contentWindow ||
@@ -224,9 +241,11 @@ function connectExternalExtensionLinks(
   };
 
   window.addEventListener("message", onWindowMessage);
+  window.addEventListener("pagehide", onPageHide);
   document.addEventListener("load", onFrameLoad, true);
   return () => {
     window.removeEventListener("message", onWindowMessage);
+    window.removeEventListener("pagehide", onPageHide);
     document.removeEventListener("load", onFrameLoad, true);
     if (recoveryTimer) clearTimeout(recoveryTimer);
     activeLinkPort?.close();

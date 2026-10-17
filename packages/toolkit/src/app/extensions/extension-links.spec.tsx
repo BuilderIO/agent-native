@@ -291,6 +291,59 @@ describe("useExternalExtensionLinks", () => {
     expect(hostPorts).toHaveLength(2);
   });
 
+  it("reconnects the acknowledged channel after a BFCache restore", async () => {
+    const hostPorts: MessagePort[] = [];
+    const frame = await connectFrame((port) => {
+      hostPorts.push(port);
+      ports.add(port);
+    });
+    expect(hostPorts).toHaveLength(1);
+
+    const pagehide = new Event("pagehide");
+    Object.defineProperty(pagehide, "persisted", { value: true });
+    act(() => window.dispatchEvent(pagehide));
+
+    const pageshow = new Event("pageshow");
+    Object.defineProperty(pageshow, "persisted", { value: true });
+    act(() => window.dispatchEvent(pageshow));
+
+    const restored = new MessageChannel();
+    ports.add(restored.port1);
+    ports.add(restored.port2);
+    restored.port1.start();
+    const ready = new Promise<void>((resolve) => {
+      restored.port1.addEventListener("message", function onMessage(event) {
+        if (event.data?.type !== EXTENSION_LINK_CHANNEL_READY_MESSAGE_TYPE) {
+          return;
+        }
+        restored.port1.removeEventListener("message", onMessage);
+        restored.port1.postMessage({
+          type: EXTENSION_LINK_CHANNEL_ACK_MESSAGE_TYPE,
+        });
+        resolve();
+      });
+    });
+
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: EXTENSION_LINK_CHANNEL_HELLO_MESSAGE_TYPE,
+            nonce: frame.nonce,
+          },
+          origin: "null",
+          source: frame.iframe.contentWindow,
+          ports: [restored.port2],
+        }),
+      );
+    });
+    await ready;
+    await vi.waitFor(() => {
+      expect(hostPorts).toHaveLength(2);
+      expect(frame.iframe.getAttribute("data-link-channel-ready")).toBe("true");
+    });
+  });
+
   it("recovers when a frame navigates after its initial handshake", async () => {
     const frame = await connectFrame(undefined, {
       initialLoadBeforeHello: true,

@@ -647,14 +647,25 @@ export function buildAgentNativeExtensionHtml({
         window.addEventListener('agent-native-extension-host-port-ready', attachHostPort);
         attachHostPort();
       }
-      window.addEventListener('pagehide', function() {
+      function handlePageHide(event) {
+        if (event.persisted) {
+          if (!legacyWindowBridge && hostPort) {
+            hostPort.removeEventListener('message', handleHostMessage);
+            hostPort = null;
+          }
+          return;
+        }
+
         queuedHostMessages = [];
         if (legacyWindowBridge) {
           window.removeEventListener('message', handleLegacyHostMessage);
+        } else {
+          window.removeEventListener('agent-native-extension-host-port-ready', attachHostPort);
         }
-        window.removeEventListener('agent-native-extension-host-port-ready', attachHostPort);
         if (hostPort) hostPort.removeEventListener('message', handleHostMessage);
-      }, { once: true });
+        window.removeEventListener('pagehide', handlePageHide);
+      }
+      window.addEventListener('pagehide', handlePageHide);
 
       function hostContext() {
         return requestParent(

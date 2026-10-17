@@ -179,6 +179,25 @@ describe("SqlChart render contract parity", () => {
     ).not.toBeNull();
   });
 
+  it.each(["metric", "section"] as const)(
+    "keeps a %s panel rendered when its saved description is not a string",
+    async (chartType) => {
+      const target = panel({
+        chartType,
+        config: {
+          description: { note: "This is not panel copy" },
+        } as unknown as SqlPanel["config"],
+      });
+
+      const text = await renderText(target, [{ value: 42 }]);
+
+      if (chartType === "metric") expect(text).toContain("42");
+      else expect(container.querySelector(".px-1.py-2")).not.toBeNull();
+      expect(text).not.toContain("This is not panel copy");
+      expect(text).not.toContain("[object Object]");
+    },
+  );
+
   it("shows No data for a funnel exactly when the plan says the funnel is empty", async () => {
     const funnel = panel({
       chartType: "funnel",

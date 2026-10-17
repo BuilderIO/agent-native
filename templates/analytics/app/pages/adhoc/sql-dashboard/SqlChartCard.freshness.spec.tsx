@@ -165,6 +165,22 @@ describe("SqlChartCard freshness clock", () => {
     expect(clock()).toBeNull();
   });
 
+  it("keeps a section card visible when its saved description is not a string", async () => {
+    await render({
+      panel: {
+        ...panel,
+        chartType: "section",
+        config: {
+          description: { note: "This is not panel copy" },
+        } as unknown as SqlPanel["config"],
+      },
+    });
+
+    expect(container.textContent).toContain("Signups");
+    expect(container.textContent).not.toContain("This is not panel copy");
+    expect(container.textContent).not.toContain("[object Object]");
+  });
+
   it.each(["focus", "mouse", "touch"] as const)(
     "discloses the full title on first %s without selecting the card",
     async (interaction) => {

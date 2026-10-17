@@ -288,16 +288,24 @@ export function buildExtensionExternalLinkTargetBootstrap(
       }
       window.addEventListener('pagehide', function() {
         if (handshakeTimer) clearInterval(handshakeTimer);
+        handshakeTimer = null;
         if (handshakeRetryTimer) clearTimeout(handshakeRetryTimer);
+        handshakeRetryTimer = null;
         handshakePendingPort = null;
+        var activeChildWasPending = activeChildPort && pendingPorts.indexOf(activeChildPort) !== -1;
         pendingPorts.forEach(function(port) { port.close(); });
         pendingPorts = [];
-        if (activeChildPort) activeChildPort.close();
-        if (activeHostPort) {
-          activeHostPort.close();
-          window.__agentNativeExtensionHostPort = null;
-        }
-      }, { once: true });
+        if (activeChildPort && !activeChildWasPending) activeChildPort.close();
+        activeChildPort = null;
+        sendExternalLink = null;
+        handshakeAttempts = 0;
+        if (activeHostPort) activeHostPort.close();
+        activeHostPort = null;
+        window.__agentNativeExtensionHostPort = null;
+      });
+      window.addEventListener('pageshow', function(event) {
+        if (event.persisted) startLinkChannel();
+      });
 
       function linkFromEvent(event) {
         var path = typeof event.composedPath === 'function'
@@ -340,6 +348,7 @@ export function buildExtensionExternalLinkTargetBootstrap(
         if (event.type !== 'click' && event.type !== 'auxclick') return;
         var link = linkFromEvent(event);
         if (!link) return;
+        if (link.hasAttribute('download')) return;
         var href = link.getAttribute('href');
         if (href === null) href = link.getAttributeNS('http://www.w3.org/1999/xlink', 'href');
         if (href === null) href = link.getAttribute('xlink:href');

@@ -179,6 +179,11 @@ function loadShell(
       );
     },
     opened: () => posted.filter((message) => message?.type === OPEN_URL),
+    linkChannelHellos: () =>
+      posted.filter(
+        (message) =>
+          message?.type === EXTENSION_LINK_CHANNEL_HELLO_MESSAGE_TYPE,
+      ),
     linkRequests: () =>
       portPosted.filter(
         (message) =>
@@ -310,13 +315,12 @@ describe("extension shell link routing", () => {
     ).toBe(false);
   });
 
-  it("intercepts external area, SVG, shadow-root, and download links", () => {
+  it("routes external area, SVG, and shadow-root links", () => {
     const shell = loadShell(
       `
         <map name="external-links"><area id="area" href="https://example.com/area"></map>
         <svg><a id="svg" href="https://example.com/svg"><text>svg</text></a></svg>
         <div id="host"></div>
-        <a id="download" href="https://files.example.com/export.csv" download>download</a>
       `,
       { linkNonce: "frame-link-nonce" },
     );
@@ -339,9 +343,6 @@ describe("extension shell link routing", () => {
     expect(shell.clickTrusted(shadowText, { button: 2 }, "auxclick")).toBe(
       false,
     );
-    const download = document.getElementById("download");
-    expect(shell.clickTrusted(download)).toBe(true);
-    expect(shell.opened()).toEqual([]);
   });
 
   it("routes trusted link activation from closed shadow roots", () => {
@@ -460,6 +461,48 @@ describe("extension shell link routing", () => {
         baseTarget.window.document.getElementById("empty"),
       ),
     ).toBe(true);
+  });
+
+  it("leaves same-origin and external download links native", () => {
+    const shell = loadShell(
+      `<a id="sameOrigin" href="/export.csv" download>same-origin download</a>
+        <a id="external" href="https://files.example.com/export.csv" download>external download</a>`,
+      { linkNonce: "frame-link-nonce" },
+    );
+    const $ = (id: string) => shell.window.document.getElementById(id);
+
+    expect(shell.clickTrusted($("sameOrigin"))).toBe(false);
+    expect(shell.clickTrusted($("external"))).toBe(false);
+    expect(shell.sameOriginNavigations()).toEqual([]);
+    expect(shell.linkRequests()).toEqual([]);
+  });
+
+  it("reconnects link routing after a BFCache restore", () => {
+    const shell = loadShell(
+      `<a id="external" href="https://example.com/after-restore">external</a>`,
+      { linkNonce: "frame-link-nonce" },
+    );
+    const initialHelloCount = shell.linkChannelHellos().length;
+    expect(initialHelloCount).toBeGreaterThan(0);
+
+    const pagehide = new shell.window.Event("pagehide");
+    Object.defineProperty(pagehide, "persisted", { value: true });
+    shell.window.dispatchEvent(pagehide);
+
+    const pageshow = new shell.window.Event("pageshow");
+    Object.defineProperty(pageshow, "persisted", { value: true });
+    shell.window.dispatchEvent(pageshow);
+
+    expect(shell.linkChannelHellos().length).toBeGreaterThan(initialHelloCount);
+    expect(
+      shell.clickTrusted(shell.window.document.getElementById("external")),
+    ).toBe(true);
+    expect(shell.linkRequests()).toEqual([
+      {
+        type: EXTENSION_OPEN_EXTERNAL_LINK_MESSAGE_TYPE,
+        href: "https://example.com/after-restore",
+      },
+    ]);
   });
 
   it("routes same-origin self, parent, and top navigation through the host", () => {

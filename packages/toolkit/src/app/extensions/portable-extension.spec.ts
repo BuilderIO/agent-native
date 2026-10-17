@@ -308,6 +308,39 @@ describe("portable extension runtime", () => {
     expect(windowPost).not.toHaveBeenCalled();
   });
 
+  it("reattaches nonce host traffic after a BFCache restore", async () => {
+    executeRuntime("private-link-nonce");
+
+    const firstHost = createTestPort();
+    (window as any).__agentNativeExtensionHostPort = firstHost.port;
+    window.dispatchEvent(new Event("agent-native-extension-host-port-ready"));
+    expect(firstHost.messages).toContainEqual(
+      expect.objectContaining({ type: "agentNative.host.ready" }),
+    );
+
+    const pagehide = new Event("pagehide");
+    Object.defineProperty(pagehide, "persisted", { value: true });
+    window.dispatchEvent(pagehide);
+    window.dispatchEvent(new Event("pageshow"));
+
+    const restoredHost = createTestPort();
+    (window as any).__agentNativeExtensionHostPort = restoredHost.port;
+    window.dispatchEvent(new Event("agent-native-extension-host-port-ready"));
+
+    const contextPromise = (window as any).agentNative.context();
+    const contextRequest = restoredHost.messages.find(
+      (message: any) => message.type === "agentNative.host.getContext",
+    ) as any;
+    expect(contextRequest).toBeTruthy();
+    restoredHost.dispatch({
+      type: "agentNative.host.context",
+      requestId: contextRequest.requestId,
+      context: { restored: true },
+    });
+
+    await expect(contextPromise).resolves.toEqual({ restored: true });
+  });
+
   it("keeps legacy popups and limits them to the legacy sandbox mode", () => {
     expect(
       normalizeAgentNativeExtensionSandbox(

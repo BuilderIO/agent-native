@@ -1,7 +1,6 @@
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { useActionMutation, useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { InlineMarkdown } from "@agent-native/toolkit/app/review";
 import { useDraggable } from "@dnd-kit/core";
 import { dataNoteIsRecent, type DataNote } from "@shared/data-notes";
 import { isKeyDateChartType } from "@shared/key-dates";
@@ -30,6 +29,7 @@ import {
   useDataNoteActions,
   usePanelDataNotes,
 } from "@/components/dashboard/dashboard-annotations-context";
+import { DashboardPanelDescription } from "@/components/dashboard/DashboardPanelDescription";
 import {
   DataNoteFlag,
   DataNoteLines,
@@ -37,11 +37,7 @@ import {
 } from "@/components/dashboard/data-note-bands";
 import type { PanelFreshness } from "@/components/dashboard/panel-freshness";
 import { PanelFreshnessClock } from "@/components/dashboard/PanelFreshnessClock";
-import {
-  ChartFillHeight,
-  renderDashboardMarkdownLink,
-  SqlChart,
-} from "@/components/dashboard/SqlChart";
+import { ChartFillHeight, SqlChart } from "@/components/dashboard/SqlChart";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -539,15 +535,10 @@ export function SqlChartCard({
             </div>
           ) : null}
         </div>
-        {panel.config?.description && (
-          <InlineMarkdown
-            inline
-            content={panel.config.description}
-            className="text-sm text-muted-foreground"
-            linkClassName="text-current underline underline-offset-2 hover:opacity-80"
-            renderLink={renderDashboardMarkdownLink}
-          />
-        )}
+        <DashboardPanelDescription
+          description={panel.config?.description}
+          className="text-sm text-muted-foreground"
+        />
         {editable ? (
           <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
             <AlertDialogContent>
