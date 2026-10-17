@@ -8116,12 +8116,18 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     metaKey: boolean;
     shiftKey: boolean;
   } | null = null;
+  var lastShieldModifierCyclePoint: { x: number; y: number } | null = null;
+  var lastShieldModifierCycleTarget: Element | null = null;
   function resetShieldPointerClickState() {
     shieldPointerClickCount = 0;
     lastShieldPointerDownAt = 0;
     lastShieldPointerDownPoint = null;
     lastShieldPointerDownTarget = null;
     lastShieldPointerDownModifiers = null;
+  }
+  function resetShieldModifierCycleState() {
+    lastShieldModifierCyclePoint = null;
+    lastShieldModifierCycleTarget = null;
   }
   var hoveredSpacingHandleKey = "";
   var spacingHoverClearTimer: ReturnType<typeof setTimeout> | null = null;
@@ -27461,6 +27467,19 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     }
     function onUp(ev) {
       clearPendingShieldDrag();
+      var isModifierCycleClick = Boolean(
+        !readOnly && (e.metaKey || e.ctrlKey) && !e.shiftKey,
+      );
+      var continuesModifierCycle = Boolean(
+        isModifierCycleClick &&
+        selectedEl &&
+        lastShieldModifierCycleTarget === selectedEl &&
+        lastShieldModifierCyclePoint &&
+        Math.hypot(
+          e.clientX - lastShieldModifierCyclePoint.x,
+          e.clientY - lastShieldModifierCyclePoint.y,
+        ) <= 4,
+      );
       var isMousePointerUp = Boolean(
         ev && ev.type === "pointerup" && ev.pointerType === "mouse",
       );
@@ -27473,16 +27492,16 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       }
       if (didStartDrag) {
         resetShieldPointerClickState();
+        resetShieldModifierCycleState();
         return;
       }
       if (!readOnly && !e.altKey) {
         postCrossScreenDrag("cancel");
       }
       if (ev) stopNativeInteraction(ev);
-      var cycledEl =
-        !readOnly && (e.metaKey || e.ctrlKey) && !e.shiftKey
-          ? stackCycleTarget(e.clientX, e.clientY, selectedEl)
-          : null;
+      var cycledEl = isModifierCycleClick
+        ? stackCycleTarget(e.clientX, e.clientY, selectedEl)
+        : null;
       var primaryClickTarget =
         !readOnly && (e.metaKey || e.ctrlKey)
           ? modifierClickSelectionTarget(hit)
@@ -27493,19 +27512,26 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
                 ? selectedContainerForPlainClick(hit, ev) ||
                   clickThroughSelectionTarget(hit, ev, repeatedClick)
                 : null) || containerFirstSelectionTarget(hit);
-      var cycleTarget =
-        cycledEl &&
-        (!(cycledEl.contains && cycledEl.contains(hit)) ||
-          ((repeatedClick || primaryClickTarget === selectedEl) &&
-            cycledEl !== selectedEl &&
-            selectedEl &&
-            cycledEl.contains(selectedEl)))
-          ? cycledEl
-          : null;
-      if (cycleTarget) {
-        selectTarget(cycleTarget, ev, true);
+      var preservesNestedHit = Boolean(
+        isModifierCycleClick &&
+        !continuesModifierCycle &&
+        selectedEl &&
+        hit &&
+        selectedEl.contains(hit) &&
+        primaryClickTarget &&
+        primaryClickTarget !== selectedEl,
+      );
+      var cycleTarget = cycledEl && !preservesNestedHit ? cycledEl : null;
+      var nextClickTarget = cycleTarget || primaryClickTarget || dragTarget;
+      selectTarget(nextClickTarget, ev, true);
+      if (isModifierCycleClick && selectedEl) {
+        lastShieldModifierCyclePoint = {
+          x: e.clientX,
+          y: e.clientY,
+        };
+        lastShieldModifierCycleTarget = selectedEl;
       } else {
-        selectTarget(primaryClickTarget || dragTarget, ev, true);
+        resetShieldModifierCycleState();
       }
       suppressNextShieldClickBriefly();
     }

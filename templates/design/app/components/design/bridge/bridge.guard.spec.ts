@@ -18879,7 +18879,7 @@ it(
 );
 
 it(
-  "modifier-click cycles through each layer in a three-level nested stack",
+  "modifier-click keeps the frontmost nested hit before cycling the stack across pauses",
   { timeout: 30_000 },
   async () => {
     const browser = await chromium.launch({ headless: true });
@@ -18890,7 +18890,8 @@ it(
       });
       page.on("pageerror", (error) => pageErrors.push(error.message));
       await page.setContent(`<!doctype html><html><body style="margin:0">
-        <div id="outer" data-agent-native-node-id="outer" style="position:absolute;left:100px;top:100px;width:300px;height:240px;background:#ddd">
+        <div id="sibling" data-agent-native-node-id="sibling" style="position:absolute;z-index:1;left:100px;top:100px;width:300px;height:240px;background:#777">Overlapping layer</div>
+        <div id="outer" data-agent-native-node-id="outer" style="position:absolute;z-index:2;left:100px;top:100px;width:300px;height:240px;background:#ddd">
           <div id="middle" data-agent-native-node-id="middle" style="position:absolute;left:20px;top:20px;width:240px;height:180px;background:#aaa">
             <span id="inner" data-agent-native-node-id="inner" data-an-primitive="text" style="position:absolute;left:20px;top:20px;width:180px;height:100px;background:#555;color:white">Layer text</span>
           </div>
@@ -18918,8 +18919,19 @@ it(
         x: innerBox.x + innerBox.width / 2,
         y: innerBox.y + innerBox.height / 2,
       };
+      expect(
+        await page.evaluate(
+          ({ x, y }) =>
+            document
+              .elementsFromPoint(x, y)
+              .map((element) => element.id)
+              .filter(Boolean),
+          point,
+        ),
+      ).toEqual(["inner", "middle", "outer", "sibling"]);
       const selectedSources: string[] = [];
-      for (let index = 0; index < 3; index += 1) {
+      for (let index = 0; index < 4; index += 1) {
+        if (index > 0) await page.waitForTimeout(550);
         await page.keyboard.down(PLATFORM_PRIMARY_KEY);
         try {
           await page.mouse.click(point.x, point.y);
@@ -18939,7 +18951,7 @@ it(
         );
       }
 
-      expect(selectedSources).toEqual(["inner", "middle", "outer"]);
+      expect(selectedSources).toEqual(["inner", "middle", "outer", "sibling"]);
       expect(pageErrors).toEqual([]);
     } finally {
       await browser.close();
