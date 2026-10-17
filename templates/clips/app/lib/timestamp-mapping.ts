@@ -31,6 +31,7 @@ export interface EditsJson {
   stitchedFrom?: string[];
   mediaStorageLayout?: "external";
   rewindOriginalStartMs?: number;
+  rewindRequestId?: string;
   overlays?: unknown[];
   burnedRedactions?: unknown[];
 }
@@ -55,6 +56,7 @@ export function parseEdits(raw: string | null | undefined): EditsJson {
       stitchedFrom: _stitchedFrom,
       mediaStorageLayout: _mediaStorageLayout,
       rewindOriginalStartMs: _rewindOriginalStartMs,
+      rewindRequestId: _rewindRequestId,
       overlays: _overlays,
       burnedRedactions: _burnedRedactions,
       ...unknown
@@ -83,6 +85,9 @@ export function parseEdits(raw: string | null | undefined): EditsJson {
       Number.isFinite(j.rewindOriginalStartMs) &&
       j.rewindOriginalStartMs > 0
         ? { rewindOriginalStartMs: Math.round(j.rewindOriginalStartMs) }
+        : {}),
+      ...(typeof j.rewindRequestId === "string" && j.rewindRequestId
+        ? { rewindRequestId: j.rewindRequestId }
         : {}),
     };
   } catch {

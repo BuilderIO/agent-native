@@ -49,6 +49,9 @@ export default defineAction({
             ...(existingEdits.mediaStorageLayout
               ? { mediaStorageLayout: existingEdits.mediaStorageLayout }
               : {}),
+            ...(existingEdits.rewindRequestId
+              ? { rewindRequestId: existingEdits.rewindRequestId }
+              : {}),
           }),
           updatedAt: new Date().toISOString(),
         })

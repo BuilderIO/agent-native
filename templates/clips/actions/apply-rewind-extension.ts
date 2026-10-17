@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   readAppState,
   writeAppState,
@@ -81,6 +81,52 @@ export default defineAction({
           ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
         ),
       );
+    if (!recording) {
+      fail("The Clip or its local Rewind pre-roll is unavailable.", {
+        errorCode: "recording_not_found",
+        statusCode: 404,
+      });
+    }
+    const key = rewindExtensionKey(args.recordingId);
+    const request = (await readAppState(key)) as RewindExtensionRequest | null;
+    if (
+      !request ||
+      request.requestId !== args.requestId ||
+      request.status !== "ready" ||
+      request.preRollRecordingId !== args.preRollRecordingId
+    ) {
+      fail("The Rewind pre-roll request is not ready to apply.", {
+        errorCode: "rewind_request_not_ready",
+        statusCode: 409,
+      });
+    }
+    const now = new Date().toISOString();
+    const finish = async () => {
+      const applied: RewindExtensionRequest = {
+        ...request,
+        status: "applied",
+        actualDurationMs: args.addedMs,
+        updatedAt: now,
+      };
+      // Queued first: an applied request can't be retried, so a failed
+      // dispatch has to leave it ready.
+      await dispatchPostFinalizeJob({
+        recordingId: args.recordingId,
+        kind: "thumbnail",
+        requireAccepted: true,
+      });
+      await writeAppState(key, applied);
+      await writeAppState("refresh-signal", { ts: Date.now() });
+      return { recordingId: args.recordingId, request: applied };
+    };
+    // The shift records its request in the edits, so a retry after it
+    // committed (say, when queuing the thumbnail or marking the request
+    // applied failed) only finishes up. The checks below would refuse it:
+    // the duration has changed, and the shift trashed the pre-roll, which
+    // may be gone by now.
+    if (parseEdits(recording.editsJson).rewindRequestId === args.requestId) {
+      return finish();
+    }
     const [preRoll] = await db
       .select()
       .from(schema.recordings)
@@ -90,8 +136,11 @@ export default defineAction({
           ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
         ),
       );
-    if (!recording || !preRoll) {
-      throw new Error("The Clip or its local Rewind pre-roll is unavailable.");
+    if (!preRoll) {
+      fail("The Clip or its local Rewind pre-roll is unavailable.", {
+        errorCode: "recording_not_found",
+        statusCode: 404,
+      });
     }
     if (
       !isPrivateClip(recording.visibility) ||
@@ -102,16 +151,6 @@ export default defineAction({
       );
     }
     await assertNoDirectRecordingShares(args.recordingId);
-    const key = rewindExtensionKey(args.recordingId);
-    const request = (await readAppState(key)) as RewindExtensionRequest | null;
-    if (
-      !request ||
-      request.requestId !== args.requestId ||
-      request.status !== "ready" ||
-      request.preRollRecordingId !== args.preRollRecordingId
-    ) {
-      throw new Error("The Rewind pre-roll request is not ready to apply.");
-    }
     const expectedDuration = recording.durationMs + args.addedMs;
     if (Math.abs(args.durationMs - expectedDuration) > 2_000) {
       throw new Error("The combined Clip duration does not match its sources.");
@@ -129,35 +168,40 @@ export default defineAction({
       throw new Error("The Rewind upload is not bound to its recording.");
     }
 
-    const edits = parseEdits(recording.editsJson);
-    edits.trims = edits.trims.map((trim) => ({
-      ...trim,
-      startMs: trim.startMs + args.addedMs,
-      endMs: trim.endMs + args.addedMs,
-    }));
-    edits.blurs = edits.blurs.map((blur) => ({
-      ...blur,
-      startMs: blur.startMs + args.addedMs,
-      endMs: blur.endMs + args.addedMs,
-    }));
-    edits.rewindOriginalStartMs = args.addedMs;
-    edits.mediaStorageLayout = "external";
-    const [transcript] = await db
-      .select()
-      .from(schema.recordingTranscripts)
-      .where(eq(schema.recordingTranscripts.recordingId, args.recordingId));
-    const shiftedTranscript = transcript
-      ? JSON.stringify(
-          parseTranscriptSegments(transcript.segmentsJson).map((segment) => ({
-            ...segment,
-            startMs: segment.startMs + args.addedMs,
-            endMs: segment.endMs + args.addedMs,
-          })),
-        )
-      : null;
-    const now = new Date().toISOString();
-
     await db.transaction(async (tx) => {
+      // Two applies of one request can both pass the checks above. Locked,
+      // the second waits for the first and then finds the request in the
+      // edits, so it shifts nothing a second time. Reading what it shifts
+      // here, not above, also keeps an edit saved meanwhile.
+      const [locked] = await tx
+        .select({
+          editsJson: schema.recordings.editsJson,
+          chaptersJson: schema.recordings.chaptersJson,
+        })
+        .from(schema.recordings)
+        .where(eq(schema.recordings.id, args.recordingId))
+        .for("update");
+      if (!locked) {
+        fail("The Clip or its local Rewind pre-roll is unavailable.", {
+          errorCode: "recording_not_found",
+          statusCode: 404,
+        });
+      }
+      const edits = parseEdits(locked.editsJson);
+      if (edits.rewindRequestId === args.requestId) return;
+      edits.trims = edits.trims.map((trim) => ({
+        ...trim,
+        startMs: trim.startMs + args.addedMs,
+        endMs: trim.endMs + args.addedMs,
+      }));
+      edits.blurs = edits.blurs.map((blur) => ({
+        ...blur,
+        startMs: blur.startMs + args.addedMs,
+        endMs: blur.endMs + args.addedMs,
+      }));
+      edits.rewindOriginalStartMs = args.addedMs;
+      edits.mediaStorageLayout = "external";
+      edits.rewindRequestId = args.requestId;
       await tx
         .update(schema.recordings)
         .set({
@@ -167,7 +211,7 @@ export default defineAction({
           ...(args.width !== undefined ? { width: args.width } : {}),
           ...(args.height !== undefined ? { height: args.height } : {}),
           editsJson: serializeEdits(edits),
-          chaptersJson: shiftedJsonArray(recording.chaptersJson, args.addedMs, [
+          chaptersJson: shiftedJsonArray(locked.chaptersJson, args.addedMs, [
             "startMs",
           ]),
           thumbnailUrl: null,
@@ -175,10 +219,22 @@ export default defineAction({
           updatedAt: now,
         })
         .where(eq(schema.recordings.id, args.recordingId));
-      if (transcript && shiftedTranscript) {
+      const [transcript] = await tx
+        .select({ segmentsJson: schema.recordingTranscripts.segmentsJson })
+        .from(schema.recordingTranscripts)
+        .where(eq(schema.recordingTranscripts.recordingId, args.recordingId))
+        .for("update");
+      if (transcript) {
+        const shifted = parseTranscriptSegments(transcript.segmentsJson).map(
+          (segment) => ({
+            ...segment,
+            startMs: segment.startMs + args.addedMs,
+            endMs: segment.endMs + args.addedMs,
+          }),
+        );
         await tx
           .update(schema.recordingTranscripts)
-          .set({ segmentsJson: shiftedTranscript, updatedAt: now })
+          .set({ segmentsJson: JSON.stringify(shifted), updatedAt: now })
           .where(eq(schema.recordingTranscripts.recordingId, args.recordingId));
       }
       await tx
@@ -200,19 +256,6 @@ export default defineAction({
         .where(eq(schema.recordings.id, args.preRollRecordingId));
     });
 
-    const applied: RewindExtensionRequest = {
-      ...request,
-      status: "applied",
-      actualDurationMs: args.addedMs,
-      updatedAt: now,
-    };
-    await writeAppState(key, applied);
-    await dispatchPostFinalizeJob({
-      recordingId: args.recordingId,
-      kind: "thumbnail",
-      requireAccepted: true,
-    });
-    await writeAppState("refresh-signal", { ts: Date.now() });
-    return { recordingId: args.recordingId, request: applied };
+    return finish();
   },
 });
