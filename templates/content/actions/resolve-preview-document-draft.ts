@@ -404,6 +404,48 @@ export default defineAction({
         return { status: "claimed" as const, draft, acquired: true };
       });
     };
+    // Settling the editor generation is the choice itself for Use saved, so
+    // nothing may publish a resolved claim without it.
+    const settleAndResolveClaim = async (
+      tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+      chatContext: string,
+      payload: z.infer<typeof durableClaimPayload>,
+    ) => {
+      const resolvedAt = new Date().toISOString();
+      if (
+        payload.editorSessionId !== null &&
+        payload.editorSessionId !== undefined &&
+        payload.editGeneration !== null &&
+        payload.editGeneration !== undefined
+      ) {
+        await settlePreviewDocumentDraft({
+          db: tx,
+          ownerEmail: userEmail,
+          orgId,
+          documentId: args.documentId,
+          editorSessionId: payload.editorSessionId,
+          editGeneration: payload.editGeneration,
+          discarded: args.choice === "use_saved",
+          now: resolvedAt,
+        });
+      }
+      const resolved = await tx
+        .update(schema.documentVersions)
+        .set({
+          chatContext: JSON.stringify({ ...payload, status: "resolved" }),
+          updatedAt: resolvedAt,
+        })
+        .where(
+          and(
+            eq(schema.documentVersions.id, claimId),
+            eq(schema.documentVersions.ownerEmail, userEmail),
+            eq(schema.documentVersions.documentId, claimDocumentId),
+            eq(schema.documentVersions.chatContext, chatContext),
+          ),
+        )
+        .returning({ id: schema.documentVersions.id });
+      return resolved.length === 1;
+    };
     const acquireClaim = async () =>
       db.transaction(async (tx) => {
         const [claim] = await tx
@@ -480,24 +522,7 @@ export default defineAction({
               conflict("This recovery choice is already being applied.");
             }
           } else {
-            const resolvedAt = new Date().toISOString();
-            const resolved = await tx
-              .update(schema.documentVersions)
-              .set({
-                chatContext: JSON.stringify({
-                  ...payload,
-                  status: "resolved",
-                }),
-                updatedAt: resolvedAt,
-              })
-              .where(
-                and(
-                  eq(schema.documentVersions.id, claimId),
-                  eq(schema.documentVersions.chatContext, claim.chatContext),
-                ),
-              )
-              .returning({ id: schema.documentVersions.id });
-            if (resolved.length !== 1)
+            if (!(await settleAndResolveClaim(tx, claim.chatContext, payload)))
               conflict("This recovery choice is already being applied.");
             return false;
           }
@@ -548,40 +573,8 @@ export default defineAction({
         if (payload.status === "resolved") return;
         if (payload.processingToken !== processingToken)
           conflict("This recovery choice is already being applied.");
-        const resolvedAt = new Date().toISOString();
-        if (
-          payload.editorSessionId !== null &&
-          payload.editorSessionId !== undefined &&
-          payload.editGeneration !== null &&
-          payload.editGeneration !== undefined
-        ) {
-          await settlePreviewDocumentDraft({
-            db: tx,
-            ownerEmail: userEmail,
-            orgId,
-            documentId: args.documentId,
-            editorSessionId: payload.editorSessionId,
-            editGeneration: payload.editGeneration,
-            discarded: args.choice === "use_saved",
-            now: resolvedAt,
-          });
-        }
-        const resolved = await tx
-          .update(schema.documentVersions)
-          .set({
-            chatContext: JSON.stringify({ ...payload, status: "resolved" }),
-            updatedAt: resolvedAt,
-          })
-          .where(
-            and(
-              eq(schema.documentVersions.id, claimId),
-              eq(schema.documentVersions.ownerEmail, userEmail),
-              eq(schema.documentVersions.documentId, claimDocumentId),
-              eq(schema.documentVersions.chatContext, claim.chatContext),
-            ),
-          )
-          .returning({ id: schema.documentVersions.id });
-        if (resolved.length !== 1) conflict("The recovery claim was lost.");
+        if (!(await settleAndResolveClaim(tx, claim.chatContext, payload)))
+          conflict("The recovery claim was lost.");
       });
     };
     const restoreClaimedDraft = async (
