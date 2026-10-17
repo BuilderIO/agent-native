@@ -87,6 +87,10 @@ let collabBoostActivityAt = 0;
 // proves someone is editing the resource right now, so it boosts on its own.
 const collabActivityUntilByResource = new Map<string, number>();
 const openCollabResources = new Map<string, number>();
+// The request sources this tab's collab connections post updates under. Apps
+// choose their own (Content's `chat-…` tab id is not getBrowserTabId()), and a
+// lone editor's every update comes back in its polls under that source.
+const ownCollabSources = new Map<string, number>();
 
 function collabResourceKey(resourceType: string, resourceId: string): string {
   return `${resourceType}\0${resourceId}`;
@@ -109,6 +113,18 @@ export function registerCollabActivityResource(resource: {
       collabActivityUntilByResource.delete(key);
     }
     notifyCollabBoostChange();
+  };
+}
+
+export function registerOwnCollabSource(source: string): () => void {
+  ownCollabSources.set(source, (ownCollabSources.get(source) ?? 0) + 1);
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    const remaining = (ownCollabSources.get(source) ?? 1) - 1;
+    if (remaining > 0) ownCollabSources.set(source, remaining);
+    else ownCollabSources.delete(source);
   };
 }
 
@@ -158,7 +174,9 @@ function noteCollaboratorActivity(
       typeof event.resourceType !== "string" ||
       event.resourceType === "" ||
       typeof event.resourceId !== "string" ||
-      event.requestSource === ownSource
+      event.requestSource === ownSource ||
+      (event.requestSource !== undefined &&
+        ownCollabSources.has(event.requestSource))
     ) {
       continue;
     }
@@ -1379,6 +1397,7 @@ export function _resetSyncTransportRegistryForTests(): void {
   collabBoostActivityAt = 0;
   collabActivityUntilByResource.clear();
   openCollabResources.clear();
+  ownCollabSources.clear();
 }
 
 export interface SubscribeSyncEventsOptions {

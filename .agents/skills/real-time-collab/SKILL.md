@@ -38,7 +38,9 @@ conflicts. Always choose an explicit `access` mode on `createCollabPlugin`.
   live. A joiner is noticed on the existing user's next ~12 s collab poll
   (the joiner sees them at once), a leaver within one poll plus the 30 s
   awareness TTL. The boost lapses after 3 minutes with no input and no remote
-  events. Lone tabs pay nothing extra. A read-only viewer must join the doc too (Design's
+  events. Lone tabs pay nothing extra. Events under the request source a
+  connection posts with (any app-chosen tab id, not only `getBrowserTabId()`)
+  are this tab's own and never count. A read-only viewer must join the doc too (Design's
   `useViewerPresence`; it never uses the `ydoc`), or it never sees an editor
   and stays on the idle cadence. A viewer on a different screen than the
   editor shares no doc with them; its own collab poll sees the design's

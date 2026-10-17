@@ -8,6 +8,7 @@ import {
   acquireCollabPollBoost,
   noteCollabPollActivity,
   registerCollabActivityResource,
+  registerOwnCollabSource,
   subscribeSyncEvents,
   type SyncEvent,
 } from "../client/use-db-sync.js";
@@ -299,6 +300,7 @@ class CollabDocConnection {
   private unsubscribeAwarenessEvents: (() => void) | null = null;
   private agentTimer: ReturnType<typeof setTimeout> | null = null;
   private releaseCollabPollBoost: (() => void) | null = null;
+  private releaseOwnSource: (() => void) | null = null;
 
   constructor(
     readonly docId: string,
@@ -340,6 +342,7 @@ class CollabDocConnection {
     }
     if (!this.requestSource && sub.requestSource) {
       this.requestSource = sub.requestSource;
+      this.releaseOwnSource = registerOwnCollabSource(sub.requestSource);
     }
     if (!this.started) {
       this.started = true;
@@ -401,6 +404,8 @@ class CollabDocConnection {
       clearTimeout(this.agentTimer);
       this.agentTimer = null;
     }
+    this.releaseOwnSource?.();
+    this.releaseOwnSource = null;
     this.awareness.off("change", this.handleAwarenessChange);
     cancelAwarenessPush(this.baseUrl, this.docId, this.ydoc.clientID);
     this.awareness.destroy();

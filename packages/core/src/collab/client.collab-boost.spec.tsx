@@ -35,11 +35,18 @@ class FakeEventSource {
 
 const USER = { name: "Me", email: "me@example.test", color: "#111111" };
 
-function Probe({ docId }: { docId: string }) {
+function Probe({
+  docId,
+  requestSource,
+}: {
+  docId: string;
+  requestSource?: string;
+}) {
   useCollaborativeDoc({
     docId,
     user: USER,
     activityResource: { resourceType: "design", resourceId: "d1" },
+    requestSource,
   });
   return null;
 }
@@ -71,13 +78,15 @@ describe("collab poll boost from presence", () => {
     });
   }
 
-  async function mountRefused() {
+  async function mountRefused(requestSource?: string) {
     const container = document.createElement("div");
     document.body.appendChild(container);
     const root = createRoot(container);
     roots.push(root);
     containers.push(container);
-    act(() => root.render(<Probe docId="boost-doc" />));
+    act(() =>
+      root.render(<Probe docId="boost-doc" requestSource={requestSource} />),
+    );
     await advance(50);
     const source = FakeEventSource.instances[0];
     source.readyState = FakeEventSource.CLOSED;
@@ -292,6 +301,46 @@ describe("collab poll boost from presence", () => {
     const at = sharedPolls;
     await advance(30_000);
     expect(sharedPolls - at).toBeLessThanOrEqual(1);
+  });
+
+  // Content and Plan post under a tab id of their own (`chat-…`), not
+  // getBrowserTabId(), and a lone editor's every update comes back in its polls.
+  it("does not boost for its own updates under the app's request source, but does for another tab's", async () => {
+    await mountRefused("chat-own-tab");
+    await advance(13_000);
+    ownPollEvents = [
+      {
+        source: "collab",
+        type: "yjs-update",
+        version: baselineVersion + 1,
+        cursorId: "own-update",
+        docId: "boost-doc",
+        requestSource: "chat-own-tab",
+        resourceType: "design",
+        resourceId: "d1",
+      },
+    ];
+    await advance(13_000);
+    const ownAt = sharedPolls;
+    await advance(30_000);
+    expect(sharedPolls - ownAt).toBeLessThanOrEqual(1);
+
+    ownPollEvents = [
+      {
+        source: "collab",
+        type: "yjs-update",
+        version: baselineVersion + 2,
+        cursorId: "other-update",
+        docId: "boost-doc",
+        requestSource: "chat-other-tab",
+        resourceType: "design",
+        resourceId: "d1",
+      },
+    ];
+    await advance(13_000);
+    const otherAt = sharedPolls;
+    await advance(30_000);
+    expect(sharedPolls - otherAt).toBeGreaterThanOrEqual(10);
   });
 
   it("uses the server baseline cursor to detect fresh activity despite browser clock skew", async () => {

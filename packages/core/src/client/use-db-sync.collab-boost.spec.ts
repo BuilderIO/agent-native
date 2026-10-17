@@ -12,6 +12,7 @@ import {
   _resetSyncTransportRegistryForTests,
   acquireCollabPollBoost,
   registerCollabActivityResource,
+  registerOwnCollabSource,
   subscribeSyncEvents,
 } from "./use-db-sync";
 
@@ -220,6 +221,28 @@ describe("collab poll boost", () => {
 
       releaseD2();
       unsub();
+    });
+
+    it("stays idle for collab updates under a source this tab's collab connection posts with", async () => {
+      const update = (requestSource: string) => ({
+        source: "collab",
+        type: "yjs-update",
+        docId: "screen-1",
+        resourceType: "design",
+        resourceId: "d1",
+        requestSource,
+      });
+      const release = registerOwnCollabSource("chat-own-tab");
+      expect(
+        await pollsAfterFirstEvent(update("chat-own-tab")),
+      ).toBeLessThanOrEqual(1);
+      expect(
+        await pollsAfterFirstEvent(update("chat-other-tab")),
+      ).toBeGreaterThanOrEqual(11);
+      release();
+      expect(
+        await pollsAfterFirstEvent(update("chat-own-tab")),
+      ).toBeGreaterThanOrEqual(11);
     });
 
     it("stays idle for this tab's own action events and for events naming no resource", async () => {
