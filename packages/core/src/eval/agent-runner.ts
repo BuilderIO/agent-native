@@ -133,8 +133,24 @@ function preserveProductionContextEngine(
   token: object,
 ): AgentEngine {
   const protectedObjects = new WeakMap<object, object>();
-  const boundMethods = new WeakMap<Function, WeakMap<object, Function>>();
+  const boundMethods = new WeakMap<
+    Function,
+    WeakMap<object, Map<PropertyKey, Function>>
+  >();
   const sharedObjectPrototypeMethods = new WeakMap<Function, Function>();
+  const arrayMutationMethods = new Set([
+    "copyWithin",
+    "fill",
+    "pop",
+    "push",
+    "reverse",
+    "shift",
+    "sort",
+    "splice",
+    "unshift",
+  ]);
+  const mapMutationMethods = new Set(["clear", "delete", "set"]);
+  const setMutationMethods = new Set(["add", "clear", "delete"]);
   const protectSharedObjectPrototypeMethod = (method: Function): Function => {
     const cached = sharedObjectPrototypeMethods.get(method);
     if (cached) return cached;
@@ -144,19 +160,99 @@ function preserveProductionContextEngine(
     sharedObjectPrototypeMethods.set(method, protectedMethod);
     return protectedMethod;
   };
-  const protectMethod = (method: Function, owner: object): Function => {
+  const protectCollectionValue = (value: unknown): unknown =>
+    value !== null && typeof value === "object"
+      ? protectNestedObject(value)
+      : value;
+  const protectCollectionIterator = (
+    iterator: Iterator<unknown>,
+  ): Iterator<unknown> & Iterable<unknown> => ({
+    next() {
+      const result = iterator.next();
+      return result.done
+        ? result
+        : { done: false, value: protectCollectionValue(result.value) };
+    },
+    [Symbol.iterator]() {
+      return this;
+    },
+  });
+  const protectMethod = (
+    method: Function,
+    owner: object,
+    property: PropertyKey,
+  ): Function => {
+    const isMap = owner instanceof Map;
+    const isSet = owner instanceof Set;
+    const isWeakMap = owner instanceof WeakMap;
+    const isWeakSet = owner instanceof WeakSet;
+    const isArray = Array.isArray(owner);
+    if (
+      (isArray &&
+        typeof property === "string" &&
+        arrayMutationMethods.has(property)) ||
+      ((isMap || isWeakMap) &&
+        typeof property === "string" &&
+        mapMutationMethods.has(property)) ||
+      ((isSet || isWeakSet) &&
+        typeof property === "string" &&
+        setMutationMethods.has(property))
+    ) {
+      return () => {
+        throw new TypeError(
+          "Protected production engine collections are read-only.",
+        );
+      };
+    }
+
+    if ((isMap || isSet) && property === "forEach") {
+      return (callback: unknown, thisArg?: unknown) => {
+        if (typeof callback !== "function") {
+          return Reflect.apply(method, owner, [callback]);
+        }
+        const protectCallback = (value: unknown, key: unknown) =>
+          Reflect.apply(callback, thisArg, [
+            protectCollectionValue(value),
+            protectCollectionValue(key),
+            protectNestedObject(owner),
+          ]);
+        const wrappedCallback = isMap
+          ? protectCallback
+          : (value: unknown) => protectCallback(value, value);
+        return Reflect.apply(method, owner, [wrappedCallback]);
+      };
+    }
+
     let methodsByOwner = boundMethods.get(method);
     if (!methodsByOwner) {
-      methodsByOwner = new WeakMap<object, Function>();
+      methodsByOwner = new WeakMap<object, Map<PropertyKey, Function>>();
       boundMethods.set(method, methodsByOwner);
     }
-    const cached = methodsByOwner.get(owner);
+    let methodsByProperty = methodsByOwner.get(owner);
+    if (!methodsByProperty) {
+      methodsByProperty = new Map<PropertyKey, Function>();
+      methodsByOwner.set(owner, methodsByProperty);
+    }
+    const cached = methodsByProperty.get(property);
     if (cached) return cached;
     const protectedMethod = (...args: unknown[]) => {
-      const result = Reflect.apply(method, owner, args);
+      const receiver = isArray ? protectNestedObject(owner) : owner;
+      const result = Reflect.apply(method, receiver, args);
+      if (
+        (isMap || isSet) &&
+        (property === "keys" ||
+          property === "values" ||
+          property === "entries" ||
+          property === Symbol.iterator)
+      ) {
+        return protectCollectionIterator(result as Iterator<unknown>);
+      }
+      if ((isMap || isWeakMap) && property === "get") {
+        return protectCollectionValue(result);
+      }
       return result === owner ? protectNestedObject(owner) : result;
     };
-    methodsByOwner.set(owner, protectedMethod);
+    methodsByProperty.set(property, protectedMethod);
     return protectedMethod;
   };
   const protectValue = (
@@ -176,7 +272,7 @@ function preserveProductionContextEngine(
       ) {
         return protectSharedObjectPrototypeMethod(value);
       }
-      return protectMethod(value, owner);
+      return protectMethod(value, owner, property);
     }
     return value !== null && typeof value === "object"
       ? protectNestedObject(value)
@@ -777,6 +873,20 @@ async function runProductionChatPath(args: {
       model: args.model,
       engineName: args.engine.name,
     });
+    if (output.usage !== undefined && !outputUsage) {
+      return malformedProductionPathOutput(
+        receiptError ??
+          "Production chat eval adapter returned malformed usage.",
+        Date.now() - started,
+      );
+    }
+    if (outputUsage?.usageReported === false) {
+      return malformedProductionPathOutput(
+        receiptError ??
+          "Production chat eval adapter returned unreported usage.",
+        Date.now() - started,
+      );
+    }
     const usage =
       outputUsage?.usageReported === true
         ? outputUsage

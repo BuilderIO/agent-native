@@ -1055,6 +1055,48 @@ describe("createAgentRunner over a mocked runAgentLoop (no real model)", () => {
     expect(run).toHaveBeenCalledWith(expect.objectContaining({ engine }));
   });
 
+  it("blocks nested collection methods from mutating production engine state", async () => {
+    const supportedModels = ["fake-model"];
+    const modelSettings = { enabled: true };
+    const modelConfigs = new Map([["fake-model", modelSettings]]);
+    const engine = {
+      defaultModel: "fake-model",
+      supportedModels,
+      modelConfigs,
+      capabilities: { vision: false },
+      stream: vi.fn(async function* () {}),
+    } as unknown as AgentEngine;
+    const runner = await createAgentRunner({
+      productionContext: {
+        ...testProductionContext(),
+        productionChatPath: testProductionChatPath(),
+      },
+      engine,
+      model: "fake-model",
+    });
+    const scorerEngine = runner.analyzeContext().engine as AgentEngine & {
+      modelConfigs: Map<string, typeof modelSettings>;
+    };
+    const protectedModels = scorerEngine.supportedModels as unknown as string[];
+    const protectedModelConfigs = scorerEngine.modelConfigs;
+
+    expect(() => protectedModels.push("untrusted-model")).toThrow(
+      "Protected production engine collections are read-only.",
+    );
+    expect(() =>
+      protectedModelConfigs.set("untrusted-model", modelSettings),
+    ).toThrow("Protected production engine collections are read-only.");
+    expect(
+      Reflect.set(protectedModelConfigs.get("fake-model")!, "enabled", false),
+    ).toBe(false);
+    protectedModelConfigs.forEach((settings) => {
+      expect(Reflect.set(settings, "enabled", false)).toBe(false);
+    });
+
+    expect(supportedModels).toEqual(["fake-model"]);
+    expect(modelConfigs.get("fake-model")).toEqual({ enabled: true });
+  });
+
   it("fails closed when engine reflection invariants would expose raw state", async () => {
     const capabilities = { vision: false };
     const engine = {
@@ -1513,7 +1555,7 @@ describe("runEvalSuite runner creation", () => {
     errorLog.mockRestore();
   });
 
-  it("keeps observed partial usage when the adapter returns malformed usage", async () => {
+  it("rejects malformed final usage even when partial usage was observed", async () => {
     const evalCase = defineEval({
       name: "malformed-production-adapter-usage",
       input: { prompt: "find active users" },
@@ -1549,17 +1591,10 @@ describe("runEvalSuite runner creation", () => {
     });
 
     expect(suite.report.results[0]).toMatchObject({
-      status: "passed",
-      usage: {
-        inputTokens: 4,
-        outputTokens: 2,
-        cacheReadTokens: 0,
-        cacheWriteTokens: 0,
-        model: "fake-model",
-        llmCalls: 1,
-        usageReported: true,
-      },
+      status: "failed",
+      error: "Production chat eval adapter returned malformed usage.",
     });
+    expect(suite.report.results[0].usage).toBeUndefined();
     expect(JSON.stringify(suite.report)).not.toContain(
       "untrusted adapter field",
     );
@@ -1598,7 +1633,7 @@ describe("runEvalSuite runner creation", () => {
 
     expect(suite.report.results[0]).toMatchObject({
       status: "failed",
-      error: "Production chat eval adapter did not return or report usage.",
+      error: "Production chat eval adapter returned malformed usage.",
     });
     expect(suite.report.results[0].usage).toBeUndefined();
   });
@@ -1648,7 +1683,7 @@ describe("runEvalSuite runner creation", () => {
 
     expect(suite.report.results[0]).toMatchObject({
       status: "failed",
-      error: "Production chat eval adapter did not return or report usage.",
+      error: "Production chat eval adapter returned malformed usage.",
     });
     expect(suite.report.results[0].usage).toBeUndefined();
     expect(JSON.stringify(suite.report)).not.toContain("customer@example.com");
@@ -1743,7 +1778,7 @@ describe("runEvalSuite runner creation", () => {
 
     expect(suite.report.results[0]).toMatchObject({
       status: "failed",
-      error: "Production agent run failed before usage was captured.",
+      error: "Production chat eval adapter returned malformed usage.",
     });
     expect(suite.report.results[0].usage).toBeUndefined();
     expect(JSON.stringify(suite.report)).not.toContain("adapter-secret");
@@ -1755,7 +1790,7 @@ describe("runEvalSuite runner creation", () => {
     );
   });
 
-  it("uses observed counts instead of unreported adapter placeholders", async () => {
+  it("rejects explicitly unreported final usage despite observed partial usage", async () => {
     const evalCase = defineEval({
       name: "unreported-production-adapter-usage",
       input: { prompt: "find active users" },
@@ -1791,14 +1826,10 @@ describe("runEvalSuite runner creation", () => {
     });
 
     expect(suite.report.results[0]).toMatchObject({
-      status: "passed",
-      usage: {
-        inputTokens: 4,
-        outputTokens: 2,
-        usageReported: true,
-        model: "fake-model",
-      },
+      status: "failed",
+      error: "Production chat eval adapter returned unreported usage.",
     });
+    expect(suite.report.results[0].usage).toBeUndefined();
   });
 
   it("does not report unflagged adapter usage without an observed usage event", async () => {
