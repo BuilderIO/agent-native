@@ -81,7 +81,6 @@ async function startHostServer(): Promise<ViteDevServer> {
 <button id="route-nonce-spoof-click" type="button">Try nonce-only link request</button>
 <script>
   window.__routeWindowCaptureCount = 0;
-  window.__routeNonceObserved = false;
   window.__routeNonceSpoofReady = false;
   window.__routeFrameNameObserved = window.name;
   window.__routeNavigationName = performance.getEntriesByType("navigation")[0]?.name ?? "";
@@ -91,32 +90,26 @@ async function startHostServer(): Promise<ViteDevServer> {
       event.stopImmediatePropagation();
     }
   }, true);
-  var navigationEntry = performance.getEntriesByType("navigation")[0];
-  var nonceMatch = navigationEntry && /__agent_native_link_nonce=([0-9a-f]{48})/.exec(navigationEntry.name);
-  if (nonceMatch) {
-    window.__routeNonceObserved = true;
-    var spoofChannel = new MessageChannel();
-    window.__routeNonceSpoofPort = spoofChannel.port1;
-    spoofChannel.port1.addEventListener("message", function(event) {
-      if (event.data && event.data.type === "agent-native-extension.link-channel-ready") {
-        window.__routeNonceSpoofReady = true;
-        spoofChannel.port1.postMessage({ type: "agent-native-extension.link-channel-ready-ack" });
-      }
-    });
-    spoofChannel.port1.start();
-    window.parent.postMessage({
-      type: "agent-native-extension.hello-link-channel",
-      nonce: nonceMatch[1]
-    }, "*", [spoofChannel.port2]);
-    document.getElementById("route-nonce-spoof-click").addEventListener("click", function() {
-      try {
-        spoofChannel.port1.postMessage({
-          type: "agent-native-extension.open-external-link",
-          href: "https://external.example.test/forged-navigation-nonce"
-        });
-      } catch {}
-    });
-  }
+  var spoofChannel = new MessageChannel();
+  spoofChannel.port1.addEventListener("message", function(event) {
+    if (event.data && event.data.type === "agent-native-extension.link-channel-ready") {
+      window.__routeNonceSpoofReady = true;
+      spoofChannel.port1.postMessage({ type: "agent-native-extension.link-channel-ready-ack" });
+    }
+  });
+  spoofChannel.port1.start();
+  window.parent.postMessage({
+    type: "agent-native-extension.hello-link-channel",
+    nonce: "a".repeat(48)
+  }, "*", [spoofChannel.port2]);
+  document.getElementById("route-nonce-spoof-click").addEventListener("click", function() {
+    try {
+      spoofChannel.port1.postMessage({
+        type: "agent-native-extension.open-external-link",
+        href: "https://external.example.test/forged-navigation-nonce"
+      });
+    } catch {}
+  });
 </script>
 <form action="/__extension-e2e-route"><button id="route-external-form" type="submit" formaction="https://external.example.test/form-submit">Submit external form</button></form>`,
                 ":root{}",
@@ -537,10 +530,24 @@ describe("AgentNativeExtensionFrame browser links", () => {
 
     try {
       await page.goto(serverUrl(server));
-      await page.waitForFunction(
-        () => window.__extensionRouteLinkReadyCount === 1,
-        { timeout: 10_000 },
-      );
+      await page
+        .waitForFunction(
+          () => window.__extensionRouteLinkReadyCount === 1,
+          undefined,
+          { timeout: 10_000 },
+        )
+        .catch((error) => {
+          throw new Error(
+            [
+              error instanceof Error ? error.message : String(error),
+              ...logs,
+              `frames: ${page
+                .frames()
+                .map((frame) => frame.url())
+                .join(", ")}`,
+            ].join("\n"),
+          );
+        });
       const initialRouteFrame = page
         .frames()
         .find((frame) => frame.url().includes("/__extension-e2e-route"));
@@ -556,7 +563,9 @@ describe("AgentNativeExtensionFrame browser links", () => {
         frameName: window.name,
         observedFrameName: (window as any).__routeFrameNameObserved,
         navigationName: (window as any).__routeNavigationName,
-        nonceObserved: (window as any).__routeNonceObserved,
+        nonceObserved: /__agent_native_link_nonce/.test(
+          (window as any).__routeNavigationName,
+        ),
         spoofReady: (window as any).__routeNonceSpoofReady,
       }));
       expect(nonceExposure.frameName).toBe("");
