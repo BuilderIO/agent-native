@@ -2827,6 +2827,47 @@ function testInfoAliases(
             continue;
           }
           if (!ts.isIdentifier(element.name)) {
+            if (ts.isObjectBindingPattern(element.name)) {
+              const sourceValue = unwrapExpression(source, ts);
+              const sourceContainer = containerForExpression(sourceValue);
+              for (const nestedElement of element.name.elements) {
+                if (!ts.isBindingElement(nestedElement)) continue;
+                if (!ts.isIdentifier(nestedElement.name)) {
+                  bindName(nestedElement.name, scope, mutable);
+                  continue;
+                }
+                const propertyName =
+                  nestedElement.propertyName ?? nestedElement.name;
+                const key =
+                  ts.isIdentifier(propertyName) ||
+                  ts.isStringLiteral(propertyName) ||
+                  ts.isNoSubstitutionTemplateLiteral(propertyName)
+                    ? propertyName.text
+                    : undefined;
+                const nestedSource =
+                  key && sourceContainer
+                    ? containerValue(sourceContainer, key)
+                    : undefined;
+                if (!nestedSource) {
+                  bindName(nestedElement.name, scope, mutable);
+                  continue;
+                }
+                const value = unwrapExpression(nestedSource, ts);
+                const testInfoCall =
+                  ts.isCallExpression(value) &&
+                  aliases.resolve(value.expression).join(".") === "test.info";
+                bind(
+                  scope,
+                  nestedElement.name,
+                  ts.isIdentifier(value) ? value : undefined,
+                  mutable,
+                  testInfoCall,
+                  undefined,
+                  literalContainer(value),
+                );
+              }
+              continue;
+            }
             bindName(element.name, scope, mutable);
             continue;
           }

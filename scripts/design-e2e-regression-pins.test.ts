@@ -1692,6 +1692,15 @@ test("TestInfo authority stays ambiguous through literal destructuring", () => {
       ].join("\n"),
     ],
     [
+      "TestInfo nested array-object destructuring",
+      [
+        'test("pin", ({}, testInfo) => {',
+        "  const [{ info }] = [{ info: testInfo }];",
+        '  info.skip(true, "hidden");',
+        "});",
+      ].join("\n"),
+    ],
+    [
       "TestInfo object for-of destructuring",
       [
         'test("pin", ({}, testInfo) => {',
