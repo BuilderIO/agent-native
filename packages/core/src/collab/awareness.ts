@@ -31,6 +31,11 @@ export interface AwarenessChangeEvent {
   type: "awareness-change";
   docId: string;
   states: Array<{ clientId: number; state: string }>;
+  /**
+   * When the server read `states`. Events and presence answers reach a client
+   * on separate connections, so it orders them by this.
+   */
+  at: number;
   owner?: string;
   orgId?: string;
   resourceType?: string;
@@ -100,10 +105,19 @@ export function rememberAwarenessScope(
   pruneAwarenessScopes(now);
 }
 
+/**
+ * When a presence list is read. Monotonic, so a server clock stepping back
+ * cannot order a newer list before an older one.
+ */
+function awarenessListTime(): number {
+  return performance.timeOrigin + performance.now();
+}
+
 export function emitAwarenessChange(
   docId: string,
   states: Array<{ clientId: number; state: string }>,
   scope?: AwarenessScope,
+  at: number = awarenessListTime(),
 ): void {
   rememberAwarenessScope(docId, scope);
   pruneAwarenessScopes(Date.now());
@@ -113,6 +127,7 @@ export function emitAwarenessChange(
     type: "awareness-change",
     docId,
     states,
+    at,
     ...(resolvedScope.owner && { owner: resolvedScope.owner }),
     ...(resolvedScope.orgId && { orgId: resolvedScope.orgId }),
     ...(resolvedScope.resourceType && {
@@ -435,6 +450,7 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
   cleanExpired(map);
   pruneIfEmpty(docId, map);
 
+  const at = awarenessListTime();
   const allStates: Array<{ clientId: number; state: string }> = [];
   const otherStates: Array<{ clientId: number; state: string }> = [];
   for (const [id, entry] of map) {
@@ -451,9 +467,10 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
       ...(session?.email ? { owner: session.email } : {}),
       ...(session?.orgId ? { orgId: session.orgId } : {}),
     },
+    at,
   );
 
-  return { states: otherStates };
+  return { states: otherStates, at };
 });
 
 export const getActiveUsers = defineEventHandler(async (event: H3Event) => {

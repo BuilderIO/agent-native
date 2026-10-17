@@ -199,6 +199,35 @@ describe("postAwareness handler", () => {
     expect(res.states).toEqual([{ clientId: 99, state: "other-state" }]);
   });
 
+  it("stamps its answer and its event with when it read the list", async () => {
+    const events: Array<{ docId: string; at: number }> = [];
+    const listener = (change: { docId: string; at: number }) => {
+      if (change.docId === "post-stamped-doc") events.push(change);
+    };
+    getAwarenessEmitter().on("awareness-change", listener);
+    const answers: Array<{ at: number }> = [];
+    try {
+      for (const clientId of [5, 6]) {
+        mockReadBody.mockResolvedValue({
+          clientId,
+          state: JSON.stringify({ user: { name: "Me" } }),
+        });
+        answers.push(
+          (await postAwareness(event({ docId: "post-stamped-doc" }))) as {
+            at: number;
+          },
+        );
+      }
+    } finally {
+      getAwarenessEmitter().off("awareness-change", listener);
+    }
+
+    expect(events.map((change) => change.at)).toEqual(
+      answers.map((answer) => answer.at),
+    );
+    expect(answers[1]!.at).toBeGreaterThan(answers[0]!.at);
+  });
+
   it("refuses an editor's state that is not a JSON object", async () => {
     const map = getDocAwareness("writer-unreadable-doc");
     for (const state of ["{broken", "null", "[]", "7"]) {
