@@ -30,12 +30,12 @@ surface is the contract:
    locally and hosted behavior is needed. Record why. These checks support
    **Shipped**/**Live verified**, not a merged **Fixed** claim.
 5. Record untested layers. Before merge, label a directly proven scope
-   **Verified locally** and add `✅`; keep `👀` while that merge or another
-   report scope/follow-up remains open. The marks can coexist: `✅` records the
-   verified scope, while `👀` records the open commitment. Never delay `✅` just
-   because the PR is open. After the fix is merged and its behavior has direct
-   post-change proof, mark that scope **Fixed**/`✅` even if release/live layers
-   remain. Remove your `👀` when every report scope and follow-up is closed.
+   **Verified locally** and add `✅`. The marks can coexist: `✅` records the
+   verified scope, while `👀` is permanent workflow history and does not say
+   whether work remains open. Never delay `✅` just because the PR is open.
+   After the fix is merged and its behavior has direct post-change proof, mark
+   that scope **Fixed**/`✅` even if release/live layers remain. Preserve all
+   reactions when every report scope and follow-up is closed.
    Routine rollout and optional beta checks aren't
    ticketed follow-ups. **Shipped**/**Live verified** need their own
    release/runtime evidence.

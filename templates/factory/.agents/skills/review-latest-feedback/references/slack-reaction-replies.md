@@ -1,20 +1,22 @@
 # Slack Reaction Replies
 
-At sweep exit, reconcile every report root in the scoped inventory that has this
-task's `👀`, including eyes left by earlier runs. Capture the exact Slack actor
-ID used by the connected tool at sweep start. Treat an eye as owned by this
-task only when its reaction owner ID matches that actor ID. Each owned eye
-needs a current disposition and a matching status reply by that same actor
-under that same parent. A same-run fix gets its final reply after verification;
-continuing work gets a concrete progress reply. An earlier generic “taking a
-look” does not satisfy this update. If an existing reply already names the
-exact canonical disposition label and includes its recorded evidence verbatim,
-read it back and record its timestamp and author ID instead of duplicating it.
-Do not accept a vague or negated substring such as `Not fixed` as the `Fixed`
-label; reject the whole reply if a `Fixed` label is later contradicted by a
-claim that the scope remains not fixed, unfixed, or broken. Use `Partially
-fixed` while any distinct handoff remains unfinished.
-This is one current status reply per owned eye, not a reply on every sweep.
+At sweep exit, reconcile every report root in the scoped inventory that has
+this task's `👀`, `✅`, or `🎫`, including marks left by earlier runs. Capture
+the exact Slack actor ID used by the connected tool at sweep start. A mark is
+owned by this task only when its reaction owner ID matches that actor ID. Each
+owned root needs a current disposition and a matching status reply by that same
+actor under that same parent, even when the root has only `✅` or `🎫`. A
+same-run fix gets its final reply after verification; continuing work gets a
+concrete progress reply. An earlier generic “taking a look” does not satisfy
+this update. If an existing reply already names the exact canonical disposition
+label and includes its recorded evidence verbatim, read it back and record its
+timestamp and author ID instead of duplicating it. Do not accept a vague or
+negated substring such as `Not fixed` as the `Fixed` label; reject the whole
+reply if a `Fixed` label is later contradicted by a claim that the scope remains
+not fixed, unfixed, or broken. Use `Partially fixed` while any distinct scope
+or accepted handoff remains unfinished. A completed handoff is retained
+history, not an open follow-up.
+This is one current status reply per owned root, not a reply on every sweep.
 Reuse the existing same-actor reply while its disposition and evidence remain
 current; send an update when either materially changes. For a recent
 unanswered reporter question, reuse the existing same-actor question/update as
@@ -22,7 +24,7 @@ the status reply when it states the disposition and evidence. If it does not,
 post at most one concise status update that points to the existing unanswered
 question without asking it again; then wait silently. Do not send another
 question or progress ping before the four-day rule below. When a disposition
-includes a human handoff, the status reply must name every handoff's recorded
+includes human handoffs, the status reply must name each handoff's recorded
 owner and action; include its scope when the report context does not make it
 clear.
 
@@ -54,14 +56,16 @@ blocker instead of treating the reply text as a substitute.
 
 Channel reads may expose a thread reply as a separate row. Resolve its
 `thread_ts` or permalink and inventory it as a reply to the root, not as a new
-report. Put reactions for an ordinary report on its root; do not add another
-`👀` to a reply just because it appears as a channel row. If an earlier run put
-this task's mark on a reply by mistake, remove only that mark from the reply,
-read the reply's reactions back, and reconcile the actual root separately. A
-reply that raises a genuinely distinct issue may be tracked as its own source
-row with a separate disposition, but it still belongs to its actual root
-thread. Record both the source message timestamp and root thread timestamp; if
-the connector hides `thread_ts`, resolve the permalink before recording it.
+report. Put new reactions for an ordinary report on its root; do not add another
+`👀` to a reply just because it appears as a channel row. Preserve any legacy
+reaction already on a reply, read it back, and reconcile the actual root
+separately. A reply that raises a genuinely distinct issue stays in the source
+manifest as a reply row, but scope, disposition, handoff, and checkoff evidence
+belong to the actual root row. Record the distinct issue as a separate scope on
+that root and verify it independently. Do not invent a second root or put a
+root checkoff on the reply. Record both the source message timestamp and root
+thread timestamp; if the connector hides `thread_ts`, resolve the permalink
+before recording it.
 
 The parent inventory must retain the reaction-owner IDs and the same-parent
 reply timestamp, author ID, disposition, evidence, and read-back text for every
@@ -86,9 +90,9 @@ slack_search: "this was sent from a bot." in:<#CHANNEL>
 Also scan channel messages from the saved reply cursor; on the first run, scan
 available history. Since `after:` is date-only, start one day before the cursor,
 exhaust pages, resolve hits to their root, and advance the cursor only through
-processed messages. Read inherited threads with this actor's eye even when they
-also have `✅`: it closes only its verified scope, not a newer reporter answer
-or another open scope. Skip other actors' marks unless explicitly handed off.
+processed messages. Read inherited threads carrying any of this actor's root marks (`👀`, `✅`,
+or `🎫`): a checkmark closes only its verified scope, not a newer reporter
+answer or another open scope. Do not reply or react on another actor's root when work is handed off for investigation; that handoff permits local investigation only. A separate explicit authorization is required to post a status or reporter reply there.
 
 Count an answer only when a human posts after the question, without this
 workflow's disclosure, and the reply addresses it. Read the full thread to
@@ -105,29 +109,31 @@ End every new or edited Slack reply with the exact sentence
 `this was sent from a bot.`. A connector-added `Sent using ChatGPT` footer is
 not a substitute.
 
-Use reactions as current status, not permanent claim history. At the root,
-`👀` marks this workflow's open claim, `✅` marks one or more named scopes that
-passed direct post-change proof, and `🎫` marks an accepted handoff to a named
-human. The single root `✅` covers the verified scopes listed in
-`fixedScopes[]`. A partial fix can show both `👀` and `✅`. For every `👀` this
-workflow owns, post a current status in that
-root's thread; unclaimed items and another actor's eyes are not ours to reply
-to. Reconcile each report as one unit: send or verify its current same-thread
-status reply, then immediately update and read back the applicable reactions
-before advancing to the next report. Add `✅` as soon as any reported scope
-passes the direct post-change proof bar, including before merge; use
+Reactions are permanent history and do not replace the current disposition or
+status reply. At the root, `👀` records this workflow's claim, `✅` marks one or
+more named scopes that passed direct post-change proof, and `🎫` marks accepted
+handoffs to named humans. The eye alone does not mean work remains open. One
+root `✅` covers every verified scope listed in `fixedScopes[]`; one root `🎫`
+covers every accepted action listed in `handoffs[]`, including actions marked
+`completed`. Completion evidence changes its status, not the historical ticket
+mark. For every root carrying any
+of this actor's marks, post or reuse a current status in that root's thread;
+unclaimed items and another actor's marks are not ours to reply to. Reconcile
+each report as one unit: send or verify its current same-thread status reply,
+then immediately update and read back each applicable root reaction before
+advancing to the next report. Add `✅` as soon as any reported scope passes the
+direct post-change proof bar, including before merge; use
 **Partially fixed** for the overall disposition when another scope remains,
 and describe both scopes separately in the reply. Do not wait for an entire
 multi-symptom report to be resolved before checking off its verified scope.
-Keep your own `👀` while any report scope or follow-up remains open. After all
-scopes and follow-ups close, post the final status, remove only your own eye,
-and read back the final reply and reactions. An eye is not kept as claim
-history after work closes. If the connector cannot remove it, use Slack UI; if
-that is also unavailable, record the exact blocker and leave the reaction
-unreconciled. An open PR can earn `✅` as soon as the relevant
+Keep all existing reactions after scopes close. Post the final disposition and
+read back the final reply and reactions; the status shows closure while the
+eye remains as history. Never remove or clean up any reaction. An open PR can
+earn `✅` as soon as the relevant
 `verifying-changes` proof bar passes. During that period, `✅` marks the
-verified scope and `👀` remains for the open merge or another unresolved
-scope/follow-up; the marks are independent. For UI behavior, a focused
+verified scope and `👀` may remain whether or not another scope or merge is
+open; the marks are independent. The current disposition says what remains.
+For UI behavior, a focused
 regression qualifies only if it exercises the changed component and asserts the
 reported visible result or persisted state; callback-only assertions, mocked
 children, class-name checks, and source inspection do not. For clipping,
@@ -136,10 +142,37 @@ viewport or replay the flow in the running app. Use an app/preview replay when
 the regression does not meet that bar. For non-UI scopes, use the area-specific
 action, query, or test proof. Say that merge or rollout is still pending; the
 checkmark records the verified scope and does not claim it is shipped or live.
+Before leaving each report, compare verified scopes and accepted handoffs with
+a fresh root-reaction read. Ensure one `✅` is present when any scope passed the
+proof bar and one `🎫` whenever any distinct action has a named human
+acceptance, even after that action is complete; read back each changed root
+reaction and verify its owner. If either mark does
+not apply, the current reply must say why. Emoji text in a reply is not a
+reaction. Preserve every existing reaction. If later proof invalidates a prior
+checkmark, move that scope out of active `fixedScopes[]` and add a
+`historicalReactionMarks[]` entry with `emoji`, `scope`, `reason`, and the exact
+prior `previousStatus`; the current status and reaction decision must explain
+why the retained mark is historical. If the owner withdraws an accepted ticketed
+action, also preserve the exact earlier accepted `handoff` and owner
+`withdrawalReply`, move it out of current `handoffs[]`, and explain the history
+in the current status. The checker validates these records against the captured
+thread; never remove or clean up a reaction.
 Add `🎫` only after a different named human accepts a specific unfinished
-action in the source thread. An unambiguous contextual “yes”/“sure” may accept a
-preceding direct request when it names the human and exact action; record both
+action in the source thread. Keep that accepted action in `handoffs[]` with
+`status: "completed"` and recorded completion evidence when it is done; the
+ticket remains as history and no longer counts as an open blocker. Only a later
+owner withdrawal removes it from current handoffs and uses the historical-mark
+record. An unambiguous contextual “yes”/“sure” may accept a
+preceding direct request when it names the human and exact action. That request
+may ask whether the named person's TODO or PR already includes the action; a
+clear “yes, it's on my PR” with a stated next step such as “taking a look now”
+counts. Record both
 the request and acceptance reply, including timestamps and actor IDs. The
+human's explicit first-person commitment to the recorded action also counts,
+even without a preceding request (for example, “I'll test this today” or “I'll
+expand it to all apps”). Record that exact acceptance reply. Tentative language
+such as “I might test this” is not acceptance. Keep acceptance and refusal verbs
+covered by the inventory checker's self-tests.
 ticket covers only that requested action: do not infer a broader fix, PR, or
 delivery promise. A role assignment, generic team ping, ask without a reply, or
 ambiguous/hedged assent is not acceptance. A partial fix with a separately
@@ -147,8 +180,8 @@ accepted handoff can have both `✅` and `🎫`.
 Work that remains with this workflow is active, not a human handoff. An
 unanswered reporter request stays at `👀` without `🎫`. Link a ticket only if
 one already exists; do not create or promise one without authorization. If a
-human later refuses the accepted action, remove only your stale `🎫`, keep
-`👀`, and report the blocker.
+human later refuses the accepted action, preserve `🎫` as history and update
+the status with the refusal and blocker.
 
 Use the same connected Slack identity for reactions, replies, and read-back.
 Compare exact actor IDs returned for the reaction and reply; do not describe a
@@ -159,11 +192,10 @@ reactions. If the eye owner differs from the connected actor, or an actor ID
 cannot be verified, record the mismatch and leave the item visibly
 unreconciled for its owner. Do not claim that eye or create a duplicate reply
 under another actor.
-Never remove another person's reaction. Remove only this workflow's own `👀`,
-`✅`, or `🎫`, and only when its status rule no longer applies; read back the
-corrected state. If the connector cannot remove an own reaction, use Slack UI;
-if that is also unavailable, record the exact blocker and leave the report
-unreconciled.
+Never remove or clean up another person's or this workflow's reaction. When
+new evidence changes the meaning of an existing mark, preserve it and update
+the current disposition, status reply, and inventory. Read back every new
+reaction and status update.
 
 An unanswered request for a reporter-provided URL, access grant, or evidence is
 **Asked** or **Clarification needed**, not a separate human handoff. Keep `👀`
@@ -176,14 +208,20 @@ represent duplicate non-owner threads by permalink and **Clustered** in one
 owner-thread status. Do not react or reply in a non-owner thread unless a
 distinct question or update needs its own disposition; if it does, react and
 reply there as a separate item. If a duplicate is discovered after this run
-added `👀`, record its permalink in the owner's **Clustered** status. Remove
-only your own eye from the duplicate after its scope and follow-ups close; keep
-it while a distinct question or update remains open.
+added `👀`, record its permalink in the owner's **Clustered** status and keep
+the eye as history. Keep distinct scopes and their current disposition clear
+in the status reply.
 
 Compare each reported symptom with the evidence. State what is fixed and what
-is not. Use `✅` only for verified fixed scope. Use `🎫` only for each distinct
-unfinished scope accepted by a named human; link an existing ticket if there is
-one, and record the person's Slack ID, exact acceptance, and action. If nobody
+is not. Use one root `✅` when at least one fixed scope is verified; it covers every
+verified scope listed in `fixedScopes[]`, which the status must name with its
+proof. Use one root `🎫` whenever at least one distinct action has been accepted
+by a named human; it covers the accepted actions listed in `handoffs[]`,
+including completed actions whose evidence and `status: "completed"` remain in
+the ledger.
+Do not add duplicate copies of either reaction for additional scopes. Link an
+existing ticket if there is one, and record the person's Slack ID, exact
+acceptance, and action. If nobody
 has accepted, keep `👀` and state who still needs to act or what reporter input
 is needed, with no `🎫`. Do not create or promise a ticket without
 authorization. Never imply a partial fix resolved the whole report.
@@ -204,17 +242,21 @@ For every reply in each final full-thread snapshot, record a read-back of the
 workflow reactions on that reply. If the connector shows `👀`, `✅`, or `🎫`,
 call `slack_get_reactions` for the reply's own timestamp and record exact owner
 IDs for those workflow emoji; record `"none"` with `{}` when none appears and
-omit unrelated emoji. These reads are separate from the root read-back. The
-checker rejects any of this actor's workflow marks on a reply, so remove only
-this actor's misplaced reply mark and verify the reply again.
+omit unrelated emoji. These reads are separate from the root read-back. Do not
+add new workflow reactions to replies. Preserve any legacy reply-level mark and
+record its exact message timestamp and owner; then audit the report root
+independently. A reply mark never checks off the root scope, and the inventory
+checker requires the reply mark to be attributed without requiring it to be
+moved or removed.
 
 Read back the reaction and reply through the same connector, and verify their
 actor IDs match the recorded sweep identity before recording the item as
 replied. In the final recap, count marks by distinct report root and this
-actor's reaction-owner IDs: open `👀` claims, verified `✅` scopes, and
-`🎫` handoffs accepted by a named person. Explain why an open scope has no
-`✅` and why an unfinished action has no `🎫`; a low count is valid when no
-scope has passed verification or nobody has accepted a separate action. Do not
-balance reactions for appearance. Treat reaction text in a reply, another
-actor's mark, or a reply-row reaction as no substitute for the required root
-read-back.
+actor's reaction-owner IDs: historical `👀` marks, verified `✅` scopes, and
+`🎫` handoffs accepted by a named person. Count active/open dispositions from
+the latest status separately; an eye does not say whether work remains open.
+Explain why an open scope has no `✅` and why an unfinished action has no
+`🎫`; a low count is valid when no scope has passed verification or nobody has
+accepted a separate action. Do not balance reactions for appearance. Treat
+reaction text in a reply, another actor's mark, or a reply-row reaction as no
+substitute for the required root read-back.

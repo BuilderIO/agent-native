@@ -701,7 +701,7 @@ const FEEDBACK_EYES_REGEX_CASES = [
 ];
 
 const FEEDBACK_STATUS_REACTIONS_RE =
-  /(?=.*(?:\beyes?\b|👀))(?=.*(?:checkmark|check mark|✅))(?=.*(?:ticket(?: emoji)?|🎫))(?=.*(?:not fixed|don['’]?t fix|didn['’]?t fix|we didn['’]?t|unfixed|not addressed|opposite of (?:a )?checkmark))/is;
+  /(?=.*(?:\beyes?\b|\beyeballs?\b|👀))(?=.*(?:checkmark|check mark|checks? off|check off|✅))(?=.*(?:ticket(?: emoji)?|🎫|repl(?:y|ies)))((?=.*(?:not fixed|don['’]?t fix|didn['’]?t fix|we didn['’]?t|unfixed|not addressed|opposite of (?:a )?checkmark))|(?=.*(?:\bno\b|\bnot\b|\bmissing\b|\bwhy\b)))/is;
 const FEEDBACK_STATUS_REACTIONS_REGEX_CASES = [
   [true, "Keep 👀; use ✅ when fixed and 🎫 when not fixed."],
   [
@@ -711,6 +711,10 @@ const FEEDBACK_STATUS_REACTIONS_REGEX_CASES = [
   [
     true,
     "Keep 👀. Some things we fixed and some things we didn't; add ✅ and 🎫.",
+  ],
+  [
+    true,
+    "I see a lot of eyeballs but not a lot of checkmarks; why no checks, replies, or ticket emojis?",
   ],
   [false, "Keep 👀 and ✅ on fixed reports; ask about anything unfixed."],
   [false, "A ticket emoji is already on the issue."],
@@ -3245,6 +3249,15 @@ const FEEDBACK_CHANNEL_COVERAGE_REGEX_CASES = [
   [false, "The report artifact lists seven failed CI shards."],
   [false, "All channel pages were exhausted and every parent was inventoried."],
 ];
+const FEEDBACK_ATTACHMENT_COVERAGE_RE =
+  /\b(?:missed|skipped|ignored|overlooked|dropped|didn['’]?t\s+read|did\s+not\s+read)\b[^.!?\n]{0,100}\b(?:attachments?|screenshots?|images?|files?)\b|\b(?:attachment|file)[- ]only\s+(?:reply|message)\b[^.!?\n]{0,100}\b(?:treated|recorded|coerced|counted|handled|seen)\b[^.!?\n]{0,60}\b(?:empty|missing|absent|no|nothing)\b/i;
+const FEEDBACK_ATTACHMENT_COVERAGE_REGEX_CASES = [
+  [true, "The checker ignored the attachment-only reply and called it empty."],
+  [true, "You missed the screenshots in the thread."],
+  [true, "The file-only message was treated as missing evidence."],
+  [false, "I attached a screenshot to the report."],
+  [false, "Please inspect the image before reproducing the bug."],
+];
 
 if (process.argv.includes("--self-test")) {
   const failures = FEEDBACK_REGEX_CASES.filter(
@@ -3272,6 +3285,12 @@ if (process.argv.includes("--self-test")) {
     ...FEEDBACK_CHANNEL_COVERAGE_REGEX_CASES.filter(
       ([expected, message]) =>
         FEEDBACK_CHANNEL_COVERAGE_RE.test(message) !== expected,
+    ),
+  );
+  failures.push(
+    ...FEEDBACK_ATTACHMENT_COVERAGE_REGEX_CASES.filter(
+      ([expected, message]) =>
+        FEEDBACK_ATTACHMENT_COVERAGE_RE.test(message) !== expected,
     ),
   );
   const stressMessage = "reply and but ".repeat(7_000);
@@ -3837,7 +3856,7 @@ const PATTERNS = [
     key: "feedback-eyes-missed",
     label: "Had to demand correct 👀 ownership and release",
     fixedBy:
-      ".agents/skills/review-latest-feedback + address-feedback-with-replies (active ownership lifecycle, 2026-09-23)",
+      ".agents/skills/review-latest-feedback + feedback:inventory-check exact-root and owned-mark reconciliation (2026-10-16)",
     re: FEEDBACK_EYES_RE,
   },
   {
@@ -3845,7 +3864,7 @@ const PATTERNS = [
     label:
       "Had to ask for checkmark/ticket reactions matching feedback outcomes",
     fixedBy:
-      ".agents/skills/review-latest-feedback + feedback:inventory-check owned-eye reply/reaction assertions (2026-10-16)",
+      ".agents/skills/review-latest-feedback + feedback:inventory-check per-scope ✅, owned-mark, completed-handoff, and exact status checks (2026-10-16)",
     re: FEEDBACK_STATUS_REACTIONS_RE,
   },
   {
@@ -3880,8 +3899,15 @@ const PATTERNS = [
     key: "feedback-channel-coverage",
     label: "Had to ask for feedback-channel or parent-report coverage",
     fixedBy:
-      "feedback:inventory-check per-parent pagination and owned-eye reply/reaction assertions + review-latest-feedback ledger (2026-10-16)",
+      "feedback:inventory-check exhaustive scan-query, cursor, and parent-ownership assertions + review-latest-feedback ledger (2026-10-17)",
     re: FEEDBACK_CHANNEL_COVERAGE_RE,
+  },
+  {
+    key: "feedback-attachment-coverage",
+    label: "Had to ask the feedback sweep to preserve attachment-only evidence",
+    fixedBy:
+      "feedback:inventory-check thread attachment metadata + review-latest-feedback attachment inspection guidance (2026-10-16)",
+    re: FEEDBACK_ATTACHMENT_COVERAGE_RE,
   },
   {
     key: "feedback-release-coverage",
