@@ -151,6 +151,13 @@ describe("meeting transcription pause and resume", () => {
       pausedRunId,
     );
 
+    await act(async () => {
+      emitFinal(pausedRunId, "late paused engine final");
+      vi.setSystemTime(Date.now() + 1_501);
+      emitFinal(pausedRunId, "stale during long pause");
+      await settle();
+    });
+
     await dispatch("clips:recorder-resume");
     const resumedRunId = mocks.restartTranscriptionEngine.mock
       .calls[0][5] as number;
@@ -158,7 +165,7 @@ describe("meeting transcription pause and resume", () => {
     expect(resumedRunId).not.toBe(pausedRunId);
 
     await act(async () => {
-      emitFinal(pausedRunId, "late paused engine final");
+      emitFinal(pausedRunId, "stale after resume");
       emitFinal(resumedRunId, "after resume");
       await settle();
     });

@@ -86,13 +86,14 @@ function acceptsFinalTranscriptRun(
   activeRunId: number,
   settlingRunDeadlines: Map<number, number>,
   receivedAt: number,
+  activeRunPaused: boolean,
 ): boolean {
   for (const [settlingRunId, deadline] of settlingRunDeadlines) {
     if (deadline < receivedAt) settlingRunDeadlines.delete(settlingRunId);
   }
 
   return (
-    runId === activeRunId ||
+    (!activeRunPaused && runId === activeRunId) ||
     (typeof runId === "number" &&
       (settlingRunDeadlines.get(runId) ?? 0) >= receivedAt)
   );
@@ -397,6 +398,7 @@ export function useMeetingTranscription({
                 session.audioRunId,
                 session.settlingRunDeadlines,
                 Date.now(),
+                session.paused,
               )
             ) {
               return;
@@ -563,9 +565,9 @@ export function useMeetingTranscription({
                   return;
                 }
                 if (!sessionIsActive()) return;
+                session.paused = true;
                 await flushTranscript().catch(() => {});
                 if (!sessionIsActive()) return;
-                session.paused = true;
               } else {
                 let resumedAudio: {
                   engine: TranscriptionEngine;

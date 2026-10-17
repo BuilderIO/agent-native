@@ -3,4 +3,4 @@ type: fixed
 date: 2026-10-16
 ---
 
-Dictation now acknowledges repeat shortcuts, recovers cleanly from microphone errors, and preserves history when a save is retried.
+Dictation handles repeat shortcuts and microphone errors more clearly, preserves history on retry, and ignores stale transcript text after a long pause.

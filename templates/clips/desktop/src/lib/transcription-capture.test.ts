@@ -253,11 +253,14 @@ describe("local recording transcription", () => {
     emitFinal(firstRunId, "stale words");
     emitFinal(resumedRunId, "after resume");
 
-    const stopping = capture?.stop();
-    await vi.advanceTimersByTimeAsync(1_500);
-    const result = await stopping;
+    await capture?.pause();
+    emitFinal(resumedRunId, "late while paused");
+    vi.setSystemTime(Date.now() + 1_501);
+    emitFinal(resumedRunId, "stale during long pause");
+
+    const result = await capture?.stop();
     expect(result?.text).toBe(
-      "Me: before pause\n\nMe: late final\n\nMe: after resume",
+      "Me: before pause\n\nMe: late final\n\nMe: after resume\n\nMe: late while paused",
     );
   });
 

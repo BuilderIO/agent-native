@@ -390,7 +390,8 @@ export async function startTranscriptionCapture(
         const isSettlingRun =
           typeof event.runId === "number" &&
           (settlingRunDeadlines.get(event.runId) ?? 0) >= receivedAt;
-        if (disposed || (event.runId !== activeRunId && !isSettlingRun)) return;
+        const isActiveRun = !paused && event.runId === activeRunId;
+        if (disposed || (!isActiveRun && !isSettlingRun)) return;
         appendFinalTranscript(event, lines);
       }),
     );
