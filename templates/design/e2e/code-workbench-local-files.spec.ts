@@ -618,7 +618,9 @@ test("updates only the selected URL screen from the Screen inspector", async ({
     "inline",
   );
   await expect(
-    page.getByText("Preparing live editor...", { exact: true }),
+    page
+      .locator(`[data-screen-shell][data-frame-id="${screenId}"]`)
+      .getByText("Preparing live editor...", { exact: true }),
   ).toHaveCount(0);
   await expect(
     screenPreviewIframe.contentFrame().getByText("Local workbench fixture"),

@@ -75,8 +75,9 @@ owned root eye. Record an explicit decision for both `✅` and `🎫` on every o
 eye: `present` with its scope, or `none` with the reason no mark applies. Record
 verified fixed scopes with their proof and each distinct human handoff with its
 scope, owner, and action. In the framework repository, run
-`pnpm feedback:inventory-check -- .tmp/feedback-inventory.json` before the
-recap; a failed check means owned-eye reconciliation is incomplete. The checker
+`pnpm feedback:inventory-check -- .tmp/feedback-inventory.json .tmp/feedback-source-receipt.json .tmp/feedback-source-pages`
+before the recap; all three inputs are required and a failed check means source
+coverage or owned-eye reconciliation is incomplete. The checker
 does not authorize changing another actor's reactions or replies.
 
 ## Prior questions and reporter replies

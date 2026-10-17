@@ -51,6 +51,17 @@ state. Claims do not expire. Skip person-assigned threads and another task's
 marks; leave unclear ownership unclaimed. Use the invoking Slack actor for all
 reads, writes, and read-backs.
 
+Before recap, make an explicit queue of every report root carrying this
+actor's 👀, ✅, or 🎫 in the full inventory, including marks from earlier
+runs. Reconcile each root's latest human reply, current same-actor status,
+verified scopes, and exact root reactions. If any scope has direct
+post-change proof, add and read back the root ✅ even while its PR is open; if
+no scope qualifies, say why in the status. Add 🎫 only for a separate action
+accepted by a named person. Never let a high 👀 count hide an unchecked
+verified fix or an owned root without a current reply. The final inventory
+checker must validate the raw captured Slack pages as well as the receipt and
+disposition rows.
+
 Only Steve's `:mag:` and `:yes-party:` count (user `U0GCV21HC`). Search
 `hasmy::mag:` / `hasmy::yes-party:` when Steve invokes; otherwise inspect root
 reactions. Exhaust those search cursors. `:mag:` opts out and wins over

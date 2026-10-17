@@ -3899,7 +3899,7 @@ const PATTERNS = [
     key: "feedback-channel-coverage",
     label: "Had to ask for feedback-channel or parent-report coverage",
     fixedBy:
-      "feedback:inventory-check exhaustive scan-query, cursor, and parent-ownership assertions + review-latest-feedback ledger (2026-10-17)",
+      "feedback:inventory-check required independent source-receipt parity + review-latest-feedback channel-inventory procedure (2026-10-17)",
     re: FEEDBACK_CHANNEL_COVERAGE_RE,
   },
   {

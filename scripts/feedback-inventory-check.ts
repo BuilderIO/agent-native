@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 
 type Handoff = {
@@ -96,6 +97,10 @@ type Parent = {
   // Attachments on this source message, preserved from Slack's read-back.
   files?: SlackFileAttachment[];
   reactionChecked: boolean;
+  // Exact time of the latest root reaction read-back.
+  reactionReadAt?: string;
+  // Set only when this sweep changed a root reaction; read-back must follow it.
+  reactionWriteAt?: string;
   reactionSummary: string;
   reactionOwners: Record<string, string[]>;
   disposition: string;
@@ -146,6 +151,7 @@ type ThreadSnapshot = {
     // Slack reaction read-back for workflow marks only; unrelated emoji are omitted.
     workflowReactionSummary: string;
     workflowReactionOwners: Record<string, string[]>;
+    workflowReactionReadAt?: string;
   }>;
 };
 
@@ -158,6 +164,37 @@ type Page = {
   sourceTimestamps: string[];
   parents: Parent[];
 };
+
+type SourceReceiptPage = Omit<
+  Pick<
+    Page,
+    | "cursor"
+    | "nextCursor"
+    | "exhausted"
+    | "readAt"
+    | "messageCount"
+    | "sourceTimestamps"
+  >,
+  "readAt"
+> & { readAt: string };
+
+type SourceReceiptRow = { ts: string; root: string };
+
+type SourceReceiptChannel = {
+  channelId: string;
+  pages: SourceReceiptPage[];
+  rows: SourceReceiptRow[];
+};
+
+type SourceReceipt = {
+  channels: Record<string, SourceReceiptChannel>;
+};
+
+type RawSourcePageEvidence = SourceReceiptPage & {
+  rows: SourceReceiptRow[];
+};
+
+type RawSourcePages = Record<string, RawSourcePageEvidence[]>;
 
 type ChannelScanQuery = {
   tool: "slack_search_public";
@@ -316,6 +353,7 @@ function validateLegacyReplyReactionReadback(
   parent: Parent,
   snapshot: ThreadSnapshot | undefined,
   sweepActorId: string,
+  requireFreshReads: boolean,
 ): void {
   const sourceReactions = workflowReactionState(
     parent.reactionOwners,
@@ -334,6 +372,23 @@ function validateLegacyReplyReactionReadback(
     readback.workflowReactionSummary,
     readback.workflowReactionOwners,
   );
+  if (typeof readback.workflowReactionReadAt !== "string") {
+    throw new Error(
+      `${parentName}: retained reply workflow marks need a timestamped exact reaction read-back`,
+    );
+  }
+  if (requireFreshReads) {
+    const reactionReadAt = validateReadAt(
+      readback.workflowReactionReadAt,
+      `${parentName}.threadSnapshot reply ${parent.ts}.workflowReactionReadAt`,
+      "read the exact reply reactions again before recap",
+    );
+    if (reactionReadAt < Date.parse(snapshot!.readAt)) {
+      throw new Error(
+        `${parentName}: reply reaction read-back must follow its full-thread read`,
+      );
+    }
+  }
 
   const workflowOwners = (owners: Record<string, string[]>) =>
     Object.fromEntries(
@@ -516,6 +571,7 @@ function validateThreadSnapshotStructure(
   rootTs: string,
   snapshot: ThreadSnapshot | undefined,
   sweepActorId: string,
+  requireFreshReads = false,
 ): void {
   if (!snapshot) {
     throw new Error(
@@ -594,6 +650,34 @@ function validateThreadSnapshotStructure(
       reply.workflowReactionSummary,
       reply.workflowReactionOwners,
     );
+    const hasWorkflowReaction = ["eyes", "white_check_mark", "ticket"].some(
+      (emoji) => (reply.workflowReactionOwners[emoji]?.length ?? 0) > 0,
+    );
+    if (hasWorkflowReaction) {
+      const reactionReadAt = reply.workflowReactionReadAt;
+      const reactionReadTime =
+        typeof reactionReadAt === "string" ? Date.parse(reactionReadAt) : NaN;
+      if (
+        !Number.isFinite(reactionReadTime) ||
+        new Date(reactionReadTime).toISOString() !== reactionReadAt
+      ) {
+        throw new Error(
+          `${replyName}.workflowReactionReadAt must be an ISO timestamp`,
+        );
+      }
+      if (reactionReadTime < readAt) {
+        throw new Error(
+          `${replyName}: reaction read-back must follow the full-thread read`,
+        );
+      }
+      if (requireFreshReads) {
+        validateReadAt(
+          reply.workflowReactionReadAt,
+          `${replyName}.workflowReactionReadAt`,
+          "read the exact reply reactions again before recap",
+        );
+      }
+    }
     previousReplyTs = replyTs;
   }
   if (snapshot.replies.length > 0 && BigInt(readAt) < previousReplyTs / 1000n) {
@@ -1975,6 +2059,8 @@ function validateSupplementalRootAudit(
   parent: Parent,
   sweepActorId: string,
   threadSnapshot: ThreadSnapshot | undefined,
+  requireFreshReads: boolean,
+  finalPageReadAt: number | null,
 ): void {
   const parentName = `${channelName} supplemental root ${rootTs}`;
   validateSlackFiles(`${parentName}.files`, parent.files);
@@ -2010,6 +2096,20 @@ function validateSupplementalRootAudit(
   }
   if (parent.reactionChecked !== true) {
     throw new Error(`${parentName}: check reactions before triage`);
+  }
+  const reactionReadAt = validateRootReactionReadAt(
+    parentName,
+    parent,
+    requireFreshReads,
+  );
+  if (
+    requireFreshReads &&
+    finalPageReadAt !== null &&
+    reactionReadAt! < finalPageReadAt
+  ) {
+    throw new Error(
+      `${parentName}: root reaction read-back must follow the final channel page`,
+    );
   }
   if (
     typeof parent.disposition !== "string" ||
@@ -2084,6 +2184,7 @@ function validateSupplementalRootAudit(
       parent.ts,
       threadSnapshot,
       sweepActorId,
+      requireFreshReads,
     );
     validateDispositionScopes(
       parentName,
@@ -2298,7 +2399,11 @@ function validateSupplementalRootAudit(
 const MAX_READ_AGE_MS = 15 * 60 * 1000;
 const MAX_FUTURE_SKEW_MS = 60 * 1000;
 
-type ValidationOptions = { requireFreshReads?: boolean };
+type ValidationOptions = {
+  requireFreshReads?: boolean;
+  sourceReceipt?: SourceReceipt;
+  rawSourcePages?: RawSourcePages;
+};
 
 function validateReadAt(
   value: unknown,
@@ -2324,6 +2429,428 @@ function validateReadAt(
     );
   }
   return readAt;
+}
+
+function validateRootReactionReadAt(
+  parentName: string,
+  parent: Parent,
+  requireFreshReads: boolean,
+): number | undefined {
+  const reactionReadAt = parent.reactionReadAt;
+  const reactionWriteAt = parent.reactionWriteAt;
+  let reactionReadTime: number | undefined;
+  if (reactionReadAt !== undefined) {
+    if (typeof reactionReadAt !== "string") {
+      throw new Error(
+        `${parentName}: root reaction read-back time must be an ISO timestamp`,
+      );
+    }
+    reactionReadTime = Date.parse(reactionReadAt);
+    if (
+      !Number.isFinite(reactionReadTime) ||
+      new Date(reactionReadTime).toISOString() !== reactionReadAt
+    ) {
+      throw new Error(
+        `${parentName}: root reaction read-back time must be an ISO timestamp`,
+      );
+    }
+  } else if (requireFreshReads) {
+    throw new Error(
+      `${parentName}: record when the exact root reaction read-back completed`,
+    );
+  }
+
+  if (reactionWriteAt !== undefined) {
+    if (typeof reactionWriteAt !== "string") {
+      throw new Error(
+        `${parentName}: root reaction write time must be an ISO timestamp`,
+      );
+    }
+    const reactionWriteTime = Date.parse(reactionWriteAt);
+    if (
+      !Number.isFinite(reactionWriteTime) ||
+      new Date(reactionWriteTime).toISOString() !== reactionWriteAt
+    ) {
+      throw new Error(
+        `${parentName}: root reaction write time must be an ISO timestamp`,
+      );
+    }
+    if (
+      reactionReadTime === undefined ||
+      reactionReadTime < reactionWriteTime
+    ) {
+      throw new Error(
+        `${parentName}: root reaction read-back must follow the latest reaction write`,
+      );
+    }
+  }
+
+  if (requireFreshReads) {
+    reactionReadTime = validateReadAt(
+      reactionReadAt,
+      `${parentName}.reactionReadAt`,
+      "read the exact root reactions again before recap",
+    );
+  }
+  return reactionReadTime;
+}
+
+const sourceReceiptChannelNames = new Map([
+  ["C0C4U4XRT6X", "qa"],
+  ["C0ATH3CCZT4", "product"],
+  ["C0AJ5QV0J03", "dev"],
+]);
+
+function sourceReceiptChannelName(channelId: string, index: number): string {
+  return (
+    sourceReceiptChannelNames.get(channelId) ??
+    ["qa", "product", "dev"][index] ??
+    channelId
+  );
+}
+
+function readRawSourcePages(
+  directory: string,
+  inventory: Inventory,
+): RawSourcePages {
+  const expectedChannels = new Set(
+    inventory.channels.map((channel, index) =>
+      sourceReceiptChannelName(channel.channelId, index),
+    ),
+  );
+  const entries = readdirSync(directory);
+  const files = entries.filter((file) =>
+    /^rescan-feedback-[a-z0-9_-]+-\d+\.json$/i.test(file),
+  );
+  if (!files.length) {
+    throw new Error(`${directory}: no captured raw Slack search pages found`);
+  }
+  const unexpectedFiles = entries.filter(
+    (file) => !/^rescan-feedback-[a-z0-9_-]+-\d+\.json$/i.test(file),
+  );
+  if (unexpectedFiles.length) {
+    throw new Error(
+      `${directory}: unexpected files beside captured Slack pages: ${unexpectedFiles.join(", ")}`,
+    );
+  }
+
+  const filesByChannel = new Map<string, string[]>();
+  for (const file of files) {
+    const match = /^rescan-feedback-([a-z0-9_-]+)-(\d+)\.json$/i.exec(file);
+    const channelName = match?.[1];
+    if (!channelName || !expectedChannels.has(channelName)) {
+      throw new Error(
+        `${directory}/${file}: page is outside the inventory channels`,
+      );
+    }
+    const channelFiles = filesByChannel.get(channelName) ?? [];
+    channelFiles.push(file);
+    filesByChannel.set(channelName, channelFiles);
+  }
+
+  const result: RawSourcePages = {};
+  for (const [channelIndex, channel] of inventory.channels.entries()) {
+    const channelName = sourceReceiptChannelName(
+      channel.channelId,
+      channelIndex,
+    );
+    const channelFiles = filesByChannel.get(channelName) ?? [];
+    channelFiles.sort(
+      (left, right) =>
+        Number(left.match(/-(\d+)\.json$/)?.[1]) -
+        Number(right.match(/-(\d+)\.json$/)?.[1]),
+    );
+    result[channelName] = channelFiles.map((file, pageIndex) => {
+      const path = join(directory, file);
+      let saved: Record<string, unknown>;
+      try {
+        saved = JSON.parse(readFileSync(path, "utf8")) as Record<
+          string,
+          unknown
+        >;
+      } catch (error) {
+        throw new Error(
+          `${path}: could not read the captured Slack page: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+      if (saved.isError === true || typeof saved.raw !== "string") {
+        throw new Error(
+          `${path}: captured Slack page read failed or has no raw response`,
+        );
+      }
+      if (typeof saved.readAt !== "string") {
+        throw new Error(`${path}: captured Slack page must record readAt`);
+      }
+      let response: { results?: unknown; pagination_info?: unknown };
+      try {
+        response = JSON.parse(saved.raw) as {
+          results?: unknown;
+          pagination_info?: unknown;
+        };
+      } catch (error) {
+        throw new Error(
+          `${path}: raw Slack response is not JSON: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+      if (typeof response.results !== "string") {
+        throw new Error(`${path}: raw Slack response has no detailed results`);
+      }
+      const blocks = response.results
+        .split(/\n### Result \d+ of \d+\n/)
+        .slice(1);
+      const rows = blocks.map((block, rowIndex) => {
+        const messageName = `${path} result ${rowIndex + 1}`;
+        const ts = (block.match(/\nMessage_ts: ([0-9.]+)/) ?? [])[1];
+        const permalink = (block.match(/\nPermalink: \[link\]\(([^\n]+)\)/) ??
+          [])[1];
+        if (!ts || !permalink) {
+          throw new Error(
+            `${messageName}: source timestamp or permalink is missing`,
+          );
+        }
+        const timestamp = slackTimestamp(ts, `${messageName}.ts`);
+        let url: URL;
+        try {
+          url = new URL(permalink);
+        } catch {
+          throw new Error(`${messageName}: source permalink is invalid`);
+        }
+        const pathMatch = /^\/archives\/([^/]+)\/p(\d+)$/.exec(url.pathname);
+        if (
+          url.protocol !== "https:" ||
+          !url.hostname.endsWith(".slack.com") ||
+          !pathMatch ||
+          pathMatch[1] !== channel.channelId
+        ) {
+          throw new Error(
+            `${messageName}: permalink does not identify the inventoried channel`,
+          );
+        }
+        const permalinkTimestamp = `${pathMatch[2]!.slice(0, -6)}.${pathMatch[2]!.slice(-6)}`;
+        if (
+          slackTimestamp(permalinkTimestamp, `${messageName}.permalink`) !==
+          timestamp
+        ) {
+          throw new Error(
+            `${messageName}: permalink timestamp does not match the source message`,
+          );
+        }
+        const threadTimestamps = url.searchParams.getAll("thread_ts");
+        if (threadTimestamps.length > 1) {
+          throw new Error(
+            `${messageName}: permalink has multiple thread_ts values`,
+          );
+        }
+        const threadTs = threadTimestamps[0] ?? null;
+        if (threadTs !== null) {
+          const parentTimestamp = slackTimestamp(
+            threadTs,
+            `${messageName}.thread_ts`,
+          );
+          if (parentTimestamp > timestamp) {
+            throw new Error(
+              `${messageName}: thread_ts is newer than the source message`,
+            );
+          }
+        }
+        return { ts, root: threadTs ?? ts };
+      });
+      const nextCursor =
+        typeof response.pagination_info === "string"
+          ? ((response.pagination_info.match(/cursor `([^`]+)`/) ?? [])[1] ??
+            null)
+          : null;
+      const cursor = saved.cursor === undefined ? null : saved.cursor;
+      if (cursor !== null && typeof cursor !== "string") {
+        throw new Error(`${path}: request cursor must be a string or null`);
+      }
+      const sequence = Number(file.match(/-(\d+)\.json$/)?.[1]);
+      if (sequence !== pageIndex) {
+        throw new Error(
+          `${path}: source page files must be numbered contiguously from 00`,
+        );
+      }
+      return {
+        cursor,
+        nextCursor,
+        exhausted: nextCursor === null,
+        readAt: saved.readAt,
+        messageCount: rows.length,
+        sourceTimestamps: rows.map((row) => row.ts),
+        rows,
+      };
+    });
+  }
+  return result;
+}
+
+function validateSourceReceipt(
+  inventory: Inventory,
+  receipt: SourceReceipt,
+  requireFreshReads: boolean,
+  rawSourcePages: RawSourcePages | undefined,
+): void {
+  if (
+    !receipt ||
+    typeof receipt !== "object" ||
+    !receipt.channels ||
+    typeof receipt.channels !== "object" ||
+    Array.isArray(receipt.channels)
+  ) {
+    throw new Error("source receipt must contain a channels object");
+  }
+  if (!rawSourcePages) {
+    throw new Error(
+      "captured raw Slack source pages are required to validate the receipt",
+    );
+  }
+
+  const expectedChannelNames = inventory.channels.map((channel, index) =>
+    sourceReceiptChannelName(channel.channelId, index),
+  );
+  const actualChannelNames = Object.keys(receipt.channels);
+  if (
+    expectedChannelNames.length !== actualChannelNames.length ||
+    expectedChannelNames.some((name) => !actualChannelNames.includes(name))
+  ) {
+    throw new Error(
+      "source receipt channels must exactly match the inventoried channels",
+    );
+  }
+
+  for (const [channelIndex, channel] of inventory.channels.entries()) {
+    const name = sourceReceiptChannelName(channel.channelId, channelIndex);
+    const receiptChannel = receipt.channels[name];
+    if (!receiptChannel || typeof receiptChannel !== "object") {
+      throw new Error(`${name}: source receipt channel is missing`);
+    }
+    if (receiptChannel.channelId !== channel.channelId) {
+      throw new Error(
+        `${name}: source receipt channelId does not match the inventory`,
+      );
+    }
+    if (!Array.isArray(receiptChannel.pages)) {
+      throw new Error(`${name}: source receipt pages must be an array`);
+    }
+    if (receiptChannel.pages.length !== channel.pages.length) {
+      throw new Error(
+        `${name}: source receipt page count does not match the inventory`,
+      );
+    }
+    if (!Array.isArray(receiptChannel.rows)) {
+      throw new Error(`${name}: source receipt rows must be an array`);
+    }
+
+    for (const [pageIndex, page] of channel.pages.entries()) {
+      const receiptPage = receiptChannel.pages[pageIndex];
+      const pageName = `${name} source receipt page ${pageIndex + 1}`;
+      if (!receiptPage || typeof receiptPage !== "object") {
+        throw new Error(`${pageName} is missing`);
+      }
+      if (typeof receiptPage.readAt !== "string") {
+        throw new Error(`${pageName}.readAt must be an ISO timestamp`);
+      }
+      const receiptReadAt = Date.parse(receiptPage.readAt);
+      if (
+        !Number.isFinite(receiptReadAt) ||
+        new Date(receiptReadAt).toISOString() !== receiptPage.readAt
+      ) {
+        throw new Error(`${pageName}.readAt must be an ISO timestamp`);
+      }
+      if (requireFreshReads) {
+        validateReadAt(
+          receiptPage.readAt,
+          `${pageName}.readAt`,
+          "rerun the complete channel scan before recap",
+        );
+      }
+
+      for (const field of [
+        "cursor",
+        "nextCursor",
+        "exhausted",
+        "readAt",
+        "messageCount",
+        "sourceTimestamps",
+      ] as const) {
+        if (!isDeepStrictEqual(receiptPage[field], page[field])) {
+          throw new Error(
+            `${pageName}.${field} does not match the reviewed inventory; rebuild the inventory from the source receipt`,
+          );
+        }
+      }
+    }
+
+    const inventoryRows = channel.pages.flatMap((page) => page.parents);
+    const rawPages = rawSourcePages[name];
+    if (!Array.isArray(rawPages) || rawPages.length !== channel.pages.length) {
+      throw new Error(
+        `${name}: captured raw Slack page count does not match the inventory`,
+      );
+    }
+    const rawRows: SourceReceiptRow[] = [];
+    for (const [pageIndex, rawPage] of rawPages.entries()) {
+      const inventoryPage = channel.pages[pageIndex]!;
+      const receiptPage = receiptChannel.pages[pageIndex]!;
+      const pageName = `${name} raw Slack source page ${pageIndex + 1}`;
+      for (const field of [
+        "cursor",
+        "nextCursor",
+        "exhausted",
+        "readAt",
+        "messageCount",
+        "sourceTimestamps",
+      ] as const) {
+        if (
+          !isDeepStrictEqual(rawPage[field], inventoryPage[field]) ||
+          !isDeepStrictEqual(rawPage[field], receiptPage[field])
+        ) {
+          throw new Error(
+            `${pageName}.${field} does not match the captured source, receipt, and inventory`,
+          );
+        }
+      }
+      rawRows.push(...rawPage.rows);
+    }
+    if (!isDeepStrictEqual(rawRows, receiptChannel.rows)) {
+      throw new Error(
+        `${name}: raw Slack source rows do not match the independent source receipt`,
+      );
+    }
+    if (receiptChannel.rows.length !== inventoryRows.length) {
+      throw new Error(
+        `${name}: source receipt row count does not match the inventory`,
+      );
+    }
+    for (const [rowIndex, parent] of inventoryRows.entries()) {
+      const receiptRow = receiptChannel.rows[rowIndex];
+      if (
+        !receiptRow ||
+        typeof receiptRow.ts !== "string" ||
+        typeof receiptRow.root !== "string"
+      ) {
+        throw new Error(
+          `${name}: source receipt row ${rowIndex + 1} is invalid`,
+        );
+      }
+      slackTimestamp(
+        receiptRow.ts,
+        `${name} source receipt row ${rowIndex + 1}.ts`,
+      );
+      slackTimestamp(
+        receiptRow.root,
+        `${name} source receipt row ${rowIndex + 1}.root`,
+      );
+      if (
+        receiptRow.ts !== parent.ts ||
+        receiptRow.root !== parent.threadParentTs
+      ) {
+        throw new Error(
+          `${name}: source receipt row ${rowIndex + 1} timestamp/root does not match the reviewed inventory`,
+        );
+      }
+    }
+  }
 }
 
 function validateInventory(
@@ -2508,6 +3035,7 @@ function validateInventory(
         snapshot.rootTs,
         snapshot,
         inventory.sweepActorId,
+        options.requireFreshReads === true,
       );
       snapshotRootTimestamps.add(normalizedRootTs);
       threadSnapshots.set(snapshot.rootTs, snapshot);
@@ -2720,6 +3248,23 @@ function validateInventory(
         );
 
         const isRootMessage = timestamp === threadParentTimestamp;
+        if (isRootMessage) {
+          const reactionReadAt = validateRootReactionReadAt(
+            parentName,
+            parent,
+            options.requireFreshReads === true,
+          );
+          if (
+            options.requireFreshReads &&
+            finalPageReadAt !== null &&
+            reactionReadAt! < finalPageReadAt
+          ) {
+            throw new Error(
+              parentName +
+                ": root reaction read-back must follow the final channel page",
+            );
+          }
+        }
         const threadSnapshot = threadSnapshots.get(parent.threadParentTs);
         validateSourceFilesInSnapshot(parentName, parent, threadSnapshot);
         if (
@@ -2743,6 +3288,7 @@ function validateInventory(
             parent,
             threadSnapshot,
             inventory.sweepActorId,
+            options.requireFreshReads === true,
           );
         }
         const rootWorkflowState = rootReactionState;
@@ -3162,6 +3708,8 @@ function validateInventory(
         rootAudit,
         inventory.sweepActorId,
         threadSnapshots.get(rootAudit.ts),
+        options.requireFreshReads === true,
+        finalPageReadAt,
       );
     }
     if (auditedSupplementalRoots.size !== supplementalRoots.size) {
@@ -3386,6 +3934,15 @@ function validateInventory(
     );
   }
 
+  if (options.sourceReceipt) {
+    validateSourceReceipt(
+      inventory,
+      options.sourceReceipt,
+      options.requireFreshReads === true,
+      options.rawSourcePages,
+    );
+  }
+
   if (permalink !== null && !permalinkFound) {
     throw new Error(
       "The requested permalink timestamp is missing from the inventory",
@@ -3506,6 +4063,7 @@ if (args[0] === "--self-test" && args.length === 1) {
                 },
                 rootClassification: "report",
                 reactionChecked: true,
+                reactionReadAt: "2030-01-01T00:00:00.000Z",
                 reactionSummary: "white_check_mark (1): USWEEPER",
                 reactionOwners: { white_check_mark: ["USWEEPER"] },
                 disposition: "Fixed",
@@ -3907,6 +4465,7 @@ if (args[0] === "--self-test" && args.length === 1) {
             ...(sourceReply?.files?.length ? { files: sourceReply.files } : {}),
             workflowReactionSummary,
             workflowReactionOwners,
+            workflowReactionReadAt: parent.reactionReadAt,
           });
         }
         repliesByRoot.set(rootTs, replies);
@@ -3978,6 +4537,7 @@ if (args[0] === "--self-test" && args.length === 1) {
                   ...parent,
                   reactionSummary: "eyes (1): USWEEPER",
                   reactionOwners: { eyes: ["USWEEPER"] },
+                  reactionReadAt: "2030-01-01T00:00:00.000Z",
                 }
               : parent,
           ),
@@ -7199,6 +7759,7 @@ if (args[0] === "--self-test" && args.length === 1) {
                         workflowReactionOwners: {
                           white_check_mark: ["USWEEPER"],
                         },
+                        workflowReactionReadAt: "2030-01-01T00:00:01.000Z",
                       }
                     : reply,
                 ),
@@ -7237,6 +7798,7 @@ if (args[0] === "--self-test" && args.length === 1) {
                         ...reply,
                         workflowReactionSummary: "eyes (1): USWEEPER",
                         workflowReactionOwners: { eyes: ["USWEEPER"] },
+                        workflowReactionReadAt: "2030-01-01T00:00:01.000Z",
                       }
                     : reply,
                 ),
@@ -8258,7 +8820,19 @@ if (args[0] === "--self-test" && args.length === 1) {
         ...inventory,
         channels: inventory.channels.map((channel) => ({
           ...channel,
-          pages: channel.pages.map((page) => ({ ...page, readAt: pageReadAt })),
+          pages: channel.pages.map((page) => ({
+            ...page,
+            readAt: pageReadAt,
+            parents: page.parents.map((parent) =>
+              parent.ts === parent.threadParentTs
+                ? { ...parent, reactionReadAt: pageReadAt }
+                : parent,
+            ),
+          })),
+          threadRootAudits: channel.threadRootAudits?.map((parent) => ({
+            ...parent,
+            reactionReadAt: pageReadAt,
+          })),
           threadSnapshots: channel.threadSnapshots?.map((snapshot) => ({
             ...snapshot,
             readAt: snapshotReadAt,
@@ -8268,10 +8842,268 @@ if (args[0] === "--self-test" && args.length === 1) {
     };
     const freshPageReadAt = new Date(now - 30_000).toISOString();
     const freshSnapshotReadAt = new Date(now - 1_000).toISOString();
+    const reactionWriteAfterReadInventory = inventoryWithReadTimes(
+      freshPageReadAt,
+      freshSnapshotReadAt,
+    );
+    let reactionWriteCaseBuilt = false;
+    const reactionWriteAfterRead: Inventory = {
+      ...reactionWriteAfterReadInventory,
+      channels: reactionWriteAfterReadInventory.channels.map((channel) => ({
+        ...channel,
+        pages: channel.pages.map((page) => ({
+          ...page,
+          parents: page.parents.map((parent) => {
+            if (
+              !reactionWriteCaseBuilt &&
+              parent.ts === parent.threadParentTs
+            ) {
+              reactionWriteCaseBuilt = true;
+              return {
+                ...parent,
+                reactionWriteAt: new Date(now - 5_000).toISOString(),
+              };
+            }
+            return parent;
+          }),
+        })),
+      })),
+    };
+    if (!reactionWriteCaseBuilt) {
+      throw new Error("self-test fixture has no root reaction read-back");
+    }
     validateInventory(
       inventoryWithReadTimes(freshPageReadAt, freshSnapshotReadAt),
       { requireFreshReads: true },
     );
+    const sourceReceiptFor = (inventory: Inventory): SourceReceipt => ({
+      channels: Object.fromEntries(
+        inventory.channels.map((channel, channelIndex) => [
+          sourceReceiptChannelName(channel.channelId, channelIndex),
+          {
+            channelId: channel.channelId,
+            pages: channel.pages.map((page) => {
+              if (!page.readAt) {
+                throw new Error(
+                  "self-test receipt fixture needs a page read timestamp",
+                );
+              }
+              return {
+                cursor: page.cursor,
+                nextCursor: page.nextCursor,
+                exhausted: page.exhausted,
+                readAt: page.readAt,
+                messageCount: page.messageCount,
+                sourceTimestamps: [...page.sourceTimestamps],
+              };
+            }),
+            rows: channel.pages.flatMap((page) =>
+              page.parents.map((parent) => ({
+                ts: parent.ts,
+                root: parent.threadParentTs,
+              })),
+            ),
+          },
+        ]),
+      ),
+    });
+    const rawSourcePagesFor = (receipt: SourceReceipt): RawSourcePages =>
+      Object.fromEntries(
+        Object.entries(receipt.channels).map(([name, channel]) => {
+          let offset = 0;
+          const pages = channel.pages.map((page) => {
+            const rows = channel.rows.slice(offset, offset + page.messageCount);
+            offset += page.messageCount;
+            if (rows.length !== page.messageCount) {
+              throw new Error(
+                "self-test raw source fixture does not cover every page row",
+              );
+            }
+            return { ...page, rows };
+          });
+          if (offset !== channel.rows.length) {
+            throw new Error(
+              "self-test raw source fixture has unassigned source rows",
+            );
+          }
+          return [name, pages];
+        }),
+      ) as RawSourcePages;
+    const receiptFreshInventory = inventoryWithReadTimes(
+      freshPageReadAt,
+      freshSnapshotReadAt,
+    );
+    const completeSourceReceipt = sourceReceiptFor(receiptFreshInventory);
+    const completeRawSourcePages = rawSourcePagesFor(completeSourceReceipt);
+    validateInventory(receiptFreshInventory, {
+      requireFreshReads: true,
+      sourceReceipt: completeSourceReceipt,
+      rawSourcePages: completeRawSourcePages,
+    });
+
+    const pagedReceiptInventory: Inventory = {
+      ...receiptFreshInventory,
+      channels: receiptFreshInventory.channels.map((channel) => {
+        const page = channel.pages[0]!;
+        return {
+          ...channel,
+          pages: [
+            {
+              ...page,
+              cursor: null,
+              nextCursor: "next-page",
+              exhausted: false,
+              messageCount: 2,
+              sourceTimestamps: page.sourceTimestamps.slice(0, 2),
+              parents: page.parents.slice(0, 2),
+            },
+            {
+              cursor: "next-page",
+              nextCursor: null,
+              exhausted: true,
+              readAt: freshPageReadAt,
+              messageCount: page.messageCount - 2,
+              sourceTimestamps: page.sourceTimestamps.slice(2),
+              parents: page.parents.slice(2),
+            },
+          ],
+        };
+      }),
+    };
+    const pagedSourceReceipt = sourceReceiptFor(pagedReceiptInventory);
+    validateInventory(pagedReceiptInventory, {
+      requireFreshReads: true,
+      sourceReceipt: pagedSourceReceipt,
+      rawSourcePages: rawSourcePagesFor(pagedSourceReceipt),
+    });
+
+    const omitNewestRowInventory: Inventory = {
+      ...receiptFreshInventory,
+      channels: receiptFreshInventory.channels.map((channel) => ({
+        ...channel,
+        pages: channel.pages.map((page) => ({
+          ...page,
+          messageCount: page.messageCount - 1,
+          sourceTimestamps: page.sourceTimestamps.slice(1),
+          parents: page.parents.slice(1),
+        })),
+      })),
+    };
+    const omittedTailReceipt: SourceReceipt = {
+      channels: {
+        ...pagedSourceReceipt.channels,
+        qa: {
+          ...pagedSourceReceipt.channels.qa!,
+          pages: pagedSourceReceipt.channels.qa!.pages.slice(0, 1),
+        },
+      },
+    };
+    const tamperedTailReceipt: SourceReceipt = {
+      channels: {
+        ...pagedSourceReceipt.channels,
+        qa: {
+          ...pagedSourceReceipt.channels.qa!,
+          pages: pagedSourceReceipt.channels.qa!.pages.map((page, index) =>
+            index === 1 ? { ...page, nextCursor: "unexpected-page" } : page,
+          ),
+        },
+      },
+    };
+    const mismatchedRootReceipt: SourceReceipt = {
+      channels: {
+        ...completeSourceReceipt.channels,
+        qa: {
+          ...completeSourceReceipt.channels.qa!,
+          rows: completeSourceReceipt.channels.qa!.rows.map((row, index) =>
+            index === 0 ? { ...row, root: "12.000000" } : row,
+          ),
+        },
+      },
+    };
+    const omittedBothReceipt = sourceReceiptFor(omitNewestRowInventory);
+    const staleSourceReceipt: SourceReceipt = {
+      channels: {
+        ...completeSourceReceipt.channels,
+        qa: {
+          ...completeSourceReceipt.channels.qa!,
+          pages: completeSourceReceipt.channels.qa!.pages.map((page) => ({
+            ...page,
+            readAt: new Date(now - MAX_READ_AGE_MS - 1).toISOString(),
+          })),
+        },
+      },
+    };
+    const sourceReceiptFailures = [
+      {
+        name: "inventory omits a source row from its receipt",
+        inventory: omitNewestRowInventory,
+        receipt: completeSourceReceipt,
+        rawSourcePages: completeRawSourcePages,
+        diagnostic: "source receipt page 1.messageCount does not match",
+      },
+      {
+        name: "inventory and receipt both omit a captured source row",
+        inventory: omitNewestRowInventory,
+        receipt: omittedBothReceipt,
+        rawSourcePages: completeRawSourcePages,
+        diagnostic:
+          "does not match the captured source, receipt, and inventory",
+      },
+      {
+        name: "source receipt omits the tail page",
+        inventory: pagedReceiptInventory,
+        receipt: omittedTailReceipt,
+        rawSourcePages: rawSourcePagesFor(pagedSourceReceipt),
+        diagnostic: "source receipt page count does not match the inventory",
+      },
+      {
+        name: "source receipt tail cursor is tampered",
+        inventory: pagedReceiptInventory,
+        receipt: tamperedTailReceipt,
+        rawSourcePages: rawSourcePagesFor(tamperedTailReceipt),
+        diagnostic: "source receipt page 2.nextCursor does not match",
+      },
+      {
+        name: "source receipt root mapping differs",
+        inventory: receiptFreshInventory,
+        receipt: mismatchedRootReceipt,
+        rawSourcePages: rawSourcePagesFor(mismatchedRootReceipt),
+        diagnostic: "timestamp/root does not match the reviewed inventory",
+      },
+      {
+        name: "stale source receipt page read",
+        inventory: receiptFreshInventory,
+        receipt: staleSourceReceipt,
+        rawSourcePages: rawSourcePagesFor(staleSourceReceipt),
+        diagnostic:
+          "older than 15 minutes; rerun the complete channel scan before recap",
+      },
+    ];
+    for (const testCase of sourceReceiptFailures) {
+      try {
+        validateInventory(testCase.inventory, {
+          requireFreshReads: true,
+          sourceReceipt: testCase.receipt,
+          rawSourcePages: testCase.rawSourcePages,
+        });
+        throw new Error(`self-test failed to reject ${testCase.name}`);
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          error.message.startsWith("self-test failed")
+        ) {
+          throw error;
+        }
+        if (
+          !(error instanceof Error) ||
+          !error.message.includes(testCase.diagnostic)
+        ) {
+          throw new Error(
+            `self-test ${testCase.name} expected diagnostic containing "${testCase.diagnostic}"; received "${error instanceof Error ? error.message : String(error)}"`,
+          );
+        }
+      }
+    }
     const freshnessFailures = [
       {
         name: "stale channel page read",
@@ -8314,6 +9146,12 @@ if (args[0] === "--self-test" && args.length === 1) {
         diagnostic:
           "predates the final channel page; read the thread again after the channel scan",
       },
+      {
+        name: "root reaction read-back predates the latest write",
+        inventory: reactionWriteAfterRead,
+        diagnostic:
+          "root reaction read-back must follow the latest reaction write",
+      },
     ];
     for (const testCase of freshnessFailures) {
       try {
@@ -8337,7 +9175,7 @@ if (args[0] === "--self-test" && args.length === 1) {
       }
     }
     console.log(
-      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + 3} negative cases; 27 positive inventory cases; 6 handoff phrase cases).`,
+      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + 3} negative cases; 29 positive inventory cases; 6 handoff phrase cases).`,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -8348,16 +9186,31 @@ if (args[0] === "--self-test" && args.length === 1) {
 }
 
 const inputPath = args[0];
-if (!inputPath || args.length !== 1) {
+const sourceReceiptPath = args[1];
+const rawSourcePagesDirectory = args[2];
+if (
+  !inputPath ||
+  !sourceReceiptPath ||
+  !rawSourcePagesDirectory ||
+  args.length !== 3
+) {
   console.error(
-    "Usage: pnpm feedback:inventory-check -- .tmp/feedback-inventory.json",
+    "Usage: pnpm feedback:inventory-check -- .tmp/feedback-inventory.json .tmp/feedback-source-receipt.json .tmp/feedback-source-pages",
   );
   process.exit(2);
 }
 
 try {
   const inventory = JSON.parse(readFileSync(inputPath, "utf8")) as Inventory;
-  const summaries = validateInventory(inventory, { requireFreshReads: true });
+  const sourceReceipt = JSON.parse(
+    readFileSync(sourceReceiptPath, "utf8"),
+  ) as SourceReceipt;
+  const rawSourcePages = readRawSourcePages(rawSourcePagesDirectory, inventory);
+  const summaries = validateInventory(inventory, {
+    requireFreshReads: true,
+    sourceReceipt,
+    rawSourcePages,
+  });
   console.log(
     `Feedback inventory is complete through the requested cutoff.\n${summaries.join("\n")}`,
   );

@@ -45,6 +45,28 @@ place of Slack source messages.
   permalink or exact parent before counting, claiming, or replying. If neither
   the source row nor its permalink establishes the parent, leave it unresolved
   and do not count it as a report root.
+- A failed Slack page, thread, or reaction read is unknown data, never an empty
+  result. On HTTP 429, honor the returned `retry_after`, stop expanding the
+  read fan-out, and retry only the failed exact page/thread/reaction at low
+  concurrency. Record each failed target, exact error, and attempt time. Do not
+  write `none`, `no reactions`, or a complete thread snapshot after a failed
+  read. If any required source or final read remains failed, keep the inventory
+  incomplete and do not report coverage totals or a successful checker result;
+  retry the affected target and read it back before continuing.
+- Save `.tmp/feedback-source-receipt.json` independently from the disposition
+  inventory. Build it directly from each complete `slack_search_public`
+  response before transforming messages into inventory rows. For each channel,
+  record its `channelId`, every page in cursor order (`cursor`, `nextCursor`,
+  `exhausted`, immediate ISO `readAt`, full `messageCount`, and every
+  `sourceTimestamp`), and one `{ ts, root }` pair for every response message.
+  Resolve `root` from that response's exact `thread_ts` or canonical permalink;
+  preserve page-boundary duplicates in the same positions. Keep each complete
+  response under `.tmp/feedback-source-pages/` as
+  `rescan-feedback-qa-00.json`, `rescan-feedback-product-00.json`, and the
+  next contiguous page number. The checker reparses those raw Slack responses
+  and compares every message/root pair with both the receipt and inventory, so
+  omitting the same row from the latter two cannot pass. Never generate the
+  receipt by copying the inventory or change it to make a mismatch pass.
 - Save `.tmp/feedback-inventory.json` with `cutoffTs`, optional `permalinkTs`,
   the exact connector `sweepActorId`, and `channels`. Set `permalinkTs` when a
   supplied message anchors the scan. Each channel must include `channelId`,
@@ -204,8 +226,16 @@ place of Slack source messages.
   checker counts it as a page overlap, not as a second unique source message.
   Follow every returned cursor until Slack reports exhaustion. A page crossing
   the cutoff filters which messages count, but never ends the cursor chain.
-- Run `pnpm feedback:inventory-check -- .tmp/feedback-inventory.json` before
-  recapping. It rejects any root mark this actor owns without a current same-actor
+- Run `pnpm feedback:inventory-check -- .tmp/feedback-inventory.json .tmp/feedback-source-receipt.json .tmp/feedback-source-pages`
+  before recapping. The checker requires all three inputs and compares the
+  independent receipt's channel set, page chain, timestamps, message counts,
+  and every source `{ ts, root }` row with the reviewed inventory and raw Slack
+  responses. If it finds a mismatch,
+  rebuild the inventory from the captured Slack pages and rerun the check; never
+  edit the receipt to fit the inventory. Each receipt page must also be fresh
+  within the checker's 15-minute window, so repeat the complete channel scan and
+  required final thread/reaction reads before recap when that window expires.
+  It rejects any root mark this actor owns without a current same-actor
   status reply, a
   handoff without the named owner's explicit acceptance, a handoff reply
   omitting its scope/owner/action, a missing or
@@ -291,6 +321,13 @@ from reply text. New workflow reactions belong on the report root. If a legacy
 workflow reaction is already on a reply, preserve and inventory it as a reply
 mark, then audit the actual root separately; a reply mark does not check off a
 root scope.
+
+Record the completed exact reply reaction read time as
+`workflowReactionReadAt`. For every root, record the completed exact reaction
+read time as `reactionReadAt`; when this sweep writes a reaction, record
+`reactionWriteAt` so the checker can require a later read-back. The checker
+also requires each owned root reaction read and the full-thread reaction reads
+to follow the final channel page.
 
 The normal inventory check also requires every page and thread snapshot to have
 been read within the last 15 minutes, allows at most one minute of local clock
