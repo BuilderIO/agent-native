@@ -11,7 +11,7 @@
  * counts it. Unknown failures are never dropped — each rule names a specific,
  * positively identified class, and an error that matches none is reported.
  */
-import { isDynamicImportFailureMessage } from "../client/route-chunk-recovery.js";
+import { isDynamicImportFailureMessage } from "./dynamic-import-failure.js";
 
 export type ErrorNoiseSurface = "browser" | "server";
 

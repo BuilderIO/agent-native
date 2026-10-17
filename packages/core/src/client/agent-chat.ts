@@ -13,6 +13,7 @@ import {
   readClientAppState,
   writeClientAppState,
 } from "./application-state.js";
+import { hasBrowserEventTarget } from "./browser-runtime.js";
 import {
   isInBuilderFrame,
   isTrustedBuilderMessage,
@@ -243,7 +244,7 @@ function queueAgentChatContextPersistence<T>(
   return mutation;
 }
 
-if (typeof window !== "undefined") {
+if (hasBrowserEventTarget()) {
   window.addEventListener("message", (event) => {
     if (!isTrustedFrameMessage(event) && !isTrustedBuilderMessage(event)) {
       return;

@@ -11,7 +11,7 @@ const EXPO_APP_DELEGATE_ARCHIVE_PATH =
   "package/ios/HelloWorld/AppDelegate.swift";
 const expoTemplateArchive = require.resolve("expo/template.tgz");
 const expoSdk57AppDelegate = readFileSync(
-  new URL("./fixtures/expo-sdk-57.0.6/AppDelegate.swift", import.meta.url),
+  new URL("./fixtures/expo-sdk-57.0.29/AppDelegate.swift", import.meta.url),
   "utf8",
 );
 
@@ -27,7 +27,7 @@ describe("with-mobile-companion iOS template anchors", () => {
   it("keeps its fixture identical to the pinned Expo template archive", () => {
     expect(
       expoSdk57AppDelegate,
-      "Refresh plugins/fixtures/expo-sdk-57.0.6 from expo/template.tgz when upgrading Expo.",
+      "Refresh plugins/fixtures/expo-sdk-57.0.29 from expo/template.tgz when upgrading Expo.",
     ).toBe(readPinnedExpoAppDelegate());
   });
 

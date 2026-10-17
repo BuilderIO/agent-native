@@ -52,6 +52,7 @@ import {
   agentNativeApiDisabledReason,
   assertAgentNativeApiEnabled,
 } from "./api-surface.js";
+import { hasBrowserEventTarget } from "./browser-runtime.js";
 import { getBrowserTabId } from "./browser-tab-id.js";
 import {
   clientBuildId,
@@ -1060,7 +1061,7 @@ export function resolveActionQueryRetry(
   return Boolean(retry);
 }
 
-if (typeof window !== "undefined") {
+if (hasBrowserEventTarget()) {
   // A freshly connected provider invalidates "no provider" failures that would
   // otherwise stay paused.
   window.addEventListener(

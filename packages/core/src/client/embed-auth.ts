@@ -21,7 +21,7 @@ import {
   SIGN_IN_ENTRY_PATH,
   SIGN_IN_LEGACY_ENTRY_PATH,
 } from "../shared/sign-in-journey.js";
-import { frameworkRoutePrefix } from "./api-path.js";
+import { frameworkRoutePrefix } from "./framework-route-prefix.js";
 
 let installed = false;
 let memoryToken: string | null = null;

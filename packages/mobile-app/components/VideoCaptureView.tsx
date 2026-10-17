@@ -31,7 +31,6 @@ import {
   Pressable,
   Text,
   View,
-  type AppStateStatus,
 } from "react-native";
 
 import IOSBroadcastPicker from "@/components/IOSBroadcastPicker";
@@ -251,7 +250,7 @@ export function VideoCaptureView({
     null,
   );
   const [elapsedMs, setElapsedMs] = useState(0);
-  const [appState, setAppState] = useState<AppStateStatus>(
+  const [appState, setAppState] = useState<typeof AppState.currentState>(
     AppState.currentState,
   );
   const [message, setMessage] = useState<string | null>(null);

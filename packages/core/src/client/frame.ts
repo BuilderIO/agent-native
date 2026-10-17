@@ -2,6 +2,7 @@ import { toPublicFrameworkPath } from "../shared/framework-route-prefix.js";
 import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
 import { frameworkRoutePrefix, isFrameworkRoutePath } from "./api-path.js";
 import { agentNativePath } from "./api-path.js";
+import { hasBrowserEventTarget } from "./browser-runtime.js";
 
 export function sendToFrame(type: string, data?: any): void {
   if (typeof window === "undefined") return;
@@ -110,7 +111,7 @@ function startContentHeightReporting(): void {
   window.addEventListener("load", schedule, { passive: true });
 }
 
-if (typeof window !== "undefined") {
+if (hasBrowserEventTarget()) {
   window.addEventListener("message", (event: MessageEvent) => {
     const eventOrigin = normalizeOrigin(event.origin);
     const payloadOrigin = normalizeOrigin(event.data?.origin);

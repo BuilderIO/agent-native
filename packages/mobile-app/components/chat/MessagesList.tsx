@@ -169,6 +169,7 @@ export function MessagesList({
           data={rows}
           keyExtractor={rowKey}
           renderItem={renderRow}
+          recycleItems={false}
           estimatedItemSize={96}
           maintainScrollAtEnd
           maintainScrollAtEndThreshold={0.15}

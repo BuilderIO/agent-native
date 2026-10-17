@@ -6,7 +6,7 @@ import {
   readStaleChunkRecoveryExhausted,
   STALE_CHUNK_RECOVERY_EXHAUSTED_EVENT,
   type StaleChunkRecoveryExhausted,
-} from "./route-chunk-recovery.js";
+} from "./route-chunk-recovery-state.js";
 import { scrubUrl } from "./url-scrub.js";
 
 export type ExceptionLevel = "fatal" | "error" | "warning" | "info" | "debug";

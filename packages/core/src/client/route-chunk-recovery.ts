@@ -1,3 +1,4 @@
+import { isDynamicImportFailureMessage } from "../shared/dynamic-import-failure.js";
 import {
   CHUNK_RECOVERY_CACHE_BUSTER_PARAM,
   CHUNK_RECOVERY_ORIGINAL_HASH_PARAM,
@@ -9,26 +10,25 @@ import {
   STALE_CHUNK_RELOAD_COOLDOWN_MS,
 } from "../shared/route-chunk-recovery-bootstrap.js";
 import { recordNav } from "./recorder.js";
+import {
+  readStaleChunkRecoveryExhausted,
+  STALE_CHUNK_EXHAUSTED_KEY,
+  STALE_CHUNK_RECOVERY_EXHAUSTED_EVENT,
+  type StaleChunkRecoveryExhausted,
+  type StaleChunkRecoveryExhaustedReason,
+} from "./route-chunk-recovery-state.js";
+
+export { isDynamicImportFailureMessage } from "../shared/dynamic-import-failure.js";
+export {
+  readStaleChunkRecoveryExhausted,
+  STALE_CHUNK_RECOVERY_EXHAUSTED_EVENT,
+  type StaleChunkRecoveryExhausted,
+  type StaleChunkRecoveryExhaustedReason,
+} from "./route-chunk-recovery-state.js";
 
 const INSTALL_KEY = "__agentNativeRouteChunkRecoveryInstalled";
 const INTENDED_NAV_MAX_AGE_MS = 15_000;
-const STALE_CHUNK_EXHAUSTED_KEY = "__agentNativeStaleChunkRecoveryExhausted";
 const recoveryStates = new WeakMap<Window, RouteChunkRecoveryState>();
-
-/**
- * Fired on `window` the first time a stale chunk could not be recovered by a
- * reload. The shared noise rules drop the raw dynamic-import failure because
- * recovery handles it; this is the one signal that it did not, so a deploy whose
- * chunks are gone for everyone stays visible.
- */
-export const STALE_CHUNK_RECOVERY_EXHAUSTED_EVENT =
-  "agent-native:stale-chunk-recovery-exhausted";
-
-export type StaleChunkRecoveryExhaustedReason = "cooldown" | "desktop";
-
-export interface StaleChunkRecoveryExhausted {
-  reason: StaleChunkRecoveryExhaustedReason;
-}
 
 export interface RouteChunkRecoveryState {
   intendedHref: string | null;
@@ -52,17 +52,6 @@ export function isRouteModuleReloadMessage(value: unknown): boolean {
   return (
     typeof value === "string" &&
     /Error loading route module `[^`]+`, reloading page\.\.\./.test(value)
-  );
-}
-
-export function isDynamicImportFailureMessage(value: unknown): boolean {
-  if (typeof value !== "string") return false;
-  const message = value.toLowerCase();
-  return (
-    message.includes("failed to fetch dynamically imported module") ||
-    message.includes("error loading dynamically imported module") ||
-    message.includes("importing a module script failed") ||
-    message.includes("failed to fetch dynamically imported")
   );
 }
 
@@ -328,16 +317,6 @@ function markStaleChunkReload(win: Window, now: number): true | "unavailable" {
   } catch {
     return "unavailable";
   }
-}
-
-/** The recorded exhaustion for this page session, if recovery ever gave up. */
-export function readStaleChunkRecoveryExhausted(
-  win: Window | undefined = typeof window === "undefined" ? undefined : window,
-): StaleChunkRecoveryExhausted | undefined {
-  if (!win) return undefined;
-  return (win as unknown as Record<string, unknown>)[
-    STALE_CHUNK_EXHAUSTED_KEY
-  ] as StaleChunkRecoveryExhausted | undefined;
 }
 
 // Recorded on the window as well as dispatched: the first failing chunk is

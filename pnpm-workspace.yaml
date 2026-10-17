@@ -106,6 +106,12 @@ onlyBuiltDependencies:
   - workerd
 
 packageExtensions:
+  # The published config plugin imports these at runtime but lists them only in devDependencies.
+  "@bacons/apple-targets@5.0.0":
+    dependencies:
+      "@expo/image-utils": "^0.8.8"
+      "@expo/plist": "^0.4.8"
+      chalk: "^4.1.0"
   "node-pty@*":
     dependencies:
       node-gyp: "^12.4.0"

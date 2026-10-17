@@ -1,8 +1,6 @@
 import type { ConfigContext, ExpoConfig } from "expo/config";
 import { type ConfigPlugin, withEntitlementsPlist } from "expo/config-plugins";
 
-import appJson from "./app.json";
-
 const DISABLE_REMOTE_PUSH =
   process.env.AGENT_NATIVE_MOBILE_DISABLE_REMOTE_PUSH === "1";
 const DISABLE_APP_EXTENSIONS =
@@ -39,7 +37,7 @@ const withInstallPreviewNoPushPlugin =
   >[number];
 
 export default ({ config }: ConfigContext): ExpoConfig => {
-  const base = appJson.expo as ExpoConfig;
+  const base = config as ExpoConfig;
   const plugins = withoutAppExtensionsPlugin(
     withoutRemotePushPlugin(base.plugins),
   );
@@ -50,7 +48,6 @@ export default ({ config }: ConfigContext): ExpoConfig => {
   }
 
   return {
-    ...config,
     ...base,
     plugins: DISABLE_REMOTE_PUSH
       ? [...(plugins ?? []), withInstallPreviewNoPushPlugin]
