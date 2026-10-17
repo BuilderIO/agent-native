@@ -554,6 +554,7 @@
     "./client/sharing/useResourceAccessGate": "./dist/client/sharing/useResourceAccessGate.js",
     "./client/sharing/useShareButtonController": "./dist/client/sharing/useShareButtonController.js",
     "./client/sharing/useShareDialogController": "./dist/client/sharing/useShareDialogController.js",
+    "./client/sharing/useShareVisibilityTransition": "./dist/client/sharing/useShareVisibilityTransition.js",
     "./client/sign-in-return": "./dist/client/sign-in-return.js",
     "./client/sign-out": "./dist/client/sign-out.js",
     "./client/tool-display": "./dist/client/tool-display.js",

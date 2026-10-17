@@ -341,8 +341,11 @@ export {
   setThreadPinned,
   setThreadScope,
   type ChatThread,
+  type ChatThreadAccessBasis,
+  type ChatThreadOwnership,
   type ChatThreadScope,
   type ChatThreadSummary,
+  type ChatThreadListRow,
   type ListThreadsOptions,
 } from "../chat-threads/store.js";
 export {

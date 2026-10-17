@@ -9,7 +9,15 @@ import {
 } from "@tabler/icons-react";
 import React, { useMemo, useRef, useState } from "react";
 
+import { Skeleton } from "../design-system/components.js";
 import { cn } from "../utils.js";
+
+/** How the viewer got access to a chat; the app supplies the translated copy. */
+export type ChatHistoryAccessBasis =
+  | "owner"
+  | "direct"
+  | "organization"
+  | "public";
 
 export interface ChatHistoryItem {
   id: string;
@@ -17,15 +25,32 @@ export interface ChatHistoryItem {
   titleText?: string;
   subtitle?: React.ReactNode;
   detail?: React.ReactNode;
+  /** Already-translated owner name, shown on shared rows. */
+  ownerLabel?: React.ReactNode;
+  /** Already-translated access description, e.g. "Shared with you". */
+  accessLabel?: React.ReactNode;
+  accessBasis?: ChatHistoryAccessBasis;
   timestamp?: React.ReactNode;
   pinned?: boolean;
   disabled?: boolean;
+  /**
+   * Presentation only: drops the row menu and context menu while the row stays
+   * selectable. The app decides which rows (e.g. not owned) get no actions.
+   */
+  hideActions?: boolean;
 }
 
 export interface ChatHistorySection {
   id: string;
   label?: React.ReactNode;
   items: ChatHistoryItem[];
+  /** Section-level states; the section stays visible while any is set. */
+  /** Initial load: skeleton rows until the first rows arrive. */
+  loading?: boolean;
+  /** Shown above any rows already loaded: a failed load never reads as empty. */
+  error?: React.ReactNode;
+  emptyLabel?: React.ReactNode;
+  footer?: React.ReactNode;
 }
 
 export interface ChatHistoryListLabels {
@@ -134,6 +159,9 @@ export function ChatHistoryList({
     0,
   );
   const hasSearchValue = Boolean(searchValue?.trim());
+  const hasSectionState = resolvedSections.some((section) =>
+    sectionHasState(section, hasSearchValue),
+  );
 
   return (
     <div
@@ -165,20 +193,54 @@ export function ChatHistoryList({
           </div>
         ) : loading ? (
           <div className="an-chat-history__state">{loadingLabel}</div>
-        ) : totalCount === 0 ? (
+        ) : totalCount === 0 && !hasSectionState ? (
           <div className="an-chat-history__state">
             {hasSearchValue ? emptySearchLabel : emptyLabel}
           </div>
         ) : (
           resolvedSections.map(
             (section) =>
-              section.items.length > 0 && (
-                <div key={section.id} className="an-chat-history__section">
+              (section.items.length > 0 ||
+                sectionHasState(section, hasSearchValue)) && (
+                <div
+                  key={section.id}
+                  className="an-chat-history__section"
+                  data-section-id={section.id}
+                >
                   {section.label && (
                     <div className="an-chat-history__section-label">
                       {section.label}
                     </div>
                   )}
+                  {section.error ? (
+                    <div
+                      className="an-chat-history__state an-chat-history__state--error"
+                      role="alert"
+                    >
+                      {section.error}
+                    </div>
+                  ) : section.loading && section.items.length === 0 ? (
+                    <div
+                      className="an-chat-history__skeletons"
+                      aria-busy="true"
+                      data-testid="chat-history-section-skeleton"
+                    >
+                      {["100%", "80%", "60%"].map((width) => (
+                        <Skeleton
+                          key={width}
+                          shape="line"
+                          width={width}
+                          height={12}
+                        />
+                      ))}
+                    </div>
+                  ) : section.items.length === 0 &&
+                    !hasSearchValue &&
+                    section.emptyLabel ? (
+                    <div className="an-chat-history__state">
+                      {section.emptyLabel}
+                    </div>
+                  ) : null}
                   {section.items.map((item) => (
                     <ChatHistoryRow
                       key={item.id}
@@ -195,6 +257,7 @@ export function ChatHistoryList({
                       labels={resolvedLabels}
                     />
                   ))}
+                  {section.footer}
                 </div>
               ),
           )
@@ -202,6 +265,18 @@ export function ChatHistoryList({
         {footer}
       </div>
     </div>
+  );
+}
+
+function sectionHasState(
+  section: ChatHistorySection,
+  searching: boolean,
+): boolean {
+  return Boolean(
+    section.loading ||
+    section.error ||
+    (!searching && section.emptyLabel) ||
+    section.footer,
   );
 }
 
@@ -240,13 +315,15 @@ const ChatHistoryRow = React.memo(function ChatHistoryRow({
   const [menuOpen, setMenuOpen] = useState(false);
   const renameInputRef = useRef<HTMLInputElement | null>(null);
 
-  const hasMenu = Boolean(
-    onTogglePin ||
-    onRename ||
-    onDelete ||
-    renderRowActions ||
-    renderAdditionalRowActions,
-  );
+  const hasMenu =
+    !item.hideActions &&
+    Boolean(
+      onTogglePin ||
+      onRename ||
+      onDelete ||
+      renderRowActions ||
+      renderAdditionalRowActions,
+    );
 
   function startRename() {
     setDraftTitle(item.titleText ?? "");
@@ -336,6 +413,23 @@ const ChatHistoryRow = React.memo(function ChatHistoryRow({
           )}
           {item.detail != null && (
             <div className="an-chat-history-row__detail">{item.detail}</div>
+          )}
+          {(item.ownerLabel != null || item.accessLabel != null) && (
+            <div
+              className="an-chat-history-row__access"
+              data-access-basis={item.accessBasis}
+            >
+              {item.ownerLabel != null && (
+                <span className="an-chat-history-row__owner">
+                  {item.ownerLabel}
+                </span>
+              )}
+              {item.accessLabel != null && (
+                <span className="an-chat-history-row__access-label">
+                  {item.accessLabel}
+                </span>
+              )}
+            </div>
           )}
         </button>
       )}

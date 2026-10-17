@@ -6,6 +6,7 @@ import {
   type ShareDialogController,
   type ShareDialogControllerOptions,
 } from "@agent-native/core/client/sharing/useShareDialogController";
+import { ShareVisibilityNotSavedError } from "@agent-native/core/client/sharing/useShareVisibilityTransition";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -20,9 +21,21 @@ const mocks = vi.hoisted(() => ({
   },
   share: { mutate: vi.fn(), isPending: false },
   unshare: { mutate: vi.fn(), isPending: false },
-  visibility: { mutate: vi.fn(), isPending: false },
+  visibility: { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false },
   writeClipboardText: vi.fn(),
 }));
+
+// The controllers settle each save through mutateAsync; the tests drive it
+// through the callbacks recorded on `mutate`.
+mocks.visibility.mutateAsync.mockImplementation(
+  (variables: unknown) =>
+    new Promise((resolve, reject) => {
+      mocks.visibility.mutate(variables, {
+        onSuccess: resolve,
+        onError: reject,
+      });
+    }),
+);
 
 vi.mock("@agent-native/core/client/use-action", () => ({
   useActionQuery: vi.fn(() => mocks.query),
@@ -111,7 +124,12 @@ describe("useShareDialogController", () => {
     });
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    await act(async () => {
+      for (const [variables, callbacks] of mocks.visibility.mutate.mock.calls) {
+        callbacks?.onSuccess?.({ visibility: variables.visibility });
+      }
+    });
     act(() => root.unmount());
     container.remove();
     queryClient.clear();
@@ -238,6 +256,12 @@ describe("useShareDialogController", () => {
     const memberShare = mocks.query.data?.shares[0];
 
     act(() => result.visibility.set("org"));
+    expect(mocks.visibility.mutate).not.toHaveBeenCalled();
+    act(() => {
+      void (
+        controller as ShareDialogController
+      ).visibility.transition.confirm();
+    });
     expect(mocks.visibility.mutate).toHaveBeenCalledWith(
       { resourceType: "document", resourceId: "doc-1", visibility: "org" },
       expect.objectContaining({ onSuccess: expect.any(Function) }),
@@ -266,18 +290,19 @@ describe("useShareDialogController", () => {
     expect(mocks.share.mutate).not.toHaveBeenCalled();
   });
 
-  it("does not refetch after a visibility mutation is superseded", async () => {
+  it("refetches the actual visibility save after refusing a different target", async () => {
     let result = await render();
 
-    act(() => result.visibility.set("org"));
-    result = controller as ShareDialogController;
     act(() => result.visibility.set("public"));
+    result = controller as ShareDialogController;
+    act(() => result.visibility.set("org"));
 
-    act(() => mocks.visibility.mutate.mock.calls[0]?.[1]?.onSuccess());
+    expect(mocks.visibility.mutate).toHaveBeenCalledOnce();
+    expect(result.visibility.value).toBe("public");
     expect(mocks.query.refetch).not.toHaveBeenCalled();
 
     await act(async () => {
-      mocks.visibility.mutate.mock.calls[1]?.[1]?.onSuccess();
+      mocks.visibility.mutate.mock.calls[0]?.[1]?.onSuccess();
       await Promise.resolve();
     });
     expect(mocks.query.refetch).toHaveBeenCalledOnce();
@@ -309,13 +334,23 @@ describe("useShareDialogController", () => {
       { enabled: false },
     );
 
-    await render(options);
-    expect(fetch).toHaveBeenCalledOnce();
+    const opened = await render(options);
+    const fetched = vi.mocked(fetch).mock.calls.map(([url]) => String(url));
+    expect(fetched.filter((url) => url.includes("/org/members"))).toHaveLength(
+      1,
+    );
+    expect(fetched.filter((url) => url.endsWith("/org/me"))).toHaveLength(0);
     expect(useActionQuery).toHaveBeenLastCalledWith(
       "list-resource-shares",
       expect.anything(),
       { enabled: true },
     );
+    await act(async () => opened.visibility.set("org"));
+    expect(
+      vi
+        .mocked(fetch)
+        .mock.calls.filter(([url]) => String(url).endsWith("/org/me")),
+    ).toHaveLength(1);
   });
 
   it("resets tab state when opened and delegates close transitions", async () => {
@@ -381,5 +416,318 @@ describe("useShareDialogController", () => {
         { resourceType: "document", resourceId: "doc-1" },
       ]),
     ).toEqual(initial);
+  });
+
+  describe("organization confirmation", () => {
+    const sharesKey = [
+      "action",
+      "list-resource-shares",
+      { resourceType: "document", resourceId: "doc-1" },
+    ] as const;
+
+    const transition = () =>
+      (controller as ShareDialogController).visibility.transition;
+
+    it("holds a private-to-organization change until it is confirmed", async () => {
+      const initial = { ...mocks.query.data! };
+      queryClient.setQueryData(sharesKey, initial);
+      const result = await render();
+
+      act(() => result.visibility.set("org"));
+
+      expect(transition().pending).toEqual({ from: "private", to: "org" });
+      expect(mocks.visibility.mutate).not.toHaveBeenCalled();
+      expect(queryClient.getQueryData(sharesKey)).toEqual(initial);
+      expect((controller as ShareDialogController).visibility.value).toBe(
+        "private",
+      );
+    });
+
+    it("leaves the saved access and cache alone on cancel", async () => {
+      const initial = { ...mocks.query.data! };
+      queryClient.setQueryData(sharesKey, initial);
+      const result = await render();
+      act(() => result.visibility.set("org"));
+
+      act(() => transition().cancel());
+
+      expect(transition().pending).toBeNull();
+      expect(mocks.visibility.mutate).not.toHaveBeenCalled();
+      expect(queryClient.getQueryData(sharesKey)).toEqual(initial);
+    });
+
+    it("saves once on confirm and closes after success", async () => {
+      const result = await render();
+      act(() => result.visibility.set("org"));
+
+      await act(async () => {
+        void transition().confirm();
+        void transition().confirm();
+      });
+      expect(mocks.visibility.mutate).toHaveBeenCalledOnce();
+      expect(transition().submitting).toBe(true);
+
+      await act(async () => {
+        mocks.visibility.mutate.mock.calls[0]?.[1]?.onSuccess({
+          visibility: "org",
+        });
+        await Promise.resolve();
+      });
+      expect(transition().pending).toBeNull();
+      expect(transition().submitting).toBe(false);
+    });
+
+    it("keeps the confirmation open with the error and retries after a failure", async () => {
+      const initial = { ...mocks.query.data! };
+      queryClient.setQueryData(sharesKey, initial);
+      const result = await render();
+      act(() => result.visibility.set("org"));
+      await act(async () => {
+        void transition().confirm();
+      });
+
+      await act(async () => {
+        mocks.visibility.mutate.mock.calls[0]?.[1]?.onError(
+          new Error("visibility failed"),
+        );
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(transition().pending).toEqual({ from: "private", to: "org" });
+      expect(transition().error).toBe("visibility failed");
+      expect(transition().submitting).toBe(false);
+      expect(queryClient.getQueryData(sharesKey)).toEqual(initial);
+      expect((controller as ShareDialogController).error).toBeNull();
+
+      await act(async () => {
+        void transition().confirm();
+      });
+      expect(mocks.visibility.mutate).toHaveBeenCalledTimes(2);
+      expect(transition().error).toBeNull();
+    });
+
+    it("reports the actual write failure after refusing a different target", async () => {
+      mocks.query.data = { ...mocks.query.data!, visibility: "public" };
+      const result = await render();
+      let older!: Promise<void>;
+      act(() => {
+        older = result.visibility.transition.request("org");
+      });
+      act(() =>
+        (controller as ShareDialogController).visibility.set("private"),
+      );
+      expect(mocks.visibility.mutate).toHaveBeenCalledOnce();
+      expect((controller as ShareDialogController).visibility.value).toBe(
+        "org",
+      );
+
+      await act(async () => {
+        mocks.visibility.mutate.mock.calls[0]?.[1]?.onError(
+          new Error("stale write failed"),
+        );
+        await expect(older).rejects.toThrow("stale write failed");
+      });
+
+      expect((controller as ShareDialogController).error).toBe(
+        "stale write failed",
+      );
+    });
+
+    it("drops the request when the resource changes or access is lost", async () => {
+      const result = await render();
+      act(() => result.visibility.set("org"));
+      expect(transition().pending).not.toBeNull();
+
+      await render({ ...options, resourceId: "doc-2" });
+      expect(transition().pending).toBeNull();
+
+      act(() => (controller as ShareDialogController).visibility.set("org"));
+      expect(transition().pending).not.toBeNull();
+      mocks.query.data = { ...mocks.query.data!, role: "viewer" };
+      await render({ ...options, resourceId: "doc-2" });
+      expect(transition().pending).toBeNull();
+      await act(async () => {
+        await transition().confirm();
+      });
+      expect(mocks.visibility.mutate).not.toHaveBeenCalled();
+    });
+
+    it("does not confirm after the saved value moved or the dialog closed", async () => {
+      const result = await render();
+      act(() => result.visibility.set("org"));
+      const staleConfirm = transition().confirm;
+
+      mocks.query.data = { ...mocks.query.data!, visibility: "org" };
+      await render();
+      await act(async () => {
+        await staleConfirm();
+      });
+      expect(mocks.visibility.mutate).not.toHaveBeenCalled();
+
+      mocks.query.data = { ...mocks.query.data!, visibility: "private" };
+      await render();
+      act(() => (controller as ShareDialogController).visibility.set("org"));
+      const closedConfirm = transition().confirm;
+      await render({ ...options, open: false });
+      await act(async () => {
+        await closedConfirm();
+      });
+      expect(mocks.visibility.mutate).not.toHaveBeenCalled();
+    });
+
+    it("does not carry a pending change from one resource into the next", async () => {
+      await render();
+      act(() => (controller as ShareDialogController).visibility.set("public"));
+      expect(mocks.visibility.mutate).toHaveBeenCalledTimes(1);
+      expect((controller as ShareDialogController).visibility.value).toBe(
+        "public",
+      );
+
+      await render({ ...options, resourceId: "doc-2" });
+      expect((controller as ShareDialogController).visibility.value).toBe(
+        "private",
+      );
+
+      act(() => (controller as ShareDialogController).visibility.set("org"));
+      expect(transition().pending).toEqual({ from: "private", to: "org" });
+      expect(mocks.visibility.mutate).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        mocks.visibility.mutate.mock.calls[0]?.[1]?.onSuccess({
+          visibility: "public",
+        });
+        await Promise.resolve();
+      });
+      expect(transition().pending).toEqual({ from: "private", to: "org" });
+      expect((controller as ShareDialogController).visibility.value).toBe(
+        "private",
+      );
+
+      await act(async () => {
+        void transition().confirm();
+      });
+      expect(mocks.visibility.mutate).toHaveBeenCalledTimes(2);
+      expect(mocks.visibility.mutate.mock.calls[1]?.[0]).toMatchObject({
+        resourceId: "doc-2",
+        visibility: "org",
+      });
+    });
+
+    it("settles a request only when it is persisted, rejects it otherwise", async () => {
+      await render();
+      let saved!: Promise<void>;
+      act(() => {
+        saved = transition().request("public");
+      });
+      await act(async () => {
+        mocks.visibility.mutate.mock.calls[0]?.[1]?.onError(
+          new Error("visibility failed"),
+        );
+        await expect(saved).rejects.toThrow("visibility failed");
+      });
+
+      mocks.visibility.mutate.mockClear();
+      let held!: Promise<void>;
+      act(() => {
+        held = transition().request("org");
+      });
+      act(() => transition().cancel());
+      await expect(held).rejects.toBeInstanceOf(ShareVisibilityNotSavedError);
+      expect(mocks.visibility.mutate).not.toHaveBeenCalled();
+    });
+
+    it("keeps a held request pending through a failed confirmation until a retry saves", async () => {
+      await render();
+      let settled: "pending" | "saved" | "rejected" = "pending";
+      act(() => {
+        void transition()
+          .request("org")
+          .then(
+            () => {
+              settled = "saved";
+            },
+            () => {
+              settled = "rejected";
+            },
+          );
+      });
+      await act(async () => {
+        void transition().confirm();
+      });
+      await act(async () => {
+        mocks.visibility.mutate.mock.calls[0]?.[1]?.onError(new Error("nope"));
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(transition().error).toBe("nope");
+      expect(settled).toBe("pending");
+
+      await act(async () => {
+        void transition().confirm();
+      });
+      await act(async () => {
+        mocks.visibility.mutate.mock.calls[1]?.[1]?.onSuccess({
+          visibility: "org",
+        });
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(settled).toBe("saved");
+    });
+
+    it("joins a repeated request for a value that is still being saved", async () => {
+      await render();
+      let first!: Promise<void>;
+      act(() => {
+        first = transition().request("public");
+      });
+      let second!: Promise<void>;
+      act(() => {
+        second = (
+          controller as ShareDialogController
+        ).visibility.transition.request("public");
+      });
+      expect(mocks.visibility.mutate).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        mocks.visibility.mutate.mock.calls[0]?.[1]?.onError(
+          new Error("visibility failed"),
+        );
+        await expect(first).rejects.toThrow("visibility failed");
+        await expect(second).rejects.toThrow("visibility failed");
+      });
+    });
+
+    it("ignores a visibility request from a closed dialog", async () => {
+      await render({ ...options, open: false });
+
+      act(() => (controller as ShareDialogController).visibility.set("public"));
+      act(() => (controller as ShareDialogController).visibility.set("org"));
+
+      expect(mocks.visibility.mutate).not.toHaveBeenCalled();
+      expect(transition().pending).toBeNull();
+    });
+
+    it("does not ask for narrowing or for private-to-public changes", async () => {
+      mocks.query.data = { ...mocks.query.data!, visibility: "public" };
+      const result = await render();
+      act(() => result.visibility.set("org"));
+      expect(transition().pending).toBeNull();
+      expect(mocks.visibility.mutate).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        mocks.visibility.mutate.mock.calls[0]?.[1]?.onSuccess({
+          visibility: "org",
+        });
+        await Promise.resolve();
+      });
+      mocks.visibility.mutate.mockClear();
+      mocks.query.data = { ...mocks.query.data!, visibility: "private" };
+      const priv = await render();
+      act(() => priv.visibility.set("public"));
+      expect(transition().pending).toBeNull();
+      expect(mocks.visibility.mutate).toHaveBeenCalledTimes(1);
+    });
   });
 });

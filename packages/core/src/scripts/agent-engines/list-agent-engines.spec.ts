@@ -210,7 +210,8 @@ describe("list-agent-engines", () => {
           ? { value: "sk-ant-fake-placeholder" }
           : null,
     );
-    // The selection scope is keyless for OpenAI; endpoint ownership is covered separately.
+    // Selection inputs are independent of credential-policy and role reads,
+    // which use their own storage fixtures in the resolver suites.
     vi.doMock("../../server/credential-provider.js", async (importOriginal) => {
       const original =
         await importOriginal<
@@ -218,12 +219,15 @@ describe("list-agent-engines", () => {
         >();
       return {
         ...original,
-        resolveSecretDetailed: vi.fn(async (key: string) => {
-          if (key === "OPENAI_API_KEY" || key === "OPENAI_BASE_URL") {
-            return { value: null, lookupFailed: false };
-          }
-          return original.resolveSecretDetailed(key);
-        }),
+        resolveSecretDetailed: vi.fn(async (key: string) =>
+          key === "ANTHROPIC_API_KEY"
+            ? {
+                value: "sk-ant-fake-placeholder",
+                source: "user" as const,
+                lookupFailed: false,
+              }
+            : { value: null, lookupFailed: false },
+        ),
       };
     });
     userSettings.set("agent-provider-models:anthropic", {
@@ -263,6 +267,41 @@ describe("list-agent-engines", () => {
     expect(result.current).toEqual({
       engine: "anthropic",
       model: "claude-opus-5-5",
+    });
+  });
+
+  it("keeps an unreadable provider selection distinct from a readable unset selection", async () => {
+    vi.doMock(
+      "../../server/credential-provider.js",
+      async (importOriginal) => ({
+        ...(await importOriginal<
+          typeof import("../../server/credential-provider.js")
+        >()),
+        resolveSecretDetailed: vi.fn(async (key: string) => ({
+          value: null,
+          lookupFailed: key === "GOOGLE_GENERATIVE_AI_API_KEY",
+        })),
+      }),
+    );
+    const { runWithRequestContext } =
+      await import("../../server/request-context.js");
+    const { run } = await import("./list-agent-engines.js");
+    const result = JSON.parse(
+      await runWithRequestContext(
+        { userEmail: "member@example.com", orgId: "org-models" },
+        () => run(),
+      ),
+    );
+    const byName = (name: string) =>
+      result.engines.find((engine: { name: string }) => engine.name === name);
+
+    expect(byName("ai-sdk:google")?.modelSelection).toEqual({
+      state: "unreadable",
+      error: "Could not read the credential store.",
+    });
+    expect(byName("ai-sdk:openai")?.modelSelection).toEqual({
+      state: "default",
+      scope: "org",
     });
   });
 

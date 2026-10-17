@@ -1,5 +1,7 @@
 import { createApp, H3Event } from "h3";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { getDbExec } from "../db/client.js";
 
 import { AGENT_CHAT_THREAD_ABSENCE_HEADER } from "../shared/agent-chat.js";
 
@@ -29,6 +31,8 @@ const routeHarness = vi.hoisted(() => ({
 
 const threadStoreMocks = vi.hoisted(() => ({
   forkThread: vi.fn(),
+  listThreads: vi.fn(),
+  searchThreads: vi.fn(),
   mutateThreadQueuedMessages: vi.fn(),
   resolveThreadAccess: vi.fn(),
   updateThreadData: vi.fn(),
@@ -128,6 +132,8 @@ vi.mock("../chat-threads/store.js", async (importOriginal) => {
   return {
     ...actual,
     forkThread: (...args: any[]) => threadStoreMocks.forkThread(...args),
+    listThreads: (...args: any[]) => threadStoreMocks.listThreads(...args),
+    searchThreads: (...args: any[]) => threadStoreMocks.searchThreads(...args),
     mutateThreadQueuedMessages: (...args: any[]) =>
       threadStoreMocks.mutateThreadQueuedMessages(...args),
     resolveThreadAccess: (...args: any[]) =>
@@ -400,6 +406,14 @@ async function mountResourceRoutes(options?: {
   return h3App;
 }
 
+// The first mount runs the plugin's one-time store migrations against the
+// worker's PGlite database. That cold start costs ~25 s on a slow machine, so
+// left inside the first test it uses up that test's 30 s budget. When it runs
+// out, the abandoned mount keeps consuming the next tests' one-shot mocks.
+beforeAll(async () => {
+  await mountResourceRoutes();
+}, 120_000);
+
 async function fetchWithRequestContext(
   h3App: ReturnType<typeof createApp>,
   path: string,
@@ -568,6 +582,329 @@ describe("agent chat queued-message route", () => {
     expect(threadStoreMocks.mutateThreadQueuedMessages).toHaveBeenCalledWith(
       threadId,
       mutation,
+    );
+  });
+});
+
+describe("agent chat thread list route", () => {
+  const summary = (id: string) => ({ id, title: id });
+
+  async function getThreads(search: string) {
+    const h3App = await mountResourceRoutes();
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+    return fetchWithRequestContext(
+      h3App,
+      `/_agent-native/agent-chat/threads${search}`,
+      { userEmail: "user@example.test" },
+    );
+  }
+
+  beforeEach(() => {
+    threadStoreMocks.listThreads.mockReset();
+    threadStoreMocks.searchThreads.mockReset();
+  });
+
+  it("pages authorized rows and computes hasMore with the real store after membership removal", async () => {
+    const store = await vi.importActual<
+      typeof import("../chat-threads/store.js")
+    >("../chat-threads/store.js");
+    const { orgStore } = await import("../org/schema-store.js");
+    await orgStore.ready();
+    await store.ensureChatThreadTables();
+    const exec = getDbExec();
+    const orgId = "synthetic-chat-membership-org";
+    const email = "synthetic-chat-viewer@example.test";
+    const threadIds = [
+      "membership-org-visible",
+      "membership-org-grant",
+      "membership-direct-a",
+      "membership-direct-b",
+    ];
+    const h3App = await mountResourceRoutes({ resolveOrgId: () => orgId });
+    mocks.getSession.mockResolvedValue({ email, orgId });
+    threadStoreMocks.listThreads.mockImplementation(store.listThreads);
+    threadStoreMocks.searchThreads.mockImplementation(store.searchThreads);
+    try {
+      await exec.execute({
+        sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES (?, 'Synthetic', ?, 0)",
+        args: [orgId, email],
+      });
+      await exec.execute({
+        sql: "INSERT INTO org_members (id, org_id, email, role, joined_at, federation_removal_pending_at) VALUES (?, ?, ?, 'admin', 0, 1)",
+        args: [orgId, orgId, email],
+      });
+      for (const [index, id] of threadIds.entries()) {
+        await exec.execute({
+          sql: "INSERT INTO chat_threads (id, owner_email, title, preview, thread_data, message_count, created_at, updated_at, org_id, visibility) VALUES (?, ?, 'Synthetic membership plan', '', ?, 1, 0, ?, ?, ?)",
+          args: [
+            id,
+            "synthetic-chat-owner@example.test",
+            '{"content":"body-only-membership-secret"}',
+            100 - index,
+            orgId,
+            index === 0 ? "org" : "private",
+          ],
+        });
+        if (index > 0) {
+          await exec.execute({
+            sql: "INSERT INTO chat_thread_shares (id, resource_id, principal_type, principal_id, role, created_by) VALUES (?, ?, ?, ?, 'viewer', ?)",
+            args: [
+              id,
+              id,
+              index === 1 ? "org" : "user",
+              index === 1 ? orgId : email,
+              email,
+            ],
+          });
+        }
+      }
+      await exec.execute({
+        sql: "UPDATE chat_threads SET thread_data = '{}' WHERE id IN (?, ?)",
+        args: threadIds.slice(2),
+      });
+      const getPage = async (query: string) => {
+        const response = await fetchWithRequestContext(
+          h3App,
+          `/_agent-native/agent-chat/threads?ownership=shared&limit=1${query}`,
+          { userEmail: email, orgId },
+        );
+        expect(response.status).toBe(200);
+        const body = await response.json();
+        return {
+          ids: body.threads.map((thread: { id: string }) => thread.id),
+          hasMore: body.hasMore,
+        };
+      };
+      for (const state of ["pending", "deleted"]) {
+        if (state === "deleted") {
+          await exec.execute({
+            sql: "DELETE FROM org_members WHERE id = ?",
+            args: [orgId],
+          });
+        }
+        expect(await getPage("")).toEqual({
+          ids: [threadIds[2]],
+          hasMore: true,
+        });
+        expect(await getPage("&offset=1")).toEqual({
+          ids: [threadIds[3]],
+          hasMore: false,
+        });
+        expect(await getPage("&q=Synthetic&offset=1")).toEqual({
+          ids: [threadIds[3]],
+          hasMore: false,
+        });
+        expect(await getPage("&q=body-only-membership-secret")).toEqual({
+          ids: [],
+          hasMore: false,
+        });
+      }
+    } finally {
+      for (const id of threadIds) {
+        await exec.execute({
+          sql: "DELETE FROM chat_thread_shares WHERE resource_id = ?",
+          args: [id],
+        });
+        await exec.execute({
+          sql: "DELETE FROM chat_threads WHERE id = ?",
+          args: [id],
+        });
+      }
+      await exec.execute({
+        sql: "DELETE FROM org_members WHERE id = ?",
+        args: [orgId],
+      });
+      await exec.execute({
+        sql: "DELETE FROM organizations WHERE id = ?",
+        args: [orgId],
+      });
+    }
+  });
+
+  it("passes ownership and offset to the store and reports hasMore from the extra row", async () => {
+    threadStoreMocks.listThreads.mockResolvedValue([
+      summary("a"),
+      summary("b"),
+      summary("c"),
+    ]);
+
+    const response = await getThreads("?ownership=shared&limit=2&offset=4");
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      threads: [summary("a"), summary("b")],
+      hasMore: true,
+    });
+    expect(threadStoreMocks.listThreads).toHaveBeenCalledWith(
+      "user@example.test",
+      expect.objectContaining({
+        ownership: "shared",
+        limit: 3,
+        offset: 4,
+      }),
+    );
+  });
+
+  it("reports no more rows when the page is not over-full", async () => {
+    threadStoreMocks.listThreads.mockResolvedValue([summary("a")]);
+    const response = await getThreads("?ownership=mine&limit=2");
+    expect(await response.json()).toEqual({
+      threads: [summary("a")],
+      hasMore: false,
+    });
+  });
+
+  it("defaults to all and applies the same filter and paging to search", async () => {
+    threadStoreMocks.searchThreads.mockResolvedValue([
+      summary("a"),
+      summary("b"),
+    ]);
+
+    const response = await getThreads(
+      "?q=plan&ownership=mine&limit=1&offset=3",
+    );
+
+    expect(await response.json()).toEqual({
+      threads: [summary("a")],
+      hasMore: true,
+    });
+    expect(threadStoreMocks.searchThreads).toHaveBeenCalledWith(
+      "user@example.test",
+      "plan",
+      2,
+      expect.objectContaining({ ownership: "mine", offset: 3 }),
+    );
+
+    threadStoreMocks.listThreads.mockResolvedValue([]);
+    await getThreads("");
+    expect(threadStoreMocks.listThreads).toHaveBeenCalledWith(
+      "user@example.test",
+      expect.objectContaining({ ownership: "all", limit: 51, offset: 0 }),
+    );
+  });
+
+  describe.each(["list", "search"] as const)("%s query validation", (mode) => {
+    const suffix = mode === "search" ? "&q=plan" : "";
+
+    it.each([
+      ["an unknown ownership", "?ownership=everyone"],
+      ["an empty ownership", "?ownership="],
+      ["a whitespace ownership", "?ownership=%20"],
+      ["duplicate ownership values", "?ownership=all&ownership=all"],
+      ["an empty limit", "?limit="],
+      ["a whitespace limit", "?limit=%20"],
+      ["a negative limit", "?limit=-5"],
+      ["a zero limit", "?limit=0"],
+      ["a fractional limit", "?limit=1.5"],
+      ["a non-numeric limit", "?limit=lots"],
+      ["duplicate limit values", "?limit=1&limit=1"],
+      ["an unsafe limit", "?limit=9007199254740992"],
+      ["an imprecise limit", "?limit=9007199254740993"],
+      ["an overflowing limit", `?limit=${"9".repeat(400)}`],
+      ["an empty offset", "?offset="],
+      ["a whitespace offset", "?offset=%20"],
+      ["a negative offset", "?offset=-1"],
+      ["a fractional offset", "?offset=1.5"],
+      ["a non-numeric offset", "?offset=next"],
+      ["duplicate offset values", "?offset=1&offset=1"],
+      ["an unsafe offset", "?offset=9007199254740992"],
+      ["an imprecise offset", "?offset=9007199254740993"],
+      ["an overflowing offset", `?offset=${"9".repeat(400)}`],
+    ])(
+      "answers 400 for %s before calling either store",
+      async (_name, search) => {
+        const response = await getThreads(`${search}${suffix}`);
+        expect(response.status).toBe(400);
+        expect(await response.json()).toEqual({
+          error: search.startsWith("?ownership")
+            ? "Invalid ownership filter"
+            : "Invalid limit or offset",
+        });
+        expect(threadStoreMocks.listThreads).not.toHaveBeenCalled();
+        expect(threadStoreMocks.searchThreads).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(["all", "mine", "shared"] as const)(
+      "preserves valid %s ownership",
+      async (ownership) => {
+        threadStoreMocks.listThreads.mockResolvedValue([]);
+        threadStoreMocks.searchThreads.mockResolvedValue([]);
+        const response = await getThreads(
+          `?ownership=${ownership}&limit=2&offset=0${suffix}`,
+        );
+        expect(response.status).toBe(200);
+        expect(await response.json()).toEqual({ threads: [], hasMore: false });
+        if (mode === "list") {
+          expect(threadStoreMocks.listThreads).toHaveBeenCalledWith(
+            "user@example.test",
+            expect.objectContaining({ ownership, limit: 3, offset: 0 }),
+          );
+          expect(threadStoreMocks.searchThreads).not.toHaveBeenCalled();
+        } else {
+          expect(threadStoreMocks.searchThreads).toHaveBeenCalledWith(
+            "user@example.test",
+            "plan",
+            3,
+            expect.objectContaining({ ownership, offset: 0 }),
+          );
+          expect(threadStoreMocks.listThreads).not.toHaveBeenCalled();
+        }
+      },
+    );
+
+    it("defaults only absent parameters", async () => {
+      threadStoreMocks.listThreads.mockResolvedValue([]);
+      threadStoreMocks.searchThreads.mockResolvedValue([]);
+      const response = await getThreads(mode === "list" ? "" : "?q=plan");
+      expect(response.status).toBe(200);
+      if (mode === "list") {
+        expect(threadStoreMocks.listThreads).toHaveBeenCalledWith(
+          "user@example.test",
+          expect.objectContaining({ ownership: "all", limit: 51, offset: 0 }),
+        );
+      } else {
+        expect(threadStoreMocks.searchThreads).toHaveBeenCalledWith(
+          "user@example.test",
+          "plan",
+          51,
+          expect.objectContaining({ ownership: "all", offset: 0 }),
+        );
+      }
+    });
+
+    it("accepts the largest safe offset and caps a valid safe limit above 200", async () => {
+      threadStoreMocks.listThreads.mockResolvedValue([]);
+      threadStoreMocks.searchThreads.mockResolvedValue([]);
+      const response = await getThreads(
+        `?limit=${Number.MAX_SAFE_INTEGER}&offset=${Number.MAX_SAFE_INTEGER}${suffix}`,
+      );
+      expect(response.status).toBe(200);
+      if (mode === "list") {
+        expect(threadStoreMocks.listThreads).toHaveBeenCalledWith(
+          "user@example.test",
+          expect.objectContaining({
+            limit: 201,
+            offset: Number.MAX_SAFE_INTEGER,
+          }),
+        );
+      } else {
+        expect(threadStoreMocks.searchThreads).toHaveBeenCalledWith(
+          "user@example.test",
+          "plan",
+          201,
+          expect.objectContaining({ offset: Number.MAX_SAFE_INTEGER }),
+        );
+      }
+    });
+  });
+
+  it("caps an oversized limit at the page maximum", async () => {
+    threadStoreMocks.listThreads.mockResolvedValue([]);
+    await getThreads("?limit=5000");
+    expect(threadStoreMocks.listThreads).toHaveBeenCalledWith(
+      "user@example.test",
+      expect.objectContaining({ limit: 201 }),
     );
   });
 });

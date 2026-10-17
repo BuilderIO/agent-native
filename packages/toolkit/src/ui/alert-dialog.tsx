@@ -29,10 +29,13 @@ AlertDialogOverlay.displayName = AlertDialogPrimitive.Overlay.displayName;
 
 const AlertDialogContent = React.forwardRef<
   React.ElementRef<typeof AlertDialogPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Content>
->(({ className, style, ...props }, ref) => (
+  React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Content> & {
+    /** Raise the overlay with the content when opening above other layers. */
+    overlayStyle?: React.CSSProperties;
+  }
+>(({ className, style, overlayStyle, ...props }, ref) => (
   <AlertDialogPortal>
-    <AlertDialogOverlay />
+    <AlertDialogOverlay style={overlayStyle} />
     <AlertDialogPrimitive.Content
       ref={ref}
       className={cn(

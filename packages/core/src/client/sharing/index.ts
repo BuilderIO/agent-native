@@ -48,12 +48,21 @@ export {
   type ShareVisibility,
 } from "./useShareDialogController.js";
 export {
+  ShareVisibilityNotSavedError,
+  useShareVisibilityTransition,
+  visibilityNeedsConfirmation,
+  type ShareVisibilityTransition,
+  type ShareVisibilityTransitionOptions,
+  type ShareVisibilityTransitionRequest,
+} from "./useShareVisibilityTransition.js";
+export {
   createShareQueryKey,
   createShareQueryParams,
   extractShareErrorMessage,
   fetchOrgMemberPage,
   mergeOrgMembers,
   normalizeOrgMembers,
+  notifyShareChanged,
   optimisticallyUpdateShareCache,
   rollbackShareCache,
   useShareMutationGuard,

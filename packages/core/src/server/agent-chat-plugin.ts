@@ -166,6 +166,7 @@ import {
   mutateThreadQueuedMessages,
   setThreadSourceIfMissing,
   isAppOwnedChatScope,
+  isChatThreadOwnership,
   threadScopeMismatch,
   type QueuedMessage,
   type ThreadQueuedMessageMutation,
@@ -7148,6 +7149,19 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         const label = q.scopeLabel ? String(q.scopeLabel) : undefined;
         return label ? { type, id, label } : { type, id };
       };
+      // Absent -> the default; present but not a whole number -> null, so the
+      // caller can answer 400 instead of silently paging from somewhere else.
+      const parseNonNegativeInteger = (
+        raw: unknown,
+        fallback: number,
+      ): number | null => {
+        if (raw === undefined) return fallback;
+        if (typeof raw !== "string") return null;
+        const text = raw.trim();
+        if (!/^\d+$/.test(text)) return null;
+        const value = Number(text);
+        return Number.isSafeInteger(value) ? value : null;
+      };
       const parseScopeFromBody = (raw: unknown): ChatThreadScope | null => {
         if (raw == null) return null;
         if (typeof raw !== "object") return null;
@@ -7818,34 +7832,53 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           // ── Thread list: GET/POST /threads ──
           if (method === "GET") {
             const query = getQuery(event);
-            const limit = Math.min(
-              parseInt(String(query.limit ?? "50"), 10) || 50,
-              200,
-            );
+            const requestedLimit = parseNonNegativeInteger(query.limit, 50);
+            const requestedOffset = parseNonNegativeInteger(query.offset, 0);
+            if (
+              requestedLimit === null ||
+              requestedLimit < 1 ||
+              requestedOffset === null
+            ) {
+              setResponseStatus(event, 400);
+              return { error: "Invalid limit or offset" };
+            }
+            const limit = Math.min(requestedLimit, 200);
             const q = query.q ? String(query.q).trim() : "";
             const scope = parseScopeFromQuery(query);
             const unscopedOnly = String(query.unscoped ?? "") === "1";
             const includeExternal = String(query.includeExternal ?? "") === "1";
-            if (q) {
-              const threads = await searchThreads(owner, q, limit, {
-                scope: scope ?? undefined,
-                orgId,
-                includeExternal,
-                sourceAppId: options?.appId ?? null,
-              });
-              return { threads };
+            const ownership =
+              query.ownership === undefined ? "all" : query.ownership;
+            if (!isChatThreadOwnership(ownership)) {
+              setResponseStatus(event, 400);
+              return { error: "Invalid ownership filter" };
             }
-            const offset = parseInt(String(query.offset ?? "0"), 10) || 0;
-            const threads = await listThreads(owner, {
-              limit,
-              offset,
-              scope: scope ?? undefined,
-              unscopedOnly,
-              orgId,
-              includeExternal,
-              sourceAppId: options?.appId ?? null,
-            });
-            return { threads };
+            const offset = requestedOffset;
+            // Fetch one extra row so the page can say whether another exists
+            // without a count query.
+            const fetched = q
+              ? await searchThreads(owner, q, limit + 1, {
+                  scope: scope ?? undefined,
+                  orgId,
+                  includeExternal,
+                  sourceAppId: options?.appId ?? null,
+                  ownership,
+                  offset,
+                })
+              : await listThreads(owner, {
+                  limit: limit + 1,
+                  offset,
+                  scope: scope ?? undefined,
+                  unscopedOnly,
+                  orgId,
+                  includeExternal,
+                  sourceAppId: options?.appId ?? null,
+                  ownership,
+                });
+            return {
+              threads: fetched.slice(0, limit),
+              hasMore: fetched.length > limit,
+            };
           }
 
           if (method === "POST") {
