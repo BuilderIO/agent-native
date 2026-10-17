@@ -8887,7 +8887,8 @@ function applyWrapNodes(
     return frag;
   });
 
-  const autoLayoutStyle = "display: flex; flex-direction: column; gap: 8px";
+  const autoLayoutStyle =
+    "display: flex; flex-direction: column; align-items: flex-start; gap: 8px";
   const autoLayoutOrigin = autoLayout
     ? (targetGeometry ?? computeAbsoluteUnionOrigin(targetElements))
     : null;

@@ -106,16 +106,21 @@ export class App {
       this.inflightSaves = 0;
       this.lastSaveActivity = Date.now();
     });
-    page.on("response", (response) => {
+    page.on("response", async (response) => {
       const url = new URL(response.url());
       if (
         this.recording &&
         url.pathname.includes("/_agent-native/") &&
         response.status() >= 400
       ) {
+        const motionTimeline422 =
+          response.status() === 422 &&
+          url.pathname.endsWith("/_agent-native/actions/get-motion-timeline");
         this.failures.push({
           kind: `http ${response.status()}`,
-          detail: `${response.request().method()} ${url.pathname}`,
+          detail: `${response.request().method()} ${url.pathname}${
+            motionTimeline422 ? ` ${await response.text()}` : ""
+          }`,
         });
       }
     });

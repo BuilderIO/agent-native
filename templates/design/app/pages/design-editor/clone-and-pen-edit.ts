@@ -762,6 +762,17 @@ function transformedBoundsOffset(
   };
 }
 
+const RELATIVE_NEUTRAL_INSETS = [
+  "inset-inline",
+  "inset-inline-start",
+  "inset-inline-end",
+  "inset-block",
+  "inset-block-start",
+  "inset-block-end",
+  "right",
+  "bottom",
+];
+
 function setRootLayerPosition(
   element: Element,
   position: CloneLayerPosition,
@@ -781,23 +792,33 @@ function setRootLayerPosition(
     measuredVisualOffset || position.positionMode === "relative";
   const left = formatClonePosition(position.x - offset.x, preserveFractional);
   const top = formatClonePosition(position.y - offset.y, preserveFractional);
-  patchElementInlineStyle(
-    host,
-    position.positionMode === "relative"
-      ? [
-          { property: "position", value: "relative" },
-          { property: "left", value: left },
-          { property: "top", value: top },
-        ]
-      : [
-          { property: "inset", value: null },
-          { property: "right", value: null },
-          { property: "bottom", value: null },
-          { property: "position", value: "absolute" },
-          { property: "left", value: left },
-          { property: "top", value: top },
-        ],
-  );
+  if (position.positionMode === "relative") {
+    // A logical inset written after left/top overrides them, so left/top are
+    // removed here and appended after the insets below.
+    patchElementInlineStyle(host, [
+      { property: "inset", value: null },
+      ...RELATIVE_NEUTRAL_INSETS.map((property) => ({
+        property,
+        value: "auto",
+      })),
+      { property: "left", value: null },
+      { property: "top", value: null },
+      { property: "position", value: "relative" },
+    ]);
+    patchElementInlineStyle(host, [
+      { property: "left", value: left },
+      { property: "top", value: top },
+    ]);
+    return true;
+  }
+  patchElementInlineStyle(host, [
+    { property: "inset", value: null },
+    { property: "right", value: null },
+    { property: "bottom", value: null },
+    { property: "position", value: "absolute" },
+    { property: "left", value: left },
+    { property: "top", value: top },
+  ]);
   return true;
 }
 

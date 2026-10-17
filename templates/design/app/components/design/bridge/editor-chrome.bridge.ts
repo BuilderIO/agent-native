@@ -30,6 +30,7 @@
 import { createCanvasGestureController } from "@agent-native/toolkit/canvas-interactions";
 import { originalPositionFor, TraceMap } from "@jridgewell/trace-mapping";
 
+import { relativePositionContainingBlockDirection } from "../../../../shared/relative-position-containing-block";
 import {
   isAutoLayoutDisplay,
   marginHandlesApply,
@@ -6936,6 +6937,12 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
           position: parentStyles.position,
         }
       : undefined;
+    var relativeContainingBlockDirection =
+      cs.position === "relative"
+        ? relativePositionContainingBlockDirection(el, (ancestor) =>
+            window.getComputedStyle(ancestor),
+          )
+        : undefined;
     var capabilities = sourceBacked
       ? [
           {
@@ -7038,6 +7045,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       parentDisplay: parentDisplay,
       parentAutoLayout: parentAutoLayout,
       parentLayout: parentLayout,
+      relativeContainingBlockDirection: relativeContainingBlockDirection,
       editCapabilities: capabilities,
       confidence: capabilities.reduce(function (best, item) {
         return Math.max(best, item.confidence || 0);
@@ -24534,6 +24542,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       canvas: { width: gestureViewport.width, height: gestureViewport.height },
     });
     var moved = false;
+    var lastMoveClient = { x: startX, y: startY };
     dndLog("start:free", { el: getSelector(gestureEl), isGroup: isGroupDrag });
     var currentAutoLayoutTarget: {
       anchor: Element;
@@ -24936,7 +24945,8 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       positionOverlay(selectionOverlay, selectedEl);
       postElementSelect(selectedEl);
     }
-    function onMove(ev) {
+    function onMove(ev, isRelease) {
+      lastMoveClient = { x: ev.clientX, y: ev.clientY };
       var controllerMove = bridgeMoveController.pointerMove(
         bridgeGesturePointer(ev),
       );
@@ -24947,7 +24957,8 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       ) {
         moved = true;
       }
-      if (ev.altKey && moved && !duplicatedForDrag) {
+      // A late Alt copies on the next real move; the release replay is not one.
+      if (ev.altKey && moved && !duplicatedForDrag && !isRelease) {
         activateLateDuplicate(ev);
       }
       var rawDx = controllerMove.gesture.canvasDelta.x;
@@ -25138,6 +25149,11 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       cancelMoveDrag();
     }
     function onUp(ev) {
+      // Replay only a release point no move applied: replaying the same point
+      // re-snaps against drop targets resolved since and shifts the layer.
+      if (ev.clientX !== lastMoveClient.x || ev.clientY !== lastMoveClient.y) {
+        onMove(ev, true);
+      }
       detachMoveDrag();
       commitAfterForwardedCancels(
         eventEpochMilliseconds(ev) ?? Date.now(),

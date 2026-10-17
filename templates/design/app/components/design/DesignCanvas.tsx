@@ -947,11 +947,13 @@ interface DesignCanvasProps {
   motionDurationMs?: number;
   motionPathEditingEnabled?: boolean;
   motionPathTargetNodeId?: string | null;
+  motionPathTrackId?: string | null;
   motionOriginEditingEnabled?: boolean;
   motionOriginTargetNodeId?: string | null;
   onMotionPathTracksChange?: (
     tracks: MotionTrackWire[],
     targetNodeId: string,
+    trackId?: string,
   ) => MotionPathTracksChangeResult | void;
   previewWidthPx?: number;
   previewHeightPx?: number;
@@ -1593,6 +1595,7 @@ export function DesignCanvas({
   motionDurationMs,
   motionPathEditingEnabled = false,
   motionPathTargetNodeId = null,
+  motionPathTrackId = null,
   motionOriginEditingEnabled = false,
   motionOriginTargetNodeId = null,
   onMotionPathTracksChange,
@@ -4003,14 +4006,29 @@ export function DesignCanvas({
         !interactMode &&
         onMotionPathTracksChange
       ) {
-        const edit = parseMotionPathEditMessage(e.data, motionPathTargetNodeId);
-        if (!edit) return;
-        const trackIndex = motionTracks?.findIndex(
-          (track) =>
-            track.targetNodeId === edit.targetNodeId &&
-            track.property === "translate",
+        const edit = parseMotionPathEditMessage(
+          e.data,
+          motionPathTargetNodeId,
+          motionPathTrackId,
         );
-        if (trackIndex === undefined || trackIndex < 0 || !motionTracks) return;
+        if (!edit || !motionTracks) return;
+        const matchingTrackIndexes = motionTracks.flatMap((track, index) =>
+          track.targetNodeId === edit.targetNodeId &&
+          track.property === "translate"
+            ? [index]
+            : [],
+        );
+        const trackIndex = edit.trackId
+          ? motionTracks.findIndex(
+              (track) =>
+                track.id === edit.trackId &&
+                track.targetNodeId === edit.targetNodeId &&
+                track.property === "translate",
+            )
+          : matchingTrackIndexes.length === 1
+            ? matchingTrackIndexes[0]
+            : -1;
+        if (trackIndex < 0) return;
         const updated = applyMotionPathEdit(motionTracks[trackIndex], edit);
         if (!updated) return;
         const nextTracks = [...motionTracks];
@@ -4018,6 +4036,7 @@ export function DesignCanvas({
         const changeResult = onMotionPathTracksChange(
           nextTracks,
           edit.targetNodeId,
+          edit.trackId ?? motionTracks[trackIndex]?.id,
         );
         if (changeResult?.status === "unsupported") {
           const iframeWindow = iframeRef.current?.contentWindow;
@@ -4041,8 +4060,10 @@ export function DesignCanvas({
                 !readOnly &&
                 editMode &&
                 !interactMode &&
-                typeof motionPathTargetNodeId === "string",
+                typeof motionPathTargetNodeId === "string" &&
+                typeof motionPathTrackId === "string",
               targetNodeId: motionPathTargetNodeId ?? null,
+              trackId: motionPathTrackId ?? null,
             },
             "*",
           );
@@ -5822,6 +5843,7 @@ export function DesignCanvas({
     onComponentSourceJump,
     motionPathEditingEnabled,
     motionPathTargetNodeId,
+    motionPathTrackId,
     motionOriginEditingEnabled,
     motionOriginTargetNodeId,
     motionTracks,
@@ -5871,8 +5893,10 @@ export function DesignCanvas({
           !readOnly &&
           editMode &&
           !interactMode &&
-          typeof motionPathTargetNodeId === "string",
+          typeof motionPathTargetNodeId === "string" &&
+          typeof motionPathTrackId === "string",
         targetNodeId: motionPathTargetNodeId ?? null,
+        trackId: motionPathTrackId ?? null,
       },
       "*",
     );
@@ -5881,6 +5905,7 @@ export function DesignCanvas({
     interactMode,
     motionPathEditingEnabled,
     motionPathTargetNodeId,
+    motionPathTrackId,
     readOnly,
   ]);
 

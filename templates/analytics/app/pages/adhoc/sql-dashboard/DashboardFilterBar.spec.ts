@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import { resolveFilterVars } from "./DashboardFilterBar";
-import { normalizeMultiSelectValue } from "./filter-vars";
+import {
+  isDateRangePresetFilter,
+  normalizeMultiSelectValue,
+} from "./filter-vars";
 import { interpolate, interpolateDashboardPanelSql } from "./interpolate";
 import type { DashboardFilter } from "./types";
 
@@ -235,6 +238,201 @@ describe("resolveFilterVars", () => {
         { source: "bigquery" },
       ),
     ).toBe("SELECT 'custom' AS segment");
+  });
+
+  it("treats a customRange select as a preset date filter without inventing bounds", () => {
+    const filters: DashboardFilter[] = [
+      {
+        id: "quarter",
+        label: "Period",
+        type: "select",
+        default: "this",
+        customRange: true,
+        options: [
+          { value: "this", label: "This quarter" },
+          { value: "last", label: "Last quarter" },
+          { value: "custom", label: "Custom date range" },
+        ],
+      },
+    ];
+    expect(isDateRangePresetFilter(filters[0])).toBe(true);
+    expect(resolveFilterVars(filters, () => "")).toEqual({
+      quarter: "this",
+      quarterStart: "",
+      quarterEnd: "",
+    });
+    const params: Record<string, string> = {
+      quarter: "custom",
+      quarterStart: "2026-11-01",
+      quarterEnd: "2026-12-31",
+    };
+    expect(resolveFilterVars(filters, (key) => params[key] || "")).toEqual(
+      params,
+    );
+  });
+
+  it("ignores URL bounds on a customRange select unless custom is picked", () => {
+    const filters: DashboardFilter[] = [
+      {
+        id: "quarter",
+        label: "Period",
+        type: "select",
+        default: "this",
+        customRange: true,
+        options: [
+          { value: "this", label: "This quarter" },
+          { value: "30d", label: "Last 30 days" },
+          { value: "custom", label: "Custom date range" },
+        ],
+      },
+    ];
+    const stale = { quarterStart: "2025-01-01", quarterEnd: "2025-02-01" };
+    const resolve = (quarter: string) =>
+      resolveFilterVars(
+        filters,
+        (key) => ({ quarter, ...stale })[key as "quarter"] || "",
+      );
+
+    expect(resolve("this")).toEqual({
+      quarter: "this",
+      quarterStart: "",
+      quarterEnd: "",
+    });
+    expect(resolve("30d").quarterStart).toBe(daysAgo(30));
+    expect(resolve("custom")).toEqual({ quarter: "custom", ...stale });
+  });
+
+  it("gives an all-time option an all-time start, with or without customRange", () => {
+    for (const customRange of [true, undefined]) {
+      const filters: DashboardFilter[] = [
+        {
+          id: "window",
+          label: "Window",
+          type: "select",
+          default: "30d",
+          customRange,
+          options: [
+            { value: "30d", label: "Last 30 days" },
+            { value: "all", label: "All time" },
+            { value: "custom", label: "Custom" },
+          ],
+        },
+      ];
+      const vars = resolveFilterVars(filters, (key) =>
+        key === "window" ? "all" : "",
+      );
+      expect(vars.windowStart).toBe("1970-01-01");
+      expect(vars.windowEnd).toBe(daysAgo(0));
+    }
+  });
+
+  it("treats an oversized day count like any unrecognized value instead of throwing", () => {
+    const options = [
+      { value: "30d", label: "Last 30 days" },
+      { value: "all", label: "All time" },
+    ];
+    const huge = (id: string) => (key: string) =>
+      key === id ? "99999999999d" : "";
+
+    // A plain preset select falls back to its 30-day default bounds.
+    const preset = resolveFilterVars(
+      [
+        {
+          id: "window",
+          label: "Window",
+          type: "select",
+          default: "30d",
+          options,
+        },
+      ],
+      huge("window"),
+    );
+    expect(preset.windowStart).toBe(daysAgo(30));
+    expect(preset.windowEnd).toBe(daysAgo(0));
+
+    // A customRange select doesn't offer it, so it falls back to its default.
+    const period = resolveFilterVars(
+      [
+        {
+          id: "window",
+          label: "Window",
+          type: "select",
+          default: "30d",
+          customRange: true,
+          options,
+        },
+      ],
+      huge("window"),
+    );
+    expect(period.window).toBe("30d");
+    expect(period.windowStart).toBe(daysAgo(30));
+
+    // A date filter treats it as an invalid date.
+    const date = resolveFilterVars(
+      [{ id: "since", label: "Since", type: "date" }],
+      huge("since"),
+    );
+    expect(date.since).toBe("");
+
+    // The largest supported count still resolves.
+    expect(
+      resolveFilterVars(
+        [
+          {
+            id: "window",
+            label: "Window",
+            type: "select",
+            default: "30d",
+            options,
+          },
+        ],
+        (key) => (key === "window" ? "36500d" : ""),
+      ).windowStart,
+    ).toBe(daysAgo(36500));
+  });
+
+  it("only accepts values a customRange select offers", () => {
+    const filters: DashboardFilter[] = [
+      {
+        id: "quarter",
+        label: "Period",
+        type: "select",
+        default: "this",
+        customRange: true,
+        options: [
+          { value: "this", label: "This quarter" },
+          { value: "last", label: "Last quarter" },
+        ],
+      },
+    ];
+    const resolve = (quarter: string) =>
+      resolveFilterVars(filters, (key) => (key === "quarter" ? quarter : ""));
+
+    // Values the select doesn't offer fall back to its default.
+    for (const unoffered of ["all", "90d", "next"]) {
+      expect(resolve(unoffered)).toEqual({
+        quarter: "this",
+        quarterStart: "",
+        quarterEnd: "",
+      });
+    }
+    // "custom" is always offered, and configured options pass through.
+    expect(resolve("custom").quarter).toBe("custom");
+    expect(resolve("last").quarter).toBe("last");
+  });
+
+  it("leaves quarter-style selects without customRange as plain selects", () => {
+    expect(
+      isDateRangePresetFilter({
+        id: "quarter",
+        label: "Period",
+        type: "select",
+        options: [
+          { value: "this", label: "This quarter" },
+          { value: "custom", label: "Custom date range" },
+        ],
+      }),
+    ).toBe(false);
   });
 
   it("resolves custom bounds for a preset date filter", () => {

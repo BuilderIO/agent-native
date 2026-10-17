@@ -265,6 +265,9 @@ because frames say nothing about the audio.
 - **Space** — play / pause (even while focused in the editor area)
 - **Cmd/Ctrl+Z** — undo the last trim (no redo stack)
 - **I / O** — mark in / out of the current trim selection
+- **Hold R and drag on the timeline** — select an exact range; use Cut
+  Selection or Delete to remove it. A normal click still selects and seeks to a
+  section, and dragging a section edge still changes that edge.
 - **S** — split at playhead (via `split-button.tsx`)
 - **Delete / Backspace** — while the transcript editor has a selection: trim
   the selected text's timestamp range

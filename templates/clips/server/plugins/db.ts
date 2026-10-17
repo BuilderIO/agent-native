@@ -12,6 +12,7 @@ import { z } from "zod";
 
 import "../db/index.js";
 import * as schema from "../db/schema.js";
+import { orderMigrationsByVersion } from "../lib/migration-order.js";
 import {
   uploadLeaseExpiry,
   waitingStorageLeaseExpiry,
@@ -201,7 +202,7 @@ function scheduleRecordingOrgIdBackfill(): void {
 // alone are not a safe identity across parallel branches that each extend
 // this list independently — see the v41 incident documented on v41 below.
 export const migrations = runMigrations(
-  [
+  orderMigrationsByVersion([
     {
       version: 1,
       sql: `CREATE TABLE IF NOT EXISTS workspaces (
@@ -1296,7 +1297,14 @@ export const migrations = runMigrations(
       // Additive. Mirrors `importId` on `recordingTranscripts` in server/db/schema.ts.
       sql: `ALTER TABLE recording_transcripts ADD COLUMN IF NOT EXISTS import_id TEXT`,
     },
-  ],
+    {
+      version: 91,
+      name: "recording-context-capture-audio",
+      // Nullable so existing requests can fall back to their originating device.
+      sql: `ALTER TABLE recording_context_items ADD COLUMN IF NOT EXISTS include_microphone BOOLEAN;
+      ALTER TABLE recording_context_items ADD COLUMN IF NOT EXISTS include_system_audio BOOLEAN`,
+    },
+  ]),
   { table: "clips_migrations" },
 );
 

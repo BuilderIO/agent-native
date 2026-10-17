@@ -262,6 +262,16 @@ const textDocument = {
     },
   ],
 };
+const textDocumentV2 = {
+  version: 2 as const,
+  animations: textDocument.animations.map((animation) => ({
+    ...animation,
+    animationDirection: "in" as const,
+    order: "left-to-right" as const,
+    ignoreSpaces: true,
+    delayMs: 0,
+  })),
+};
 const managedTextSource = applyMotionReactSourceEdit({
   currentSource: source,
   expectedSource: source,
@@ -678,10 +688,7 @@ describe("get-motion-timeline localhost React source", () => {
     expect(result.timelines[0]).toMatchObject({
       source: "stored-react-drift",
       tracks: timeline.tracks,
-      textDocument: {
-        version: 1,
-        animations: [{ targetNodeId: "hero", staggerMs: 40 }],
-      },
+      textDocument: textDocumentV2,
     });
   });
 
@@ -699,7 +706,7 @@ describe("get-motion-timeline localhost React source", () => {
     expect(result.timelines[0]).toMatchObject({
       source: "recovered-react",
       tracks: [],
-      textDocument,
+      textDocument: textDocumentV2,
       durationMs: 800,
     });
   });
@@ -758,7 +765,7 @@ describe("get-motion-timeline localhost React source", () => {
     expect(result.timelines[0]).toMatchObject({
       source: "stored-local-unverified",
       tracks: timeline.tracks,
-      textDocument,
+      textDocument: textDocumentV2,
       filePath: null,
       sourceVersionHash: null,
       cssHash: null,

@@ -1,11 +1,11 @@
 import {
-  IconArtboard,
   IconCode,
   IconChevronDown,
   IconChevronRight,
+  IconHash,
   IconPhoto,
+  IconSearch,
   IconSquare,
-  IconTypography,
   IconVectorBezier2,
   IconVideo,
   IconX,
@@ -17,6 +17,7 @@ import {
   ContextMenuContent,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import { Input } from "@/components/ui/input";
 
 export type SlidesLayerKind =
   | "code"
@@ -39,6 +40,7 @@ export type SlidesLayerPlacement = "before" | "after" | "inside";
 export interface SlidesLayersPanelLabels {
   title: string;
   close: string;
+  search: string;
   expand: string;
   collapse: string;
 }
@@ -61,35 +63,41 @@ export interface SlidesLayersPanelProps {
   labels: SlidesLayersPanelLabels;
 }
 
+function filterLayers(
+  nodes: SlidesLayerNode[],
+  query: string,
+): SlidesLayerNode[] {
+  return nodes.flatMap((node) => {
+    if (node.label.toLowerCase().includes(query)) return [node];
+    const children = filterLayers(node.children ?? [], query);
+    return children.length ? [{ ...node, children }] : [];
+  });
+}
+
 function dropPlacement(event: DragEvent<HTMLElement>): SlidesLayerPlacement {
   const bounds = event.currentTarget.getBoundingClientRect();
   const position = (event.clientY - bounds.top) / bounds.height;
   return position < 0.3 ? "after" : position > 0.7 ? "before" : "inside";
 }
 
-function LayerRowIndentSlots({
-  depth,
-  control,
-}: {
-  depth: number;
-  control?: ReactNode;
-}) {
+// Tabler has no large/small "Aa" glyph; this is Lucide's a-large-small, which the Figma spec uses for text layers.
+function TextLayerIcon({ className }: { className?: string }) {
   return (
-    <span
-      data-layer-row-indents
-      className="flex h-full shrink-0 items-center"
-      aria-hidden={control ? undefined : true}
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
     >
-      {Array.from({ length: depth + 1 }, (_, index) => (
-        <span
-          key={index}
-          data-layer-row-indent
-          className={`flex size-4 shrink-0 items-center justify-center ${index < depth ? "mr-2" : ""}`}
-        >
-          {index === depth ? control : null}
-        </span>
-      ))}
-    </span>
+      <path d="m15 16 2.536-7.328a1.02 1.02 1 0 1 1.928 0L22 16" />
+      <path d="M15.697 14h5.606" />
+      <path d="m2 16 4.039-9.69a.5.5 0 0 1 .923 0L11 16" />
+      <path d="M3.304 13h6.392" />
+    </svg>
   );
 }
 
@@ -103,7 +111,7 @@ function LayerGlyph({
   const className = "size-4";
   switch (kind) {
     case "text":
-      return <IconTypography className={className} />;
+      return <TextLayerIcon className={className} />;
     case "image":
       return <IconPhoto className={className} />;
     case "video":
@@ -115,10 +123,10 @@ function LayerGlyph({
     case "shape":
       return <IconSquare className={className} />;
     case "container":
-      return <IconArtboard className={className} />;
+      return <IconHash className={className} />;
     default:
       return hasChildren ? (
-        <IconArtboard className={className} />
+        <IconHash className={className} />
       ) : (
         <IconSquare className={className} />
       );
@@ -137,9 +145,11 @@ function LayerRow({
   labels,
   onSelectLayer,
   onMoveLayer,
+  searching,
 }: {
   node: SlidesLayerNode;
   depth: number;
+  searching: boolean;
   selectedIds: string[] | ReadonlySet<string>;
   onHoverLayer?: SlidesLayersPanelProps["onHoverLayer"];
   onLeaveLayer?: SlidesLayersPanelProps["onLeaveLayer"];
@@ -150,7 +160,8 @@ function LayerRow({
   onContextMenuClose?: SlidesLayersPanelProps["onContextMenuClose"];
   onMoveLayer: SlidesLayersPanelProps["onMoveLayer"];
 }) {
-  const [expanded, setExpanded] = useState(true);
+  const [collapsedState, setExpanded] = useState(true);
+  const expanded = searching || collapsedState;
   const [dragging, setDragging] = useState(false);
   const children = node.children ?? [];
   const displayChildren = [...children].reverse();
@@ -171,8 +182,9 @@ function LayerRow({
     <div
       data-layer-row-content
       data-layer-depth={depth}
+      style={{ paddingLeft: 16 + depth * 24 }}
       data-layer-selection={selected ? "primary" : undefined}
-      className={`group flex h-8 w-max min-w-full items-center pr-1 text-[12px] text-foreground/90 transition-colors ${selected ? "bg-accent text-accent-foreground" : "hover:bg-accent hover:text-foreground"} ${dragging ? "opacity-50" : ""}`}
+      className={`group flex h-8 w-full items-center gap-2 pr-12 text-[11px] font-[450] leading-4 tracking-[0.055px] text-foreground ${selected ? "bg-accent text-accent-foreground" : "hover:bg-accent hover:text-foreground"} ${dragging ? "opacity-50" : ""}`}
       onMouseEnter={() => onHoverLayer?.(node.id)}
       onMouseLeave={() => onLeaveLayer?.(node.id)}
       onDragOver={(event) => event.preventDefault()}
@@ -180,25 +192,20 @@ function LayerRow({
       onDragLeave={() => setDragging(false)}
       onDrop={handleDrop}
     >
-      <LayerRowIndentSlots
-        depth={depth}
-        control={
-          children.length ? (
-            <button
-              type="button"
-              className="flex size-4 items-center justify-center rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
-              aria-label={expanded ? labels.collapse : labels.expand}
-              onClick={() => setExpanded((value) => !value)}
-            >
-              {expanded ? (
-                <IconChevronDown className="size-4" />
-              ) : (
-                <IconChevronRight className="size-4" />
-              )}
-            </button>
-          ) : undefined
-        }
-      />
+      {children.length ? (
+        <button
+          type="button"
+          className="flex size-4 shrink-0 items-center justify-center rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
+          aria-label={expanded ? labels.collapse : labels.expand}
+          onClick={() => setExpanded(!collapsedState)}
+        >
+          {expanded ? (
+            <IconChevronDown className="size-4" />
+          ) : (
+            <IconChevronRight className="size-4" />
+          )}
+        </button>
+      ) : null}
       <button
         type="button"
         data-layer-row-button
@@ -271,6 +278,7 @@ function LayerRow({
               labels={labels}
               onSelectLayer={onSelectLayer}
               onMoveLayer={onMoveLayer}
+              searching={searching}
             />
           ))}
         </div>
@@ -292,31 +300,58 @@ export function SlidesLayersPanel({
   onClose,
   labels,
 }: SlidesLayersPanelProps) {
+  const [searching, setSearching] = useState(false);
+  const [query, setQuery] = useState("");
+  const needle = searching ? query.trim().toLowerCase() : "";
+  const visibleLayers = needle ? filterLayers(layers, needle) : layers;
+
   return (
     <aside
-      className="flex h-full w-72 min-w-0 flex-col bg-background"
+      className="flex h-full w-full min-w-0 flex-col bg-background"
       aria-label={labels.title}
     >
-      <header className="flex h-14 shrink-0 items-center justify-between border-b border-border px-4">
-        <h2 className="text-sm font-semibold text-foreground">
+      <header className="flex h-10 shrink-0 items-center justify-between border-t border-border pl-4 pr-2">
+        <h2 className="text-[11px] font-[550] leading-4 tracking-[0.055px] text-foreground">
           {labels.title}
         </h2>
-        <button
-          type="button"
-          className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-          onClick={onClose}
-          aria-label={labels.close}
-        >
-          <IconX className="size-4" />
-        </button>
+        <div className="flex items-center">
+          <button
+            type="button"
+            className={`flex size-[22px] items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground ${searching ? "bg-accent text-foreground" : ""}`}
+            onClick={() => {
+              setSearching((value) => !value);
+              setQuery("");
+            }}
+            aria-label={labels.search}
+            aria-pressed={searching}
+          >
+            <IconSearch className="size-3" />
+          </button>
+          <button
+            type="button"
+            className="flex size-[22px] items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+            onClick={onClose}
+            aria-label={labels.close}
+          >
+            <IconX className="size-3" />
+          </button>
+        </div>
       </header>
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain py-2">
-        <div
-          className="w-max min-w-full px-2"
-          role="tree"
-          aria-label={labels.title}
-        >
-          {[...layers].reverse().map((node) => (
+      {searching ? (
+        <div className="shrink-0 px-2 pb-2">
+          <Input
+            autoFocus
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder={labels.search}
+            aria-label={labels.search}
+            className="h-7 text-[11px]"
+          />
+        </div>
+      ) : null}
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        <div className="w-full" role="tree" aria-label={labels.title}>
+          {[...visibleLayers].reverse().map((node) => (
             <LayerRow
               key={node.id}
               node={node}
@@ -330,6 +365,7 @@ export function SlidesLayersPanel({
               labels={labels}
               onSelectLayer={onSelectLayer}
               onMoveLayer={onMoveLayer}
+              searching={needle !== ""}
             />
           ))}
         </div>

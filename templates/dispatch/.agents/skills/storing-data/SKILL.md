@@ -44,9 +44,11 @@ second migration owner beside it. The Chat and default starters do not ship that
 Drizzle Kit setup; follow their local instructions and the Database docs for
 the migration path. In Chat, add `server/db/schema.ts`, `server/db/index.ts`
 with `createGetDb(schema)`, and `server/plugins/db.ts` with
-`runMigrations([...], { table })`. `scripts/migrate-production.ts` is framework-only;
-do not create a parallel `runMigrations([...])` list beside a generated Drizzle
-migration owner. Give each handwritten migration a unique, stable `name`
+`runMigrations([...], { table })`. `scripts/migrate-production.ts` applies the
+framework tables and then that plugin (`runAppReleaseMigrations`), because a
+release-owned deploy skips it at boot; a project with a Drizzle config is left to
+`db:migrate`, and do not create a parallel `runMigrations([...])` list beside a
+generated Drizzle migration owner. Give each handwritten migration a unique, stable `name`
 alongside its `version`; append changes instead of renumbering, reusing, or
 editing an applied entry.
 

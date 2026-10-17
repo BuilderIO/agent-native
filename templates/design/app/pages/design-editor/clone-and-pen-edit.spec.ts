@@ -173,7 +173,7 @@ describe("extractLayerPosition", () => {
     expect([clone.style.right, clone.style.bottom]).toEqual(["", ""]);
   });
 
-  it("preserves opposing relative offsets and RTL when moving a fractional clone", () => {
+  it("canonicalizes opposing relative offsets when moving a fractional clone", () => {
     const result = prepareClonedHtmlLayersForLiveInsert(
       LIVE_URL,
       [
@@ -193,22 +193,30 @@ describe("extractLayerPosition", () => {
       clone.style.top,
       clone.style.right,
       clone.style.bottom,
+      clone.style.getPropertyValue("inset"),
       clone.style.margin,
       clone.getAttribute("dir"),
     ]).toEqual([
       "relative",
       "56.25px",
       "28.5px",
-      "7.75px",
-      "9.25px",
+      "auto",
+      "auto",
+      "",
       "3px 4px",
       "rtl",
     ]);
     expect(clone.getAttribute("data-note")).toBe("kept");
     expect(clone.textContent).toBe("Source");
+    expect([
+      clone.style.getPropertyValue("inset-inline-start"),
+      clone.style.getPropertyValue("inset-inline-end"),
+      clone.style.getPropertyValue("inset-block-start"),
+      clone.style.getPropertyValue("inset-block-end"),
+    ]).toEqual(["auto", "auto", "auto", "auto"]);
   });
 
-  it("keeps a relative inset shorthand when updating fractional coordinates", () => {
+  it("clears a relative inset shorthand when updating fractional coordinates", () => {
     const result = prepareClonedHtmlLayersForLiveInsert(
       LIVE_URL,
       [
@@ -227,14 +235,48 @@ describe("extractLayerPosition", () => {
       clone.style.left,
       clone.style.top,
       clone.style.getPropertyValue("inset"),
+      clone.style.right,
+      clone.style.bottom,
       clone.getAttribute("dir"),
-    ]).toEqual([
-      "relative",
-      "56.25px",
-      "28.5px",
-      "12.5px 7.75px 9.25px 40.25px",
-      "rtl",
-    ]);
+    ]).toEqual(["relative", "56.25px", "28.5px", "", "auto", "auto", "rtl"]);
+  });
+
+  it("overrides stylesheet inset constraints when moving a relative clone", () => {
+    const style = document.createElement("style");
+    style.textContent =
+      ".rtl-parent { direction: rtl; } .class-relative { position: relative; left: 40.25px; right: 7.75px; top: 12.5px; bottom: 9.25px; }";
+    const parent = document.createElement("div");
+    parent.className = "rtl-parent";
+    document.head.append(style);
+    document.body.append(parent);
+    try {
+      const result = prepareClonedHtmlLayersForLiveInsert(
+        LIVE_URL,
+        [
+          '<div class="class-relative" data-agent-native-node-id="source">Source</div>',
+        ],
+        {
+          positions: [
+            { x: 56.25, y: 28.5, positionMode: "relative", space: "layout" },
+          ],
+        },
+      );
+
+      const clone = parseFragment(result!.htmlFragments[0]!) as HTMLElement;
+      parent.append(clone);
+      expect(clone.className).toBe("class-relative");
+      expect([
+        clone.style.position,
+        clone.style.left,
+        clone.style.top,
+        clone.style.right,
+        clone.style.bottom,
+      ]).toEqual(["relative", "56.25px", "28.5px", "auto", "auto"]);
+      expect(window.getComputedStyle(clone).right).toBe("auto");
+    } finally {
+      parent.remove();
+      style.remove();
+    }
   });
 
   it("clears an authored inset when stripping root placement", () => {

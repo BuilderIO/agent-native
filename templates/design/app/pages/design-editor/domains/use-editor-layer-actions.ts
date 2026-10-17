@@ -60,6 +60,7 @@ import {
   measurePositionCoordinateContext,
   positionCoordinateRenderOffsetForWindow,
 } from "../position-coordinate-context";
+import { readRelativePositionStyles } from "../relative-position-offset";
 import {
   isScreenRootElementInfo,
   resolveMarqueeAdditive,
@@ -99,7 +100,9 @@ function readRenderedLayerInfo(
         preferredCodeLayerSelector(owner.node),
       );
       if (!element) continue;
-      const computed = preview.getComputedStyle(element);
+      const relativePosition = readRelativePositionStyles(element, (target) =>
+        preview.getComputedStyle(target),
+      );
       const parent = element.parentElement;
       const renderOffset = positionCoordinateRenderOffsetForWindow(preview);
       if (!renderOffset) continue;
@@ -121,9 +124,10 @@ function readRenderedLayerInfo(
         sourceLayerIdentity: { screenId: owner.fileId, nodeId: owner.node.id },
         computedStyles: {
           ...base.computedStyles,
-          position: computed.position,
-          zIndex: computed.zIndex,
+          ...relativePosition.computedStyles,
         },
+        relativeContainingBlockDirection:
+          relativePosition.relativeContainingBlockDirection,
         boundingRect: {
           x: rect.x + scrollX,
           y: rect.y + scrollY,
@@ -985,9 +989,17 @@ export function useEditorLayerActions({
               measured.positionContainingBlockOrigin,
             positionContainingBlockTransform:
               measured.positionContainingBlockTransform,
+            relativeContainingBlockDirection:
+              measured.relativeContainingBlockDirection,
             computedStyles: {
               ...measured.computedStyles,
               ...current.computedStyles,
+              position: measured.computedStyles.position,
+              left: measured.computedStyles.left,
+              right: measured.computedStyles.right,
+              top: measured.computedStyles.top,
+              bottom: measured.computedStyles.bottom,
+              zIndex: measured.computedStyles.zIndex,
             },
           };
           return samePlainData(merged, current) ? current : merged;

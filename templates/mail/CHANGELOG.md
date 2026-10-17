@@ -7,6 +7,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Inbox previews show apostrophes, quotes and ampersands as text instead of HTML codes.
 - Allowing automations to send no longer lets them delete mail or change Gmail settings without approval.
 - Automations that add a Gmail label no longer wait for send approval that never arrives.
 

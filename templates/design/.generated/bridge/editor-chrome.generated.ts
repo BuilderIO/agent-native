@@ -903,6 +903,24 @@ export const editorChromeBridgeScript: string = `"use strict";
     return index;
   }
 
+  // shared/relative-position-containing-block.ts
+  function relativePositionContainingBlockDirection(element, getComputedStyle) {
+    let ancestor = element.parentElement;
+    while (ancestor) {
+      const styles = getComputedStyle(ancestor);
+      const display = styles.display;
+      if (display === "inline" || display === "contents") {
+        ancestor = ancestor.parentElement;
+        continue;
+      }
+      if (display === "block" || display === "flow-root" || display === "list-item" || display === "inline-block" || display === "flex" || display === "inline-flex" || display === "grid" || display === "inline-grid" || display === "table-cell" || display === "table-caption") {
+        return styles.direction === "ltr" || styles.direction === "rtl" ? styles.direction : void 0;
+      }
+      return void 0;
+    }
+    return void 0;
+  }
+
   // shared/spacing-handle-rule.ts
   function isAutoLayoutDisplay(display) {
     return display === "flex" || display === "inline-flex" || display === "grid" || display === "inline-grid";
@@ -6041,6 +6059,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         gridTemplateRows: parentStyles.gridTemplateRows,
         position: parentStyles.position
       } : void 0;
+      var relativeContainingBlockDirection = cs.position === "relative" ? relativePositionContainingBlockDirection(
+        el,
+        (ancestor) => window.getComputedStyle(ancestor)
+      ) : void 0;
       var capabilities = sourceBacked ? [
         {
           kind: "deterministic-style-edit",
@@ -6121,6 +6143,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         parentDisplay,
         parentAutoLayout,
         parentLayout,
+        relativeContainingBlockDirection,
         editCapabilities: capabilities,
         confidence: capabilities.reduce(function(best, item) {
           return Math.max(best, item.confidence || 0);
@@ -18896,6 +18919,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         canvas: { width: gestureViewport.width, height: gestureViewport.height }
       });
       var moved = false;
+      var lastMoveClient = { x: startX, y: startY };
       dndLog("start:free", { el: getSelector(gestureEl), isGroup: isGroupDrag });
       var currentAutoLayoutTarget = null;
       var dragIgnoreAutoLayout = hostIgnoreAutoLayoutAtPointerDown || pointerStartParam?.ignoreAutoLayout === true || isIgnoreAutoLayoutChord(e);
@@ -19204,7 +19228,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         positionOverlay(selectionOverlay, selectedEl);
         postElementSelect(selectedEl);
       }
-      function onMove(ev) {
+      function onMove(ev, isRelease) {
+        lastMoveClient = { x: ev.clientX, y: ev.clientY };
         var controllerMove = bridgeMoveController.pointerMove(
           bridgeGesturePointer(ev)
         );
@@ -19212,7 +19237,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (!moved && Math.hypot(ev.clientX - startX, ev.clientY - startY) > DRAG_THRESHOLD) {
           moved = true;
         }
-        if (ev.altKey && moved && !duplicatedForDrag) {
+        if (ev.altKey && moved && !duplicatedForDrag && !isRelease) {
           activateLateDuplicate(ev);
         }
         var rawDx = controllerMove.gesture.canvasDelta.x;
@@ -19366,6 +19391,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         cancelMoveDrag();
       }
       function onUp(ev) {
+        if (ev.clientX !== lastMoveClient.x || ev.clientY !== lastMoveClient.y) {
+          onMove(ev, true);
+        }
         detachMoveDrag();
         commitAfterForwardedCancels(
           eventEpochMilliseconds(ev) ?? Date.now(),

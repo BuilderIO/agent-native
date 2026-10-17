@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.209.1",
+  "version": "0.209.2",
   "description": "The agentic application framework for building autonomous agents with intuitive UIs",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -405,6 +405,7 @@
     "./collab": "./dist/collab/index.js",
     "./a2a": "./dist/a2a/index.js",
     "./mcp": "./dist/mcp/index.js",
+    "./mcp/fetch": "./dist/mcp/fetch-handler.js",
     "./mcp-client": "./dist/mcp-client/index.js",
     "./tracking": "./dist/tracking/index.js",
     "./usage": "./dist/usage/store.js",
