@@ -21336,7 +21336,13 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (ev) stopNativeInteraction(ev);
         var cycledEl = !readOnly && (e.metaKey || e.ctrlKey) && !e.shiftKey ? stackCycleTarget(e.clientX, e.clientY, selectedEl) : null;
         var primaryClickTarget = !readOnly && (e.metaKey || e.ctrlKey) ? modifierClickSelectionTarget(hit) : !designCanvasBoardSurface ? selectedContainerForPlainClick(hit, ev, repeatedClick) || plainClickSelectionTarget(hit) : (!readOnly && !e.shiftKey ? selectedContainerForPlainClick(hit, ev, repeatedClick) || clickThroughSelectionTarget(hit, ev, repeatedClick) : null) || containerFirstSelectionTarget(hit);
-        var cycleTarget = cycledEl && (!primaryClickTarget || primaryClickTarget === selectedEl) ? cycledEl : null;
+        var entersSelectedContainer = Boolean(
+          selectedEl && selectedEl.contains && hit && selectedEl.contains(hit)
+        );
+        var isDrillingIntoSelectedContainer = Boolean(
+          entersSelectedContainer && primaryClickTarget && primaryClickTarget !== selectedEl
+        );
+        var cycleTarget = cycledEl && !isDrillingIntoSelectedContainer ? cycledEl : null;
         if (cycleTarget) {
           selectTarget(cycleTarget, ev, true);
         } else {

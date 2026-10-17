@@ -27480,10 +27480,16 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
                 ? selectedContainerForPlainClick(hit, ev, repeatedClick) ||
                   clickThroughSelectionTarget(hit, ev, repeatedClick)
                 : null) || containerFirstSelectionTarget(hit);
+      var entersSelectedContainer = Boolean(
+        selectedEl && selectedEl.contains && hit && selectedEl.contains(hit),
+      );
+      var isDrillingIntoSelectedContainer = Boolean(
+        entersSelectedContainer &&
+        primaryClickTarget &&
+        primaryClickTarget !== selectedEl,
+      );
       var cycleTarget =
-        cycledEl && (!primaryClickTarget || primaryClickTarget === selectedEl)
-          ? cycledEl
-          : null;
+        cycledEl && !isDrillingIntoSelectedContainer ? cycledEl : null;
       if (cycleTarget) {
         selectTarget(cycleTarget, ev, true);
       } else {

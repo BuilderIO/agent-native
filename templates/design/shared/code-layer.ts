@@ -10057,12 +10057,9 @@ function applyAutoLayout(
   };
   const containerStyles = intent.containerStyles;
   const writtenProperties: VisualStyleProperty[] = [];
-  const hasAuthoredCrossAxisAlignment =
-    node.layout.alignItems != null ||
-    classList(element).some((className) => /(?:^|:)!?items-/.test(className)) ||
-    effectiveStyleDeclarations(declarations).some(
-      (declaration) => cssPropertyKey(declaration.prop) === "align-items",
-    );
+  const hasBaseCrossAxisAlignmentClass = classList(element).some((className) =>
+    /^(?:!items-|items-)/.test(className),
+  );
   if (containerStyles) {
     const declared: Array<[VisualStyleProperty, string]> = [];
     for (const [rawProperty, rawValue] of Object.entries(containerStyles)) {
@@ -10083,13 +10080,16 @@ function applyAutoLayout(
     setOrReplace("gap", gap);
     writtenProperties.push("display", "flex-direction", "gap");
   }
-  if (
-    !hasAuthoredCrossAxisAlignment &&
-    !effectiveStyleDeclarations(declarations).some(
+  const hasAuthoredCrossAxisAlignment =
+    node.layout.alignItems != null ||
+    hasBaseCrossAxisAlignmentClass ||
+    effectiveStyleDeclarations(declarations).some(
       (declaration) => cssPropertyKey(declaration.prop) === "align-items",
-    )
-  ) {
-    setOrReplace("align-items", "flex-start");
+    );
+  const addDefaultCrossAxisAlignment = !hasAuthoredCrossAxisAlignment;
+  if (addDefaultCrossAxisAlignment) {
+    // Keep the default below authored stylesheets in the cascade, and let
+    // responsive items-* utilities override it only at their own breakpoint.
     writtenProperties.push("align-items");
   }
   let result = replaceOrInsertAttribute(
@@ -10099,7 +10099,7 @@ function applyAutoLayout(
     serializeStyleDeclarations(declarations),
   );
 
-  const updatedElements = parseHtmlElements(result);
+  let updatedElements = parseHtmlElements(result);
   const stableAttrPairs: Array<[string, string]> = [];
   for (const attrName of STABLE_NODE_ID_ATTRIBUTES) {
     const v = attributeValue(element, attrName);
@@ -10120,7 +10120,21 @@ function applyAutoLayout(
     }
     return elements.find((fe) => fe.start === element.start);
   };
-  const updatedTarget = findElementInParsed(updatedElements);
+  let updatedTarget = findElementInParsed(updatedElements);
+  if (addDefaultCrossAxisAlignment && updatedTarget) {
+    result = replaceOrInsertAttribute(
+      result,
+      updatedTarget,
+      "class",
+      setPropertyClass(
+        attributeValue(updatedTarget, "class") ?? "",
+        "base",
+        "items-start",
+      ),
+    );
+    updatedElements = parseHtmlElements(result);
+    updatedTarget = findElementInParsed(updatedElements);
+  }
 
   if (updatedTarget) {
     const childIndexes = [...updatedTarget.childIndexes].reverse();
