@@ -156,11 +156,14 @@ Initialization rejects whitespace-only and all other nonempty bodies, preserves
 the Markdown bytes exactly, and safely replays an identical retry.
 
 Some pages take body writes through their live copy, the copy open tabs edit.
-`edit-document` writes those bodies; other writers, such as `update-document
---content`, a property or collection block stored in the body, row migrations,
-and local-folder, Notion, or Builder syncs, refuse with
-`LIVE_BODY_WRITER_UNSUPPORTED` (409) and change nothing. Retrying that writer won't help: make the body change with
-`edit-document`, or tell the user which action refused and on which page.
+`edit-document` writes those bodies, except on a page linked to a local file.
+That edit and other writers, such as `update-document --content`, a property or
+collection block stored in the body, row migrations, and local-folder, Notion,
+or Builder syncs, refuse with `LIVE_BODY_WRITER_UNSUPPORTED` (409) and change
+nothing in Content. Retrying that writer won't help: make the body change with
+`edit-document` where it can, or tell the user which action refused and on which
+page. When the refusal's `details` name a Notion page (`remotePageId`) or a local
+file (`sourcePath`), that copy already changed; say so.
 `LIVE_BODY_WRITE_PATH_CHANGED` means the page switched while the write was in
 flight; read the page again and retry.
 

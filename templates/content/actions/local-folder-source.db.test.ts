@@ -5,7 +5,14 @@ import { join } from "node:path";
 import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { and, asc, eq } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+
+vi.mock("@agent-native/creative-context/server", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/creative-context/server")
+  >()),
+  getGenerationCreativeContext: vi.fn(async () => null),
+}));
 
 const TEST_DB_PATH = join(
   tmpdir(),
@@ -26,6 +33,7 @@ let getContentDatabase: typeof import("./get-content-database.js").default;
 let provisionContentSpaces: typeof import("./_content-spaces.js").provisionContentSpaces;
 let organizationContentSpaceId: typeof import("./_content-spaces.js").organizationContentSpaceId;
 let shareLocalFileDocument: typeof import("./share-local-file-document.js").default;
+let editDocument: typeof import("./edit-document.js").default;
 let putPageOnLiveCopy: typeof import("../server/test-support/live-copy-page.js").putPageOnLiveCopy;
 let liveCopyVersionOf: typeof import("../server/test-support/live-copy-page.js").liveCopyVersionOf;
 let turnLiveCopyFlagsOff: typeof import("../server/test-support/live-copy-page.js").turnLiveCopyFlagsOff;
@@ -63,6 +71,7 @@ beforeAll(async () => {
     await import("./_content-spaces.js"));
   shareLocalFileDocument = (await import("./share-local-file-document.js"))
     .default;
+  editDocument = (await import("./edit-document.js")).default;
   ({ putPageOnLiveCopy, liveCopyVersionOf, turnLiveCopyFlagsOff } =
     await import("../server/test-support/live-copy-page.js"));
 }, 60000);
@@ -2128,5 +2137,91 @@ describe("local-folder Content source", () => {
       bodyRevision: before.page.bodyRevision,
     });
     expect(after.liveCopyVersion).toBe(before.liveCopyVersion);
+  });
+
+  describe("an edit to a linked file whose page takes body writes through its live copy", () => {
+    async function linkedFilePage(id: string) {
+      const now = new Date().toISOString();
+      await getDb()
+        .insert(schema.documents)
+        .values({
+          id,
+          ownerEmail: OWNER,
+          title: "Linked note",
+          content: "alpha beta",
+          sourceMode: "local-files",
+          sourceKind: "file",
+          sourcePath: `notes/${id}.md`,
+          visibility: "private",
+          createdAt: now,
+          updatedAt: now,
+        });
+    }
+    const edit = (id: string) =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        editDocument.run(
+          { id, find: "alpha", replace: "omega", reuseLabels: [] },
+          { caller: "frontend", userEmail: OWNER },
+        ),
+      );
+
+    it("refuses before it writes the file", async () => {
+      const id = "linked_file_edit_live_copy";
+      await linkedFilePage(id);
+      await putPageOnLiveCopy(id);
+      const before = await pageBodyState(id);
+      const linkedLocal = await import("./_linked-local-document-edit.js");
+      const sourceWrite = vi.spyOn(
+        linkedLocal,
+        "editLinkedLocalDocumentThroughBrowser",
+      );
+      try {
+        await expect(edit(id)).rejects.toMatchObject({
+          errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+          statusCode: 409,
+          details: { documentId: id, operation: "edit-document" },
+        });
+        expect(sourceWrite).not.toHaveBeenCalled();
+        expect(await pageBodyState(id)).toEqual(before);
+      } finally {
+        sourceWrite.mockRestore();
+      }
+    });
+
+    it("refuses, and names the file that took the edit, when the page takes its live copy while the file is written", async () => {
+      const id = "linked_file_edit_live_copy_mid_write";
+      await linkedFilePage(id);
+      const linkedLocal = await import("./_linked-local-document-edit.js");
+      let before: Awaited<ReturnType<typeof pageBodyState>> | undefined;
+      const sourceWrite = vi
+        .spyOn(linkedLocal, "editLinkedLocalDocumentThroughBrowser")
+        .mockImplementationOnce(async () => {
+          await putPageOnLiveCopy(id);
+          before = await pageBodyState(id);
+          return {
+            status: "persisted",
+            content: "omega beta",
+            title: "Linked note",
+            path: `notes/${id}.md`,
+            runtime: "browser",
+          };
+        });
+      try {
+        await expect(edit(id)).rejects.toMatchObject({
+          errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+          statusCode: 409,
+          details: {
+            documentId: id,
+            operation: "edit-document",
+            sourcePath: `notes/${id}.md`,
+          },
+        });
+        expect(sourceWrite).toHaveBeenCalledTimes(1);
+        expect(before?.page.content).toBe("alpha beta");
+        expect(await pageBodyState(id)).toEqual(before);
+      } finally {
+        sourceWrite.mockRestore();
+      }
+    });
   });
 });

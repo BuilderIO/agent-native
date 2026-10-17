@@ -114,6 +114,8 @@ vi.mock("../db/index.js", async () => {
     documentSyncLinks: {
       documentId: "documentSyncLinks.documentId",
       ownerEmail: "documentSyncLinks.ownerEmail",
+      remotePageId: "documentSyncLinks.remotePageId",
+      updatedAt: "documentSyncLinks.updatedAt",
       syncClaimedAt: "documentSyncLinks.syncClaimedAt",
     },
     documentVersions: {
@@ -247,7 +249,11 @@ vi.mock("../db/index.js", async () => {
             (row) => !matches(row, where),
           );
         }
-        if (table === schema.documentSyncLinks) {
+        if (
+          table === schema.documentSyncLinks &&
+          testState.link &&
+          matches(testState.link, where)
+        ) {
           testState.link = null;
         }
       },
@@ -1736,6 +1742,51 @@ describe("a page that takes body writes through its live copy", () => {
       } else {
         expect(testState.link).toBeNull();
       }
+    },
+  );
+
+  it.each([
+    ["had a link", true],
+    ["had none", false],
+  ])(
+    "keeps a link another operation wrote while a refused link was pulling, when the page %s",
+    async (_name, linked) => {
+      const { linkDocumentToNotionPage } = await import("./notion-sync.js");
+      liveCopyPages.delete("doc-1");
+      if (!linked) testState.link = null;
+      notionMocks.fetchNotionPage.mockImplementationOnce(async () => {
+        liveCopyPages.add("doc-1");
+        return {
+          id: "other-page",
+          last_edited_time: "2026-06-01T10:30:00.000Z",
+        };
+      });
+      const newerLink = {
+        documentId: "doc-1",
+        ownerEmail: "alice@example.com",
+        remotePageId: "third-page",
+        state: "linked",
+        lastSyncedContentHash: hashContentForTest("Third body"),
+        updatedAt: "2026-06-01T11:00:00.000Z",
+      };
+      notionMocks.readNotionPageAsDocument.mockImplementationOnce(async () => {
+        testState.link = { ...testState.link, ...newerLink };
+        return {
+          pageId: "other-page",
+          title: "Other title",
+          icon: null,
+          content: "The other page's body",
+          lastEditedTime: "2026-06-01T10:30:00.000Z",
+          warnings: [],
+        };
+      });
+
+      await expect(
+        linkDocumentToNotionPage("alice@example.com", "doc-1", "other-page"),
+      ).rejects.toMatchObject({ errorCode: "LIVE_BODY_WRITER_UNSUPPORTED" });
+
+      expect(testState.document).toEqual(page);
+      expect(testState.link).toMatchObject(newerLink);
     },
   );
 

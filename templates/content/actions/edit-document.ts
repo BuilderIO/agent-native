@@ -20,7 +20,11 @@ import {
   documentEditAttribution,
   requireDocumentRequestActor,
 } from "../server/lib/document-attribution.js";
-import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
+import {
+  assertLegacyBodyWriter,
+  isUnsupportedBodyWriter,
+  lockLegacyBodyWrites,
+} from "../server/lib/document-body-revision.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
 import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
@@ -511,6 +515,9 @@ export default defineAction({
             "No authenticated user is available for the local source write.",
         };
       }
+      // A linked file's edit has no live-copy route, and the file write
+      // can't be taken back, so a switched page refuses before it.
+      await assertLegacyBodyWriter(id, { operation: "edit-document" });
       const receipt = await editLinkedLocalDocumentThroughBrowser({
         ownerEmail,
         documentId: id,
@@ -591,10 +598,10 @@ export default defineAction({
     try {
       await db.transaction(async (tx: any) => {
         const primaryBlocksFields = await lockPrimaryBlocksFields(tx, id);
-        // The page may have switched since editThroughLiveCopy read it.
+        // The page may have switched since its write path was checked.
         await lockLegacyBodyWrites(tx, [id], {
           operation: "edit-document",
-          routed: true,
+          routed: !isLinkedLocalSource,
           content: null,
         });
         const mirrored = await tx
@@ -656,6 +663,22 @@ export default defineAction({
       });
     } catch (error) {
       if (!linkedLocalPersistence) throw error;
+      if (isUnsupportedBodyWriter(error)) {
+        // The page took its live copy while the file took the edit, so the
+        // file has it and the page doesn't.
+        throw new ActionContractError(
+          `Wrote this edit to local file ${linkedLocalPersistence.path}, but page ${id} now takes body writes through its live copy, so the page doesn't have it.`,
+          {
+            errorCode: error.errorCode,
+            statusCode: 409,
+            details: {
+              documentId: id,
+              operation: "edit-document",
+              sourcePath: linkedLocalPersistence.path,
+            },
+          },
+        );
+      }
       countOutcome("applied", "none", "source_persisted_history_pending");
       return {
         applied: changeCount,

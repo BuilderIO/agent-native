@@ -381,7 +381,7 @@ async function claimSyncLinkWithRetry(
   return false;
 }
 
-async function upsertSyncLink(args: {
+interface SyncLinkArgs {
   owner: string;
   documentId: string;
   remotePageId: string;
@@ -394,9 +394,10 @@ async function upsertSyncLink(args: {
   lastError?: string | null;
   warnings?: string[];
   hasConflict?: boolean;
-}) {
-  const db = getDb();
-  const values = {
+}
+
+function syncLinkValues(args: SyncLinkArgs) {
+  return {
     documentId: args.documentId,
     ownerEmail: args.owner,
     provider: "notion",
@@ -412,13 +413,18 @@ async function upsertSyncLink(args: {
     hasConflict: args.hasConflict ? 1 : 0,
     updatedAt: nowIso(),
   };
-  await db
+}
+
+async function upsertSyncLink(args: SyncLinkArgs) {
+  const values = syncLinkValues(args);
+  await getDb()
     .insert(schema.documentSyncLinks)
     .values({ ...values, createdAt: nowIso() })
     .onConflictDoUpdate({
       target: schema.documentSyncLinks.documentId,
       set: values,
     });
+  return values;
 }
 
 async function loadRemotePageDocumentLookup(
@@ -835,7 +841,7 @@ export async function linkDocumentToNotionPage(
   const pageId = normalizeNotionPageId(pageIdOrUrl);
   const page = await fetchNotionPage(connection.accessToken, pageId);
   const previousLink = await getSyncLink(documentId, owner);
-  await upsertSyncLink({
+  const installed = await upsertSyncLink({
     owner,
     documentId,
     remotePageId: page.id,
@@ -850,42 +856,49 @@ export async function linkDocumentToNotionPage(
     // The page took its live copy after the check above. Linking changed
     // nothing at Notion, so the page keeps the link it had, if any.
     if (isUnsupportedBodyWriter(error)) {
-      await restoreSyncLink(owner, documentId, previousLink);
+      await restoreSyncLink(previousLink, installed);
     }
     throw error;
   }
 }
 
+/**
+ * Puts back `link` (or no link) in place of the one a link attempt
+ * `installed`. A link that another operation wrote since then stays.
+ */
 async function restoreSyncLink(
-  owner: string,
-  documentId: string,
   link: LinkRow | null,
+  installed: ReturnType<typeof syncLinkValues>,
 ) {
+  const stillInstalled = and(
+    eq(schema.documentSyncLinks.documentId, installed.documentId),
+    eq(schema.documentSyncLinks.ownerEmail, installed.ownerEmail),
+    eq(schema.documentSyncLinks.remotePageId, installed.remotePageId),
+    eq(schema.documentSyncLinks.updatedAt, installed.updatedAt),
+  );
   if (link) {
-    await upsertSyncLink({
-      owner,
-      documentId,
-      remotePageId: link.remotePageId,
-      state: link.state,
-      lastSyncedAt: link.lastSyncedAt,
-      lastPulledRemoteUpdatedAt: link.lastPulledRemoteUpdatedAt,
-      lastPushedLocalUpdatedAt: link.lastPushedLocalUpdatedAt,
-      lastKnownRemoteUpdatedAt: link.lastKnownRemoteUpdatedAt,
-      lastSyncedContentHash: link.lastSyncedContentHash,
-      lastError: link.lastError,
-      warnings: parseWarnings(link),
-      hasConflict: Boolean(link.hasConflict),
-    });
+    await getDb()
+      .update(schema.documentSyncLinks)
+      .set(
+        syncLinkValues({
+          owner: installed.ownerEmail,
+          documentId: installed.documentId,
+          remotePageId: link.remotePageId,
+          state: link.state,
+          lastSyncedAt: link.lastSyncedAt,
+          lastPulledRemoteUpdatedAt: link.lastPulledRemoteUpdatedAt,
+          lastPushedLocalUpdatedAt: link.lastPushedLocalUpdatedAt,
+          lastKnownRemoteUpdatedAt: link.lastKnownRemoteUpdatedAt,
+          lastSyncedContentHash: link.lastSyncedContentHash,
+          lastError: link.lastError,
+          warnings: parseWarnings(link),
+          hasConflict: Boolean(link.hasConflict),
+        }),
+      )
+      .where(stillInstalled);
     return;
   }
-  await getDb()
-    .delete(schema.documentSyncLinks)
-    .where(
-      and(
-        eq(schema.documentSyncLinks.documentId, documentId),
-        eq(schema.documentSyncLinks.ownerEmail, owner),
-      ),
-    );
+  await getDb().delete(schema.documentSyncLinks).where(stillInstalled);
 }
 
 /**
