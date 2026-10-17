@@ -1,3 +1,4 @@
+import type { ActionContractError } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { resolveBuilderCredential } from "@agent-native/core/server";
 import {
@@ -12,6 +13,7 @@ import {
   assertLegacyBodyWriter,
   isUnsupportedBodyWriter,
   lockLegacyBodyWrites,
+  type LegacyBodyWrites,
 } from "../server/lib/document-body-revision.js";
 import { BUILDER_CMS_SAFE_WRITE_MODEL } from "../shared/api.js";
 import {
@@ -831,7 +833,10 @@ async function replaceBuilderDocumentSidecars(args: {
 async function refreshBuilderDocumentAfterPush(args: {
   documentId: string;
   entry: BuilderContentEntry;
-}): Promise<{ bundle: BuilderMdxBundle; bodyRefreshed: boolean }> {
+}): Promise<
+  | { refreshed: true; bundle: BuilderMdxBundle }
+  | { refreshed: false; refusal: ActionContractError }
+> {
   const access = await resolveAccess("document", args.documentId);
   if (!access || !canEditRole(access.role)) {
     throw new Error(`Requires editor access to document "${args.documentId}".`);
@@ -853,34 +858,33 @@ async function refreshBuilderDocumentAfterPush(args: {
     args.documentId,
   );
 
-  let bodyRefreshed = true;
-  await db.transaction(async (tx) => {
-    const legacy = await lockLegacyBodyWrites(tx, [args.documentId], {
-      operation: "push-builder-doc",
-      content: bundle.mdx.body,
-    }).catch((error: unknown) => {
-      // The page took its live copy while Builder took the push, which has
-      // landed. The page keeps its body, the pushed one or a tab's later
-      // edit, and still records the entry Builder now holds.
+  const refusal = await db.transaction(async (tx) => {
+    let legacy: LegacyBodyWrites;
+    try {
+      legacy = await lockLegacyBodyWrites(tx, [args.documentId], {
+        operation: "push-builder-doc",
+        content: bundle.mdx.body,
+      });
+    } catch (error) {
       if (!isUnsupportedBodyWriter(error)) throw error;
-      bodyRefreshed = false;
-      return null;
-    });
+      return error;
+    }
     await tx
       .update(schema.documents)
       .set({
         title: bundle.mdx.title,
-        ...(legacy
-          ? {
-              content: bundle.mdx.body,
-              bodyRevision: legacy.bodyRevision(bundle.mdx.body),
-            }
-          : {}),
+        content: bundle.mdx.body,
+        bodyRevision: legacy.bodyRevision(bundle.mdx.body),
         updatedAt: now,
         ...builderDocumentSourceFields(bundle, now),
       })
       .where(eq(schema.documents.id, args.documentId));
+    return null;
   });
+  // The page took its live copy while Builder took the push, which has
+  // landed. It keeps its body, and the source fields and sidecars that body
+  // was pulled with: its raw refs name those sidecars.
+  if (refusal) return { refreshed: false, refusal };
   await replaceBuilderDocumentSidecars({
     db,
     documentId: args.documentId,
@@ -890,7 +894,7 @@ async function refreshBuilderDocumentAfterPush(args: {
     now,
   });
   await writeAppState("refresh-signal", { ts: Date.now() });
-  return { bundle, bodyRefreshed };
+  return { refreshed: true, bundle };
 }
 
 async function readBuilderDocumentSidecars(documentId: string) {
@@ -1158,14 +1162,22 @@ export async function pushBuilderDocsSource(args: {
     check,
     request,
     writeResult,
-    refreshedDocument: refreshed
+    refreshedDocument: refreshed?.refreshed
       ? {
           documentId: refreshed.bundle.mdx.documentId,
           metadata: refreshed.bundle.mdx.metadata,
           sidecarCount: Object.keys(sidecarsFromFiles(refreshed.bundle.files))
             .length,
-          bodyRefreshed: refreshed.bodyRefreshed,
         }
       : null,
+    ...(refreshed && !refreshed.refreshed
+      ? {
+          refreshRefused: {
+            errorCode: refreshed.refusal.errorCode,
+            documentId: args.documentId,
+            message: `Builder took the push, but page ${args.documentId} now takes body writes through its live copy, so it keeps its body and the Builder source it was pulled from.`,
+          },
+        }
+      : {}),
   };
 }

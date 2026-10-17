@@ -588,7 +588,7 @@ describe("Builder docs DB-backed source", () => {
     expect(result.refreshedDocument?.metadata.lastUpdated).toBe(
       "1700000000003",
     );
-    expect(result.refreshedDocument?.bodyRefreshed).toBe(true);
+    expect(result).not.toHaveProperty("refreshRefused");
     expect(sidecarRows.length).toBeGreaterThan(0);
     expect(appStateMock.writeAppState).toHaveBeenCalledWith(
       "refresh-signal",
@@ -779,9 +779,10 @@ describe("Builder docs on a page that takes body writes through its live copy", 
     expect(sidecarRows.length).toBeGreaterThan(0);
   });
 
-  it("records a push that Builder took while the page took its live copy, and keeps the page's body", async () => {
+  it("reports a push that Builder took while the page took its live copy, and keeps the page and its sidecars", async () => {
     const { safeEntry, bundle } = await seedPushableBuilderDocument();
-    const localBody = documentResource?.content;
+    const page = { ...documentResource };
+    const sidecars = [...sidecarRows];
     const pushedEntry = JSON.parse(
       JSON.stringify(safeEntry),
     ) as BuilderContentEntry;
@@ -810,15 +811,16 @@ describe("Builder docs on a page that takes body writes through its live copy", 
     });
 
     expect(result.executed).toBe(true);
-    expect(result.refreshedDocument).toMatchObject({
-      bodyRefreshed: false,
-      metadata: { lastUpdated: "1700000000003" },
+    expect(result.refreshedDocument).toBeNull();
+    expect(result).toMatchObject({
+      refreshRefused: {
+        errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+        documentId: bundle.mdx.documentId,
+      },
     });
-    expect(documentResource).toMatchObject({
-      content: localBody,
-      sourceUpdatedAt: "1700000000003",
-    });
-    expect(sidecarRows.length).toBeGreaterThan(0);
+    expect(documentResource).toEqual(page);
+    expect(sidecarRows).toEqual(sidecars);
+    expect(appStateMock.writeAppState).not.toHaveBeenCalled();
   });
 
   it("refuses a live push before it writes to Builder", async () => {

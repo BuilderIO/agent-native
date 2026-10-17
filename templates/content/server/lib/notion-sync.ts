@@ -1224,6 +1224,7 @@ async function pushDocumentToNotionInner(
     ? nextDocumentUpdatedAt(freshDocument.updatedAt)
     : freshDocument.updatedAt;
   let baselineContent = document.content;
+  let pulledRemoteUpdatedAt = remote.lastEditedTime;
   if (contentChanged) {
     const applied = await replaceDocumentFromExternal({
       document: freshDocument,
@@ -1233,11 +1234,15 @@ async function pushDocumentToNotionInner(
       icon: newIcon,
       updatedAt: pushedAt,
     }).catch((error: unknown) => {
+      if (!isUnsupportedBodyWriter(error)) throw error;
       // The page took its live copy while Notion took the push, which has
-      // landed. It can't take Notion's copy of the body, so this is the lost
-      // race below: the page keeps its body.
-      if (isUnsupportedBodyWriter(error)) return false;
-      throw error;
+      // landed, so it keeps its body, as in the lost race below. When Notion
+      // changed the pushed body, its copy stays unpulled, or the status would
+      // read clean while the two differ.
+      if (newContent !== document.content) {
+        pulledRemoteUpdatedAt = link.lastPulledRemoteUpdatedAt;
+      }
+      return false;
     });
 
     if (applied) {
@@ -1258,7 +1263,7 @@ async function pushDocumentToNotionInner(
     remotePageId: link.remotePageId,
     state: "linked",
     lastSyncedAt: nowIso(),
-    lastPulledRemoteUpdatedAt: remote.lastEditedTime,
+    lastPulledRemoteUpdatedAt: pulledRemoteUpdatedAt,
     lastPushedLocalUpdatedAt: pushedAt,
     lastKnownRemoteUpdatedAt: remote.lastEditedTime,
     lastSyncedContentHash: hashContent(baselineContent),

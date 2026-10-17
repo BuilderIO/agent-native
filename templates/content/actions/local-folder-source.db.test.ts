@@ -1801,6 +1801,54 @@ describe("local-folder Content source", () => {
     expect(await folderSourceState(connection)).toEqual(sourceBefore);
   });
 
+  it("refuses a dry run of a sync that would write a body to a page that takes body writes through its live copy, and still previews a title-only one", async () => {
+    const connection = await runWithRequestContext({ userEmail: OWNER }, () =>
+      connectLocalFolder.run({
+        connectionId: "desktop-folder-live-copy-dry-run",
+        label: "Live copy dry run",
+        createSourceBackedSpace: true,
+        truthPolicy: "source_primary",
+      }),
+    );
+    const first = await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: connection.sourceId,
+        files: { "live.md": "---\ntitle: Baseline title\n---\nBaseline body." },
+      }),
+    );
+    const documentId = first.created[0]!.id;
+    await putPageOnLiveCopy(documentId);
+    const before = await pageBodyState(documentId);
+    const sourceBefore = await folderSourceState(connection);
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        syncLocalFolder.run({
+          sourceId: connection.sourceId,
+          dryRun: true,
+          files: { "live.md": "---\ntitle: Baseline title\n---\nFolder edit." },
+        }),
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+      statusCode: 409,
+      details: { documentId, operation: "sync-local-folder-source" },
+    });
+    const preview = await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: connection.sourceId,
+        dryRun: true,
+        files: { "live.md": "---\ntitle: Folder title\n---\nBaseline body." },
+      }),
+    );
+
+    expect(preview.updated).toEqual([
+      expect.objectContaining({ id: documentId, title: "Folder title" }),
+    ]);
+    expect(await pageBodyState(documentId)).toEqual(before);
+    expect(await folderSourceState(connection)).toEqual(sourceBefore);
+  });
+
   it("applies a sync that changes only the title of a page that takes body writes through its live copy", async () => {
     const connection = await runWithRequestContext({ userEmail: OWNER }, () =>
       connectLocalFolder.run({

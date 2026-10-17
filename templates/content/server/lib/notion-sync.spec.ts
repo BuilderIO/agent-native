@@ -1535,7 +1535,7 @@ describe("a page that takes body writes through its live copy", () => {
     expect(testState.link?.syncClaimedAt).toBeNull();
   });
 
-  it("records a push that Notion took while the page took its live copy, and keeps the page's body", async () => {
+  it("records a push that Notion took while the page took its live copy, keeps the page's body, and shows Notion's changed copy as a remote change", async () => {
     const { pushDocumentToNotion } = await import("./notion-sync.js");
     liveCopyPages.delete("doc-1");
     testState.document.content = "Local edit typed just now";
@@ -1576,10 +1576,65 @@ describe("a page that takes body writes through its live copy", () => {
     });
     expect(testState.link).toMatchObject({
       state: "linked",
+      lastPulledRemoteUpdatedAt: "2026-06-01T09:00:00.000Z",
+      lastKnownRemoteUpdatedAt: "2026-06-01T10:05:00.000Z",
+      lastSyncedContentHash: hashContentForTest("Local edit typed just now"),
+    });
+    expect(status).toMatchObject({
+      hasConflict: false,
+      remoteChanged: true,
+      localChanged: false,
+    });
+  });
+
+  it("records a push that Notion took unchanged as pulled when the page took its live copy and a later edit", async () => {
+    const { pushDocumentToNotion } = await import("./notion-sync.js");
+    liveCopyPages.delete("doc-1");
+    testState.document.content = "Local edit typed just now";
+    notionMocks.fetchNotionPage.mockResolvedValue({
+      id: "notion-page",
+      last_edited_time: "2026-06-01T09:00:00.000Z",
+    });
+    notionMocks.readNotionPageAsDocument.mockResolvedValue({
+      pageId: "notion-page",
+      title: "Local title",
+      icon: null,
+      content: "Local body",
+      lastEditedTime: "2026-06-01T09:00:00.000Z",
+      warnings: [],
+    });
+    notionMocks.pushDocumentToNotionPage.mockImplementationOnce(async () => {
+      liveCopyPages.add("doc-1");
+      testState.document = {
+        ...testState.document,
+        content: "A tab's edit after the push",
+      };
+      return {
+        pageId: "notion-page",
+        title: "Local title",
+        icon: null,
+        content: "Local edit typed just now",
+        lastEditedTime: "2026-06-01T10:05:00.000Z",
+        warnings: [],
+      };
+    });
+
+    const status = await pushDocumentToNotion(
+      "alice@example.com",
+      "doc-1",
+      false,
+    );
+
+    expect(testState.document.content).toBe("A tab's edit after the push");
+    expect(testState.link).toMatchObject({
       lastPulledRemoteUpdatedAt: "2026-06-01T10:05:00.000Z",
       lastSyncedContentHash: hashContentForTest("Local edit typed just now"),
     });
-    expect(status.hasConflict).toBe(false);
+    expect(status).toMatchObject({
+      hasConflict: false,
+      remoteChanged: false,
+      localChanged: true,
+    });
   });
 
   it("refuses to link the page before it makes any Notion request", async () => {
