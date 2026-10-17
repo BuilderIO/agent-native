@@ -121,7 +121,7 @@ describe("ChatGPT subscription OAuth contract", () => {
         ).resolves.toBe(false);
         expect(mocks.listOAuthAccountsByOwner).not.toHaveBeenCalled();
         expect(mocks.getUserSetting).not.toHaveBeenCalled();
-        // An unresolved scope is unsupported and must not inspect stored accounts.
+        // Unsupported status can show account summaries without granting access.
         await expect(
           getChatGPTSubscriptionStatus("alice@example.com"),
         ).resolves.toMatchObject({
@@ -130,7 +130,7 @@ describe("ChatGPT subscription OAuth contract", () => {
           supportReason: "requires_local_loopback",
           accounts: [],
         });
-        expect(mocks.listOAuthAccountsByOwner).not.toHaveBeenCalled();
+        expect(mocks.listOAuthAccountsByOwner).toHaveBeenCalled();
         await expect(
           getChatGPTSubscriptionAccess("alice@example.com"),
         ).rejects.toThrow("available only from a local app");
@@ -138,7 +138,7 @@ describe("ChatGPT subscription OAuth contract", () => {
     );
   });
 
-  it("does not expose saved accounts outside direct local loopback", async () => {
+  it("reports saved accounts in an unsupported status without granting access", async () => {
     mocks.getUserLabEnabled.mockResolvedValue(true);
     const subject = "subject-alice";
     const accountId = `siwc_${crypto
@@ -187,7 +187,14 @@ describe("ChatGPT subscription OAuth contract", () => {
           supported: false,
           localLoopback: false,
           connected: false,
-          accounts: [],
+          accounts: [
+            expect.objectContaining({
+              id: accountId,
+              email: "alice@example.com",
+              label: "Alice",
+              connected: true,
+            }),
+          ],
         });
         await expect(
           getChatGPTSubscriptionAccess("alice@example.com"),
@@ -195,8 +202,6 @@ describe("ChatGPT subscription OAuth contract", () => {
       },
     );
     expect(mocks.getUserLabEnabled).not.toHaveBeenCalled();
-    expect(mocks.listOAuthAccountsByOwner).not.toHaveBeenCalled();
-    expect(mocks.readOAuthCredentialState).not.toHaveBeenCalled();
   });
 
   it("surfaces lab preference read failures instead of treating them as off", async () => {
