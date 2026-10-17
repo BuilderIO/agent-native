@@ -361,9 +361,12 @@ describe("ExtensionViewer MCP embeds", () => {
         expect(iframe.getAttribute("src")).toContain(
           "/_agent-native/extensions/ext-1/render",
         );
+        expect(iframe.getAttribute("src")).not.toContain("#");
+        expect(iframe.getAttribute("name")).toMatch(
+          /^__agent_native_link_nonce=[0-9a-f]{48}$/,
+        );
       });
     });
-    expect(iframe.getAttribute("src")).toContain("#");
     expect(iframe.getAttribute("srcdoc")).toBeNull();
   });
 
