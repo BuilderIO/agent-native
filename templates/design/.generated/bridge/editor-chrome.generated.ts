@@ -7903,7 +7903,23 @@ export const editorChromeBridgeScript: string = `"use strict";
       var nextDoc = parser.parseFromString(html, "text/html");
       if (!nextDoc || !nextDoc.body) return;
       var persistentNodes = Array.prototype.slice.call(
-        document.querySelectorAll("[data-agent-native-edit-overlay]")
+        document.querySelectorAll(
+          [
+            "[data-agent-native-edit-overlay]",
+            "script[data-agent-native-motion-preview-bridge]",
+            "script[data-agent-native-shader-runtime]",
+            "script[data-agent-native-shader-fill-preview-bridge]",
+            "script[data-agent-native-tweak-bridge]",
+            "script[data-agent-native-zoom-bridge]",
+            "script[data-agent-native-nav-bridge]",
+            "script[data-agent-native-preview-theme-bridge]",
+            "script[data-agent-native-hit-test-bridge]",
+            "script[data-agent-native-embedded-wheel-bridge]",
+            "script[data-agent-native-editor-theme]",
+            "script[data-agent-native-editor-chrome-bridge]",
+            "script[data-agent-native-content-size-bridge]"
+          ].join(",")
+        )
       );
       var activeSelector = preferredSelector || (selectedEl ? getSelector(selectedEl) : "");
       var activeCandidates = [];
