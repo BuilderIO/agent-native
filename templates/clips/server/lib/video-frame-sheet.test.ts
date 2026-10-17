@@ -4,6 +4,7 @@ import {
   clampFrameSheetRange,
   frameSheetFfmpegArgs,
   frameSheetFpsFromProbe,
+  frameSheetReachesPast,
   parseFrameSheetRequest,
   planFrameSheet,
   type FrameSheetRequest,
@@ -98,6 +99,33 @@ describe("clampFrameSheetRange", () => {
       ok: false,
       error: expect.stringContaining("61 seconds"),
     });
+  });
+});
+
+describe("frameSheetReachesPast", () => {
+  it("is true only when the range runs past the stored duration", () => {
+    expect(frameSheetReachesPast(request(), 30, 10_000)).toBe(false);
+    expect(frameSheetReachesPast(request({ endMs: 10_500 }), 30, 10_000)).toBe(
+      true,
+    );
+    // Without endMs, 36 frames at 30 fps reach 1.2 s past startMs.
+    expect(
+      frameSheetReachesPast(
+        request({ startMs: 8000, endMs: null }),
+        30,
+        10_000,
+      ),
+    ).toBe(false);
+    expect(
+      frameSheetReachesPast(
+        request({ startMs: 9000, endMs: null }),
+        30,
+        10_000,
+      ),
+    ).toBe(true);
+    expect(frameSheetReachesPast(request({ endMs: 10_500 }), 30, null)).toBe(
+      false,
+    );
   });
 });
 

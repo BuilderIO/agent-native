@@ -30,6 +30,7 @@ import {
 } from "../../lib/public-agent-context.js";
 import {
   clampFrameSheetRange,
+  frameSheetReachesPast,
   parseFrameSheetRequest,
   planFrameSheet,
   type FrameSheetPlan,
@@ -139,40 +140,47 @@ export default defineEventHandler(async (event: H3Event) => {
   const range = clampFrameSheetRange(parsed.value, recording.durationMs);
   if (!range.ok) return requestFailure(event, range);
 
-  const planFor = (
-    fps: number,
-    request = range.value,
-    durationMs = recording.durationMs,
-  ) =>
-    planFrameSheet({
-      request,
+  // Plan against a duration: clamp the request to it, then lay out the grid.
+  const planWithin = (fps: number, durationMs: number | null) => {
+    const clamped = clampFrameSheetRange(parsed.value, durationMs);
+    if (!clamped.ok) return clamped;
+    return planFrameSheet({
+      request: clamped.value,
       fps,
       durationMs,
       width: recording.width,
       height: recording.height,
     });
+  };
   // With fps given, an oversized request fails before the media download.
-  const earlyPlan = range.value.fps === null ? null : planFor(range.value.fps);
+  const earlyPlan =
+    parsed.value.fps === null
+      ? null
+      : planWithin(parsed.value.fps, recording.durationMs);
   if (earlyPlan && !earlyPlan.ok) return requestFailure(event, earlyPlan);
 
   try {
     const media = await loadRecordingMediaFile(recording);
     try {
-      const plan =
-        earlyPlan ?? planFor(await probeFrameSheetFpsFromFile(media.path));
+      const fps =
+        parsed.value.fps ?? (await probeFrameSheetFpsFromFile(media.path));
+      // A stored duration can understate the file. When the request reaches
+      // past it, plan against the file's real duration so the sheet covers
+      // the range that was asked for, not an earlier one.
+      const durationMs = frameSheetReachesPast(
+        parsed.value,
+        fps,
+        recording.durationMs,
+      )
+        ? ((await probeMediaDurationMsFromFile(media.path)) ??
+          recording.durationMs)
+        : recording.durationMs;
+      const plan = planWithin(fps, durationMs);
       if (!plan.ok) return requestFailure(event, plan);
       const result = await extractSheetWithStaleDurationRecovery({
         mediaPath: media.path,
         plan: plan.value,
-        replan: (actualDurationMs) => {
-          const actualRange = clampFrameSheetRange(
-            range.value,
-            actualDurationMs,
-          );
-          return actualRange.ok
-            ? planFor(plan.value.fps, actualRange.value, actualDurationMs)
-            : null;
-        },
+        replan: (actualDurationMs) => planWithin(fps, actualDurationMs),
       });
       applySheetHeaders(event, result.plan);
       return Buffer.from(result.sheet);

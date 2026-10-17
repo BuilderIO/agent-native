@@ -122,6 +122,7 @@ describe("agent-frames.jpg route", () => {
       new Uint8Array([0xff, 0xd8, 0xff]),
     );
     mockProbeFrameSheetFpsFromFile.mockResolvedValue(30);
+    mockProbeMediaDurationMsFromFile.mockResolvedValue(null);
   });
 
   it("returns one JPEG sheet with each cell's time in the headers", async () => {
@@ -135,6 +136,7 @@ describe("agent-frames.jpg route", () => {
     expect(Buffer.isBuffer(body)).toBe(true);
     expect(mockLoadRecordingMediaFile).toHaveBeenCalledTimes(1);
     expect(mockProbeFrameSheetFpsFromFile).not.toHaveBeenCalled();
+    expect(mockProbeMediaDurationMsFromFile).not.toHaveBeenCalled();
     expect(lastPlan()).toMatchObject({
       startMs: 1000,
       fps: 30,
@@ -211,6 +213,20 @@ describe("agent-frames.jpg route", () => {
     expect(event.headers.get("x-clips-frame-sheet-times")).toBe("4997");
     expect(mockLoadRecordingMediaFile).toHaveBeenCalledTimes(1);
     expect(mockCleanupMediaFile).toHaveBeenCalledTimes(1);
+  });
+
+  it("covers the requested range when the stored duration is too short", async () => {
+    mockProbeMediaDurationMsFromFile.mockResolvedValue(12_000);
+    const { event } = await run({
+      startMs: "11000",
+      endMs: "11500",
+      fps: "30",
+    });
+
+    expect(event.status).toBe(200);
+    expect(mockProbeMediaDurationMsFromFile).toHaveBeenCalledTimes(1);
+    expect(mockExtractJpegFrameSheetFromFile).toHaveBeenCalledTimes(1);
+    expect(lastPlan()).toMatchObject({ startMs: 11_000, frameCount: 15 });
   });
 
   it("reports a missing frame when the real duration doesn't move the range", async () => {

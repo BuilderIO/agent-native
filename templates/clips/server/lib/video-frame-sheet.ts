@@ -131,6 +131,29 @@ export function clampFrameSheetRange(
 }
 
 /**
+ * Whether a request reaches past a stored duration, so clamping to it would
+ * change the range the sheet shows. A stored duration can understate the
+ * file; in that case the real duration should decide.
+ */
+export function frameSheetReachesPast(
+  request: FrameSheetRequest,
+  fps: number,
+  durationMs: number | null | undefined,
+): boolean {
+  if (typeof durationMs !== "number" || durationMs <= 0) return false;
+  const endMs =
+    request.endMs ??
+    request.startMs +
+      Math.min(
+        (MAX_AGENT_FRAME_SHEET_FRAMES * 1000) / fps,
+        MAX_AGENT_FRAME_SHEET_SPAN_MS,
+      );
+  return (
+    endMs > durationMs || request.startMs > durationMs - 1 - CELL_TOLERANCE_MS
+  );
+}
+
+/**
  * The frame rate a sheet uses when the request leaves fps out: the video's
  * own rate from ffmpeg's stream line, so each frame appears once. tbr (the
  * nominal rate) comes first because a screen recording's average fps drops
