@@ -41,3 +41,6 @@ memory = "2gb"
 
 [functions.session-replay-retention-sweep-background]
 timeout = 120
+
+[functions.content-metrics-collection-background]
+timeout = 900

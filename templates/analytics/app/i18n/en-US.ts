@@ -1273,6 +1273,43 @@ export default {
       "Couldn't check for existing entries with this metric.",
   },
   dataSources: {
+    searchConsole: {
+      name: "Google Search Console",
+      description:
+        "Daily clicks and impressions per page for the Content view.",
+      serviceAccount: "Service account",
+      copyEmail: "Copy email",
+      grantHint:
+        "Add this email as a user on each property in Search Console, under Settings → Users and permissions.",
+      noServiceAccount: "Add a Google service account key first.",
+      openGoogleCloud: "Open Google Cloud",
+      invalidServiceAccount: "The saved service account key can't be read.",
+      properties: "Properties",
+      siteLabel: "Property",
+      pathLabel: "Path prefix",
+      addProperty: "Add property",
+      removeProperty: "Remove property",
+      save: "Save",
+      collectDaily: "Collect daily",
+      adminOnly: "Only organization owners and admins can change this.",
+      statusCollecting: "Collecting",
+      statusNeedsAccess: "Needs access",
+      statusFailed: "Last run failed",
+      runSucceeded: "Collected {{when}}",
+      runNeedsAccess: "No access as of {{when}}",
+      runRunning: "Collecting since {{when}}",
+      runFailed: "Failed {{when}}",
+      unavailable: "Collection status is unavailable: {{message}}",
+      keyUnreadable:
+        "Couldn't read the saved service account key. Re-save it under Google Cloud.",
+      propertyBareDomain: "For a Domain property, use {{suggestion}}.",
+      propertyInvalidDomain:
+        "Put only the domain after sc-domain:, as in {{suggestion}}.",
+      propertyMissingSlash:
+        "URL-prefix properties end in /. Use {{suggestion}}.",
+      propertyUnrecognized:
+        "Use sc-domain:example.com, or a URL-prefix property ending in /.",
+    },
     uploadFile: "Upload file",
     googleSheetsExport: "Google Sheets export",
     googleSheetsExportDescription:

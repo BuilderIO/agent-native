@@ -750,6 +750,46 @@ export default {
       "Impossible de vérifier les entrées existantes pour cette métrique.",
   },
   dataSources: {
+    searchConsole: {
+      name: "Google Search Console",
+      description:
+        "Clics et impressions quotidiens par page pour la vue Contenu.",
+      serviceAccount: "Compte de service",
+      copyEmail: "Copier l'e-mail",
+      grantHint:
+        "Ajoutez cet e-mail comme utilisateur sur chaque propriété dans Search Console, sous Paramètres → Utilisateurs et autorisations.",
+      noServiceAccount: "Ajoutez d'abord une clé de compte de service Google.",
+      openGoogleCloud: "Ouvrir Google Cloud",
+      invalidServiceAccount:
+        "La clé de compte de service enregistrée est illisible.",
+      properties: "Propriétés",
+      siteLabel: "Propriété",
+      pathLabel: "Préfixe de chemin",
+      addProperty: "Ajouter une propriété",
+      removeProperty: "Retirer la propriété",
+      save: "Enregistrer",
+      collectDaily: "Collecter chaque jour",
+      adminOnly:
+        "Seuls les propriétaires et administrateurs de l'organisation peuvent modifier ce paramètre.",
+      statusCollecting: "Collecte en cours",
+      statusNeedsAccess: "Accès requis",
+      statusFailed: "Dernière exécution en échec",
+      runSucceeded: "Collecté {{when}}",
+      runNeedsAccess: "Aucun accès au {{when}}",
+      runRunning: "Collecte depuis {{when}}",
+      runFailed: "Échec {{when}}",
+      unavailable: "État de la collecte indisponible : {{message}}",
+      keyUnreadable:
+        "Impossible de lire la clé de compte de service enregistrée. Enregistrez-la de nouveau sous Google Cloud.",
+      propertyBareDomain:
+        "Pour une propriété de domaine, utilisez {{suggestion}}.",
+      propertyInvalidDomain:
+        "Après sc-domain:, indiquez uniquement le domaine, comme dans {{suggestion}}.",
+      propertyMissingSlash:
+        "Les propriétés de préfixe d'URL se terminent par /. Utilisez {{suggestion}}.",
+      propertyUnrecognized:
+        "Utilisez sc-domain:example.com ou une propriété de préfixe d'URL se terminant par /.",
+    },
     uploadFile: "Télécharger le fichier",
     googleSheetsExport: "Export Google Sheets",
     googleSheetsExportDescription:
