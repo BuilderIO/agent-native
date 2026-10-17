@@ -14,9 +14,10 @@ export function runServerNonce(serveBuild: boolean): string | undefined {
   // worker loads the config again, so the value lives in the environment.
   // The runner never keeps one it inherited: that may be an earlier run's,
   // still answered by a server that run left behind.
-  // guard:allow-env-mutation — Playwright config, never a server request path.
-  if (serveBuild && process.env.TEST_WORKER_INDEX === undefined)
+  if (serveBuild && process.env.TEST_WORKER_INDEX === undefined) {
+    // guard:allow-env-mutation — Playwright config, never a server request path.
     process.env.CONTENT_E2E_SERVER_NONCE = randomUUID();
+  }
   return process.env.CONTENT_E2E_SERVER_NONCE;
 }
 
