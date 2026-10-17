@@ -29,6 +29,7 @@ import {
   isActionExposedToExternalAgents,
   isActionHiddenFromEveryAgentSurface,
 } from "../action.js";
+import { agentErrorDetails } from "../agent/action-error-details.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import {
   describeToolResultImages,
@@ -3730,14 +3731,36 @@ export async function createMCPServerForRequest(
             directoryCatalog && config.directoryProfile?.projectResult
               ? config.directoryProfile.projectResult(name, err.message)
               : err.message;
+          const message =
+            typeof projectedError === "string" ? projectedError : err.message;
+          const details = agentErrorDetails(err);
           return {
             content: [
               {
                 type: "text",
-                text: `Error: ${typeof projectedError === "string" ? projectedError : err.message}${errorCode}`,
+                text: `Error: ${message}${errorCode}${details ? `\n${details.line}` : ""}`,
               },
             ],
             isError: true,
+            // Some clients hand the model structuredContent in place of the
+            // text, so it repeats the message rather than carrying details alone.
+            ...(details
+              ? {
+                  structuredContent: {
+                    error: {
+                      message,
+                      errorCode: err.errorCode,
+                      details: details.details,
+                      ...(details.omittedKeys
+                        ? {
+                            omittedKeys: details.omittedKeys,
+                            omittedKeyCount: details.omittedKeyCount,
+                          }
+                        : {}),
+                    },
+                  },
+                }
+              : {}),
           };
         }
       }, mcpRequestId);

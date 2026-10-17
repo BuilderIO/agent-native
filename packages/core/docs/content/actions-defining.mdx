@@ -308,7 +308,7 @@ What you throw decides how much of the message survives. `fail()` raises an `Act
 - **message**: the text the caller reads. Write it for a person, not for a log.
 - **options.errorCode**: a stable machine-readable code. Defaults to `"action_failed"`.
 - **options.statusCode**: the HTTP status for the action route. Defaults to `400`.
-- **options.details**: safe structured context for the caller. Never put secrets or raw driver output here.
+- **options.details**: safe structured context for the caller, such as the id a retry needs. The browser and agents both receive it. Never put secrets or raw driver output here.
 
 The simplest call needs only a message:
 
@@ -386,7 +386,7 @@ A network drop, a proxy's HTML error page, and a bare status line author no mess
 
 So the status is not cosmetic. A refusal sent as `404` costs one round trip. The same refusal sent as a `500`, or thrown bare, costs four round trips and four duplicate error reports.
 
-Agent callers never see the status. The agent runs `run()` in process, so it receives the message directly whatever the type, as `Error running <action>: <message>`. An `errorCode` other than the default `action_failed` is appended as `(errorCode: not_found)` so the model can branch on it without parsing prose. External agents over MCP get the same text. Secrets in the message are redacted first, and the agent's own repeated-error breakers bound how many times it tries again.
+Agent callers never see the status. The agent runs `run()` in process, so it receives the message directly whatever the type, as `Error running <action>: <message>`. An `errorCode` other than the default `action_failed` is appended as `(errorCode: not_found)` so the model can branch on it without parsing prose. `details` follow on their own line as compact JSON, such as `Error details: {"importId":"imp_1"}`, so an id the model needs for its next call doesn't have to be written into the message. External agents over MCP get the same text, and the same details in `structuredContent.error`. Details are capped at 2,000 characters: past that, small top-level entries are kept and the rest are listed as omitted. Secrets in the message and details are redacted first, and the agent's own repeated-error breakers bound how many times it tries again.
 
 ## Keep the action surface small {#small-surface}
 

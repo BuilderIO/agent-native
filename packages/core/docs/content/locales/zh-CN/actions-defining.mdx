@@ -303,7 +303,7 @@ action 通过抛出异常来报告失败。改为返回 `{ error: "..." }` 在�
 - **message**: 调用方读到的文本。为人而写，而不是为日志而写。
 - **options.errorCode**: 稳定的、机器可读的代码。默认为 `"action_failed"`。
 - **options.statusCode**: action 路由的 HTTP 状态码。默认为 `400`。
-- **options.details**: 给调用方的安全结构化上下文。切勿在此放入密钥或驱动的原始输出。
+- **options.details**: 给调用方的安全结构化上下文，例如重试所需的 id。浏览器和代理都会收到它。切勿在此放入密钥或驱动的原始输出。
 
 最简单的调用只需要一条消息：
 
@@ -381,7 +381,7 @@ const reply = useActionMutation("reply-to-email", {
 
 所以状态码不是装饰。以 `404` 发出的拒绝只需一次往返。同样的拒绝若以 `500` 发出，或者裸抛，则要付出四次往返和四份重复的错误报告。
 
-代理调用方看不到状态码。代理在进程内执行 `run()`，因此无论类型如何都直接以 `Error running <action>: <message>` 的形式收到消息。非默认值 `action_failed` 的 `errorCode` 会以 `(errorCode: not_found)` 的形式附加，使模型无需解析文字即可据此分支。通过 MCP 接入的外部代理会收到同样的文本。消息中的密钥会先被脱敏，而代理自己的重复错误熔断器会限制它重试的次数。
+代理调用方看不到状态码。代理在进程内执行 `run()`，因此无论类型如何都直接以 `Error running <action>: <message>` 的形式收到消息。非默认值 `action_failed` 的 `errorCode` 会以 `(errorCode: not_found)` 的形式附加，使模型无需解析文字即可据此分支。`details` 会以紧凑 JSON 的形式另起一行跟在后面，例如 `Error details: {"importId":"imp_1"}`，这样模型下一次调用所需的 id 就不必写进消息里。通过 MCP 接入的外部代理会收到同样的文本，并在 `structuredContent.error` 中收到同样的 details。details 上限为 2,000 个字符：超出后会保留较小的顶层条目，其余的则列为已省略。消息和 details 中的密钥会先被脱敏，而代理自己的重复错误熔断器会限制它重试的次数。
 
 ## 让 action 界面保持精简 {#small-surface}
 

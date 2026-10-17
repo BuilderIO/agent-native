@@ -308,7 +308,7 @@ Was du wirfst, entscheidet, wie viel von der Nachricht überlebt. `fail()` wirft
 - **message**: der Text, den der Aufrufer liest. Schreibe ihn für einen Menschen, nicht für ein Log.
 - **options.errorCode**: ein stabiler, maschinenlesbarer Code. Standard: `"action_failed"`.
 - **options.statusCode**: der HTTP-Status für die Action-Route. Standard: `400`.
-- **options.details**: sicherer strukturierter Kontext für den Aufrufer. Niemals Secrets oder rohe Treiberausgabe hier ablegen.
+- **options.details**: sicherer strukturierter Kontext für den Aufrufer, etwa die ID, die ein erneuter Versuch braucht. Browser und Agenten erhalten ihn beide. Niemals Secrets oder rohe Treiberausgabe hier ablegen.
 
 Der einfachste Aufruf braucht nur eine Nachricht:
 
@@ -386,7 +386,7 @@ Ein Netzwerkabbruch, eine HTML-Fehlerseite eines Proxys und eine bloße Statusze
 
 Der Status ist also nicht kosmetisch. Eine als `404` gesendete Ablehnung kostet einen Roundtrip. Dieselbe Ablehnung als `500` gesendet oder blank geworfen kostet vier Roundtrips und vier doppelte Fehlerberichte.
 
-Agent-Aufrufer sehen den Status nicht. Der Agent führt `run()` im Prozess aus, bekommt die Nachricht also direkt, unabhängig vom Typ, als `Error running <action>: <message>`. Ein `errorCode` abseits des Standards `action_failed` wird als `(errorCode: not_found)` angehängt, damit das Modell darauf verzweigen kann, ohne Prosa zu parsen. Externe Agenten über MCP bekommen denselben Text. Secrets in der Nachricht werden vorher entfernt, und die eigenen Schutzschalter des Agenten für wiederholte Fehler begrenzen die Zahl der Versuche.
+Agent-Aufrufer sehen den Status nicht. Der Agent führt `run()` im Prozess aus, bekommt die Nachricht also direkt, unabhängig vom Typ, als `Error running <action>: <message>`. Ein `errorCode` abseits des Standards `action_failed` wird als `(errorCode: not_found)` angehängt, damit das Modell darauf verzweigen kann, ohne Prosa zu parsen. `details` folgen in einer eigenen Zeile als kompaktes JSON, etwa `Error details: {"importId":"imp_1"}`, sodass eine ID, die das Modell für seinen nächsten Aufruf braucht, nicht in die Nachricht geschrieben werden muss. Externe Agenten über MCP bekommen denselben Text und dieselben Details in `structuredContent.error`. Details sind auf 2.000 Zeichen begrenzt: darüber hinaus bleiben kleine Einträge der obersten Ebene erhalten, der Rest wird als ausgelassen aufgelistet. Secrets in der Nachricht und in den Details werden vorher entfernt, und die eigenen Schutzschalter des Agenten für wiederholte Fehler begrenzen die Zahl der Versuche.
 
 ## Die Action-Oberfläche klein halten {#small-surface}
 
