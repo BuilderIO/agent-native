@@ -4,6 +4,7 @@ import {
   EmbeddedExtension,
   ExtensionSlot,
 } from "@agent-native/toolkit/app/extensions";
+import { InlineMarkdown } from "@agent-native/toolkit/app/review";
 import {
   isCategoryAxis,
   planCategoryAxis,
@@ -81,7 +82,6 @@ import {
   YAxis,
 } from "recharts";
 
-import { InlineMarkdownLinks } from "@/components/Markdown";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -144,6 +144,18 @@ import type {
   TableColumnConfig,
   ColumnFormat,
 } from "@/pages/adhoc/sql-dashboard/types";
+
+import {
+  DashboardPanelDescription,
+  renderDashboardMarkdownLink,
+  safeDashboardLinkHref,
+} from "./DashboardPanelDescription";
+
+export {
+  DashboardPanelDescription,
+  renderDashboardMarkdownLink,
+  safeDashboardLinkHref,
+} from "./DashboardPanelDescription";
 
 import {
   usePanelDataNotes,
@@ -1794,11 +1806,10 @@ export function SqlChart({
   if (isSection) {
     return (
       <div className="px-1 py-2">
-        {panel.config?.description && (
-          <p className="text-sm text-muted-foreground">
-            <InlineMarkdownLinks content={panel.config.description} />
-          </p>
-        )}
+        <DashboardPanelDescription
+          description={panel.config?.description}
+          className="text-sm text-muted-foreground"
+        />
       </div>
     );
   }
@@ -1916,13 +1927,19 @@ export function SqlChart({
       );
     }
 
-    if (!panel.config?.description) return content;
+    if (
+      typeof panel.config?.description !== "string" ||
+      !panel.config.description
+    ) {
+      return content;
+    }
 
     return (
       <div className="flex h-full min-h-0 flex-col gap-2">
-        <p className="text-sm text-muted-foreground">
-          <InlineMarkdownLinks content={panel.config.description} />
-        </p>
+        <DashboardPanelDescription
+          description={panel.config.description}
+          className="text-sm text-muted-foreground"
+        />
         <div className="min-h-0 flex-1">{content}</div>
       </div>
     );
@@ -2342,24 +2359,6 @@ export function buildTableClipboardText(
     ),
   ];
   return tableRows.map((row) => row.map(clipboardCell).join("\t")).join("\n");
-}
-
-export function safeDashboardLinkHref(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const href = value.trim();
-  if (!href) return null;
-  if (href.startsWith("//")) return null;
-
-  try {
-    const parsed = href.startsWith("/")
-      ? new URL(href, "https://agent-native.local")
-      : new URL(href);
-    return parsed.protocol === "http:" || parsed.protocol === "https:"
-      ? href
-      : null;
-  } catch {
-    return null;
-  }
 }
 
 function renderDeltaCell(value: unknown): ReactNode {
@@ -4487,9 +4486,13 @@ function CalloutRenderer({ rows }: { rows: Record<string, unknown>[] }) {
             className={`flex items-start gap-2 rounded-md border px-3 py-2 text-sm ${wrapper}`}
           >
             <Icon className="h-4 w-4 mt-0.5 shrink-0" />
-            <span className="break-words">
-              <InlineMarkdownLinks content={message} />
-            </span>
+            <InlineMarkdown
+              inline
+              content={message}
+              className="min-w-0 flex-1 break-words"
+              linkClassName="text-current underline underline-offset-2 hover:opacity-80"
+              renderLink={renderDashboardMarkdownLink}
+            />
           </div>
         );
       })}
