@@ -74,7 +74,7 @@ interface ScoreEvalOptions {
   onRunOutput?: (output: AgentRunOutput) => void;
   /** Marks unbranded lower-level runners that use the production chat path. */
   productionPath?: boolean;
-  /** @deprecated Explicitly opts lower-level scoring into the non-production path. */
+  /** Explicitly opts lower-level scoring into the non-production path. */
   nonProductionPath?: true;
 }
 
@@ -359,7 +359,7 @@ export interface RunEvalSuiteOptions {
   productionContext?: EvalProductionContext;
   identity?: EvalProductionIdentity;
   requireProductionChatPath?: boolean;
-  /** @deprecated Explicitly opts an injected lower-level runner into the non-production path. */
+  /** Allows custom run callbacks with an injected lower-level runner. */
   nonProductionPath?: true;
   persist?: boolean;
   runner?: AgentRunner;
