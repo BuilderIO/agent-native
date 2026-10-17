@@ -210,6 +210,7 @@ async function dragLayerToggle(
   page: Page,
   actionName: "Hide layer" | "Lock layer",
   targetArea: "icon" | "name",
+  tooltipName?: string,
 ) {
   const sourceRow = layerRowButton(page, "Gamma Button");
   const targetRow = layerRowButton(page, "Beta Button");
@@ -234,6 +235,11 @@ async function dragLayerToggle(
 
   await page.mouse.move(start.x, start.y);
   await page.mouse.down();
+  if (tooltipName) {
+    await expect(
+      page.getByRole("tooltip", { name: tooltipName, exact: true }),
+    ).toBeVisible();
+  }
   await page.mouse.move(end.x, end.y, { steps: 6 });
   await page.mouse.up();
 }
@@ -460,7 +466,7 @@ test("dragging down the Layers panel's lock column locks every layer the drag cr
   const id = await openSeeded(app, ROW_HTML);
   await searchLayers(page, "Button");
   const before = await app.savedNodes(id);
-  await dragLayerToggle(page, "Lock layer", "icon");
+  await dragLayerToggle(page, "Lock layer", "icon", "Unlock layer");
   await app.settled();
 
   const after = await app.savedNodes(id);
