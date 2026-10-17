@@ -889,6 +889,46 @@ describe("createAgentRunner over a mocked runAgentLoop (no real model)", () => {
     );
   });
 
+  it("rejects writes to nested production engine configuration", async () => {
+    const capabilities = {
+      vision: false,
+      settings: { mode: "production" },
+    };
+    const engine = {
+      defaultModel: "fake-model",
+      capabilities,
+      stream: vi.fn(async function* () {}),
+    } as unknown as AgentEngine;
+    const productionChatPath = testProductionChatPath();
+    const run = vi.spyOn(productionChatPath, "run");
+    const runner = await createAgentRunner({
+      productionContext: {
+        ...testProductionContext(),
+        productionChatPath,
+      },
+      engine,
+      model: "fake-model",
+    });
+    const scorerEngine = runner.analyzeContext().engine;
+    const nestedCapabilities = scorerEngine.capabilities as unknown as {
+      vision: boolean;
+      settings: { mode: string };
+    };
+
+    expect(Reflect.set(nestedCapabilities, "vision", true)).toBe(false);
+    expect(Reflect.set(nestedCapabilities.settings, "mode", "modified")).toBe(
+      false,
+    );
+    expect(capabilities).toEqual({
+      vision: false,
+      settings: { mode: "production" },
+    });
+
+    await runner.runAgent({ prompt: "find active users" });
+
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({ engine }));
+  });
+
   it("resolves engine + model from the registry when not supplied", async () => {
     engineMod.resolveEngine.mockResolvedValue({
       defaultModel: "registry-model",

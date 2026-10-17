@@ -132,22 +132,49 @@ function preserveProductionContextEngine(
   engine: AgentEngine,
   token: object,
 ): AgentEngine {
+  const protectedObjects = new WeakMap<object, object>();
   const boundMethods = new WeakMap<Function, Function>();
-  const wrapped = new Proxy(engine, {
+  const protectNestedObject = (value: object): object => {
+    const cached = protectedObjects.get(value);
+    if (cached) return cached;
+    const protectedValue = new Proxy(value, {
+      get(target, property) {
+        const nested = Reflect.get(target, property, target);
+        return nested !== null && typeof nested === "object"
+          ? protectNestedObject(nested)
+          : nested;
+      },
+      set: () => false,
+      defineProperty: () => false,
+      deleteProperty: () => false,
+      setPrototypeOf: () => false,
+      preventExtensions: () => false,
+    });
+    protectedObjects.set(value, protectedValue);
+    return protectedValue;
+  };
+  let wrapped: AgentEngine;
+  wrapped = new Proxy(engine, {
     get(target, property) {
       const value = Reflect.get(target, property, target);
-      if (typeof value !== "function") return value;
-      const bound = boundMethods.get(value);
-      if (bound) return bound;
-      const boundMethod = value.bind(target);
-      boundMethods.set(value, boundMethod);
-      return boundMethod;
+      if (typeof value === "function") {
+        const bound = boundMethods.get(value);
+        if (bound) return bound;
+        const boundMethod = value.bind(target);
+        boundMethods.set(value, boundMethod);
+        return boundMethod;
+      }
+      return value !== null && typeof value === "object"
+        ? protectNestedObject(value)
+        : value;
     },
     set: () => false,
     defineProperty: () => false,
     deleteProperty: () => false,
     setPrototypeOf: () => false,
+    preventExtensions: () => false,
   });
+  protectedObjects.set(engine, wrapped);
   productionContextRunnerEngineTokens.set(wrapped, token);
   return wrapped;
 }
