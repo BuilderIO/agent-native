@@ -163,6 +163,59 @@ function stopSettlingEditor(editorSessionId: string) {
     });
 }
 
+async function settlementOf(editorSessionId: string) {
+  const rows = await getDb()
+    .select()
+    .from(schema.documentPreviewDraftSettlements)
+    .where(
+      eq(
+        schema.documentPreviewDraftSettlements.editorSessionId,
+        editorSessionId,
+      ),
+    );
+  return rows.map((row: any) => [
+    row.settledGeneration,
+    row.discardedGeneration,
+  ]);
+}
+
+// The save PageDraftRecovery sends when it replays a journal entry: the
+// original editor session and edit generation, on the journal's base. An open
+// editor sends the same save without the replay marker.
+function replayJournal(input: {
+  userEmail: string;
+  documentId: string;
+  editorSessionId: string;
+  editGeneration: number;
+  content: string;
+  journalBase: Awaited<ReturnType<typeof authoredSaveBase>>;
+  fromOpenEditor?: boolean;
+}) {
+  return asUser(input.userEmail, () =>
+    updateDocument.run(
+      {
+        id: input.documentId,
+        browserSaveAttemptId: crypto.randomUUID(),
+        ...(input.fromOpenEditor ? {} : { journalReplay: true as const }),
+        content: input.content,
+        baseUpdatedAt: documentUpdatedAt(input.documentId),
+        baseRevision: input.journalBase.baseRevision,
+        loadedUpdatedAt: documentUpdatedAt(input.documentId),
+        loadedContentWasEmpty: false,
+        editorSessionId: input.editorSessionId,
+        editorEditGeneration: input.editGeneration,
+        editorSnapshotTitle: "Builder row",
+        editorSnapshotContent: input.content,
+        authoredBaseRevision: input.journalBase.authoredBaseRevision,
+        authoredBaseContent: input.journalBase.authoredBaseContent,
+        authoredCandidateContent: input.content,
+        reuseLabels: [],
+      },
+      { caller: "frontend" } as any,
+    ),
+  );
+}
+
 describe("private preview document drafts", () => {
   it("applies Keep mine with a recorded authored body intent", async () => {
     const documentId = await createDocument();
@@ -785,56 +838,6 @@ describe("private preview document drafts", () => {
       return { documentId, draft, journalBase };
     }
 
-    async function settlementOf(editorSessionId: string) {
-      const rows = await getDb()
-        .select()
-        .from(schema.documentPreviewDraftSettlements)
-        .where(
-          eq(
-            schema.documentPreviewDraftSettlements.editorSessionId,
-            editorSessionId,
-          ),
-        );
-      return rows.map((row: any) => [
-        row.settledGeneration,
-        row.discardedGeneration,
-      ]);
-    }
-
-    // The save PageDraftRecovery sends when it replays a journal entry: the
-    // original editor session and edit generation, on the journal's base.
-    function replayJournal(input: {
-      userEmail: string;
-      documentId: string;
-      editorSessionId: string;
-      editGeneration: number;
-      content: string;
-      journalBase: Awaited<ReturnType<typeof authoredSaveBase>>;
-    }) {
-      return asUser(input.userEmail, () =>
-        updateDocument.run(
-          {
-            id: input.documentId,
-            browserSaveAttemptId: crypto.randomUUID(),
-            content: input.content,
-            baseUpdatedAt: documentUpdatedAt(input.documentId),
-            baseRevision: input.journalBase.baseRevision,
-            loadedUpdatedAt: documentUpdatedAt(input.documentId),
-            loadedContentWasEmpty: false,
-            editorSessionId: input.editorSessionId,
-            editorEditGeneration: input.editGeneration,
-            editorSnapshotTitle: "Builder row",
-            editorSnapshotContent: input.content,
-            authoredBaseRevision: input.journalBase.authoredBaseRevision,
-            authoredBaseContent: input.journalBase.authoredBaseContent,
-            authoredCandidateContent: input.content,
-            reuseLabels: [],
-          },
-          { caller: "frontend" } as any,
-        ),
-      );
-    }
-
     it.each([
       ["main", OWNER],
       ["r3", OWNER],
@@ -965,6 +968,7 @@ describe("private preview document drafts", () => {
         editGeneration: draft.editGeneration + 1,
         content: "Typed after the choice",
         journalBase,
+        fromOpenEditor: true,
       });
       expect(later).not.toHaveProperty("superseded");
       expect((await documentRowForDraftTest(documentId)).content).toBe(
@@ -973,6 +977,178 @@ describe("private preview document drafts", () => {
       expect(await settlementOf(draft.editorSessionId)).toEqual([
         [draft.editGeneration + 1, draft.editGeneration],
       ]);
+    });
+  });
+
+  describe("a journal entry newer than a generation recovery discarded", () => {
+    // The state PageDraftRecovery leaves after its automatic Use saved: the
+    // closed editor's draft at generation 1 is in History, and its journal
+    // still holds generation 2, typed on top of the discarded edits.
+    async function discardDraftGeneration(userEmail: string) {
+      const documentId = await createDocument();
+      const draft = {
+        ...payload("Local recovery"),
+        deferredReason: "conflict" as const,
+        editorSessionId: `tab:${documentId}:closed`,
+        editGeneration: 1,
+      };
+      await asUser(userEmail, () =>
+        updateDraft.run({
+          operation: "upsert",
+          documentId,
+          expectedVersion: null,
+          draft,
+        }),
+      );
+      const journalBase = await authoredSaveBase(documentId, "Local recovery");
+      await expect(
+        asUser(userEmail, () =>
+          resolveDraft.run({
+            choice: "use_saved",
+            documentId,
+            expectedDraftVersion: 1,
+            expectedDraftTitle: "Builder row",
+            expectedDraftContent: "Local recovery",
+            expectedDocumentUpdatedAt: documentUpdatedAt(documentId),
+          }),
+        ),
+      ).resolves.toMatchObject({ status: "resolved" });
+      expect(await settlementOf(draft.editorSessionId)).toEqual([[1, 1]]);
+      return {
+        documentId,
+        editorSessionId: draft.editorSessionId,
+        journalBase,
+      };
+    }
+
+    async function historyContent(checkpointId: string) {
+      const [checkpoint] = await getDb()
+        .select()
+        .from(schema.documentVersions)
+        .where(eq(schema.documentVersions.id, checkpointId));
+      return checkpoint?.content;
+    }
+
+    it.each([OWNER, COLLABORATOR])(
+      "keeps a newer journal generation in History instead of merging the discarded edits for %s",
+      async (userEmail) => {
+        const { documentId, editorSessionId, journalBase } =
+          await discardDraftGeneration(userEmail);
+
+        const replayed = await replayJournal({
+          userEmail,
+          documentId,
+          editorSessionId,
+          editGeneration: 2,
+          content: "Local recovery, then more typing",
+          journalBase,
+        });
+
+        expect(replayed).toMatchObject({
+          preservationRequired: true,
+          reason: "provenance",
+          checkpointId: expect.any(String),
+        });
+        expect((await documentRowForDraftTest(documentId)).content).toBe(
+          "Server body",
+        );
+        expect(await historyContent((replayed as any).checkpointId)).toBe(
+          "Local recovery, then more typing",
+        );
+        expect(await settlementOf(editorSessionId)).toEqual([[1, 1]]);
+      },
+    );
+
+    it("still refuses a replay of the discarded generation itself", async () => {
+      const { documentId, editorSessionId, journalBase } =
+        await discardDraftGeneration(OWNER);
+
+      await expect(
+        replayJournal({
+          userEmail: OWNER,
+          documentId,
+          editorSessionId,
+          editGeneration: 1,
+          content: "Local recovery",
+          journalBase,
+        }),
+      ).resolves.toMatchObject({ superseded: true, discardedGeneration: 1 });
+      expect((await documentRowForDraftTest(documentId)).content).toBe(
+        "Server body",
+      );
+    });
+
+    it("merges an open editor's save from the same session after the automatic Use saved", async () => {
+      const { documentId, editorSessionId, journalBase } =
+        await discardDraftGeneration(OWNER);
+
+      const saved = await replayJournal({
+        userEmail: OWNER,
+        documentId,
+        editorSessionId,
+        editGeneration: 2,
+        content: "Local recovery, then more typing",
+        journalBase,
+        fromOpenEditor: true,
+      });
+
+      expect(saved).not.toHaveProperty("preservationRequired");
+      expect(saved).not.toHaveProperty("superseded");
+      expect((await documentRowForDraftTest(documentId)).content).toBe(
+        "Local recovery, then more typing",
+      );
+      expect(await settlementOf(editorSessionId)).toEqual([[2, 1]]);
+    });
+
+    it("replays a later entry normally once the session saved after the discard", async () => {
+      const { documentId, editorSessionId, journalBase } =
+        await discardDraftGeneration(OWNER);
+      await replayJournal({
+        userEmail: OWNER,
+        documentId,
+        editorSessionId,
+        editGeneration: 2,
+        content: "Local recovery, then more typing",
+        journalBase,
+        fromOpenEditor: true,
+      });
+      const savedPage = await documentRowForDraftTest(documentId);
+      createdDocumentUpdatedAt.set(documentId, savedPage.updatedAt);
+
+      const replayed = await replayJournal({
+        userEmail: OWNER,
+        documentId,
+        editorSessionId,
+        editGeneration: 3,
+        content: "Local recovery, then more typing, and the last word",
+        journalBase: await authoredSaveBase(documentId, ""),
+      });
+
+      expect(replayed).not.toHaveProperty("preservationRequired");
+      expect((await documentRowForDraftTest(documentId)).content).toBe(
+        "Local recovery, then more typing, and the last word",
+      );
+      expect(await settlementOf(editorSessionId)).toEqual([[3, 1]]);
+    });
+
+    it("replays an entry normally from a session with nothing discarded", async () => {
+      const documentId = await createDocument();
+      const editorSessionId = `tab:${documentId}:closed-clean`;
+
+      const replayed = await replayJournal({
+        userEmail: OWNER,
+        documentId,
+        editorSessionId,
+        editGeneration: 2,
+        content: "Typed before the tab closed",
+        journalBase: await authoredSaveBase(documentId, ""),
+      });
+
+      expect(replayed).not.toHaveProperty("preservationRequired");
+      expect((await documentRowForDraftTest(documentId)).content).toBe(
+        "Typed before the tab closed",
+      );
+      expect(await settlementOf(editorSessionId)).toEqual([[2, null]]);
     });
   });
 

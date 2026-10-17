@@ -60,6 +60,7 @@ const reasons = new Set([
   "DOCUMENT_REVISION_CONFLICT",
   "structure",
   "provenance",
+  "discarded_generation_replay",
   "stale_empty_body",
   "stale_builder_image",
   "recovery_base_changed",

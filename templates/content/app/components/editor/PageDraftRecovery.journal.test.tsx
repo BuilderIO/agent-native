@@ -434,12 +434,14 @@ describe("Page browser journal recovery", () => {
         baseRevision: "body:1:sha256:base",
         authoredBaseRevision: "body:1:sha256:base",
         browserSaveAttemptId: expect.any(String),
+        journalReplay: true,
         editorSnapshotTitle: "Saved",
       }),
     );
     expect(state.update.mock.calls[0]?.[0]).not.toHaveProperty("title");
     expect(state.update.mock.calls[0]?.[0]).not.toHaveProperty("baseTitle");
     expect(state.entries).toEqual([]);
+    expect(toast.success).not.toHaveBeenCalled();
     expect(container.querySelector("textarea")).not.toBeNull();
   });
 
@@ -483,7 +485,7 @@ describe("Page browser journal recovery", () => {
 
     await act(async () => render());
     expect(state.update).toHaveBeenCalledWith(
-      expect.objectContaining({ content: "Local Peer" }),
+      expect.objectContaining({ content: "Local Peer", journalReplay: true }),
     );
     expect(state.update.mock.calls[0]?.[0]).not.toHaveProperty(
       "authoredCandidateContent",

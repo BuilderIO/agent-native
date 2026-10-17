@@ -413,6 +413,7 @@ export function PageDraftRecovery({
           return update.mutateAsync({
             id: document.id,
             browserSaveAttemptId: saveAttemptId,
+            journalReplay: true,
             ...(localChangedTitle ? { title: journalSnapshot.title } : {}),
             content,
             baseUpdatedAt: base.updatedAt ?? undefined,

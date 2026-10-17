@@ -626,6 +626,12 @@ const updateDocumentAction = defineAction({
       .describe(
         "Immutable browser save attempt ID; retry with the exact same payload",
       ),
+    journalReplay: z
+      .literal(true)
+      .optional()
+      .describe(
+        "Browser-only: set when the page's draft journal resends a closed editor's unsaved edits",
+      ),
     preserveLeadingTitleHeading: z
       .boolean()
       .optional()
@@ -1142,8 +1148,9 @@ const updateDocumentAction = defineAction({
               return;
             }
           }
+          let replayExtendsDiscardedGeneration = false;
           if (settlesPreviewDraft) {
-            await lockPreviewDocumentDraftSettlement({
+            const settledGeneration = await lockPreviewDocumentDraftSettlement({
               db: tx,
               ownerEmail: requestUserEmail as string,
               orgId: requestOrgId,
@@ -1167,6 +1174,14 @@ const updateDocumentAction = defineAction({
               measurement.outcome = "superseded";
               return;
             }
+            // A journal replay resends typing from an editor that is no
+            // longer open. If recovery discarded one of its generations and
+            // nothing from the session settled since, a later generation was
+            // typed on top of the discarded edits and still holds them.
+            replayExtendsDiscardedGeneration =
+              args.journalReplay === true &&
+              discardedGeneration !== null &&
+              settledGeneration === discardedGeneration;
           }
           const [historyBefore] = await tx
             .select({
@@ -1337,6 +1352,11 @@ const updateDocumentAction = defineAction({
               await confirmBrowserSave(historyBefore, historyBefore.updatedAt);
               return;
             }
+          }
+          if (replayExtendsDiscardedGeneration && content !== undefined) {
+            await preserveUnmergedContent(content, "provenance");
+            measurement.reason_code = "discarded_generation_replay";
+            return;
           }
           if (
             ctx?.caller === "frontend" &&
