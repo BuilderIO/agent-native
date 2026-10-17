@@ -781,6 +781,29 @@ describe("rebuilding a doc whose update the server refused", () => {
     expect(window.localStorage.getItem(candidateKey!)).toBe(kept);
   });
 
+  it("fails, and stays refused, when it cannot keep content that is still too large", async () => {
+    const first = await refusedAfterPaste();
+    const refusedDoc = first().ydoc;
+    const setItem = vi
+      .spyOn(window.localStorage, "setItem")
+      .mockImplementation(() => {
+        throw new DOMException("full", "QuotaExceededError");
+      });
+    let outcome: Awaited<ReturnType<UseCollaborativeDocResult["rebuild"]>>;
+    try {
+      outcome = await rebuild(first);
+    } finally {
+      setItem.mockRestore();
+    }
+
+    expect(outcome.status).toBe("failed");
+    expect(first().ydoc).toBe(refusedDoc);
+    expect(first().updatesRefused).toBe(true);
+    expect(first().durableUpdatesFailed).toBe(true);
+    expect(candidateKeys()).toEqual([]);
+    expect(sentUpdates.at(-1)!.length).toBeGreaterThan(COLLAB_MAX_UPDATE_BYTES);
+  });
+
   it("leaves its candidate when the rebuilt doc cannot keep its update, so a reload holds the content once", async () => {
     const first = await refusedAfterPaste();
     expect((await rebuild(first)).status).toBe("too_large");
@@ -832,17 +855,22 @@ describe("rebuilding a doc whose update the server refused", () => {
     }
   }
 
-  it("holds a closed tab's entry it cannot keep itself until its candidate does, so the paste is kept once", async () => {
+  // What a closed tab kept under `key`: `text` typed after "kept ".
+  function keepClosedTabEntry(key: string, text: string) {
     const closed = new Y.Doc();
     Y.applyUpdate(closed, Y.encodeStateAsUpdate(server));
     const before = Y.encodeStateVector(closed);
-    closed.getText("t").insert(5, PASTED);
-    const closedKey = outboxKey("closed-tab");
+    closed.getText("t").insert(5, text);
     window.localStorage.setItem(
-      closedKey,
+      key,
       encode(Y.encodeStateAsUpdate(closed, before)),
     );
     closed.destroy();
+  }
+
+  it("holds a closed tab's entry it cannot keep itself until its candidate does, so the paste is kept once", async () => {
+    const closedKey = outboxKey("closed-tab");
+    keepClosedTabEntry(closedKey, PASTED);
 
     const result = await withOrdinaryWritesFailing(() => mountReady());
     expect(result().ydoc!.getText("t").toString()).toBe(`kept ${PASTED}`);
@@ -860,6 +888,54 @@ describe("rebuilding a doc whose update the server refused", () => {
     expect(locks.held.has(ownerLock(closedKey))).toBe(false);
     expect(candidateKeys()).toHaveLength(1);
     expect(outboxEntries()).toHaveLength(1);
+    closeThisTab();
+    await settle(1100);
+
+    const reopened = await mountReady();
+    await settle();
+    expect(reopened().ydoc!.getText("t").toString()).toBe(`kept ${PASTED}`);
+  });
+
+  it.each([
+    ["an ordinary entry", "closed-tab"],
+    ["a candidate", "rebuild:closed-tab"],
+  ])(
+    "keeps %s it applies again after the account changes and back, so a reload holds the paste",
+    async (_kind, owner) => {
+      const closedKey = outboxKey(owner);
+      keepClosedTabEntry(closedKey, PASTED);
+      const result = await withOrdinaryWritesFailing(() => mountReady());
+      await act(async () => {
+        await expect(result().flushUpdates()).resolves.toBe(false);
+      });
+      expect(result().updatesRefused).toBe(true);
+
+      await mountReady({ user: { ...USER, email: "bea@example.com" } });
+      const back = await mountReady();
+      expect(back().ydoc!.getText("t").toString()).toBe(`kept ${PASTED}`);
+      expect(window.localStorage.getItem(closedKey)).not.toBeNull();
+      closeThisTab();
+      await settle(1100);
+
+      const reopened = await mountReady();
+      await settle();
+      expect(reopened().ydoc!.getText("t").toString()).toBe(`kept ${PASTED}`);
+    },
+  );
+
+  it("keeps an entry it applied when only the account email's case changes, so a reload holds the paste", async () => {
+    const closedKey = outboxKey("closed-tab");
+    keepClosedTabEntry(closedKey, PASTED);
+    const result = await withOrdinaryWritesFailing(() => mountReady());
+    await act(async () => {
+      await expect(result().flushUpdates()).resolves.toBe(false);
+    });
+
+    const upper = await mountReady({
+      user: { ...USER, email: USER.email.toUpperCase() },
+    });
+    expect(upper().ydoc!.getText("t").toString()).toBe(`kept ${PASTED}`);
+    expect(window.localStorage.getItem(closedKey)).not.toBeNull();
     closeThisTab();
     await settle(1100);
 

@@ -78,7 +78,7 @@ import type {
 import { Navigate, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 import type { Awareness } from "y-protocols/awareness";
-import type { Doc as YDoc } from "yjs";
+import type { Doc as YDoc, Transaction as YTransaction } from "yjs";
 
 import {
   contentBlockRegistry,
@@ -3654,9 +3654,17 @@ function PageEditorSessionBody({
         running = false;
       }
     };
-    // Each edit may have taken back enough of what made it too large.
-    const handleUpdate = (_update: Uint8Array, origin: unknown) => {
-      if (origin !== "remote") schedule(REBUILD_AFTER_EDIT_MS);
+    // Each edit may have taken back enough of what made it too large, and so
+    // may a collaborator's deletion.
+    const handleUpdate = (
+      _update: Uint8Array,
+      origin: unknown,
+      _doc: YDoc,
+      transaction: YTransaction,
+    ) => {
+      if (origin !== "remote" || transaction.deleteSet.clients.size > 0) {
+        schedule(REBUILD_AFTER_EDIT_MS);
+      }
     };
     ydoc.on("update", handleUpdate);
     void attempt();

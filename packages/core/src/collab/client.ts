@@ -127,7 +127,7 @@ export interface UseCollaborativeDocResult {
    * server's copy first, so content `write` reads from an editor bound to it
    * holds what collaborators added. While the update would still be refused
    * it resolves `too_large` and keeps that update, with `durableUpdates`, in
-   * place of the refused ones. Once `rebuilt`, `ydoc` and `awareness` are
+   * place of the refused ones, or `failed` when storage refuses it. Once `rebuilt`, `ydoc` and `awareness` are
    * the new doc's. `write` runs synchronously, up to twice per call, and
    * `beforeReplace` gets the new doc right before the hook moves to it, so an
    * editor can stop taking edits that would reach only the old one.
@@ -435,6 +435,10 @@ class CollabDocConnection {
   private readonly storedKeys = new Set<string>();
   // Whether storage holds every update this doc has not had acknowledged.
   private unsentUpdatesKept = true;
+  // An account change drops the queue but not the doc, so after one the queue
+  // no longer holds everything the doc has unsent, and keeping it does not
+  // keep what an entry this doc applies again holds.
+  private unsentUpdatesDropped = false;
   // Other connections' entries this doc applied before it could keep their
   // content, by owner, with what lets go of that owner's lock. Held until this
   // doc keeps the content, so no other page adopts the same edits meanwhile
@@ -634,14 +638,16 @@ class CollabDocConnection {
 
   // Refused updates a kept candidate replaces are held back for good, so
   // retired they would only be sent again beside it.
-  private retirePendingUpdates(): void {
+  private retirePendingUpdates(): boolean {
     if (
-      this.pendingUpdates.length &&
-      this.retiredUpdatesKey &&
-      !(this.snapshot.updatesRefused && this.keepsUnsentUpdates)
+      !this.pendingUpdates.length ||
+      !this.retiredUpdatesKey ||
+      (this.snapshot.updatesRefused && this.keepsUnsentUpdates)
     ) {
-      retiredCollabUpdates.set(this.retiredUpdatesKey, this.pendingUpdates);
+      return false;
     }
+    retiredCollabUpdates.set(this.retiredUpdatesKey, this.pendingUpdates);
+    return true;
   }
 
   private markDurableUpdatesFailed(): void {
@@ -652,7 +658,8 @@ class CollabDocConnection {
 
   private storeUnsentUpdates(): void {
     if (!this.keepsUnsentUpdates) return;
-    this.unsentUpdatesKept = this.writeUnsentUpdates();
+    this.unsentUpdatesKept =
+      this.writeUnsentUpdates() && !this.unsentUpdatesDropped;
     if (this.unsentUpdatesKept) this.retireHeldSources();
   }
 
@@ -996,7 +1003,9 @@ class CollabDocConnection {
     if (this.disposed) return;
     const prev = this.lastSetUser;
     if (prev && prev.email !== user.email) {
-      this.retirePendingUpdates();
+      if (this.pendingUpdates.length && !this.retirePendingUpdates()) {
+        this.unsentUpdatesDropped = true;
+      }
       this.pendingUpdates = [];
       this.updateAbortController?.abort();
       if (this.flushTimer) clearTimeout(this.flushTimer);
@@ -1390,7 +1399,11 @@ class CollabDocConnection {
     if (collabUpdateFits(update.length, stateBytes)) {
       return { status: "fits", update };
     }
-    this.keepCandidate(update);
+    if (!this.keepCandidate(update)) {
+      return rebuildFailed(
+        new Error("The rebuild could not be kept in storage"),
+      );
+    }
     return { status: "too_large", updateBytes: update.length, stateBytes };
   }
 
