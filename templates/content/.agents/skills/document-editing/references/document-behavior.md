@@ -49,7 +49,12 @@ the markdown.
 
 `list-document-versions` / `restore-document-version` operate on saved
 document versions. There is no diff view — restoring replaces the current
-content with the selected version's content wholesale.
+content with the selected version's content wholesale. A version History kept
+instead of saving (`checkpointKind: "recovery"`) is a body the page never had:
+restoring one that adds back a private callout icon fails with
+`PRIVATE_ICON_UNAVAILABLE`, listing the icons in `details.assetIds`, unless you
+or the author of that body own each icon or an earlier version of the page held
+it. Report that to the user; don't retry the restore.
 
 ## Image blocks
 
