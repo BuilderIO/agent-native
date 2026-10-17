@@ -2223,5 +2223,100 @@ describe("local-folder Content source", () => {
         sourceWrite.mockRestore();
       }
     });
+
+    it.each([
+      ["source_primary", "refuses it"],
+      ["reviewed_bidirectional", "refuses it"],
+      ["database_primary", "holds it for review"],
+    ] as const)(
+      "leaves the edit in the file after that refusal: a %s folder's next sync %s, and a retry refuses before the file write",
+      async (policy) => {
+        const connection = await runWithRequestContext(
+          { userEmail: OWNER },
+          () =>
+            connectLocalFolder.run({
+              connectionId: `desktop-folder-linked-edit-${policy}`,
+              label: `Linked edit ${policy}`,
+              createSourceBackedSpace: true,
+              truthPolicy: policy,
+            }),
+        );
+        const first = await runWithRequestContext({ userEmail: OWNER }, () =>
+          syncLocalFolder.run({
+            sourceId: connection.sourceId,
+            files: { "edited.md": "Baseline body." },
+          }),
+        );
+        const id = first.created[0]!.id;
+        const linkedLocal = await import("./_linked-local-document-edit.js");
+        const sourceWrite = vi
+          .spyOn(linkedLocal, "editLinkedLocalDocumentThroughBrowser")
+          .mockImplementationOnce(async () => {
+            await putPageOnLiveCopy(id);
+            return {
+              status: "persisted",
+              content: "Edited body.",
+              title: "edited",
+              path: "edited.md",
+              runtime: "browser",
+            };
+          });
+        const editBody = () =>
+          runWithRequestContext({ userEmail: OWNER }, () =>
+            editDocument.run(
+              { id, find: "Baseline", replace: "Edited", reuseLabels: [] },
+              { caller: "frontend", userEmail: OWNER },
+            ),
+          );
+        try {
+          await expect(editBody()).rejects.toMatchObject({
+            errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+            details: { sourcePath: "edited.md" },
+          });
+          const before = await pageBodyState(id);
+          const sourceBefore = await folderSourceState(connection);
+          const nextSync = runWithRequestContext({ userEmail: OWNER }, () =>
+            syncLocalFolder.run({
+              sourceId: connection.sourceId,
+              files: { "edited.md": "Edited body." },
+            }),
+          );
+          if (policy !== "database_primary") {
+            await expect(nextSync).rejects.toMatchObject({
+              errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+              details: {
+                documentId: id,
+                operation: "sync-local-folder-source",
+              },
+            });
+            expect(await folderSourceState(connection)).toEqual(sourceBefore);
+          } else {
+            await nextSync;
+            const { changeSets } = await folderSourceState(connection);
+            expect(changeSets).toEqual(
+              sourceBefore.changeSets.concat([
+                expect.objectContaining({
+                  documentId: id,
+                  kind: "body_update",
+                  direction: "incoming",
+                  state: "proposed",
+                }),
+              ]),
+            );
+          }
+          expect(await pageBodyState(id)).toEqual(before);
+          expect(before.page.content).toBe("Baseline body.");
+
+          await expect(editBody()).rejects.toMatchObject({
+            errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+            details: { documentId: id, operation: "edit-document" },
+          });
+          expect(sourceWrite).toHaveBeenCalledTimes(1);
+          expect(await pageBodyState(id)).toEqual(before);
+        } finally {
+          sourceWrite.mockRestore();
+        }
+      },
+    );
   });
 });
