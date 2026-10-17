@@ -247,35 +247,25 @@ function isEmbedCredentialKey(key: string): boolean {
   return key === "ticket" || /Ticket$/.test(key);
 }
 
-function carriesEmbedCredential(text: string, strict: boolean): boolean {
-  return strict ? mentionsEmbedStartRoute(text) : isEmbedStartUrl(text);
-}
-
 function containsEmbedRoutingSignal(
   value: unknown,
   seen = new WeakSet<object>(),
-  strict = false,
 ): boolean {
-  if (typeof value === "string") return carriesEmbedCredential(value, strict);
+  if (typeof value === "string") return isEmbedStartUrl(value);
   if (!value || typeof value !== "object") return false;
   if (seen.has(value)) return false;
   seen.add(value);
   if (Array.isArray(value)) {
-    const result = value.some((item) =>
-      containsEmbedRoutingSignal(item, seen, strict),
-    );
+    const result = value.some((item) => containsEmbedRoutingSignal(item, seen));
     seen.delete(value);
     return result;
   }
   for (const [key, val] of Object.entries(value)) {
-    if (
-      EMBED_RESULT_SENSITIVE_KEYS.has(key) ||
-      (strict && mentionsEmbedStartRoute(key))
-    ) {
+    if (EMBED_RESULT_SENSITIVE_KEYS.has(key)) {
       seen.delete(value);
       return true;
     }
-    if (containsEmbedRoutingSignal(val, seen, strict)) {
+    if (containsEmbedRoutingSignal(val, seen)) {
       seen.delete(value);
       return true;
     }
@@ -289,21 +279,8 @@ export function purgeEmbedStartUrls(
   seen = new WeakSet<object>(),
   embedContext = false,
 ): unknown {
-  return purge(value, seen, embedContext, false);
-}
-
-// `strict` is the sanitized path: it finds the embed start route anywhere in a
-// string (`mentionsEmbedStartRoute`), treats object keys as values that can
-// carry a credential, and keeps every other JSON key. The direct wire path is
-// not strict, so its output stays as it has always been.
-function purge(
-  value: unknown,
-  seen: WeakSet<object>,
-  embedContext: boolean,
-  strict: boolean,
-): unknown {
   if (typeof value === "string") {
-    return carriesEmbedCredential(value, strict) ? "[hidden embed URL]" : value;
+    return isEmbedStartUrl(value) ? "[hidden embed URL]" : value;
   }
   if (Array.isArray(value)) {
     if (seen.has(value)) return "[circular result]";
@@ -311,10 +288,9 @@ function purge(
     // An embed marker in one array item puts the whole result in the embed
     // routing context. Credential fields in sibling items must not survive
     // just because the marker lives elsewhere in the array.
-    const arrayEmbedContext =
-      embedContext || containsEmbedRoutingSignal(value, undefined, strict);
+    const arrayEmbedContext = embedContext || containsEmbedRoutingSignal(value);
     const out = value.map((item) =>
-      purge(item, seen, arrayEmbedContext, strict),
+      purgeEmbedStartUrls(item, seen, arrayEmbedContext),
     );
     seen.delete(value);
     return out;
@@ -323,8 +299,7 @@ function purge(
     if (seen.has(value)) return "[circular result]";
     seen.add(value);
     const entries = Object.entries(value as Record<string, unknown>);
-    const localEmbedContext =
-      embedContext || containsEmbedRoutingSignal(value, undefined, strict);
+    const localEmbedContext = embedContext || containsEmbedRoutingSignal(value);
     const out: Record<string, unknown> = {};
     for (const [key, val] of entries) {
       if (
@@ -333,30 +308,85 @@ function purge(
       ) {
         continue;
       }
-      if (
-        (typeof val === "string" && carriesEmbedCredential(val, strict)) ||
-        (strict && mentionsEmbedStartRoute(key))
-      ) {
+      if (typeof val === "string" && isEmbedStartUrl(val)) {
         continue;
       }
-      const purged = purge(val, seen, localEmbedContext, strict);
-      // Assigning a `__proto__` key replaces the prototype instead of adding
-      // the key, so the strict path defines every key it keeps.
-      if (strict) {
-        Object.defineProperty(out, key, {
-          value: purged,
-          enumerable: true,
-          writable: true,
-          configurable: true,
-        });
-      } else {
-        out[key] = purged;
-      }
+      out[key] = purgeEmbedStartUrls(val, seen, localEmbedContext);
     }
     seen.delete(value);
     return out;
   }
   return value;
+}
+
+/**
+ * The sanitized path's redaction. It reads the fresh JSON tree `toJsonData`
+ * returns, which has no cycles or shared nodes. Unlike `purgeEmbedStartUrls`,
+ * it finds the embed start route anywhere in a string
+ * (`mentionsEmbedStartRoute`), treats object keys as values that can carry a
+ * credential, and keeps every other key, `__proto__` included. Whether a
+ * subtree holds an embed signal is worked out once per node, so the walk stays
+ * linear in the size of the result however deeply it nests.
+ */
+function redactEmbedCredentials(json: unknown): unknown {
+  const mentioned = new Map<string, boolean>();
+  const mentions = (text: string): boolean => {
+    let found = mentioned.get(text);
+    if (found === undefined) {
+      found = mentionsEmbedStartRoute(text);
+      mentioned.set(text, found);
+    }
+    return found;
+  };
+  const signalByNode = new WeakMap<object, boolean>();
+  const holdsSignal = (value: unknown): boolean => {
+    if (typeof value === "string") return mentions(value);
+    if (!value || typeof value !== "object") return false;
+    let found = signalByNode.get(value);
+    if (found === undefined) {
+      found = Array.isArray(value)
+        ? value.some(holdsSignal)
+        : Object.entries(value).some(
+            ([key, val]) =>
+              EMBED_RESULT_SENSITIVE_KEYS.has(key) ||
+              mentions(key) ||
+              holdsSignal(val),
+          );
+      signalByNode.set(value, found);
+    }
+    return found;
+  };
+  // An embed signal anywhere in an object or array puts all of it in the embed
+  // routing context, so credential fields beside the signal are dropped too.
+  const redact = (value: unknown, embedContext: boolean): unknown => {
+    if (typeof value === "string") {
+      return mentions(value) ? "[hidden embed URL]" : value;
+    }
+    if (!value || typeof value !== "object") return value;
+    const context = embedContext || holdsSignal(value);
+    if (Array.isArray(value)) return value.map((item) => redact(item, context));
+    const out: Record<string, unknown> = {};
+    for (const [key, val] of Object.entries(value)) {
+      if (
+        EMBED_RESULT_SENSITIVE_KEYS.has(key) ||
+        (context && isEmbedCredentialKey(key)) ||
+        mentions(key) ||
+        (typeof val === "string" && mentions(val))
+      ) {
+        continue;
+      }
+      // Assigning a `__proto__` key replaces the prototype instead of adding
+      // the key, so every kept key is defined.
+      Object.defineProperty(out, key, {
+        value: redact(val, context),
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
+    }
+    return out;
+  };
+  return redact(json, false);
 }
 
 /** The contract error code a caller should see; generic failures have none. */
@@ -577,7 +607,7 @@ function completedOutcome(result: unknown): McpActionCallOutcome {
     const raw = mcpResult ? mcpResult.raw : result;
     return Object.freeze({
       status: "completed" as const,
-      value: deepFreeze(purge(toJsonData(raw), new WeakSet(), false, true)),
+      value: deepFreeze(redactEmbedCredentials(toJsonData(raw))),
       reportedError: isReportedProxyError(mcpResult),
     });
   } catch (error) {

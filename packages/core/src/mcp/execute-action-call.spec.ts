@@ -618,6 +618,33 @@ describe("executeMcpActionCall sanitizing", () => {
     }
   });
 
+  it("redacts a deeply nested result in work linear in its depth", async () => {
+    const listed = vi.spyOn(Object, "entries");
+    try {
+      for (const depth of [100, 200, 400, 800, 1600]) {
+        let nested: unknown = "ordinary";
+        for (let level = 0; level < depth; level += 1) {
+          nested = { child: nested };
+        }
+        const read = entry({ readOnly: true, run: async () => nested });
+        listed.mockClear();
+        const outcome = await execute({ read }, "read");
+        const listings = listed.mock.calls.length;
+        expect(outcome).toEqual({
+          status: "completed",
+          value: nested,
+          reportedError: false,
+        });
+        // Each object is listed once for its embed signal and once to copy it.
+        // Rescanning every subtree from every level lists the chain's objects
+        // depth * (depth + 3) / 2 times.
+        expect(listings, `depth ${depth}`).toBeLessThanOrEqual(3 * depth);
+      }
+    } finally {
+      listed.mockRestore();
+    }
+  });
+
   it("keeps __proto__ keys from JSON and freezes everything under them", async () => {
     const json = '{"__proto__":{"admin":true},"nested":{"__proto__":{"x":1}}}';
     const outcome = await execute(
