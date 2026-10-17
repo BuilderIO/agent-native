@@ -57,6 +57,16 @@ import { createVisualEditorExtensions, VisualEditor } from "./VisualEditor";
 // holds an agent edit the live doc lacks. Saving the live doc deletes the edit.
 const LIVE = "Alpha paragraph\n\nBravo paragraph live";
 const STORED = "Alpha paragraph agent\n\nBravo paragraph";
+interface StoredBody {
+  content: string;
+  contentRevision: string;
+  contentUpdatedAt: string;
+}
+const STORED_BODY: StoredBody = {
+  content: STORED,
+  contentRevision: "body:2:stored",
+  contentUpdatedAt: "2026-10-16T00:00:00.000Z",
+};
 // The editor refuses any change that removes a source component's block.
 const LOCKED_SOURCE = {
   type: "registryBlock",
@@ -127,6 +137,7 @@ describe("a joining editor's saves", () => {
     join: keyof typeof discovery,
     live = LIVE,
     extraBlocks: object[] = [],
+    stored = STORED_BODY,
   ) {
     const liveDoc = nfmToDoc(live);
     prosemirrorJSONToYXmlFragment(
@@ -137,7 +148,7 @@ describe("a joining editor's saves", () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const onSaveContent = vi.fn(async () => "persisted" as const);
     const onChange = vi.fn();
-    await act(async () =>
+    const render = (body: StoredBody) =>
       root.render(
         createElement(
           MemoryRouter,
@@ -150,9 +161,7 @@ describe("a joining editor's saves", () => {
               { client: queryClient },
               createElement(VisualEditor, {
                 documentId: "page",
-                content: STORED,
-                contentUpdatedAt: "2026-10-16T00:00:00.000Z",
-                contentRevision: "body:2:stored",
+                ...body,
                 onChange,
                 onSaveContent,
                 ydoc,
@@ -166,9 +175,13 @@ describe("a joining editor's saves", () => {
             ),
           ),
         ),
-      ),
-    );
-    return { onSaveContent, onChange };
+      );
+    await act(async () => render(stored));
+    return {
+      onSaveContent,
+      onChange,
+      show: (body: StoredBody) => act(() => render(body)),
+    };
   }
 
   async function open(join: "pending" | "failed", live = LIVE) {
@@ -259,6 +272,48 @@ describe("a joining editor's saves", () => {
     await act(async () => vi.advanceTimersByTimeAsync(5_000));
     expect(editor.getText()).toContain("agent");
     expect(editor.isEditable).toBe(true);
+  });
+
+  it("saves nothing when the doc matches an older stored body than one it saw", async () => {
+    vi.useFakeTimers();
+    // It opens on an older body, sees the agent edit while it waits, then
+    // gets the older body again, as a delayed response delivers it.
+    const older: StoredBody = {
+      content: "Alpha paragraph\n\nBravo paragraph",
+      contentRevision: "body:1:older",
+      contentUpdatedAt: "2026-10-15T00:00:00.000Z",
+    };
+    const { onSaveContent, onChange, show } = await mount(
+      "pending",
+      LIVE,
+      [],
+      older,
+    );
+    await act(async () => vi.advanceTimersByTimeAsync(100));
+    show(STORED_BODY);
+    await act(async () => vi.advanceTimersByTimeAsync(100));
+    // The other tab takes its word back.
+    act(() =>
+      ydoc.transact(() => {
+        const paragraph = ydoc.getXmlFragment("default").get(1) as Y.XmlElement;
+        const text = paragraph.get(0) as Y.XmlText;
+        text.delete(text.length - " live".length, " live".length);
+      }, "peer"),
+    );
+    const editor = captured.editor!;
+    expect(editor.getText()).not.toContain("live");
+    show(older);
+    await act(async () => vi.advanceTimersByTimeAsync(100));
+
+    let persisted: unknown;
+    await act(async () => {
+      persisted = await captured.slash!.onDraftPersisted!(older.content);
+    });
+    expect(persisted).toBe(false);
+    expect(editor.isEditable).toBe(false);
+    expect(awareness.getLocalState()?.reconciledRevision).toBeUndefined();
+    expect(onSaveContent).not.toHaveBeenCalled();
+    expect(onChange).not.toHaveBeenCalled();
   });
 
   it("saves nothing, and says so, when a locked block refuses the stored body", async () => {

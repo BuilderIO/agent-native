@@ -551,6 +551,45 @@ export function useCollabReconcile({
     putJoinEvidence(null);
     releaseJoinReadOnly();
   };
+  // Evidence a joining doc may act on: ready, about this revision, and still
+  // what collaborators report. A report made since, even one that landed before
+  // anything listened, is not covered by its catch-up, so it catches up again.
+  const currentJoinEvidence = (doc: YDoc, revision: string) => {
+    const evidence = joinEvidenceRef.current;
+    const target = heldRevisionAwarenessRef.current;
+    if (
+      evidence?.ydoc !== doc ||
+      evidence.status !== "ready" ||
+      evidence.revision !== revision ||
+      !target
+    )
+      return null;
+    if (
+      heldRevisionsMatch(
+        evidence.peers,
+        new Map(target.getStates()),
+        doc.clientID,
+      )
+    )
+      return evidence;
+    joinEvidenceRequestRef.current?.cancel();
+    joinEvidenceRequestRef.current = null;
+    requestJoinEvidence(doc, revision);
+    return null;
+  };
+  const latestObservedUpdatedAtRef = useRef<string | null>(
+    contentUpdatedAt ?? null,
+  );
+  const latestObservedRevisionRef = useRef<string | null>(
+    contentRevision ?? null,
+  );
+  // Until a joining doc holds a stored body, only the newest one it has seen
+  // may finish its join: an older one, even one it matches, lacks the newer
+  // stored edit. The reconcile below records that order.
+  const propsAreNewestObserved = () =>
+    !contentUpdatedAt ||
+    (contentUpdatedAt === latestObservedUpdatedAtRef.current &&
+      (contentRevision ?? null) === latestObservedRevisionRef.current);
   const reportedConflictRevisionRef = useRef<string | null>(null);
   const reconcileCallbacksRef = useRef({
     getMarkdown,
@@ -592,10 +631,9 @@ export function useCollabReconcile({
     if (!editor || editor.isDestroyed || joinEvidence?.ydoc !== ydoc) return;
     const check = () => {
       if (editor.isDestroyed) return;
-      // Props can hold an older snapshot than the one the join waits for,
-      // which the reconcile below turns away; finishing on it would take a
-      // base that lacks the newer stored edit.
-      if (joinEvidenceRef.current?.revision !== contentRevision) return;
+      // This runs before the reconcile records new props, so props newer than
+      // the record finish there instead.
+      if (!propsAreNewestObserved()) return;
       const callbacks = reconcileCallbacksRef.current;
       const normalizedValue = callbacks.normalizeValue(value);
       if (callbacks.getMarkdown(editor) !== normalizedValue) return;
@@ -628,20 +666,13 @@ export function useCollabReconcile({
     const evidence = joinEvidence;
     const onChange = () => {
       if (
-        joinEvidenceRef.current !== evidence ||
-        lastAppliedSerializedRef.current !== null ||
-        heldRevisionsMatch(
-          evidence.peers,
-          new Map(target.getStates()),
-          ydoc.clientID,
-        )
+        joinEvidenceRef.current === evidence &&
+        lastAppliedSerializedRef.current === null
       )
-        return;
-      joinEvidenceRequestRef.current?.cancel();
-      joinEvidenceRequestRef.current = null;
-      requestJoinEvidence(ydoc, evidence.revision);
+        currentJoinEvidence(ydoc, evidence.revision);
     };
     target.on("change", onChange);
+    onChange();
     return () => {
       target.off("change", onChange);
     };
@@ -652,12 +683,6 @@ export function useCollabReconcile({
     updatedAt: string;
     sequence: number;
   } | null>(null);
-  const latestObservedUpdatedAtRef = useRef<string | null>(
-    contentUpdatedAt ?? null,
-  );
-  const latestObservedRevisionRef = useRef<string | null>(
-    contentRevision ?? null,
-  );
   const acknowledgementBaseRollbackRef = useRef<{
     acknowledgementRevision: string;
     updatedAt: string;
@@ -1212,14 +1237,10 @@ export function useCollabReconcile({
         peerWait.deadline = null;
         return;
       }
-      // Until a joining doc holds a stored body, only the latest one counts: an
-      // older snapshot it happens to match lacks the newer stored edit.
       if (
         joinsOnPeerEvidence &&
         lastAppliedSerializedRef.current === null &&
-        contentUpdatedAt &&
-        latestObservedUpdatedAtRef.current &&
-        contentUpdatedAt < latestObservedUpdatedAtRef.current
+        !propsAreNewestObserved()
       )
         return;
       const currentMarkdown = callbacks.getMarkdown(editor);
@@ -1291,6 +1312,7 @@ export function useCollabReconcile({
       // awareness arrives this client also counts itself the lead. So it waits
       // to learn who else is open, and keeps the doc when one reports holding
       // this revision.
+      let joinedOn: ReturnType<typeof currentJoinEvidence> = null;
       if (
         joinsOnPeerEvidence &&
         contentRevision &&
@@ -1313,9 +1335,11 @@ export function useCollabReconcile({
         // a stored change no collaborator holds yet, and either guess can lose
         // text, so a failure leaves the doc as it is and is reported.
         if (evidence.status !== "ready") return;
+        joinedOn = currentJoinEvidence(ydoc!, contentRevision);
+        if (!joinedOn) return;
         if (
           peerHoldsRevision(
-            evidence.peers,
+            joinedOn.peers,
             ydoc!.clientID,
             contentRevision,
             compareContentRevisions,
@@ -1444,8 +1468,22 @@ export function useCollabReconcile({
       const applyTimer = setTimeout(() => {
         if (cancelled || editor.isDestroyed) return;
         const scheduledCallbacks = reconcileCallbacksRef.current;
-        peerWait.deadline = null;
         const beforeMarkdown = scheduledCallbacks.getMarkdown(editor);
+        // A doc the gate let through can gain text, or its evidence a newer
+        // report, before React cleans this timer up, so the gate runs again.
+        const joining =
+          joinsOnPeerEvidence && lastAppliedSerializedRef.current === null;
+        if (
+          joining &&
+          contentRevision &&
+          beforeMarkdown.trim() &&
+          (!joinedOn ||
+            currentJoinEvidence(ydoc!, contentRevision) !== joinedOn)
+        ) {
+          apply(deferred);
+          return;
+        }
+        peerWait.deadline = null;
         const normalized = scheduledCallbacks.normalizeValue(value);
         const unchangedSinceApply =
           lastAppliedSerializedRef.current !== null &&
@@ -1473,8 +1511,6 @@ export function useCollabReconcile({
         // cannot tell its edits from text that never reached it, and a merge
         // against it can keep stale text over a stored edit. It takes the
         // stored body, as it would at the revision it opened on.
-        const joining =
-          joinsOnPeerEvidence && lastAppliedSerializedRef.current === null;
         if (
           contentRevision &&
           scheduledCallbacks.onBaseAwareReconcile &&

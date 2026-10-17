@@ -1110,6 +1110,55 @@ describe("useCollabReconcile: what finishes a join", () => {
     },
   );
 
+  // The first request is kept when a newer snapshot arrives, so its revision
+  // can still match an older snapshot that arrives after it.
+  it.each([
+    ["at the same time", { ...STORED, updatedAt: AGENT_EDIT.updatedAt }],
+    ["from earlier", STORED],
+  ])(
+    "does not finish on an older snapshot %s while its first request waits",
+    async (_, older) => {
+      const tabs = makeTabs({ ids: { A: 5, B: 2, C: 3 } });
+      vi.useFakeTimers();
+      try {
+        await openCWhileASaves(tabs, { snapshotC: older });
+        act(() =>
+          root.render(
+            React.createElement(tabs.Tabs, {
+              snapshot: STORED,
+              snapshotC: AGENT_EDIT,
+              withC: true,
+            }),
+          ),
+        );
+        await act(async () => vi.advanceTimersByTimeAsync(100));
+        expect(tabs.discover.C).toHaveBeenCalledTimes(1);
+
+        // A takes its word back, so the doc holds the older body again.
+        act(() =>
+          tabs.editAsA((author) => author.commands.setContent(ORIGINAL)),
+        );
+        act(() =>
+          root.render(
+            React.createElement(tabs.Tabs, {
+              snapshot: STORED,
+              snapshotC: older,
+              withC: true,
+            }),
+          ),
+        );
+        await act(async () => vi.advanceTimersByTimeAsync(100));
+
+        expect(tabs.markdown("C")).toBe(ORIGINAL);
+        expect(tabs.results.C!.isJoinPending()).toBe(true);
+        expect(tabs.editors.C!.isEditable).toBe(false);
+        expect(heldRevision(tabs.awareness.C)).toBeUndefined();
+      } finally {
+        tabs.dispose();
+      }
+    },
+  );
+
   // C leads and no collaborator holds either stored body, so C applies one.
   it.each([
     [
@@ -1218,6 +1267,80 @@ describe("useCollabReconcile: what finishes a join", () => {
       expect(heldRevision(tabs.awareness.C)).toBe(AGENT_EDIT.revision);
       await act(async () => vi.advanceTimersByTimeAsync(21_000));
       expect(tabs.joinFailed("C")).toBe(false);
+    } finally {
+      tabs.dispose();
+    }
+  });
+
+  // After C learns that no collaborator holds the agent edit, A merges it
+  // beside its unsaved word and reports holding it.
+  function mergeAsA(tabs: Tabs, visible = true) {
+    tabs.editAsA((author) =>
+      author.commands.insertContentAt(author.state.doc.content.size, {
+        type: "paragraph",
+        content: [{ type: "text", text: CHARLIE }],
+      }),
+    );
+    tabs.reportToC(5, { ...peer("A", AGENT_EDIT.revision), visible });
+  }
+
+  it("keeps the doc a collaborator reports holding before C listens for reports", async () => {
+    const tabs = makeTabs({ ids: { A: 5, B: 6, C: 3 } });
+    vi.useFakeTimers();
+    try {
+      await openCWhileASaves(tabs, { snapshotC: AGENT_EDIT });
+      const catchUps = tabs.catchUp.C.mock.calls.length;
+      // C's catch-up settles, and A's report lands before React commits.
+      await act(async () => {
+        tabs.discoverPeers();
+        for (let tick = 0; tick < 20; tick += 1) await Promise.resolve();
+        expect(tabs.catchUp.C.mock.calls.length).toBeGreaterThan(catchUps);
+        for (let tick = 0; tick < 5; tick += 1) await Promise.resolve();
+        mergeAsA(tabs);
+      });
+      // Nothing else changes, so nothing else would make C look again.
+      await act(async () => vi.advanceTimersByTimeAsync(6_000));
+      expect(tabs.counts()).toEqual({ A: 1, B: 1, C: 1 });
+
+      await act(async () =>
+        tabs.discoverPeers("ready", [[5, peer("A", AGENT_EDIT.revision)]]),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(1_000));
+      expect(tabs.markdown("C")).toBe(`${SAVED}\n\n${CHARLIE}`);
+      expect(tabs.results.C!.isJoinPending()).toBe(false);
+      expect(heldRevision(tabs.awareness.C)).toBe(AGENT_EDIT.revision);
+    } finally {
+      tabs.dispose();
+    }
+  });
+
+  it("keeps the doc a collaborator reports holding just before C applies the stored body", async () => {
+    const tabs = makeTabs({ ids: { A: 5, B: 6, C: 3 } });
+    // A's tab is in the background, so C applies without waiting for its
+    // collaborators to settle.
+    const hiddenA = (revision?: string): Array<[number, PeerState]> => [
+      [5, { ...peer("A", revision), visible: false }],
+    ];
+    vi.useFakeTimers();
+    try {
+      await openCWhileASaves(tabs, { snapshotC: AGENT_EDIT });
+      await act(async () => tabs.discoverPeers("ready", hiddenA()));
+      // C has scheduled its apply. A's report lands and the apply runs before
+      // React cleans it up.
+      await act(async () => {
+        for (let tick = 0; tick < 20; tick += 1) await Promise.resolve();
+        mergeAsA(tabs, false);
+        vi.advanceTimersByTime(0);
+      });
+      expect(tabs.counts()).toEqual({ A: 1, B: 1, C: 1 });
+
+      await act(async () =>
+        tabs.discoverPeers("ready", hiddenA(AGENT_EDIT.revision)),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(1_000));
+      expect(tabs.markdown("C")).toBe(`${SAVED}\n\n${CHARLIE}`);
+      expect(tabs.results.C!.isJoinPending()).toBe(false);
+      expect(heldRevision(tabs.awareness.C)).toBe(AGENT_EDIT.revision);
     } finally {
       tabs.dispose();
     }
