@@ -1,50 +1,40 @@
 import { collabUpdateFits } from "@agent-native/core/client/collab";
-import type { Slice } from "@tiptap/pm/model";
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey, type Transaction } from "@tiptap/pm/state";
-import { prosemirrorToYXmlFragment, ySyncPluginKey } from "@tiptap/y-tiptap";
+import { updateYFragment, ySyncPluginKey } from "@tiptap/y-tiptap";
 import * as Y from "yjs";
 
-// Below this many inserted positions a change cannot come near the update
-// limit, so typing never pays for measuring.
-const MEASURED_CHANGE_SIZE = 64 * 1024;
+// Below this many bytes of steps a change cannot come near the update limit,
+// so typing never pays for reading the doc's size.
+const MEASURED_CHANGE_BYTES = 64 * 1024;
 
 const encoder = new TextEncoder();
 
-function slices(tr: Transaction): Slice[] {
-  const found: Slice[] = [];
+// What the change's steps take as JSON, which measures at or above the Yjs
+// update they make. Counting steps rather than inserted positions keeps a
+// node with large attributes, one position wide, in the count.
+function stepJsonBytes(tr: Transaction): number {
+  let bytes = 0;
   for (const step of tr.steps) {
-    const slice = (step as { slice?: Slice }).slice;
-    if (slice && slice.size > 0) found.push(slice);
-  }
-  return found;
-}
-
-// What the inserted content takes as ProseMirror JSON, which measures at or
-// above the Yjs update it makes.
-function insertedJsonBytes(inserted: Slice[]): number {
-  let bytes = 0;
-  for (const slice of inserted) {
-    bytes += encoder.encode(JSON.stringify(slice.toJSON())).length;
+    bytes += encoder.encode(JSON.stringify(step.toJSON())).length;
   }
   return bytes;
 }
 
-/** The Yjs update the inserted content makes, written into a doc of its own. */
-export function insertedUpdateBytes(tr: Transaction): number {
-  let bytes = 0;
-  for (const slice of slices(tr)) {
-    const doc = new Y.Doc();
-    try {
-      prosemirrorToYXmlFragment(
-        tr.doc.type.create(null, slice.content),
-        doc.getXmlFragment("default"),
-      );
-      bytes += Y.encodeStateAsUpdate(doc).length;
-    } finally {
-      doc.destroy();
-    }
+/** The Yjs update that writing `body` onto `doc` makes, measured on a copy. */
+export function bodyUpdateBytes(doc: Y.Doc, body: ProseMirrorNode): number {
+  const copy = new Y.Doc();
+  try {
+    Y.applyUpdate(copy, Y.encodeStateAsUpdate(doc));
+    const vector = Y.encodeStateVector(copy);
+    updateYFragment(copy, copy.getXmlFragment("default"), body, {
+      mapping: new Map(),
+      isOMark: new Map(),
+    });
+    return Y.encodeStateAsUpdate(copy, vector).length;
+  } finally {
+    copy.destroy();
   }
-  return bytes;
 }
 
 /**
@@ -70,14 +60,12 @@ export function createChangeSizeGuardPlugin(options: {
       }
       const doc = options.doc();
       if (!doc) return true;
-      const inserted = slices(tr);
-      let size = 0;
-      for (const slice of inserted) size += slice.size;
-      if (size < MEASURED_CHANGE_SIZE) return true;
+      const bound = stepJsonBytes(tr);
+      if (bound < MEASURED_CHANGE_BYTES) return true;
       const stateBytes = Y.encodeStateAsUpdate(doc).length;
       if (
-        collabUpdateFits(insertedJsonBytes(inserted), stateBytes) ||
-        collabUpdateFits(insertedUpdateBytes(tr), stateBytes)
+        collabUpdateFits(bound, stateBytes) ||
+        collabUpdateFits(bodyUpdateBytes(doc, tr.doc), stateBytes)
       ) {
         return true;
       }

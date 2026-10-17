@@ -30,12 +30,16 @@ vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   useT: () => (key: string) => key,
 }));
 
-import { getContentEditorSchema, VisualEditor } from "./VisualEditor";
+import {
+  getContentEditorSchema,
+  VisualEditor,
+  type VisualEditorPersistenceController,
+} from "./VisualEditor";
 
 // Larger than one update the collab server takes.
 const PASTED = "x".repeat(1_600_000);
 
-describe("a change too large to save", () => {
+describe("a switched page's editor", () => {
   let container: HTMLDivElement;
   let root: Root;
   let queryClient: QueryClient;
@@ -76,7 +80,12 @@ describe("a change too large to save", () => {
     vi.unstubAllGlobals();
   });
 
-  async function renderEditor(onChangeTooLargeToSave?: () => void) {
+  async function renderEditor(
+    onChangeTooLargeToSave?: () => void,
+    onPersistenceControllerChange?: (
+      controller: VisualEditorPersistenceController | null,
+    ) => void,
+  ) {
     await act(async () =>
       root.render(
         createElement(
@@ -96,6 +105,7 @@ describe("a change too large to save", () => {
                 collabSynced: true,
                 editable: true,
                 onChangeTooLargeToSave,
+                onPersistenceControllerChange,
               }),
             ),
           ),
@@ -112,7 +122,7 @@ describe("a change too large to save", () => {
 
   const bodyText = () => ydoc.getXmlFragment("default").toString();
 
-  it("is refused before it applies, and later typing still reaches the doc", async () => {
+  it("refuses a paste too large to save before it applies, and later typing still reaches the doc", async () => {
     const refused = vi.fn();
     const editor = await renderEditor(refused);
     sentBytes = [];
@@ -136,6 +146,22 @@ describe("a change too large to save", () => {
     expect(Math.max(...sentBytes)).toBeLessThan(1024);
   });
 
+  it("refuses a node whose attributes are too large, though it is one position wide", async () => {
+    const refused = vi.fn();
+    const editor = await renderEditor(refused);
+    const image = editor.schema.nodes.image.create({
+      src: "https://example.com/image.png",
+      alt: PASTED,
+    });
+
+    await act(async () => {
+      editor.view.dispatch(editor.state.tr.replaceSelectionWith(image));
+    });
+
+    expect(refused).toHaveBeenCalledTimes(1);
+    expect(bodyText()).not.toContain("xxx");
+  });
+
   it("applies a large change that still fits in one update", async () => {
     const refused = vi.fn();
     const editor = await renderEditor(refused);
@@ -157,5 +183,28 @@ describe("a change too large to save", () => {
     });
 
     expect(editor.getText()).toContain(PASTED);
+  });
+
+  it("writes only what changed onto the server's copy, and takes no edits once frozen", async () => {
+    let controller: VisualEditorPersistenceController | null = null;
+    const editor = await renderEditor(vi.fn(), (next) => {
+      controller = next;
+    });
+    const server = new Y.Doc();
+    Y.applyUpdate(server, Y.encodeStateAsUpdate(ydoc));
+    await act(async () => {
+      editor.view.dispatch(editor.state.tr.insertText(" typed"));
+    });
+
+    const vector = Y.encodeStateVector(server);
+    controller!.writeBodyTo(server);
+    const update = Y.encodeStateAsUpdate(server, vector);
+
+    expect(server.getXmlFragment("default").toString()).toBe(bodyText());
+    expect(update.length).toBeLessThan(1024);
+
+    await act(async () => controller!.freeze());
+    expect(editor.isEditable).toBe(false);
+    server.destroy();
   });
 });
