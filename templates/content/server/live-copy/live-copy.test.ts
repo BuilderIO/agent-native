@@ -1570,6 +1570,9 @@ describe("edit-document on a switched page", () => {
     await switchedPage("liveness", "Agent 0\n\nTab");
     let typing = true;
     let keystrokes = 0;
+    // A keystroke that throws ends the agent's wait with its error, not with
+    // a timeout.
+    const tabFailure: { error?: unknown } = {};
     const tab = (async () => {
       while (typing) {
         const next = Date.now() + 40;
@@ -1584,16 +1587,17 @@ describe("edit-document on a switched page", () => {
           setTimeout(resolve, Math.max(0, next - Date.now())),
         );
       }
-    })();
+    })().catch((error: unknown) => {
+      tabFailure.error = error;
+    });
     const keystrokesLand = async (count: number) => {
       const typed = keystrokes;
-      await vi.waitFor(
-        () => {
-          if (keystrokes < typed + count)
-            throw new Error("the tab is not typing");
-        },
-        { interval: 1, timeout: 10_000 },
-      );
+      const deadline = Date.now() + 10_000;
+      while (keystrokes < typed + count) {
+        if ("error" in tabFailure) throw tabFailure.error;
+        if (Date.now() > deadline) throw new Error("the tab is not typing");
+        await new Promise((resolve) => setTimeout(resolve, 1));
+      }
     };
     let edits = 0;
     let unrecorded = 0;
@@ -1630,6 +1634,7 @@ describe("edit-document on a switched page", () => {
       typing = false;
       await tab;
     }
+    if ("error" in tabFailure) throw tabFailure.error;
 
     expect(edits).toBeGreaterThan(10);
     expect(keystrokes).toBeGreaterThan(100);
