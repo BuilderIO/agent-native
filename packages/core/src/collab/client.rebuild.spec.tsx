@@ -599,7 +599,11 @@ describe("rebuilding a doc whose update the server refused", () => {
       `kept ${PASTED}other typingtyped after`,
       `kept typed after${PASTED}other typing`,
     ]).toContain(first().ydoc!.getText("t").toString());
-    expect(window.localStorage.getItem(otherKey)).toBeNull();
+    // The server refuses the paste again, so that tab's entry stays, held,
+    // until a candidate keeps it.
+    expect(first().updatesRefused).toBe(true);
+    expect(window.localStorage.getItem(otherKey)).not.toBeNull();
+    expect(locks.held.has(ownerLock(otherKey))).toBe(true);
   });
 
   it("leaves another open tab's unsent paste to that tab, so the paste is kept once after both close", async () => {
@@ -823,28 +827,21 @@ describe("rebuilding a doc whose update the server refused", () => {
     expect((await rebuild(first)).status).toBe("too_large");
     const [oldKey] = candidateKeys();
     removePaste(first);
+    // The rebuilt doc holds the old candidate until its update is acknowledged.
+    updatesOffline = true;
+    expect((await rebuild(first)).status).toBe("rebuilt");
     const storage = window.localStorage;
-    const removeItem = storage.removeItem.bind(storage);
-    let checkpoint: Record<string, string> | undefined;
-    const remove = vi.spyOn(storage, "removeItem").mockImplementation((key) => {
-      if (key === oldKey) {
-        checkpoint = Object.fromEntries(
-          Object.keys(storage).map((name) => [name, storage.getItem(name)!]),
-        );
-      }
-      removeItem(key);
-    });
-    try {
-      expect((await rebuild(first)).status).toBe("rebuilt");
-    } finally {
-      remove.mockRestore();
-    }
+    const checkpoint = Object.fromEntries(
+      Object.keys(storage).map((name) => [name, storage.getItem(name)!]),
+    );
     // The old candidate and the rebuilt doc's own entry.
-    expect(Object.keys(checkpoint!)).toHaveLength(2);
+    expect(Object.keys(checkpoint)).toHaveLength(2);
+    expect(checkpoint[oldKey!]).toBeDefined();
     closeThisTab();
     await settle(1100);
+    updatesOffline = false;
     storage.clear();
-    for (const [key, value] of Object.entries(checkpoint!)) {
+    for (const [key, value] of Object.entries(checkpoint)) {
       storage.setItem(key, value);
     }
 
@@ -999,6 +996,153 @@ describe("rebuilding a doc whose update the server refused", () => {
     ["an ordinary entry", "closed-tab"],
     ["a candidate", "rebuild:closed-tab"],
   ])(
+    "holds %s it adopted until a candidate keeps it, so a reload after the server refuses it again keeps the paste",
+    async (_kind, owner) => {
+      const closedKey = outboxKey(owner);
+      keepClosedTabEntry(closedKey, PASTED);
+
+      const result = await mountReady();
+      expect(result().ydoc!.getText("t").toString()).toBe(`kept ${PASTED}`);
+      await act(async () => {
+        await expect(result().flushUpdates()).resolves.toBe(false);
+      });
+      expect(result().updatesRefused).toBe(true);
+      expect(window.localStorage.getItem(closedKey)).not.toBeNull();
+      expect(locks.held.has(ownerLock(closedKey))).toBe(true);
+      closeThisTab();
+      await settle(1100);
+
+      const reopened = await mountReady();
+      await settle();
+      expect(reopened().ydoc!.getText("t").toString()).toBe(`kept ${PASTED}`);
+    },
+  );
+
+  it("holds an entry it adopted until the server acknowledges it", async () => {
+    const closedKey = outboxKey("closed-tab");
+    keepClosedTabEntry(closedKey, "word ");
+    updatesOffline = true;
+
+    const result = await mountReady();
+    await settle();
+    expect(result().ydoc!.getText("t").toString()).toBe("kept word ");
+    expect(window.localStorage.getItem(closedKey)).not.toBeNull();
+    expect(locks.held.has(ownerLock(closedKey))).toBe(true);
+
+    updatesOffline = false;
+    await settle(16_000);
+
+    expect(server.getText("t").toString()).toBe("kept word ");
+    expect(window.localStorage.getItem(closedKey)).toBeNull();
+    expect(outboxEntries()).toEqual([]);
+    expect(locks.held.size).toBe(0);
+  });
+
+  // Every outbox state storage passes through while `run` runs.
+  async function outboxStatesDuring(run: () => Promise<void>) {
+    const storage = window.localStorage;
+    const states: Array<Record<string, string>> = [];
+    const record = () =>
+      states.push(
+        Object.fromEntries(
+          Object.keys(storage)
+            .filter((key) => key.startsWith(OUTBOX_PREFIX))
+            .map((key) => [key, storage.getItem(key)!]),
+        ),
+      );
+    const setItem = storage.setItem.bind(storage);
+    const removeItem = storage.removeItem.bind(storage);
+    const set = vi
+      .spyOn(storage, "setItem")
+      .mockImplementation((key, value) => {
+        setItem(key, value);
+        if (key.startsWith(OUTBOX_PREFIX)) record();
+      });
+    const remove = vi.spyOn(storage, "removeItem").mockImplementation((key) => {
+      removeItem(key);
+      if (key.startsWith(OUTBOX_PREFIX)) record();
+    });
+    record();
+    try {
+      await run();
+    } finally {
+      set.mockRestore();
+      remove.mockRestore();
+    }
+    return states;
+  }
+
+  it("holds a refused adopted entry's text once in every state storage passes through on the way to its candidate and the rebuilt doc", async () => {
+    keepClosedTabEntry(outboxKey("closed-tab"), `words ${PASTED}`);
+    const initial = Y.encodeStateAsUpdate(server);
+    const result = await mountReady();
+    await act(async () => {
+      await expect(result().flushUpdates()).resolves.toBe(false);
+    });
+    expect(result().updatesRefused).toBe(true);
+    updatesOffline = true;
+
+    const states = await outboxStatesDuring(async () => {
+      expect((await rebuild(result)).status).toBe("too_large");
+      removePaste(result);
+      expect((await rebuild(result)).status).toBe("rebuilt");
+    });
+    closeThisTab();
+    await settle(1100);
+    expect(locks.held.size).toBe(0);
+    updatesOffline = false;
+
+    for (const state of states) {
+      server = new Y.Doc();
+      Y.applyUpdate(server, initial);
+      window.localStorage.clear();
+      for (const [key, value] of Object.entries(state)) {
+        window.localStorage.setItem(key, value);
+      }
+      const reopened = await mountReady();
+      await settle();
+      expect([`kept words ${PASTED}`, "kept words "]).toContain(
+        reopened().ydoc!.getText("t").toString(),
+      );
+      closeThisTab();
+      await settle(1100);
+    }
+  });
+
+  it("holds an adopted entry's text once when the page closes still holding the entry beside its candidate", async () => {
+    const closedKey = outboxKey("closed-tab");
+    keepClosedTabEntry(closedKey, `words ${PASTED}`);
+    const result = await mountReady();
+    await act(async () => {
+      await expect(result().flushUpdates()).resolves.toBe(false);
+    });
+    const storage = window.localStorage;
+    const removeItem = storage.removeItem.bind(storage);
+    const remove = vi.spyOn(storage, "removeItem").mockImplementation((key) => {
+      if (key === closedKey) throw new DOMException("denied", "SecurityError");
+      removeItem(key);
+    });
+    try {
+      expect((await rebuild(result)).status).toBe("too_large");
+    } finally {
+      remove.mockRestore();
+    }
+    expect(window.localStorage.getItem(closedKey)).not.toBeNull();
+    expect(candidateKeys()).toHaveLength(1);
+    closeThisTab();
+    await settle(1100);
+
+    const reopened = await mountReady();
+    await settle();
+    expect(reopened().ydoc!.getText("t").toString()).toBe(
+      `kept words ${PASTED}`,
+    );
+  });
+
+  it.each([
+    ["an ordinary entry", "closed-tab"],
+    ["a candidate", "rebuild:closed-tab"],
+  ])(
     "leaves %s it held for its account when the account changes, so returning to it keeps the paste",
     async (_kind, owner) => {
       const closedKey = outboxKey(owner);
@@ -1069,7 +1213,10 @@ describe("rebuilding a doc whose update the server refused", () => {
 
     const back = await mountReady({ requestSource: "late-tab" });
     expect(back().ydoc!.getText("t").toString()).toBe("kept source-token");
-    expect(outboxEntries()).toHaveLength(1);
+    // Nothing is acknowledged, so the entry it took up stays beside its own.
+    expect(outboxEntries()).toHaveLength(2);
+    expect(window.localStorage.getItem(closedKey)).not.toBeNull();
+    expect(locks.held.has(ownerLock(closedKey))).toBe(true);
     closeThisTab();
     await settle(1100);
 
