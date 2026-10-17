@@ -3175,7 +3175,7 @@ it("correlates a URL-bearing recovery pageerror with a later request failure at 
   const error = webkitCleanupClaimError(url);
   const pageErrorAt = 200;
   const failedAt = pageErrorAt + retiredBrowserSessionPollConsoleGraceMs;
-  const delayedInspectionAt = failedAt + 10_000;
+  const delayedInspectionAt = failedAt + 11_000;
   expect(
     shouldRetainCleanupRecoveryClaimEvidence(failedAt, delayedInspectionAt, [
       pageErrorAt,
@@ -3185,10 +3185,15 @@ it("correlates a URL-bearing recovery pageerror with a later request failure at 
     url,
     pathname: new URL(url).pathname,
     method: "POST",
+    sessionId: "session-id",
     requestAgeMs: cleanupRecoveryClaimRequestAgeMs(100, pageErrorAt),
     failureOffsetMs: failedAt - pageErrorAt,
     sameOrigin: true,
     competingClaimStartedAfterFailure: false,
+    competingClaimPendingAtFailure: false,
+    competingSameUrlClaimStartedAfterFailure: false,
+    competingSameUrlClaimPendingAtFailure: false,
+    requestWasPendingAtNavigation: true,
   };
   expect(
     isExpectedCleanupRecoveryPageBrowserSessionError(error, [candidate]),
@@ -3233,7 +3238,7 @@ it("correlates a cleanup navigation pageerror using WebKit's URL-bearing first s
     },
     { ...candidate, sameOrigin: false },
     { ...candidate, ageMs: -1 },
-    { ...candidate, ageMs: 9_000 },
+    { ...candidate, ageMs: 11_000 },
     { ...candidate, method: "GET" },
     { ...candidate, requestWasPendingAtNavigation: false },
     { ...candidate, requestFinishedSuccessfully: true },
@@ -3241,6 +3246,7 @@ it("correlates a cleanup navigation pageerror using WebKit's URL-bearing first s
       ...candidate,
       competingRequestStartedAfterNavigation: true,
       competingClaimStartedAfterNavigation: true,
+      competingSameUrlClaimStartedAfterNavigation: true,
     },
   ])
     expect(isExpectedCleanupNavigationError(error, [mismatch], true)).toBe(
@@ -3277,10 +3283,15 @@ it("correlates a cleanup recovery pageerror's stack without accepting generic fa
     url: "http://localhost:45715/_agent-native/browser-sessions/session-id/requests/claim",
     pathname: "/_agent-native/browser-sessions/session-id/requests/claim",
     method: "POST",
+    sessionId: "session-id",
     requestAgeMs: 100,
     failureOffsetMs: 20,
     sameOrigin: true,
     competingClaimStartedAfterFailure: false,
+    competingClaimPendingAtFailure: false,
+    competingSameUrlClaimStartedAfterFailure: false,
+    competingSameUrlClaimPendingAtFailure: false,
+    requestWasPendingAtNavigation: true,
   };
   const error = webkitCleanupClaimError(candidate.url);
   expect(
@@ -3300,11 +3311,15 @@ it("correlates a cleanup recovery pageerror's stack without accepting generic fa
       sameOrigin: false,
     },
     { ...candidate, requestAgeMs: -1 },
-    { ...candidate, requestAgeMs: 9_000 },
+    { ...candidate, requestAgeMs: 11_000 },
     { ...candidate, failureOffsetMs: -251 },
     { ...candidate, failureOffsetMs: 251 },
     { ...candidate, method: "GET" },
-    { ...candidate, competingClaimStartedAfterFailure: true },
+    {
+      ...candidate,
+      competingClaimStartedAfterFailure: true,
+      competingSameUrlClaimStartedAfterFailure: true,
+    },
   ])
     expect(
       isExpectedCleanupRecoveryPageBrowserSessionError(error, [mismatch]),
