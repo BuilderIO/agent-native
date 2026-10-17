@@ -103,8 +103,14 @@ const OVERRIDE_FIELDS = ["title", "pinned", "hidden"] as const;
 
 function projectedIntent<Value>(state: FieldState<Value> | undefined) {
   if (!state) return undefined;
+  let pending: FieldIntent<Value> | undefined;
+  const watermark = state.successful?.intent.token ?? -Infinity;
+  for (const intent of state.inFlight.values()) {
+    if (intent.token > watermark && (!pending || intent.token > pending.token))
+      pending = intent;
+  }
   return (
-    state.inFlight.get(state.latestToken) ??
+    pending ??
     (state.successful?.reconciled ? undefined : state.successful?.intent)
   );
 }

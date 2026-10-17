@@ -1608,6 +1608,237 @@ describe("ownership history adapter", () => {
     expect(consoleError).not.toHaveBeenCalled();
   });
 
+  it.each(
+    (["rename", "pin", "archive"] as const).flatMap((kind) =>
+      (["false", "throw"] as const).map((failure) => ({ kind, failure })),
+    ),
+  )(
+    "eligible projection: $kind retains older pending work after newer $failure",
+    async ({ kind, failure }) => {
+      mine = [row("owned", { title: "Original", pinnedAt: null })];
+      const older = deferred<boolean>();
+      const newer = deferred<boolean>();
+      const mutation = vi
+        .fn()
+        .mockReturnValueOnce(older.promise)
+        .mockReturnValueOnce(newer.promise);
+      const onMutationFailed = vi.fn();
+      await render({
+        pinned: true,
+        mutations: { rename: mutation, pin: mutation, archive: mutation },
+        decorateItem: (item, row) => ({ ...item, titleText: row.title }),
+        onMutationFailed,
+      });
+      const start = (title: string) =>
+        kind === "rename"
+          ? latest.listProps.onRename!("owned", title)
+          : kind === "pin"
+            ? latest.listProps.onTogglePin!("owned")
+            : latest.listProps.onDelete!("owned");
+      let oldResult!: Promise<boolean>;
+      let newResult!: Promise<boolean>;
+      act(() => {
+        oldResult = start("First");
+      });
+      act(() => {
+        newResult = start("Second");
+      });
+      const cause = new Error("Newer failed");
+      await act(async () => {
+        if (failure === "throw") newer.reject(cause);
+        else newer.resolve(false);
+        expect(await newResult).toBe(false);
+      });
+      if (kind === "archive") expect(item("owned")).toBeUndefined();
+      else {
+        expect(item("owned")).toMatchObject({
+          titleText: kind === "rename" ? "First" : "Original",
+          pinned: kind === "pin",
+        });
+        expect(section(kind === "pin" ? "pinned" : "mine").items[0].id).toBe(
+          "owned",
+        );
+      }
+      expect(mine[0]).toMatchObject({ title: "Original", pinnedAt: null });
+      expect(latest.mineRows).toEqual(mine);
+      expect(onMutationFailed).toHaveBeenCalledExactlyOnceWith(
+        kind,
+        "owned",
+        ...(failure === "throw" ? [cause] : []),
+      );
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      mine =
+        kind === "archive"
+          ? []
+          : [
+              row("owned", {
+                title: kind === "rename" ? "First" : "Original",
+                pinnedAt: kind === "pin" ? 2 : null,
+              }),
+            ];
+      await act(async () => {
+        older.resolve(true);
+        expect(await oldResult).toBe(true);
+      });
+      expect(latest.mineRows).toEqual(mine);
+      expect(mutation).toHaveBeenCalledTimes(2);
+      expect(onMutationFailed).toHaveBeenCalledTimes(1);
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+    },
+  );
+
+  it.each(["latest-first", "middle-first"] as const)(
+    "eligible projection: three pending renames unwind in %s failure order",
+    async (completion) => {
+      mine = [row("owned", { title: "Original" })];
+      const first = deferred<boolean>();
+      const second = deferred<boolean>();
+      const third = deferred<boolean>();
+      const rename = vi
+        .fn()
+        .mockReturnValueOnce(first.promise)
+        .mockReturnValueOnce(second.promise)
+        .mockReturnValueOnce(third.promise);
+      const onMutationFailed = vi.fn();
+      await render({ mutations: { rename }, onMutationFailed });
+      let firstResult!: Promise<boolean>;
+      let secondResult!: Promise<boolean>;
+      let thirdResult!: Promise<boolean>;
+      act(() => {
+        firstResult = latest.listProps.onRename!("owned", "First");
+      });
+      act(() => {
+        secondResult = latest.listProps.onRename!("owned", "Second");
+      });
+      act(() => {
+        thirdResult = latest.listProps.onRename!("owned", "Third");
+      });
+      const failMiddle = () =>
+        act(async () => {
+          second.reject(new Error("Middle failed"));
+          expect(await secondResult).toBe(false);
+        });
+      if (completion === "middle-first") {
+        await failMiddle();
+        expect(item("owned")?.titleText).toBe("Third");
+        expect(onMutationFailed).not.toHaveBeenCalled();
+      }
+      await act(async () => {
+        third.resolve(false);
+        expect(await thirdResult).toBe(false);
+      });
+      expect(item("owned")?.titleText).toBe(
+        completion === "latest-first" ? "Second" : "First",
+      );
+      if (completion === "latest-first") {
+        await failMiddle();
+        expect(item("owned")?.titleText).toBe("First");
+      }
+      expect(mine[0].title).toBe("Original");
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      await act(async () => {
+        first.resolve(false);
+        expect(await firstResult).toBe(false);
+      });
+      expect(item("owned")?.titleText).toBe("Original");
+      expect(onMutationFailed).toHaveBeenCalledExactlyOnceWith(
+        "rename",
+        "owned",
+      );
+      expect(rename).toHaveBeenCalledTimes(3);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it.each(
+    (["rename", "pin"] as const).flatMap((kind) =>
+      (["refresh-error", "reconciled"] as const).map((baseline) => ({
+        kind,
+        baseline,
+      })),
+    ),
+  )(
+    "eligible projection: $kind excludes older pending work below a $baseline success watermark",
+    async ({ kind, baseline }) => {
+      mine = [row("owned", { title: "Original", pinnedAt: null })];
+      const older = deferred<boolean>();
+      const newer = deferred<boolean>();
+      const retry = deferred<boolean>();
+      const mutation = vi
+        .fn()
+        .mockReturnValueOnce(older.promise)
+        .mockReturnValueOnce(newer.promise)
+        .mockReturnValueOnce(retry.promise);
+      const onMutationFailed = vi.fn();
+      await render({
+        pinned: true,
+        mutations: { rename: mutation, pin: mutation },
+        onMutationFailed,
+      });
+      const start = (title: string) =>
+        kind === "rename"
+          ? latest.listProps.onRename!("owned", title)
+          : latest.listProps.onTogglePin!("owned");
+      let oldResult!: Promise<boolean>;
+      let newResult!: Promise<boolean>;
+      let retryResult!: Promise<boolean>;
+      act(() => {
+        oldResult = start("First");
+      });
+      act(() => {
+        newResult = start("Saved");
+      });
+      mine = [
+        row("owned", {
+          title: kind === "rename" ? "Saved" : "Original",
+          pinnedAt: null,
+        }),
+      ];
+      failMine = baseline === "refresh-error";
+      await act(async () => {
+        newer.resolve(true);
+        expect(await newResult).toBe(true);
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+      act(() => {
+        retryResult = start("Retry");
+      });
+      await act(async () => {
+        retry.resolve(false);
+        expect(await retryResult).toBe(false);
+      });
+      expect(item("owned")).toMatchObject({
+        titleText: kind === "rename" ? "Saved" : "Original",
+        pinned: false,
+      });
+      expect(section("mine").items[0].id).toBe("owned");
+      expect(mine[0]).toMatchObject({
+        title: kind === "rename" ? "Saved" : "Original",
+        pinnedAt: null,
+      });
+      expect(latest.mineRows[0].title).toBe(
+        baseline === "refresh-error" ? "Original" : mine[0].title,
+      );
+      await act(async () => {
+        older.reject(new Error("Old failure"));
+        expect(await oldResult).toBe(false);
+      });
+      expect(onMutationFailed).toHaveBeenCalledExactlyOnceWith(kind, "owned");
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+      failMine = false;
+      await act(async () => {
+        await latest.refresh();
+      });
+      expect(latest.mineRows).toEqual(mine);
+      expect(item("owned")).toMatchObject({
+        titleText: mine[0].title,
+        pinned: false,
+      });
+      expect(mutation).toHaveBeenCalledTimes(3);
+      expect(fetchMock).toHaveBeenCalledTimes(6);
+    },
+  );
+
   it("an older failure cannot roll back a newer optimistic intent", async () => {
     mine = [row("owned")];
     const first = deferred<boolean>();
