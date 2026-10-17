@@ -768,6 +768,33 @@ test("only Playwright and Design rails imports contribute test aliases", () => {
   );
 });
 
+test("Playwright default imports expose direct and namespaced test APIs", () => {
+  const source = [
+    'import pw from "@playwright/test";',
+    'pw.test("namespace behavior", () => {});',
+    'pw("direct behavior", () => {});',
+    'pw.test("suppressed behavior", () => {',
+    '  pw.test.fixme(true, "namespaced suppression");',
+    "});",
+  ].join("\n");
+
+  assert.deepEqual(
+    findDesignE2ETestRegistrations(source).map(({ title }) => title),
+    ["namespace behavior", "direct behavior", "suppressed behavior"],
+  );
+  assert.deepEqual(
+    findDesignE2ESuppressionCallSites(source).map(({ modifier, line }) => [
+      modifier,
+      line,
+    ]),
+    [["fixme", 5]],
+  );
+  assert.throws(
+    () => findDesignE2ETestLine(source, "suppressed behavior"),
+    /must run without/,
+  );
+});
+
 test("static CommonJS test aliases preserve Playwright and node:test origins", () => {
   const source = [
     'const { test: nodeTest } = require("node:test");',

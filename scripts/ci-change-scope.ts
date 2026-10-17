@@ -51,6 +51,10 @@ const SCRIPT_TEST_RE = /^scripts\/.+\.(?:test|spec)\.(?:ts|mts|mjs|js)$/u;
 const GUARD_SCRIPT_RE = /^scripts\/(?:lib\/)?guard-[^/]+\.(?:ts|mts|mjs|js)$/u;
 const RELATED_SCRIPT_TESTS = new Map([
   [
+    "scripts/design-e2e-regression-pins.ts",
+    "scripts/design-e2e-regression-pins.test.ts",
+  ],
+  [
     "scripts/design-e2e-regression-pin-identities.ts",
     "scripts/design-e2e-regression-pin-identities.test.ts",
   ],
@@ -629,6 +633,7 @@ function tokenizeE2eSource(source: string): {
             source[index + 1] === "{"
           ) {
             stringUncertain = true;
+            uncertain = true;
           }
           value += source[index];
           index += 1;

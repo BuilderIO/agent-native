@@ -652,6 +652,11 @@ test("routes Design pin attestation inputs to core regression", () => {
     assert.deepEqual(scope.designCanvasE2eDiagnosticSpecs, [], path);
   }
 
+  assert.deepEqual(
+    classifyChangedPaths(["scripts/design-e2e-regression-pins.ts"]).scriptTests,
+    ["scripts/design-e2e-regression-pins.test.ts"],
+  );
+
   const selectorTest = classifyChangedPaths([
     "scripts/design-e2e-regression-pins.test.ts",
   ]);
@@ -1156,6 +1161,49 @@ test("falls back to all eligible specs when a dynamic import is computed", () =>
     assert.deepEqual(scope.designCanvasE2eSpecs, [
       "templates/design/e2e/computed-import-consumer.spec.ts",
       "templates/design/e2e/static-consumer.spec.ts",
+      "templates/design/e2e/unrelated.test.tsx",
+    ]);
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("falls back when a template expression hides a dynamic import", () => {
+  const fixtureRoot = mkdtempSync(
+    join(tmpdir(), "ci-change-scope-design-template-import-"),
+  );
+  const writeSource = (path: string, source: string) => {
+    const destination = join(fixtureRoot, path);
+    mkdirSync(dirname(destination), { recursive: true });
+    writeFileSync(destination, source);
+  };
+
+  try {
+    writeSource(
+      "templates/design/e2e/template-helper.ts",
+      "export const helper = true;\n",
+    );
+    writeSource(
+      "templates/design/e2e/static-consumer.spec.ts",
+      'import "./template-helper";\n',
+    );
+    writeSource(
+      "templates/design/e2e/template-expression-consumer.spec.ts",
+      "void `${import(resolveHelperPath())}`;\n",
+    );
+    writeSource(
+      "templates/design/e2e/unrelated.test.tsx",
+      "export const fixture = true;\n",
+    );
+
+    const scope = classifyChangedPaths(
+      ["templates/design/e2e/template-helper.ts"],
+      [],
+      fixtureRoot,
+    );
+    assert.deepEqual(scope.designCanvasE2eSpecs, [
+      "templates/design/e2e/static-consumer.spec.ts",
+      "templates/design/e2e/template-expression-consumer.spec.ts",
       "templates/design/e2e/unrelated.test.tsx",
     ]);
   } finally {

@@ -981,6 +981,7 @@ function isKnownDesignE2ETestModule(moduleSpecifier: string): boolean {
 
 type TestAlias =
   | { kind: "test"; path: string[] }
+  | { kind: "playwright-default" }
   | { kind: "namespace" }
   | { kind: "unrecognized-namespace" }
   | { kind: "unrecognized-commonjs-namespace" }
@@ -1184,16 +1185,22 @@ function testImports(
       });
     }
     if (statement.importClause.name) {
-      recordImport(sourceFile, statement.importClause.name.text, {
-        kind: "test",
-        path: [
-          recognizedTestModule
-            ? "test"
-            : isOrdinaryNodeTestModule
-              ? "ordinary-test"
-              : "unrecognized-test",
-        ],
-      });
+      recordImport(
+        sourceFile,
+        statement.importClause.name.text,
+        moduleSpecifier === "@playwright/test"
+          ? { kind: "playwright-default" }
+          : {
+              kind: "test",
+              path: [
+                recognizedTestModule
+                  ? "test"
+                  : isOrdinaryNodeTestModule
+                    ? "ordinary-test"
+                    : "unrecognized-test",
+              ],
+            },
+      );
     }
   }
 
@@ -2109,6 +2116,10 @@ function normalizedTestPath(
   }
   const segments = propertyPath(candidate, ts);
   const alias = lookup(segments[0] ?? "", candidate);
+  if (alias?.kind === "playwright-default") {
+    const members = segments.slice(1);
+    return ["test", ...(members[0] === "test" ? members.slice(1) : members)];
+  }
   if (alias?.kind === "test") {
     return normalizeCommonJsPath([...alias.path, ...segments.slice(1)]);
   }
