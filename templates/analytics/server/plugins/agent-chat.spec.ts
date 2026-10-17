@@ -985,6 +985,77 @@ describe("realDataFinalGuard", () => {
     });
   });
 
+  it("guards annual and natural-language bounded date requests", () => {
+    const runStartedAt = Date.UTC(2026, 9, 15, 19, 0);
+    const allTimeResult = (userText: string) =>
+      realDataFinalGuard(
+        guardContext({
+          userText,
+          draftText: "The activation rate was 42%.",
+          runStartedAt,
+          toolCalls: [
+            {
+              name: "query-dbt-semantic-metric",
+              input: { metricName: "activation_rate", allTime: true },
+            },
+          ],
+          toolResults: [dbtMetricResult({ groupBy: [], allTime: true })],
+        }),
+      );
+
+    expect(
+      allTimeResult("What was the activation rate for 2025?"),
+    ).toMatchObject({
+      retryMessage: expect.stringContaining("do not use `allTime:true`"),
+    });
+    expect(
+      allTimeResult(
+        "What was the activation rate from March 1, 2025 to March 31, 2025?",
+      ),
+    ).toMatchObject({
+      retryMessage: expect.stringContaining("do not use `allTime:true`"),
+    });
+    expect(
+      allTimeResult(
+        "What was the activation rate from March 1 through March 31?",
+      ),
+    ).toMatchObject({
+      retryMessage: expect.stringContaining("do not use `allTime:true`"),
+    });
+
+    const march2025 = { startDate: "2025-03-01", endDate: "2025-03-31" };
+    const matchingNamedRange = realDataFinalGuard(
+      guardContext({
+        userText:
+          "What was the activation rate from March 1, 2025 to March 31, 2025?",
+        draftText: "The activation rate was 42%.",
+        runStartedAt,
+        toolCalls: [dbtMetricCall(march2025)],
+        toolResults: [dbtMetricResult({ groupBy: [], timeRange: march2025 })],
+      }),
+    );
+    expect(matchingNamedRange).toBeNull();
+
+    const march2026 = { startDate: "2026-03-01", endDate: "2026-03-31" };
+    const matchingYearlessRange = realDataFinalGuard(
+      guardContext({
+        userText: "What was the activation rate from March 1 through March 31?",
+        draftText: "The activation rate was 42%.",
+        runStartedAt,
+        toolCalls: [dbtMetricCall(march2026)],
+        toolResults: [dbtMetricResult({ groupBy: [], timeRange: march2026 })],
+      }),
+    );
+    expect(matchingYearlessRange).toBeNull();
+
+    const invalidNamedRange = allTimeResult(
+      "What was the activation rate from February 30, 2025 to March 2, 2025?",
+    );
+    expect(invalidNamedRange).toMatchObject({
+      retryMessage: expect.stringContaining("same bounded date range"),
+    });
+  });
+
   it("requires the dbt result range to match its query input and explicit dates", () => {
     const requestedRange = {
       startDate: "2026-10-05",
@@ -1632,6 +1703,33 @@ describe("realDataFinalGuard", () => {
     ).toBeNull();
   });
 
+  it("uses the matching current calendar window for same-period year-ago comparisons", () => {
+    const currentMonth = { startDate: "2026-10-01", endDate: "2026-10-15" };
+    const priorYearMonth = { startDate: "2025-10-01", endDate: "2025-10-15" };
+    const ranges = [currentMonth, priorYearMonth];
+    const result = realDataFinalGuard(
+      guardContext({
+        userText:
+          "Compare activation rate for this month with the same period last year.",
+        draftText: "The activation rate was 42% this month and 39% last year.",
+        runStartedAt: Date.UTC(2026, 9, 15, 19, 0),
+        toolCalls: ranges.map((range, index) =>
+          dbtMetricCall(range, [], `month-year-ago-${index}`),
+        ),
+        toolResults: ranges.map((range, index) =>
+          dbtMetricResult(
+            { groupBy: [], timeRange: range },
+            undefined,
+            {},
+            `month-year-ago-${index}`,
+          ),
+        ),
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
   it("uses the named current quarter for year-ago comparisons", () => {
     const currentQuarter = {
       startDate: "2026-07-01",
@@ -1959,6 +2057,21 @@ describe("realDataFinalGuard", () => {
       retryMessage: expect.stringContaining("same bounded date range"),
     });
     expect(matchingGroup).toBeNull();
+
+    for (const organizationAlias of ["organizations", "orgs"]) {
+      expect(
+        realDataFinalGuard(
+          guardContext({
+            userText: `What was the activation rate from 2026-07-01 to 2026-07-07 by ${organizationAlias}?`,
+            draftText: `The activation rate was 42% by ${organizationAlias}.`,
+            toolCalls: [dbtMetricCall(range, grouped)],
+            toolResults: [
+              dbtMetricResult({ groupBy: grouped, timeRange: range }),
+            ],
+          }),
+        ),
+      ).toBeNull();
+    }
   });
 
   it("matches custom dbt dimensions exactly and fails closed on ambiguity", () => {

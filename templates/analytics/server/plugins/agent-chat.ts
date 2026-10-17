@@ -1133,10 +1133,19 @@ function metricTimeRange(value: unknown): DbtMetricTimeRange | null {
     : null;
 }
 
+const MONTH_NAME_PATTERN =
+  "(?:january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec)";
+
+const NATURAL_DATE_RANGE_PATTERN = new RegExp(
+  String.raw`\b(?:(?:from|between|compare|compared\s+to)\s+)?(${MONTH_NAME_PATTERN})\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+((?:19|20)\d{2}))?\s+(?:to|through|until|and|against)\s+(?:(${MONTH_NAME_PATTERN})\s+)?(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+((?:19|20)\d{2}))?\b`,
+  "i",
+);
+
 function boundedPeriodRequest(userText: string): boolean {
   return (
     /\b(?:today|yesterday)\b/i.test(userText) ||
     /\b(?:19|20)\d{2}-\d{2}-\d{2}\b/.test(userText) ||
+    NATURAL_DATE_RANGE_PATTERN.test(userText) ||
     /\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(?:19|20)\d{2}\b/i.test(
       userText,
     ) ||
@@ -1150,7 +1159,7 @@ function boundedPeriodRequest(userText: string): boolean {
     /\b(?:between|from|compare|compared\s+to)\s+\d{4}-\d{2}-\d{2}\s+(?:to|through|until|and|against)\s+\d{4}-\d{2}-\d{2}\b/i.test(
       userText,
     ) ||
-    /\b(?:year|quarter|month|week|day)\s+to\s+date\b|\b(?:ytd|qtd|mtd)\b|\b(?:in|during)\s+(?:19|20)\d{2}\b/i.test(
+    /\b(?:year|quarter|month|week|day)\s+to\s+date\b|\b(?:ytd|qtd|mtd)\b|\b(?:in|during|for)\s+(?:19|20)\d{2}\b/i.test(
       userText,
     ) ||
     /\b(?:q[1-4]|[1-4](?:st|nd|rd|th)\s+quarter|quarter\s+[1-4])\s+(?:of\s+)?(?:19|20)\d{2}\b/i.test(
@@ -1159,27 +1168,123 @@ function boundedPeriodRequest(userText: string): boolean {
   );
 }
 
-function requestedExplicitDateRanges(userText: string): DbtMetricTimeRange[] {
+function requestedNamedDateRanges(
+  userText: string,
+  now: Date,
+): Array<{ index: number; range: DbtMetricTimeRange }> {
+  const monthIndexes = new Map(
+    [
+      "jan",
+      "feb",
+      "mar",
+      "apr",
+      "may",
+      "jun",
+      "jul",
+      "aug",
+      "sep",
+      "oct",
+      "nov",
+      "dec",
+    ].map((month, index) => [month, index]),
+  );
   return [
-    ...userText.matchAll(
-      /\b(?:(?:from|between|compare|compared\s+to)\s+)?(\d{4}-\d{2}-\d{2})\s+(?:to|through|until|and|against)\s+(\d{4}-\d{2}-\d{2})\b/gi,
-    ),
+    ...userText.matchAll(new RegExp(NATURAL_DATE_RANGE_PATTERN.source, "gi")),
   ].flatMap((match) => {
-    const startDate = match[1];
-    const endDate = match[2];
-    if (!startDate || !endDate) return [];
-    const parsedStart = parseUtcDateOnly(startDate);
-    const parsedEnd = parseUtcDateOnly(endDate);
-    return parsedStart && parsedEnd && parsedStart <= parsedEnd
-      ? [{ startDate, endDate }]
-      : [];
+    const startMonth = monthIndexes.get(
+      (match[1] ?? "").slice(0, 3).toLowerCase(),
+    );
+    const startDay = Number(match[2]);
+    const startYearText = match[3];
+    const endMonth = match[4]
+      ? monthIndexes.get(match[4].slice(0, 3).toLowerCase())
+      : startMonth;
+    const endDay = Number(match[5]);
+    const endYearText = match[6];
+    if (startMonth === undefined || endMonth === undefined) return [];
+
+    let startYear: number;
+    let endYear: number;
+    if (startYearText && endYearText) {
+      startYear = Number(startYearText);
+      endYear = Number(endYearText);
+    } else if (startYearText) {
+      startYear = Number(startYearText);
+      endYear = startYear + (endMonth < startMonth ? 1 : 0);
+    } else if (endYearText) {
+      endYear = Number(endYearText);
+      startYear = endYear - (endMonth < startMonth ? 1 : 0);
+    } else {
+      startYear = now.getUTCFullYear();
+      endYear = startYear + (endMonth < startMonth ? 1 : 0);
+    }
+
+    const dateOnly = (year: number, month: number, day: number) =>
+      parseUtcDateOnly(
+        `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`,
+      );
+    let start = dateOnly(startYear, startMonth, startDay);
+    let end = dateOnly(endYear, endMonth, endDay);
+    if (!start || !end) return [];
+    if (!startYearText && !endYearText) {
+      const today = new Date(
+        Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+      );
+      if (start > today) {
+        startYear -= 1;
+        endYear -= 1;
+        start = dateOnly(startYear, startMonth, startDay);
+        end = dateOnly(endYear, endMonth, endDay);
+      }
+    }
+    if (!start || !end || start > end) return [];
+    return [
+      {
+        index: match.index ?? 0,
+        range: dateRange(start, end),
+      },
+    ];
   });
+}
+
+function requestedExplicitDateRanges(
+  userText: string,
+  now = new Date(),
+): DbtMetricTimeRange[] {
+  const matches: Array<{ index: number; range: DbtMetricTimeRange }> = [
+    ...[
+      ...userText.matchAll(
+        /\b(?:(?:from|between|compare|compared\s+to)\s+)?(\d{4}-\d{2}-\d{2})\s+(?:to|through|until|and|against)\s+(\d{4}-\d{2}-\d{2})\b/gi,
+      ),
+    ].flatMap((match) => {
+      const startDate = match[1];
+      const endDate = match[2];
+      if (!startDate || !endDate) return [];
+      const parsedStart = parseUtcDateOnly(startDate);
+      const parsedEnd = parseUtcDateOnly(endDate);
+      return parsedStart && parsedEnd && parsedStart <= parsedEnd
+        ? [{ index: match.index ?? 0, range: { startDate, endDate } }]
+        : [];
+    }),
+    ...requestedNamedDateRanges(userText, now),
+  ];
+  return matches
+    .sort((left, right) => left.index - right.index)
+    .map(({ range }) => range);
+}
+
+function hasUnparsedNaturalDateRange(userText: string, now: Date): boolean {
+  const matchCount = [
+    ...userText.matchAll(new RegExp(NATURAL_DATE_RANGE_PATTERN.source, "gi")),
+  ].length;
+  return matchCount > requestedNamedDateRanges(userText, now).length;
 }
 
 function requestedExplicitDateRange(
   userText: string,
+  now: Date,
 ): DbtMetricTimeRange | null {
-  return requestedExplicitDateRanges(userText)[0] ?? null;
+  return requestedExplicitDateRanges(userText, now)[0] ?? null;
 }
 
 function dateRange(start: Date, end: Date): DbtMetricTimeRange {
@@ -1241,7 +1346,7 @@ function requestedCalendarRange(
   userText: string,
   now = new Date(),
 ): DbtMetricTimeRange | null {
-  const explicitRange = requestedExplicitDateRange(userText);
+  const explicitRange = requestedExplicitDateRange(userText, now);
   if (explicitRange) return explicitRange;
 
   const today = new Date(
@@ -1501,7 +1606,23 @@ function requestedComparisonCalendarRanges(
     index: match.index ?? 0,
   }));
   const namedPeriodRanges = requestedNamedPeriodRanges(userText, now);
-  const ranges = periodPhrases.flatMap(({ phrase }) => {
+  const equivalentYearAgoMatch = userText.match(
+    /\b(?:(?:(?:same|equivalent|comparable)\s+period\s+(?:(?:from|of)\s+)?)?(?:one|1)\s+year\s+ago|(?:same|equivalent|comparable)\s+period\s+last\s+year)\b/i,
+  );
+  const equivalentYearAgo = equivalentYearAgoMatch !== null;
+  const equivalentYearAgoStart = equivalentYearAgoMatch?.index ?? -1;
+  const equivalentYearAgoEnd = equivalentYearAgoMatch
+    ? equivalentYearAgoStart + equivalentYearAgoMatch[0].length
+    : -1;
+  const additionalCalendarPhrases = periodPhrases.filter(
+    ({ phrase, index }) =>
+      !(
+        /^last year$/i.test(phrase) &&
+        equivalentYearAgoStart <= index &&
+        index + phrase.length <= equivalentYearAgoEnd
+      ),
+  );
+  const ranges = additionalCalendarPhrases.flatMap(({ phrase }) => {
     const range = requestedCalendarRange(phrase, now);
     return range ? [range] : [];
   });
@@ -1520,23 +1641,7 @@ function requestedComparisonCalendarRanges(
     count: Number(match[2]),
     unit: match[3]?.toLowerCase().replace(/s$/, ""),
   }));
-  const explicitDateRanges = requestedExplicitDateRanges(userText);
-  const equivalentYearAgoMatch = userText.match(
-    /\b(?:(?:(?:same|equivalent|comparable)\s+period\s+(?:(?:from|of)\s+)?)?(?:one|1)\s+year\s+ago|(?:same|equivalent|comparable)\s+period\s+last\s+year)\b/i,
-  );
-  const equivalentYearAgo = equivalentYearAgoMatch !== null;
-  const equivalentYearAgoStart = equivalentYearAgoMatch?.index ?? -1;
-  const equivalentYearAgoEnd = equivalentYearAgoMatch
-    ? equivalentYearAgoStart + equivalentYearAgoMatch[0].length
-    : -1;
-  const additionalCalendarPhrases = periodPhrases.filter(
-    ({ phrase, index }) =>
-      !(
-        /^last year$/i.test(phrase) &&
-        equivalentYearAgoStart <= index &&
-        index + phrase.length <= equivalentYearAgoEnd
-      ),
-  );
+  const explicitDateRanges = requestedExplicitDateRanges(userText, now);
   if (
     namedPeriodRanges.length > 0 &&
     (additionalCalendarPhrases.length > 0 ||
@@ -1646,13 +1751,12 @@ function dbtMetricTimeScopeMismatch(
 ): boolean {
   if (!boundedPeriodRequest(userText)) return false;
 
-  const expectedRange = requestedCalendarRange(
-    userText,
-    new Date(context.runStartedAt ?? Date.now()),
-  );
+  const now = new Date(context.runStartedAt ?? Date.now());
+  if (hasUnparsedNaturalDateRange(userText, now)) return true;
+  const expectedRange = requestedCalendarRange(userText, now);
   const expectedComparisonRanges = requestedComparisonCalendarRanges(
     userText,
-    new Date(context.runStartedAt ?? Date.now()),
+    now,
   );
   if (expectedComparisonRanges?.length === 0) return true;
   const toolCalls = context.toolCalls ?? [];
@@ -2115,7 +2219,9 @@ function dbtMetricTimeScopeMismatch(
   const organizationHierarchyQualifier = (...evidence: string[]) => {
     const organizationTokens = new Set([
       "organization",
+      "organizations",
       "org",
+      "orgs",
       "company",
       "companies",
       "account",
@@ -2156,7 +2262,8 @@ function dbtMetricTimeScopeMismatch(
   const dimensionAliases = [
     {
       canonical: "organization",
-      pattern: /\b(?:organization|org|company|companies|account|accounts)\b/i,
+      pattern:
+        /\b(?:organization|organizations|org|orgs|company|companies|account|accounts)\b/i,
     },
     {
       canonical: "workspace",
