@@ -202,22 +202,39 @@ async function mergeStoredAwareness(
   mergeAwarenessRows(docId, map, await loadAwarenessRows(docId, now), now);
 }
 
+/** Returns the ids whose stored rows a clear on this server outdates. */
 function mergeAwarenessRows(
   docId: string,
   map: Map<number, AwarenessEntry>,
   rows: AwarenessEntry[],
   now: number,
-): void {
+): Set<number> {
+  const cleared = new Set<number>();
   for (const row of rows) {
     if (isBlockedByAwarenessClear(docId, row.clientId, row.lastSeen, now)) {
+      cleared.add(row.clientId);
       void deleteAwarenessRow(docId, row.clientId, row.lastSeen);
       continue;
     }
-    const existing = map.get(row.clientId);
-    if (!existing || row.lastSeen > existing.lastSeen) {
+    if (storedRowWins(row, map.get(row.clientId), now)) {
       map.set(row.clientId, row);
     }
   }
+  return cleared;
+}
+
+// A writer's entry may hold the revision a joining tab waits for, so a
+// reader's under the same id never hides it, whichever server's clock
+// stamped it later.
+function storedRowWins(
+  row: AwarenessEntry,
+  existing: AwarenessEntry | undefined,
+  now: number,
+): boolean {
+  if (!existing || now - existing.lastSeen > AWARENESS_TIMEOUT) return true;
+  const rowReads = isReaderEntry(row);
+  if (rowReads !== isReaderEntry(existing)) return !rowReads;
+  return row.lastSeen > existing.lastSeen;
 }
 
 /**
@@ -240,9 +257,7 @@ function cannotFlushState(state: unknown): string | null {
   return JSON.stringify({ ...parsed, canFlushDocument: false });
 }
 
-/** Whether a reader may replace or clear `entry`: its own, or nobody's. */
-function readerMayReplace(entry: AwarenessEntry | undefined): boolean {
-  if (!entry || Date.now() - entry.lastSeen > AWARENESS_TIMEOUT) return true;
+function isReaderEntry(entry: AwarenessEntry): boolean {
   try {
     const parsed = JSON.parse(entry.state) as { canFlushDocument?: unknown };
     return parsed?.canFlushDocument === false;
@@ -250,6 +265,81 @@ function readerMayReplace(entry: AwarenessEntry | undefined): boolean {
   } catch {
     return false;
   }
+}
+
+/** Whether a reader may replace or clear `entry`: its own, or nobody's. */
+function readerMayReplace(entry: AwarenessEntry | null | undefined): boolean {
+  return (
+    !entry ||
+    Date.now() - entry.lastSeen > AWARENESS_TIMEOUT ||
+    isReaderEntry(entry)
+  );
+}
+
+type PresenceRefusal = { status: 403 | 503; error: string };
+
+const BELONGS_TO_ANOTHER: PresenceRefusal = {
+  status: 403,
+  error: "clientId belongs to another collaborator",
+};
+
+/**
+ * Writes a reader's presence, or clears it when `state` is null. A reader's
+ * state never holds a revision, so replacing or clearing a writer's entry
+ * would hide the revision that writer holds from a tab deciding whether to
+ * apply the stored body.
+ */
+async function writeReaderPresence(
+  docId: string,
+  map: Map<number, AwarenessEntry>,
+  clientId: number,
+  state: string | null,
+): Promise<PresenceRefusal | null> {
+  // The write applies only to the row the read judged, since a writer on
+  // another server can store one under this id after the read. A row that
+  // changed or went since, such as one a clear outdates being deleted beside
+  // the write, is read and judged again once. A writer known only to another
+  // server's memory is not covered until its next presence post stores it.
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const readAt = Date.now();
+    let rows: AwarenessEntry[];
+    try {
+      rows = await loadAwarenessRowsStrict(docId, readAt);
+    } catch {
+      return { status: 503, error: "Presence could not be read" };
+    }
+    const cleared = mergeAwarenessRows(docId, map, rows, Date.now());
+    const row = rows.find((stored) => stored.clientId === clientId) ?? null;
+    if (
+      !readerMayReplace(map.get(clientId)) ||
+      (!cleared.has(clientId) && !readerMayReplace(row))
+    ) {
+      return BELONGS_TO_ANOTHER;
+    }
+    const lastSeen = Date.now();
+    let replaced: boolean;
+    try {
+      replaced = await replaceReaderAwarenessRow(
+        docId,
+        clientId,
+        state === null ? null : { state, lastSeen },
+        { row, readAt },
+      );
+    } catch {
+      return { status: 503, error: "Presence could not be saved" };
+    }
+    if (!replaced) continue;
+    // No clear is remembered: it would hide, and delete, an entry a writer
+    // on another server stores under this id stamped before it.
+    if (state === null) {
+      map.delete(clientId);
+    } else {
+      forgetAwarenessClear(docId, clientId);
+      map.set(clientId, { clientId, state, lastSeen });
+    }
+    return null;
+  }
+  return BELONGS_TO_ANOTHER;
 }
 
 export const postAwareness = defineEventHandler(async (event: H3Event) => {
@@ -290,55 +380,17 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
 
   const map = getDocAwareness(docId);
 
-  // A reader's state never holds a revision, so replacing or clearing a
-  // writer's entry would hide the revision that writer holds from a tab
-  // deciding whether to apply the stored body.
   const readOnly = context?._collabAwarenessReadOnly === true;
   if (readOnly) {
-    const readAt = Date.now();
-    let rows: AwarenessEntry[];
-    try {
-      rows = await loadAwarenessRowsStrict(docId, readAt);
-    } catch {
-      setResponseStatus(event, 503);
-      return { error: "Presence could not be read" };
-    }
-    mergeAwarenessRows(docId, map, rows, Date.now());
-    if (!readerMayReplace(map.get(clientId))) {
-      setResponseStatus(event, 403);
-      return { error: "clientId belongs to another collaborator" };
-    }
-    // A writer on another server can store its entry under this id after the
-    // read, so the reader's change applies only to the row the read judged.
-    // A writer known only to another server's memory is not covered until
-    // that writer's next presence post stores it again.
-    const lastSeen = Date.now();
-    let replaced: boolean;
-    try {
-      replaced = await replaceReaderAwarenessRow(
-        docId,
-        clientId,
-        storedState === null ? null : { state: storedState, lastSeen },
-        {
-          row: rows.find((row) => row.clientId === clientId) ?? null,
-          readAt,
-        },
-      );
-    } catch {
-      setResponseStatus(event, 503);
-      return { error: "Presence could not be saved" };
-    }
-    if (!replaced) {
-      setResponseStatus(event, 403);
-      return { error: "clientId belongs to another collaborator" };
-    }
-    // No clear is remembered: it would hide, and delete, an entry a writer
-    // on another server stores under this id stamped before it.
-    if (storedState === null) {
-      map.delete(clientId);
-    } else {
-      forgetAwarenessClear(docId, clientId);
-      map.set(clientId, { clientId, state: storedState, lastSeen });
+    const refused = await writeReaderPresence(
+      docId,
+      map,
+      clientId,
+      storedState,
+    );
+    if (refused) {
+      setResponseStatus(event, refused.status);
+      return { error: refused.error };
     }
   } else if (storedState === null) {
     const clearedAt = Date.now();

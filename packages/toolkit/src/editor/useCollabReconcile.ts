@@ -452,6 +452,14 @@ export function useCollabReconcile({
     revision: string;
     cancel: () => void;
   } | null>(null);
+  // When the stored body must have reached a joining doc. Evidence asked for
+  // again about the same revision keeps it, so asking again cannot put the
+  // failure off for good; a retry or a newer revision sets a new one.
+  const joinBodyDeadlineRef = useRef<{
+    ydoc: YDoc;
+    revision: string;
+    at: number;
+  } | null>(null);
   const requestJoinEvidence = (doc: YDoc, revision: string) => {
     const discover = discoverCollabPeersRef.current;
     const catchUp = requestCollabSyncRef.current;
@@ -497,19 +505,28 @@ export function useCollabReconcile({
       // Unless a collaborator holds it, the stored body has yet to reach the
       // doc, by this client or the lead applying it. A doc it never reaches
       // stays unsaved, and says so.
-      unapplied = setTimeout(() => {
-        if (
-          joinEvidenceRef.current !== evidence ||
-          lastAppliedSerializedRef.current !== null
-        )
-          return;
-        const error = new Error("The stored body did not reach the document");
-        console.warn(
-          "The stored body did not reach this document; leaving it as it is until a retry",
-          error,
-        );
-        putJoinEvidence({ ydoc: doc, revision, status: "failed", error });
-      }, JOIN_EVIDENCE_TIMEOUT_MS);
+      const deadline = joinBodyDeadlineRef.current;
+      const at =
+        deadline?.ydoc === doc && deadline.revision === revision
+          ? deadline.at
+          : Date.now() + JOIN_EVIDENCE_TIMEOUT_MS;
+      joinBodyDeadlineRef.current = { ydoc: doc, revision, at };
+      unapplied = setTimeout(
+        () => {
+          if (
+            joinEvidenceRef.current !== evidence ||
+            lastAppliedSerializedRef.current !== null
+          )
+            return;
+          const error = new Error("The stored body did not reach the document");
+          console.warn(
+            "The stored body did not reach this document; leaving it as it is until a retry",
+            error,
+          );
+          putJoinEvidence({ ydoc: doc, revision, status: "failed", error });
+        },
+        Math.max(0, at - Date.now()),
+      );
     };
     const fail = (error: unknown) =>
       settle({ ydoc: doc, revision, status: "failed", error });
@@ -557,6 +574,7 @@ export function useCollabReconcile({
     if (joinEvidenceRef.current?.ydoc !== ydoc) return;
     joinEvidenceRequestRef.current?.cancel();
     joinEvidenceRequestRef.current = null;
+    joinBodyDeadlineRef.current = null;
     putJoinEvidence(null);
     releaseJoinReadOnly();
   };
@@ -1833,6 +1851,7 @@ export function useCollabReconcile({
       if (!ydoc || evidence?.ydoc !== ydoc) return;
       joinEvidenceRequestRef.current?.cancel();
       joinEvidenceRequestRef.current = null;
+      joinBodyDeadlineRef.current = null;
       requestJoinEvidence(ydoc, evidence.revision);
     },
     isJoinPending,

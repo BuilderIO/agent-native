@@ -790,9 +790,13 @@ class CollabDocConnection {
     if (!response.ok) {
       throw new Error(`Awareness request failed: HTTP ${response.status}`);
     }
-    const awarenessData = (await response.json()) as {
-      states?: Array<{ clientId: number; state: string }>;
-    } | null;
+    let awarenessData: { states?: unknown } | null;
+    try {
+      awarenessData = (await response.json()) as { states?: unknown } | null;
+    } catch {
+      this.awarenessRefusals++;
+      throw new Error("Awareness response is unreadable");
+    }
     if (this.disposed) return false;
     const remoteStates = readRemoteAwarenessStates(awarenessData?.states);
     if (!remoteStates) {

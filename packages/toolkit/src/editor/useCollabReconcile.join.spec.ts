@@ -1027,6 +1027,31 @@ describe("useCollabReconcile: a tab joining a live doc mid-save", () => {
     }
   });
 
+  it("reports a stored body that never reaches the doc though it keeps asking who else is open", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const tabs = makeTabs({ ids: { A: 5, B: 2, C: 3 } });
+    vi.useFakeTimers();
+    try {
+      await openCOnAgentEdit(tabs);
+      // What C learned goes stale every 2 s, and each time it learns again
+      // that nobody holds the stored edit.
+      for (let elapsed = 0; elapsed < 30_000; elapsed += 2_000) {
+        await act(async () => vi.advanceTimersByTimeAsync(2_000));
+        act(() => {
+          tabs.refusePresenceToC();
+          tabs.reportToC(2, peer("B", STORED.revision));
+        });
+        await act(async () => tabs.discoverPeers());
+      }
+
+      expect(tabs.joinFailed("C")).toBe(true);
+      expect(tabs.editors.C!.isEditable).toBe(false);
+      expect(tabs.markdown("C")).toBe(ORIGINAL);
+    } finally {
+      tabs.dispose();
+    }
+  });
+
   it("lets go of an editor that outlives it", async () => {
     const doc = new Y.Doc();
     const author = new CoreEditor({

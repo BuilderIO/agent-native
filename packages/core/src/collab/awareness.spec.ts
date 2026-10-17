@@ -52,6 +52,7 @@ import {
   cleanExpired,
   postAwareness,
   getActiveUsers,
+  rememberAwarenessClear,
   type AwarenessEntry,
 } from "./awareness.js";
 
@@ -291,9 +292,67 @@ describe("postAwareness handler", () => {
         status: 403,
         res: { error: "clientId belongs to another collaborator" },
       });
-      expect(getDocAwareness("reader-raced-doc").has(7)).toBe(false);
+      // It reads the store again on missing the row it judged, so it knows
+      // the writer's entry now.
+      expect(getDocAwareness("reader-raced-doc").get(7)?.state).toBe(writer);
       expect(await storedState("reader-raced-doc", 7)).toBe(writer);
     });
+
+    it.each([
+      { action: "replace", state: reader, offset: 0, when: "at the same time" },
+      { action: "clear", state: null, offset: 0, when: "at the same time" },
+      {
+        action: "replace",
+        state: reader,
+        offset: -1000,
+        when: "earlier by a slower clock",
+      },
+      {
+        action: "clear",
+        state: null,
+        offset: -1000,
+        when: "earlier by a slower clock",
+      },
+    ])(
+      "cannot $action a writer's stored entry this server knows as its own, stamped $when",
+      async ({ action, state, offset }) => {
+        const docId = `reader-cached-${action}-${offset}`;
+        expect((await post(docId, 7, reader)).status).toBe(200);
+        // A writer on another server stores an entry under this id.
+        await upsertAwarenessRow(
+          docId,
+          7,
+          writer,
+          getDocAwareness(docId).get(7)!.lastSeen + offset,
+        );
+
+        expect(await post(docId, 7, state)).toEqual({
+          status: 403,
+          res: { error: "clientId belongs to another collaborator" },
+        });
+        expect(await storedState(docId, 7)).toBe(writer);
+        expect(getDocAwareness(docId).get(7)?.state).toBe(writer);
+      },
+    );
+
+    it.each([
+      { action: "renews", state: reader },
+      { action: "clears", state: null },
+    ])(
+      "$action its own entry while a clear here outdates the stored one",
+      async ({ state }) => {
+        const docId = `reader-outdated-${state === null ? "clear" : "renew"}`;
+        const now = Date.now();
+        await upsertAwarenessRow(docId, 7, reader, now - 1000);
+        rememberAwarenessClear(docId, 7, now - 500);
+
+        expect((await post(docId, 7, state)).status).toBe(200);
+        const stored = await storedState(docId, 7);
+        expect(stored && JSON.parse(stored).user).toEqual(
+          state === null ? undefined : { name: "Reader" },
+        );
+      },
+    );
 
     it("cannot replace its own entry once a writer on another server stores one there", async () => {
       expect((await post("reader-taken-doc", 9, reader)).status).toBe(200);
