@@ -10,6 +10,7 @@ import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import { assertDocumentMutationAccess } from "./_document-mutation-access.js";
 import {
   assertSubtreeCanChangeSpace,
+  editablePageIds,
   loadPageSubtree,
   type PageSubtreeDocument,
 } from "./_page-subtree.js";
@@ -198,7 +199,12 @@ async function lockMoveBetweenSpaces(args: {
   }
   // The move gives every page to the mover and drops its shares, which a
   // revoke's own access check reads, so access is read again under the locks.
-  for (const id of ids) await assertDocumentMutationAccess(id, "editor", "id");
+  // One query per group: each check here runs while the move holds its locks.
+  const editable = await editablePageIds(tx, ids);
+  for (const id of ids) {
+    if (!editable.has(id))
+      await assertDocumentMutationAccess(id, "editor", "id");
+  }
   if (!parentId) return null;
   const [parent] = await tx
     .select({

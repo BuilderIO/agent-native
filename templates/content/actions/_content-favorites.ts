@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import { ActionContractError } from "@agent-native/core/action";
 import { and, eq, inArray, sql } from "drizzle-orm";
 
 import { schema } from "../server/db/index.js";
@@ -110,6 +111,22 @@ export async function setFavoriteMembership(args: {
       previous: existing,
     };
 
+  // Trash, restore and permanent delete read and rewrite a page's
+  // memberships while they hold its row, and nothing else stops a favorite
+  // being added meanwhile: no collection lock covers Favorites. A removal
+  // must not take this lock, because a save locks the membership first.
+  // guard:allow-unscoped — the caller already access-checked the page; this waits out its lifecycle writes.
+  const [page] = await args.db
+    .select({ id: schema.documents.id })
+    .from(schema.documents)
+    .where(eq(schema.documents.id, args.documentId))
+    .for("share");
+  if (!page) {
+    throw new ActionContractError("Document not found.", {
+      errorCode: "DOCUMENT_NOT_FOUND",
+      statusCode: 404,
+    });
+  }
   const [position] = await args.db
     .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
     .from(schema.contentDatabaseItems)

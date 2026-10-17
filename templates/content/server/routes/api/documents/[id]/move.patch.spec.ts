@@ -1,4 +1,5 @@
 import { ActionContractError } from "@agent-native/core/action";
+import { ForbiddenError } from "@agent-native/core/sharing";
 import { H3Event } from "h3";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -66,13 +67,54 @@ describe("Content REST page move", () => {
     );
   });
 
-  it("passes move-document's typed refusal through", async () => {
-    const refusal = new ActionContractError(
-      "A document cannot be moved under itself",
-      { errorCode: "DOCUMENT_MOVE_UNDER_DESCENDANT", statusCode: 400 },
+  it("keeps move-document's status, message and code on a typed refusal", async () => {
+    mocks.moveDocument.mockRejectedValue(
+      new ActionContractError("A document cannot be moved under itself", {
+        errorCode: "DOCUMENT_MOVE_UNDER_DESCENDANT",
+        statusCode: 400,
+      }),
     );
-    mocks.moveDocument.mockRejectedValue(refusal);
-    await expect(patch("page-1", { parentId: "page-1" })).rejects.toBe(refusal);
+    await expect(patch("page-1", { parentId: "page-1" })).rejects.toMatchObject(
+      {
+        statusCode: 400,
+        message: "A document cannot be moved under itself",
+        data: { errorCode: "DOCUMENT_MOVE_UNDER_DESCENDANT" },
+      },
+    );
+  });
+
+  it("reports a parent with another owner as 409, as move-document does", async () => {
+    mocks.moveDocument.mockRejectedValue(
+      new ActionContractError("Parent document must belong to the same owner", {
+        errorCode: "PARENT_OWNER_MISMATCH",
+        statusCode: 409,
+      }),
+    );
+    await expect(patch("page-1", { parentId: "page-2" })).rejects.toMatchObject(
+      {
+        statusCode: 409,
+        message: "Parent document must belong to the same owner",
+        data: { errorCode: "PARENT_OWNER_MISMATCH" },
+      },
+    );
+  });
+
+  it("keeps an access refusal's status and message", async () => {
+    mocks.moveDocument.mockRejectedValue(
+      new ForbiddenError("Requires editor role on document page-2"),
+    );
+    await expect(patch("page-1", { parentId: "page-2" })).rejects.toMatchObject(
+      {
+        statusCode: 403,
+        message: "Requires editor role on document page-2",
+      },
+    );
+  });
+
+  it("passes a server error through unchanged", async () => {
+    const failure = new Error("Failed query");
+    mocks.moveDocument.mockRejectedValue(failure);
+    await expect(patch("page-1", { parentId: "page-2" })).rejects.toBe(failure);
   });
 
   it("refuses a body with neither parentId nor position", async () => {

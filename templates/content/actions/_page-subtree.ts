@@ -22,6 +22,55 @@ function groups<T>(values: T[], size = 90): T[][] {
   return result;
 }
 
+async function pageAccessContexts() {
+  const userEmail = getRequestUserEmail();
+  const memberships = userEmail
+    ? await listContentOrganizationMemberships(userEmail)
+    : [];
+  const orgIds = new Set([
+    ...memberships.map((membership) => membership.orgId),
+    ...(getRequestOrgId() ? [getRequestOrgId()!] : []),
+  ]);
+  return [
+    { userEmail: userEmail ?? undefined },
+    ...[...orgIds].map((orgId) => ({
+      userEmail: userEmail ?? undefined,
+      orgId,
+    })),
+  ];
+}
+
+/**
+ * The pages, of those given, the caller can edit, read in one query per
+ * group instead of one access check per page.
+ */
+export async function editablePageIds(db: ContentDb, ids: string[]) {
+  const accessContexts = await pageAccessContexts();
+  const editable = new Set<string>();
+  for (const idGroup of groups(ids)) {
+    const rows: Array<{ id: string }> = await db
+      .select({ id: schema.documents.id })
+      .from(schema.documents)
+      .where(
+        and(
+          inArray(schema.documents.id, idGroup),
+          or(
+            ...accessContexts.map((context) =>
+              accessFilter(
+                schema.documents,
+                schema.documentShares,
+                context,
+                "editor",
+              ),
+            ),
+          ),
+        ),
+      );
+    for (const row of rows) editable.add(row.id);
+  }
+  return editable;
+}
+
 export async function loadPageSubtree(
   db: ContentDb,
   root: PageSubtreeDocument,
@@ -33,21 +82,7 @@ export async function loadPageSubtree(
   const documents: PageSubtreeDocument[] = [root];
   const seen = new Set([root.id]);
   let frontier = [root.id];
-  const userEmail = getRequestUserEmail();
-  const memberships = userEmail
-    ? await listContentOrganizationMemberships(userEmail)
-    : [];
-  const orgIds = new Set([
-    ...memberships.map((membership) => membership.orgId),
-    ...(getRequestOrgId() ? [getRequestOrgId()!] : []),
-  ]);
-  const accessContexts = [
-    { userEmail: userEmail ?? undefined },
-    ...[...orgIds].map((orgId) => ({
-      userEmail: userEmail ?? undefined,
-      orgId,
-    })),
-  ];
+  const accessContexts = await pageAccessContexts();
   while (frontier.length > 0) {
     const next: PageSubtreeDocument[] = [];
     const nextFrontier: string[] = [];
