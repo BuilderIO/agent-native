@@ -147,6 +147,8 @@ function firstRunStepProperties(
   };
 }
 
+const SETUP_EXPERIMENT_DECISION_TIMEOUT_MS = 4000;
+
 const FIRST_RUN_ROLE_OPTIONS = [
   { value: "design", labelKey: "agentChat.onboarding.roleDesign" },
   { value: "developer", labelKey: "agentChat.onboarding.roleDeveloper" },
@@ -604,6 +606,25 @@ export function FirstRunOnboarding({
     setupStatusSettled,
     setupVariant,
   ]);
+  // A stalled Builder status read must not leave the setup screen blank. Past
+  // the limit the person gets the existing page and stays out of the
+  // experiment, identically in both arms, so exposure counts stay honest.
+  useEffect(() => {
+    if (
+      previewMode ||
+      !firstRun ||
+      screen !== "choice" ||
+      !setupVariant ||
+      setupExperimentDecision !== null
+    ) {
+      return;
+    }
+    const timer = window.setTimeout(
+      () => setSetupExperimentDecision((decision) => decision ?? false),
+      SETUP_EXPERIMENT_DECISION_TIMEOUT_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [firstRun, previewMode, screen, setupExperimentDecision, setupVariant]);
   const retryOnboardingCompletion = useCallback(() => {
     const attempt = completionAttemptRef.current;
     void finishOnboarding(

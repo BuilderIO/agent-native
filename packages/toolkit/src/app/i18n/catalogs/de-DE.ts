@@ -188,7 +188,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Probiere es mit kostenlosem Videospeicher und 60 Agent Credits im Monat",
   "onboarding.creditsActivate": "Kostenlose Credits aktivieren",
   "onboarding.creditsFinePrint":
-    "Dies erstellt ein kostenloses Builder.io-Konto. Mit dem Fortfahren stimmst du unserer",
+    "Dies erstellt ein kostenloses Builder.io-Konto. Mit dem Fortfahren akzeptierst du unsere",
   "onboarding.creditsConnectExisting": "Vorhandenes Builder.io-Konto verbinden",
   "onboarding.creditsMoreInfo": "Weitere Informationen",
   "onboarding.creditsSkipBody":

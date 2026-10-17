@@ -3048,6 +3048,41 @@ describe("FirstRunOnboarding", () => {
       expect(q("first-run-credits-offer")).toBeNull();
     });
 
+    it.each(["credits", "control"] as const)(
+      "stops holding the skeleton after a stalled status read and stays out of the experiment (%s)",
+      (variant) => {
+        vi.useFakeTimers();
+        try {
+          mocks.setupVariant = variant;
+          mocks.useBuilderConnectFlow.mockReturnValue(
+            flow({ hasFetchedStatus: false }),
+          );
+          openChoice();
+          expect(
+            document.body.querySelector("[data-onboarding-loading='true']"),
+          ).not.toBeNull();
+          expect(q("first-run-open-key-settings")).toBeNull();
+
+          act(() => {
+            vi.advanceTimersByTime(4000);
+          });
+
+          expect(
+            document.body.querySelector("[data-onboarding-loading='true']"),
+          ).toBeNull();
+          expect(q("first-run-open-key-settings")).not.toBeNull();
+          expect(q("first-run-credits-offer")).toBeNull();
+          expect(mocks.setOnboardingExperiment).not.toHaveBeenCalled();
+          expect(mocks.trackOnboardingEvent).not.toHaveBeenCalledWith(
+            "onboarding_experiment_exposed",
+            expect.anything(),
+          );
+        } finally {
+          vi.useRealTimers();
+        }
+      },
+    );
+
     it("falls back to the full setup where activation is unavailable", () => {
       mocks.useBuilderConnectFlow.mockReturnValue(
         flow({ agentNativeProvisioningEnabled: false }),
