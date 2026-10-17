@@ -943,8 +943,7 @@ test("report path: a board layer crossing a nested frame lands directly above it
   ).toHaveCSS("position", "absolute");
 });
 
-// fixme: product bug: The dropped text renders and reloads with background rgba(0,0,0,0) instead of #fef3c7 (fill lost on the board→Screen move); placement
-test.fixme("report path: board text dropped into a nested frame keeps its fill and lands at the drop point; undo returns it to the board, redo and reload restore the drop", async ({
+test("report path: board text dropped into a nested frame keeps its fill and lands at the drop point; undo returns it to the board, redo and reload restore the drop", async ({
   app,
   page,
 }) => {
@@ -1072,8 +1071,7 @@ test("report path: selected root board frame moves through the host selection bo
   await expect.poll(() => app.selectedLayers()).toEqual(["Board source"]);
 });
 
-// fixme: product bug: Rendered width 32px instead of 60px: the saved width stays 60px but without flex-shrink:0 the full row squeezes it, so moving a layer
-test.fixme("report path: a fixed 60×30 board frame dropped between auto-layout children keeps its size and joins the flow", async ({
+test("report path: a fixed 60×30 board frame dropped between auto-layout children keeps its size and joins the flow", async ({
   app,
   page,
 }) => {
@@ -1226,8 +1224,7 @@ test("report path: Option-dragging a selected root board frame duplicates into a
   );
 });
 
-// fixme: fails on current main after the merge: Error: expect(received).toMatchObject(expected)
-test.fixme("report path: Option-dragging a root Screen preserves naming, placement, selection, and history", async ({
+test("report path: Option-dragging a root Screen preserves naming, placement, selection, and history", async ({
   app,
   page,
   request,
@@ -1297,7 +1294,7 @@ test.fixme("report path: Option-dragging a root Screen preserves naming, placeme
     page
       .getByRole("tree", { name: "Layers" })
       .locator('[role="treeitem"][aria-selected="true"]')
-      .filter({ hasText: "Index copy" }),
+      .filter({ hasText: "Home copy" }),
   ).toHaveCount(1);
   await expect(
     page.getByRole("button", { name: "50%", exact: true }),
@@ -1351,7 +1348,7 @@ test.fixme("report path: Option-dragging a root Screen preserves naming, placeme
     page
       .getByRole("tree", { name: "Layers" })
       .locator('[role="treeitem"][aria-selected="true"]')
-      .filter({ hasText: "Index copy" }),
+      .filter({ hasText: "Home copy" }),
   ).toHaveCount(1);
 });
 
@@ -1359,8 +1356,7 @@ for (const { zoom, drag, landed } of [
   { zoom: 100, drag: { x: 220, y: 140 }, landed: { x: 220, y: 140 } },
   { zoom: 200, drag: { x: 80, y: 60 }, landed: { x: 40, y: 30 } },
 ] as const) {
-  // fixme: fails on current main after the merge: 100%: expect(locator).toHaveCount(expected) failed; 200%: locator.click: Timeout 15000ms exceeded.
-  test.fixme(`report path: Option-dragging a root Screen at ${zoom}% places the copy one drag delta away and keeps it selected after reload`, async ({
+  test(`report path: Option-dragging a root Screen at ${zoom}% places the copy one drag delta away and keeps it selected after reload`, async ({
     app,
     page,
     request,
@@ -1413,7 +1409,7 @@ for (const { zoom, drag, landed } of [
     const selectedCopy = page
       .getByRole("tree", { name: "Layers" })
       .locator('[role="treeitem"][aria-selected="true"]')
-      .filter({ hasText: "Index copy" });
+      .filter({ hasText: "Home copy" });
     await expect(selectedCopy).toHaveCount(1);
 
     await page.reload({ waitUntil: "domcontentloaded" });

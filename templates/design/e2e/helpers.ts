@@ -162,6 +162,29 @@ export function appPath(path: string): string {
   return url.toString();
 }
 
+/** This tab's selection: parallel workers share one user, so the global key is anyone's. */
+export async function selectionState(page: Page) {
+  const tabId = await page.evaluate(() =>
+    sessionStorage.getItem("agent-native:browser-tab-id"),
+  );
+  expect(tabId).toBeTruthy();
+  const response = await page.request.get(
+    appPath(
+      `/_agent-native/application-state/${encodeURIComponent(`design-selection:${tabId}`)}`,
+    ),
+  );
+  expect(response.ok()).toBe(true);
+  // An empty body: the editor has not written a selection yet.
+  const body = await response.text();
+  return body
+    ? (JSON.parse(body) as {
+        activeFileId?: string | null;
+        selectedScreenIds?: string[];
+        selectedElement?: { sourceId?: string } | null;
+      })
+    : null;
+}
+
 export async function panTargetIntoUnobscuredCanvas(
   page: Page,
   target: Locator,

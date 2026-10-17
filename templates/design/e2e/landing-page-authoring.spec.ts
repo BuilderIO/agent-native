@@ -260,8 +260,7 @@ test("8:35 — a frame adopts text typed inside it, keeping the text where it wa
   expectOnlyChanged(before, after, [frame[0]!.id, typed[0]!.id]);
 });
 
-// fixme: product bug: The auto text colour follows the dark page, not the shape under the text: 'Not a child' is committed rgb(255,255,255) over the #D9D9D9
-test.fixme("text typed over a light rectangle stays a page child and is readable on the rectangle", async ({
+test("text typed over a light rectangle stays a page child and is readable on the rectangle", async ({
   app,
 }) => {
   const id = await openDesign(app);
@@ -294,8 +293,7 @@ test.fixme("text typed over a light rectangle stays a page child and is readable
   ).toBeGreaterThanOrEqual(4.5);
 });
 
-// fixme: product bug: Known family, clipped inspector fields: the Gap input holds '10px' but shows only '1' (scrollWidth > clientWidth). All saved-state
-test.fixme("2:35 / 8:09 — Shift+A turns a frame holding text into an auto-layout container that keeps the text", async ({
+test("2:35 / 8:09 — Shift+A turns a frame holding text into an auto-layout container that keeps the text", async ({
   app,
 }) => {
   const id = await openDesign(app);
@@ -349,8 +347,7 @@ test.fixme("2:35 / 8:09 — Shift+A turns a frame holding text into an auto-layo
   ).toBe(true);
 });
 
-// fixme: product bug: The drag delta is exact, but the rectangle's bottom (460) lands within snap range of the screen's horizontal centre line (450) at zoom-to-fit, so it snaps and saves top 290 instead of 300. Whether that snap should win over the exact delta is undecided.
-test.fixme("3:17 / 5:30 — a freshly drawn rectangle drags by exactly the pointer delta and the background never changes", async ({
+test("3:17 / 5:30 — a freshly drawn rectangle drags by exactly the pointer delta and the background never changes", async ({
   app,
 }) => {
   const id = await openDesign(app);
@@ -367,8 +364,9 @@ test.fixme("3:17 / 5:30 — a freshly drawn rectangle drags by exactly the point
   const background = () =>
     app.node("page").evaluate((body) => getComputedStyle(body).backgroundColor);
 
+  // Clear of the screen's centre lines, so the pointer delta is the whole move.
   const start = await app.pagePoint(140, 280);
-  const end = await app.pagePoint(180, 380);
+  const end = await app.pagePoint(180, 340);
   await app.page.mouse.move(start.x, start.y);
   await app.page.mouse.down();
   await app.page.mouse.move((start.x + end.x) / 2, (start.y + end.y) / 2, {
@@ -382,7 +380,7 @@ test.fixme("3:17 / 5:30 — a freshly drawn rectangle drags by exactly the point
   await app.settled();
 
   const after = await app.savedNodes(id);
-  const moved = { left: 80, top: 300, width: 200, height: 160 };
+  const moved = { left: 80, top: 260, width: 200, height: 160 };
   await expectBox(
     app,
     "saved rectangle",
@@ -540,8 +538,7 @@ test("4:39 — Align top on a two-layer selection moves both to the higher top",
   expect((await app.designRect("b")).y).toBe(500);
 });
 
-// fixme: fails in CI on current main: app reported http 404: POST /_agent-native/collab/5V1oMS7Zi_4MJKPXtkFWn/awareness
-test.fixme("deleting a selected screen removes its file and canvas frame and leaves the other screen untouched", async ({
+test("deleting a selected screen removes its file and canvas frame and leaves the other screen untouched", async ({
   app,
 }) => {
   const id = await openDesign(app, BLANK_SCREEN, {

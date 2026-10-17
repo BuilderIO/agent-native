@@ -45,12 +45,10 @@ import {
   type RefObject,
 } from "react";
 
-import { CanvasMenuItem } from "@/components/design/context-menu-item";
 import {
+  CanvasMenuItem,
   MENU_CONTENT_CLASS,
-  MENU_SEPARATOR_CLASS,
-  MENU_SUB_TRIGGER_CLASS,
-} from "@/components/design/context-menu-styles";
+} from "@/components/design/context-menu-item";
 import { LeftPanelSearchField } from "@/components/design/editor/LeftPanelSearchField";
 import { formatShortcutLabel } from "@/components/design/keyboard-shortcuts";
 import { Button } from "@/components/ui/button";
@@ -887,6 +885,11 @@ function layerCanShowBadge(node: LayersPanelNode) {
     node.type === "screen" ||
     (node.type === "frame" && node.id.startsWith("__"))
   );
+}
+
+// autoFocus would scroll the Layers tree to the input.
+function focusRenameInput(input: HTMLInputElement | null) {
+  input?.focus({ preventScroll: true });
 }
 
 function clampScreenSectionHeight(nextHeight: number, panelHeight: number) {
@@ -1739,8 +1742,8 @@ export function LayerRowIndentSlots({
           key={index}
           data-layer-row-indent
           className={cn(
-            "flex h-full items-center",
-            fit ? "min-w-0 max-w-6 flex-[1_1_24px]" : "w-6 shrink-0",
+            "flex h-full w-6 items-center",
+            fit ? "min-w-0 shrink" : "shrink-0",
             fit && index === count - 1 && "min-w-4",
             index === count - 1 ? "justify-start" : "justify-center",
           )}
@@ -1909,7 +1912,7 @@ const LayerRow = memo(function LayerRow({
   };
 
   const handleDragStart = (event: DragEvent<HTMLDivElement>) => {
-    if (!draggable) {
+    if (!draggable || activeIconToggleDrag) {
       event.preventDefault();
       return;
     }
@@ -2244,7 +2247,7 @@ const LayerRow = memo(function LayerRow({
               {isRenaming ? (
                 <input
                   data-layer-row-name
-                  autoFocus
+                  ref={focusRenameInput}
                   value={renameDraft}
                   onClick={(event) => event.stopPropagation()}
                   onChange={(event) => onRenameDraftChange(event.target.value)}
@@ -2447,7 +2450,7 @@ const LayerRow = memo(function LayerRow({
             onCopyLink ||
             (onRename && node.renamable !== false)) &&
           (lockable || hideable) ? (
-            <ContextMenuSeparator className={MENU_SEPARATOR_CLASS} />
+            <ContextMenuSeparator />
           ) : null}
           {hideable ? (
             <CanvasMenuItem
@@ -2465,13 +2468,11 @@ const LayerRow = memo(function LayerRow({
           ) : null}
 
           {(lockable || hideable) && (onReorderLayer || hasTransformActions) ? (
-            <ContextMenuSeparator className={MENU_SEPARATOR_CLASS} />
+            <ContextMenuSeparator />
           ) : null}
           {onReorderLayer ? (
             <ContextMenuSub>
-              <ContextMenuSubTrigger className={MENU_SUB_TRIGGER_CLASS}>
-                {labels.arrange}
-              </ContextMenuSubTrigger>
+              <ContextMenuSubTrigger>{labels.arrange}</ContextMenuSubTrigger>
               <ContextMenuSubContent className={MENU_CONTENT_CLASS}>
                 <CanvasMenuItem
                   label={labels.bringToFront}
@@ -2492,9 +2493,7 @@ const LayerRow = memo(function LayerRow({
           ) : null}
           {hasTransformActions ? (
             <ContextMenuSub>
-              <ContextMenuSubTrigger className={MENU_SUB_TRIGGER_CLASS}>
-                {labels.transform}
-              </ContextMenuSubTrigger>
+              <ContextMenuSubTrigger>{labels.transform}</ContextMenuSubTrigger>
               <ContextMenuSubContent className={MENU_CONTENT_CLASS}>
                 {onFlipHorizontal ? (
                   <CanvasMenuItem

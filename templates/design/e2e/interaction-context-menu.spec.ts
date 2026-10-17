@@ -337,7 +337,7 @@ test.describe("interaction: right-click canvas context menu", () => {
     ).toBeDisabled();
   });
 
-  test("right-click on empty canvas (no selection) shows Explore with Agent, Copy link, Paste here and Show/Hide UI/comments", async ({
+  test("right-click on empty canvas (no selection) shows Explore with Agent, Paste here and Show/Hide UI/comments", async ({
     app,
   }) => {
     await openFixture(app, TWO_BOX_HTML);
@@ -354,7 +354,6 @@ test.describe("interaction: right-click canvas context menu", () => {
     await expect(app.page.getByRole("menu").last()).toBeVisible();
     expect(await menuLabels(app.page)).toStrictEqual([
       "Explore with Agent",
-      "Copy link",
       "Paste here",
       "Hide UI",
       "Hide comments",

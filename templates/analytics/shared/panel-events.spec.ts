@@ -6,9 +6,11 @@ import {
   groupPanelEvents,
   isIsoCalendarDate,
   isValidPanelEvent,
+  isValidTimeZone,
   panelEventInstant,
   panelEventProblem,
   resolvePanelEvents,
+  xInstant,
 } from "./panel-events";
 import { unknownPanelConfigKeys } from "./panel-render-contract";
 
@@ -55,12 +57,83 @@ describe("resolvePanelEvents", () => {
     ).toEqual([]);
   });
 
+  it("reads numeric x-axis timestamps as Unix milliseconds", () => {
+    const timestamps = days.map((date) => Date.parse(date));
+    const [event] = resolvePanelEvents(
+      [{ date: "2026-10-14", label: "Launch" }],
+      timestamps,
+    );
+    expect(xInstant(timestamps[2])).toBe(timestamps[2]);
+    expect(event).toMatchObject({
+      index: 2,
+      x: String(timestamps[2]),
+      xValue: timestamps[2],
+    });
+  });
+
+  it("keeps saved events with legacy CSS colors and uses the default color", () => {
+    const resolved = resolvePanelEvents(
+      ["red", "hsl(210 70% 50%)"].map((color) => ({
+        date: "2026-10-14",
+        label: "Launch",
+        color,
+      })),
+      days,
+    );
+
+    expect(resolved).toHaveLength(2);
+    expect(resolved.map(({ color }) => color)).toEqual([undefined, undefined]);
+  });
+
   it("skips rows whose x is not a date and keeps their row positions", () => {
     const [event] = resolvePanelEvents(
       [{ date: "2026-10-14", label: "Launch" }],
-      ["2026-10-12", null, "2026-10-14", "Total"],
+      ["2026-13-01", "2026-10-12", null, "2026-10-14", "Total"],
     );
-    expect(event).toMatchObject({ index: 2, x: "2026-10-14" });
+    expect(event).toMatchObject({ index: 3, x: "2026-10-14" });
+  });
+
+  it("snaps a date halfway between two points to the one written first", () => {
+    const launch = [{ date: "2026-10-13", label: "Launch" }];
+    expect(
+      resolvePanelEvents(launch, ["2026-10-12", "2026-10-14", "2026-10-16"]),
+    ).toMatchObject([{ index: 0, x: "2026-10-12" }]);
+    expect(
+      resolvePanelEvents(launch, ["2026-10-16", "2026-10-14", "2026-10-12"]),
+    ).toMatchObject([{ index: 1, x: "2026-10-14" }]);
+  });
+
+  it("drops a long list's dates outside the chart before validating them", () => {
+    const chartDays = Array.from({ length: 14 }, (_, day) =>
+      new Date(Date.UTC(2026, 9, 1 + day)).toISOString().slice(0, 10),
+    );
+    const longAgo = Array.from({ length: 990 }, (_, day) => ({
+      date: new Date(Date.UTC(2023, 0, 1 + day)).toISOString().slice(0, 10),
+      label: `Old change ${day}`,
+    }));
+    const recent = chartDays.slice(2, 12).map((date) => ({
+      date,
+      time: "12:00",
+      timeZone: "America/New_York",
+      label: `Launch ${date}`,
+    }));
+    const validated = new Set<string>();
+    const watched = [...longAgo, ...recent].map(
+      (event) =>
+        new Proxy(event, {
+          get(target, key, receiver) {
+            if (key !== "date") validated.add(target.date);
+            return Reflect.get(target, key, receiver);
+          },
+        }),
+    );
+
+    const resolved = resolvePanelEvents(watched, chartDays);
+
+    expect(resolved.map(({ x, label }) => [x, label])).toEqual(
+      recent.map(({ date, label }) => [date, label]),
+    );
+    expect([...validated]).toEqual(recent.map((event) => event.date));
   });
 
   it("keeps a daily axis of local midnights daily across a daylight-saving change", () => {
@@ -162,6 +235,16 @@ describe("event time of day", () => {
     expect(instant("2026-10-25", "02:30", "Europe/Berlin")).toBe(
       "2026-10-25T00:30:00.000Z",
     );
+  });
+
+  it("reads a zone written in any letter case as that zone", () => {
+    const instant = (timeZone: string) =>
+      new Date(
+        panelEventInstant({ date: "2026-11-01", time: "01:30", timeZone }),
+      ).toISOString();
+    expect(instant("america/new_york")).toBe("2026-11-01T05:30:00.000Z");
+    expect(instant("AMERICA/NEW_YORK")).toBe(instant("America/New_York"));
+    expect(isValidTimeZone("europe/berlin")).toBe(true);
   });
 
   it("puts both launch moments on the same day of a daily axis", () => {
@@ -283,6 +366,25 @@ describe("config.events contract", () => {
     expect(unknownPanelConfigKeys(panel([productHunt, launchPosts]))).toEqual(
       [],
     );
+  });
+
+  it("accepts only SVG-safe hex colors for events", () => {
+    for (const color of ["#abc", "#abcd", "#aabbcc", "#aabbccdd"]) {
+      expect(
+        unknownPanelConfigKeys(
+          panel([{ date: "2026-10-14", label: "Launch", color }]),
+        ),
+      ).toEqual([]);
+    }
+
+    for (const color of ["#12345", "#1234567", "red"]) {
+      const [issue] = unknownPanelConfigKeys(
+        panel([{ date: "2026-10-14", label: "Launch", color }]),
+      );
+      expect(issue.message).toContain(
+        "config.events[0]: color must be a 3, 4, 6, or 8 digit hex color",
+      );
+    }
   });
 
   it("names a skipped daylight-saving time in the rejection", () => {

@@ -194,7 +194,7 @@ test("the platform modifier after pointerdown removes a flow child from flow and
   expect(styleOf(ignored.get("control-child"))).toEqual({
     width: "100px",
     height: "48px",
-    background: "rgb(99, 102, 241)",
+    background: "#6366f1",
     position: "absolute",
     left: "16px",
     top: "16px",
@@ -259,7 +259,7 @@ test("the platform modifier after pointerdown removes a flow child from flow and
   expect(styleOf(returned.get("control-child"))).toEqual({
     width: "100px",
     height: "48px",
-    background: "rgb(99, 102, 241)",
+    background: "#6366f1",
   });
   expectOnlyChanged(ignored, returned, ["control-child"]);
   await expect.poll(() => app.selectedLayers()).toEqual(["Control Child"]);
@@ -417,8 +417,7 @@ test("late Alt free drag waits for post-key movement before duplicating", async 
   });
 });
 
-// fixme: product bug: While the copy is held, the source row reflows: Control Child and Control Peer shrink to 99px and Control Peer jumps from x 212 to 325.
-test.fixme("late Alt flow reorder inserts a copy at the hovered slot and leaves the source in its row", async ({
+test("late Alt flow reorder inserts a copy at the hovered slot and leaves the source in its row", async ({
   app,
 }) => {
   const id = await openSeeded(app, CONTROL_FIXTURE);
@@ -499,8 +498,7 @@ test.fixme("late Alt flow reorder inserts a copy at the hovered slot and leaves 
     .toEqual({ x: 652, y: 96, width: 100, height: 48 });
 });
 
-// fixme: intermittent: Passed in its worker run and in a solo re-run, failed once in the full confirmation run (2 of 3).
-test.fixme("Escape during a late-Alt flow drag discards the copy and leaves the source's size and effects untouched", async ({
+test("Escape during a late-Alt flow drag discards the copy and leaves the source's size and effects untouched", async ({
   app,
 }) => {
   const id = await openSeeded(app, CONTROL_FIXTURE);

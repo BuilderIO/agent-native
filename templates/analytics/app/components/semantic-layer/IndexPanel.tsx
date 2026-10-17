@@ -105,6 +105,8 @@ interface DbtConnection {
   semanticLayerBaseUrl: string | null;
   tokenConfigured: boolean;
   canManage: boolean;
+  // Several granted rows make the top-level fields null, so the panel must say so.
+  connections: Array<{ id: string }>;
 }
 
 interface DbtConnectionFields {
@@ -824,6 +826,15 @@ function DbtConnectionSection() {
     return (
       <p role="alert" className="text-sm text-destructive">
         {t("indexPanel.dbtReadFailed")}
+      </p>
+    );
+  }
+  // Blank fields here would read as "not connected" and invite a save that the
+  // action refuses. With several rows, show the reason and no form.
+  if (connection.connections.length > 1) {
+    return (
+      <p role="alert" className="text-sm text-muted-foreground">
+        {t("indexPanel.dbtSeveralConnections")}
       </p>
     );
   }

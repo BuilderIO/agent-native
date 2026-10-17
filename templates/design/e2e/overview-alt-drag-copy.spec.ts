@@ -167,7 +167,7 @@ test("alt-dragging a selected frame drops a copy and leaves the original in plac
   expect(withoutIds(await app.savedNodes(id, "index-copy.html"))).toEqual(
     withoutIds(sourceNodes),
   );
-  await expect.poll(() => app.selectedLayers()).toEqual(["Index copy"]);
+  await expect.poll(() => app.selectedLayers()).toEqual(["Home copy"]);
   const copyId = await fileId(app, id, "index-copy.html");
   const sourceShell = (await app.page
     .locator(`[data-frame-id="${fileIds[0]}"]`)
@@ -248,5 +248,5 @@ test("alt-dragging a multi-frame selection copies every frame and keeps their sp
   expect(await framesOnceCount(app, id, 4)).toEqual(withCopies);
   await expect
     .poll(() => app.selectedLayers())
-    .toEqual(["Screen 2 copy", "Index copy"]);
+    .toEqual(["Screen 2 copy", "Home copy"]);
 });

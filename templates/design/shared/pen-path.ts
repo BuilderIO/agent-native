@@ -447,6 +447,32 @@ export function hitTestPenHandle(
   return bestIndex === -1 ? null : { nodeIndex: bestIndex, which: bestWhich };
 }
 
+export function hitTestPenEditTarget(
+  path: PenPath,
+  point: PenPoint,
+  radiusInCanvasPx: number,
+):
+  | { kind: "anchor"; nodeIndex: number }
+  | { kind: "handle"; nodeIndex: number; which: "in" | "out" }
+  | null {
+  const anchor = hitTestPenAnchor(path, point, radiusInCanvasPx);
+  const handle = hitTestPenHandle(path, point, radiusInCanvasPx);
+  if (!handle) return anchor && { kind: "anchor", ...anchor };
+  if (anchor) {
+    const node = path.nodes[handle.nodeIndex]!;
+    const handlePoint =
+      handle.which === "in" ? node.handleIn! : node.handleOut!;
+    const anchorPoint = path.nodes[anchor.nodeIndex]!.point;
+    if (
+      Math.hypot(anchorPoint.x - point.x, anchorPoint.y - point.y) <=
+      Math.hypot(handlePoint.x - point.x, handlePoint.y - point.y)
+    ) {
+      return { kind: "anchor", ...anchor };
+    }
+  }
+  return { kind: "handle", ...handle };
+}
+
 export function movePenAnchor(
   path: PenPath,
   nodeIndex: number,

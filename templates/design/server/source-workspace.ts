@@ -329,10 +329,11 @@ export function findSourceWorkspaceFile(
     ? files.find((candidate) => candidate.id === target.fileId)
     : files.find((candidate) => candidate.filename === normalizedPath);
   if (!file) {
-    throw new Error(
+    fail(
       target.fileId
         ? `Source file id "${target.fileId}" not found.`
         : `Source file "${normalizedPath}" not found.`,
+      { statusCode: 404, errorCode: "source_file_not_found" },
     );
   }
   return file;
@@ -476,12 +477,17 @@ export async function prepareInlineSourceEdit(args: {
       "A source revision is required with current editor content.",
     );
   }
-  if (!args.file.updatedAt || args.revision !== args.file.updatedAt) {
+  if (!args.file.updatedAt) {
     throw new SourceWorkspaceEditConflictError();
   }
 
+  const revisionMatches = args.revision === args.file.updatedAt;
   const persistedVersionHash = sourceContentHash(args.file.content ?? "");
   const workingVersionHash = sourceContentHash(args.currentContent);
+  // A lagging editor timestamp is safe only when it already holds the live bytes.
+  if (!revisionMatches && workingVersionHash !== live.versionHash) {
+    throw new SourceWorkspaceEditConflictError();
+  }
   if (
     live.versionHash !== persistedVersionHash &&
     live.versionHash !== workingVersionHash

@@ -52,6 +52,7 @@ import {
 } from "./clone-idrefs";
 import { queryUniqueSelector } from "./dom-utils";
 import { isStandaloneHttpUrl } from "./editor-state";
+import { patchElementInlineStyle } from "./html-layer-positioning";
 import {
   applyPortableStyles,
   elementAtPortableStylePath,
@@ -197,14 +198,18 @@ export function writeBackVectorEditedPenPath(
     }
 
     svg.setAttribute("data-an-pen-nodes", serializePenNodes(penPath));
-    svg.setAttribute(
-      "viewBox",
-      `${geometry.x} ${geometry.y} ${geometry.width} ${geometry.height}`,
-    );
-    svg.style.left = `${oldLeft + geometry.x - oldViewBox.x}px`;
-    svg.style.top = `${oldTop + geometry.y - oldViewBox.y}px`;
-    svg.style.width = `${Math.max(1, geometry.width)}px`;
-    svg.style.height = `${Math.max(1, geometry.height)}px`;
+    if (svg.getAttribute("data-an-primitive") === "pasted-svg") {
+      svg.style.overflow = "visible";
+    } else {
+      svg.setAttribute(
+        "viewBox",
+        `${geometry.x} ${geometry.y} ${geometry.width} ${geometry.height}`,
+      );
+      svg.style.left = `${oldLeft + geometry.x - oldViewBox.x}px`;
+      svg.style.top = `${oldTop + geometry.y - oldViewBox.y}px`;
+      svg.style.width = `${Math.max(1, geometry.width)}px`;
+      svg.style.height = `${Math.max(1, geometry.height)}px`;
+    }
     if (strokeOverlay) svg.style.overflow = "visible";
     if (!isClosed && strokeOverlay && originalOverflow !== null) {
       const svgStyle = svg.style;
@@ -607,6 +612,21 @@ function clearRootLayerPosition(element: Element) {
   host.style.bottom = "";
 }
 
+const UNRENDERED_TAGS = new Set(["script", "style", "template"]);
+
+// A parent whose children are all absolutely placed is a free frame: a root pasted
+// into it stays absolute at the frame's origin, or it stretches as a block or paints
+// under its siblings.
+function placesChildrenFreely(parent: Element): boolean {
+  if (/flex|grid/.test(styleHost(parent)?.style.display ?? "")) return false;
+  return Array.from(parent.children)
+    .filter((child) => !UNRENDERED_TAGS.has(child.tagName.toLowerCase()))
+    .every((child) => {
+      const position = styleHost(child)?.style.position;
+      return position === "absolute" || position === "fixed";
+    });
+}
+
 export function preserveClipboardLayerName(
   layerHtml: string,
   layerName: string | null | undefined,
@@ -742,6 +762,17 @@ function transformedBoundsOffset(
   };
 }
 
+const RELATIVE_NEUTRAL_INSETS = [
+  "inset-inline",
+  "inset-inline-start",
+  "inset-inline-end",
+  "inset-block",
+  "inset-block-start",
+  "inset-block-end",
+  "right",
+  "bottom",
+];
+
 function setRootLayerPosition(
   element: Element,
   position: CloneLayerPosition,
@@ -755,32 +786,47 @@ function setRootLayerPosition(
   if (!offset || !Number.isFinite(offset.x) || !Number.isFinite(offset.y)) {
     return false;
   }
-  if (position.positionMode === "relative") {
-    host.style.position = "relative";
-  } else {
-    host.style.removeProperty("inset");
-    host.style.position = "absolute";
-    host.style.right = "";
-    host.style.bottom = "";
-  }
   const measuredVisualOffset =
     position.space === "visual" && position.visualOffset !== undefined;
   const preserveFractional =
     measuredVisualOffset || position.positionMode === "relative";
-  host.style.left = formatClonePosition(
-    position.x - offset.x,
-    preserveFractional,
-  );
-  host.style.top = formatClonePosition(
-    position.y - offset.y,
-    preserveFractional,
-  );
+  const left = formatClonePosition(position.x - offset.x, preserveFractional);
+  const top = formatClonePosition(position.y - offset.y, preserveFractional);
+  if (position.positionMode === "relative") {
+    // A logical inset written after left/top overrides them, so left/top are
+    // removed here and appended after the insets below.
+    patchElementInlineStyle(host, [
+      { property: "inset", value: null },
+      ...RELATIVE_NEUTRAL_INSETS.map((property) => ({
+        property,
+        value: "auto",
+      })),
+      { property: "left", value: null },
+      { property: "top", value: null },
+      { property: "position", value: "relative" },
+    ]);
+    patchElementInlineStyle(host, [
+      { property: "left", value: left },
+      { property: "top", value: top },
+    ]);
+    return true;
+  }
+  patchElementInlineStyle(host, [
+    { property: "inset", value: null },
+    { property: "right", value: null },
+    { property: "bottom", value: null },
+    { property: "position", value: "absolute" },
+    { property: "left", value: left },
+    { property: "top", value: top },
+  ]);
   return true;
 }
 
 function formatClonePosition(value: number, preserveFractional: boolean) {
+  // Six significant digits, as CSS serializes lengths: transform math leaves
+  // 108.9997 where the layer sits at 109.
   return preserveFractional
-    ? `${Number(value.toFixed(4))}px`
+    ? `${Number(Number(value.toFixed(4)).toPrecision(6))}px`
     : `${Math.round(value)}px`;
 }
 
@@ -1164,6 +1210,8 @@ export function prepareClonedHtmlLayer(
   reservedNodeIds: Set<string> | null = null,
   componentContext?: ComponentCloneContext,
   preserveIncomingNodeIds = false,
+  // Ids the destination already uses; without it every authored id is rewritten.
+  takenAuthoredIds?: ReadonlySet<string>,
 ): {
   element: Element;
   rootNodeId: string;
@@ -1245,7 +1293,11 @@ export function prepareClonedHtmlLayer(
     );
   }
   if (!preserveIncomingNodeIds) {
-    reassignClonedAuthoredIds(clone, () => uniqueLayerId("copy-id"));
+    reassignClonedAuthoredIds(
+      clone,
+      () => uniqueLayerId("copy-id"),
+      takenAuthoredIds && ((id) => takenAuthoredIds.has(id)),
+    );
     reassignClonedSourceIdentity(clone, () => uniqueLayerId("copy-child"));
   }
   for (const element of [clone, ...Array.from(clone.querySelectorAll("*"))]) {
@@ -1606,27 +1658,6 @@ export function insertClonedHtmlLayers(
           ...(options.additionalReservedNodeIds ?? []),
         ])
       : null;
-    layerHtmls.forEach((layerHtml, index) => {
-      const prepared = prepareClonedHtmlLayer(
-        doc,
-        layerHtml,
-        options.styleSnapshots?.[index],
-        reservedNodeIds,
-        componentContextForLayer(content, options.componentLinks, index),
-      );
-      if (!prepared) return;
-      const position = options.positions?.[index];
-      if (position) {
-        if (!setRootLayerPosition(prepared.element, position)) return;
-      } else if (options.stripRootPosition) {
-        clearRootLayerPosition(prepared.element);
-      }
-      rootNodeIds.push(prepared.rootNodeId);
-      prepared.nodeIdMap.forEach((value, key) => nodeIdMap.set(key, value));
-      fragment.appendChild(prepared.element);
-    });
-    if (rootNodeIds.length !== layerHtmls.length) return null;
-
     const target = queryFirstSelector(doc, options.targetSelectors ?? []);
     const anchor =
       queryFirstSelector(doc, options.anchorSelectors ?? []) ?? target;
@@ -1636,6 +1667,42 @@ export function insertClonedHtmlLayers(
         ? anchor
         : anchor.parentElement
       : null;
+    const keepRootAbsolute = parent ? placesChildrenFreely(parent) : false;
+    const takenAuthoredIds = new Set(
+      Array.from(doc.querySelectorAll("[id]"), (element) => element.id),
+    );
+    layerHtmls.forEach((layerHtml, index) => {
+      const prepared = prepareClonedHtmlLayer(
+        doc,
+        layerHtml,
+        options.styleSnapshots?.[index],
+        reservedNodeIds,
+        componentContextForLayer(content, options.componentLinks, index),
+        false,
+        takenAuthoredIds,
+      );
+      if (!prepared) return;
+      [prepared.element, ...prepared.element.querySelectorAll("[id]")].forEach(
+        (element) => takenAuthoredIds.add(element.id),
+      );
+      const position = options.positions?.[index];
+      if (position) {
+        if (!setRootLayerPosition(prepared.element, position)) return;
+      } else if (options.stripRootPosition) {
+        clearRootLayerPosition(prepared.element);
+        if (keepRootAbsolute) {
+          styleHost(prepared.element)?.style.setProperty(
+            "position",
+            "absolute",
+          );
+        }
+      }
+      rootNodeIds.push(prepared.rootNodeId);
+      prepared.nodeIdMap.forEach((value, key) => nodeIdMap.set(key, value));
+      fragment.appendChild(prepared.element);
+    });
+    if (rootNodeIds.length !== layerHtmls.length) return null;
+
     if (parent) {
       const projection = buildCodeLayerProjection(content);
       const parentId = parent.getAttribute("data-agent-native-node-id");

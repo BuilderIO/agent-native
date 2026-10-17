@@ -1052,31 +1052,43 @@ export async function getA2ASecretByDomain(
 ): Promise<string | null> {
   const exec = getDbExec();
   const { rows } = await exec.execute({
-    sql: `SELECT a2a_secret FROM organizations WHERE LOWER(allowed_domain) = ? LIMIT 1`,
+    sql: `SELECT a2a_secret FROM organizations WHERE LOWER(allowed_domain) = ? LIMIT 2`,
     args: [domain.toLowerCase()],
   });
-  if (!rows[0]) return null;
+  if (rows.length !== 1) return null;
   const secret = String((rows[0] as any).a2a_secret || "");
   return secret || null;
+}
+
+export type OrgDomainLookup =
+  | { status: "found"; org: { orgId: string; orgName: string } }
+  | { status: "not-found" }
+  | { status: "ambiguous" };
+
+export async function lookupOrgByDomain(
+  domain: string,
+): Promise<OrgDomainLookup> {
+  const exec = getDbExec();
+  const { rows } = await exec.execute({
+    sql: `SELECT id, name FROM organizations WHERE LOWER(allowed_domain) = ? LIMIT 2`,
+    args: [domain.toLowerCase()],
+  });
+  if (rows.length === 0) return { status: "not-found" };
+  if (rows.length > 1) return { status: "ambiguous" };
+  return {
+    status: "found",
+    org: {
+      orgId: String((rows[0] as any).id),
+      orgName: String((rows[0] as any).name),
+    },
+  };
 }
 
 export async function resolveOrgByDomain(
   domain: string,
 ): Promise<{ orgId: string; orgName: string } | null> {
-  try {
-    const exec = getDbExec();
-    const { rows } = await exec.execute({
-      sql: `SELECT id, name FROM organizations WHERE LOWER(allowed_domain) = ? LIMIT 1`,
-      args: [domain.toLowerCase()],
-    });
-    if (!rows[0]) return null;
-    return {
-      orgId: String((rows[0] as any).id),
-      orgName: String((rows[0] as any).name),
-    };
-  } catch {
-    return null;
-  }
+  const result = await lookupOrgByDomain(domain);
+  return result.status === "found" ? result.org : null;
 }
 
 export async function resolveA2AOrganizationMetadataByDomain(
@@ -1086,9 +1098,10 @@ export async function resolveA2AOrganizationMetadataByDomain(
   if (!normalizedDomain) return null;
   const { rows } = await getDbExec().execute({
     sql: `SELECT id, allowed_domain
-          FROM organizations WHERE LOWER(allowed_domain) = ? LIMIT 1`,
+          FROM organizations WHERE LOWER(allowed_domain) = ? LIMIT 2`,
     args: [normalizedDomain],
   });
+  if (rows.length !== 1) return null;
   const row = rows[0] as any;
   if (!row) return null;
   const orgId = String(row.id ?? "").trim();
@@ -1129,9 +1142,10 @@ export async function resolveA2AOrganizationCredentialsByDomain(
   if (!normalizedDomain) return null;
   const { rows } = await getDbExec().execute({
     sql: `SELECT id, allowed_domain, a2a_secret
-          FROM organizations WHERE LOWER(allowed_domain) = ? LIMIT 1`,
+          FROM organizations WHERE LOWER(allowed_domain) = ? LIMIT 2`,
     args: [normalizedDomain],
   });
+  if (rows.length !== 1) return null;
   const row = rows[0] as any;
   if (!row) return null;
   const orgId = String(row.id ?? "").trim();

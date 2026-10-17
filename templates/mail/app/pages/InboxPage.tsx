@@ -51,6 +51,7 @@ import {
   resolveInboxEmailQueryScope,
   savedFilterThreadIds,
 } from "@/lib/inbox-tabs";
+import { mailThreadHref } from "@/lib/mail-routes";
 import {
   buildForwardDraft,
   buildReplyDraft,
@@ -207,7 +208,7 @@ function ThreadListSidebar({
   emails,
   activeThreadId,
   view,
-  routeSearchSuffix,
+  searchParams,
   selectedIds,
   setSelectedIds,
   onNavigateThread,
@@ -215,10 +216,10 @@ function ThreadListSidebar({
   emails: EmailMessage[];
   activeThreadId: string;
   view: string;
-  routeSearchSuffix: string;
+  searchParams: URLSearchParams;
   selectedIds: Set<string>;
   setSelectedIds: React.Dispatch<React.SetStateAction<Set<string>>>;
-  onNavigateThread: (threadId: string) => void;
+  onNavigateThread: (threadId: string, accountEmail?: string) => void;
 }) {
   const navigate = useNavigate();
   const markThreadRead = useMarkThreadRead();
@@ -255,8 +256,15 @@ function ThreadListSidebar({
                     threadId: threadKey,
                     accountEmail: email.accountEmail,
                   });
-                onNavigateThread(threadKey);
-                void navigate(`/${view}/${threadKey}${routeSearchSuffix}`);
+                onNavigateThread(threadKey, email.accountEmail);
+                void navigate(
+                  mailThreadHref(
+                    view,
+                    threadKey,
+                    searchParams,
+                    email.accountEmail,
+                  ),
+                );
               }}
               className={cn(
                 "w-full text-start px-3 h-[38px] flex items-center border-b border-border/10 transition-colors",
@@ -317,30 +325,37 @@ export function InboxPage() {
     view: string;
     threadId: string;
   }>();
+  const [searchParams] = useSearchParams();
+  const routeAccountEmail = searchParams.get("accountEmail") ?? undefined;
   const navigate = useNavigate();
-  const [optimisticThreadId, setOptimisticThreadId] = useState<
-    string | null | undefined
+  const [optimisticThread, setOptimisticThread] = useState<
+    { id: string; accountEmail: string | null } | null | undefined
   >(undefined);
   const threadId =
-    optimisticThreadId === undefined
+    optimisticThread === undefined
       ? routeThreadId
-      : (optimisticThreadId ?? undefined);
+      : (optimisticThread?.id ?? undefined);
   const handleOptimisticThreadNavigation = useCallback(
-    (nextThreadId: string | undefined) => {
-      setOptimisticThreadId(nextThreadId ?? null);
+    (nextThreadId: string | undefined, accountEmail?: string) => {
+      setOptimisticThread(
+        nextThreadId
+          ? { id: nextThreadId, accountEmail: accountEmail ?? null }
+          : null,
+      );
     },
     [],
   );
   useEffect(() => {
-    if (optimisticThreadId === undefined) return;
+    if (optimisticThread === undefined) return;
     if (
-      optimisticThreadId === null
+      optimisticThread === null
         ? !routeThreadId
-        : routeThreadId === optimisticThreadId
+        : routeThreadId === optimisticThread.id &&
+          routeAccountEmail === (optimisticThread.accountEmail ?? undefined)
     ) {
-      setOptimisticThreadId(undefined);
+      setOptimisticThread(undefined);
     }
-  }, [routeThreadId, optimisticThreadId]);
+  }, [routeThreadId, routeAccountEmail, optimisticThread]);
 
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [sortMode, setSortMode] = useState<MailSortMode>(() => {
@@ -400,15 +415,10 @@ export function InboxPage() {
     }
   }, [changeSortMode, showPrioritySort, sortMode]);
   useKeyboardShortcuts([{ key: "i", meta: true, handler: toggleSortMode }]);
-  const [searchParams] = useSearchParams();
   const isOnboardingPreview = searchParams.get("onboarding") === "preview";
   const activeLabel = searchParams.get("label");
   const activeInboxTab = searchParams.get("tab");
   const activeFilterId = searchParams.get("filter");
-  const routeSearchSuffix = searchParams.toString()
-    ? `?${searchParams.toString()}`
-    : "";
-
   const googleStatus = useGoogleAuthStatus();
   const { activeAccounts, allAccounts } = useAccountFilter();
   const myEmails = useMemo(() => {
@@ -729,7 +739,7 @@ export function InboxPage() {
   const emailListLoading =
     isLoading ||
     !hasEmailData ||
-    (!googleStatus.data && googleStatus.isLoading);
+    (!isInboxView && !googleStatus.data && googleStatus.isLoading);
 
   const emails = useMemo(() => {
     if (isInboxView) return rawEmails ?? EMPTY_EMAILS;
@@ -955,17 +965,20 @@ export function InboxPage() {
 
   useEffect(() => {
     if (
-      optimisticThreadId &&
+      optimisticThread &&
       threads.length > 0 &&
       !threads.some(
-        (t) =>
-          (t.latestMessage.threadId || t.latestMessage.id) ===
-          optimisticThreadId,
+        (thread) =>
+          (thread.latestMessage.threadId || thread.latestMessage.id) ===
+            optimisticThread.id &&
+          (optimisticThread.accountEmail === null ||
+            thread.latestMessage.accountEmail?.toLowerCase() ===
+              optimisticThread.accountEmail.toLowerCase()),
       )
     ) {
-      setOptimisticThreadId(undefined);
+      setOptimisticThread(undefined);
     }
-  }, [optimisticThreadId, threads]);
+  }, [optimisticThread, threads]);
 
   const handleCompose = useCallback(
     (email: EmailMessage, mode: "reply" | "replyAll" | "forward") => {
@@ -1064,7 +1077,7 @@ export function InboxPage() {
           emails={emails}
           activeThreadId={threadId}
           view={view}
-          routeSearchSuffix={routeSearchSuffix}
+          searchParams={searchParams}
           selectedIds={selectedIds}
           setSelectedIds={setSelectedIds}
           onNavigateThread={handleOptimisticThreadNavigation}
@@ -1074,6 +1087,11 @@ export function InboxPage() {
         {hasThread ? (
           <EmailThread
             activeThreadId={threadId}
+            activeThreadAccountEmail={
+              optimisticThread === undefined
+                ? undefined
+                : (optimisticThread?.accountEmail ?? null)
+            }
             onArchived={setLastArchivedId}
             emailIds={threadIds}
             threads={threads}

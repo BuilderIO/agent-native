@@ -907,6 +907,11 @@ import { INLINE_TEXT_TAGS } from "../../../../shared/text-layer-rule";
     return true;
   }
 
+  function isOutOfFlow(el: Element): boolean {
+    var position = window.getComputedStyle(el).position;
+    return position === "absolute" || position === "fixed";
+  }
+
   function isAbsolutePrimitiveContainer(el: Element | null): boolean {
     if (!el || el.nodeType !== 1) return false;
     if (BRIDGE_REPLACED_TAGS[(el.tagName || "").toLowerCase()]) return false;
@@ -927,7 +932,8 @@ import { INLINE_TEXT_TAGS } from "../../../../shared/text-layer-rule";
   }
 
   // No in-flow children to stack against, so a drop keeps its release point.
-  // An empty static box is not a frame and stays a flow target.
+  // An empty static box is not a frame and stays a flow target; an empty
+  // screen body is the screen's frame.
   function isFreeformDropContainer(el: Element): boolean {
     if (isAutoLayoutElement(el)) return false;
     var hasChild = false;
@@ -944,7 +950,11 @@ import { INLINE_TEXT_TAGS } from "../../../../shared/text-layer-rule";
       }
       hasChild = true;
     }
-    return hasChild || window.getComputedStyle(el).position !== "static";
+    return (
+      hasChild ||
+      el === document.body ||
+      window.getComputedStyle(el).position !== "static"
+    );
   }
 
   function hasAbsolutePositionedChild(el: Element): boolean {
@@ -1394,7 +1404,7 @@ import { INLINE_TEXT_TAGS } from "../../../../shared/text-layer-rule";
     while (cursor && cursor !== document.body) {
       if (isLayerInteractionBlocked(cursor)) return null;
       var parent: Element | null = cursor.parentElement;
-      if (parent && isAutoLayoutElement(parent)) {
+      if (parent && isAutoLayoutElement(parent) && !isOutOfFlow(cursor)) {
         if (!hasKnownFlexMainAxis(parent)) return null;
         var emptyGridCell = gridEmptyCellInsertionTarget(
           parent,
