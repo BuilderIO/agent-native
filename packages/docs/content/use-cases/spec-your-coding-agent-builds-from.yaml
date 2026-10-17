@@ -1,0 +1,83 @@
+slug: spec-your-coding-agent-builds-from
+job_id: job-agent-spec
+app: content
+audience: technical
+title: "Write the spec your coding agent builds from"
+subhead: "Keep specs and decisions in Content, and connect Claude Code, Codex, or Cursor, so your agent works from the same page you wrote."
+meta_description: "Keep specs and decisions in one place and connect Claude Code, Codex, or Cursor so your agent works from the same page. Free, open-source Content from Agent-Native."
+cta_label: "Try Content"
+secondary_cta_label: "See how it works"
+app_cta_url: "https://content.agent-native.com"
+screenshot_alt: "The Content app with a document open and the agent chat beside it"
+old_way:
+  heading: "How most people do it today"
+  body: "The spec lives in a doc your agent can't open, so you paste chunks of it into every prompt. When the doc changes, your agent is still working from the old paste."
+replaces:
+  - "Notion"
+  - "Google Docs"
+new_way:
+  heading: "How it works in Content"
+  steps:
+    - "Write the spec as a Content page."
+    - "Connect your coding agent to Content through MCP. Claude Code, Codex, and Cursor are supported."
+    - "Point your agent at the page, and add page instructions that tell it how to work with the spec."
+todays_stack:
+  heading: "What changes for your specs"
+  items:
+    - text: "**A doc tool your coding agent can't open** holds the spec."
+    - text: "**Pasting chunks of the spec into prompts** goes stale the moment the doc changes."
+    - text: "**Decisions made in chat threads** never make it back into the spec."
+  in_app: "Your coding agent still does the building. In Content, the spec lives in pages your agent can reach through MCP."
+frequency: per-project
+how_often_label: "Every feature"
+roles: [engineering, product]
+connects_to: ["Claude Code", "Codex", "Cursor"]
+next_jobs: [see-what-your-coding-agent-plans, wireframe-before-agent-builds]
+recipes:
+  - id: write-spec
+    title: "Write a spec your agent can read"
+    when: "Use this when you're about to hand a feature to your coding agent."
+    steps:
+      - "Write the spec as a Content page."
+      - "Connect your coding agent to Content through MCP."
+      - "Point your agent at the page."
+    result: "Your agent works from the current spec instead of an old paste."
+    tip: "The MCP connection stays in place for every spec after this."
+    how_often: "Every feature"
+  - id: page-instructions
+    title: "Tell the agent how to use the page"
+    when: "Use this when you want the agent to follow your conventions."
+    steps:
+      - "Add page instructions, like which sections are decided and which are still open."
+    result: "The agent knows what to treat as settled."
+    how_often: "Every feature"
+  - id: track-requests
+    title: "Track the work in a database"
+    when: "Use this when requests are piling up in chat."
+    steps:
+      - "Set up a database in Content."
+      - "Add field instructions, so the agent can ask for missing details."
+    result: "Requests arrive with the information you need, in one place."
+    how_often: "Ongoing"
+story: null
+faqs:
+  - q: "Which coding agents can connect to Content?"
+    a: "Content connects to agents like Claude Code, Codex, and Cursor through MCP."
+  - q: "What are page instructions?"
+    a: "Instructions you attach to a page that tell the agent how to work with it. Databases can have field instructions too."
+  - q: "What goes in a spec?"
+    a: "The problem, the goals and non-goals, the proposed approach, and the open questions. Keep it short enough that your agent and your teammates read all of it."
+  - q: "Is Content free?"
+    a: "Yes. Content is free and open source. It's labeled alpha, so expect rough edges."
+cta_band_heading: "Write your next spec where your agent can read it"
+cta_band_subhead: "One page for you, your team, and your coding agent."
+updated: 2026-10-15
+internal:
+  job: "Keep the spec where the coding agent can read it"
+  recurs_when: "Every feature"
+  first_session: "Connect one agent through MCP, point it at one page"
+  return_signal: "Second spec page read by a connected agent within 14 days (proposal, confirm with Alice and Michael)"
+  target_terms: "product requirements document (US 2,400/mo, KD 20); prd template (1,400, KD 3); claude code mcp servers (500, KD 0); claude code context (200)"
+  basis: "hypothesis (Content's MCP connection is the technical angle; 'brains' are an early AI adoption area)"
+  replaces_source: "Templates page: replaces or augments Notion, Google Docs."
+  verify: "MCP setup steps and what a connected agent can read and edit. The Content screenshot key and alt text (the content hero image hasn't been reviewed). Whether Content is labeled alpha."
