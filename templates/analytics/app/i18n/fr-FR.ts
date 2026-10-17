@@ -2217,6 +2217,8 @@ export default {
     dbtAdminOnly:
       "Seuls les administrateurs de l’organisation peuvent modifier cette connexion.",
     dbtReadFailed: "La connexion dbt n’a pas pu être chargée.",
+    dbtSeveralConnections:
+      "Plusieurs connexions dbt sont accordées à Analytics, donc ce panneau ne peut en modifier aucune. Supprimez les connexions en trop dans Paramètres → Intégrations pour n'en garder qu'une.",
     dbtSave: "Enregistrer la connexion",
     dbtChecking: "Vérification",
     dbtSaveFailed: "La connexion dbt n’a pas pu être enregistrée.",

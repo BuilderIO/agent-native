@@ -2047,6 +2047,8 @@ export default {
     dbtDisabled: "已停用",
     dbtAdminOnly: "只有组织管理员可以更改此连接。",
     dbtReadFailed: "无法加载 dbt 连接。",
+    dbtSeveralConnections:
+      "Analytics 已被授权多个 dbt 连接，因此此面板无法编辑其中任何一个。请在设置 → 集成中移除多余的连接，只保留一个。",
     dbtSave: "保存连接",
     dbtChecking: "检查中",
     dbtSaveFailed: "无法保存 dbt 连接。",
