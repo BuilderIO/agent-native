@@ -179,10 +179,17 @@ export default defineAction({
     if (effectiveNavigation) screen.navigation = effectiveNavigation;
     if (url?.pathname) screen.pathname = url.pathname;
     if (selectedObject) screen.selectedObject = selectedObject;
-    const rowBreakdown = isAskView
-      ? null
-      : await readAppStateForCurrentTab("row-breakdown");
-    if (rowBreakdown) screen.rowBreakdown = rowBreakdown;
+    // The key can outlive its dashboard (a reload onto a page with no
+    // breakdown table never clears it), so it only counts on that dashboard.
+    const rowBreakdown =
+      nav?.view === "adhoc" && typeof nav.dashboardId === "string"
+        ? ((await readAppStateForCurrentTab("row-breakdown")) as {
+            dashboardId?: unknown;
+          } | null)
+        : null;
+    if (rowBreakdown && rowBreakdown.dashboardId === nav.dashboardId) {
+      screen.rowBreakdown = rowBreakdown;
+    }
 
     if (url?.searchParams) {
       const activeFilters: Record<string, string> = {};

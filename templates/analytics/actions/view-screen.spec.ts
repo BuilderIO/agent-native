@@ -154,6 +154,12 @@ describe("view-screen monitoring status-pages branch", () => {
 
     setScreen({ view: "adhoc", dashboardId: "dash-1" }, { pathname: "/ask" });
     expect((await runScreen()).rowBreakdown).toBeUndefined();
+
+    setScreen(
+      { view: "adhoc", dashboardId: "dash-2" },
+      { pathname: "/dashboards/dash-2" },
+    );
+    expect((await runScreen()).rowBreakdown).toBeUndefined();
   });
 
   it("does not surface a stale dashboard selection on Ask", async () => {
