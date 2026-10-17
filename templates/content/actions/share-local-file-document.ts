@@ -178,6 +178,7 @@ export default defineAction({
       await db.transaction(async (tx) => {
         const legacy = await lockLegacyBodyWrites(tx, [existing.id], {
           operation: "share-local-file-document",
+          content: localDocument.content,
         });
         await tx
           .update(schema.documents)

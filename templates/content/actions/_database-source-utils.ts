@@ -2394,6 +2394,7 @@ async function processBuilderBodyHydrationJob(
           : eq(schema.documents.content, currentContent);
       const legacy = await lockLegacyBodyWrites(tx, [row.documentId], {
         operation: "Builder body hydration",
+        content: nextContent,
       });
       const [updatedDocument] = await tx
         .update(schema.documents)
@@ -2650,7 +2651,12 @@ async function persistPristineBuilderBodyHydrationsInBulk(
         const legacy = await lockLegacyBodyWrites(
           tx,
           batch.map((row) => row.job.documentId),
-          { operation: "Builder body hydration" },
+          {
+            operation: "Builder body hydration",
+            content: new Map(
+              batch.map((row) => [row.job.documentId, row.content]),
+            ),
+          },
         ).catch((error: unknown) => {
           // The per-row path below refuses that page's job on its own.
           if (isUnsupportedBodyWriter(error)) {

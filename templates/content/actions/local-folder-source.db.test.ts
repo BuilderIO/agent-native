@@ -2090,4 +2090,43 @@ describe("local-folder Content source", () => {
     expect(await pageBodyState(copy.id)).toEqual(before);
     expect(before.page.content).toBe("Original body");
   });
+
+  it("re-shares a renamed file over a copy that takes body writes through its live copy when the body is the same", async () => {
+    const id = "content_local_file_share_live_copy_title";
+    const now = new Date().toISOString();
+    await getDb().insert(schema.documents).values({
+      id,
+      ownerEmail: OWNER,
+      title: "Synced note on a live copy",
+      content: "Original body",
+      sourceMode: "local-files",
+      sourceKind: "file",
+      sourcePath: "notes/live-copy-title.md",
+      sourceRootPath: "qa-live-copy-folder-source",
+      visibility: "private",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const copy = await runWithRequestContext({ userEmail: OWNER }, () =>
+      shareLocalFileDocument.run({ id }),
+    );
+    await putPageOnLiveCopy(copy.id);
+    await getDb()
+      .update(schema.documents)
+      .set({ title: "Renamed note" })
+      .where(eq(schema.documents.id, id));
+    const before = await pageBodyState(copy.id);
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      shareLocalFileDocument.run({ id }),
+    );
+
+    const after = await pageBodyState(copy.id);
+    expect(after.page).toMatchObject({
+      title: "Renamed note",
+      content: "Original body",
+      bodyRevision: before.page.bodyRevision,
+    });
+    expect(after.liveCopyVersion).toBe(before.liveCopyVersion);
+  });
 });

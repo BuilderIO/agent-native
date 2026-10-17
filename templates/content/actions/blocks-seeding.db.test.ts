@@ -1799,6 +1799,47 @@ describe("primary Blocks body writers on a page that takes body writes through i
     expect(database.primaryBlocksPropertyId).toBe(primaryId);
   });
 
+  it("sets a primary Blocks property to the body a page that takes body writes through its live copy already has", async () => {
+    const { databaseId, primaryId, rowDocumentIds } =
+      await primaryRows("Before");
+    const [rowDocumentId] = rowDocumentIds;
+    await liveCopy.putPageOnLiveCopy(rowDocumentId);
+    const before = await pageState(rowDocumentId);
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      setDocumentPropertyAction.run({
+        documentId: rowDocumentId,
+        databaseId,
+        propertyId: primaryId,
+        value: "Before",
+      }),
+    );
+
+    expect(await pageState(rowDocumentId)).toEqual(before);
+  });
+
+  it("deletes a primary Blocks property when its pages on their live copy already have an empty body", async () => {
+    const { databaseId, primaryId, rowDocumentIds } = await primaryRows(
+      "Legacy body",
+      "",
+    );
+    const [legacyRowId, liveRowId] = rowDocumentIds;
+    await liveCopy.putPageOnLiveCopy(liveRowId);
+    const live = await pageState(liveRowId);
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      deleteDocumentPropertyAction.run({
+        documentId: legacyRowId,
+        databaseId,
+        propertyId: primaryId,
+      }),
+    );
+
+    expect(await pageState(liveRowId)).toEqual(live);
+    expect((await pageState(legacyRowId)).content).toBe("");
+    expect(await blocksDefinitions(databaseId)).toEqual([]);
+  });
+
   it("refuses a direct primary Blocks body write to a page that takes body writes through its live copy", async () => {
     const { rowDocumentIds } = await primaryRows("Before");
     const [rowDocumentId] = rowDocumentIds;

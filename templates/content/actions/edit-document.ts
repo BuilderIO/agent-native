@@ -595,6 +595,7 @@ export default defineAction({
         await lockLegacyBodyWrites(tx, [id], {
           operation: "edit-document",
           routed: true,
+          content: null,
         });
         const mirrored = await tx
           .update(schema.documents)

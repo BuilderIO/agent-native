@@ -1,6 +1,7 @@
 import { resolveBuilderCredential } from "@agent-native/core/server";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { documents } from "../server/db/schema.js";
 import { BUILDER_CMS_SAFE_WRITE_MODEL } from "../shared/api.js";
 import {
   BUILDER_DOCS_MDX_SOURCE_MODE,
@@ -59,10 +60,17 @@ let sidecarRows: Array<{
 
 const fakeDb = {
   select: () => ({
-    from: () => ({
+    from: (table: unknown) => ({
       where: () => ({
+        // The body-write lock reads the page's body once it has locked it.
         then: (...args: Parameters<Promise<unknown>["then"]>) =>
-          Promise.resolve(sidecarRows).then(...args),
+          Promise.resolve(
+            table === documents
+              ? documentResource
+                ? [documentResource]
+                : []
+              : sidecarRows,
+          ).then(...args),
         // Only the body-write lock orders its read, and it reads the page.
         orderBy: () => ({
           for: async () => (documentResource ? [documentResource] : []),

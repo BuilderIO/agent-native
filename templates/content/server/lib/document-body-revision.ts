@@ -66,9 +66,12 @@ function unsupportedBodyWriter(documentId: string, writer: LegacyBodyWriter) {
  * LIVE_BODY_WRITE_PATH_CHANGED. Any other writer refuses with
  * LIVE_BODY_WRITER_UNSUPPORTED, which a retry doesn't change.
  *
- * A writer of one body that also changes a page's metadata passes that body
- * as `content`. A page whose locked body already reads it is not refused: the
- * write leaves its body as it was, so a title or source change still lands.
+ * The writer says what body it leaves on each page as `content`: one body for
+ * every page, or each page's own. A page whose locked body already reads it
+ * is not refused, because the write leaves its body as it was, so a title or
+ * source change still lands. A writer that bumps `body_revision` itself,
+ * rather than through `bodyRevision`, passes `null`: it bumps an unchanged
+ * body too, which would move the page off its live copy.
  *
  * The flags and the live copy's version are read on `exec`, which defaults to
  * `getDbExec()`. That is the transaction only inside `getDb().transaction()`:
@@ -80,40 +83,69 @@ export async function lockLegacyBodyWrites(
   tx: ContentDb,
   documentIds: readonly string[],
   options: LegacyBodyWriter & {
+    content: string | ReadonlyMap<string, string> | null;
     routed?: boolean;
     exec?: DbExec;
-    content?: string;
   },
 ): Promise<LegacyBodyWrites> {
   const exec = options.exec ?? getDbExec();
   const ids = [...new Set(documentIds)].sort();
-  // Only a one-body writer reads bodies; a batch can lock 1,000 pages.
-  const columns =
-    options.content === undefined
-      ? liveBodyWriterPageColumns
-      : { ...liveBodyWriterPageColumns, content: documents.content };
+  const { content } = options;
+  if (content instanceof Map) {
+    const missing = ids.find((id) => !content.has(id));
+    if (missing !== undefined) {
+      throw new Error(
+        `${options.operation} locked page ${missing} without saying what body it writes there.`,
+      );
+    }
+  }
   for (let start = 0; start < ids.length; start += LOCK_BATCH) {
-    // guard:allow-unscoped — locks pages the writer already resolved, and reads only their write-path columns and, for a one-body writer, body.
-    const rows: Array<LiveBodyWriterPageRow & { content?: string }> = await tx
-      .select(columns)
+    // guard:allow-unscoped — locks pages the writer already resolved, and reads only their write-path columns.
+    const rows = await tx
+      .select(liveBodyWriterPageColumns)
       .from(documents)
       .where(inArray(documents.id, ids.slice(start, start + LOCK_BATCH)))
       .orderBy(asc(documents.id))
       .for("update");
-    const writes = rows.filter(
-      (row) => options.content === undefined || row.content !== options.content,
+    const gates = await liveBodyWriterGatesForRows(rows, { transaction: exec });
+    const [refused] = await bodyChanges(
+      tx,
+      rows.filter((_, index) => gates[index].writePath === "live_copy"),
+      content,
     );
-    const gates = await liveBodyWriterGatesForRows(writes, {
-      transaction: exec,
-    });
-    for (const [index, row] of writes.entries()) {
-      if (gates[index].writePath !== "live_copy") continue;
+    if (refused) {
       throw options.routed
-        ? liveBodyWritePathChanged(row.id)
-        : unsupportedBodyWriter(row.id, options);
+        ? liveBodyWritePathChanged(refused.id)
+        : unsupportedBodyWriter(refused.id, options);
     }
   }
   return { bodyRevision: bodyRevisionForContent };
+}
+
+// The pages among `rows` whose body the write changes. Only pages on their
+// live copy reach here, so a bulk lock doesn't read the bodies of the rest.
+async function bodyChanges(
+  tx: ContentDb,
+  rows: readonly LiveBodyWriterPageRow[],
+  content: string | ReadonlyMap<string, string> | null,
+) {
+  if (rows.length === 0 || content === null) return rows;
+  // guard:allow-unscoped — reads the bodies of pages this transaction just locked.
+  const bodies = await tx
+    .select({ id: documents.id, content: documents.content })
+    .from(documents)
+    .where(
+      inArray(
+        documents.id,
+        rows.map((row) => row.id),
+      ),
+    );
+  const stored = new Map(bodies.map((page) => [page.id, page.content]));
+  return rows.filter(
+    (row) =>
+      stored.get(row.id) !==
+      (typeof content === "string" ? content : content.get(row.id)),
+  );
 }
 
 /**

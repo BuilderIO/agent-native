@@ -621,6 +621,7 @@ async function performDocumentBodyMutation(
         await lockLegacyBodyWrites(tx, [args.documentId], {
           operation: "edit-document",
           routed: true,
+          content: null,
         });
         const updated = await tx
           .update(schema.documents)

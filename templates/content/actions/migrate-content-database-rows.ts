@@ -697,19 +697,38 @@ export async function runMigration(args: MigrationInput) {
       const rollback = parseJson(receipt.rollbackJson);
       const now = new Date().toISOString();
       if (args.phase === "rollback") {
-        const legacy = await lockLegacyBodyWrites(
-          tx,
-          (rollback.versions ?? []).map(
-            (prior: { documentId: string }) => prior.documentId,
-          ),
-          { operation: "migrate-content-database-rows" },
-        );
-        for (const prior of rollback.versions ?? []) {
+        const priors: Array<{
+          documentId: string;
+          versionId: string;
+          appliedUpdatedAt: string;
+        }> = rollback.versions ?? [];
+        const versions = new Map<
+          string,
+          typeof schema.documentVersions.$inferSelect
+        >();
+        for (const prior of priors) {
           const [version] = await tx
             .select()
             .from(schema.documentVersions)
             .where(eq(schema.documentVersions.id, prior.versionId));
           if (!version) throw new Error("Rollback snapshot is missing.");
+          versions.set(prior.versionId, version);
+        }
+        const legacy = await lockLegacyBodyWrites(
+          tx,
+          priors.map((prior) => prior.documentId),
+          {
+            operation: "migrate-content-database-rows",
+            content: new Map(
+              priors.map((prior) => [
+                prior.documentId,
+                versions.get(prior.versionId)!.content,
+              ]),
+            ),
+          },
+        );
+        for (const prior of priors) {
+          const version = versions.get(prior.versionId)!;
           const restoredRows = await tx
             .update(schema.documents)
             .set({

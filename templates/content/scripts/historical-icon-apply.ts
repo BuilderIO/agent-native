@@ -197,6 +197,7 @@ export async function replaceHistoricalIconIfUnchanged(
       const now = nextDocumentUpdatedAt(current.updatedAt);
       const legacy = await lockLegacyBodyWrites(tx, [reference.rowId], {
         operation: "historical-icon-apply",
+        content,
       });
       const changed = await tx
         .update(schema.documents)

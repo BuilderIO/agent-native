@@ -1552,6 +1552,7 @@ const updateDocumentAction = defineAction({
               operation: "update-document",
               routed: ctx?.caller === "frontend",
               instead: "Write the body with edit-document.",
+              content: content as string,
             });
             updates.content = content;
             updates.bodyRevision = legacy.bodyRevision(content as string);

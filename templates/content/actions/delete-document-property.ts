@@ -199,7 +199,7 @@ export default defineAction({
             const legacy = await lockLegacyBodyWrites(
               tx,
               documentsWithoutSurvivingPrimary,
-              { operation: "delete-document-property" },
+              { operation: "delete-document-property", content: "" },
             );
             const now = new Date().toISOString();
             await tx

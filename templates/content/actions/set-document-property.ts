@@ -192,6 +192,7 @@ export default defineAction({
         if (target === "document_body") {
           const legacy = await lockLegacyBodyWrites(tx, [documentId], {
             operation: "set-document-property",
+            content,
           });
           const [currentDocument] = await tx
             .select({ content: schema.documents.content })

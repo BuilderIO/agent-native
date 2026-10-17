@@ -541,7 +541,10 @@ export async function applyMigration(
   const legacy = await lockLegacyBodyWrites(
     tx,
     plan.rows.map((row) => row.documentId),
-    { operation: "migrate-content-database-rows" },
+    {
+      operation: "migrate-content-database-rows",
+      content: new Map(plan.rows.map((row) => [row.documentId, row.content])),
+    },
   );
   for (const row of plan.rows) {
     const updated = await tx

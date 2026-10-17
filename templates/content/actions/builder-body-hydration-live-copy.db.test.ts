@@ -314,6 +314,50 @@ describe("Builder body hydration of a page that takes body writes through its li
     expect(await pageState(page.documentId)).toEqual(before);
   });
 
+  it("completes a per-row job whose Builder body the page already has", async () => {
+    const model = "live-copy-same-body";
+    const body = "Queued Builder body 1.";
+    const { sourceId } = await seedHydrationQueue(model, 1, () => body);
+    const page = rowIds(model, 1);
+    const db = getDb();
+    await db
+      .update(schema.documents)
+      .set({ content: body })
+      .where(eq(schema.documents.id, page.documentId));
+    await db
+      .update(schema.contentDatabaseSourceRows)
+      .set({
+        sourceValuesJson: JSON.stringify({
+          "data.title": page.title,
+          lastUpdated: "2026-01-01T00:00:00.000Z",
+          [BUILDER_CMS_BODY_CONTENT_KEY]: body,
+        }),
+      })
+      .where(eq(schema.contentDatabaseSourceRows.documentId, page.documentId));
+    await liveCopy.putPageOnLiveCopy(page.documentId);
+    const before = await pageState(page.documentId);
+
+    const result = await processBuilderBodyHydrationQueue({
+      sourceId,
+      limit: 1,
+    });
+
+    expect(result).toMatchObject({
+      processed: 1,
+      succeeded: 1,
+      failed: 0,
+      remaining: 0,
+    });
+    const [item] = await db
+      .select({
+        bodyHydrationStatus: schema.contentDatabaseItems.bodyHydrationStatus,
+      })
+      .from(schema.contentDatabaseItems)
+      .where(eq(schema.contentDatabaseItems.id, page.itemId));
+    expect(item.bodyHydrationStatus).toBe("hydrated");
+    expect(await pageState(page.documentId)).toEqual(before);
+  });
+
   it("hydrates the rest of a bulk batch and fails only the page's job", async () => {
     const model = "live-copy-bulk";
     // The bulk path takes only batches of at least 20 jobs.

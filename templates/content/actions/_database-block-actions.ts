@@ -487,6 +487,7 @@ async function writeMarkdown(
   if (loaded.storageTarget === "document_body") {
     const legacy = await lockLegacyBodyWrites(db, [target.rowDocumentId], {
       operation: "mutate-content-database-block",
+      content: markdown,
     });
     const updated = await db
       .update(schema.documents)

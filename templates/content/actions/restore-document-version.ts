@@ -491,6 +491,7 @@ export default defineAction({
       const legacy = await lockLegacyBodyWrites(tx, [documentId], {
         operation: "restore-document-version",
         routed: true,
+        content: version.content,
       });
       const now =
         current.title !== version.title

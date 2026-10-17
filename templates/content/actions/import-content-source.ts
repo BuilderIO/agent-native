@@ -526,6 +526,7 @@ export default defineAction({
           if (lockedContentChanged) {
             const legacy = await lockLegacyBodyWrites(tx, [id], {
               operation: "import-content-source",
+              content: file.content,
             });
             updates.content = file.content;
             updates.bodyRevision = legacy.bodyRevision(file.content);

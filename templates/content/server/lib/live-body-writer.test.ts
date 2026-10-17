@@ -379,13 +379,15 @@ describe("lockLegacyBodyWrites", () => {
       operation: string;
       routed?: boolean;
       instead?: string;
-      content?: string;
     } = {
       operation: "test-writer",
     },
   ) {
     await getDb().transaction(async (tx) => {
-      const legacy = await bodyRevision.lockLegacyBodyWrites(tx, ids, options);
+      const legacy = await bodyRevision.lockLegacyBodyWrites(tx, ids, {
+        ...options,
+        content,
+      });
       for (const id of ids) {
         await tx
           .update(schema.documents)
@@ -474,7 +476,12 @@ describe("lockLegacyBodyWrites", () => {
         await bodyRevision.lockLegacyBodyWrites(
           drizzleOverExec(exec),
           ["switched"],
-          { operation: "test-writer", routed: true, exec: recorded },
+          {
+            operation: "test-writer",
+            routed: true,
+            exec: recorded,
+            content: "New body",
+          },
         );
       }),
     ).rejects.toMatchObject({ errorCode: "LIVE_BODY_WRITE_PATH_CHANGED" });
@@ -500,6 +507,7 @@ describe("lockLegacyBodyWrites", () => {
         await bodyRevision.lockLegacyBodyWrites(drizzleOverExec(exec), ids, {
           operation: "test-writer",
           exec: recorded,
+          content: "New body",
         });
       });
       return reads;
@@ -510,7 +518,7 @@ describe("lockLegacyBodyWrites", () => {
     expect(await readsFor(["a", "b", "c"])).toBe(onePage);
   });
 
-  it("lets a one-body writer change a switched page's metadata when its body already reads that body", async () => {
+  it("lets a writer change a switched page's metadata when its body already reads the body it writes", async () => {
     await setFlags(WRITER_FLAGS);
     await insertPage("switched");
 
@@ -538,12 +546,46 @@ describe("lockLegacyBodyWrites", () => {
       content: "Body",
       bodyRevision: 3,
     });
+    await expect(write(["switched"], "New body")).rejects.toMatchObject({
+      errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+    });
+  });
+
+  it("checks each page against the body the writer leaves on it", async () => {
+    await setFlags(WRITER_FLAGS);
+    await insertPage("a");
+    await insertPage("b");
+    const lock = (bodies: Record<string, string>) =>
+      getDb().transaction((tx) =>
+        bodyRevision.lockLegacyBodyWrites(tx, ["a", "b"], {
+          operation: "test-writer",
+          content: new Map(Object.entries(bodies)),
+        }),
+      );
+
+    await expect(lock({ a: "Body", b: "Body" })).resolves.toBeDefined();
+    await expect(lock({ a: "Body", b: "New body" })).rejects.toMatchObject({
+      errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+      details: { documentId: "b" },
+    });
+    await expect(lock({ a: "Body" })).rejects.toThrow(
+      "test-writer locked page b without saying what body it writes there.",
+    );
+  });
+
+  it("refuses a writer that bumps the body revision itself, even when it leaves the body as it was", async () => {
+    await setFlags(WRITER_FLAGS);
+    await insertPage("switched");
+
     await expect(
-      write(["switched"], "New body", {
-        operation: "test-writer",
-        content: "New body",
-      }),
-    ).rejects.toMatchObject({ errorCode: "LIVE_BODY_WRITER_UNSUPPORTED" });
+      getDb().transaction((tx) =>
+        bodyRevision.lockLegacyBodyWrites(tx, ["switched"], {
+          operation: "test-writer",
+          routed: true,
+          content: null,
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "LIVE_BODY_WRITE_PATH_CHANGED" });
   });
 
   it("lets a switched page take legacy writes while its flags are off (SF-11)", async () => {

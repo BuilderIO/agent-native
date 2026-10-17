@@ -1414,6 +1414,7 @@ export async function writePrimaryBlocksContent(args: {
   await getDb().transaction(async (tx) => {
     const legacy = await lockLegacyBodyWrites(tx, [args.documentId], {
       operation: "writePrimaryBlocksContent",
+      content: args.content,
     });
     await tx
       .update(schema.documents)
