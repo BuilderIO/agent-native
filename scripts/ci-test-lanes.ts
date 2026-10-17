@@ -230,7 +230,7 @@ const TEMPLATE_REGISTRY_CORE_SPECS = [
   "src/mcp/instructions-name-advertised-tools.spec.ts",
 ] as const;
 const TEMPLATE_REGISTRY_SOURCE_RE =
-  /^(?:templates\/[^/]+\/(?:actions|server|shared|app)\/.+\.[cm]?[jt]sx?|packages\/core\/src\/(?:server\/(?:agent-chat-plugin|agent-chat\/.+)|(?:.+\/)?actions\/.+)\.[cm]?[jt]sx?)$/u;
+  /^(?:templates\/[^/]+\/(?:actions|server|shared|app|scripts)\/.+\.[cm]?[jt]sx?|packages\/core\/src\/(?:server\/(?:agent-chat-plugin|agent-chat\/.+)|(?:.+\/)?actions\/.+)\.[cm]?[jt]sx?)$/u;
 
 export function templateRegistryCoreSpecs(
   paths: readonly string[],

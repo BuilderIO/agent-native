@@ -13,13 +13,13 @@ export function carryExecutionKey(from: object, to: object): void {
   }
 }
 
-// Filesystem discovery can expose loose actions over MCP. Unknown writes ask
-// for confirmation until the action declares more precise annotations.
+// Filesystem discovery can expose loose actions over MCP. Unknown actions may
+// interact externally, so their open-world hint stays conservative.
 export function discoveredActionMcpAnnotations(readOnly: boolean) {
   return {
     readOnlyHint: readOnly,
     destructiveHint: !readOnly,
-    openWorldHint: false,
+    openWorldHint: true,
   } as const;
 }
 

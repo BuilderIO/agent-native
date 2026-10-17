@@ -13,8 +13,8 @@ import { LEGACY_UNREVIEWED } from "./legacy-unreviewed-destructive-hint.fixture.
 const FIXTURE =
   "packages/core/src/mcp/legacy-unreviewed-destructive-hint.fixture.ts";
 
-// `ask-agent` is added by the server itself with explicit annotations, not by
-// an action, so there is no action to declare on.
+// `ask-agent` is server-decided because it delegates to the app agent rather
+// than an action. Its conservative hints are asserted directly below.
 const SERVER_DECIDED_TOOLS = new Set(["ask-agent"]);
 
 let apps: AppCatalog[] = [];
@@ -168,6 +168,21 @@ describe("MCP destructiveHint contract over each app's real catalog", () => {
           expect.arrayContaining(codingTools),
         );
       }
+    }
+  });
+
+  it("marks delegated ask-agent calls as mutating and open-world", () => {
+    const tools = apps.flatMap((app) =>
+      advertisements(app).filter(({ tool }) => tool.name === "ask-agent"),
+    );
+
+    expect(tools.length).toBeGreaterThan(0);
+    for (const { tool } of tools) {
+      expect(tool.annotations).toEqual({
+        readOnlyHint: false,
+        destructiveHint: true,
+        openWorldHint: true,
+      });
     }
   });
 

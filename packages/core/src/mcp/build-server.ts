@@ -3281,8 +3281,8 @@ export async function createMCPServerForRequest(
           },
           annotations: {
             readOnlyHint: false,
-            destructiveHint: false,
-            openWorldHint: false,
+            destructiveHint: true,
+            openWorldHint: true,
           },
         });
       }

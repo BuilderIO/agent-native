@@ -112,6 +112,7 @@ test("runs the template-registry core specs when anything a template's catalog l
     // A template that has no spec or registry entry yet.
     "templates/newapp/actions/create-thing.ts",
     "templates/newapp/server/plugins/agent-chat.ts",
+    "templates/newapp/scripts/run-task.ts",
     // Core code that composes the catalog or adds a framework tool.
     "packages/core/src/server/agent-chat-plugin.ts",
     "packages/core/src/server/agent-chat/mcp-options.ts",
@@ -121,6 +122,7 @@ test("runs the template-registry core specs when anything a template's catalog l
   }
   for (const unrelated of [
     "templates/mail/actions/send-email.test.ts",
+    "templates/mail/scripts/run-task.test.ts",
     "templates/mail/app/routes/inbox.spec.tsx",
     "templates/mail/app/global.css",
     "templates/mail/README.md",

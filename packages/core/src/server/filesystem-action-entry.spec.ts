@@ -40,7 +40,7 @@ describe("filesystemActionEntry", () => {
     expect(entry.mcpAnnotations).toEqual({
       readOnlyHint: true,
       destructiveHint: false,
-      openWorldHint: false,
+      openWorldHint: true,
     });
   });
 
@@ -71,7 +71,7 @@ describe("filesystemActionEntry", () => {
     expect(entry.mcpAnnotations).toEqual({
       readOnlyHint: false,
       destructiveHint: true,
-      openWorldHint: false,
+      openWorldHint: true,
     });
   });
 });
