@@ -1068,6 +1068,17 @@ export function useEditorContentAndComponents({
         }
       }
 
+      if (
+        motionTimelineHasIncompatiblePositionTracks({
+          tracks: motionTracks,
+          nativeStyles: nextStyles,
+        })
+      ) {
+        toast.error(t("designEditor.motion.positionStyleConflict"), {
+          id: "motion-position-style-conflict",
+        });
+        return;
+      }
       setMotionNativeStyles(nextStyles);
       if (JSON.stringify(nextDocument) !== JSON.stringify(motionTextDocument)) {
         setMotionTextDocument(nextDocument);
@@ -1078,6 +1089,7 @@ export function useEditorContentAndComponents({
       markMotionTracksDirty,
       motionNativeStyles,
       motionTextDocument,
+      motionTracks,
       setMotionNativeStyles,
       setMotionTextDocument,
       t,

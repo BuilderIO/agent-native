@@ -843,6 +843,8 @@ export default {
         "This layer has multiple Position animations, so its path cannot be edited unambiguously.",
       pathEditPositionConflict:
         "This layer has another Position animation, so its path can't be curved.",
+      positionStyleConflict:
+        "This layer already has a Position animation that can't be combined with another one.",
       animationStyles: {
         title: "Animations",
         createTitle: "Create new animation style",

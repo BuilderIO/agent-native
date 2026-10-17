@@ -920,6 +920,8 @@ export default {
         "このレイヤーには複数の位置アニメーションがあるため、パスを一意に編集できません。",
       pathEditPositionConflict:
         "このレイヤーには別の位置アニメーションがあるため、パスを曲線にできません。",
+      positionStyleConflict:
+        "このレイヤーには、他と組み合わせられない位置アニメーションがすでにあります。",
       animationStyles: {
         title: "アニメーション",
         createTitle: "新しいアニメーションスタイルを作成",

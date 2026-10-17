@@ -104,4 +104,42 @@ describe("collab polling while a poll is in flight", () => {
 
     expect(await pollsDuring(20_000)).toBeLessThanOrEqual(quietWindow + 1);
   });
+
+  it("abandons a poll that never settles so polling resumes", async () => {
+    let polls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (/\/collab\/[^/]+\/state/.test(url)) {
+          return new Response(
+            JSON.stringify({ state: "AQGw+tWiDgAEAQdjb250ZW50BHNlZWQA" }),
+          );
+        }
+        if (url.includes("/_agent-native/poll")) {
+          polls += 1;
+          return new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () =>
+              reject(new DOMException("Aborted", "AbortError")),
+            );
+          });
+        }
+        return new Response(JSON.stringify({ states: [] }));
+      }),
+    );
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    act(() => root!.render(<Probe docId="poll-hang-doc" />));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    const hung = polls;
+    expect(hung).toBeGreaterThan(0);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(polls).toBeGreaterThanOrEqual(hung + 2);
+  });
 });

@@ -907,6 +907,8 @@ export default {
         "이 레이어에는 위치 애니메이션이 여러 개 있어 경로를 명확하게 편집할 수 없습니다.",
       pathEditPositionConflict:
         "이 레이어에는 다른 위치 애니메이션이 있어 경로를 곡선으로 만들 수 없습니다.",
+      positionStyleConflict:
+        "이 레이어에는 다른 애니메이션과 결합할 수 없는 위치 애니메이션이 이미 있습니다.",
       animationStyles: {
         title: "애니메이션",
         createTitle: "새 애니메이션 스타일 만들기",

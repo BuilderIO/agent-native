@@ -1024,6 +1024,7 @@ export default {
       pathEditAmbiguous: "此圖層包含多個位置動畫，無法明確編輯其路徑。",
       pathEditPositionConflict:
         "此圖層已有另一個位置動畫，因此無法將其路徑改為曲線。",
+      positionStyleConflict: "此圖層已有無法與其他位置動畫組合的位置動畫。",
       animationStyles: {
         title: "動畫",
         createTitle: "建立新的動畫樣式",

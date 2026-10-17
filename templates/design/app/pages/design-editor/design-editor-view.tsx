@@ -7,6 +7,7 @@ import type {
   MotionAnimationStyleTrackDefinition,
 } from "@shared/motion-animation-styles";
 import type { MotionBuiltInRecipe } from "@shared/motion-built-in-recipes";
+import { motionTimelineHasIncompatiblePositionTracks } from "@shared/motion-code";
 import type { MotionEasingVariable } from "@shared/motion-easing";
 import type {
   MotionNativeStyleInstance,
@@ -1627,6 +1628,15 @@ export function renderDesignEditorView({
               });
             } catch {
               toast.error(t("designEditor.motion.textSyncUnsupported"));
+              return;
+            }
+            if (
+              motionTimelineHasIncompatiblePositionTracks({
+                tracks: motionTracks,
+                nativeStyles: [...motionNativeStyles, ...instances],
+              })
+            ) {
+              toast.error(t("designEditor.motion.positionStyleConflict"));
               return;
             }
             const nextDurationMs = Math.max(

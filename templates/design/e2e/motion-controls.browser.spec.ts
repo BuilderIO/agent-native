@@ -1832,3 +1832,77 @@ test("saving imported inline CSS moves its animation into managed source", async
     }
   }
 });
+
+test("adding a Position style beside a curved path is refused instead of left unsaveable", async ({
+  page,
+  request,
+}) => {
+  let curvedDesignId: string | undefined;
+  try {
+    const created = await postAction(request, "create-design", {
+      title: "Curved Position path",
+      projectType: "prototype",
+    });
+    curvedDesignId = created?.id ?? created?.data?.id ?? created?.design?.id;
+    if (!curvedDesignId) throw new Error("create-design did not return an id");
+    const file = await postAction(request, "create-file", {
+      designId: curvedDesignId,
+      filename: "index.html",
+      content: REFERENCE_FIXTURE_HTML,
+      fileType: "html",
+    });
+    if (!file.id) throw new Error("create-file did not return a file id");
+    const seeded = await postAction(request, "apply-motion-edit", {
+      designId: curvedDesignId,
+      fileId: file.id,
+      sourceRef: file.id,
+      durationMs: 1000,
+      tracks: [
+        {
+          targetNodeId: "e2e-motion-reference-rectangle",
+          property: "translate",
+          keyframes: [
+            {
+              t: 0,
+              value: "0px 0px",
+              motionPath: {
+                version: 1,
+                type: "cubic",
+                control1: { x: 40, y: -60 },
+                control2: { x: -40, y: -60 },
+              },
+            },
+            { t: 1, value: "200px 0px" },
+          ],
+        },
+      ],
+    });
+    expect(seeded).toMatchObject({ persisted: true });
+
+    await page.setViewportSize({ width: 1728, height: 941 });
+    await gotoEditor(page, curvedDesignId);
+    await selectByText(page, "Reference Rectangle", {
+      screenId: file.id,
+      clearPreviousSelection: true,
+      deep: false,
+    });
+    await page
+      .getByRole("button", { name: "Add animation", exact: true })
+      .first()
+      .click();
+    await page.getByRole("menuitem", { name: "Position", exact: true }).click();
+
+    await expect(
+      page.getByText(
+        "This layer already has a Position animation that can't be combined with another one.",
+      ),
+    ).toBeVisible();
+    await expect(
+      page.locator('[data-motion-native-style-row="Position"]'),
+    ).toHaveCount(0);
+  } finally {
+    if (curvedDesignId) {
+      await postAction(request, "delete-design", { id: curvedDesignId });
+    }
+  }
+});

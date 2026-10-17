@@ -918,6 +918,8 @@ export default {
         "Esta camada tem várias animações de posição, então não é possível editar o caminho com precisão.",
       pathEditPositionConflict:
         "Esta camada já tem outra animação de posição, então o caminho dela não pode ser curvado.",
+      positionStyleConflict:
+        "Esta camada já tem uma animação de posição que não pode ser combinada com outra.",
       animationStyles: {
         title: "Animações",
         createTitle: "Criar novo estilo de animação",

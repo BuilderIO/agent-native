@@ -156,6 +156,9 @@ const STATE_VECTOR_FETCH_INTERVAL = 15;
 
 const STATE_VECTOR_FETCH_TIMEOUT_MS = 15_000;
 
+// A poll that never settles would hold the in-flight guard and stop polling.
+const POLL_FETCH_TIMEOUT_MS = 15_000;
+
 const POLL_RING_BUFFER_SIZE = 200;
 
 const BACKOFF_BASE_MS = 500;
@@ -1052,11 +1055,18 @@ class CollabDocConnection {
 
     this.flushPendingUpdates();
 
+    const pollAbort = new AbortController();
+    const pollTimeout = setTimeout(
+      () => pollAbort.abort(),
+      POLL_FETCH_TIMEOUT_MS,
+    );
     try {
       const pollUrl = this.pollCursor
         ? `/_agent-native/poll?cursor=${encodeURIComponent(this.pollCursor)}`
         : `/_agent-native/poll?since=${this.pollVersion}`;
-      const res = await fetch(agentNativePath(pollUrl));
+      const res = await fetch(agentNativePath(pollUrl), {
+        signal: pollAbort.signal,
+      });
       if (!res.ok) throw new Error("HTTP " + res.status);
 
       const data = await res.json();
@@ -1178,6 +1188,8 @@ class CollabDocConnection {
         }, backoff);
       }
       return;
+    } finally {
+      clearTimeout(pollTimeout);
     }
 
     this.schedulePoll();

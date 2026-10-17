@@ -1021,8 +1021,11 @@ export function ComponentSection({
       : sourceRestoreState === "valid";
 
   const isInline = sourceType === "inline";
-  const editingEnabled =
+  const editingSupported =
     (isInline || Boolean(effectiveRuntime?.local)) && capabilities.canEditProps;
+  // Cached details can predate a pending save; an edit built from them
+  // rewrites the source over that save.
+  const editingEnabled = editingSupported && componentDetailsReady;
   const alpineData = parseAlpineDataObject(instance?.alpineData);
 
   const rows: PropRow[] = buildComponentPropRows({
@@ -1391,7 +1394,7 @@ export function ComponentSection({
         )}
 
         {/* Connect-Builder CTA (only when prop editing is actually gated). */}
-        {capabilities.ctaRequired && !editingEnabled && (
+        {capabilities.ctaRequired && !editingSupported && (
           <MakeItRealCard
             designId={designId}
             featureLabel="component source jump and typed prop metadata"

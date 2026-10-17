@@ -403,6 +403,32 @@ describe("ComponentSection source readiness", () => {
     container.remove();
   });
 
+  it("does not edit from cached details while a pending save holds the read", async () => {
+    const { container, root } = await mount();
+    mocks.cachedWhileDisabled = true;
+    mocks.triggerVariantCommit = true;
+    await act(async () =>
+      root.render(
+        <ComponentSection
+          designId="design_1"
+          fileId="screen_1"
+          nodeId="node_1"
+          componentDetailsReady={false}
+        />,
+      ),
+    );
+
+    expect(container.textContent).toContain("Button");
+    expect(mocks.mutations).toEqual([]);
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        '[aria-label="designEditor.componentInstances.swap"]',
+      )?.disabled,
+    ).toBe(true);
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
   it("previews a prop in the selected screen iframe when siblings are mounted", async () => {
     const { container, root } = await mount();
     const firstScreenIframe = document.createElement("iframe");
