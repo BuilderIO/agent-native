@@ -4,6 +4,7 @@ import * as jose from "jose";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  CHATGPT_SUBSCRIPTION_ACTIVE_ACCOUNT_SETTING_KEY,
   CHATGPT_SUBSCRIPTION_RESOURCE,
   CHATGPT_SUBSCRIPTION_SCOPES,
 } from "../agent/chatgpt-subscription-contract.js";
@@ -170,6 +171,11 @@ describe("ChatGPT subscription OAuth contract", () => {
         },
       },
     });
+    mocks.getUserSetting.mockImplementation(async (_email, key) =>
+      key === CHATGPT_SUBSCRIPTION_ACTIVE_ACCOUNT_SETTING_KEY
+        ? { accountId }
+        : null,
+    );
 
     await runWithRequestContext(
       {
@@ -188,12 +194,18 @@ describe("ChatGPT subscription OAuth contract", () => {
           supported: false,
           localLoopback: false,
           connected: false,
+          activeAccountId: accountId,
+          activeAccount: expect.objectContaining({
+            id: accountId,
+            active: true,
+          }),
           accounts: [
             expect.objectContaining({
               id: accountId,
               email: "alice@example.com",
               label: "Alice",
               connected: true,
+              active: true,
             }),
           ],
         });
@@ -202,6 +214,11 @@ describe("ChatGPT subscription OAuth contract", () => {
         ).rejects.toThrow("available only from a local app");
       },
     );
+    expect(mocks.getUserSetting).toHaveBeenCalledWith(
+      "alice@example.com",
+      CHATGPT_SUBSCRIPTION_ACTIVE_ACCOUNT_SETTING_KEY,
+    );
+    expect(mocks.putUserSetting).not.toHaveBeenCalled();
     expect(mocks.getUserLabEnabled).not.toHaveBeenCalled();
   });
 

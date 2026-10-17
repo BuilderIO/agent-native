@@ -828,6 +828,12 @@ export async function getChatGPTSubscriptionStatus(
   const labEnabled =
     localLoopback && (await chatGPTSubscriptionLabEnabled(email));
   if (!labEnabled) {
+    const accounts = localLoopback ? [] : await accountSummaries(email);
+    const activeAccountId = localLoopback
+      ? null
+      : await readActiveAccountId(email);
+    const selected =
+      accounts.find((account) => account.id === activeAccountId) ?? null;
     return {
       supported: false,
       localLoopback,
@@ -835,9 +841,12 @@ export async function getChatGPTSubscriptionStatus(
       connected: false,
       reconnectRequired: false,
       accountId: null,
-      activeAccountId: null,
-      activeAccount: null,
-      accounts: localLoopback ? [] : await accountSummaries(email),
+      activeAccountId: selected?.id ?? null,
+      activeAccount: selected ? { ...selected, active: true } : null,
+      accounts: accounts.map((account) => ({
+        ...account,
+        active: account.id === selected?.id,
+      })),
       legacyRegistrationCleanupAvailable: false,
     };
   }
