@@ -3,7 +3,7 @@ import { defineAction, type ActionRunContext } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -15,7 +15,10 @@ import {
   lockDocumentMetadataDatabase,
   nextDocumentMetadataUpdatedAt,
 } from "../server/lib/document-metadata-updated-at.js";
-import { propagateDocumentTitle } from "../server/lib/document-title-propagation.js";
+import {
+  propagatedPageTitle,
+  propagateDocumentTitle,
+} from "../server/lib/document-title-propagation.js";
 import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
 import {
   parseDocumentFavorite,
@@ -96,9 +99,10 @@ async function titleOrganizationIds(): Promise<string[]> {
 /**
  * A version restore on a switched page, through its live copy, so open tabs
  * get the restored body instead of writing their own copy back over it. A
- * changed body takes the version's title in its commit and History row; a
- * title change still has to reach the page's backing collection, and when
- * the body reads the same once canonical, it is this restore's only change.
+ * changed body takes the version's title in its commit and History row, as
+ * the page's backing collection leaves it; a title change still has to
+ * reach that collection, and when the body reads the same once canonical,
+ * it is this restore's only change.
  * Undefined when the page left its live copy before anything committed; the
  * caller takes the legacy path.
  */
@@ -129,11 +133,25 @@ async function restoreThroughLiveCopy(args: {
       statusCode: 404,
     });
   }
-  if (current.title === version.title && current.content === version.content) {
+  // The body commit records its title in History before the title reaches
+  // the backing collection, so it records the title that collection leaves.
+  // guard:allow-unscoped — the caller asserted editor access to this page.
+  const [backing] = await getDb()
+    .select({
+      id: schema.contentDatabases.id,
+      systemRole: schema.contentDatabases.systemRole,
+      spaceId: schema.contentDatabases.spaceId,
+    })
+    .from(schema.contentDatabases)
+    .where(eq(schema.contentDatabases.documentId, documentId))
+    .orderBy(asc(schema.contentDatabases.id))
+    .limit(1);
+  const title = propagatedPageTitle(version.title, backing);
+  if (current.title === title && current.content === version.content) {
     return { document: current, softDeletedDatabaseIds: [] };
   }
   const organizationIds =
-    current.title !== version.title ? await titleOrganizationIds() : [];
+    current.title !== title ? await titleOrganizationIds() : [];
   const cause = { ctx, operation: "restore-document-version" };
   let result:
     | { document: DocumentRow; softDeletedDatabaseIds: string[] }
@@ -142,7 +160,7 @@ async function restoreThroughLiveCopy(args: {
     await editContentLiveCopy(documentId, {
       cause: {
         ...cause,
-        title: version.title,
+        title,
         calloutSource: { kind: "version", versionId },
       },
       edit: CONTENT_LIVE_COPY_EDITS.replaceBody,
@@ -168,12 +186,17 @@ async function restoreThroughLiveCopy(args: {
             "The document changed while the restore was committing.",
           );
         }
-        if (current.title !== version.title) {
+        if (current.title !== title) {
           const lockedDatabaseId = await lockDocumentMetadataDatabase({
             db,
             documentId,
             ownerEmail,
           });
+          if (lockedDatabaseId !== (backing?.id ?? null)) {
+            restoreConflict(
+              "The document's backing collection changed while the restore was committing.",
+            );
+          }
           const now = await nextDocumentMetadataUpdatedAt({
             db,
             documentId,
@@ -184,12 +207,12 @@ async function restoreThroughLiveCopy(args: {
           // guard:allow-unscoped — writes the page row this transaction locked.
           await db
             .update(schema.documents)
-            .set({ title: version.title, updatedAt: now })
+            .set({ title, updatedAt: now })
             .where(eq(schema.documents.id, documentId));
           await propagateDocumentTitle({
             db,
             documentId,
-            title: version.title,
+            title,
             updatedAt: now,
             organizationIds,
             databaseId: lockedDatabaseId,
@@ -200,7 +223,7 @@ async function restoreThroughLiveCopy(args: {
               ownerEmail,
               documentId,
               before: { title: row.title, content: row.content },
-              after: { title: version.title, content: row.content },
+              after: { title, content: row.content },
               cause,
               now,
             });

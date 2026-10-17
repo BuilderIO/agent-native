@@ -7,7 +7,7 @@ import { serializeIconValue } from "@agent-native/core/icons";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { putSetting } from "@agent-native/core/settings";
 import { initProseMirrorDoc, updateYFragment } from "@tiptap/y-tiptap";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import {
   afterAll,
   beforeAll,
@@ -1973,6 +1973,89 @@ describe("a version restore on a switched page", () => {
       operation: "restore-document-version",
       content: "Same body",
     });
+  });
+
+  /** Makes `id` the page of a Files space, and blanks `versionId`'s title. */
+  async function filesPageWithBlankVersion(id: string, versionId: string) {
+    await getDb()
+      .insert(schema.contentSpaces)
+      .values({
+        id: `${id}-space`,
+        name: "Files",
+        kind: "user",
+        ownerEmail: OWNER,
+        filesDatabaseId: `${id}-files`,
+        createdBy: OWNER,
+      });
+    await getDb()
+      .insert(schema.contentDatabases)
+      .values({
+        id: `${id}-files`,
+        spaceId: `${id}-space`,
+        ownerEmail: OWNER,
+        documentId: id,
+        title: id,
+        systemRole: "files",
+      });
+    await getDb()
+      .update(schema.documentVersions)
+      .set({ title: "" })
+      .where(eq(schema.documentVersions.id, versionId));
+  }
+
+  async function lastHistoryTitle(id: string) {
+    const [row] = await getDb()
+      .select({ title: schema.documentVersions.title })
+      .from(schema.documentVersions)
+      .where(eq(schema.documentVersions.documentId, id))
+      .orderBy(
+        desc(schema.documentVersions.createdAt),
+        desc(schema.documentVersions.id),
+      )
+      .limit(1);
+    return row?.title;
+  }
+
+  it("records the title a Files page keeps when it restores a blank-titled version", async () => {
+    await switchedPage("restore-files", "First draft");
+    await serverEdit("restore-files", "Second draft");
+    const versionId = await versionHolding("restore-files", "First draft");
+    await filesPageWithBlankVersion("restore-files", versionId);
+
+    const restored = await restore(
+      "restore-files",
+      versionId,
+      (await metadata("restore-files")).updatedAt,
+    );
+
+    expect(restored).toMatchObject({
+      title: "Untitled",
+      content: "First draft",
+    });
+    expect((await metadata("restore-files")).title).toBe("Untitled");
+    expect(await lastHistoryTitle("restore-files")).toBe("Untitled");
+  });
+
+  it("records the title a Files page keeps when a blank-titled version's restore changes only the title", async () => {
+    await switchedPage("restore-files-title", "Same body");
+    await serverEdit("restore-files-title", "Other body");
+    const versionId = await versionHolding("restore-files-title", "Same body");
+    await serverEdit("restore-files-title", "Same body");
+    await filesPageWithBlankVersion("restore-files-title", versionId);
+    const before = await metadata("restore-files-title");
+
+    const restored = await restore(
+      "restore-files-title",
+      versionId,
+      before.updatedAt,
+    );
+
+    expect(restored).toMatchObject({
+      title: "Untitled",
+      bodyRevision: before.bodyRevision,
+    });
+    expect((await metadata("restore-files-title")).title).toBe("Untitled");
+    expect(await lastHistoryTitle("restore-files-title")).toBe("Untitled");
   });
 
   it("refuses a restore prepared before the page changed, and commits nothing", async () => {
