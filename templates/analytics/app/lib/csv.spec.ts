@@ -13,6 +13,8 @@ describe("csvCell", () => {
   it("quotes CSV delimiters and keeps numeric values numeric", () => {
     expect(csvCell('a,"b"')).toBe('"a,""b"""');
     expect(csvCell(-12.5)).toBe("-12.5");
-    expect(csvCell("-12.5")).toBe("'-12.5");
+    expect(csvCell("-12.5")).toBe("-12.5");
+    expect(csvCell("-1.25e-3")).toBe("-1.25e-3");
+    expect(csvCell("-1+1")).toBe("'-1+1");
   });
 });

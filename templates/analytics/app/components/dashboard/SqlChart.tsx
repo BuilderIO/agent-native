@@ -3660,6 +3660,7 @@ function FunnelRenderer({
         outcomes={funnel.outcomes}
         panel={panel}
         colors={funnelColors}
+        onDatumClick={onDatumClick}
       />
     );
   }
@@ -3743,11 +3744,13 @@ function OutcomeFunnelRenderer({
   outcomes,
   panel,
   colors,
+  onDatumClick,
 }: {
   funnel: DashboardFunnelRows;
   outcomes: DashboardFunnelOutcomeSummary;
   panel: SqlPanel;
   colors: string[];
+  onDatumClick?: DatumClickHandler;
 }) {
   const t = useT();
   const formatter = panel.config?.yFormatter;
@@ -3786,7 +3789,28 @@ function OutcomeFunnelRenderer({
               const width =
                 item.value > 0 ? Math.max(2, (item.value / maxValue) * 100) : 0;
               return (
-                <div key={`${item.label}-${index}`} className="space-y-1">
+                <div
+                  key={`${item.label}-${index}`}
+                  className={cn(
+                    "space-y-1",
+                    onDatumClick &&
+                      "cursor-pointer rounded-sm hover:bg-muted/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring",
+                  )}
+                  {...(onDatumClick
+                    ? {
+                        role: "button",
+                        tabIndex: 0,
+                        onClick: () =>
+                          onDatumClick({ x: item.label, value: item.value }),
+                        onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            onDatumClick({ x: item.label, value: item.value });
+                          }
+                        },
+                      }
+                    : {})}
+                >
                   <div className="flex items-baseline gap-2 text-xs">
                     <span className="min-w-0 truncate font-medium text-foreground">
                       {item.label}
@@ -3815,6 +3839,7 @@ function OutcomeFunnelRenderer({
                 segments={segments}
                 shown={shown}
                 formatter={formatter}
+                onDatumClick={onDatumClick}
               />
             );
           })}
@@ -3830,12 +3855,14 @@ function OutcomeFunnelStage({
   segments,
   shown,
   formatter,
+  onDatumClick,
 }: {
   item: DashboardFunnelItem;
   outcomes: DashboardFunnelOutcomes;
   segments: FunnelOutcomeSegment[];
   shown: string;
   formatter?: "number" | "currency" | "percent";
+  onDatumClick?: DatumClickHandler;
 }) {
   const t = useT();
   const optionalTag = outcomes.optional ? (
@@ -3852,7 +3879,26 @@ function OutcomeFunnelStage({
       <HoverTooltipTrigger asChild>
         <div
           tabIndex={0}
-          className="space-y-1 rounded-sm outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          role={onDatumClick ? "button" : undefined}
+          className={cn(
+            "space-y-1 rounded-sm outline-none focus-visible:ring-1 focus-visible:ring-ring",
+            onDatumClick && "cursor-pointer hover:bg-muted/40",
+          )}
+          onClick={
+            onDatumClick
+              ? () => onDatumClick({ x: item.label, value: item.value })
+              : undefined
+          }
+          onKeyDown={
+            onDatumClick
+              ? (event: KeyboardEvent<HTMLDivElement>) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    onDatumClick({ x: item.label, value: item.value });
+                  }
+                }
+              : undefined
+          }
           data-funnel-stage={item.label}
         >
           <div className="flex items-baseline gap-2 text-xs">

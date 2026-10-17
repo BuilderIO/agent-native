@@ -107,6 +107,25 @@ function panel(
   };
 }
 
+function outcomeFunnelPanel(): SqlPanel {
+  return {
+    id: "activation-funnel",
+    title: "Activation funnel",
+    sql: "SELECT stage, shown, completed, left_here FROM funnel",
+    source: "first-party",
+    chartType: "funnel",
+    width: 1,
+    config: {
+      xKey: "stage",
+      yKey: "shown",
+      funnelOutcomes: {
+        completedKey: "completed",
+        leftKey: "left_here",
+      },
+    },
+  };
+}
+
 describe("SqlChart drilldown clicks", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -164,4 +183,46 @@ describe("SqlChart drilldown clicks", () => {
       });
     },
   );
+
+  it("passes outcome funnel stage clicks and keyboard activation to drilldown", async () => {
+    const onDatumClick = vi.fn<(datum: ChartDatum) => void>();
+
+    await act(async () => {
+      root.render(
+        <SqlChart
+          panel={outcomeFunnelPanel()}
+          onDatumClick={onDatumClick}
+          resultOverride={{
+            rows: [
+              { stage: "visit", shown: 100, completed: 70, left_here: 10 },
+              { stage: "signup", shown: 40, completed: 30, left_here: 5 },
+            ],
+          }}
+        />,
+      );
+    });
+
+    const visitStage = container.querySelector<HTMLElement>(
+      '[data-funnel-stage="visit"]',
+    );
+    expect(visitStage).not.toBeNull();
+    expect(visitStage?.getAttribute("role")).toBe("button");
+
+    await act(async () => visitStage!.click());
+    await act(async () => {
+      visitStage!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
+
+    expect(onDatumClick).toHaveBeenCalledTimes(2);
+    expect(onDatumClick).toHaveBeenNthCalledWith(1, {
+      x: "visit",
+      value: 100,
+    });
+    expect(onDatumClick).toHaveBeenNthCalledWith(2, {
+      x: "visit",
+      value: 100,
+    });
+  });
 });

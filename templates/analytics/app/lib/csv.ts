@@ -6,6 +6,7 @@ export function csvCell(
   if (
     typeof value !== "number" &&
     typeof value !== "boolean" &&
+    !isNumericText(text) &&
     /^[\s\u0000-\u001f\u007f]*[=+\-@]/.test(text)
   ) {
     text = `'${text}`;
@@ -15,6 +16,10 @@ export function csvCell(
     return `"${text.replace(/"/g, '""')}"`;
   }
   return text;
+}
+
+function isNumericText(text: string): boolean {
+  return /^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/.test(text);
 }
 
 function csvText(value: unknown): string {
