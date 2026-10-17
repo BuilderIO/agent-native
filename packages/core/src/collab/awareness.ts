@@ -8,6 +8,7 @@ import { readBody } from "../server/h3-helpers.js";
 import {
   deleteAwarenessRow,
   loadAwarenessRows,
+  loadAwarenessRowsStrict,
   upsertAwarenessRow,
 } from "./awareness-store.js";
 
@@ -197,7 +198,15 @@ async function mergeStoredAwareness(
   map: Map<number, AwarenessEntry>,
 ): Promise<void> {
   const now = Date.now();
-  const rows = await loadAwarenessRows(docId, now);
+  mergeAwarenessRows(docId, map, await loadAwarenessRows(docId, now), now);
+}
+
+function mergeAwarenessRows(
+  docId: string,
+  map: Map<number, AwarenessEntry>,
+  rows: AwarenessEntry[],
+  now: number,
+): void {
   for (const row of rows) {
     if (isBlockedByAwarenessClear(docId, row.clientId, row.lastSeen, now)) {
       void deleteAwarenessRow(docId, row.clientId, row.lastSeen);
@@ -228,6 +237,18 @@ function cannotFlushState(state: unknown): string | null {
     return null;
   }
   return JSON.stringify({ ...parsed, canFlushDocument: false });
+}
+
+/** Whether a reader may replace or clear `entry`: its own, or nobody's. */
+function readerMayReplace(entry: AwarenessEntry | undefined): boolean {
+  if (!entry || Date.now() - entry.lastSeen > AWARENESS_TIMEOUT) return true;
+  try {
+    const parsed = JSON.parse(entry.state) as { canFlushDocument?: unknown };
+    return parsed?.canFlushDocument === false;
+    // coercion-ok: an unreadable entry is not a reader's, so it is refused.
+  } catch {
+    return false;
+  }
 }
 
 export const postAwareness = defineEventHandler(async (event: H3Event) => {
@@ -268,6 +289,25 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
 
   const map = getDocAwareness(docId);
 
+  // A reader's state never holds a revision, so replacing or clearing a
+  // writer's entry would hide the revision that writer holds from a tab
+  // deciding whether to apply the stored body.
+  const readOnly = context?._collabAwarenessReadOnly === true;
+  if (readOnly) {
+    let rows: AwarenessEntry[];
+    try {
+      rows = await loadAwarenessRowsStrict(docId);
+    } catch {
+      setResponseStatus(event, 503);
+      return { error: "Presence could not be read" };
+    }
+    mergeAwarenessRows(docId, map, rows, Date.now());
+    if (!readerMayReplace(map.get(clientId))) {
+      setResponseStatus(event, 403);
+      return { error: "clientId belongs to another collaborator" };
+    }
+  }
+
   if (storedState === null) {
     const clearedAt = Date.now();
     map.delete(clientId);
@@ -280,7 +320,8 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
     void upsertAwarenessRow(docId, clientId, storedState, entry.lastSeen);
   }
 
-  await mergeStoredAwareness(docId, map);
+  // A reader's rows were merged above.
+  if (!readOnly) await mergeStoredAwareness(docId, map);
 
   cleanExpired(map);
   pruneIfEmpty(docId, map);

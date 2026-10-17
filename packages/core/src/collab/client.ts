@@ -738,7 +738,6 @@ class CollabDocConnection {
     try {
       const exchanged = await this.exchangeAwareness({
         signal: controller.signal,
-        strict: true,
       });
       return exchanged && !this.disposed
         ? { status: "ready" }
@@ -758,14 +757,14 @@ class CollabDocConnection {
   }
 
   /**
-   * Throws when the request fails, and with `strict` when any of the answer is
-   * unreadable, since a caller acting on who is open must not read a partial
-   * answer as fewer collaborators. False when there was nothing to exchange.
+   * Throws when the request fails or any of the answer is unreadable, changing
+   * nothing: an answer replaces the collaborators this client knows, and one
+   * applied without an unreadable collaborator would also outrank an older,
+   * complete answer. False when there was nothing to exchange.
    */
   private async exchangeAwareness({
     signal,
-    strict = false,
-  }: { signal?: AbortSignal; strict?: boolean } = {}): Promise<boolean> {
+  }: { signal?: AbortSignal } = {}): Promise<boolean> {
     const localState = this.awareness.getLocalState();
     if (!localState || this.disposed) return false;
     const exchange = ++this.awarenessExchangesSent;
@@ -796,15 +795,10 @@ class CollabDocConnection {
       try {
         state = JSON.parse(remote.state);
       } catch {
-        if (strict)
-          throw new Error("Awareness response has an unreadable state");
-        continue;
+        throw new Error("Awareness response has an unreadable state");
       }
       const clientId = Number(remote.clientId);
-      if (
-        strict &&
-        (!Number.isInteger(clientId) || !state || typeof state !== "object")
-      ) {
+      if (!Number.isInteger(clientId) || !state || typeof state !== "object") {
         throw new Error("Awareness response has an unreadable state");
       }
       remoteStates.push({ clientId, state });

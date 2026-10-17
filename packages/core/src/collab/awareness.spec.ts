@@ -12,6 +12,19 @@ const mockReadBody = vi.fn();
 vi.mock("../server/h3-helpers.js", () => ({
   readBody: (...args: unknown[]) => mockReadBody(...args),
 }));
+const storedRows = vi.hoisted(() => ({ unreadable: false }));
+vi.mock("./awareness-store.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./awareness-store.js")>();
+  return {
+    ...actual,
+    loadAwarenessRowsStrict: async (
+      ...args: Parameters<typeof actual.loadAwarenessRowsStrict>
+    ) => {
+      if (storedRows.unreadable) throw new Error("Presence store unavailable");
+      return actual.loadAwarenessRowsStrict(...args);
+    },
+  };
+});
 
 import {
   emitAwarenessChange,
@@ -160,7 +173,7 @@ describe("postAwareness handler", () => {
   });
 
   it("stores a reader's state as one that cannot flush the doc", async () => {
-    const map = getDocAwareness("post-doc");
+    const map = getDocAwareness("reader-marked-doc");
     const claim = {
       user: { name: "Reader" },
       canFlushDocument: true,
@@ -171,7 +184,7 @@ describe("postAwareness handler", () => {
       state: JSON.stringify(claim),
     });
     const ev = {
-      ...event({ docId: "post-doc" }),
+      ...event({ docId: "reader-marked-doc" }),
       context: { _collabAwarenessReadOnly: true },
     };
     await postAwareness(ev);
@@ -194,6 +207,63 @@ describe("postAwareness handler", () => {
     expect(ev._status).toBe(400);
     expect(res).toEqual({ error: "state must be a JSON object" });
     expect(map.has(5)).toBe(false);
+  });
+
+  describe("from a reader", () => {
+    const writer = JSON.stringify({
+      user: { name: "Editor" },
+      canFlushDocument: true,
+      reconciledRevision: "body:3:a",
+    });
+    const reader = JSON.stringify({ user: { name: "Reader" } });
+    const post = (docId: string, clientId: number, state: string | null) => {
+      mockReadBody.mockResolvedValue({ clientId, state });
+      const ev = {
+        ...event({ docId }),
+        context: { _collabAwarenessReadOnly: true },
+      };
+      return postAwareness(ev).then((res) => ({ status: ev._status, res }));
+    };
+
+    afterEach(() => {
+      storedRows.unreadable = false;
+    });
+
+    it("cannot replace or clear a writer's entry", async () => {
+      const map = getDocAwareness("reader-writer-doc");
+      map.set(7, { clientId: 7, state: writer, lastSeen: Date.now() });
+
+      expect(await post("reader-writer-doc", 7, reader)).toEqual({
+        status: 403,
+        res: { error: "clientId belongs to another collaborator" },
+      });
+      expect((await post("reader-writer-doc", 7, null)).status).toBe(403);
+      expect(map.get(7)?.state).toBe(writer);
+    });
+
+    it("replaces and clears its own entry, or one that expired", async () => {
+      const map = getDocAwareness("reader-own-doc");
+      map.set(9, { clientId: 9, state: writer, lastSeen: Date.now() - 60_000 });
+
+      expect((await post("reader-own-doc", 8, reader)).status).toBe(200);
+      expect((await post("reader-own-doc", 8, reader)).status).toBe(200);
+      expect((await post("reader-own-doc", 9, reader)).status).toBe(200);
+      expect((await post("reader-own-doc", 8, null)).status).toBe(200);
+
+      expect(map.has(8)).toBe(false);
+      expect(JSON.parse(map.get(9)!.state).canFlushDocument).toBe(false);
+    });
+
+    it("is refused, changing nothing, while stored presence cannot be read", async () => {
+      const map = getDocAwareness("reader-unread-doc");
+      storedRows.unreadable = true;
+
+      expect(await post("reader-unread-doc", 8, reader)).toEqual({
+        status: 503,
+        res: { error: "Presence could not be read" },
+      });
+      expect(map.has(8)).toBe(false);
+    });
   });
 
   it("clears the sender's state when state is null", async () => {

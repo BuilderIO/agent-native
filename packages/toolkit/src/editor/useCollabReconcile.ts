@@ -1226,7 +1226,11 @@ export function useCollabReconcile({
           }
         } else if (
           contentRevision === acknowledgedLocalSnapshot.revision &&
-          value === acknowledgedLocalSnapshot.value
+          value === acknowledgedLocalSnapshot.value &&
+          // Props stored after the acknowledgement they match are a snapshot
+          // of their own, which a joining doc still takes.
+          (!contentUpdatedAt ||
+            contentUpdatedAt <= acknowledgedLocalSnapshot.updatedAt)
         ) {
           rejectedMatchingAcknowledgement = true;
         }

@@ -1452,6 +1452,46 @@ describe("useCollabReconcile: what finishes a join", () => {
     },
   );
 
+  // The page changes after A's save lands without its body changing, so C
+  // sees A's saved body stored later than the acknowledgement of it.
+  it.each<[string, ((first: string, second: string) => number | null) | null]>([
+    ["orders the revisions", compareRevisions],
+    ["cannot order the revisions", () => null],
+    ["passes no comparator", null],
+  ])(
+    "finishes on a snapshot the doc matches stored after an older acknowledgement of the same body, when it %s",
+    async (_, compare) => {
+      const tabs = makeTabs({ ids: { A: 5, B: 2, C: 3 }, compare });
+      const later: Snapshot = {
+        ...ACKNOWLEDGED,
+        updatedAt: "2024-01-01T00:00:07.000Z",
+      };
+      vi.useFakeTimers();
+      try {
+        await openCWhileASaves(tabs);
+        act(() =>
+          root.render(
+            React.createElement(tabs.Tabs, {
+              snapshot: STORED,
+              snapshotC: later,
+              withC: true,
+              acknowledgedC: { ...ACKNOWLEDGED, sequence: 1 },
+            }),
+          ),
+        );
+        await act(async () => vi.advanceTimersByTimeAsync(21_000));
+
+        expect(tabs.counts()).toEqual({ A: 1, B: 1, C: 1 });
+        expect(tabs.results.C!.isJoinPending()).toBe(false);
+        expect(tabs.joinFailed("C")).toBe(false);
+        expect(tabs.editors.C!.isEditable).toBe(true);
+        expect(heldRevision(tabs.awareness.C)).toBe(ACKNOWLEDGED.revision);
+      } finally {
+        tabs.dispose();
+      }
+    },
+  );
+
   // C opens on one body and takes a same-time newer one the live doc already
   // holds. The first comes back with its save acknowledged, which C refuses,
   // and then the doc moves to the newer body, which finishes C's join.
