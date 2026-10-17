@@ -8,6 +8,7 @@ export interface EscapeHotkeyArgs {
   activeBreakpointWidthStateRef: RefObject<number | undefined>;
   activeTool: DesignTool;
   cancelActiveEditorDrag: () => boolean;
+  clearPendingOverviewLayerSelection: () => void;
   drawMode: boolean;
   enterOverviewFromZoom: (nextMode?: EditorMode) => void;
   focusedAnnotationSending: boolean;
@@ -39,6 +40,7 @@ export function runEscapeHotkey({
   activeBreakpointWidthStateRef,
   activeTool,
   cancelActiveEditorDrag,
+  clearPendingOverviewLayerSelection,
   drawMode,
   enterOverviewFromZoom,
   focusedAnnotationSending,
@@ -92,6 +94,7 @@ export function runEscapeHotkey({
     enterOverviewFromZoom();
     return;
   }
+  clearPendingOverviewLayerSelection();
   setSelectedElement(null);
   setHoveredElement(null);
   setCreatedOverviewLayerSelection(null);
