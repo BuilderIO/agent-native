@@ -577,6 +577,128 @@ describe("private preview document drafts", () => {
     },
   );
 
+  it.each(["use_saved", "keep_mine", "save_separately"] as const)(
+    "settles a %s claim an earlier resolver marked resolved without settling",
+    async (choice) => {
+      const documentId = await createDocument();
+      const draft = {
+        ...payload("Local recovery"),
+        deferredReason: "conflict" as const,
+        editorSessionId: `unsettled-${choice}-tab`,
+        editGeneration: 5,
+      };
+      await asUser(OWNER, () =>
+        updateDraft.run({
+          operation: "upsert",
+          documentId,
+          expectedVersion: null,
+          draft,
+        }),
+      );
+      const request = {
+        choice,
+        documentId,
+        expectedDraftVersion: 1,
+        expectedDraftTitle: "Builder row",
+        expectedDraftContent: "Local recovery",
+        expectedDocumentUpdatedAt: documentUpdatedAt(documentId),
+      };
+      const delayedSaveBase = await authoredSaveBase(
+        documentId,
+        "Local recovery",
+      );
+      const settleSpy = stopSettlingEditor(draft.editorSessionId);
+      try {
+        await expect(
+          asUser(OWNER, () => resolveDraft.run(request)),
+        ).rejects.toThrow("settlement stopped");
+      } finally {
+        settleSpy.mockRestore();
+      }
+      // Resolvers before this fix could mark a retried claim resolved without
+      // settling it, and those claims are still in the database.
+      const [claim] = await getDb()
+        .select()
+        .from(schema.documentVersions)
+        .where(
+          and(
+            eq(schema.documentVersions.documentId, documentId),
+            eq(
+              schema.documentVersions.operation,
+              choice === "use_saved"
+                ? "use-saved-preview-draft"
+                : `claim-preview-draft-${choice}`,
+            ),
+          ),
+        );
+      await getDb()
+        .update(schema.documentVersions)
+        .set({
+          chatContext: JSON.stringify({
+            ...JSON.parse(claim.chatContext),
+            status: "resolved",
+          }),
+        })
+        .where(eq(schema.documentVersions.id, claim.id));
+      await getDb()
+        .delete(schema.documentPreviewDrafts)
+        .where(eq(schema.documentPreviewDrafts.documentId, documentId));
+      const unsettled = await getDb()
+        .select()
+        .from(schema.documentPreviewDraftSettlements)
+        .where(
+          eq(
+            schema.documentPreviewDraftSettlements.editorSessionId,
+            draft.editorSessionId,
+          ),
+        );
+      expect(
+        unsettled.map((row) => [
+          row.settledGeneration,
+          row.discardedGeneration,
+        ]),
+      ).toEqual([[-1, null]]);
+
+      await expect(
+        asUser(OWNER, () => resolveDraft.run(request)),
+      ).resolves.toMatchObject({ status: "resolved", choice });
+      await expect(
+        asUser(OWNER, () =>
+          updateDraft.run({
+            operation: "upsert",
+            documentId,
+            expectedVersion: null,
+            draft,
+          }),
+        ),
+      ).resolves.toEqual({ status: "superseded", draft: null });
+      if (choice !== "use_saved") return;
+      const delayed = await asUser(OWNER, () =>
+        updateDocument.run(
+          {
+            id: documentId,
+            content: "Local recovery",
+            ...delayedSaveBase,
+            editorSessionId: draft.editorSessionId,
+            editorEditGeneration: draft.editGeneration,
+            editorSnapshotTitle: "Builder row",
+            editorSnapshotContent: "Local recovery",
+            browserSaveAttemptId: "delayed-unsettled-use-saved-attempt",
+            reuseLabels: [],
+          },
+          { caller: "frontend" } as any,
+        ),
+      );
+      expect(delayed).toMatchObject({
+        superseded: true,
+        discardedGeneration: draft.editGeneration,
+      });
+      expect((await documentRowForDraftTest(documentId)).content).toBe(
+        "Server body",
+      );
+    },
+  );
+
   it("fences an expired worker when a retry completes the side effect first", async () => {
     const documentId = await createDocument();
     const [before] = await getDb()

@@ -116,6 +116,7 @@ export default defineAction({
     const access = await assertAccess("document", args.documentId, "editor");
     const ownerEmail = access.resource.ownerEmail as string;
     const db = getDb();
+    type ClaimTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
     let recoveryId = await recoveryDocumentId({
       ...args,
       ownerEmail: userEmail,
@@ -207,6 +208,32 @@ export default defineAction({
       eq(schema.documentPreviewDrafts.title, args.expectedDraftTitle),
       eq(schema.documentPreviewDrafts.content, args.expectedDraftContent),
     );
+    // Settling the editor generation is the choice itself for Use saved, so
+    // no path may publish or trust a resolved claim without it. Resolvers
+    // before this one marked some retried claims resolved unsettled.
+    const settleClaimGeneration = async (
+      tx: ClaimTransaction,
+      payload: z.infer<typeof durableClaimPayload>,
+      now = new Date().toISOString(),
+    ) => {
+      if (
+        payload.editorSessionId === null ||
+        payload.editorSessionId === undefined ||
+        payload.editGeneration === null ||
+        payload.editGeneration === undefined
+      )
+        return;
+      await settlePreviewDocumentDraft({
+        db: tx,
+        ownerEmail: userEmail,
+        orgId,
+        documentId: args.documentId,
+        editorSessionId: payload.editorSessionId,
+        editGeneration: payload.editGeneration,
+        discarded: payload.choice === "use_saved",
+        now,
+      });
+    };
     const claimExactDraft = async () => {
       return db.transaction(async (tx) => {
         const [currentDocument] = await tx
@@ -248,6 +275,7 @@ export default defineAction({
             conflict("This draft was already resolved with another choice.");
           }
           if (payload.status === "resolved") {
+            await settleClaimGeneration(tx, payload);
             return { status: "resolved" as const };
           }
           const expectedUpdatedAt =
@@ -371,6 +399,7 @@ export default defineAction({
               .returning({ id: schema.documentPreviewDrafts.id });
             if (deleted.length !== 1)
               conflict("The saved draft changed during recovery.");
+            await settleClaimGeneration(tx, payload);
             return { status: "resolved" as const };
           }
           if (payload.draftId !== draft.id)
@@ -404,31 +433,13 @@ export default defineAction({
         return { status: "claimed" as const, draft, acquired: true };
       });
     };
-    // Settling the editor generation is the choice itself for Use saved, so
-    // nothing may publish a resolved claim without it.
     const settleAndResolveClaim = async (
-      tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+      tx: ClaimTransaction,
       chatContext: string,
       payload: z.infer<typeof durableClaimPayload>,
     ) => {
       const resolvedAt = new Date().toISOString();
-      if (
-        payload.editorSessionId !== null &&
-        payload.editorSessionId !== undefined &&
-        payload.editGeneration !== null &&
-        payload.editGeneration !== undefined
-      ) {
-        await settlePreviewDocumentDraft({
-          db: tx,
-          ownerEmail: userEmail,
-          orgId,
-          documentId: args.documentId,
-          editorSessionId: payload.editorSessionId,
-          editGeneration: payload.editGeneration,
-          discarded: args.choice === "use_saved",
-          now: resolvedAt,
-        });
-      }
+      await settleClaimGeneration(tx, payload, resolvedAt);
       const resolved = await tx
         .update(schema.documentVersions)
         .set({
@@ -466,7 +477,10 @@ export default defineAction({
         );
         if (payload.choice !== args.choice)
           conflict("This draft was already resolved with another choice.");
-        if (payload.status === "resolved") return false;
+        if (payload.status === "resolved") {
+          await settleClaimGeneration(tx, payload);
+          return false;
+        }
         const [currentDocument] = await tx
           .select({
             updatedAt: schema.documents.updatedAt,
@@ -552,6 +566,8 @@ export default defineAction({
       });
     const markClaimResolved = async () => {
       await db.transaction(async (tx) => {
+        // Lock the claim before the settlement row, in acquireClaim's order,
+        // so a retry finishing the same claim can't deadlock with this one.
         const [claim] = await tx
           .select({ chatContext: schema.documentVersions.chatContext })
           .from(schema.documentVersions)
@@ -562,6 +578,7 @@ export default defineAction({
               eq(schema.documentVersions.documentId, claimDocumentId),
             ),
           )
+          .for("update")
           .limit(1);
         if (!claim?.chatContext) conflict("The recovery claim was lost.");
         const payload = durableClaimPayload.parse(
@@ -570,7 +587,10 @@ export default defineAction({
         if (payload.choice !== args.choice) {
           conflict("This draft was already resolved with another choice.");
         }
-        if (payload.status === "resolved") return;
+        if (payload.status === "resolved") {
+          await settleClaimGeneration(tx, payload);
+          return;
+        }
         if (payload.processingToken !== processingToken)
           conflict("This recovery choice is already being applied.");
         if (!(await settleAndResolveClaim(tx, claim.chatContext, payload)))
