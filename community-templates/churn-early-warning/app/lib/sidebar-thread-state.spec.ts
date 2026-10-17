@@ -1,3 +1,4 @@
+import type { ChatThreadSummary } from "@agent-native/core/client/agent-chat";
 import { ownDraftRows } from "@agent-native/toolkit/app/chat/ownership-history";
 import { describe, expect, it } from "vitest";
 
@@ -37,7 +38,7 @@ describe("Chat sidebar ownership drafts", () => {
         updatedAt: 1,
         scope: null,
       },
-    ];
+    ] satisfies ChatThreadSummary[];
 
     const rows = ownDraftRows({
       threads,
