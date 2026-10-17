@@ -64,6 +64,7 @@ interface MeetingTranscriptionSession {
     | null;
   paused: boolean;
   engine: TranscriptionEngine;
+  engineStarting: Promise<TranscriptionEngine> | null;
   audioTransitionInFlight: Promise<void> | null;
   liveTimelineOffsetMs: number;
   historyInFlight: Promise<void> | null;
@@ -106,6 +107,18 @@ const TRANSCRIPTION_STOP_SETTLE_MS = 1_500;
 const MEETING_ACTION_TIMEOUT_MS = 10_000;
 const RECOVERY_RETRY_INITIAL_MS = 3_000;
 const RECOVERY_RETRY_MAX_MS = 30_000;
+const MEETING_START_ERROR_FALLBACK = "Could not start notes.";
+
+function meetingStartErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : "";
+  if (
+    message === "speech-engine-busy-dictation" ||
+    message === "speech-engine-start-superseded"
+  ) {
+    return MEETING_START_ERROR_FALLBACK;
+  }
+  return error instanceof Error ? error.message : MEETING_START_ERROR_FALLBACK;
+}
 
 function acceptsFinalTranscriptRun(
   runId: number | undefined,
@@ -266,10 +279,28 @@ export function useMeetingTranscription({
           session.flushTimer = null;
         }
         await session.audioTransitionInFlight?.catch(() => {});
-        try {
-          await stopTranscriptionEngine(session.engine, session.audioRunId);
-        } catch (err) {
-          console.warn("[clips-popover] meeting audio stop failed:", err);
+        let engineToStop: TranscriptionEngine | null = session.engine;
+        if (session.engineStarting) {
+          try {
+            engineToStop = await session.engineStarting;
+            session.engine = engineToStop;
+          } catch {
+            engineToStop = null;
+          }
+        }
+        const stoppingRunId = session.audioRunId;
+        if (engineToStop) {
+          try {
+            await stopTranscriptionEngine(engineToStop, stoppingRunId);
+          } catch (err) {
+            console.warn("[clips-popover] meeting audio stop failed:", err);
+          }
+          if (!session.paused) {
+            session.settlingRunDeadlines.set(
+              stoppingRunId,
+              Date.now() + TRANSCRIPTION_STOP_SETTLE_MS,
+            );
+          }
         }
         await waitForSettlingRunDeadlines(session.settlingRunDeadlines);
         if (session.flushTimer) {
@@ -612,6 +643,7 @@ export function useMeetingTranscription({
           stopRecovery: null,
           paused: false,
           engine: "whisper",
+          engineStarting: null,
           audioTransitionInFlight: null,
           liveTimelineOffsetMs: 0,
           historyInFlight: null,
@@ -706,6 +738,7 @@ export function useMeetingTranscription({
           canContinue: sessionIsActive,
         });
         engineStarting = enginePromise;
+        session.engineStarting = enginePromise;
 
         const result = await callClipsAction<{
           meetingId?: string;
@@ -798,8 +831,13 @@ export function useMeetingTranscription({
                 await invoke("silence_detector_stop").catch(() => {});
                 if (!sessionIsActive()) return;
                 try {
+                  const engine = session.engineStarting
+                    ? await session.engineStarting
+                    : session.engine;
+                  if (!sessionIsActive()) return;
+                  session.engine = engine;
                   const pausedRunId = session.audioRunId;
-                  await stopTranscriptionEngine(session.engine, pausedRunId);
+                  await stopTranscriptionEngine(engine, pausedRunId);
                   session.settlingRunDeadlines.set(
                     pausedRunId,
                     Date.now() + TRANSCRIPTION_STOP_SETTLE_MS,
@@ -973,6 +1011,7 @@ export function useMeetingTranscription({
 
         const startedEngine = await enginePromise;
         engineStarting = null;
+        session.engineStarting = null;
         liveEngine = startedEngine;
         if (!sessionIsActive()) {
           await stopTranscriptionEngine(
@@ -1145,8 +1184,7 @@ export function useMeetingTranscription({
           }).catch(() => {});
         }
         if (err !== MEETING_START_CANCELLED) {
-          const message =
-            err instanceof Error ? err.message : "Could not start notes.";
+          const message = meetingStartErrorMessage(err);
           emit("meetings:transcription-error", {
             meetingId,
             error: message,

@@ -240,6 +240,32 @@ describe("meeting transcription pause and resume", () => {
     );
   });
 
+  it("pauses the engine selected after startup fallback", async () => {
+    const engineStart = deferred<"whisper" | "macos-native">();
+    mocks.startTranscriptionEngine.mockReturnValueOnce(engineStart.promise);
+
+    await act(async () => {
+      root.render(createElement(Harness));
+      await settle();
+    });
+    await dispatch("meetings:start-transcription", { meetingId: "meeting-1" });
+
+    const runId = mocks.startTranscriptionEngine.mock.calls[0][0]
+      .runId as number;
+    await dispatch("clips:recorder-pause");
+    expect(mocks.stopTranscriptionEngine).not.toHaveBeenCalled();
+
+    await act(async () => {
+      engineStart.resolve("macos-native");
+      await settle();
+    });
+
+    expect(mocks.stopTranscriptionEngine).toHaveBeenCalledWith(
+      "macos-native",
+      runId,
+    );
+  });
+
   it("keeps the paused-run listener through its settle deadline on stop", async () => {
     await act(async () => {
       root.render(createElement(Harness));
@@ -269,4 +295,61 @@ describe("meeting transcription pause and resume", () => {
     );
     expect(mocks.finalListeners.size).toBe(0);
   });
+
+  it("keeps the active-run listener through the final stop window", async () => {
+    const engineStop = deferred<void>();
+    mocks.stopTranscriptionEngine.mockReturnValueOnce(engineStop.promise);
+
+    await act(async () => {
+      root.render(createElement(Harness));
+      await settle();
+    });
+    await dispatch("meetings:start-transcription", { meetingId: "meeting-1" });
+
+    const runId = mocks.startTranscriptionEngine.mock.calls[0][0]
+      .runId as number;
+    await dispatch("clips:pill-stop", { meetingId: "meeting-1" });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+      engineStop.resolve();
+      await settle();
+    });
+    expect(mocks.finalListeners.size).toBeGreaterThan(0);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+      emitFinal(runId, "final phrase at stop");
+      await settle();
+      await vi.advanceTimersByTimeAsync(1_000);
+      await settle();
+    });
+
+    const savedTranscript = mocks.actions.find(
+      (action) => action.name === "save-browser-transcript",
+    );
+    expect(savedTranscript?.body.fullText).toBe("Me: final phrase at stop");
+    expect(mocks.finalListeners.size).toBe(0);
+  });
+
+  it.each(["speech-engine-busy-dictation", "speech-engine-start-superseded"])(
+    "hides internal meeting startup error %s",
+    async (errorCode) => {
+      mocks.startTranscriptionEngine.mockRejectedValueOnce(
+        new Error(errorCode),
+      );
+
+      await act(async () => {
+        root.render(createElement(Harness));
+        await settle();
+      });
+      await dispatch("meetings:start-transcription", {
+        meetingId: "meeting-1",
+      });
+
+      expect(mocks.emit).toHaveBeenCalledWith(
+        "meetings:transcription-error",
+        expect.objectContaining({ error: "Could not start notes." }),
+      );
+    },
+  );
 });
