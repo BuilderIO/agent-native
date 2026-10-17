@@ -8,10 +8,8 @@ import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import {
-  assertLegacyBodyWriter,
-  lockLegacyBodyWrites,
-} from "../server/lib/document-body-revision.js";
+import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
+import { assertLocalFileLinkable } from "../server/lib/live-body-writer.js";
 import {
   syncPrivateCalloutReferences,
   syncPrivateIconReference,
@@ -491,20 +489,19 @@ export default defineAction({
     };
     classifyPlans(initialSnapshot);
 
+    const rebindsExistingPage = (plan: (typeof plans)[number]) =>
+      !!plan.existing &&
+      !plan.conflict &&
+      !plan.keepContent &&
+      (plan.applyIncoming ||
+        plan.existing.sourcePath !== plan.file.path ||
+        plan.existing.sourceRootPath !== target.source.sourceTable);
+
     if (dryRun) {
-      // The sync refuses as a whole when it would write a body to a page that
-      // takes body writes through its live copy, so its preview does too.
+      // The sync refuses as a whole when it would link a page switched to its
+      // live copy, so its preview does too.
       for (const plan of plans) {
-        if (
-          plan.existing &&
-          plan.applyIncoming &&
-          !plan.conflict &&
-          plan.existing.content !== plan.file.content
-        ) {
-          await assertLegacyBodyWriter(plan.id, {
-            operation: "sync-local-folder-source",
-          });
-        }
+        if (rebindsExistingPage(plan)) await assertLocalFileLinkable(plan.id);
       }
     } else {
       await db.transaction(async (tx: any) => {
@@ -651,11 +648,8 @@ export default defineAction({
               ownerEmail: userEmail,
               orgId: target.database.orgId,
             });
-          } else if (
-            plan.applyIncoming ||
-            plan.existing.sourcePath !== plan.file.path ||
-            plan.existing.sourceRootPath !== target.source.sourceTable
-          ) {
+          } else if (rebindsExistingPage(plan)) {
+            await assertLocalFileLinkable(plan.id, { transaction: tx });
             const versionId = opaqueId(
               "content_document_version",
               `${plan.id}:${plan.existing.updatedAt}:${plan.incomingHash}`,

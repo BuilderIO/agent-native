@@ -41,7 +41,8 @@ async function readPage(documentId: string) {
  * reload), then marks the page switched in the same commit. The stored body
  * wins over Yjs-only edits, so switch a page before an editor binds to it.
  * Throws `LiveBodyConversionError` `flag_off` unless both flags are on for
- * the page's owner, and `base_changed` when the body keeps moving.
+ * the page's owner, `local_file` for a page linked to a local file, and
+ * `base_changed` when the body keeps moving.
  */
 export async function switchPageToLiveCopy(
   documentId: string,
