@@ -1026,9 +1026,11 @@ class CollabDocConnection {
     // Reading what stored entries name, taking up this owner, storing the
     // entry that names what it took and removing those stay in one
     // synchronous callback. Browsers change what a tab reads from
-    // localStorage only between its tasks, and apply the writes of each tab
-    // in order, so no tab sees a source gone before the entry naming it is
-    // stored. An await in this stretch lets two pages take up the same edits.
+    // localStorage only between its tasks, so no tab sees a source gone
+    // before the entry naming it is stored, and an await in this stretch
+    // lets two pages take up the same edits. Even without one, being granted
+    // this lock does not bring in the earlier writes of other tabs: a tab can
+    // take up an owner that another page already took up and named.
     await this.withOwnerLock(() => {
       const kept = this.mayAdopt(prefix)
         ? this.adoptOwnerEntries(prefix, owner)
