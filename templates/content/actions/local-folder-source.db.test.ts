@@ -2229,7 +2229,7 @@ describe("local-folder Content source", () => {
       ["reviewed_bidirectional", "refuses it"],
       ["database_primary", "holds it for review"],
     ] as const)(
-      "leaves the edit in the file after that refusal: a %s folder's next sync %s, and a retry refuses before the file write",
+      "after that refusal, a %s folder's next sync of the edited file %s, and a retry refuses before the file write",
       async (policy) => {
         const connection = await runWithRequestContext(
           { userEmail: OWNER },
