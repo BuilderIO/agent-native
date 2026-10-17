@@ -19,6 +19,72 @@ function expectNoRootComposition(schema: Record<string, unknown>) {
 
 const ajv = () => new Ajv2020({ strict: false, validateFormats: false });
 
+const NUMBER_HINTS = [
+  "minimum",
+  "maximum",
+  "exclusiveMinimum",
+  "exclusiveMaximum",
+  "multipleOf",
+];
+
+/**
+ * The schema Codex sends after `sanitize_json_schema`
+ * (codex-rs/tools/src/json_schema.rs): a boolean becomes `{ type: "string" }`
+ * outside additionalProperties, `const` becomes a one-value enum, a typeless
+ * position is typed from its keywords, and an array gets string items.
+ * Keywords Codex drops only widen, so they are kept here.
+ */
+function codexLowered(schema: unknown, keyword?: string): unknown {
+  if (typeof schema === "boolean") {
+    return keyword === "additionalProperties" ? schema : { type: "string" };
+  }
+  if (Array.isArray(schema)) return schema.map((item) => codexLowered(item));
+  if (!schema || typeof schema !== "object") return schema;
+  const map: JsonSchema = { ...schema };
+  const lowerMap = (value: JsonSchema) =>
+    Object.fromEntries(
+      Object.entries(value).map(([key, child]) => [key, codexLowered(child)]),
+    );
+  if (map.properties) map.properties = lowerMap(map.properties);
+  if (map.items !== undefined) map.items = codexLowered(map.items);
+  if (map.additionalProperties !== undefined) {
+    map.additionalProperties = codexLowered(
+      map.additionalProperties,
+      "additionalProperties",
+    );
+  }
+  if (map.prefixItems) map.prefixItems = codexLowered(map.prefixItems);
+  for (const key of [...COMPOSITIONS, "$defs", "definitions"]) {
+    if (map[key] === undefined) continue;
+    map[key] = Array.isArray(map[key])
+      ? codexLowered(map[key])
+      : lowerMap(map[key]);
+  }
+  if (map.const !== undefined) {
+    map.enum = [map.const];
+    delete map.const;
+  }
+  const types: string[] = map.type === undefined ? [] : [map.type].flat();
+  const composed = COMPOSITIONS.some((key) => key in map);
+  if (types.length === 0 && (map.$ref !== undefined || composed)) return map;
+  if (types.length === 0) {
+    if (
+      ["properties", "required", "additionalProperties"].some((k) => k in map)
+    )
+      types.push("object");
+    else if ("items" in map || "prefixItems" in map) types.push("array");
+    else if ("enum" in map || "format" in map) types.push("string");
+    else if (NUMBER_HINTS.some((k) => k in map)) types.push("number");
+    else return {};
+    map.type = types[0];
+  }
+  if (types.includes("object") && !("properties" in map)) map.properties = {};
+  if (types.includes("array") && !("items" in map)) {
+    map.items = { type: "string" };
+  }
+  return map;
+}
+
 describe("mcpToolInputSchema", () => {
   const validatePhase = {
     type: "object",
@@ -39,7 +105,12 @@ describe("mcpToolInputSchema", () => {
       expectNoRootComposition(result);
       const any = { $ref: "#/$defs/JsonValue" };
       expect(result.properties).toEqual({
-        phase: { anyOf: [{ const: "validate" }, { const: "verify" }] },
+        phase: {
+          anyOf: [
+            { type: "string", enum: ["validate"] },
+            { type: "string", enum: ["verify"] },
+          ],
+        },
         plan: { anyOf: [{ type: "object" }, any] },
         digest: { anyOf: [{ type: "string" }, any] },
       });
@@ -237,6 +308,158 @@ describe("mcpToolInputSchema", () => {
         properties: { a: { $ref: "#/$defs/Missing" } },
       }),
     ).toThrow(McpToolSchemaError);
+  });
+
+  it("refuses a missing reference that flattening would remove", () => {
+    const schema = {
+      type: "object",
+      anyOf: [
+        { $ref: "#/$defs/Missing" },
+        { type: "object", properties: { ok: { type: "string" } } },
+      ],
+    };
+    expect(() => ajv().compile(schema)).toThrow(/can't resolve reference/);
+    let error: unknown;
+    try {
+      mcpToolInputSchema("broken-composition", schema);
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toBeInstanceOf(McpToolSchemaError);
+    expect(error).toMatchObject({
+      tool: "broken-composition",
+      path: "/anyOf/0",
+    });
+    expect((error as Error).message).toContain('"#/$defs/Missing"');
+  });
+
+  it.each([
+    [
+      "a reference outside the schema",
+      { type: "object", properties: { a: { $ref: "https://example.com/a" } } },
+      "/properties/a",
+    ],
+    [
+      "an $id below the root",
+      {
+        type: "object",
+        $defs: { Inner: { $id: "inner", type: "object" } },
+        properties: { inner: { $ref: "#/$defs/Inner" } },
+      },
+      "/$defs/Inner",
+    ],
+    [
+      "a dynamic reference",
+      { type: "object", properties: { a: { $dynamicRef: "#node" } } },
+      "/properties/a",
+    ],
+    [
+      "a duplicated anchor",
+      {
+        type: "object",
+        properties: {
+          a: { $anchor: "Thing", type: "string" },
+          b: { $anchor: "Thing", type: "number" },
+        },
+      },
+      "/properties/b",
+    ],
+  ])("refuses %s instead of guessing its target", (_label, schema, path) => {
+    let error: unknown;
+    try {
+      mcpToolInputSchema("scoped-refs", schema);
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toBeInstanceOf(McpToolSchemaError);
+    expect(error).toMatchObject({ tool: "scoped-refs", path });
+  });
+
+  it("rewrites encoded pointers and anchors to plain pointers", () => {
+    const result = mcpToolInputSchema("spelled-refs", {
+      type: "object",
+      $defs: { "a b": { type: "string" } },
+      properties: {
+        spaced: { $ref: "#/$defs/a%20b" },
+        encoded: { $ref: "#%2F%24defs%2Fa%20b" },
+        anchored: { $ref: "#Thing" },
+        thing: { $anchor: "Thing", type: "number" },
+      },
+    }) as JsonSchema;
+
+    expect(result.properties.spaced).toEqual({ $ref: "#/$defs/a%20b" });
+    expect(result.properties.encoded).toEqual({ $ref: "#/$defs/a%20b" });
+    expect(result.properties.anchored).toEqual({
+      $ref: "#/$defs/properties_thing",
+    });
+    expect(JSON.stringify(result)).not.toContain("$anchor");
+    expect(
+      ajv().validate(result, { spaced: "x", encoded: "y", anchored: 1 }),
+    ).toBe(true);
+  });
+
+  it("moves maxItems into the description", () => {
+    const result = mcpToolInputSchema("bounded-list", {
+      type: "object",
+      properties: {
+        ids: { type: "array", items: { type: "string" }, maxItems: 100 },
+        rows: {
+          type: "array",
+          items: { type: "object" },
+          minItems: 1,
+          maxItems: 1000,
+          description: "Rows to add.",
+        },
+      },
+    }) as JsonSchema;
+
+    expect(result.properties.ids).toEqual({
+      type: "array",
+      items: { type: "string" },
+      description: "At most 100 items.",
+    });
+    expect(result.properties.rows).toEqual({
+      type: "array",
+      items: { type: "object" },
+      minItems: 1,
+      description: "Rows to add. At most 1000 items.",
+    });
+  });
+
+  it("types a typeless const and splits a mixed enum into typed branches", () => {
+    const result = mcpToolInputSchema("enumerated", {
+      type: "object",
+      properties: {
+        one: { const: 1 },
+        kind: { const: "text" },
+        flag: { type: "boolean", const: false },
+        names: { enum: ["a", "b"], description: "Name" },
+        mixed: { enum: [1, "a", null, 2.5] },
+      },
+    }) as JsonSchema;
+
+    expect(result.properties).toEqual({
+      one: { type: "number", const: 1 },
+      kind: { type: "string", enum: ["text"] },
+      flag: { type: "boolean", const: false },
+      names: { type: "string", enum: ["a", "b"], description: "Name" },
+      mixed: {
+        anyOf: [
+          { type: "number", enum: [1, 2.5] },
+          { type: "string", enum: ["a"] },
+          { type: "null" },
+        ],
+      },
+    });
+    const lowered = ajv().compile(codexLowered(result) as JsonSchema);
+    for (const input of [
+      { one: 1 },
+      { kind: "text" },
+      { mixed: 1 },
+      { mixed: null },
+    ]) {
+      expect(lowered(input), JSON.stringify(input)).toBe(true);
+    }
   });
 });
 
@@ -545,6 +768,51 @@ const IMPLICATION_CORPUS: {
     inputs: [{ head: { next: { next: {} } } }, { z: "1" }],
   },
   {
+    name: "typeless const and mixed enum",
+    schema: {
+      type: "object",
+      properties: {
+        one: { const: 1 },
+        flag: { const: false },
+        mixed: { enum: [1, "a", null] },
+        either: { anyOf: [{ type: "object" }], enum: [{ a: 1 }, 2] },
+      },
+    },
+    inputs: [
+      { one: 1, flag: false, mixed: 1 },
+      { mixed: "a" },
+      { mixed: null },
+      { either: { a: 1 } },
+    ],
+  },
+  {
+    name: "percent-encoded pointer into a branch",
+    schema: {
+      type: "object",
+      properties: { copy: { $ref: "#%2FanyOf%2F0%2Fproperties%2Fa" } },
+      anyOf: [
+        { properties: { a: { type: "string" } } },
+        { properties: { b: { type: "number" } } },
+      ],
+    },
+    inputs: [{ copy: "x" }, { copy: "x", a: "y" }],
+  },
+  {
+    name: "anchor inside a branch",
+    schema: {
+      type: "object",
+      properties: { value: { $ref: "#Thing" } },
+      anyOf: [
+        {
+          type: "object",
+          $defs: { Thing: { $anchor: "Thing", type: "string" } },
+        },
+        { type: "object" },
+      ],
+    },
+    inputs: [{ value: "x" }, {}],
+  },
+  {
     name: "root definition referenced from branches",
     schema: {
       type: "object",
@@ -568,9 +836,11 @@ describe("normalized schemas never reject an input the original accepts", () => 
       const original = ajv().compile(schema);
       const advertised = mcpToolInputSchema("corpus-tool", schema);
       const normalized = ajv().compile(advertised);
+      const lowered = ajv().compile(codexLowered(advertised) as JsonSchema);
       for (const input of [...inputs, ...(deepInputs ?? [])]) {
         expect(original(input), JSON.stringify(input)).toBe(true);
         expect(normalized(input), JSON.stringify(input)).toBe(true);
+        expect(lowered(input), `Codex: ${JSON.stringify(input)}`).toBe(true);
       }
       expect(
         providerSchemaViolations({

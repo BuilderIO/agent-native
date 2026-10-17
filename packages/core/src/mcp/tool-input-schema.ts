@@ -8,6 +8,7 @@ import {
 } from "../json-schema/json-value.js";
 import {
   rebaseLocalRefs,
+  SchemaReferenceError,
   unresolvedLocalRefs,
 } from "../json-schema/local-refs.js";
 import {
@@ -148,8 +149,10 @@ function references(schema: JsonSchema, ref: string): boolean {
  * against its own schema and a host that checks arguments against this copy
  * must not refuse a call the action would take:
  *
- * - Local references that point inside a composition move into root `$defs`
- *   before anything is rewritten.
+ * - Every reference is checked against the source and made a plain pointer
+ *   before anything is rewritten; one that does not resolve throws instead of
+ *   vanishing with the branch that held it. References that point inside a
+ *   composition move into root `$defs`.
  * - `stripUnsupportedSchemaKeywords` removes the keywords providers reject.
  *   A position with no type, including the bounded stand-in the action layer
  *   already wrote, references one recursive "any JSON value" definition.
@@ -157,6 +160,14 @@ function references(schema: JsonSchema, ref: string): boolean {
  * - Boolean subschemas, and the missing `items` of an array, become that
  *   definition too: Codex lowers both to `{ "type": "string" }`, which would
  *   narrow the contract.
+ * - `maxItems` moves into the description. Gemini refuses a forced call once
+ *   the bound times the item schema is large enough, with no published limit
+ *   to stay under: 1,000 strings failed, and so did 100 of Content's property
+ *   entries (OpenRouter, 2026-10-17).
+ * - A string `const` becomes a one-value `enum`, which means the same thing.
+ *   Gemini's schema has `enum` but no `const`, and a forced call answered
+ *   `const: "text"` with "STRING". Number and boolean values stay `const`:
+ *   Gemini's OpenAPI `enum` takes strings only.
  */
 export function mcpToolInputSchema(
   name: string,
@@ -169,18 +180,24 @@ export function mcpToolInputSchema(
     );
   }
   assertPlainJson(name, schema);
-  const copy = JSON.parse(JSON.stringify(schema)) as JsonSchema;
+  let source: JsonSchema;
+  try {
+    source = rebaseLocalRefs(JSON.parse(JSON.stringify(schema)) as JsonSchema);
+  } catch (error) {
+    if (error instanceof SchemaReferenceError) {
+      throw new McpToolSchemaError(name, error.path, error.reason);
+    }
+    throw error;
+  }
 
-  const anyName = freeDefinitionName(copy, "JsonValue");
+  const declaresDefs = isJsonSchemaObject(source.$defs);
+  const anyName = freeDefinitionName(source, "JsonValue");
   const anyRef = `#/$defs/${anyName}`;
   const anyValue = (): JsonSchema => ({ $ref: anyRef });
 
-  let advertised = stripUnsupportedSchemaKeywords(
-    rebaseLocalRefs(copy),
-    (node) => {
-      node.$ref = anyRef;
-    },
-  );
+  let advertised = stripUnsupportedSchemaKeywords(source, (node) => {
+    node.$ref = anyRef;
+  });
   rewriteSubschemas(advertised, (value) => {
     if (isJsonSchemaObject(value) && isBoundedJsonValueBranches(value.anyOf)) {
       const { anyOf: _bounded, ...rest } = value;
@@ -188,6 +205,11 @@ export function mcpToolInputSchema(
     }
     return value;
   });
+  // Flattening resolves every reference, including the ones written above.
+  advertised.$defs = {
+    ...(declaresDefs ? (advertised.$defs as JsonSchema) : {}),
+    [anyName]: recursiveJsonValueDefinition(anyRef),
+  };
   advertised = flattenComposedRootSchema(advertised, { anyValue });
   rewriteSubschemas(advertised, (value, keyword) =>
     typeof value === "boolean" && keyword !== "additionalProperties"
@@ -195,15 +217,28 @@ export function mcpToolInputSchema(
       : value,
   );
   walkSubschemas(advertised, (node) => {
-    if (!isJsonSchemaObject(node) || node.items !== undefined) return;
+    if (!isJsonSchemaObject(node)) return;
     const types = Array.isArray(node.type) ? node.type : [node.type];
-    if (types.includes("array")) node.items = anyValue();
+    if (node.items === undefined && types.includes("array")) {
+      node.items = anyValue();
+    }
+    if (typeof node.maxItems === "number") {
+      const bound = `At most ${node.maxItems} items.`;
+      node.description =
+        typeof node.description === "string" && node.description
+          ? `${node.description} ${bound}`
+          : bound;
+      delete node.maxItems;
+    }
+    if (typeof node.const === "string" && node.enum === undefined) {
+      node.enum = [node.const];
+      delete node.const;
+    }
   });
-  if (references(advertised, anyRef)) {
-    advertised.$defs = {
-      ...(isJsonSchemaObject(advertised.$defs) ? advertised.$defs : {}),
-      [anyName]: recursiveJsonValueDefinition(anyRef),
-    };
+  const { [anyName]: _anyValue, ...defs } = advertised.$defs as JsonSchema;
+  if (!references({ ...advertised, $defs: defs }, anyRef)) {
+    if (declaresDefs || Object.keys(defs).length > 0) advertised.$defs = defs;
+    else delete advertised.$defs;
   }
   const missing = unresolvedLocalRefs(advertised);
   if (missing.length > 0) {

@@ -1,6 +1,7 @@
 import Ajv2020 from "ajv/dist/2020.js";
 import { describe, expect, it } from "vitest";
 
+import { SchemaReferenceError } from "../../json-schema/local-refs.js";
 import { flattenComposedRootSchema } from "./flatten-composed-root-schema.js";
 
 type JsonSchema = Record<string, unknown>;
@@ -592,6 +593,20 @@ describe("flattenComposedRootSchema", () => {
 
     expect(flat.description).toBe(
       'Run one migration phase.\n\nPass one of these argument sets:\n- phase="plan": requires plan\n- phase="verify": requires digest',
+    );
+  });
+
+  it("throws on a branch reference with no target instead of dropping it", () => {
+    const schema = {
+      type: "object",
+      anyOf: [
+        { $ref: "#/$defs/Missing" },
+        { type: "object", properties: { ok: { type: "string" } } },
+      ],
+    };
+
+    expect(() => flattenComposedRootSchema(schema)).toThrow(
+      SchemaReferenceError,
     );
   });
 

@@ -1134,10 +1134,55 @@ export function stripUnsupportedSchemaKeywords<T>(
     obj.anyOf = [...existing, ...obj.oneOf];
     delete obj.oneOf;
   }
+  if (obj.type === undefined) typeEnumeratedValues(obj);
   if (!TYPE_SUBSTITUTE_KEYS.some((key) => obj[key] !== undefined)) {
     writeJsonValue(obj);
   }
   return node;
+}
+
+function jsonTypeOf(value: unknown): string {
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "array";
+  return typeof value;
+}
+
+/**
+ * Codex lowers `const` to a one-value `enum` and types a typeless `enum` as
+ * "string" (`sanitize_json_schema` in codex-rs/tools/src/json_schema.rs), so
+ * `{ "const": 1 }` reaches the model as a string and a host checking against
+ * it refuses `1`. The values already fix the type, so writing it accepts
+ * exactly what the schema did. Values of several types split into one typed
+ * anyOf branch per type, the shape every provider took for the JSON-value
+ * union.
+ */
+function typeEnumeratedValues(obj: Record<string, unknown>): void {
+  const values =
+    obj.const !== undefined
+      ? [obj.const]
+      : Array.isArray(obj.enum)
+        ? obj.enum
+        : [];
+  const byType = new Map<string, unknown[]>();
+  for (const value of values) {
+    const type = jsonTypeOf(value);
+    byType.set(type, [...(byType.get(type) ?? []), value]);
+  }
+  if (byType.size === 0) return;
+  if (byType.size === 1) {
+    obj.type = [...byType.keys()][0];
+    return;
+  }
+  const branches = [...byType].map(([type, members]) =>
+    type === "null" ? { type } : { type, enum: members },
+  );
+  delete obj.const;
+  delete obj.enum;
+  if (obj.anyOf === undefined) obj.anyOf = branches;
+  else {
+    const allOf = Array.isArray(obj.allOf) ? obj.allOf : [];
+    obj.allOf = [...allOf, { anyOf: branches }];
+  }
 }
 
 function schemaToJsonSchema(

@@ -5302,7 +5302,9 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         expect(inputSchema("union-input")).toMatchObject({
           type: "object",
           properties: {
-            phase: { anyOf: [{ const: "validate" }, { const: "verify" }] },
+            phase: {
+              anyOf: [{ enum: ["validate"] }, { enum: ["verify"] }],
+            },
             plan: { anyOf: [{ type: "object" }, anyValue] },
             digest: { anyOf: [{ type: "string" }, anyValue] },
           },

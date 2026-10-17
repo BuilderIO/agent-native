@@ -55,11 +55,12 @@ import {
  *   Gemini through `parameters`, so its results are a diagnostic, not this
  *   field's contract.
  *
- * Not checked here: Gemini documents that in `any` (forced) mode "the API may
- * reject very large or deeply nested schemas"
+ * Gemini documents that in `any` (forced) mode "the API may reject very large
+ * or deeply nested schemas"
  * (https://ai.google.dev/gemini-api/docs/function-calling, "Notes and
- * limitations"). There is no published bound, so the smoke script records
- * forced-mode rejections as their own outcome instead.
+ * limitations") without a bound. The one cause observed in the template
+ * catalogs, `maxItems`, is a rule below; any other the smoke script finds is
+ * recorded as its own outcome.
  */
 export const SCHEMA_PROVIDERS = ["anthropic", "openai", "gemini"] as const;
 export type SchemaProvider = (typeof SCHEMA_PROVIDERS)[number];
@@ -165,6 +166,14 @@ export const PROVIDER_SCHEMA_RULES = {
       'Gemini through OpenRouter\'s OpenAPI parameters path, 2026-10-07: "parameters.properties[list].items: missing field". Not yet observed on parametersJsonSchema, the field Gemini CLI fills.',
     message: "array has no items schema",
   },
+  codexEnumType: {
+    id: "codex-enum-type",
+    providers: ["openai"],
+    basis: "host",
+    source:
+      'Codex lowers const to a one-value enum and types a typeless enum as "string" (sanitize_json_schema in https://github.com/openai/codex/blob/main/codex-rs/tools/src/json_schema.rs), which rejects every non-string value',
+    message: "enum or const has no explicit type",
+  },
   booleanSubschema: {
     id: "boolean-subschema",
     providers: ["openai"],
@@ -172,6 +181,23 @@ export const PROVIDER_SCHEMA_RULES = {
     source:
       'Codex rewrites a boolean schema to { "type": "string" } (sanitize_json_schema in https://github.com/openai/codex/blob/main/codex-rs/tools/src/json_schema.rs); only additionalProperties keeps its boolean',
     message: "boolean subschema outside additionalProperties",
+  },
+  geminiForcedMaxItems: {
+    id: "gemini-forced-max-items",
+    providers: ["gemini"],
+    basis: "observed",
+    source:
+      "Gemini through OpenRouter's OpenAPI parameters path, 2026-10-17: a forced call (tool_choice naming the function) returned 400 INVALID_ARGUMENT for 1,000 string items and for 100 of Content's add-database-item property entries, and succeeded once maxItems was removed. The bound depends on the item schema, so no smaller maxItems is safe.",
+    message: "array declares maxItems, which Gemini's forced mode may refuse",
+  },
+  geminiStringConst: {
+    id: "gemini-string-const",
+    providers: ["gemini"],
+    basis: "documented",
+    source:
+      'Gemini\'s Schema has enum but no const field (https://ai.google.dev/api/generate-content#v1beta.Schema), and its JSON Schema support list names enum, not const (https://ai.google.dev/gemini-api/docs/structured-output). Through OpenRouter, 2026-10-17, forced add-database-item calls answered a const "text" discriminator with "STRING", "STATUS" or "string" in 3 of 4 calls, and with "text" in 4 of 4 once it was a one-value enum.',
+    message:
+      "string const, which Gemini ignores; a one-value enum says the same",
   },
   geminiTypes: {
     id: "gemini-json-types",
@@ -283,6 +309,18 @@ export function providerSchemaViolations(tool: {
     }
     if (!TYPE_SUBSTITUTES.some((key) => node[key] !== undefined)) {
       add(PROVIDER_SCHEMA_RULES.gatewayTypeless, at);
+    }
+    if (
+      (node.enum !== undefined || node.const !== undefined) &&
+      node.type === undefined
+    ) {
+      add(PROVIDER_SCHEMA_RULES.codexEnumType, at);
+    }
+    if (node.maxItems !== undefined) {
+      add(PROVIDER_SCHEMA_RULES.geminiForcedMaxItems, at);
+    }
+    if (typeof node.const === "string") {
+      add(PROVIDER_SCHEMA_RULES.geminiStringConst, at);
     }
     const types = declaredTypes(node);
     if (types.includes("array") && node.items === undefined) {

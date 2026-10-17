@@ -114,8 +114,8 @@ describe("Content action-owned agent catalogs", () => {
       expect.objectContaining({
         phase: {
           anyOf: expect.arrayContaining([
-            expect.objectContaining({ const: "validate" }),
-            expect.objectContaining({ const: "verify" }),
+            expect.objectContaining({ enum: ["validate"] }),
+            expect.objectContaining({ enum: ["verify"] }),
           ]),
         },
         plan: expect.anything(),

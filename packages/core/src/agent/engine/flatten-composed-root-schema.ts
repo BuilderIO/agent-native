@@ -2,6 +2,7 @@ import { boundedJsonValueBranches } from "../../json-schema/json-value.js";
 import {
   rebaseLocalRefs,
   resolveLocalRef,
+  SchemaReferenceError,
 } from "../../json-schema/local-refs.js";
 import {
   isJsonSchemaObject as isSchema,
@@ -262,7 +263,9 @@ function ownView(schema: JsonSchema): ObjectView {
  * The object view of a branch: its own keywords conjoined with its `$ref`
  * target and nested compositions. Keywords the view cannot express (`not`,
  * `if`, `dependentRequired`, ...) are dropped, which only widens it. A
- * reference cycle or an unresolvable reference contributes no constraint.
+ * reference cycle adds nothing past its first visit. A reference with no
+ * target throws: treating it as unconstrained would turn a schema no
+ * validator compiles into a clean one once its branch is flattened away.
  */
 function viewOf(
   value: unknown,
@@ -275,9 +278,13 @@ function viewOf(
   const parts: (ObjectView | null)[] = [ownView(value)];
   if (typeof value.$ref === "string" && !refs.has(value.$ref)) {
     const target = resolveLocalRef(root, value.$ref);
-    if (target !== undefined) {
-      parts.push(viewOf(target, root, new Set(refs).add(value.$ref)));
+    if (typeof target !== "boolean" && !isSchema(target)) {
+      throw new SchemaReferenceError(
+        "",
+        `references ${JSON.stringify(value.$ref)}, which does not resolve`,
+      );
     }
+    parts.push(viewOf(target, root, new Set(refs).add(value.$ref)));
   }
   for (const keyword of COMPOSITIONS) {
     const branches = value[keyword];
@@ -352,7 +359,8 @@ function writeSide(side: Side, anyValue: () => JsonSchema): JsonSchema {
  * stays unconstrained, and keywords a flat object cannot express are
  * dropped. Callers validate against the action's own schema, so the looser
  * advertised copy never lets a bad call through. Local references into the
- * removed compositions are rebased into root `$defs` first.
+ * removed compositions are rebased into root `$defs` first, and a reference
+ * that does not resolve throws `SchemaReferenceError`.
  */
 export function flattenComposedRootSchema(
   schema: JsonSchema,

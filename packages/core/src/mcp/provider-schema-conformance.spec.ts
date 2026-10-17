@@ -96,8 +96,25 @@ const NEGATIVE_FIXTURES: Record<string, { name?: string; schema: unknown }> = {
   "gemini-array-items": {
     schema: { type: "object", properties: { list: { type: "array" } } },
   },
+  "codex-enum-type": {
+    schema: { type: "object", properties: { value: { const: 1 } } },
+  },
   "boolean-subschema": {
     schema: { type: "object", properties: { anything: true } },
+  },
+  "gemini-forced-max-items": {
+    schema: {
+      type: "object",
+      properties: {
+        list: { type: "array", items: { type: "string" }, maxItems: 1000 },
+      },
+    },
+  },
+  "gemini-string-const": {
+    schema: {
+      type: "object",
+      properties: { kind: { type: "string", const: "text" } },
+    },
   },
   "gemini-json-types": {
     schema: { type: "object", properties: { when: { type: "date" } } },
@@ -145,6 +162,40 @@ describe("providerSchemaViolations", () => {
     expect(reported.map((violation) => violation.provider)).toEqual([
       ...rule.providers,
     ]);
+  });
+
+  it.each([
+    [{ const: 1 }],
+    [{ enum: [1, "a", null] }],
+    [{ enum: ["a", "b"] }],
+    [{ $ref: "#/$defs/Any", enum: ["x"] }],
+  ])("requires an explicit type beside enum or const: %j", (value) => {
+    expect(
+      rulesFor({
+        type: "object",
+        properties: { value },
+        $defs: { Any: { type: "string" } },
+      }),
+    ).toEqual(["openai: codex-enum-type at /properties/value"]);
+  });
+
+  it("accepts typed enums and consts, including one typed branch per type", () => {
+    expect(
+      rulesFor({
+        type: "object",
+        properties: {
+          one: { type: "number", const: 1 },
+          names: { type: "string", enum: ["a", "b"] },
+          mixed: {
+            anyOf: [
+              { type: "number", enum: [1] },
+              { type: "string", enum: ["a"] },
+              { type: "null" },
+            ],
+          },
+        },
+      }),
+    ).toEqual([]);
   });
 
   it("names the position of a nested violation", () => {
