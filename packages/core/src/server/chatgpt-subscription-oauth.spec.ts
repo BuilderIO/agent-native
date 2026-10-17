@@ -121,8 +121,7 @@ describe("ChatGPT subscription OAuth contract", () => {
         ).resolves.toBe(false);
         expect(mocks.listOAuthAccountsByOwner).not.toHaveBeenCalled();
         expect(mocks.getUserSetting).not.toHaveBeenCalled();
-        // Status reads account summaries once the lab is enabled, even though
-        // this request is not local loopback. Pin that read and its empty result.
+        // An unresolved scope is unsupported and must not inspect stored accounts.
         await expect(
           getChatGPTSubscriptionStatus("alice@example.com"),
         ).resolves.toMatchObject({
@@ -131,7 +130,7 @@ describe("ChatGPT subscription OAuth contract", () => {
           supportReason: "requires_local_loopback",
           accounts: [],
         });
-        expect(mocks.listOAuthAccountsByOwner).toHaveBeenCalled();
+        expect(mocks.listOAuthAccountsByOwner).not.toHaveBeenCalled();
         await expect(
           getChatGPTSubscriptionAccess("alice@example.com"),
         ).rejects.toThrow("available only from a local app");
@@ -139,7 +138,7 @@ describe("ChatGPT subscription OAuth contract", () => {
     );
   });
 
-  it("reports saved accounts in an unsupported status without granting access", async () => {
+  it("does not expose saved accounts outside direct local loopback", async () => {
     mocks.getUserLabEnabled.mockResolvedValue(true);
     const subject = "subject-alice";
     const accountId = `siwc_${crypto
@@ -188,14 +187,7 @@ describe("ChatGPT subscription OAuth contract", () => {
           supported: false,
           localLoopback: false,
           connected: false,
-          accounts: [
-            expect.objectContaining({
-              id: accountId,
-              email: "alice@example.com",
-              label: "Alice",
-              connected: true,
-            }),
-          ],
+          accounts: [],
         });
         await expect(
           getChatGPTSubscriptionAccess("alice@example.com"),
@@ -203,6 +195,8 @@ describe("ChatGPT subscription OAuth contract", () => {
       },
     );
     expect(mocks.getUserLabEnabled).not.toHaveBeenCalled();
+    expect(mocks.listOAuthAccountsByOwner).not.toHaveBeenCalled();
+    expect(mocks.readOAuthCredentialState).not.toHaveBeenCalled();
   });
 
   it("surfaces lab preference read failures instead of treating them as off", async () => {
