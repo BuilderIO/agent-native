@@ -84,6 +84,7 @@ place of Slack source messages.
 
   Do not save the connector response directly as the page file: `raw` is a JSON
   string inside the wrapper, not the top-level page object.
+
 - Save `.tmp/feedback-inventory.json` with `cutoffTs`, optional `permalinkTs`,
   the exact connector `sweepActorId`, and `channels`. Set `permalinkTs` when a
   supplied message anchors the scan. Each channel must include `channelId`,

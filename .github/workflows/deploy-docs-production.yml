@@ -255,7 +255,13 @@ jobs:
     name: docs production prebuilt deploy
     permissions:
       contents: read
-    needs: [verify-stable-release, docs-source-freshness, pause-netlify-builds, migrate]
+    needs:
+      [
+        verify-stable-release,
+        docs-source-freshness,
+        pause-netlify-builds,
+        migrate,
+      ]
     if: >-
       ${{ always() && !cancelled() &&
       (needs.verify-stable-release.result == 'skipped' ||
