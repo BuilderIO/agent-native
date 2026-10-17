@@ -10522,6 +10522,7 @@ function stylesheetHrefCanLoad(href: string): boolean {
   try {
     return new URL(href, "https://design.invalid").protocol !== "javascript:";
   } catch {
+    // coercion-ok: Invalid hrefs cannot identify a loadable stylesheet.
     return false;
   }
 }

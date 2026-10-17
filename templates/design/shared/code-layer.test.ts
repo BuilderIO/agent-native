@@ -3745,6 +3745,20 @@ describe("autoLayout", () => {
     expect(patch.content).toContain("align-items: flex-start");
   });
 
+  it("preserves alignment when an inline stylesheet imports rules", () => {
+    const patch = applyVisualEdit(
+      `<style>@import url("./theme.css");</style><div data-agent-native-node-id="box"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+      },
+    );
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).not.toContain("align-items: flex-start");
+  });
+
   it.each([
     ["a root pseudo-class", ":root .stack"],
     ["a functional pseudo-class", ":is(.other, .stack)"],
@@ -3765,6 +3779,20 @@ describe("autoLayout", () => {
       expect(patch.content).not.toContain("align-items: flex-start");
     },
   );
+
+  it("matches attribute selectors containing a quoted greater-than sign", () => {
+    const patch = applyVisualEdit(
+      `<style>.stack[data-x="a>b"] { align-items: center; }</style><div data-agent-native-node-id="box" class="stack" data-x="a>b"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+      },
+    );
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).not.toContain("align-items: flex-start");
+  });
 
   it("keeps direct Frame children as containing blocks when enabling auto-layout", () => {
     const html =
