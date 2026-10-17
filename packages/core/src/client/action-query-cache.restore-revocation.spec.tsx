@@ -1,7 +1,9 @@
-// @vitest-environment happy-dom
 import type { PersistedClient } from "@tanstack/query-persist-client-core";
 import { QueryClient, dehydrate } from "@tanstack/react-query";
 import { expect, it } from "vitest";
+
+// @vitest-environment happy-dom
+import { cacheBuster } from "./action-query-cache.test-fixtures.js";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -27,7 +29,7 @@ it.each([401, 403, 404])(
     );
     const record: PersistedClient = {
       timestamp: Date.now(),
-      buster: "action-query-cache-v1",
+      buster: cacheBuster(),
       clientState: dehydrate(source),
     };
     const readStarted = deferred<void>();
@@ -91,7 +93,7 @@ it.each([401, 403, 404])(
     );
     const record: PersistedClient = {
       timestamp: Date.now(),
-      buster: "action-query-cache-v1",
+      buster: cacheBuster(),
       clientState: dehydrate(source),
     };
     const records = new Map([[scope, record]]);

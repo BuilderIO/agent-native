@@ -1,4 +1,24 @@
+import type { AnnotateLabStatus } from "./tool-state";
+import type { EditorMode } from "./types";
+
 export const TOP_BAR_HEIGHT_PX = 48;
+
+/**
+ * Modes the top bar's switch offers; `EDITOR_TOP_BAR_MODES` fixes their order.
+ * Annotate is there only while its lab is on.
+ */
+export function getTopBarModes({
+  showsModes,
+  annotateLab,
+}: {
+  showsModes: boolean;
+  annotateLab: AnnotateLabStatus;
+}): EditorMode[] {
+  if (!showsModes) return [];
+  return annotateLab === "on"
+    ? ["interact", "edit", "annotate"]
+    : ["interact", "edit"];
+}
 
 /**
  * Which shells render the docked top bar. Every control the bar carries (mode

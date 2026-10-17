@@ -4,6 +4,11 @@ import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 
 import { measureNaturalDocumentHeight } from "@/components/design/design-canvas/content-size-report";
+import {
+  browserDesignExportErrorType,
+  trackBrowserDesignExported,
+  type BrowserDesignExportContext,
+} from "@/lib/design-export-tracking";
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
 import type { RasterPdfPage } from "@/pages/design-editor/export-capture";
 import {
@@ -22,6 +27,8 @@ export interface DownloadAllScreensPdfArgs {
   activeCanvasSourceType: "inline" | "localhost" | "fusion";
   canEditDesign: boolean;
   canvasFrameGeometryById: CanvasFrameGeometryById;
+  /** Join keys for the `design_exported` this command reports. */
+  exportTracking?: BrowserDesignExportContext;
   fallbackExportName: (extension: string, suffix?: string) => string;
   overviewScreens: OverviewScreen[];
   prepareScreenForExport: (screenId: string) => void;
@@ -193,6 +200,7 @@ export async function runDownloadAllScreensPdf({
   activeCanvasSourceType,
   canEditDesign,
   canvasFrameGeometryById,
+  exportTracking,
   fallbackExportName,
   overviewScreens,
   prepareScreenForExport,
@@ -316,7 +324,18 @@ export async function runDownloadAllScreensPdf({
     const pdf = await createMultiPageRasterPdf(pages);
     triggerBlobDownload(pdf, fallbackExportName("pdf", "all-screens"));
     toast.success(t("designEditor.toasts.pdfAllScreensDownloaded"));
+    trackBrowserDesignExported("pdf_all_screens", {
+      ...exportTracking,
+      status: "completed",
+      screenCount: overviewScreens.length,
+    });
   } catch (error) {
+    trackBrowserDesignExported("pdf_all_screens", {
+      ...exportTracking,
+      status: "failed",
+      errorType: browserDesignExportErrorType(error),
+      screenCount: overviewScreens.length,
+    });
     console.error("All-screens PDF export failed:", error);
     showRasterCaptureError(error, "pdf");
   } finally {

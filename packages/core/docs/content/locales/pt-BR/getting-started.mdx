@@ -11,6 +11,8 @@ Agent-Native é um framework TypeScript de código aberto para criar agentes aut
 
 Neste guia, você criará um agente com uma UI de chat e chamará a ação `hello` incluída pelo agente e pela UI.
 
+Prefere que um agente de IA faça a configuração? Veja [Crie um app com um agente de IA](/docs/create-with-an-agent).
+
 ## Pré-requisitos
 
 - [Node.js](https://nodejs.org) 22.22 ou posterior
@@ -54,7 +56,7 @@ Na tela de Boas-vindas, selecione **Continue as local dev**. Você não precisa 
 
 ## Conectar um LLM (opcional) {#connect-an-llm}
 
-Conecte uma conta da Builder com **Use Builder.io**, salve uma chave pessoal ou da organização em **Custom keys**, ou configure uma chave de provedor no `.env` para desenvolvimento local e no ambiente de implantação para uso em todo o app auto-hospedado. Consulte [Configuração de provedores LLM](/docs/environment-variables#llm-provider-keys).
+Opcional: conecte-se com **Use Builder.io**, adicione uma chave em **Custom keys** ou defina uma chave do provedor em `.env` para desenvolvimento local. Em implantações auto-hospedadas, uma chave no servidor pode servir como fallback para todo o app. Consulte [Chaves de provedor LLM](/docs/environment-variables#llm-provider-keys).
 
 ## Execute a ação pelo agente
 

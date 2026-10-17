@@ -9,7 +9,8 @@ import {
 import type { DbExec } from "../db/client.js";
 import { getDbExec } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
-import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
+import { defineStore } from "../db/store-registry.js";
+import { fromMigrationEntries } from "../db/versioned-store-migrations.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { automationRecoveryMessagesForLocale } from "../localization/automation-recovery-messages.js";
 import {
@@ -24,6 +25,7 @@ import {
   stripInlineBytesFromJson,
 } from "../shared/inline-bytes.js";
 import { isRequestedStopAbortReason } from "./abort-reasons.js";
+import { approvalKeyForHistory } from "./approval-key.js";
 import {
   admitAutoContinue,
   admitManualContinue,
@@ -36,14 +38,16 @@ import {
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "./engine/credential-errors.js";
 import {
+  AGENT_RUN_MIGRATIONS,
+  AGENT_RUN_MIGRATIONS_TABLE,
+} from "./run-migrations.js";
+import {
   isConsistentToolCallInputFingerprint,
-  isRedactedToolCallInput,
+  isUnavailableToolCallInput,
   toolCallInputFingerprint,
 } from "./tool-call-journal.js";
 import { CONTINUATION_REASONS, isContinuationTerminalReason } from "./types.js";
 import type { AgentChatEvent, ContinuationReason, RunEvent } from "./types.js";
-
-let _initPromise: Promise<void> | undefined;
 
 export const RUN_STALE_MS = 15_000;
 
@@ -230,10 +234,13 @@ export class AgentTurnInitiatorUnavailableError extends Error {
   }
 }
 
-export async function ensureRunTables(): Promise<void> {
-  if (!_initPromise) {
-    const _initPromiseWithRequestDbPoolScope = (async () => {
-      const agentRunsCreateSql = `
+export const agentRunsStore = defineStore({
+  id: "agent_runs",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const agentRunsCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_runs (
           id TEXT PRIMARY KEY,
           thread_id TEXT NOT NULL,
@@ -254,7 +261,7 @@ export async function ensureRunTables(): Promise<void> {
           continuation_order BIGINT
         )
       `;
-      const agentRunEventsCreateSql = `
+        const agentRunEventsCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_run_events (
           run_id TEXT NOT NULL,
           seq BIGINT NOT NULL,
@@ -263,7 +270,7 @@ export async function ensureRunTables(): Promise<void> {
           PRIMARY KEY (run_id, seq)
         )
       `;
-      const agentRunOutcomeDailyCreateSql = `
+        const agentRunOutcomeDailyCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_run_outcome_daily (
           day TEXT NOT NULL,
           status TEXT NOT NULL,
@@ -272,7 +279,7 @@ export async function ensureRunTables(): Promise<void> {
           PRIMARY KEY (day, status, terminal_reason)
         )
       `;
-      const agentToolLedgerCreateSql = `
+        const agentToolLedgerCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_tool_ledger (
           thread_id TEXT NOT NULL,
           tool_key TEXT NOT NULL,
@@ -284,7 +291,7 @@ export async function ensureRunTables(): Promise<void> {
           PRIMARY KEY (thread_id, tool_key)
         )
       `;
-      const agentTurnInitiatorsCreateSql = `
+        const agentTurnInitiatorsCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_turn_initiators (
           thread_id TEXT NOT NULL,
           turn_id TEXT NOT NULL,
@@ -299,78 +306,83 @@ export async function ensureRunTables(): Promise<void> {
         )
       `;
 
-      await ensureTableExists("agent_runs", agentRunsCreateSql);
-      for (const [col, colType] of [
-        ["heartbeat_at", "BIGINT"],
-        ["abort_reason", "TEXT"],
-        ["last_progress_at", "BIGINT"],
-        ["turn_id", "TEXT"],
-        ["error_code", "TEXT"],
-        ["error_detail", "TEXT"],
-        ["terminal_reason", "TEXT"],
-        ["dispatch_mode", "TEXT"],
-        ["diag_stage", "TEXT"],
-        ["worker_stage", "TEXT"],
-        ["peak_rss_mb", "BIGINT"],
-        ["dispatch_payload", "TEXT"],
-        ["in_flight_since", "BIGINT"],
-        ["continuation_order", "BIGINT"],
-        ["auto_continue_of", "TEXT"],
-      ] as const) {
-        await ensureColumnExists(
-          "agent_runs",
-          col,
-          `ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS ${col} ${colType}`,
+        await ensureTableExists("agent_runs", agentRunsCreateSql);
+        for (const [col, colType] of [
+          ["heartbeat_at", "BIGINT"],
+          ["abort_reason", "TEXT"],
+          ["last_progress_at", "BIGINT"],
+          ["turn_id", "TEXT"],
+          ["error_code", "TEXT"],
+          ["error_detail", "TEXT"],
+          ["terminal_reason", "TEXT"],
+          ["dispatch_mode", "TEXT"],
+          ["diag_stage", "TEXT"],
+          ["worker_stage", "TEXT"],
+          ["peak_rss_mb", "BIGINT"],
+          ["dispatch_payload", "TEXT"],
+          ["in_flight_since", "BIGINT"],
+          ["continuation_order", "BIGINT"],
+          ["auto_continue_of", "TEXT"],
+        ] as const) {
+          await ensureColumnExists(
+            "agent_runs",
+            col,
+            `ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS ${col} ${colType}`,
+          );
+        }
+        await ensureTableExists("agent_run_events", agentRunEventsCreateSql);
+        await ensureTableExists(
+          "agent_turn_initiators",
+          agentTurnInitiatorsCreateSql,
         );
-      }
-      await ensureTableExists("agent_run_events", agentRunEventsCreateSql);
-      await ensureTableExists(
-        "agent_turn_initiators",
-        agentTurnInitiatorsCreateSql,
-      );
-      await ensureColumnExists(
-        "agent_run_events",
-        "event_at",
-        `ALTER TABLE agent_run_events ADD COLUMN IF NOT EXISTS event_at BIGINT`,
-      );
-      await ensureTableExists("agent_tool_ledger", agentToolLedgerCreateSql);
-      await ensureColumnExists(
-        "agent_tool_ledger",
-        "artifacts_json",
-        `ALTER TABLE agent_tool_ledger ADD COLUMN IF NOT EXISTS artifacts_json TEXT`,
-      );
-      await ensureColumnExists(
-        "agent_tool_ledger",
-        "chat_ui_result_json",
-        `ALTER TABLE agent_tool_ledger ADD COLUMN IF NOT EXISTS chat_ui_result_json TEXT`,
-      );
-      await ensureColumnExists(
-        "agent_tool_ledger",
-        "result_is_string",
-        `ALTER TABLE agent_tool_ledger ADD COLUMN IF NOT EXISTS result_is_string BOOLEAN`,
-      );
-      await ensureTableExists(
-        "agent_run_outcome_daily",
-        agentRunOutcomeDailyCreateSql,
-      );
-      await widenIntColumnsToBigInt("agent_runs", [
-        "started_at",
-        "completed_at",
-        "heartbeat_at",
-        "last_progress_at",
-        "in_flight_since",
-        "continuation_order",
-      ]);
-      await widenIntColumnsToBigInt("agent_run_events", ["event_at"]);
-      await widenIntColumnsToBigInt("agent_tool_ledger", ["completed_at"]);
-      return;
-    })().catch((err) => {
-      _initPromise = undefined;
-      throw err;
-    });
-    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
-  }
-  return _initPromise;
+        await ensureColumnExists(
+          "agent_run_events",
+          "event_at",
+          `ALTER TABLE agent_run_events ADD COLUMN IF NOT EXISTS event_at BIGINT`,
+        );
+        await ensureTableExists("agent_tool_ledger", agentToolLedgerCreateSql);
+        await ensureColumnExists(
+          "agent_tool_ledger",
+          "artifacts_json",
+          `ALTER TABLE agent_tool_ledger ADD COLUMN IF NOT EXISTS artifacts_json TEXT`,
+        );
+        await ensureColumnExists(
+          "agent_tool_ledger",
+          "chat_ui_result_json",
+          `ALTER TABLE agent_tool_ledger ADD COLUMN IF NOT EXISTS chat_ui_result_json TEXT`,
+        );
+        await ensureColumnExists(
+          "agent_tool_ledger",
+          "result_is_string",
+          `ALTER TABLE agent_tool_ledger ADD COLUMN IF NOT EXISTS result_is_string BOOLEAN`,
+        );
+        await ensureTableExists(
+          "agent_run_outcome_daily",
+          agentRunOutcomeDailyCreateSql,
+        );
+      },
+    },
+    {
+      name: "widen-bigint",
+      run: async () => {
+        await widenIntColumnsToBigInt("agent_runs", [
+          "started_at",
+          "completed_at",
+          "heartbeat_at",
+          "last_progress_at",
+          "in_flight_since",
+          "continuation_order",
+        ]);
+        await widenIntColumnsToBigInt("agent_run_events", ["event_at"]);
+        await widenIntColumnsToBigInt("agent_tool_ledger", ["completed_at"]);
+      },
+    },
+    ...fromMigrationEntries(AGENT_RUN_MIGRATIONS_TABLE, AGENT_RUN_MIGRATIONS),
+  ],
+});
+
+export function ensureRunTables(): Promise<void> {
+  return agentRunsStore.ready();
 }
 
 const LEDGER_RESULT_MAX_CHARS = 8_000;
@@ -2413,8 +2425,14 @@ function persistedRunEventData(
   inputSource?: "execution",
 ): string {
   const stripped = stripInlineBytesFromJson(eventData, "placeholder");
-  if (stripped === eventData && inputSource !== "execution") return eventData;
   const original = JSON.parse(eventData);
+  if (original.type === "approval_required") {
+    return JSON.stringify({
+      ...JSON.parse(stripped),
+      approvalKey: approvalKeyForHistory(original.approvalKey),
+    });
+  }
+  if (stripped === eventData && inputSource !== "execution") return eventData;
   if (
     (original.type !== "tool_start" && original.type !== "tool_done") ||
     original.input === undefined ||
@@ -2443,7 +2461,11 @@ export async function insertRunEvent(
   runId: string,
   seq: number,
   eventData: string,
-  options?: { toolInputSource?: "execution"; requireInserted?: boolean },
+  options?: {
+    toolInputSource?: "execution";
+    requireInserted?: boolean;
+    eventAt?: number;
+  },
 ): Promise<void> {
   await ensureRunTables();
   const client = getDbExec();
@@ -2470,13 +2492,56 @@ export async function insertRunEvent(
     args: [
       runId,
       seq,
-      Date.now(),
+      options?.eventAt ?? Date.now(),
       storedEventData,
       ...(options?.requireInserted ? [] : [runId]),
     ],
   });
   if (options?.requireInserted && rowsAffected !== 1)
     throw new AgentRunEventNotPersistedError(runId, seq);
+}
+
+// Stays well under PostgreSQL's 65,535 bind-parameter limit at 4 per row.
+const RUN_EVENT_BATCH_ROWS = 500;
+
+/**
+ * Same guarantees as `insertRunEvent` without execution-input fingerprints,
+ * so tool_start/tool_done must keep going through `insertRunEvent`.
+ */
+export async function insertRunEvents(
+  runId: string,
+  events: ReadonlyArray<{ seq: number; eventAt: number; eventData: string }>,
+): Promise<void> {
+  if (events.length === 0) return;
+  await ensureRunTables();
+  const client = getDbExec();
+  for (let start = 0; start < events.length; start += RUN_EVENT_BATCH_ROWS) {
+    const chunk = events.slice(start, start + RUN_EVENT_BATCH_ROWS);
+    await client.execute({
+      sql: `INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
+        SELECT v.run_id, v.seq, v.event_at, v.event_data
+        FROM (VALUES ${chunk
+          .map(
+            () =>
+              "(CAST(? AS TEXT), CAST(? AS BIGINT), CAST(? AS BIGINT), CAST(? AS TEXT))",
+          )
+          .join(", ")}) AS v(run_id, seq, event_at, event_data)
+        WHERE NOT EXISTS (
+          SELECT 1 FROM agent_runs
+          WHERE id = ? AND status <> 'running'
+        )
+        ON CONFLICT (run_id, seq) DO NOTHING`,
+      args: [
+        ...chunk.flatMap(({ seq, eventAt, eventData }) => [
+          runId,
+          seq,
+          eventAt,
+          persistedRunEventData(eventData),
+        ]),
+        runId,
+      ],
+    });
+  }
 }
 
 export const CHECKPOINT_TERMINAL_EVENT_SEQ = 1_000_000_000;
@@ -2750,6 +2815,53 @@ export async function getRunByThread(
   };
 }
 
+/** The connection request that a restored client may still need to resolve. */
+export async function getRunPendingConnectionRequestId(
+  runId: string,
+): Promise<string | null> {
+  await ensureRunTables();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT event_data FROM agent_run_events request_event
+          JOIN agent_runs requested_run ON requested_run.id = request_event.run_id
+          WHERE request_event.run_id = ?
+            AND request_event.event_data LIKE ?
+            AND NOT EXISTS (
+              SELECT 1 FROM agent_runs successor
+              WHERE successor.thread_id = requested_run.thread_id
+                AND COALESCE(successor.turn_id, successor.id) =
+                    COALESCE(requested_run.turn_id, requested_run.id)
+                AND successor.id <> requested_run.id
+                AND successor.dispatch_mode IS DISTINCT FROM 'turn-abort'
+                AND (
+                  COALESCE(successor.continuation_order, 0) >
+                    COALESCE(requested_run.continuation_order, 0)
+                  OR (
+                    COALESCE(successor.continuation_order, 0) =
+                      COALESCE(requested_run.continuation_order, 0)
+                    AND successor.started_at > requested_run.started_at
+                  )
+                )
+            )
+          ORDER BY request_event.seq DESC
+          LIMIT 1`,
+    args: [runId, '{"type":"connection_required"%'],
+  });
+  if (rows.length === 0) return null;
+  const row = rows[0] as { event_data?: unknown };
+  if (typeof row.event_data !== "string") {
+    throw new TypeError(
+      `Agent run ${runId} has an unreadable connection request event.`,
+    );
+  }
+  const event: unknown = JSON.parse(row.event_data);
+  if (!isReadableJournalEvent(event) || event.type !== "connection_required") {
+    throw new TypeError(
+      `Agent run ${runId} has an unreadable connection request event.`,
+    );
+  }
+  return event.requestId;
+}
+
 export interface AgentRunSummary {
   id: string;
   threadId: string;
@@ -2937,7 +3049,7 @@ function isReadableJournalEvent(value: unknown): value is AgentChatEvent {
           value.inputFingerprint as string | undefined,
           value.inputStoredFingerprint as string | undefined,
         ) &&
-        (!isRedactedToolCallInput(value.input) ||
+        (!isUnavailableToolCallInput(value.input) ||
           value.inputFingerprint !== undefined) &&
         (type === "tool_start"
           ? Object.hasOwn(value, "input")
@@ -2945,6 +3057,8 @@ function isReadableJournalEvent(value: unknown): value is AgentChatEvent {
               (field) =>
                 value[field] === undefined || typeof value[field] === "boolean",
             ) &&
+            (value.approvalPause === undefined ||
+              typeof value.approvalPause === "boolean") &&
             (value.outcomeUnknown === undefined ||
               value.outcomeUnknown === true))
       );

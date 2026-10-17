@@ -19,6 +19,7 @@ import {
   recoverFromStaleChunkError,
   reloadForStaleChunk,
   rememberIntendedNavigation,
+  rememberRouteChunkRecoveryNavigation,
   STALE_CHUNK_RECOVERY_EXHAUSTED_EVENT,
 } from "./route-chunk-recovery.js";
 
@@ -370,6 +371,30 @@ describe("route chunk recovery", () => {
     fakeLocation.reload();
     expect(fakeLocation.assign).toHaveBeenCalledOnce();
     expect(originalReload).not.toHaveBeenCalled();
+  });
+
+  it("preserves programmatic router targets when their route module fails before history commits", () => {
+    const { fakeWindow, fakeLocation } = createFakeWindow(
+      "https://example.com/home",
+    );
+
+    installRouteChunkRecovery(fakeWindow);
+    rememberRouteChunkRecoveryNavigation(
+      "https://example.com/settings/account",
+      fakeWindow,
+    );
+
+    fakeWindow.console.error(
+      "Error loading route module `/assets/settings.js`, reloading page...",
+    );
+
+    expectRecoveryNavigation(
+      fakeLocation,
+      "https://example.com/settings/account",
+    );
+    expect(new URL(fakeLocation.href).pathname).toBe(
+      `/settings/account${CHUNK_RECOVERY_PATH_SUFFIX}`,
+    );
   });
 
   it("recovers the intended route inside Agent-Native desktop", () => {

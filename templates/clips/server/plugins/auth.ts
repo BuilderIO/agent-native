@@ -28,6 +28,9 @@ export default createToolkitAuthPlugin({
     "/record",
     "/_agent-native/actions/create-intake-recording",
     "/api/clip-intake",
+    // Chunk POSTs from an outside agent carry no session cookie; the route
+    // refuses anything without a ticket for its own recording.
+    "/api/uploads/:recordingId/agent-chunk",
     "/__manifest",
     "/api/view-event",
     "/api/public-recording",
@@ -36,6 +39,7 @@ export default createToolkitAuthPlugin({
     "/api/agent-context.json",
     "/api/agent-transcript.json",
     "/api/agent-frame.jpg",
+    "/api/agent-app-activity.json",
     "/api/media",
     "/api/clips-latest.json",
     "/api/clips-updater.json",

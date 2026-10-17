@@ -4,7 +4,10 @@ import {
   AgentKitClient,
   AgentKitUploadError,
 } from "@agent-native/agentkit/client";
-import { MAX_AGENT_REQUEST_ATTACHMENT_DATA_CHARS } from "@agent-native/agentkit/protocol";
+import {
+  AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY,
+  MAX_AGENT_REQUEST_ATTACHMENT_DATA_CHARS,
+} from "@agent-native/agentkit/protocol";
 import type {
   AgentInteraction,
   FilePart,
@@ -4597,6 +4600,7 @@ describe("AgentKitAssistantChat host behavior", () => {
 
   it("uploads inline images before storing a deferred submission", async () => {
     chatMocks.history = { isRestoring: true };
+    const submissionExpiresAt = Date.now() + 20_000;
     chatMocks.control.uploadFiles.mockResolvedValueOnce([
       {
         type: "file",
@@ -4609,16 +4613,110 @@ describe("AgentKitAssistantChat host behavior", () => {
     await mount(baseProps(), ref);
 
     await act(async () => {
-      await ref.current?.sendMessage("Use this image", [
-        "data:image/png;base64,aGVsbG8=",
-      ]);
+      await ref.current?.sendMessage(
+        "Use this image",
+        ["data:image/png;base64,aGVsbG8="],
+        { submissionExpiresAt },
+      );
     });
 
     const stored = JSON.stringify([...chatMocks.appState.values()]);
     expect(chatMocks.control.uploadFiles).toHaveBeenCalledOnce();
     expect(stored).toContain("https://files.example.test/image.png");
+    expect(stored).toContain(String(submissionExpiresAt));
     expect(stored).not.toContain("base64,");
     expect(stored).not.toContain("data:image");
+  });
+
+  it("does not report a deferred retry as submitted if saving passes its deadline", async () => {
+    chatMocks.history = { isRestoring: true };
+    const threadId = chatMocks.threadId;
+    const encodedThreadId = Array.from(threadId, (character) =>
+      character.codePointAt(0)!.toString(16),
+    ).join("-");
+    const stateKey = `agentkit-deferred-provider-submissions:${encodedThreadId}`;
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
+    const compareAndSet = vi.mocked(compareAndSetClientAppState);
+    const originalCompareAndSet = compareAndSet.getMockImplementation();
+    if (!originalCompareAndSet) {
+      throw new Error("Expected the app-state compare-and-set mock.");
+    }
+    let advancedDeadline = false;
+    compareAndSet.mockImplementation(async (...args) => {
+      const saved = await originalCompareAndSet(...args);
+      if (args[0] === stateKey && args[2] !== null && !advancedDeadline) {
+        advancedDeadline = true;
+        now.mockReturnValue(1_001);
+      }
+      return saved;
+    });
+    const results: CustomEvent[] = [];
+    const listener = (event: Event) => results.push(event as CustomEvent);
+    window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, listener);
+    const ref = createRef<AssistantChatHandle>();
+
+    try {
+      await mount(baseProps(), ref);
+      await expect(
+        ref.current?.sendMessage("Retry the same deck prompt", undefined, {
+          submissionExpiresAt: 1_001,
+          submitMessageId: "deadline-during-save",
+        }),
+      ).resolves.toEqual({
+        status: "rejected",
+        reason: "submission-expired",
+      });
+      expect(chatMocks.appState.has(stateKey)).toBe(false);
+      expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+      expect(results.map((event) => event.detail)).toContainEqual({
+        submitMessageId: "deadline-during-save",
+        delivered: false,
+        reason: "submission-expired",
+      });
+    } finally {
+      window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, listener);
+      compareAndSet.mockImplementation(originalCompareAndSet);
+      now.mockRestore();
+    }
+  });
+
+  it("removes an expired deferred submission without dispatching it", async () => {
+    const threadId = chatMocks.threadId;
+    const encodedThreadId = Array.from(threadId, (character) =>
+      character.codePointAt(0)!.toString(16),
+    ).join("-");
+    const stateKey = `agentkit-deferred-provider-submissions:${encodedThreadId}`;
+    chatMocks.appState.set(stateKey, {
+      version: 1,
+      threadId,
+      submissions: [
+        {
+          id: "expired-deferred-submit",
+          threadId,
+          text: "Create a deck",
+          submissionExpiresAt: Date.now() - 1,
+          fileParts: [],
+          references: [],
+          composerOptions: {},
+          options: {},
+        },
+      ],
+    });
+    const results: CustomEvent[] = [];
+    const listener = (event: Event) => results.push(event as CustomEvent);
+    window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, listener);
+
+    await mount(baseProps());
+    await flush();
+    window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, listener);
+
+    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+    expect(chatMocks.appState.has(stateKey)).toBe(false);
+    expect(results.map((event) => event.detail)).toContainEqual({
+      submitMessageId: "expired-deferred-submit",
+      delivered: false,
+      reason: "submission-expired",
+    });
   });
 
   it("rechecks only submission scope after upload and reports its reason", async () => {
@@ -6039,6 +6137,41 @@ describe("AgentKitAssistantChat host behavior", () => {
         queuedWhileRunActive: true,
       }),
     );
+    expect(chatMocks.control.queueMessage).not.toHaveBeenCalled();
+  });
+
+  it("keeps a deadline-bound retry out of the queue and forwards its expiry", async () => {
+    chatMocks.thread.activeRunIds = ["run-1"];
+    const ref = createRef<AssistantChatHandle>();
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () => {
+      root.render(<AgentKitAssistantChat ref={ref} {...baseProps()} />);
+    });
+    const submissionExpiresAt = Date.now() + 20_000;
+
+    await act(async () => {
+      await expect(
+        ref.current?.sendMessage("Retry the same deck prompt", undefined, {
+          submissionExpiresAt,
+          submitMessageId: "slides-retry",
+        }),
+      ).resolves.toEqual({ status: "submitted" });
+    });
+
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
+    expect(chatMocks.control.sendMessage.mock.calls[0]?.[0]).toMatchObject({
+      text: "Retry the same deck prompt",
+      queuedWhileRunActive: true,
+      queueWhileRunning: false,
+      metadata: {
+        custom: {
+          [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]:
+            submissionExpiresAt,
+        },
+      },
+    });
     expect(chatMocks.control.queueMessage).not.toHaveBeenCalled();
   });
 
@@ -7799,6 +7932,87 @@ describe("AgentKitAssistantChat host behavior", () => {
       container.querySelectorAll('[data-testid="run-error-recovery-card"]'),
     ).toHaveLength(1);
     expect(chatMocks.failureProps.info.errorCode).toBe("credits-limit-daily");
+  });
+
+  it("passes the unverified session email to run recovery", async () => {
+    chatMocks.session = {
+      ...chatMocks.session,
+      email: "person@example.test",
+      emailVerified: false,
+    };
+    chatMocks.failureError = {
+      code: "email_verification_required",
+      message: "Verify your email before continuing.",
+    };
+
+    await mount(baseProps());
+
+    expect(chatMocks.failureProps.verificationEmail).toBe(
+      "person@example.test",
+    );
+  });
+
+  it("uses identity bootstrap as the verification callback when SSO is enabled", async () => {
+    window.history.replaceState(
+      null,
+      "",
+      "/design/thread?private=value#section",
+    );
+    chatMocks.session = {
+      ...chatMocks.session,
+      email: "person@example.test",
+      emailVerified: false,
+      identitySsoEnabled: true,
+    };
+    chatMocks.failureError = {
+      code: "email_verification_required",
+      message: "Verify your email before continuing.",
+    };
+
+    await mount(baseProps());
+
+    expect(chatMocks.failureProps.verificationCallbackURL).toBe(
+      "/_agent-native/identity/bootstrap?return=%2Fdesign%2Fthread",
+    );
+  });
+
+  it("keeps the Dispatch chat thread as the verification callback", async () => {
+    window.history.replaceState(null, "", "/dispatch/chat/thread-1");
+    chatMocks.session = {
+      ...chatMocks.session,
+      email: "person@example.test",
+      emailVerified: false,
+    };
+    chatMocks.failureError = {
+      code: "email_verification_required",
+      message: "Verify your email before continuing.",
+    };
+
+    await mount(baseProps());
+
+    expect(chatMocks.failureProps.verificationCallbackURL).toBe(
+      "/dispatch/chat/thread-1",
+    );
+  });
+
+  it("preserves the Dispatch chat route through identity bootstrap", async () => {
+    window.history.replaceState(null, "", "/dispatch/chat/thread-1");
+    chatMocks.session = {
+      ...chatMocks.session,
+      email: "person@example.test",
+      emailVerified: false,
+      identitySsoEnabled: true,
+    };
+    chatMocks.failureError = {
+      code: "email_verification_required",
+      message: "Verify your email before continuing.",
+    };
+
+    await mount(baseProps());
+
+    expect(chatMocks.failureProps.verificationCallbackURL).toBe(
+      "/_agent-native/identity/bootstrap?return=%2Fdispatch%2Fchat%2Fthread-1",
+    );
   });
 
   it("deduplicates credit-limit cards when failed runs share a timestamp", async () => {
@@ -10105,7 +10319,10 @@ describe("AgentKitAssistantChat host behavior", () => {
       title: "Allow publishing?",
       description: "publish-release",
       kind: "approval",
-      metadata: { toolName: "publish-release" },
+      metadata: {
+        toolName: "publish-release",
+        approvalAskId: "agent-tool-approval-1",
+      },
     };
     await mount(baseProps());
 
@@ -10121,13 +10338,56 @@ describe("AgentKitAssistantChat host behavior", () => {
 
     expect(chatMocks.callAction).toHaveBeenCalledWith(
       "set-tool-approval-policy",
-      { toolName: "publish-release", enabled: true },
+      {
+        toolName: "publish-release",
+        enabled: true,
+        approvalId: "agent-tool-approval-1",
+      },
     );
     expect(chatMocks.control.resolveApproval).toHaveBeenCalledWith(
       "run-1",
       "approval-default-policy",
       { decision: "approve", optionIds: ["approve"] },
     );
+  });
+
+  it("saves a name-only policy when the approval has no server approval id", async () => {
+    chatMocks.approvalRequest = {
+      id: "provider-approval-7",
+      title: "Allow this connector tool?",
+      kind: "approval",
+      metadata: { toolName: "connector-tool" },
+    };
+    await mount(baseProps());
+
+    await act(async () => {
+      await chatMocks.approvalCardProps.onAlwaysAllow();
+    });
+
+    expect(chatMocks.callAction).toHaveBeenCalledWith(
+      "set-tool-approval-policy",
+      { toolName: "connector-tool", enabled: true },
+    );
+    expect(chatMocks.control.resolveApproval).toHaveBeenCalledWith(
+      "run-1",
+      "provider-approval-7",
+      { decision: "approve", optionIds: ["approve"] },
+    );
+  });
+
+  it("offers no always-allow for an approval that cannot persist", async () => {
+    chatMocks.approvalRequest = {
+      id: "approval-managed",
+      title: "Allow this managed agent tool?",
+      kind: "approval",
+      metadata: {
+        toolName: "managed-agent-tool",
+        allowPersistentApproval: false,
+      },
+    };
+    await mount(baseProps());
+
+    expect(chatMocks.approvalCardProps.onAlwaysAllow).toBeUndefined();
   });
 
   it("opens active reasoning and omits explicitly hidden reasoning", async () => {

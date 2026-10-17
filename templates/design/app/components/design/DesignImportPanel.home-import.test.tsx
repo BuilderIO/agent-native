@@ -80,16 +80,27 @@ vi.mock("@/lib/figma-connection", () => ({
 let root: Root;
 let container: HTMLDivElement;
 let file: File;
-function prepared() {
+function prepared(
+  pages: Array<{ id: string; name: string; frameCount: number }> = [
+    { id: "page-1", name: "Page", frameCount: 1 },
+  ],
+) {
   return {
     file,
     summary: {
-      frameCount: 1,
+      pageCount: pages.length,
+      frameCount: pages.reduce((sum, page) => sum + page.frameCount, 0),
       nodeCount: 2,
-      frames: [{ id: "frame-1", name: "Frame", nodeCount: 2 }],
+      imageCount: 0,
+      pages,
     },
     dispose: mocks.dispose,
   };
+}
+function button(label: string) {
+  return Array.from(container.querySelectorAll("button")).find(
+    (item) => item.textContent === label,
+  );
 }
 async function render(designId = "home-design") {
   await act(async () =>
@@ -246,8 +257,151 @@ describe("home-picked .fig handoff", () => {
     await click("designEditor.import.figImportAll");
     await vi.waitFor(() => expect(mocks.onImport).toHaveBeenCalledOnce());
     expect(mocks.import).toHaveBeenCalledWith(
-      expect.objectContaining({ selection: new Set(["frame-1"]), file }),
+      expect.objectContaining({ selection: new Set(["page-1"]), file }),
     );
+  });
+  it("picks pages and blocks a selection over the frame limit before converting", async () => {
+    mocks.shouldWarn.mockReturnValue(true);
+    mocks.prepare.mockImplementation(async () =>
+      prepared([
+        { id: "campaigns", name: "Campaigns", frameCount: 1_500 },
+        { id: "brand", name: "Brand", frameCount: 900 },
+      ]),
+    );
+    await render();
+    await vi.waitFor(() =>
+      expect(container.textContent).toContain("Campaigns"),
+    );
+    expect(container.textContent).toContain("Brand");
+    expect(button("designEditor.import.figImportSelected")?.disabled).toBe(
+      true,
+    );
+
+    await click("designEditor.import.figImportSelectAll");
+    expect(container.textContent).toContain(
+      "designEditor.import.figImportFrameLimit",
+    );
+    expect(button("designEditor.import.figImportAll")?.disabled).toBe(true);
+
+    await click("designEditor.import.figImportClearAll");
+    const brand = container.querySelector<HTMLButtonElement>(
+      '[role="checkbox"][aria-label="Brand"]',
+    );
+    await act(async () => brand!.click());
+    expect(button("designEditor.import.figImportSelected")?.disabled).toBe(
+      false,
+    );
+    await click("designEditor.import.figImportSelected");
+    await vi.waitFor(() => expect(mocks.onImport).toHaveBeenCalledOnce());
+    expect(mocks.import).toHaveBeenCalledWith(
+      expect.objectContaining({ selection: new Set(["brand"]) }),
+    );
+  });
+  it("explains the frame limit for a single page that is over it", async () => {
+    mocks.shouldWarn.mockReturnValue(true);
+    mocks.prepare.mockImplementation(async () =>
+      prepared([{ id: "huge", name: "Huge page", frameCount: 2_400 }]),
+    );
+    await render();
+    await vi.waitFor(() =>
+      expect(container.textContent).toContain("Huge page"),
+    );
+    expect(container.textContent).toContain(
+      "designEditor.import.figImportFrameLimit",
+    );
+    expect(button("designEditor.import.figImportSelected")?.disabled).toBe(
+      true,
+    );
+  });
+  it("hands a still-decoded file to the remounted panel when conversion fails", async () => {
+    mocks.shouldWarn.mockReturnValue(true);
+    let failRender!: () => void;
+    mocks.import.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          failRender = () =>
+            reject(
+              Object.assign(new Error("Too much editable HTML."), {
+                preparedReusable: true,
+                remoteMutationStarted: false,
+              }),
+            );
+        }),
+    );
+    await render();
+    await vi.waitFor(() =>
+      expect(container.textContent).toContain(
+        "designEditor.import.figImportWarningTitle",
+      ),
+    );
+    await click("designEditor.import.figImportAll");
+    await vi.waitFor(() => expect(failRender).toBeTypeOf("function"));
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    await render();
+    await act(async () => failRender());
+
+    await vi.waitFor(() =>
+      expect(container.textContent).toContain(
+        "designEditor.import.figImportWarningTitle",
+      ),
+    );
+    expect(mocks.dispose).not.toHaveBeenCalled();
+    expect(mocks.error).toHaveBeenCalledWith(
+      "designEditor.import.errors.uploadFailed",
+      { description: "Too much editable HTML." },
+    );
+  });
+  it("resumes the page picker when the editor remounts the panel mid-analysis", async () => {
+    mocks.shouldWarn.mockReturnValue(true);
+    let finishDecode!: () => void;
+    mocks.prepare.mockImplementation(async () => {
+      await new Promise<void>((resolve) => (finishDecode = resolve));
+      return prepared();
+    });
+    await render();
+    await vi.waitFor(() => expect(finishDecode).toBeTypeOf("function"));
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    await render();
+    await act(async () => finishDecode());
+
+    await vi.waitFor(() =>
+      expect(container.textContent).toContain(
+        "designEditor.import.figImportWarningTitle",
+      ),
+    );
+    expect(mocks.dispose).not.toHaveBeenCalled();
+    expect(mocks.prepare).toHaveBeenCalledOnce();
+    await click("designEditor.import.figImportAll");
+    await vi.waitFor(() => expect(mocks.onImport).toHaveBeenCalledOnce());
+  });
+  it("reopens the page picker with the reason when a selection fails to convert", async () => {
+    mocks.shouldWarn.mockReturnValue(true);
+    mocks.import.mockRejectedValueOnce(
+      Object.assign(new Error("Too much editable HTML."), {
+        preparedReusable: true,
+        remoteMutationStarted: false,
+      }),
+    );
+    await render();
+    await vi.waitFor(() =>
+      expect(container.textContent).toContain(
+        "designEditor.import.figImportWarningTitle",
+      ),
+    );
+    await click("designEditor.import.figImportAll");
+    await vi.waitFor(() =>
+      expect(container.textContent).toContain("Too much editable HTML."),
+    );
+    expect(mocks.dispose).not.toHaveBeenCalled();
+    expect(mocks.error).not.toHaveBeenCalled();
+    expect(mocks.upload).not.toHaveBeenCalled();
+
+    await click("designEditor.import.figImportAll");
+    await vi.waitFor(() => expect(mocks.onImport).toHaveBeenCalledOnce());
+    expect(mocks.import).toHaveBeenCalledTimes(2);
+    expect(mocks.prepare).toHaveBeenCalledOnce();
   });
   it("cancels the preview without importing or automatically restoring it", async () => {
     mocks.shouldWarn.mockReturnValue(true);

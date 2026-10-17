@@ -3,6 +3,7 @@ import nodePath from "node:path";
 
 import {
   AgentProtocolValidationError,
+  AGENT_NATIVE_SUBMISSION_DEADLINES_CAPABILITY_ID,
   parseQueueMessageInput,
 } from "@agent-native/agentkit/protocol";
 import {
@@ -251,6 +252,7 @@ import { sortResourceSkills } from "./agent-chat/skill-frontmatter.js";
 import { discoverAgents } from "./agent-discovery.js";
 import {
   resolveAgentRunOrgId,
+  resolveAgentRunOrgScope,
   resolveAgentRunOwnerContext,
   runWithAgentRunContext,
   seedAgentRunOwnerContext,
@@ -271,6 +273,7 @@ import {
 } from "./auth.js";
 import { captureError } from "./capture-error.js";
 import { chatTitleRequestFromBody, generateChatTitle } from "./chat-title.js";
+import { filesystemActionEntry } from "./filesystem-action-entry.js";
 import {
   getH3App,
   markDefaultPluginProvided,
@@ -281,6 +284,7 @@ import { getOrigin } from "./google-oauth.js";
 import { readBody } from "./h3-helpers.js";
 import { loadHostedHarnessConfig } from "./hosted-harness-policy.js";
 import { startIntervalJob } from "./interval-job.js";
+import { isDirectLoopbackRequest } from "./loopback.js";
 import { getModelFamilyOverlay } from "./prompts/index.js";
 import { mountRealtimeVoiceRoutes } from "./realtime-voice.js";
 import {
@@ -291,6 +295,7 @@ import {
   getRequestRunContext,
   ensureRequestRunContext,
 } from "./request-context.js";
+import { getForwardedRequestOrigin } from "./request-origin.js";
 
 export { handleSharedThreadRequest };
 export type { SharedThreadRouteDependencies };
@@ -455,6 +460,10 @@ import {
   resolveArtifactBaseUrl,
   unverifiedA2AUserError,
 } from "./agent-chat/action-filters-a2a.js";
+import {
+  normalizeAdditionalActionSurfaces,
+  resolveAppAdditionalActions,
+} from "./agent-chat/additional-actions.js";
 import {
   createBuilderBrowserTool,
   createTeamTools,
@@ -1233,6 +1242,12 @@ export function createAgentChatPlugin(
         options?.resolveMcpActionEntry
           ? { resolveActionEntry: options.resolveMcpActionEntry }
           : {};
+      if (options?.resolveMcpActionEntry) {
+        const resolveMcpActionEntry = options.resolveMcpActionEntry;
+        setMcpToolAuthorizationResolver(
+          (tool) => resolveMcpActionEntry(tool)?.authorize,
+        );
+      }
 
       // Build the four assembled system prompt strings. These are static for the
       // lifetime of this plugin instance — examples come from options once at
@@ -1266,6 +1281,48 @@ export function createAgentChatPlugin(
           ...mcpActionEntryOptions,
           ...(toolNames ? { toolNames } : {}),
         });
+      };
+      // Every registry any surface can dispatch to a built-in implementation,
+      // pushed as each one is assembled below. App-supplied request actions
+      // may not reuse any of these names, even on a surface (lean chat, A2A,
+      // ask_app) that leaves the built-in out, or an allowlist or approval
+      // granted to that name could be redirected to app code.
+      const reservedActionRegistries: Array<Record<string, ActionEntry>> = [];
+      const additionalActionsConfig = {
+        resolver: options?.resolveAdditionalActions,
+        externalSurfaces: normalizeAdditionalActionSurfaces(
+          options?.additionalActionSurfaces,
+        ),
+        isReservedName: (name: string) =>
+          reservedActionRegistries.some((registry) =>
+            Object.hasOwn(registry, name),
+          ),
+      };
+      // The one place a request's caller-scoped actions are resolved — the
+      // caller's MCP tools plus the app's additional actions — for chat, A2A,
+      // and ask_app alike. Call it once per run, before tool-search and
+      // surface filtering, and reuse the result for the whole run.
+      const getRequestScopedActions = async (
+        details: {
+          surface: "chat" | "a2a" | "mcp";
+          event?: any;
+          ownerEmail: string | null | undefined;
+          orgId: string | null | undefined;
+        },
+        registered: Record<string, ActionEntry>,
+      ): Promise<Record<string, ActionEntry>> => {
+        const mcpEntries = await getMcpActionEntriesForPrincipal(
+          details.ownerEmail,
+          details.orgId,
+        );
+        return {
+          ...mcpEntries,
+          ...(await resolveAppAdditionalActions(
+            additionalActionsConfig,
+            details,
+            { ...registered, ...mcpEntries },
+          )),
+        };
       };
       const getJobMcpActionEntries = async (
         job?: RecurringJobContext,
@@ -1500,19 +1557,7 @@ export function createAgentChatPlugin(
                     ? mod.default
                     : mod;
                 if (def?.tool && typeof def.run === "function") {
-                  discoveredActionsAll[name] = {
-                    tool: def.tool,
-                    run: def.run,
-                    ...(def.http !== undefined ? { http: def.http } : {}),
-                    ...(typeof def.agentTool === "boolean"
-                      ? { agentTool: def.agentTool }
-                      : {}),
-                    ...(def.chatUI &&
-                    typeof def.chatUI === "object" &&
-                    !Array.isArray(def.chatUI)
-                      ? { chatUI: def.chatUI }
-                      : {}),
-                  };
+                  discoveredActionsAll[name] = filesystemActionEntry(def);
                   continue;
                 }
               } catch {
@@ -2216,6 +2261,13 @@ export function createAgentChatPlugin(
       const externalFullActions = mcpFullActions
         ? { ...mcpOnlyActions, ...mcpFullActions }
         : undefined;
+      reservedActionRegistries.push(
+        templateScriptsAll,
+        discoveredActionsAll,
+        devScriptsForA2A,
+        externalActions,
+        ...(externalFullActions ? [externalFullActions] : []),
+      );
 
       const { mountA2A } = await import("../a2a/server.js");
       const localA2AConfig: import("../a2a/types.js").A2AConfig = {
@@ -2588,61 +2640,66 @@ export function createAgentChatPlugin(
           // repetition guard kills the run minutes later. A rejected `{}` call
           // returns a schema error the model can fix on the next step, which is
           // strictly better than a shell loop nobody can see.
-          const requestMcpActionEntries = await getMcpActionEntriesForPrincipal(
-            userEmail,
-            getRequestOrgId(),
-          );
-          const a2aActions = attachToolSearch(
-            devActive
-              ? {
-                  ...templateScripts,
-                  ...resourceScripts,
-                  ...docsScripts,
-                  ...(lazyContext ? frameworkContextTool : {}),
-                  ...urlTools,
-                  ...chatScripts,
-                  ...(a2aAgentDelegationEnabled ? callAgentScript : {}),
-                  ...automationTools,
-                  ...fetchTool,
-                  ...webSearchTool,
-                  ...workspaceFilesTool,
-                  ...workspaceFileActions,
-                  ...toolActions,
-                  ...browserSessionTools,
-                  ...remoteBrowserTools,
-                  ...coreEmailTools,
-                  ...coreAttachmentTools,
-                  ...browserTools,
-                  ...requestMcpActionEntries,
-                  ...devScriptsForA2A,
-                  ...devRunCodeTool,
-                }
-              : {
-                  ...templateScripts,
-                  ...resourceScripts,
-                  ...docsScripts,
-                  ...dbScripts,
-                  ...refreshScreenTool,
-                  ...(lazyContext ? frameworkContextTool : {}),
-                  ...urlTools,
-                  ...chatScripts,
-                  ...(a2aAgentDelegationEnabled ? callAgentScript : {}),
-                  ...automationTools,
-                  ...fetchTool,
-                  ...webSearchTool,
-                  ...workspaceFilesTool,
-                  ...workspaceFileActions,
-                  ...toolActions,
-                  ...browserSessionTools,
-                  ...remoteBrowserTools,
-                  ...coreEmailTools,
-                  ...coreAttachmentTools,
-                  ...browserTools,
-                  ...requestMcpActionEntries,
-                  ...(resolvedProdCodeExec !== "off" ? runCodeTool : {}),
-                  ...prodCodingTools,
-                },
-          );
+          const a2aOrgId = getRequestOrgId();
+          const a2aRegisteredActions = devActive
+            ? {
+                ...templateScripts,
+                ...resourceScripts,
+                ...docsScripts,
+                ...(lazyContext ? frameworkContextTool : {}),
+                ...urlTools,
+                ...chatScripts,
+                ...(a2aAgentDelegationEnabled ? callAgentScript : {}),
+                ...automationTools,
+                ...fetchTool,
+                ...webSearchTool,
+                ...workspaceFilesTool,
+                ...workspaceFileActions,
+                ...toolActions,
+                ...browserSessionTools,
+                ...remoteBrowserTools,
+                ...coreEmailTools,
+                ...coreAttachmentTools,
+                ...browserTools,
+                ...devScriptsForA2A,
+                ...devRunCodeTool,
+              }
+            : {
+                ...templateScripts,
+                ...resourceScripts,
+                ...docsScripts,
+                ...dbScripts,
+                ...refreshScreenTool,
+                ...(lazyContext ? frameworkContextTool : {}),
+                ...urlTools,
+                ...chatScripts,
+                ...(a2aAgentDelegationEnabled ? callAgentScript : {}),
+                ...automationTools,
+                ...fetchTool,
+                ...webSearchTool,
+                ...workspaceFilesTool,
+                ...workspaceFileActions,
+                ...toolActions,
+                ...browserSessionTools,
+                ...remoteBrowserTools,
+                ...coreEmailTools,
+                ...coreAttachmentTools,
+                ...browserTools,
+                ...(resolvedProdCodeExec !== "off" ? runCodeTool : {}),
+                ...prodCodingTools,
+              };
+          const a2aActions = attachToolSearch({
+            ...a2aRegisteredActions,
+            ...(await getRequestScopedActions(
+              {
+                surface: "a2a",
+                event: context.event,
+                ownerEmail: userEmail,
+                orgId: a2aOrgId,
+              },
+              a2aRegisteredActions,
+            )),
+          });
 
           const a2aToolSurface = createA2AEngineToolSurface(
             actionsToEngineTools(a2aActions),
@@ -2732,6 +2789,9 @@ export function createAgentChatPlugin(
               // scope when a processor hop or alternate runner is involved.
               ownerEmail: userEmail,
               orgId: getRequestOrgId() ?? null,
+              // Without it, every action with an `access` policy is refused
+              // for lack of an application identity.
+              appId: options?.appId,
               executionMode: "act",
               runId: context.taskId,
               networkProtocol: "a2a",
@@ -3207,48 +3267,47 @@ export function createAgentChatPlugin(
             // here for the same reason as the A2A surface above: an external
             // caller cannot nurse a shell command that misfires.
             const devActiveMcp = isDevMode();
-            const requestMcpActionEntries =
-              await getMcpActionEntriesForPrincipal(
-                getRequestUserEmail(),
-                getRequestOrgId(),
-              );
-            const mcpActions = attachToolSearch(
-              devActiveMcp
-                ? {
-                    ...templateScripts,
-                    ...resourceScripts,
-                    ...docsScripts,
-                    ...(lazyContext ? frameworkContextTool : {}),
-                    ...urlTools,
-                    ...chatScripts,
-                    ...fetchTool,
-                    ...webSearchTool,
-                    ...workspaceFilesTool,
-                    ...workspaceFileActions,
-                    ...toolActions,
-                    ...requestMcpActionEntries,
-                    ...devScriptsForA2A,
-                    ...devRunCodeTool,
-                  }
-                : {
-                    ...templateScripts,
-                    ...resourceScripts,
-                    ...docsScripts,
-                    ...dbScripts,
-                    ...refreshScreenTool,
-                    ...(lazyContext ? frameworkContextTool : {}),
-                    ...urlTools,
-                    ...chatScripts,
-                    ...fetchTool,
-                    ...webSearchTool,
-                    ...workspaceFilesTool,
-                    ...workspaceFileActions,
-                    ...toolActions,
-                    ...requestMcpActionEntries,
-                    ...(resolvedProdCodeExec !== "off" ? runCodeTool : {}),
-                    ...prodCodingTools,
-                  },
-            );
+            const mcpOrgId = getRequestOrgId();
+            const mcpRegisteredActions = devActiveMcp
+              ? {
+                  ...templateScripts,
+                  ...resourceScripts,
+                  ...docsScripts,
+                  ...(lazyContext ? frameworkContextTool : {}),
+                  ...urlTools,
+                  ...chatScripts,
+                  ...fetchTool,
+                  ...webSearchTool,
+                  ...workspaceFilesTool,
+                  ...workspaceFileActions,
+                  ...toolActions,
+                  ...devScriptsForA2A,
+                  ...devRunCodeTool,
+                }
+              : {
+                  ...templateScripts,
+                  ...resourceScripts,
+                  ...docsScripts,
+                  ...dbScripts,
+                  ...refreshScreenTool,
+                  ...(lazyContext ? frameworkContextTool : {}),
+                  ...urlTools,
+                  ...chatScripts,
+                  ...fetchTool,
+                  ...webSearchTool,
+                  ...workspaceFilesTool,
+                  ...workspaceFileActions,
+                  ...toolActions,
+                  ...(resolvedProdCodeExec !== "off" ? runCodeTool : {}),
+                  ...prodCodingTools,
+                };
+            const mcpActions = attachToolSearch({
+              ...mcpRegisteredActions,
+              ...(await getRequestScopedActions(
+                { surface: "mcp", ownerEmail, orgId: mcpOrgId },
+                mcpRegisteredActions,
+              )),
+            });
 
             // Same compact initial-tool surface as interactive chat and A2A:
             // template actions + the small framework default set stay visible
@@ -3314,6 +3373,7 @@ export function createAgentChatPlugin(
                 actions: mcpActions,
                 ownerEmail,
                 orgId: getRequestOrgId() ?? null,
+                appId: options?.appId,
                 executionMode: "act",
                 runId: mcpRunId,
                 networkProtocol: "mcp",
@@ -3424,6 +3484,7 @@ export function createAgentChatPlugin(
       } catch {
         // Ignore — templates without sharing still work.
       }
+      reservedActionRegistries.push(httpActions);
       const { mountActionRoutes, mountWebMcpActionRoutes } =
         await import("./action-routes.js");
       const directoryProfile = mcpOptions.enabled
@@ -3854,6 +3915,7 @@ export function createAgentChatPlugin(
         attachments?: AgentChatAttachment[];
         queuedMessageId?: string;
         queuedMessageClaimId?: string;
+        submissionExpiresAt?: unknown;
         /** The turn was refused before a run started; record why in the thread. */
         failure?: { code: string; message: string };
         /** What a retry of the refused turn sends besides text and attachments. */
@@ -3929,6 +3991,14 @@ export function createAgentChatPlugin(
             turnId: details.turnId,
             agentKitMessageId: details.agentKitMessageId,
             queuedMessageId: details.queuedMessageId,
+            ...(Object.prototype.hasOwnProperty.call(
+              details,
+              "submissionExpiresAt",
+            )
+              ? {
+                  submissionExpiresAt: details.submissionExpiresAt,
+                }
+              : {}),
             ...(details.failure
               ? { refusedRetry: details.retryContext ?? {} }
               : {}),
@@ -3955,6 +4025,7 @@ export function createAgentChatPlugin(
           let submissionFailure:
             | "already_claimed"
             | "claim_expired"
+            | "submission_expired"
             | "invalid_thread_data"
             | undefined;
           await updateThreadData(
@@ -3986,14 +4057,15 @@ export function createAgentChatPlugin(
                   submissionFailure = result.status;
                   return threadData;
                 }
-                const submitted = details.failure
-                  ? foldUnstartedTurnFailure(result.repo, {
-                      runId: details.runId,
-                      threadId,
-                      turnId: details.turnId,
-                      ...details.failure,
-                    })
-                  : result.repo;
+                const submitted =
+                  details.failure && result.status !== "already_submitted"
+                    ? foldUnstartedTurnFailure(result.repo, {
+                        runId: details.runId,
+                        threadId,
+                        turnId: details.turnId,
+                        ...details.failure,
+                      })
+                    : result.repo;
                 const meta = extractThreadMeta(submitted);
                 return {
                   threadData: JSON.stringify(submitted),
@@ -4016,6 +4088,13 @@ export function createAgentChatPlugin(
               data: { code: "run_slot_busy", retryable: true },
             });
           }
+          if (submissionFailure === "submission_expired") {
+            throw createError({
+              statusCode: 409,
+              statusMessage: "Prompt submission expired before it could start",
+              data: { code: "submission_expired", retryable: false },
+            });
+          }
           if (submissionFailure === "invalid_thread_data") {
             throw new TypeError("Agent chat thread data is not valid JSON.");
           }
@@ -4030,6 +4109,7 @@ export function createAgentChatPlugin(
         attachments?: AgentChatAttachment[];
         queuedMessageId?: string;
         agentKitMessageId?: string;
+        submissionExpiresAt?: unknown;
         retryContext: RefusedTurnRetryContext;
         failure: { code: string; message: string };
       }) => {
@@ -4406,6 +4486,7 @@ export function createAgentChatPlugin(
           : {}),
       });
       leanRunCodeToolActions = leanActions;
+      reservedActionRegistries.push(prodActions, leanActions);
 
       // Always build the production handler (includes resource tools + call-agent + team tools)
       // In production mode (!canToggle), resolve the owner from the request session.
@@ -4455,10 +4536,12 @@ export function createAgentChatPlugin(
         const orgId = await getOrgIdFromEvent(event);
         const { resolveOwnerEngineApiKey } =
           await import("../agent/production-agent.js");
-        const userApiKey = await resolveOwnerEngineApiKey({
-          engineOption: options?.engine,
-          ownerEmail: owner,
-        });
+        const userApiKey = owner
+          ? await resolveOwnerEngineApiKey({
+              engineOption: options?.engine,
+              ownerEmail: owner,
+            })
+          : { apiKey: undefined, apiKeyEnvVar: undefined };
         const runCtx = ensureRequestRunContext();
         if (runCtx) {
           runCtx.requestOrigin = getOrigin(event);
@@ -4666,9 +4749,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             : "\n\n<code-execution-mode>Sandboxed code execution is enabled. Use tool-orchestration for short bounded fan-out, joins, and reduction over read-only tools. Use run-code when you need its broader provider/web helpers, workspace staging, or durable background execution. In either tool, authenticated calls go through the provided host globals and results should be reduced before printing.</code-execution-mode>"
           : "";
 
+      const prodHandlerActions = leanPrompt ? leanActions : prodActions;
       const prodHandler = createProductionAgentHandler({
         assertAiSetupReady: requireAgentChatAiSetup,
-        actions: leanPrompt ? leanActions : prodActions,
+        actions: prodHandlerActions,
         systemPrompt: async (event: any) => {
           const { owner, extra } = await prepareRun(event);
           const requestActionsPrompt = resolveRequestActionsPrompt("tool");
@@ -4839,11 +4923,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         jevContextCompact: leanPrompt || lazyContext,
         initialToolNames: effectiveInitialToolNames,
         ...(options?.toolLimits ? { toolLimits: options.toolLimits } : {}),
-        onEngineResolved: (engine, model) => {
+        onEngineResolved: (engine, model, reasoningEffort) => {
           const runCtx = ensureRequestRunContext();
           if (runCtx) {
             runCtx.engine = engine;
             runCtx.model = model;
+            runCtx.reasoningEffort = reasoningEffort;
           }
         },
         onRunPrepared: persistSubmittedUserMessage,
@@ -4882,8 +4967,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           if (threadId) _runSendByThread.delete(threadId);
           await onRunComplete(run, threadId, trackingSource);
         },
-        resolveAdditionalActions: ({ ownerEmail, orgId }) =>
-          getMcpActionEntriesForPrincipal(ownerEmail, orgId),
+        resolveAdditionalActions: (details) =>
+          getRequestScopedActions(
+            { surface: "chat", ...details },
+            prodHandlerActions,
+          ),
         // Resolve owner from session for usage attribution in hosted prod
         resolveOwnerEmail: isHostedProd ? getOwnerFromEvent : undefined,
       });
@@ -4921,11 +5009,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 ),
               skipFilesContext: true,
               initialToolNames: effectiveInitialToolNames,
-              onEngineResolved: (engine, model) => {
+              onEngineResolved: (engine, model, reasoningEffort) => {
                 const runCtx = ensureRequestRunContext();
                 if (runCtx) {
                   runCtx.engine = engine;
                   runCtx.model = model;
+                  runCtx.reasoningEffort = reasoningEffort;
                 }
               },
               onRunPrepared: persistSubmittedUserMessage,
@@ -5072,11 +5161,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         // Wire the late-binding supplier for devRunCodeTool so the bridge can
         // call back into the fully-assembled devActions registry.
         devRunCodeToolActions = devActions;
+        reservedActionRegistries.push(devActions);
         devHandler = createProductionAgentHandler({
           assertAiSetupReady: requireAgentChatAiSetup,
           actions: devActions,
-          resolveAdditionalActions: ({ ownerEmail, orgId }) =>
-            getMcpActionEntriesForPrincipal(ownerEmail, orgId),
+          resolveAdditionalActions: (details) =>
+            getRequestScopedActions(
+              { surface: "chat", ...details },
+              devActions,
+            ),
           systemPrompt: async (event: any) => {
             const { owner, extra } = await prepareRun(event);
             const requestActionsPrompt = resolveRequestActionsPrompt(
@@ -5172,11 +5265,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           skipFilesContext,
           initialToolNames: effectiveInitialToolNames,
           ...(options?.toolLimits ? { toolLimits: options.toolLimits } : {}),
-          onEngineResolved: (engine, model) => {
+          onEngineResolved: (engine, model, reasoningEffort) => {
             const runCtx = ensureRequestRunContext();
             if (runCtx) {
               runCtx.engine = engine;
               runCtx.model = model;
+              runCtx.reasoningEffort = reasoningEffort;
             }
           },
           onRunPrepared: persistSubmittedUserMessage,
@@ -5437,19 +5531,32 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           orgCtx = null;
         }
 
-        const orgId =
-          (options?.resolveOrgId
-            ? await options.resolveOrgId(event)
-            : (orgCtx?.orgId ?? session.orgId ?? null)) ?? null;
+        const orgScope = await resolveAgentRunOrgScope({
+          event,
+          ownerContext: { owner: session.email, anonymous: false },
+          resolveOrgId: options?.resolveOrgId,
+        });
+        if (!orgScope.orgId && orgScope.orgScope !== "personal") {
+          return {
+            ok: false as const,
+            status: 503,
+            error: "Organization scope is temporarily unavailable.",
+          };
+        }
+        const orgId = orgScope.orgId ?? null;
         const canUpdate = await canUpdateAgentAppModelDefaultSettings(
           session.email,
           orgId,
+          orgScope.orgScope,
         );
 
         return {
           ok: true as const,
           userEmail: session.email,
           orgId,
+          ...(orgScope.orgScope === "personal"
+            ? { orgScope: "personal" as const }
+            : {}),
           orgName: orgCtx?.orgId === orgId ? (orgCtx.orgName ?? null) : null,
           role: orgCtx?.orgId === orgId ? (orgCtx.role ?? null) : null,
           canUpdate,
@@ -5457,12 +5564,19 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       };
 
       const listModelDefaultEngineOptions = async (
-        ctx: { userEmail?: string; orgId?: string | null },
+        ctx: {
+          userEmail?: string;
+          orgId?: string | null;
+          orgScope?: "personal";
+        },
         event: any,
       ) => {
         registerBuiltinEngines();
         const availableEngines = listAgentEngines();
+        const directLoopbackRequest = isDirectLoopbackRequest(event);
         const chatGPTEnabled =
+          directLoopbackRequest &&
+          ctx.orgScope === "personal" &&
           !ctx.orgId &&
           !!ctx.userEmail &&
           availableEngines.some(
@@ -5470,7 +5584,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           ) &&
           (await getUserLabEnabled(ctx.userEmail, CHATGPT_SUBSCRIPTION_LAB));
         // Provider model selections follow the setting scope. ChatGPT catalogs
-        // are user-scoped, so they are only available for personal defaults.
+        // are user-scoped, so organization defaults cannot use them.
         const selectionScope = ctx.orgId ? "org" : "user";
         const selections = new Map<
           string,
@@ -5504,8 +5618,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           {
             userEmail: ctx.userEmail,
             orgId: ctx.orgId ?? undefined,
-            requestOrigin: getOrigin(event),
+            ...(ctx.orgScope === "personal"
+              ? { orgScope: "personal" as const }
+              : {}),
+            requestOrigin: getForwardedRequestOrigin(event),
             isLoopbackRequest: isLoopbackRequest(event),
+            isDirectLoopbackRequest: isDirectLoopbackRequest(event),
           },
           async () => {
             const chatGPTCatalog =
@@ -5543,7 +5661,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       const buildModelDefaultsPayload = async (event: any, appId: string) => {
         const ctx = await resolveModelDefaultsContext(event);
         if (!ctx.ok) return ctx;
-        const scope = { userEmail: ctx.userEmail, orgId: ctx.orgId };
+        const scope = {
+          userEmail: ctx.userEmail,
+          orgId: ctx.orgId,
+          orgScope: ctx.orgScope,
+        };
         const [settings, orgDefault] = await Promise.all([
           readAgentAppModelDefaultSettings(scope, appId),
           readDefaultAgentEngineSetting(scope),
@@ -5614,7 +5736,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
 
           if (method === "DELETE") {
             await resetAgentAppModelDefaultSettings(
-              { userEmail: ctx.userEmail, orgId: ctx.orgId },
+              {
+                userEmail: ctx.userEmail,
+                orgId: ctx.orgId,
+                orgScope: ctx.orgScope,
+              },
               appId,
             );
             return buildModelDefaultsPayload(event, appId);
@@ -5667,8 +5793,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               {
                 userEmail: ctx.userEmail,
                 orgId: ctx.orgId ?? undefined,
-                requestOrigin: getOrigin(event),
+                ...(ctx.orgScope === "personal"
+                  ? { orgScope: "personal" as const }
+                  : {}),
+                requestOrigin: getForwardedRequestOrigin(event),
                 isLoopbackRequest: isLoopbackRequest(event),
+                isDirectLoopbackRequest: isDirectLoopbackRequest(event),
               },
               () => listChatGPTSubscriptionModels(ctx.userEmail),
             );
@@ -5691,7 +5821,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           }
 
           await writeAgentAppModelDefaultSettings(
-            { userEmail: ctx.userEmail, orgId: ctx.orgId },
+            {
+              userEmail: ctx.userEmail,
+              orgId: ctx.orgId,
+              orgScope: ctx.orgScope,
+            },
             targetAppId,
             { engine, model, updatedBy: ctx.userEmail },
           );
@@ -6423,15 +6557,25 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             setResponseStatus(event, 400);
             return { error: "message is required" };
           }
-          const orgId = await getOrgIdFromEvent(event);
-          await runWithRequestContext({ userEmail: ownerEmail, orgId }, () =>
+          const orgScope = await resolveAgentRunOrgScope({
+            event,
+            ownerContext: titleOwnerContext,
+            resolveOrgId: options?.resolveOrgId,
+          });
+          const titleRequestContext = {
+            userEmail: ownerEmail,
+            ...orgScope,
+            requestOrigin: getForwardedRequestOrigin(event),
+            isLoopbackRequest: isLoopbackRequest(event),
+            isDirectLoopbackRequest: isDirectLoopbackRequest(event),
+          };
+          await runWithRequestContext(titleRequestContext, () =>
             requireAgentChatAiSetup(),
           );
 
           try {
-            const title = await runWithRequestContext(
-              { userEmail: ownerEmail, orgId },
-              () => generateChatTitle({ ...request, appId: options?.appId }),
+            const title = await runWithRequestContext(titleRequestContext, () =>
+              generateChatTitle({ ...request, appId: options?.appId }),
             );
             return { title };
           } catch (error) {
@@ -6710,8 +6854,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               setResponseStatus(event, 404);
               return { error: "Run not found" };
             }
-            const { getRunByThread, getRunTurnRef } =
-              await import("../agent/run-store.js");
+            const {
+              getRunByThread,
+              getRunPendingConnectionRequestId,
+              getRunTurnRef,
+            } = await import("../agent/run-store.js");
+            const includePendingConnectionRequest =
+              String(query.includePendingConnectionRequest ?? "") === "true";
             if (runIdQuery) {
               const ref = await getRunTurnRef(runIdQuery);
               if (!ref || ref.threadId !== threadId) {
@@ -6729,8 +6878,17 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 setResponseStatus(event, 404);
                 return { error: "Run not found" };
               }
-              return { threadId, status: "queued" };
+              return {
+                threadId,
+                status: "queued",
+                ...(includePendingConnectionRequest
+                  ? { pendingConnectionRequestId: null }
+                  : {}),
+              };
             }
+            const pendingConnectionRequestId = includePendingConnectionRequest
+              ? await getRunPendingConnectionRequestId(run.id)
+              : undefined;
             return {
               runId: run.id,
               threadId: run.threadId,
@@ -6742,6 +6900,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               lastProgressAt: run.lastProgressAt,
               dispatchMode: run.dispatchMode,
               terminalReason: run.terminalReason,
+              ...(includePendingConnectionRequest
+                ? { pendingConnectionRequestId }
+                : {}),
             };
           }
 
@@ -7052,11 +7213,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         async (event) => {
           const ownerContext = await resolveOwnerContext(event);
           const owner = ownerContext.owner;
-          const orgId = await resolveAgentRunOrgId({
+          const orgScope = await resolveAgentRunOrgScope({
             event,
             ownerContext,
             resolveOrgId: options?.resolveOrgId,
           });
+          const orgId = orgScope.orgId;
           const method = getMethod(event);
 
           const { threadId, tail: threadTail } = parseThreadRoute(event);
@@ -7393,8 +7555,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   mutation.type === "moveToTop" ||
                   mutation.type === "claim")
               ) {
-                await runWithRequestContext({ userEmail: owner, orgId }, () =>
-                  requireAgentChatAiSetup(),
+                await runWithRequestContext(
+                  {
+                    userEmail: owner,
+                    ...orgScope,
+                    requestOrigin: getForwardedRequestOrigin(event),
+                    isLoopbackRequest: isLoopbackRequest(event),
+                    isDirectLoopbackRequest: isDirectLoopbackRequest(event),
+                  },
+                  () => requireAgentChatAiSetup(),
                 );
               }
               let result: Awaited<
@@ -7834,10 +8003,24 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             return { error: "Authentication required" };
           }
           try {
+            const orgScope = await resolveAgentRunOrgScope({
+              event,
+              ownerContext: { owner: session.email, anonymous: false },
+              resolveOrgId: options?.resolveOrgId,
+            });
+            if (!orgScope.orgId && orgScope.orgScope !== "personal") {
+              setResponseStatus(event, 503);
+              return {
+                error: "Organization scope is temporarily unavailable.",
+              };
+            }
+            const scope = orgScope.orgId
+              ? { orgId: orgScope.orgId }
+              : { orgId: null, orgScope: "personal" as const };
             return {
               token: await createAgentChatStreamToken({
                 ownerEmail: session.email,
-                orgId: session.orgId ?? null,
+                ...scope,
                 authUserId: session.authUserId,
               }),
               ttlSeconds: AGENT_CHAT_STREAM_TOKEN_TTL_SECONDS,
@@ -7879,6 +8062,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 owner: principal.ownerEmail,
                 anonymous: false,
                 orgId: principal.orgId,
+                ...(principal.orgScope === "personal"
+                  ? { orgScope: "personal" as const }
+                  : {}),
                 ...(principal.authUserId
                   ? { authUserId: principal.authUserId }
                   : {}),
@@ -8180,6 +8366,27 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       // This is mounted last because h3's use() is prefix-based, meaning /_agent-native/agent-chat
       // also matches /_agent-native/agent-chat/threads/... — we skip sub-path requests here so the
       // earlier-mounted handlers (mode, save-key, files, skills, mentions, threads) handle them.
+      const capabilitiesPath = `${routePath}/capabilities`;
+      getH3App(nitroApp).use(
+        capabilitiesPath,
+        defineEventHandler((event) => {
+          const requestPath = new URL(
+            event.node?.req?.url || event.path || "",
+            "http://localhost",
+          ).pathname;
+          if (requestPath !== capabilitiesPath) {
+            setResponseStatus(event, 404);
+            return { error: "Not found" };
+          }
+          if (getMethod(event) !== "GET") {
+            setResponseStatus(event, 405);
+            return { error: "Method not allowed" };
+          }
+          setResponseHeader(event, "Cache-Control", "no-store");
+          return { [AGENT_NATIVE_SUBMISSION_DEADLINES_CAPABILITY_ID]: true };
+        }),
+      );
+
       getH3App(nitroApp).use(
         routePath,
         withTransientDatabaseFallback(routePath, async (event) => {
@@ -8815,6 +9022,7 @@ import {
   getMcpManagerForPrincipal,
   invalidateMcpManagersForScope,
   resolveBackgroundMcpToolSelection,
+  setMcpToolAuthorizationResolver,
   stopAllMcpManagers,
   mountMcpHubStatusRoute,
   mountMcpStatusRoute,

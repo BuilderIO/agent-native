@@ -43,6 +43,8 @@ A reviewer comments on two Blocks in a brief, replies with a Page reference, and
 - Resolve, reopen, edit, reply, and notification operations use shared Actions and record attributable change.
 - Comments submitted through MCP or the in-app agent's Action tools retain the authenticated account as their author and separately persist their submission source. The UI and notifications identify them as posted via AI on that person's behalf; this describes submission, not a claim that AI wrote every word. Replies record their own source, edits preserve the original submission attribution, and historical comments without provenance remain unclassified.
 - A structured `@AI` or connected-model mention in the Comment composer explicitly invokes AI. The inline model tile shows the selected provider and model and is where the model is changed; a Comment addresses at most one model, while people can be mentioned freely. Send offers Auto, Reply in thread, Suggest changes, or Apply changes and resolve. Auto resolves one of those three bounded intents before execution; Suggest changes uses the existing suggested-edits availability and access rules.
+- A sent Comment keeps who each `@Name` means: the person's email or the agent's model, stored beside the readable text. Each one renders as the chip the composer showed, with an avatar for a person and a provider logo for an agent. Comments from before mentions carried identity, and `@` text with no stored identity, stay plain text.
+- One identity card opens from a mention, an author's avatar, or an author's name. A person shows their name, email, and workspace role. An AI author shows its model, thinking effort, and when it ran, and the requester can open the agent conversation that wrote it. Effort, time, or a conversation that was never recorded shows as not recorded rather than guessed.
 - Every AI request binds the authenticated requester, Page body, original root Comment and thread, submitted conversation, revision, exact agent thread and initial turn. A scoped run can use only that intent's dedicated operation; targeting and write authority do not come from chat history or model-written arguments.
 - Each explicit AI Send keeps its source Comment, submitted mode, resolved intent, operation, agent thread, provider/model identity, and reasoning attempts distinct. Unrelated Page edits trigger a bounded contextual refresh or exact-target reanchor; changed feedback, ambiguous targets, and partial saves remain typed, recoverable states on the original thread.
 - Comment AI runs stay out of the active chat until a person explicitly opens them. Progress and the resulting response appear on the source Comment; an AI-addressed follow-up continues that exact agent thread, while a newly requested mutation starts a separately scoped operation. Open AI conversation reveals the exact authorized session with a Comment-specific prefill.
@@ -62,6 +64,10 @@ A reviewer comments on two Blocks in a brief, replies with a Page reference, and
 ### React without replying
 
 Given an open Comment, when a commenter adds 👍 twice and 🎉 once, the thread shows one 👍 and one 🎉 marked as theirs; removing 👍 leaves only 🎉, a person without comment access cannot react, and deleting the Comment removes its reactions.
+
+### Know who a mention means
+
+Given a Comment that mentions a teammate and Claude, when it is sent, both names render as chips with the teammate's avatar and Claude's logo, and hovering or focusing either one shows who it is. An older Comment whose `@Sam` was saved as text still reads `@Sam`. Hovering the AI reply's author shows its model, effort, and time, and its requester can open the conversation that wrote it.
 
 ### Preserve a deleted anchor
 

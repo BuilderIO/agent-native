@@ -11,11 +11,17 @@ export const AGENT_CHAT_STREAM_TOKEN_TTL_SECONDS = 15 * 60;
 
 const AGENT_CHAT_STREAM_TOKEN_TYPE = "agent-native-agent-chat-stream";
 
-export interface AgentChatStreamPrincipal {
+export type AgentChatStreamPrincipal = {
   ownerEmail: string;
-  orgId: string | null;
   authUserId?: string;
-}
+} & (
+  | { orgId: string; orgScope?: never }
+  | { orgId: null; orgScope: "personal" }
+);
+
+type AgentChatStreamTokenScope =
+  | { orgId: string; orgScope?: never }
+  | { orgId: null; orgScope: "personal" };
 
 function streamTokenIssuer(): string {
   const issuer = getAppConfig().app.url?.trim();
@@ -62,12 +68,24 @@ export function readAgentChatStreamBearerToken(
   return token && token.length <= 4096 ? token : null;
 }
 
-export async function createAgentChatStreamToken(input: {
-  ownerEmail: string;
-  orgId?: string | null;
-  authUserId?: string;
-}): Promise<string> {
+export async function createAgentChatStreamToken(
+  input: {
+    ownerEmail: string;
+    authUserId?: string;
+  } & AgentChatStreamTokenScope,
+): Promise<string> {
   const ownerEmail = validateOwnerEmail(input.ownerEmail);
+  if (input.orgScope === "personal" && input.orgId !== null) {
+    throw new Error("Personal agent-chat stream scope cannot include an org.");
+  }
+  if (
+    input.orgScope !== "personal" &&
+    (typeof input.orgId !== "string" || !input.orgId.trim())
+  ) {
+    throw new Error(
+      "Agent-chat stream tokens require a resolved organization or personal scope.",
+    );
+  }
   const authUserId = input.authUserId?.trim();
   if (
     input.authUserId !== undefined &&
@@ -82,6 +100,7 @@ export async function createAgentChatStreamToken(input: {
     token_type: AGENT_CHAT_STREAM_TOKEN_TYPE,
     sub: ownerEmail,
     org_id: input.orgId ?? null,
+    ...(input.orgScope === "personal" ? { org_scope: "personal" } : {}),
     ...(authUserId ? { auth_user_id: authUserId } : {}),
   })
     .setProtectedHeader({ alg: "HS256", typ: "JWT" })
@@ -113,6 +132,14 @@ export async function verifyAgentChatStreamToken(
     }
     const orgId = payload.org_id;
     if (orgId !== null && typeof orgId !== "string") return null;
+    const orgScope = payload.org_scope;
+    if (
+      (orgScope !== undefined && orgScope !== "personal") ||
+      (orgScope === "personal" && orgId !== null) ||
+      (orgId === null && orgScope !== "personal")
+    ) {
+      return null;
+    }
     const authUserId = payload.auth_user_id;
     if (
       authUserId !== undefined &&
@@ -126,8 +153,9 @@ export async function verifyAgentChatStreamToken(
     return {
       ownerEmail: validateOwnerEmail(payload.sub),
       orgId,
+      ...(orgScope === "personal" ? { orgScope: "personal" as const } : {}),
       ...(authUserId ? { authUserId } : {}),
-    };
+    } as AgentChatStreamPrincipal;
     // coercion-ok: signature, issuer, audience, and expiry failures mean invalid authorization.
   } catch {
     return null;

@@ -903,6 +903,35 @@ export const editorChromeBridgeScript: string = `"use strict";
     return index;
   }
 
+  // shared/relative-position-containing-block.ts
+  function relativePositionContainingBlockDirection(element, getComputedStyle) {
+    let ancestor = element.parentElement;
+    while (ancestor) {
+      const styles = getComputedStyle(ancestor);
+      const display = styles.display;
+      if (display === "inline" || display === "contents") {
+        ancestor = ancestor.parentElement;
+        continue;
+      }
+      if (display === "block" || display === "flow-root" || display === "list-item" || display === "inline-block" || display === "flex" || display === "inline-flex" || display === "grid" || display === "inline-grid" || display === "table-cell" || display === "table-caption") {
+        return styles.direction === "ltr" || styles.direction === "rtl" ? styles.direction : void 0;
+      }
+      return void 0;
+    }
+    return void 0;
+  }
+
+  // shared/spacing-handle-rule.ts
+  function isAutoLayoutDisplay(display) {
+    return display === "flex" || display === "inline-flex" || display === "grid" || display === "inline-grid";
+  }
+  function marginHandlesApply(context) {
+    if (context.anyAuto) return true;
+    if (context.margins.some((margin) => margin !== 0)) return true;
+    const inFlow = context.position !== "absolute" && context.position !== "fixed";
+    return inFlow && isAutoLayoutDisplay(context.parentDisplay);
+  }
+
   // shared/text-layer-rule.ts
   var TEXT_LAYER_TAGS = /* @__PURE__ */ new Set([
     "a",
@@ -1599,7 +1628,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       );
       chromeTransitionStyle.textContent = // The scale vars live on the root; left inheritable, every write
       // restyles the whole document, deferred into the next time it scrolls in.
-      '@property --agent-native-editor-chrome-scale-x{syntax:"<number>";inherits:false;initial-value:1}@property --agent-native-editor-chrome-scale-y{syntax:"<number>";inherits:false;initial-value:1}@property --agent-native-editor-chrome-line-scale{syntax:"<number>";inherits:false;initial-value:1}html{overflow:clip}[data-agent-native-edit-overlay="selection"]{transition:border-width 150ms ease-out}[data-agent-native-empty-text-editing="true"] [data-agent-native-edit-overlay="selection"]{display:none!important}[data-agent-native-text-editing]{outline:none!important;outline-offset:0!important}[data-agent-native-drawn-caret]{caret-color:transparent!important}[data-agent-native-inspector-styling-range] ::selection{background:transparent!important}[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]{transition:width 150ms ease-out,height 150ms ease-out,border-width 150ms ease-out,top 150ms ease-out,bottom 150ms ease-out,left 150ms ease-out,right 150ms ease-out}[data-agent-native-suppress-handle-transition] [data-agent-native-edge-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-edit-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-rotate-handle]{transition:none!important}[data-agent-native-runtime-locked="true"]{outline:1px dashed rgba(148,163,184,0.9)!important;outline-offset:0!important;cursor:not-allowed!important}[data-agent-native-spacing-line]{position:absolute;display:none;pointer-events:none;border-radius:999px}[data-agent-native-spacing-region]{position:absolute;display:none;box-sizing:border-box;pointer-events:auto;background-size:6px 6px}[data-agent-native-spacing-region][data-orientation="vertical"]{cursor:ew-resize}[data-agent-native-spacing-region][data-orientation="horizontal"]{cursor:ns-resize}';
+      '@property --agent-native-editor-chrome-scale-x{syntax:"<number>";inherits:false;initial-value:1}@property --agent-native-editor-chrome-scale-y{syntax:"<number>";inherits:false;initial-value:1}@property --agent-native-editor-chrome-line-scale{syntax:"<number>";inherits:false;initial-value:1}html:not([data-agent-native-interact]){overflow:clip}[data-agent-native-edit-overlay="selection"]{transition:border-width 150ms ease-out}[data-agent-native-empty-text-editing="true"] [data-agent-native-edit-overlay="selection"]{display:none!important}[data-agent-native-text-editing]{outline:none!important;outline-offset:0!important}[data-agent-native-drawn-caret]{caret-color:transparent!important}[data-agent-native-inspector-styling-range] ::selection{background:transparent!important}[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]{transition:width 150ms ease-out,height 150ms ease-out,border-width 150ms ease-out,top 150ms ease-out,bottom 150ms ease-out,left 150ms ease-out,right 150ms ease-out}[data-agent-native-suppress-handle-transition] [data-agent-native-edge-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-edit-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-rotate-handle]{transition:none!important}[data-agent-native-runtime-locked="true"]{outline:1px dashed rgba(148,163,184,0.9)!important;outline-offset:0!important;cursor:not-allowed!important}[data-agent-native-spacing-line]{position:absolute;display:none;pointer-events:none;border-radius:999px}[data-agent-native-spacing-region]{position:absolute;display:none;box-sizing:border-box;pointer-events:auto;background-size:6px 6px}[data-agent-native-spacing-region][data-orientation="vertical"]{cursor:ew-resize}[data-agent-native-spacing-region][data-orientation="horizontal"]{cursor:ns-resize}';
       (document.head || document.documentElement).appendChild(
         chromeTransitionStyle
       );
@@ -3734,6 +3763,16 @@ export const editorChromeBridgeScript: string = `"use strict";
       var svgRoot = outermostSvgAncestor(hit);
       if (svgRoot) return pastedSvgShapeForHit(hit, svgRoot) || svgRoot;
       var target = unwrapTextOverlay(hit);
+      if (typeof target.matches === "function" && target.matches("span[data-agent-native-motion-text-unit]")) {
+        var sourceTextTarget = target.parentElement;
+        while (sourceTextTarget && !isDocumentRootElement(sourceTextTarget)) {
+          if (sourceTextTarget.hasAttribute("data-agent-native-node-id") && !sourceTextTarget.hasAttribute("data-agent-native-motion-text-unit")) {
+            target = sourceTextTarget;
+            break;
+          }
+          sourceTextTarget = sourceTextTarget.parentElement;
+        }
+      }
       var textPrimitive = nativeTextPrimitiveForHit(target);
       if (textPrimitive) target = textPrimitive;
       if (!descendIntoGroup) {
@@ -4064,9 +4103,6 @@ export const editorChromeBridgeScript: string = `"use strict";
         writeCapability: writable ? "authored-jsx-literal" : "unsupported",
         reason: writable ? void 0 : "The runtime did not expose a verified authored component invocation location."
       };
-    }
-    function isAutoLayoutDisplay(display) {
-      return display === "flex" || display === "inline-flex" || display === "grid" || display === "inline-grid";
     }
     function rectInfoForElement(el) {
       if (el.getAttribute("data-an-primitive") === "boolean-operand") {
@@ -6012,6 +6048,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         gridTemplateRows: parentStyles.gridTemplateRows,
         position: parentStyles.position
       } : void 0;
+      var relativeContainingBlockDirection = cs.position === "relative" ? relativePositionContainingBlockDirection(
+        el,
+        (ancestor) => window.getComputedStyle(ancestor)
+      ) : void 0;
       var capabilities = sourceBacked ? [
         {
           kind: "deterministic-style-edit",
@@ -6092,12 +6132,28 @@ export const editorChromeBridgeScript: string = `"use strict";
         parentDisplay,
         parentAutoLayout,
         parentLayout,
+        relativeContainingBlockDirection,
         editCapabilities: capabilities,
         confidence: capabilities.reduce(function(best, item) {
           return Math.max(best, item.confidence || 0);
         }, 0),
         provenance
       };
+    }
+    function collectPaintLayers(el) {
+      var layers = [];
+      var node = el;
+      while (node && layers.length < 64) {
+        var paint = window.getComputedStyle(node);
+        layers.push({
+          backgroundColor: paint.backgroundColor,
+          backgroundImage: paint.backgroundImage,
+          opacity: paint.opacity,
+          mixBlendMode: paint.mixBlendMode
+        });
+        node = node.parentElement;
+      }
+      return layers;
     }
     var lastScreenRootStyleSnapshot = "";
     var screenRootStyleSnapshotFrame = 0;
@@ -8248,6 +8304,24 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return handles.filter(Boolean);
     }
+    var marginParentDisplayCache = null;
+    function marginParentDisplay(el) {
+      var parent = el.parentElement;
+      if (!parent) return void 0;
+      var now = Date.now();
+      var cached = marginParentDisplayCache;
+      if (cached && cached.el === el && cached.parent === parent && now - cached.at < 250) {
+        return cached.display;
+      }
+      var display = window.getComputedStyle(parent).display;
+      marginParentDisplayCache = {
+        el,
+        parent,
+        display,
+        at: now
+      };
+      return display;
+    }
     function buildMarginSpacingHandles(el, rect, cs) {
       var line = chromeLineScale();
       var tickLength = Math.max(6, Math.min(18, Math.min(rect.width, rect.height) * 0.12)) * line;
@@ -8256,6 +8330,19 @@ export const editorChromeBridgeScript: string = `"use strict";
       var right = clampSpacingValue(readPx(cs.marginRight), true);
       var bottom = clampSpacingValue(readPx(cs.marginBottom), true);
       var left = clampSpacingValue(readPx(cs.marginLeft), true);
+      var autoTop = marginValueIsAuto(el, "top", cs.marginTop);
+      var autoRight = marginValueIsAuto(el, "right", cs.marginRight);
+      var autoBottom = marginValueIsAuto(el, "bottom", cs.marginBottom);
+      var autoLeft = marginValueIsAuto(el, "left", cs.marginLeft);
+      var draggingMargin = !!spacingDrag && spacingDrag.handle.kind === "margin";
+      if (!draggingMargin && !marginHandlesApply({
+        margins: [top, right, bottom, left],
+        anyAuto: autoTop || autoRight || autoBottom || autoLeft,
+        parentDisplay: marginParentDisplay(el),
+        position: cs.position
+      })) {
+        return [];
+      }
       return [
         makeSpacingHandle({
           key: "margin:top",
@@ -8265,7 +8352,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           side: "top",
           orientation: "horizontal",
           value: top,
-          valueLabel: marginValueIsAuto(el, "top", cs.marginTop) ? "auto" : "",
+          valueLabel: autoTop ? "auto" : "",
           elementRect: rect,
           region: {
             x: 0,
@@ -8288,7 +8375,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           side: "right",
           orientation: "vertical",
           value: right,
-          valueLabel: marginValueIsAuto(el, "right", cs.marginRight) ? "auto" : "",
+          valueLabel: autoRight ? "auto" : "",
           elementRect: rect,
           region: {
             x: rect.width + Math.min(0, right),
@@ -8311,7 +8398,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           side: "bottom",
           orientation: "horizontal",
           value: bottom,
-          valueLabel: marginValueIsAuto(el, "bottom", cs.marginBottom) ? "auto" : "",
+          valueLabel: autoBottom ? "auto" : "",
           elementRect: rect,
           region: {
             x: 0,
@@ -8334,7 +8421,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           side: "left",
           orientation: "vertical",
           value: left,
-          valueLabel: marginValueIsAuto(el, "left", cs.marginLeft) ? "auto" : "",
+          valueLabel: autoLeft ? "auto" : "",
           elementRect: rect,
           region: {
             x: Math.min(0, -left),
@@ -9566,27 +9653,11 @@ export const editorChromeBridgeScript: string = `"use strict";
       multiSelectionBoundsOverlay = overlay;
       return overlay;
     }
-    function positionMultiSelectionBounds() {
-      var members = [];
-      if (selectedEl && document.documentElement.contains(selectedEl)) {
-        members.push(selectedEl);
-      }
-      passiveSelectionEls.forEach(function(el) {
-        if (el && document.documentElement.contains(el)) members.push(el);
-      });
-      setSelectionOverlayResizeChromeVisible(
-        !readOnly && !activeTextEditEl && members.length < 2
-      );
-      var laidOutMembers = members.filter(hasLayoutBox);
-      if (laidOutMembers.length === 0 || selectionChromeHidden) {
-        if (multiSelectionBoundsOverlay) {
-          multiSelectionBoundsOverlay.style.display = "none";
-        }
-        return;
-      }
-      var rects = laidOutMembers.map(function(el) {
+    function selectionBoundsFromElements(elements) {
+      var rects = elements.filter(hasLayoutBox).map(function(el) {
         return el.getBoundingClientRect();
       });
+      if (rects.length === 0) return null;
       var left = Math.min.apply(
         null,
         rects.map(function(r) {
@@ -9611,6 +9682,40 @@ export const editorChromeBridgeScript: string = `"use strict";
           return r.bottom;
         })
       );
+      return {
+        left,
+        top,
+        right,
+        bottom,
+        width: Math.max(0, right - left),
+        height: Math.max(0, bottom - top)
+      };
+    }
+    function positionMultiSelectionBounds() {
+      var members = [];
+      if (selectedEl && document.documentElement.contains(selectedEl)) {
+        members.push(selectedEl);
+      }
+      passiveSelectionEls.forEach(function(el) {
+        if (el && document.documentElement.contains(el)) members.push(el);
+      });
+      setSelectionOverlayResizeChromeVisible(
+        !readOnly && !activeTextEditEl && members.length < 2
+      );
+      var laidOutMembers = members.filter(hasLayoutBox);
+      if (laidOutMembers.length === 0 || selectionChromeHidden) {
+        if (multiSelectionBoundsOverlay) {
+          multiSelectionBoundsOverlay.style.display = "none";
+        }
+        return;
+      }
+      var bounds = selectionBoundsFromElements(laidOutMembers);
+      if (!bounds) return;
+      var left = bounds.left;
+      var top = bounds.top;
+      var right = bounds.right;
+      var bottom = bounds.bottom;
+      if (selectedEl) showSizeBadge(selectedEl);
       if (designCanvasBoardSurface && selectedEl) {
         window.parent.postMessage(
           {
@@ -11462,7 +11567,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (activeTextEditEl && !exitStaleTextEditSession()) return;
       clearActiveMarqueeSelection();
       var events = dragEventNames(e);
-      var additive = Boolean(e && (e.metaKey || e.ctrlKey || e.shiftKey));
+      var additive = Boolean(e && e.shiftKey);
       function flushMarqueeMove() {
         var session = activeMarqueeSelection;
         if (!session) return;
@@ -14477,6 +14582,21 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (primitive === "frame" && cs.position === "relative") return true;
       return cs.position === "absolute" || cs.position === "fixed";
     }
+    function isFreeformDropContainer(el) {
+      if (isAutoLayoutElement(el)) return false;
+      var hasChild = false;
+      for (var i = 0; i < el.children.length; i += 1) {
+        var child = el.children[i];
+        if (isOverlayElement(child)) continue;
+        var childStyle = window.getComputedStyle(child);
+        if (childStyle.display === "none") continue;
+        if (childStyle.position !== "absolute" && childStyle.position !== "fixed") {
+          return false;
+        }
+        hasChild = true;
+      }
+      return hasChild || window.getComputedStyle(el).position !== "static";
+    }
     function hasAbsolutePositionedChild(el) {
       var kids = el.children;
       for (var i = 0; i < kids.length; i += 1) {
@@ -14547,6 +14667,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (rgb && rgb.a > 0.01) {
           var luminance = 0.2126 * rgb.r + 0.7152 * rgb.g + 0.0722 * rgb.b;
           return luminance > 150;
+        }
+        if (!rgb && bg && bg !== "transparent" && !/\\/\\s*0(?:\\.0+)?%?\\s*\\)$/.test(bg)) {
+          return false;
         }
         cursor = cursor.parentElement;
       }
@@ -14971,7 +15094,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       for (var i = 0; i < children.length; i += 1) {
         var child = children[i];
         var childTag = (child.tagName || "").toLowerCase();
-        if (BRIDGE_LEAF_TAGS.indexOf(childTag) === -1 && !INLINE_TEXT_TAGS.has(childTag) && BRIDGE_INTERACTIVE_LEAF_TAGS.indexOf(childTag) === -1) {
+        if (BRIDGE_LEAF_TAGS.indexOf(childTag) === -1 && !INLINE_TEXT_TAGS.has(childTag)) {
           return false;
         }
         if (child.children.length && !hasOnlyLeafContent(child)) return false;
@@ -17479,8 +17602,11 @@ export const editorChromeBridgeScript: string = `"use strict";
     var dragChromeSuppressed = false;
     function showSizeBadge(el) {
       if (!el || dragChromeSuppressed) return hideSizeBadge();
-      var rect = el.getBoundingClientRect();
-      if (rect.width <= 0 || rect.height <= 0) return hideSizeBadge();
+      var members = [el].concat(passiveSelectionEls).filter(function(member) {
+        return document.documentElement.contains(member);
+      });
+      var rect = selectionBoundsFromElements(members);
+      if (!rect || rect.width <= 0 || rect.height <= 0) return hideSizeBadge();
       var scale = chromeLineScale();
       var key = rect.left + "|" + rect.bottom + "|" + rect.width + "|" + rect.height + "|" + scale;
       if (key === sizeBadgeKey && sizeBadge.style.display === "block") return;
@@ -18577,9 +18703,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       bridgeMoveController.pointerDown({
         kind: "move",
         objectIds: [getSelector(gestureEl)],
-        pointer: bridgeGesturePointer(
-          duplicatedForDrag && pointerStartParam ? { ...e, ...pointerStartParam } : e
-        ),
+        pointer: { ...bridgeGesturePointer(e), x: startX, y: startY },
         viewport: gestureViewport,
         canvas: { width: gestureViewport.width, height: gestureViewport.height }
       });
@@ -18663,12 +18787,16 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         var containerPrimitive = (container.getAttribute("data-an-primitive") || container.getAttribute("data-agent-native-primitive") || "").toLowerCase();
         if (isAutoLayoutElement(container) && container.parentElement === document.body && containerPrimitive !== "frame") {
-          return nearestChildInsertionTarget(
+          var besideContainer = nearestChildInsertionTarget(
             document.body,
             pointerX,
             pointerY,
             excluded
           );
+          if (besideContainer && isFreeformDropContainer(document.body)) {
+            besideContainer.dropMode = "absolute-container";
+          }
+          return besideContainer;
         }
         return null;
       }
@@ -19040,6 +19168,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         cancelMoveDrag();
       }
       function onUp(ev) {
+        onMove(ev);
         var controllerEnd = bridgeMoveController.pointerUp(
           bridgeGesturePointer(ev)
         );
@@ -19234,6 +19363,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       document.addEventListener(events.up, onUp, true);
       document.addEventListener("keydown", onMoveKeyDown, true);
       setActiveDragCancel(cancelMoveDrag, gestureStartedAt);
+      if (pointerStartParam) onMove(e);
     }
     var KSCALE_LENGTH_PROPERTIES = [
       "width",
@@ -22429,6 +22559,10 @@ export const editorChromeBridgeScript: string = `"use strict";
           trustedFocusIntent = null;
         }
         interactionMode = nextInteractionMode;
+        document.documentElement.toggleAttribute(
+          "data-agent-native-interact",
+          interactionMode
+        );
         if (interactionMode) {
           hideMeasurements();
           var releaseSpacePan = bridgeSpaceKeyPressed;
@@ -22744,6 +22878,31 @@ export const editorChromeBridgeScript: string = `"use strict";
             correlationId: typeof e.data.correlationId === "string" ? e.data.correlationId : "",
             screenId: designCanvasScreenId,
             payload: measureTarget ? getElementInfo(measureTarget) : null
+          },
+          "*"
+        );
+        return;
+      }
+      if (e.data.type === "agent-native:measure-contrast-background") {
+        var contrastScreenId = typeof e.data.screenId === "string" ? e.data.screenId : "";
+        if (contrastScreenId && contrastScreenId !== designCanvasScreenId) return;
+        var contrastSelector = typeof e.data.selector === "string" ? e.data.selector : "";
+        var contrastTarget = null;
+        if (contrastSelector) {
+          try {
+            contrastTarget = document.querySelector(contrastSelector);
+          } catch (_err) {
+            contrastTarget = null;
+          }
+        } else {
+          contrastTarget = selectedEl;
+        }
+        window.parent.postMessage(
+          {
+            type: "agent-native:contrast-background-measured",
+            correlationId: typeof e.data.correlationId === "string" ? e.data.correlationId : "",
+            screenId: designCanvasScreenId,
+            payload: contrastTarget ? collectPaintLayers(contrastTarget) : null
           },
           "*"
         );

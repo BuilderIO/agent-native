@@ -96,6 +96,7 @@ import {
   PRE_CAPPED_SIGNUPS_OVER_TIME_SQL,
   PRE_CUSTOM_RETENTION_OVER_TIME_SQL,
   PRE_CUSTOM_SPINE_SIGNUPS_OVER_TIME_SQL,
+  PRE_TEMPLATE_KEY_SESSIONS_BY_APP_SQL,
   PRE_ACQUISITION_SPLIT_RETENTION_OVER_TIME_DESCRIPTION,
   PRE_ACQUISITION_SPLIT_RETENTION_OVER_TIME_SQL,
   FIRST_PARTY_TEMPLATE_NAMES,
@@ -711,6 +712,26 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
     expect(repaired.changed).toBe(true);
     expect((repaired.config.panels as Array<{ sql: string }>)[0]?.sql).toBe(
       scopeFirstPartyPanelSql(panel.sql),
+    );
+    expect(
+      repairCanonicalFirstPartyDashboardQueries(repaired.config).changed,
+    ).toBe(false);
+  });
+
+  it("regroups a saved raw-app sessions-by-app panel by the template key", () => {
+    const panel = requiredFirstPartyPanel("sessions-by-app");
+    const repaired = repairCanonicalFirstPartyDashboardQueries({
+      panels: [
+        {
+          ...panel,
+          sql: scopeFirstPartyPanelSql(PRE_TEMPLATE_KEY_SESSIONS_BY_APP_SQL),
+        },
+      ],
+    });
+
+    expect(repaired.changed).toBe(true);
+    expect((repaired.config.panels as Array<{ sql: string }>)[0]?.sql).toBe(
+      panel.sql,
     );
     expect(
       repairCanonicalFirstPartyDashboardQueries(repaired.config).changed,

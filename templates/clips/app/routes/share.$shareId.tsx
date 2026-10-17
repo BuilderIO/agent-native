@@ -61,6 +61,7 @@ import { toast } from "sonner";
 import { CaptureInstallButton } from "@/components/capture-install-options";
 import { ClipsAvatar } from "@/components/clips-avatar";
 import { PageBreadcrumb, PageHeader } from "@/components/library/page-header";
+import { RecordingContextSection } from "@/components/lookback/recording-context-panel";
 import { AccessPasswordPrompt } from "@/components/player/access-password-prompt";
 import { ClipAgentWebMcp } from "@/components/player/clip-agent-webmcp";
 import { ClipsShareTrigger } from "@/components/player/clips-share-trigger";
@@ -120,12 +121,18 @@ import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useSonnerLifecycleToast } from "@/hooks/use-sonner-lifecycle-toast";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import { withMediaVersion } from "@/lib/media-url";
+import { missingShareRetryDelayMs } from "@/lib/missing-share-retry";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import {
+  readRecoverableRecordingBackupForServerId,
+  recordingBackupFilename,
+  recordingBackupTracksServerId,
+} from "@/lib/recording-backup";
+import {
+  isRecordingWaitingForStorage,
   recordingProcessingTransition,
   type RecordingProcessingSnapshot,
 } from "@/lib/recording-processing-lifecycle";
-import { isStorageSetupFailureReason } from "@/lib/storage-failures";
 import { parseTimeParam, resolveStartMs } from "@/lib/time-param";
 import { parseEdits } from "@/lib/timestamp-mapping";
 import { cn } from "@/lib/utils";
@@ -395,8 +402,6 @@ const UPLOAD_STUCK_TIMEOUT_MS = 5 * 60 * 1000;
 const PROCESSING_STUCK_TIMEOUT_MS = 12 * 60 * 1000;
 const READY_MEDIA_SETTLE_POLL_MS = 20 * 1000;
 const READY_MEDIA_SETTLE_POLL_INTERVAL_MS = 1000;
-const MISSING_SHARE_RETRY_LIMIT = 8;
-const MISSING_SHARE_RETRY_INTERVAL_MS = [250, 500, 1000, 2000] as const;
 
 function SharePageSkeleton() {
   return (
@@ -753,7 +758,15 @@ export default function ShareRoute() {
       if (agentAccessToken) {
         url.searchParams.set(CLIPS_AGENT_ACCESS_PARAM, agentAccessToken);
       }
-      const res = await fetch(url.toString());
+      const cachedMediaAccessToken = queryClient.getQueryData<{
+        data?: { recording?: { mediaAccessToken?: unknown } };
+      }>(shareQueryKey)?.data?.recording?.mediaAccessToken;
+      const res = await fetch(url.toString(), {
+        headers:
+          typeof cachedMediaAccessToken === "string" && cachedMediaAccessToken
+            ? { "x-clips-media-token": cachedMediaAccessToken }
+            : undefined,
+      });
       const data = await res.json().catch(() => ({}));
       return { ok: res.ok, status: res.status, data };
     },
@@ -763,9 +776,12 @@ export default function ShareRoute() {
       const status = (q.state.data as { status?: number } | undefined)?.status;
       const updateCount =
         queryClient.getQueryState(shareQueryKey)?.dataUpdateCount ?? 0;
-      if (status === 404 && updateCount < MISSING_SHARE_RETRY_LIMIT) {
-        return MISSING_SHARE_RETRY_INTERVAL_MS[updateCount - 1] ?? 2000;
-      }
+      const retryDelay = missingShareRetryDelayMs({
+        status,
+        updateCount,
+        loaderFoundClip: Boolean(loaderData.accessDeniedStatus),
+      });
+      if (retryDelay !== null) return retryDelay;
       const rec = payload?.recording;
       if (!rec) return false;
       // Poll while the recording is still being assembled / transcoded so the
@@ -815,6 +831,13 @@ export default function ShareRoute() {
   });
 
   const recording = dataQ.data?.data?.recording;
+  const hostedFailureCode = (recording as any)?.failureCode;
+  const localizedHostedFailure =
+    hostedFailureCode === "global_storage_cap"
+      ? t("clipsFinalRaw.hostedStorageFull")
+      : hostedFailureCode === "taken_down"
+        ? t("clipsFinalRaw.hostedRecordingTakenDown")
+        : null;
   useEffect(() => {
     if (recording && !recording.enableComments) {
       // Functional update so this branch doesn't need `panel` as a
@@ -851,8 +874,15 @@ export default function ShareRoute() {
     const hasMedia = isImageRecording(recording)
       ? Boolean(recording.imageUrl || recording.thumbnailUrl)
       : Boolean(recording.videoUrl);
-    const phase =
-      recording.status === "ready"
+    const rawFailureReason =
+      ((recording as any).failureReason as string | null | undefined) ?? null;
+    const storageSetupFailure = isRecordingWaitingForStorage(
+      recording,
+      rawFailureReason,
+    );
+    const phase = storageSetupFailure
+      ? "waiting-storage"
+      : recording.status === "ready"
         ? hasMedia
           ? "ready"
           : "processing"
@@ -863,7 +893,9 @@ export default function ShareRoute() {
       dismissProcessingToast();
     }
     const transition = recordingProcessingTransition(previous, current);
-    if (transition === "processing") {
+    if (transition === "dismissed") {
+      dismissProcessingToast();
+    } else if (transition === "processing") {
       startProcessingToast(
         phase === "uploading"
           ? t("sharePage.uploadingAssembling")
@@ -880,6 +912,8 @@ export default function ShareRoute() {
     dismissProcessingToast,
     failProcessingToast,
     recording?.id,
+    recording?.failureReason,
+    recording?.sourceAppName,
     recording?.status,
     recording?.videoUrl,
     startProcessingToast,
@@ -1200,6 +1234,59 @@ export default function ShareRoute() {
     }
   }
 
+  async function downloadLocalCopy() {
+    if (!recording) return;
+    setDownloading(true);
+    try {
+      const copy = await readRecoverableRecordingBackupForServerId(
+        recording.id,
+      );
+      if (!copy) {
+        toast.error(t("recordRoute.noLocalRecordingData"));
+        return;
+      }
+      if (!recordingBackupTracksServerId(copy.meta, recording.id)) {
+        toast.error(t("recordRoute.localCopyUnreadable"));
+        return;
+      }
+      const localOwnerEmail = copy.meta.ownerEmail?.trim().toLowerCase();
+      const viewerEmail = session?.email?.trim().toLowerCase();
+      if (localOwnerEmail && localOwnerEmail !== viewerEmail) {
+        toast.error(t("recordRoute.recordingOwnedByAnotherAccount"));
+        return;
+      }
+      if (!copy.blob) {
+        toast.error(t("recordRoute.localCopyUnreadable"));
+        return;
+      }
+      const partial = !copy.whole;
+      const url = URL.createObjectURL(copy.blob);
+      const link = document.createElement("a");
+      link.href = url;
+      const filename = recordingBackupFilename(copy.meta);
+      link.download = partial
+        ? filename.replace(/(\.[^.]+)$/, "-partial$1")
+        : filename;
+      link.rel = "noopener";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+      if (partial) {
+        toast.warning(t("recordRoute.partialLocalCopyDownloadStarted"), {
+          duration: 12_000,
+        });
+      } else {
+        toast.success(t("recordRoute.recordingDownloadStarted"));
+      }
+    } catch (err) {
+      console.warn("[clips-share] reading the local copy failed:", err);
+      toast.error(t("recordRoute.localCopyUnreadable"));
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   const shareNeedsSession =
     !needsPassword &&
     (!dataQ.data ||
@@ -1232,9 +1319,12 @@ export default function ShareRoute() {
   }, [retrySession, sessionStatus, shareNeedsSession]);
 
   const retryingMissingShare =
-    dataQ.data?.status === 404 &&
-    (queryClient.getQueryState(shareQueryKey)?.dataUpdateCount ?? 0) <
-      MISSING_SHARE_RETRY_LIMIT;
+    missingShareRetryDelayMs({
+      status: dataQ.data?.status,
+      updateCount:
+        queryClient.getQueryState(shareQueryKey)?.dataUpdateCount ?? 0,
+      loaderFoundClip: Boolean(loaderData.accessDeniedStatus),
+    }) !== null;
 
   if (
     dataQ.isLoading ||
@@ -1421,7 +1511,10 @@ export default function ShareRoute() {
     const explicitFailure = recording.status === "failed";
     const rawFailureReason =
       ((recording as any).failureReason as string | null | undefined) ?? null;
-    const storageSetupFailure = isStorageSetupFailureReason(rawFailureReason);
+    const storageSetupFailure = isRecordingWaitingForStorage(
+      recording,
+      rawFailureReason,
+    );
     const loomStorageSetupFailure =
       storageSetupFailure && isLoomRecordingSource(recording);
     const stuckFailure =
@@ -1431,7 +1524,9 @@ export default function ShareRoute() {
     const signInHref = buildSignInReturnHref({
       returnTo: appPath(`/r/${recording.id}`),
     });
-    const detail = failureDetail(rawFailureReason);
+    const detail = localizedHostedFailure
+      ? null
+      : failureDetail(rawFailureReason);
     const label = storageSetupFailure
       ? t("sharePage.connectStorageFinish")
       : stuckFailure
@@ -1452,8 +1547,11 @@ export default function ShareRoute() {
           ? t("sharePage.uploadNotCompleteSession")
           : t("sharePage.uploadNotCompleteSignIn")
         : explicitFailure
-          ? (rawFailureReason ?? t("sharePage.creatorMayRetry"))
+          ? (localizedHostedFailure ??
+            rawFailureReason ??
+            t("sharePage.creatorMayRetry"))
           : t("sharePage.uploadingAssembling");
+    const canDownloadLocalCopy = isFailure && viewerIsOwner && !isImage;
 
     return (
       <>
@@ -1491,6 +1589,9 @@ export default function ShareRoute() {
           {storageSetupFailure && canManageStorage ? (
             <div className="mb-4 w-full">
               <StorageSetupCard
+                connectSource="clips_share_page_storage_setup_card"
+                key={recordingId}
+                outputId={recordingId}
                 title={t("sharePage.connectStorageFinishSaving")}
                 description={t("sharePage.chooseStorageCheck")}
                 connectedDescription={t("sharePage.storageConnectedChecking")}
@@ -1501,6 +1602,20 @@ export default function ShareRoute() {
             </div>
           ) : null}
           <div className="flex flex-wrap items-center justify-center gap-2">
+            {canDownloadLocalCopy ? (
+              <Button
+                onClick={() => void downloadLocalCopy()}
+                disabled={downloading}
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+              >
+                <IconDownload className="h-4 w-4" />
+                {downloading
+                  ? t("sharePage.downloading")
+                  : t("recordRoute.downloadCopy")}
+              </Button>
+            ) : null}
             {!session && isFailure ? (
               <Button asChild size="sm">
                 <a href={signInHref} className="gap-1.5">
@@ -2049,6 +2164,11 @@ export default function ShareRoute() {
               value="transcript"
               className="mt-0 min-h-0 flex-1 overflow-y-auto px-3 py-3"
             >
+              <RecordingContextSection
+                recordingId={recording.id}
+                canManage={false}
+                accessToken={recording.mediaAccessToken ?? undefined}
+              />
               <TranscriptPanel
                 segments={transcriptSegments}
                 fullText={transcriptFullText}

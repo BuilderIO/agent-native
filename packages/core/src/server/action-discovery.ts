@@ -6,6 +6,7 @@ import type { ActionTool } from "../agent/types.js";
 import { CORE_ACTION_GROUPS } from "../framework-tools.js";
 import { normalizeShellArgs, serializeCliArgs } from "../scripts/parse-args.js";
 import { captureCliOutput } from "./cli-capture.js";
+import { carryExecutionKey } from "./filesystem-action-entry.js";
 
 let _fs: typeof import("fs") | undefined;
 async function getFs(): Promise<typeof import("fs")> {
@@ -157,6 +158,13 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   if (typeof entry.parallelSafe === "boolean") {
     out.parallelSafe = entry.parallelSafe;
   }
+  if (
+    typeof entry.retrySafe === "boolean" ||
+    typeof entry.retrySafe === "function"
+  ) {
+    out.retrySafe = entry.retrySafe;
+  }
+  carryExecutionKey(entry, out);
   if (typeof entry.endsTurn === "boolean") {
     out.endsTurn = entry.endsTurn;
   }
@@ -442,6 +450,9 @@ export const ALWAYS_ON_CORE_ACTIONS: ReadonlySet<string> = new Set([
   "set-tool-approval-policy",
   // The client's same-tick GET batching depends on it, so it cannot be gated.
   "get-actions-batch",
+  // Any app can mount ReportProblemButton, which needs these.
+  "save-problem-report",
+  "read-problem-report",
 ]);
 
 export async function mergeCoreSharingActions(
@@ -528,6 +539,14 @@ export async function mergeCoreSharingActions(
       () => import("../agent/actions/get-agentkit-capabilities.js"),
     ],
     ["upload-image", () => import("../file-upload/actions/upload-image.js")],
+    [
+      "save-problem-report",
+      () => import("../problem-report/actions/save-problem-report.js"),
+    ],
+    [
+      "read-problem-report",
+      () => import("../problem-report/actions/read-problem-report.js"),
+    ],
     [
       "get-file-storage",
       () => import("../file-upload/actions/get-file-storage.js"),

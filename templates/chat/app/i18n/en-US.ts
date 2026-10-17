@@ -62,7 +62,6 @@ const messages = {
     editHint: "Edit {{file}} and save, then ask again to see the new greeting.",
     lead: "Your app's UI and its agent share one set of actions.",
     leadTry: "Ask the agent to call the hello action.",
-    llmSetupLink: "LLM provider setup",
     title: "Get started",
   },
   navigation: {

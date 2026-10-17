@@ -1,10 +1,12 @@
 import { setClientAppState } from "@agent-native/core/client/hooks";
 import { stripInlineBytes } from "@agent-native/core/shared";
 import type { LayoutGridById } from "@shared/layout-grid";
+import type { MotionPlaybackMode } from "@shared/motion-timeline";
+import type { InteractThemeMode } from "@shared/preview-color-scheme";
 import type { RefObject } from "react";
 
 import type { CodeWorkbenchActiveFile } from "@/components/design/code-workbench/CodeWorkbench";
-import type { InspectorTab } from "@/components/design/EditPanel";
+import type { MotionDockLiveState } from "@/components/design/MotionDock";
 import type { ElementInfo } from "@/components/design/types";
 import type { ResponsiveEditScope } from "@/pages/design-editor/command-types";
 import { KEEPALIVE_ACTION_MAX_BYTES } from "@/pages/design-editor/data-operations";
@@ -98,7 +100,6 @@ export interface PublishAgentSelectionContextArgs {
   activeBreakpointWidthState: number | undefined;
   activeCodeFile: CodeWorkbenchActiveFile | null;
   activeFile: DesignFile | undefined;
-  activeInspectorTab: InspectorTab;
   activeLeftPanel: DesignLeftPanel | null;
   activeTool: DesignTool;
   design: DesignData | null;
@@ -108,9 +109,17 @@ export interface PublishAgentSelectionContextArgs {
   files: DesignFile[];
   hoveredElement: ElementInfo | null;
   id: string | undefined;
+  interactDevice: { name: string; width: number; height: number };
+  interactTheme: InteractThemeMode;
   isSignedIn: boolean;
   mode: EditorMode;
+  motionAutoKeyframeEnabled: boolean;
   motionDockOpen: boolean;
+  motionDockLiveState: MotionDockLiveState;
+  motionDurationMs: number;
+  motionPlayhead: number;
+  motionPlaybackMode: MotionPlaybackMode;
+  motionTimelineId: string | null;
   pendingPersistedSelectionWriteRef: RefObject<{
     key: string;
     contextKey: string;
@@ -131,7 +140,6 @@ export function runPublishAgentSelectionContext({
   activeBreakpointWidthState,
   activeCodeFile,
   activeFile,
-  activeInspectorTab,
   activeLeftPanel,
   activeTool,
   design,
@@ -141,9 +149,17 @@ export function runPublishAgentSelectionContext({
   files,
   hoveredElement,
   id,
+  interactDevice,
+  interactTheme,
   isSignedIn,
   mode,
+  motionAutoKeyframeEnabled,
   motionDockOpen,
+  motionDockLiveState,
+  motionDurationMs,
+  motionPlayhead,
+  motionPlaybackMode,
+  motionTimelineId,
   pendingPersistedSelectionWriteRef,
   persistedSelectionContextRef,
   persistedSelectionStateRef,
@@ -173,7 +189,13 @@ export function runPublishAgentSelectionContext({
     hoveredElement,
     mode,
     activeTool,
-    inspectorTab: activeInspectorTab,
+    // Only meaningful while previewing; null elsewhere so a stale default
+    // device is never read as the user's choice. The theme is the mode picked
+    // (light, dark or system); system means no scheme is forced.
+    interact:
+      mode === "interact"
+        ? { device: interactDevice, theme: interactTheme }
+        : null,
     leftPanel: activeLeftPanel,
     codeWorkspace: {
       open: activeLeftPanel === "code",
@@ -185,11 +207,20 @@ export function runPublishAgentSelectionContext({
     },
     dock: { kind: "motion" as const, open: motionDockOpen },
     motion: {
-      previewing: false,
-      playheadMs: 0,
-      timelineId: undefined as string | undefined,
-      selectedTrackId: undefined as string | undefined,
-      selectedKeyframeId: undefined as string | undefined,
+      previewing: motionDockLiveState.previewing,
+      playheadMs: Math.round(
+        Math.max(0, Math.min(1, motionPlayhead)) * motionDurationMs,
+      ),
+      durationMs: motionDurationMs,
+      timelineId: motionTimelineId,
+      playbackMode: motionPlaybackMode,
+      autoKeyframe: motionAutoKeyframeEnabled,
+      selectedTrackId: motionDockLiveState.selectedTrackId,
+      selectedKeyframeId:
+        motionDockLiveState.selectedKeyframeIds.length === 1
+          ? motionDockLiveState.selectedKeyframeIds[0]
+          : null,
+      selectedKeyframeIds: motionDockLiveState.selectedKeyframeIds,
     },
     breakpoint: (activeBreakpointWidthState != null
       ? activeBreakpointWidthState < 500
@@ -252,7 +283,7 @@ export function runPublishAgentSelectionContext({
       : null,
     mode: selection.mode,
     activeTool: selection.activeTool,
-    inspectorTab: selection.inspectorTab,
+    interact: selection.interact,
     leftPanel: selection.leftPanel,
     codeWorkspace: selection.codeWorkspace,
     dock: selection.dock,

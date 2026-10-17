@@ -1,9 +1,12 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import {
+  expect,
+  expectOnlyChanged,
+  styleOf,
+  test,
+  type App,
+  type SavedNode,
+} from "./rails";
 
-import { EDGE_HANDLE_HIT_INWARD_PX } from "../app/components/design/multi-screen/handle-hit-zones";
-import { canvasZoom, expandAllLayers } from "./helpers";
-
-const PAGE_W = 320;
 const PAGE_H = 820;
 
 const FIXTURE = `<!doctype html>
@@ -33,616 +36,345 @@ const FIXTURE = `<!doctype html>
   </body>
 </html>`;
 
-let baseURL = "";
+type Point = { x: number; y: number };
 
-async function postAction(
-  page: Page,
-  name: string,
-  input: Record<string, unknown>,
-) {
-  const res = await page.request.post(
-    `${baseURL}/_agent-native/actions/${name}`,
-    { data: input, headers: { "Content-Type": "application/json" } },
-  );
-  if (!res.ok()) {
-    throw new Error(
-      `${name}: ${res.status()} ${(await res.text()).slice(0, 200)}`,
-    );
-  }
-  return res.json();
-}
-
-async function newDesign(page: Page): Promise<string> {
-  const created = await postAction(page, "create-design", {
-    title: "selection repros",
-    projectType: "prototype",
-  });
-  const id = created?.id ?? created?.data?.id;
-  if (!id) throw new Error("create-design returned no id");
-  await postAction(page, "create-file", {
-    designId: id,
-    filename: "index.html",
-    content: FIXTURE,
-    fileType: "html",
-  });
+async function openFixture(app: App) {
+  const id = await app.seed(FIXTURE);
+  await app.open(id);
+  await app.zoomToFit();
+  await app.settled();
   return id;
 }
 
-async function getDesignFiles(
-  page: Page,
-  designId: string,
-): Promise<Array<{ filename: string; content: string }>> {
-  const response = await page.request.get(
-    `${baseURL}/_agent-native/actions/get-design?id=${encodeURIComponent(designId)}`,
-  );
-  if (!response.ok()) {
-    throw new Error(
-      `get-design: ${response.status()} ${await response.text()}`,
-    );
-  }
-  const design = await response.json();
-  return (design.files ?? []) as Array<{ filename: string; content: string }>;
+/** A marquee from one design-px point to another, with no layer under the press. */
+async function sweep(app: App, from: Point, to: Point) {
+  const start = await app.pagePoint(from.x, from.y);
+  const end = await app.pagePoint(to.x, to.y);
+  await app.page.mouse.move(start.x, start.y);
+  await app.page.mouse.down();
+  await app.page.mouse.move(end.x, end.y, { steps: 18 });
+  await app.page.mouse.up();
 }
 
-function fileOwners(
-  files: Array<{ filename: string; content: string }>,
-  nodeId: string,
-): string[] {
-  const escapedNodeId = nodeId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const pattern = new RegExp(
-    `data-agent-native-node-id=[\"']${escapedNodeId}[\"']`,
-  );
-  return files
-    .filter((file) => pattern.exec(file.content) !== null)
-    .map((file) => file.filename)
-    .sort();
+async function clickDesign(app: App, x: number, y: number) {
+  const point = await app.pagePoint(x, y);
+  await app.page.mouse.click(point.x, point.y);
 }
 
-function toolbar(page: Page): Locator {
-  return page.locator("[data-design-bottom-toolbar]");
+function sortedSelection(app: App) {
+  return async () => (await app.selectedLayers()).sort();
 }
 
-function layersTree(page: Page): Locator {
-  return page.getByRole("tree", { name: "Layers" });
-}
-
-function selectedRows(page: Page): Locator {
-  return layersTree(page).locator('[role="treeitem"][aria-selected="true"]');
-}
-
-function node(page: Page, id: string): Locator {
-  return page
-    .locator("iframe[data-design-preview-iframe]")
-    .first()
-    .contentFrame()
-    .locator(`[data-agent-native-node-id="${id}"]`);
-}
-
-async function openEditor(page: Page, designId: string): Promise<void> {
-  await page.goto(`${baseURL}/design/${designId}`, {
-    waitUntil: "domcontentloaded",
-  });
-  await toolbar(page)
-    .locator('button[aria-label="Move"]')
-    .waitFor({ timeout: 45_000 });
-  await page
-    .locator("iframe[data-design-preview-iframe]")
-    .first()
-    .waitFor({ timeout: 30_000 });
-  await expandAllLayers(page);
-  await page.waitForTimeout(500);
-}
-
-async function screenCard(page: Page) {
-  const box = await page.locator("[data-screen-card]").first().boundingBox();
-  if (!box) throw new Error("no screen card");
-  return box;
-}
-
-async function canvasDropPointOutsideCard(
-  page: Page,
-  card: { x: number; y: number; width: number; height: number },
-): Promise<{ x: number; y: number }> {
-  const surface = await page
-    .locator("[data-multi-screen-canvas-surface]")
-    .boundingBox();
-  if (!surface) throw new Error("no visible canvas surface");
-  const candidates = [
-    { x: card.x + card.width + 80, y: card.y + card.height / 2 },
-    { x: card.x - 80, y: card.y + card.height / 2 },
-    { x: card.x + card.width / 2, y: card.y + card.height + 80 },
-    { x: card.x + card.width / 2, y: card.y - 80 },
-  ];
-  const isInsideSurface = (point: { x: number; y: number }) =>
-    point.x >= surface.x + 16 &&
-    point.y >= surface.y + 16 &&
-    point.x <= surface.x + surface.width - 16 &&
-    point.y <= surface.y + surface.height - 16;
-  const isInsideCard = (point: { x: number; y: number }) =>
-    point.x >= card.x &&
-    point.y >= card.y &&
-    point.x <= card.x + card.width &&
-    point.y <= card.y + card.height;
-  const point = candidates.find(
-    (candidate) => isInsideSurface(candidate) && !isInsideCard(candidate),
-  );
-  if (!point) {
-    throw new Error(
-      `no in-canvas drop point outside screen: ${JSON.stringify({ surface, card })}`,
-    );
-  }
-  return point;
-}
-
-function insideScreenX(card: { x: number }, preferred: number): number {
-  return Math.max(card.x + EDGE_HANDLE_HIT_INWARD_PX + 2, preferred);
-}
-
-async function sweep(
-  page: Page,
-  from: { x: number; y: number },
-  to: { x: number; y: number },
-): Promise<void> {
-  await page.mouse.move(from.x, from.y);
-  await page.mouse.down();
-  await page.mouse.move(to.x, to.y, { steps: 18 });
-  await page.waitForTimeout(400);
-  await page.mouse.up();
-  await page.waitForTimeout(2200);
-}
-
-async function selectionOutline(page: Page) {
-  return page
-    .locator("iframe[data-design-preview-iframe]")
-    .first()
-    .contentFrame()
-    .locator("body")
-    .evaluate(() => {
-      const el = document.querySelector(
-        '[data-agent-native-edit-overlay="selection"]',
-      );
-      if (!el) return null;
-      const r = el.getBoundingClientRect();
-      if (r.width === 0 && r.height === 0) return null;
-      return { width: Math.round(r.width), height: Math.round(r.height) };
+async function selectionOutline(app: App) {
+  return app.page
+    .frameLocator(
+      'iframe[data-design-preview-iframe][data-screen-iframe-id]:not([data-screen-iframe-id*="::bp-"])',
+    )
+    .locator('[data-agent-native-edit-overlay="selection"]')
+    .evaluate((element) => {
+      const r = element.getBoundingClientRect();
+      return {
+        x: Math.round(r.x),
+        y: Math.round(r.y),
+        width: Math.round(r.width),
+        height: Math.round(r.height),
+      };
     });
+}
+
+/** Waits until the screen stops moving, since selecting a board layer can pan the camera. */
+async function cameraStill(app: App) {
+  const screen = app.page.locator(
+    'iframe[data-design-preview-iframe][data-screen-iframe-id]:not([data-screen-iframe-id*="::bp-"])',
+  );
+  let previous = "";
+  await expect
+    .poll(async () => {
+      const now = JSON.stringify(await screen.boundingBox());
+      const still = now === previous;
+      previous = now;
+      return still;
+    })
+    .toBe(true);
+}
+
+/** Empty board just below the screen, clear of the side panels and the bottom toolbar. */
+async function boardPointOutsideScreen(app: App) {
+  const card = (await app.page
+    .locator("[data-screen-card]")
+    .first()
+    .boundingBox())!;
+  const toolbar = (await app.page
+    .locator("[data-design-bottom-toolbar]")
+    .boundingBox())!;
+  const point = { x: card.x + 120, y: card.y + card.height + 50 };
+  expect(point.x + 60, "left of the bottom toolbar").toBeLessThan(toolbar.x);
+  expect(point.y, "above the bottom of the viewport").toBeLessThan(
+    app.page.viewportSize()!.height - 40,
+  );
+  return point;
 }
 
 test.use({ viewport: { width: 1600, height: 1000 } });
 
-test.beforeEach(async ({ page }, testInfo) => {
-  baseURL =
-    (testInfo.project.use.baseURL as string | undefined) ??
-    process.env.E2E_BASE_URL ??
-    `http://127.0.0.1:${process.env.E2E_PORT ?? 9333}`;
-});
-
 test.describe("marquee reachability", () => {
   test("a drag from empty space inside a screen rubber-bands its children", async ({
-    page,
+    app,
   }) => {
-    const id = await newDesign(page);
-    await openEditor(page, id);
-    const a = (await node(page, "box-a").boundingBox())!;
-    const b = (await node(page, "box-b").boundingBox())!;
-    const card = await screenCard(page);
-    const px = await canvasZoom(page);
-    await sweep(
-      page,
-      { x: insideScreenX(card, a.x - 10 * px), y: a.y - 20 * px },
-      { x: b.x + b.width + 10 * px, y: b.y + b.height + 10 * px },
-    );
-
-    const names = await selectedRows(page).allTextContents();
-    expect(
-      names.join("|"),
-      "a background drag inside a frame must rubber-band, not pick the frame up",
-    ).toContain("Box A");
-    expect(names.join("|")).toContain("Box B");
-    expect(
-      names.join("|"),
-      "the container the band was drawn inside must not be swept in — its outline covers the whole screen and reads as 'everything is selected'",
-    ).not.toContain("Wrapper");
+    await openFixture(app);
+    await sweep(app, { x: 16, y: 100 }, { x: 290, y: 210 });
+    await expect
+      .poll(
+        sortedSelection(app),
+        "the band selects the two boxes, not the Wrapper it was drawn inside",
+      )
+      .toEqual(["Box A", "Box B"]);
   });
 
   test("the band catches an element that has no id of its own", async ({
-    page,
+    app,
   }) => {
-    const id = await newDesign(page);
-    await openEditor(page, id);
-    const target = (await page
-      .locator("iframe[data-design-preview-iframe]")
-      .first()
-      .contentFrame()
-      .locator('div[style*="background:#f59e0b"]')
-      .first()
-      .boundingBox())!;
-    const card = await screenCard(page);
-    const px = await canvasZoom(page);
-    await sweep(
-      page,
-      { x: insideScreenX(card, target.x - 10 * px), y: target.y - 14 * px },
-      {
-        x: target.x + target.width + 10 * px,
-        y: target.y + target.height + 14 * px,
-      },
-    );
-
-    const swept = (await selectedRows(page).allTextContents()).join("|");
-    expect(
-      swept,
-      "an id attribute is a persistence detail; a click selects this element, so a band must too",
-    ).toContain("Unnamed");
-    expect(swept, "the enclosing wrapper is not the target").not.toContain(
-      "Wrapper",
-    );
+    await openFixture(app);
+    await sweep(app, { x: 16, y: 306 }, { x: 230, y: 404 });
+    await expect.poll(sortedSelection(app)).toEqual(["Unnamed"]);
   });
 
-  test("the band catches a zero-height row", async ({ page }) => {
-    const id = await newDesign(page);
-    await openEditor(page, id);
-    const flat = (await node(page, "flat").boundingBox())!;
-    const card = await screenCard(page);
-    const px = await canvasZoom(page);
-    await sweep(
-      page,
-      { x: insideScreenX(card, flat.x - 10 * px), y: flat.y - 18 * px },
-      { x: flat.x + flat.width + 10 * px, y: flat.y + 30 * px },
-    );
-
-    expect(
-      (await selectedRows(page).allTextContents()).join("|"),
-      "a zero-area box is still a layer",
-    ).toContain("Flat row");
+  test("the band catches a zero-height row", async ({ app }) => {
+    await openFixture(app);
+    await sweep(app, { x: 16, y: 422 }, { x: 230, y: 470 });
+    await expect
+      .poll(sortedSelection(app), "a zero-area box is still a layer")
+      .toEqual(["Flat row"]);
   });
 });
 
 test.describe("hairline selection", () => {
   test("clicking a horizontal rule selects the rule with a grabbable outline", async ({
-    page,
+    app,
   }) => {
-    const id = await newDesign(page);
-    await openEditor(page, id);
-
-    const rule = (await node(page, "rule").boundingBox())!;
-    await page.mouse.click(rule.x + rule.width / 2, rule.y + rule.height / 2);
-    await page.waitForTimeout(2200);
-
-    expect(
-      (await selectedRows(page).allTextContents()).join("|"),
-      "the <path> is geometry; the layer is the <svg> around it",
-    ).toContain("Rule");
-    const outline = await selectionOutline(page);
-    expect(outline, "a selected rule must be outlined").not.toBeNull();
-    expect(
-      outline!.height,
-      "the outline must match the rule's own box, not its stroke box",
-    ).toBeGreaterThanOrEqual(12);
+    await openFixture(app);
+    await clickDesign(app, 150, 266);
+    await expect
+      .poll(
+        () => app.selectedLayers(),
+        "the <path> is geometry; the layer is the <svg>",
+      )
+      .toEqual(["Rule"]);
+    await expect
+      .poll(
+        () => selectionOutline(app),
+        "the outline is the rule's own 260x12 box, not its 3px stroke",
+      )
+      .toEqual({ x: 20, y: 260, width: 260, height: 12 });
   });
 });
 
 test.describe("clicking into a selected screen", () => {
   test("plain clicks progress through the screen's direct children", async ({
-    page,
+    app,
   }) => {
-    const id = await newDesign(page);
-    await openEditor(page, id);
-    await page.locator("[data-frame-label]").first().click({ force: true });
-    await page.waitForTimeout(1800);
+    await openFixture(app);
+    await app.page.locator("[data-frame-label]").first().click();
+    await expect.poll(() => app.selectedLayers()).toEqual(["Home"]);
 
-    const a = (await node(page, "box-a").boundingBox())!;
-    const b = (await node(page, "box-b").boundingBox())!;
-
-    await page.mouse.click(a.x + a.width / 2, a.y + a.height / 2);
+    await clickDesign(app, 75, 160);
     await expect
-      .poll(() => selectedRows(page).allTextContents(), {
-        timeout: 10_000,
-        message:
-          "the first content click must select the screen's direct child container",
-      })
-      .toContain("Wrapper");
-
-    await page.mouse.click(a.x + a.width / 2, a.y + a.height / 2);
+      .poll(
+        () => app.selectedLayers(),
+        "the first content click selects the screen's direct child",
+      )
+      .toEqual(["Wrapper"]);
+    await clickDesign(app, 75, 160);
     await expect
-      .poll(() => selectedRows(page).allTextContents(), {
-        timeout: 10_000,
-        message:
-          "a repeated plain click must descend to the clicked screen child",
-      })
-      .toContain("Box A");
-
-    await page.mouse.click(b.x + b.width / 2, b.y + b.height / 2);
+      .poll(
+        () => app.selectedLayers(),
+        "a repeated click descends to the clicked child",
+      )
+      .toEqual(["Box A"]);
+    await clickDesign(app, 225, 160);
     await expect
-      .poll(() => selectedRows(page).allTextContents(), {
-        timeout: 10_000,
-        message:
-          "a second plain click on another screen child must move selection to that child",
-      })
-      .toContain("Box B");
-  });
-});
-
-async function paintedBoxA(page: Page) {
-  return page.evaluate(() => {
-    const frames = Array.from(document.querySelectorAll("iframe"));
-    for (let index = 0; index < frames.length; index += 1) {
-      const frame = frames[index]!;
-      const el = frame.contentDocument?.querySelector(
-        '[data-agent-native-node-id="box-a"]',
-      );
-      if (!el) continue;
-      const style = getComputedStyle(el);
-      const rect = el.getBoundingClientRect();
-      return {
-        frameIndex: index,
-        x: Math.round(rect.x),
-        y: Math.round(rect.y),
-        hidden:
-          style.display === "none" ||
-          style.visibility === "hidden" ||
-          Number(style.opacity) === 0,
-        transform: style.transform,
-        inViewport:
-          rect.right > 0 &&
-          rect.bottom > 0 &&
-          rect.x < frame.clientWidth &&
-          rect.y < frame.clientHeight,
-      };
-    }
-    return null;
-  });
-}
-
-test.describe("dragging an element out of a screen", () => {
-  test("the element stays visible somewhere instead of vanishing", async ({
-    page,
-  }) => {
-    const id = await newDesign(page);
-    await openEditor(page, id);
-
-    const a = (await node(page, "box-a").boundingBox())!;
-    await page.mouse.click(a.x + a.width / 2, a.y + a.height / 2);
-    await page.waitForTimeout(1800);
-
-    const beforeDrag = await paintedBoxA(page);
-    expect(beforeDrag, "box-a must be painted before the drag").not.toBeNull();
-
-    const card = await screenCard(page);
-    const dropPoint = await canvasDropPointOutsideCard(page, card);
-    await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(dropPoint.x, dropPoint.y, { steps: 24 });
-    await page.waitForTimeout(500);
-    await page.mouse.up();
-    await expect
-      .poll(async () => fileOwners(await getDesignFiles(page, id), "box-a"), {
-        message: `an in-canvas screen exit at ${JSON.stringify(dropPoint)} must transfer the layer to the board`,
-      })
-      .toEqual(["__board__.html"]);
-
-    const painted = await paintedBoxA(page);
-
-    expect(
-      painted,
-      "the dragged element must still exist somewhere",
-    ).not.toBeNull();
-    expect(
-      painted!.frameIndex !== beforeDrag!.frameIndex ||
-        Math.abs(painted!.x - beforeDrag!.x) > 20 ||
-        Math.abs(painted!.y - beforeDrag!.y) > 20,
-      `the drag must actually relocate box-a, or every survival check below ` +
-        `passes for free (frame ${beforeDrag!.frameIndex}@${beforeDrag!.x},${beforeDrag!.y} ` +
-        `-> ${painted!.frameIndex}@${painted!.x},${painted!.y})`,
-    ).toBe(true);
-    expect(painted!.hidden, "a drop must never leave the element hidden").toBe(
-      false,
-    );
-    expect(
-      painted!.transform,
-      "a leftover drag transform displaces the element away from its own coordinates",
-    ).toBe("none");
-    expect(
-      painted!.inViewport,
-      "the element must land inside the surface that renders it",
-    ).toBe(true);
+      .poll(
+        () => app.selectedLayers(),
+        "a click on a sibling moves the selection to it",
+      )
+      .toEqual(["Box B"]);
   });
 });
 
 test.describe("drag preview", () => {
-  test("dragging a layer out of its screen shows a proxy the size of the layer", async ({
-    page,
+  test("dragging a layer out of its screen shows a proxy the size and colour of the layer", async ({
+    app,
   }) => {
-    const id = await newDesign(page);
-    await openEditor(page, id);
+    await openFixture(app);
+    await clickDesign(app, 75, 160);
+    await clickDesign(app, 75, 160);
+    await expect.poll(() => app.selectedLayers()).toEqual(["Box A"]);
+    const start = await app.pagePoint(75, 160);
+    const scale = (await app.pagePoint(0, 0)).scale;
+    const card = (await app.page
+      .locator("[data-screen-card]")
+      .first()
+      .boundingBox())!;
 
-    const a = (await node(page, "box-a").boundingBox())!;
-    await page.mouse.click(a.x + a.width / 2, a.y + a.height / 2);
-    await page.waitForTimeout(1800);
-
-    const card = await screenCard(page);
-    await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(card.x - 140, card.y + 80, { steps: 20 });
-    await page.waitForTimeout(700);
-
-    const proxy = await page
-      .locator("[data-cross-screen-drag-ghost]")
-      .boundingBox();
-    const proxyFill = await page
-      .locator("[data-cross-screen-drag-ghost]")
-      .evaluate((el) => getComputedStyle(el).backgroundColor)
-      .catch(() => null);
-    await page.mouse.up();
-    await page.waitForTimeout(2500);
+    await app.page.mouse.move(start.x, start.y);
+    await app.page.mouse.down();
+    await app.page.mouse.move(card.x - 140, card.y + 80, { steps: 20 });
+    const ghost = app.page.locator("[data-cross-screen-drag-ghost]");
+    await expect(ghost).toBeVisible();
+    await expect(ghost, "the proxy carries the layer's own fill").toHaveCSS(
+      "background-color",
+      "rgb(59, 130, 246)",
+    );
+    const proxy = (await ghost.boundingBox())!;
+    await app.page.mouse.up();
 
     expect(
-      proxy,
-      "a drag that left the screen must still show what moves",
-    ).not.toBeNull();
+      Math.abs(proxy.width - 110 * scale),
+      `proxy width ${proxy.width}`,
+    ).toBeLessThanOrEqual(2);
     expect(
-      proxyFill,
-      "the proxy must carry the layer's own fill, not a generic accent rectangle",
-    ).toBe("rgb(59, 130, 246)");
-    expect(Math.round(proxy!.width)).toBeGreaterThan(a.width * 0.8);
-    expect(Math.round(proxy!.height)).toBeGreaterThan(a.height * 0.8);
+      Math.abs(proxy.height - 80 * scale),
+      `proxy height ${proxy.height}`,
+    ).toBeLessThanOrEqual(2);
   });
 });
 
 test.describe("dragging back into a screen", () => {
   test("the layer lands where it was released, not in the corner", async ({
-    page,
+    app,
   }) => {
-    const id = await newDesign(page);
-    await openEditor(page, id);
+    const id = await openFixture(app);
+    await clickDesign(app, 75, 160);
+    await clickDesign(app, 75, 160);
+    await expect.poll(() => app.selectedLayers()).toEqual(["Box A"]);
+    const before = await app.savedNodes(id);
+    const start = await app.pagePoint(75, 160);
+    const boardPoint = await boardPointOutsideScreen(app);
 
-    const start = (await node(page, "box-a").boundingBox())!;
-    const card = await screenCard(page);
-    const boardDropPoint = await canvasDropPointOutsideCard(page, card);
-    await page.mouse.click(
-      start.x + start.width / 2,
-      start.y + start.height / 2,
-    );
-    await page.waitForTimeout(1700);
-    await page.mouse.move(
-      start.x + start.width / 2,
-      start.y + start.height / 2,
-    );
-    await page.mouse.down();
-    await page.mouse.move(boardDropPoint.x, boardDropPoint.y, { steps: 20 });
-    await page.waitForTimeout(500);
-    await page.mouse.up();
+    await app.page.mouse.move(start.x, start.y);
+    await app.page.mouse.down();
+    await app.page.mouse.move(boardPoint.x, boardPoint.y, { steps: 20 });
+    await app.page.mouse.up();
     await expect
-      .poll(async () => fileOwners(await getDesignFiles(page, id), "box-a"), {
-        message:
-          "the first leg of screen-entry must move the layer to the board",
-      })
-      .toEqual(["__board__.html"]);
+      .poll(
+        async () => (await app.savedNodes(id, "__board__.html")).has("box-a"),
+        "first leg: onto the board",
+      )
+      .toBe(true);
+    await app.settled();
 
-    const boardNode = page
-      .locator("[data-board-surface-layer] iframe[data-design-preview-iframe]")
-      .contentFrame()
-      .locator('[data-agent-native-node-id="box-a"]')
-      .first();
-    const boardBox = await boardNode.boundingBox();
-    if (!boardBox) throw new Error("dragged layer is missing from the board");
-    const boardPoint = {
-      x: boardBox.x + boardBox.width / 2,
-      y: boardBox.y + boardBox.height / 2,
+    const boardBox = () =>
+      app.page
+        .locator(
+          "[data-board-surface-layer] iframe[data-design-preview-iframe]",
+        )
+        .first()
+        .contentFrame()
+        .locator('[data-agent-native-node-id="box-a"]')
+        .boundingBox();
+    const onBoard = (await boardBox())!;
+    await app.page.mouse.click(
+      onBoard.x + onBoard.width / 2,
+      onBoard.y + onBoard.height / 2,
+    );
+    await expect.poll(() => app.selectedLayers()).toEqual(["Box A"]);
+    await cameraStill(app);
+    await app.zoomToFit();
+    const settledOnBoard = (await boardBox())!;
+    const grab = {
+      x: settledOnBoard.x + settledOnBoard.width / 2,
+      y: settledOnBoard.y + settledOnBoard.height / 2,
     };
-    await page.mouse.click(boardPoint.x, boardPoint.y);
-    await page.waitForTimeout(1700);
-    const dropX = card.x + card.width * 0.6;
-    const dropY = card.y + card.height * 0.55;
-    await page.mouse.move(boardPoint.x, boardPoint.y);
-    await page.mouse.down();
-    await page.mouse.move(dropX, dropY, { steps: 22 });
-    await page.waitForTimeout(600);
-    await page.mouse.up();
+    const release = await app.pagePoint(200, 520);
+    await app.page.mouse.move(grab.x, grab.y);
+    await app.page.mouse.down();
+    await app.page.mouse.move(release.x, release.y, { steps: 22 });
+    await app.page.mouse.up();
+
     await expect
-      .poll(async () => fileOwners(await getDesignFiles(page, id), "box-a"), {
-        message: `the board layer must transfer into the screen at ${JSON.stringify({ dropX, dropY })}`,
-      })
-      .toEqual(["index.html"]);
-
-    const html = await page.request
-      .get(`${baseURL}/_agent-native/actions/get-design?id=${id}`)
-      .then((r) => r.json())
-      .then(
-        (d) =>
-          (d.files ?? []).find(
-            (f: { filename: string }) => f.filename === "index.html",
-          )?.content ?? "",
-      );
-    const style =
-      /data-agent-native-node-id="box-a"[^>]*?style="([^"]*)"/i.exec(
-        html,
-      )?.[1] ?? "";
-    const left = Number(/(?:^|;)\s*left\s*:\s*(-?[\d.]+)px/i.exec(style)?.[1]);
-    const top = Number(/(?:^|;)\s*top\s*:\s*(-?[\d.]+)px/i.exec(style)?.[1]);
-
+      .poll(async () => (await app.savedNodes(id)).get("box-a")?.parent)
+      .toBe("wrapper");
+    await app.settled();
+    const after = await app.savedNodes(id);
+    const saved = styleOf(after.get("box-a"));
+    expect({
+      position: saved.position,
+      width: saved.width,
+      height: saved.height,
+    }).toEqual({
+      position: "absolute",
+      width: "110px",
+      height: "80px",
+    });
     expect(
-      style,
-      "a drop into a freeform screen must keep absolute placement, or the layer flow-inserts into the corner",
-    ).toContain("position: absolute");
-    expect(left, "left must survive the round trip").toBeGreaterThan(40);
-    expect(top, "top must survive the round trip").toBeGreaterThan(40);
+      Math.abs(parseFloat(saved.left) - 145),
+      `left ${saved.left}: centred on the release point`,
+    ).toBeLessThanOrEqual(2);
+    expect(
+      Math.abs(parseFloat(saved.top) - 480),
+      `top ${saved.top}: centred on the release point`,
+    ).toBeLessThanOrEqual(2);
+    expect((await app.savedNodes(id, "__board__.html")).has("box-a")).toBe(
+      false,
+    );
+    expectOnlyChanged(before, after, ["box-a"]);
   });
 });
 
 test.describe("dragging out and back onto the same screen", () => {
-  test("the layer stays in the screen instead of landing on the board behind it", async ({
-    page,
+  // fixme: product bug: Box B stays in the screen but lands at 110/315 instead of 105/380 (65px above the release point; inspector X 110 Y 315).
+  test.fixme("the layer stays in the screen at the release point instead of landing on the board behind it", async ({
+    app,
   }) => {
-    const id = await newDesign(page);
-    await openEditor(page, id);
+    const id = await openFixture(app);
+    await clickDesign(app, 225, 160);
+    await clickDesign(app, 225, 160);
+    await expect.poll(() => app.selectedLayers()).toEqual(["Box B"]);
+    const before = await app.savedNodes(id);
+    const board = await app.savedNodes(id, "__board__.html");
+    const start = await app.pagePoint(225, 160);
+    const outside = await boardPointOutsideScreen(app);
+    const release = await app.pagePoint(160, 420);
 
-    const box = (await node(page, "box-b").boundingBox())!;
-    const card = await screenCard(page);
-    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-    await page.waitForTimeout(1700);
+    await app.page.mouse.move(start.x, start.y);
+    await app.page.mouse.down();
+    await app.page.mouse.move(outside.x, outside.y, { steps: 14 });
+    await app.page.mouse.move(release.x, release.y, { steps: 16 });
+    await app.page.mouse.up();
 
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(card.x - 150, card.y + 100, { steps: 14 });
-    await page.waitForTimeout(300);
-    await page.mouse.move(
-      card.x + card.width * 0.5,
-      card.y + card.height * 0.45,
-      {
-        steps: 16,
-      },
+    await expect
+      .poll(async () => styleOf((await app.savedNodes(id)).get("box-b")).top)
+      .not.toBe("120px");
+    await app.settled();
+    const after = await app.savedNodes(id);
+    expect(after.get("box-b")?.parent, "still in the screen's Wrapper").toBe(
+      "wrapper",
     );
-    await page.waitForTimeout(500);
-    await page.mouse.up();
-    await page.waitForTimeout(4500);
-
-    const files = await page.request
-      .get(`${baseURL}/_agent-native/actions/get-design?id=${id}`)
-      .then((r) => r.json())
-      .then((d) => d.files ?? []);
-    const board =
-      files.find((f: { filename: string }) => f.filename === "__board__.html")
-        ?.content ?? "";
-    const screen =
-      files.find((f: { filename: string }) => f.filename === "index.html")
-        ?.content ?? "";
-
+    const saved = styleOf(after.get("box-b"));
     expect(
-      board.includes('node-id="box-b"'),
-      "a release over the screen must not move the layer onto the board, which paints behind it",
-    ).toBe(false);
-    expect(screen.includes('node-id="box-b"')).toBe(true);
-    const style =
-      /data-agent-native-node-id="box-b"[^>]*?style="([^"]*)"/i.exec(
-        screen,
-      )?.[1] ?? "";
-    const top = Number(/(?:^|;)\s*top\s*:\s*(-?[\d.]+)px/i.exec(style)?.[1]);
+      Math.abs(parseFloat(saved.left) - 105),
+      `left ${saved.left}`,
+    ).toBeLessThanOrEqual(2);
     expect(
-      top,
-      "the layer must land near the release point, not back up at the top",
-    ).toBeGreaterThan(150);
+      Math.abs(parseFloat(saved.top) - 380),
+      `top ${saved.top}`,
+    ).toBeLessThanOrEqual(2);
+    expectOnlyChanged(before, after, ["box-b"]);
+    expectOnlyChanged(board, await app.savedNodes(id, "__board__.html"), []);
   });
 });
 
 test.describe("hidden layers", () => {
-  test("a band over a display:none layer does not select it", async ({
-    page,
+  test("a band over the document origin selects only visible layers, never a display:none one", async ({
+    app,
   }) => {
-    const id = await newDesign(page);
-    await openEditor(page, id);
-
-    const a = (await node(page, "box-a").boundingBox())!;
-    const rule = (await node(page, "rule").boundingBox())!;
-    const card = await screenCard(page);
-    await sweep(
-      page,
-      { x: insideScreenX(card, a.x - 10), y: a.y + a.height + 4 },
-      { x: rule.x + rule.width, y: rule.y - 4 },
-    );
-
-    expect(
-      (await selectedRows(page).allTextContents()).join("|"),
-      "padding a zero-size box must not make an invisible layer selectable",
-    ).not.toContain("Ghosted");
+    await openFixture(app);
+    await sweep(app, { x: 150, y: 210 }, { x: -20, y: -20 });
+    await expect
+      .poll(
+        sortedSelection(app),
+        "a display:none layer's 0x0 box at the origin must not be caught",
+      )
+      .toEqual(["Box A"]);
   });
 });

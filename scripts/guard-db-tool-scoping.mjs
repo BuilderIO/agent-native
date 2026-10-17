@@ -94,6 +94,8 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
     "internal transactional-email worker configuration and cursors",
   "clips:clips_transactional_email_jobs":
     "internal transactional-email queue and delivery history",
+  "clips:clips_hosted_clip_allowances":
+    "anti-abuse and retained-byte ledger accessed only through atomic allowance actions",
   "clips:workspace_members": "membership join rows scoped through workspaces",
   "plan:plan_comments": "child rows scoped through plans",
   "plan:plan_edition_stories": "child rows scoped through plans",
@@ -111,6 +113,10 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
     "private snapshot blob cleanup outbox processed by Design actions",
   "design:design_screen_restore_claims":
     "one-use restore authorization scoped to a Design and accessed through Design actions",
+  "design:design_motion_bridge_receipt_challenges":
+    "one-use localhost bridge receipt nonces consumed only by scoped Design source actions",
+  "design:design_motion_bridge_relay_chains":
+    "short-lived Motion relay chains consumed only by scoped Design source actions",
   "forms:responses": "public submissions scoped through forms",
   "forms:response_deliveries":
     "internal delivery ledger scoped through form responses",

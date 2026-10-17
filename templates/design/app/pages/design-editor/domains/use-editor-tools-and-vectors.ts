@@ -75,8 +75,10 @@ import {
   computeOverviewScreenPickSelectionIds,
   getSelectedScreenIdsForEditorState,
   overviewScreenSelectionForPendingEcho,
+  reconcileSelectedLayerIdsForOverviewScreens,
   sameStringIds,
   shouldClearSelectionForReviewThreadTarget,
+  shouldResetBreakpointAfterOverviewSelectionClear,
   updateExplicitOverviewScreenSelection,
 } from "../selection-state";
 import { endedTextEditMatchesPendingCreation } from "../text-edit-utils";
@@ -142,8 +144,6 @@ export function useEditorToolsAndVectors({
     setActiveFileId,
   } = editorCore;
   const {
-    activeInspectorTab,
-    setActiveInspectorTab,
     activeLeftPanel,
     setActiveLeftPanel,
     selectedLayerIdsState,
@@ -202,6 +202,9 @@ export function useEditorToolsAndVectors({
     activeFile,
     handleBreakpointBarSelect,
     overviewCanvasZoom,
+    interactDeviceName,
+    interactDeviceSize,
+    interactTheme,
     setCameraCommand,
     cameraCommandNonceRef,
     exportCanvasFrameGeometryById,
@@ -219,6 +222,12 @@ export function useEditorToolsAndVectors({
     canvasContainerRef,
     activeProjectionContent,
     selectedCodeLayerNode,
+    motionAutoKeyframeEnabled,
+    motionDockLiveState,
+    motionDurationMs,
+    motionPlayhead,
+    motionPlaybackMode,
+    motionTimelineId,
   } = editorLiveEditsAndPresence;
   const { applyLocalContentUpdate, applyFileContentUpdate } =
     editorContentAndComponents;
@@ -376,7 +385,7 @@ export function useEditorToolsAndVectors({
         setSelectedLayerIdsState(boardTarget ? [] : [targetId]);
         setMode("edit");
       }
-      setActiveInspectorTab("comments");
+      setActiveLeftPanel("threads");
       reviewFocusNonceRef.current += 1;
       setReviewFocusRequest({
         nonce: reviewFocusNonceRef.current,
@@ -931,6 +940,9 @@ export function useEditorToolsAndVectors({
       });
   }, []);
   const spaceForwardArmedRef = useRef(false);
+  // Interact hands Space to the page: no pan, no Hand tool, no cancelled key.
+  const interactOwnsSpaceRef = useRef(mode === "interact");
+  interactOwnsSpaceRef.current = mode === "interact";
   useEffect(() => {
     if (
       shellMode ||
@@ -942,6 +954,7 @@ export function useEditorToolsAndVectors({
 
     const handleWindowKeyDown = (event: KeyboardEvent) => {
       if (event.key !== " " || event.code !== "Space") return;
+      if (interactOwnsSpaceRef.current) return;
       if (event.repeat) return;
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       if (isKeyboardShortcutsDialogTarget(event.target)) return;
@@ -1089,6 +1102,13 @@ export function useEditorToolsAndVectors({
           return owner ? [owner.fileId] : [];
         }),
       );
+      setSelectedLayerIdsState((current) =>
+        reconcileSelectedLayerIdsForOverviewScreens({
+          selectedLayerIds: current,
+          screenFileIds: fileIds,
+          selectedScreenIds: nextIds,
+        }),
+      );
       if (
         intent?.source === "marquee" &&
         (intent.metaKey === true || intent.ctrlKey === true)
@@ -1123,26 +1143,14 @@ export function useEditorToolsAndVectors({
       setOverviewSelectedScreenIds((current) =>
         sameStringIds(current, nextIds) ? current : nextIds,
       );
-      // BP-DEEP item 5 — Framer click-to-target: a click on EMPTY overview
-      // canvas clears the screen selection (ids === []); that gesture also
-      // returns the active edit scope to Base, mirroring clicking the base
-      // frame itself. Two guards keep this from over-firing:
-      // - viewModeRef: the selection-clear that fires while entering
-      //   single-screen mode (enterSingleScreen flips the ref to "single"
-      //   synchronously before any state settles) must not reset a
-      //   breakpoint the user is about to keep editing in the focused view.
-      // - overviewSelectedScreenIdsRef (still holding the PRE-update
-      //   selection when this callback runs — it's re-assigned during
-      //   render): MultiScreenCanvas's selection-report effect fires once on
-      //   mount with [] before its prop sync, and an []→[] "transition" is
-      //   that mount echo, not a user's empty-canvas click; without this
-      //   guard every overview (re)mount would clobber a persisted/agent-set
-      //   active breakpoint back to auto.
       if (
-        ids.length === 0 &&
-        overviewSelectedScreenIdsRef.current.length > 0 &&
-        viewModeRef.current === "overview" &&
-        activeBreakpointWidthStateRef.current !== undefined
+        shouldResetBreakpointAfterOverviewSelectionClear({
+          selectedScreenIds: nextIds,
+          previousSelectedScreenIds: overviewSelectedScreenIdsRef.current,
+          viewMode: viewModeRef.current,
+          activeBreakpointWidth: activeBreakpointWidthStateRef.current,
+          intent,
+        })
       ) {
         handleBreakpointBarSelect(undefined);
       }
@@ -1295,7 +1303,6 @@ export function useEditorToolsAndVectors({
         activeBreakpointWidthState,
         activeCodeFile,
         activeFile,
-        activeInspectorTab,
         activeLeftPanel,
         activeTool,
         design,
@@ -1305,9 +1312,21 @@ export function useEditorToolsAndVectors({
         files,
         hoveredElement,
         id,
+        interactDevice: {
+          name: interactDeviceName,
+          width: interactDeviceSize.width,
+          height: interactDeviceSize.height,
+        },
+        interactTheme,
         isSignedIn,
         mode,
+        motionAutoKeyframeEnabled,
         motionDockOpen,
+        motionDockLiveState,
+        motionDurationMs,
+        motionPlayhead,
+        motionPlaybackMode,
+        motionTimelineId,
         pendingPersistedSelectionWriteRef,
         persistedSelectionContextRef,
         persistedSelectionStateRef,
@@ -1329,19 +1348,28 @@ export function useEditorToolsAndVectors({
       hoveredElement,
       mode,
       activeTool,
-      activeInspectorTab,
       activeLeftPanel,
       activeCodeFile,
       overviewSelectedScreenIds,
       viewMode,
       zoom,
       motionDockOpen,
+      motionAutoKeyframeEnabled,
+      motionDockLiveState,
+      motionDurationMs,
+      motionPlayhead,
+      motionPlaybackMode,
+      motionTimelineId,
       activeBreakpointWidthState,
       responsiveEditScope,
       designDataJson,
       layoutGrids,
       selectedStateId,
       isSignedIn,
+      interactDeviceName,
+      interactDeviceSize.width,
+      interactDeviceSize.height,
+      interactTheme,
     ],
   );
 

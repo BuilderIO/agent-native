@@ -112,6 +112,43 @@ describe("apply-design-token-edit", () => {
     expect(mockUpdateWhere).toHaveBeenCalledTimes(1);
   });
 
+  it("stores an explicit type alongside the value", async () => {
+    designStore.row.data = JSON.stringify({
+      tweakSelections: { "--font-size-1": "14px" },
+      tokenTypes: { "--font-size-1": "font-size" },
+    });
+
+    await action.run({
+      designId: "design_1",
+      edits: [
+        { cssVar: "--opacity-1", value: "0.5", type: "opacity" },
+        { cssVar: "--font-size-1", value: "16px" },
+      ],
+    });
+
+    const persisted = JSON.parse(designStore.row.data) as {
+      tweakSelections: Record<string, string>;
+      tokenTypes: Record<string, string>;
+    };
+    expect(persisted.tweakSelections).toMatchObject({
+      "--opacity-1": "0.5",
+      "--font-size-1": "16px",
+    });
+    expect(persisted.tokenTypes).toEqual({
+      "--opacity-1": "opacity",
+      "--font-size-1": "font-size",
+    });
+  });
+
+  it("rejects unknown token types", () => {
+    expect(
+      action.schema.safeParse({
+        designId: "design_1",
+        edits: [{ cssVar: "--z-1", value: "10", type: "z-index" }],
+      }).success,
+    ).toBe(false);
+  });
+
   it("rejects unsafe CSS custom property names and token values", () => {
     expect(
       action.schema.safeParse({

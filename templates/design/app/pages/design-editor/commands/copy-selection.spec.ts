@@ -128,6 +128,89 @@ describe("copying a runtime-projected layer", () => {
     ).toBe(true);
   });
 
+  it("captures the source-relative offset from the selected layer and containing-block direction", async () => {
+    const file: DesignFile = {
+      id: "screen-a",
+      filename: "index.html",
+      fileType: "html",
+      content:
+        '<!doctype html><html><body><div data-agent-native-node-id="relative" style="position:relative;left:40.25px;right:7.75px;top:12.5px;bottom:9.25px">Relative</div></body></html>',
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const selectedInfo = {
+      tagName: "div",
+      selector: '[data-agent-native-node-id="relative"]',
+      sourceId: "relative",
+      classes: [],
+      computedStyles: {
+        position: "relative",
+        left: "40.25px",
+        right: "7.75px",
+        top: "12.5px",
+        bottom: "9.25px",
+      },
+      relativeContainingBlockDirection: "rtl",
+      boundingRect: { x: 0, y: 0, width: 100, height: 40 },
+      isFlexChild: false,
+      isFlexContainer: false,
+    } as ElementInfo;
+    const snapshots = runGetSelectedLayerSnapshots({
+      activeFile: file,
+      designSourceType: "inline",
+      files: [file],
+      getFreshActiveContent: () => file.content!,
+      getScreenContent: () => file.content!,
+      liveScreenSnapshotsById: {},
+      overviewScreens: [],
+      runtimeLayerSnapshotsById: {},
+      selectedElement: null,
+      selectedElementsByLayerId: new Map([["relative", selectedInfo]]),
+      selectedElementLayerId: null,
+      selectedLayerIdsState: ["relative"],
+    });
+
+    expect(snapshots[0]?.sourceRelativeOffset).toEqual({ x: -7.75, y: 12.5 });
+
+    const copiedLayerEntriesRef = ref<CanvasLayerClipboardEntry[]>([]);
+    const copiedLayerHtmlRef = ref<string | null>(null);
+    const copiedScreenEntriesRef = ref<
+      DesignClipboardScreenEntry[] | undefined
+    >(undefined);
+    await runCopySelection({
+      canvasFrameGeometryById: {},
+      copiedLayerEntriesRef,
+      copiedLayerHtmlRef,
+      copiedScreenEntriesRef,
+      designSourceType: "inline",
+      files: [file],
+      getScreenContent: () => file.content!,
+      getSelectedLayerSnapshots: () => snapshots,
+      lastWrittenClipboardMarkerRef: ref<string | null>(null),
+      lastWrittenClipboardPlainTextRef: ref<string | null>(null),
+      liveScreenSnapshotsById: {},
+      overviewScreens: [],
+      overviewSelectedScreenIds: [],
+      pasteCascadeRef: ref(0),
+      readPortableStyleSnapshot: noFrameAnswers,
+      runtimeLayerSnapshotsById: {},
+      setHasCanvasClipboard: () => {},
+      t: (key) => key,
+      viewModeRef: ref<"single" | "overview">("single"),
+    });
+
+    expect(copiedLayerEntriesRef.current[0]?.sourceRelativeOffset).toEqual({
+      x: -7.75,
+      y: 12.5,
+    });
+    expect(
+      parseDesignClipboardMarker(
+        clipboard.writeDesignClipboard.mock.calls[0]?.[0].html,
+        "local-clipboard-token",
+      )?.entries[0]?.sourceRelativeOffset,
+    ).toEqual({ x: -7.75, y: 12.5 });
+  });
+
   it("writes cached enriched multi-selection to the system marker during activation", async () => {
     const file: DesignFile = {
       id: "screen-a",
@@ -611,4 +694,116 @@ describe("copying one instance of a repeated list", () => {
       snapshotFor("rgb(220, 38, 38)"),
     );
   });
+
+  it("records which screen each copied screen came from so paste can find it again", async () => {
+    const file: DesignFile = {
+      id: "screen-a",
+      filename: "index.html",
+      fileType: "html",
+      content: "<!doctype html><html><body><div>Home</div></body></html>",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const frame = { x: 100, y: 50, width: 390, height: 844 };
+    const copiedScreenEntriesRef = ref<
+      DesignClipboardScreenEntry[] | undefined
+    >(undefined);
+
+    await runCopySelection({
+      canvasFrameGeometryById: { "screen-a": frame },
+      copiedLayerEntriesRef: ref<CanvasLayerClipboardEntry[]>([]),
+      copiedLayerHtmlRef: ref<string | null>(null),
+      copiedScreenEntriesRef,
+      designSourceType: "inline",
+      files: [file],
+      getScreenContent: () => file.content!,
+      getSelectedLayerSnapshots: () => [],
+      lastWrittenClipboardMarkerRef: ref<string | null>(null),
+      lastWrittenClipboardPlainTextRef: ref<string | null>(null),
+      liveScreenSnapshotsById: {},
+      overviewScreens: [],
+      overviewSelectedScreenIds: ["screen-a"],
+      pasteCascadeRef: ref(0),
+      readPortableStyleSnapshot: noFrameAnswers,
+      runtimeLayerSnapshotsById: {},
+      setHasCanvasClipboard: () => {},
+      t: (key) => key,
+      viewModeRef: ref<"single" | "overview">("overview"),
+    });
+
+    expect(copiedScreenEntriesRef.current).toEqual([
+      expect.objectContaining({
+        sourceScreenId: "screen-a",
+        canvasFrame: frame,
+      }),
+    ]);
+    expect(
+      parseDesignClipboardMarker(
+        clipboard.writeDesignClipboard.mock.lastCall?.[0].html,
+        "local-clipboard-token",
+      )?.screens?.[0]?.sourceScreenId,
+    ).toBe("screen-a");
+  });
+});
+
+it("keeps text-derived clipboard names dynamic and authored names fixed", async () => {
+  for (const authoredName of [null, "Headline"]) {
+    const html = `<h1 data-agent-native-node-id="title"${authoredName ? ` data-agent-native-layer-name="${authoredName}"` : ""}>First title</h1>`;
+    const file: DesignFile = {
+      id: "text-screen",
+      filename: "index.html",
+      fileType: "html",
+      content: html,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const node = buildCodeLayerProjection(html).nodes.find(
+      (node) => node.tag === "h1",
+    )!;
+    const copiedLayerEntriesRef = ref<CanvasLayerClipboardEntry[]>([]);
+    await runCopySelection({
+      canvasFrameGeometryById: {},
+      copiedLayerEntriesRef,
+      copiedLayerHtmlRef: ref(null),
+      copiedScreenEntriesRef: ref(undefined),
+      designSourceType: "inline",
+      files: [file],
+      getScreenContent: () => html,
+      getSelectedLayerSnapshots: () => [
+        {
+          html,
+          sourceFileId: file.id,
+          rootNodeId: "title",
+          node,
+          sourceIndex: 0,
+          tree: [],
+        },
+      ],
+      lastWrittenClipboardMarkerRef: ref(null),
+      lastWrittenClipboardPlainTextRef: ref(null),
+      liveScreenSnapshotsById: {},
+      overviewScreens: [],
+      overviewSelectedScreenIds: [],
+      pasteCascadeRef: ref(0),
+      readPortableStyleSnapshot: noFrameAnswers,
+      runtimeLayerSnapshotsById: {},
+      setHasCanvasClipboard: () => {},
+      t: (key) => key,
+      viewModeRef: ref("single"),
+    });
+    const doc = new DOMParser().parseFromString(
+      copiedLayerEntriesRef.current[0]!.html,
+      "text/html",
+    );
+    const heading = doc.querySelector("h1")!;
+    heading.textContent = "Second title";
+    expect(heading.getAttribute("data-agent-native-layer-name")).toBe(
+      authoredName,
+    );
+    expect(
+      buildCodeLayerProjection(heading.outerHTML).nodes.find(
+        (node) => node.tag === "h1",
+      )?.layerName,
+    ).toBe(authoredName ?? "Second title");
+  }
 });

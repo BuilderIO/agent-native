@@ -29,7 +29,9 @@ export function isMergeSafeDeckPatchOperations(operations: unknown): boolean {
     const nonContentFields = Object.keys(patchFields).filter(
       (field) => field !== "content" && patchFields[field] !== undefined,
     );
-    if (nonContentFields.length === 0) return hasContent;
+    // Edits re-apply to the fresh slide content on every retry attempt.
+    const hasEdits = Array.isArray(candidate.edits);
+    if (nonContentFields.length === 0) return hasContent || hasEdits;
 
     const baselines = candidate.baseFields;
     if (

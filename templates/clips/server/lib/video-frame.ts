@@ -302,8 +302,11 @@ export async function extractJpegFrameFromFile({
         "error",
         "-nostdin",
         "-y",
+        // ffmpeg starts at the first frame at or after -ss. Comment times are
+        // a frame start rounded up to a whole millisecond, so begin 1 ms
+        // early to keep a sub-millisecond start (30 fps MP4) on that frame.
         "-ss",
-        String(Math.max(0, atMs) / 1000),
+        String(Math.max(0, atMs - 1) / 1000),
         "-i",
         mediaPath,
         "-frames:v",

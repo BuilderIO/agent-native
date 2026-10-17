@@ -196,6 +196,8 @@ function compactAnimationSummary(value: unknown, content: string) {
           typeof animation.byParagraph === "boolean"
             ? animation.byParagraph
             : false,
+        trigger:
+          animation.trigger === "with-previous" ? "with-previous" : "on-click",
         type: typeof animation.type === "string" ? animation.type : null,
         targetPreview: targetSummary?.targetPreview ?? null,
         resolvedPath: targetSummary?.resolvedPath ?? null,
@@ -294,6 +296,8 @@ export default defineAction({
       }
     }),
   readOnly: false, // GET repairs duplicate slide IDs.
+  // The only write is that repair, and a replay finds no duplicates left to fix.
+  retrySafe: true,
   http: { method: "GET" },
   mcpApp: {
     compactCatalog: true,

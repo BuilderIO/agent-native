@@ -29,6 +29,8 @@ export type SourceHealth =
   | "error";
 export type ReviewPriority = "high" | "medium" | "low";
 
+export const BRAIN_MCP_SUGGESTION_EXCLUDED_INTEGRATION_IDS = ["gong"] as const;
+
 export interface Citation {
   id: string;
   title: string;
@@ -599,6 +601,7 @@ export interface BrainConnectionProvider {
   hasConfiguredSources: boolean;
   sourceProviderSupported: boolean;
   configured?: boolean | null;
+  usesBrainLocalCredentials?: boolean;
   setupLink?: string;
   credentialHealth?: BrainCredentialHealth;
   providerHealth?: BrainProviderHealth;
@@ -616,6 +619,7 @@ export interface BrainConnectionProvider {
 export interface ConnectionProvidersResponse {
   count?: number;
   appId?: "brain";
+  canManageZoom?: boolean;
   workspaceConnections?: {
     appId: "brain";
     available: boolean;

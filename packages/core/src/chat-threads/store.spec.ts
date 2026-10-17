@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { storeLedgerResult } from "../db/store-ledger.test-helpers.js";
+
 const executeMock = vi.hoisted(() => vi.fn());
 const emitChatThreadChangeMock = vi.hoisted(() => vi.fn());
 
@@ -13,9 +15,23 @@ vi.mock("../db/ddl-guard.js", () => ({
   ensureTableExists: vi.fn().mockResolvedValue(undefined),
 }));
 
+// The store's widen-bigint migration reads the catalog; a recorded migration
+// surfaces that read's failure instead of swallowing it.
+function storeBootstrapResult(sql: string) {
+  if (/FROM information_schema\.columns/i.test(sql)) {
+    return { rows: [], rowsAffected: 0 };
+  }
+  return storeLedgerResult(sql);
+}
+
 vi.mock("./emitter.js", () => ({
   emitChatThreadChange: emitChatThreadChangeMock,
 }));
+
+import {
+  AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY,
+  AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY,
+} from "@agent-native/agentkit/protocol";
 
 import {
   applySubmittedUserMessage,
@@ -109,6 +125,8 @@ describe("chat thread store", () => {
     emitChatThreadChangeMock.mockReset();
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
+      const ledger = storeBootstrapResult(sql);
+      if (ledger) return ledger;
       const args = typeof query === "string" ? [] : query.args;
       if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
         return { rows: [], rowsAffected: 0 };
@@ -2467,6 +2485,99 @@ describe("chat thread store", () => {
     expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([queued]);
   });
 
+  it("drops an expired retry before it can be appended or promoted", async () => {
+    const submissionExpiresAt = Date.now() - 1;
+    const metadata = {
+      custom: {
+        [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]: submissionExpiresAt,
+      },
+    };
+    row!.thread_data = JSON.stringify({ queuedMessages: [] });
+
+    const appended = await mutateThreadQueuedMessages("thread-1", {
+      type: "append",
+      message: {
+        id: "queued-expired-retry",
+        text: "Retry the original prompt",
+        metadata,
+      },
+    });
+    expect(appended?.submissionExpired).toBe(true);
+    expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([]);
+
+    row!.thread_data = JSON.stringify({
+      queuedMessages: [
+        {
+          id: "queued-expired-retry",
+          text: "Retry the original prompt",
+          metadata,
+          promotionClaim: { id: "tab-old", expiresAt: Date.now() + 60_000 },
+        },
+      ],
+    });
+    const claim = await mutateThreadQueuedMessages("thread-1", {
+      type: "claim",
+      messageId: "queued-expired-retry",
+      claimId: "tab-new",
+    });
+    expect(claim?.submissionExpired).toBe(true);
+    expect(claim?.claimedMessage).toBeUndefined();
+    expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([]);
+  });
+
+  it("anchors a queued retry lifetime to server time before persisting it", async () => {
+    row!.thread_data = JSON.stringify({ queuedMessages: [] });
+    const now = vi.spyOn(Date, "now").mockReturnValue(10_000);
+
+    try {
+      const appended = await mutateThreadQueuedMessages("thread-1", {
+        type: "append",
+        message: {
+          id: "queued-retry-with-ttl",
+          text: "Retry the prompt",
+          metadata: {
+            custom: {
+              [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]: 99_999_999,
+              [AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY]: 1_200,
+            },
+          },
+        },
+      });
+
+      expect(appended?.message?.metadata?.custom).toEqual({
+        [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]: 11_200,
+      });
+      expect(JSON.parse(row!.thread_data).queuedMessages).toHaveLength(1);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it("allows cleanup of an expired queue item with a live promotion claim", async () => {
+    row!.thread_data = JSON.stringify({
+      queuedMessages: [
+        {
+          id: "queued-expired-retry",
+          text: "Retry the original prompt",
+          metadata: {
+            custom: {
+              [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]: Date.now() - 1,
+            },
+          },
+          promotionClaim: { id: "tab-old", expiresAt: Date.now() + 60_000 },
+        },
+      ],
+    });
+
+    const removed = await mutateThreadQueuedMessages("thread-1", {
+      type: "remove",
+      messageId: "queued-expired-retry",
+    });
+
+    expect(removed?.promotionBusy).toBeUndefined();
+    expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([]);
+  });
+
   it("keeps a promotion claim taken while a full-thread save was in flight", async () => {
     const queued = { id: "queued-in-flight-save", text: "Answer me next" };
     const messages = [
@@ -2616,6 +2727,8 @@ describe("chat thread store", () => {
   it("searches thread text with literal LIKE metacharacters", async () => {
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
+      const ledger = storeBootstrapResult(sql);
+      if (ledger) return ledger;
       if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
         return { rows: [], rowsAffected: 0 };
       }
@@ -2659,6 +2772,8 @@ describe("chat thread store", () => {
     };
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
+      const ledger = storeBootstrapResult(sql);
+      if (ledger) return ledger;
       if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
         return { rows: [], rowsAffected: 0 };
       }
@@ -2708,6 +2823,8 @@ describe("chat thread store", () => {
     };
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
+      const ledger = storeBootstrapResult(sql);
+      if (ledger) return ledger;
       if (/SELECT .* FROM chat_threads WHERE/i.test(sql)) {
         return { rows: [summaryRow], rowsAffected: 0 };
       }
@@ -2770,6 +2887,8 @@ describe("chat thread store", () => {
 
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
+      const ledger = storeBootstrapResult(sql);
+      if (ledger) return ledger;
       const args = typeof query === "string" ? [] : query.args;
       if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
         return { rows: [], rowsAffected: 0 };
@@ -2838,6 +2957,8 @@ describe("chat thread store", () => {
     let repairScans = 0;
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
+      const ledger = storeBootstrapResult(sql);
+      if (ledger) return ledger;
       const args = typeof query === "string" ? [] : query.args;
       if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
         return { rows: [], rowsAffected: 0 };
@@ -2913,6 +3034,8 @@ describe("chat thread store", () => {
     const rows = new Map<string, ChatThreadRow>();
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
+      const ledger = storeBootstrapResult(sql);
+      if (ledger) return ledger;
       const args = typeof query === "string" ? [] : query.args;
       if (
         /CREATE TABLE/i.test(sql) ||
@@ -3288,6 +3411,8 @@ describe("chat thread store", () => {
     ]);
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
+      const ledger = storeBootstrapResult(sql);
+      if (ledger) return ledger;
       const args = typeof query === "string" ? [] : query.args;
       if (
         /CREATE TABLE/i.test(sql) ||
@@ -3395,6 +3520,8 @@ describe("chat thread store", () => {
     ]);
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
+      const ledger = storeBootstrapResult(sql);
+      if (ledger) return ledger;
       const args = typeof query === "string" ? [] : query.args;
       if (
         /CREATE TABLE/i.test(sql) ||
@@ -3489,6 +3616,8 @@ describe("chat thread store", () => {
     let insertedThreadData: string | undefined;
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
+      const ledger = storeBootstrapResult(sql);
+      if (ledger) return ledger;
       const args = typeof query === "string" ? [] : query.args;
       if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
         return { rows: [], rowsAffected: 0 };
@@ -3601,6 +3730,8 @@ describe("adoptThreadScopeIfUnscoped", () => {
     emitChatThreadChangeMock.mockReset();
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
+      const ledger = storeBootstrapResult(sql);
+      if (ledger) return ledger;
       const args = typeof query === "string" ? [] : query.args;
       if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
         return { rows: [], rowsAffected: 0 };

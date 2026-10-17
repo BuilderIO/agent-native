@@ -1,6 +1,8 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "block.renderUnavailable": "Ce bloc est temporairement indisponible.",
+  "block.loading": "Chargement du bloc.",
   "composer.contextUrlLabel": "Adresse URL",
   "composer.contextInvalidUrl": "Saisissez une URL HTTP ou HTTPS valide.",
   "composer.contextAttach": "Joindre",
@@ -161,9 +163,9 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderActivationChecking":
     "Vérification de la disponibilité de la création de compte.",
   "onboarding.builderActivationUnavailable":
-    "La création de compte n’est pas activée pour cette application. Vous pouvez connecter un compte existant.",
+    "Créez un compte ou connectez-vous pour vous connecter à Builder.io.",
   "onboarding.builderActivationUnavailableInMode":
-    "L’activation d’un nouveau compte n’est pas disponible dans ce mode. Vous pouvez toujours connecter un compte existant.",
+    "Créez un compte ou connectez-vous pour vous connecter à Builder.io.",
   "onboarding.builderActivationCheckFailed":
     "Impossible de vérifier si cette application peut créer de nouveaux comptes.",
 
@@ -178,6 +180,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "Politique de confidentialité",
   "onboarding.builderConsentAnd": "et",
   "onboarding.builderExistingAccount": "J’ai un compte Builder.io",
+  "onboarding.builderConnect": "Connecter Builder.io",
   "onboarding.builderActivating": "Activation des crédits gratuits Builder.io",
   "onboarding.builderConnecting":
     "Configuration des crédits gratuits de Builder.io",
@@ -217,6 +220,11 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.keySummary": "Représentations vectorielles",
   "onboarding.capability.embeddings.why":
     "Les représentations vectorielles améliorent la recherche sémantique. La recherche par mots-clés fonctionne toujours sans elles.",
+  "onboarding.capability.webSearch.label": "Recherche sur le Web",
+  "onboarding.capability.webSearch.keySummary":
+    "Recherche Web gérée par Builder",
+  "onboarding.capability.webSearch.why":
+    "Recherche dans les sources publiques actuelles du Web. La recherche gérée par Builder utilise les crédits IA inclus ; aucune clé de recherche distincte n'est nécessaire.",
   "onboarding.capability.systemOne.why":
     "Jev est un modèle de décision facultatif qui aide à choisir les outils et compétences pertinents avant la première requête du modèle de l’agent.",
   "onboarding.capability.assetsImageGeneration.label": "Génération d’images",
@@ -844,6 +852,12 @@ const messages: ToolkitAgentChatTranslation = {
     "Cette exécution ne peut plus être poursuivie. Envoyez un message pour continuer.",
   "errorMessages.invalidAttachmentNamed":
     "Le fournisseur du modèle a refusé {{name}} car son format ou sa taille n'est pas pris en charge. Pour les images, exportez un fichier PNG, JPEG, GIF ou WebP plus petit ; pour les documents, utilisez un format pris en charge ou collez le texte pertinent, puis réessayez.",
+  "recovery.resendVerificationEmail": "Renvoyer l’e-mail de vérification",
+  "recovery.sendingVerificationEmail": "Envoi...",
+  "recovery.verificationEmailRequested":
+    "E-mail de vérification demandé. Vérifiez votre boîte de réception et vos courriers indésirables.",
+  "recovery.verificationEmailFailed":
+    "Impossible de demander l’e-mail de vérification. Réessayez.",
   "recovery.retryWithoutAttachment": "Réessayer sans pièce jointe",
   "recovery.retryAttachmentUnavailable":
     "Cette demande incluait un fichier qui ne peut pas être réessayé. Joignez-le de nouveau dans le champ de message, puis réessayez.",
@@ -889,6 +903,8 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.emptyMore":
     "et {{count}} de plus sous Nouveau, ou ajoutez n'importe quelle clé personnalisée",
   "secrets.emptyTitle": "Aucune clé pour le moment.",
+  "secrets.figmaTokenMustBeToken":
+    "Collez un jeton d’accès Figma, pas une URL de fichier Figma.",
   "secrets.fromEnvironment": "Fourni par l'environnement de déploiement.",
   "secrets.managedInVault":
     "Géré dans le Vault de l'espace de travail. Chaque application de cet espace de travail utilise cette valeur.",
@@ -1348,6 +1364,10 @@ const messages: ToolkitAgentChatTranslation = {
     "Le fournisseur du modèle a rejeté cette demande car elle était mal formée, elle n’a donc pas été réessayée. Réessayez ou démarrez une nouvelle conversation si le problème persiste.",
   "errorMessages.requestTooLarge":
     "Cette requête a dépassé la limite de taille du serveur (HTTP 413). Démarrez un nouveau chat ou supprimez les pièces jointes ou références volumineuses, puis réessayez.",
+  "errorMessages.capabilityUnavailable":
+    "Impossible d’envoyer votre message pour le moment. Réessayez dans quelques instants.",
+  "errorMessages.capabilityUnsupported":
+    "Cette application ne peut pas encore réessayer votre message enregistré en toute sécurité. Mettez l’application à jour, puis réessayez.",
   "errorMessages.runInterrupted": "L’agent s’est arrêté avant de terminer.",
   "errorMessages.runFailed": "L’exécution de l’agent a échoué.",
   "errorMessages.runUnverified":
@@ -2807,6 +2827,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.search.appDefaultModel": "Modèle par défaut de l'app",
   "settingsShell.search.backgroundAgents": "Agents en arrière-plan",
   "settingsShell.search.browserAutomation": "Automatisation du navigateur",
+  "settingsShell.search.webSearch": "Recherche sur le Web",
   "settingsShell.search.connectedAgents": "Agents connectés",
   "settingsShell.search.database": "Base de données",
   "settingsShell.search.defaultModel": "Modèle par défaut",
@@ -2948,6 +2969,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.whyBackground": "Modifie le code depuis la production.",
   "settingsInfra.whyBrowser":
     "Permet à l'agent d'utiliser un navigateur en production.",
+  "settingsInfra.whyWebSearch":
+    "Trouve des informations publiques récentes et la documentation officielle.",
   "settingsInfra.provider": "Fournisseur",
   "settingsInfra.keyOrg": "Utilise la clé {{provider}} de l'organisation.",
   "settingsInfra.manageKey": "Gérer la clé",
@@ -3301,6 +3324,20 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsSubAgents.close": "Fermer",
   "observability.insights.rawTrace":
     "Trace brute (tous les spans, avec entrées et sorties)",
+  "reportProblem.menuItem": "Signaler un problème",
+  "reportProblem.title_one":
+    "Joindre ce que l'app a fait au cours de la dernière {{count}} seconde ?",
+  "reportProblem.title_many":
+    "Joindre ce que l'app a fait au cours des {{count}} dernières secondes ?",
+  "reportProblem.title_other":
+    "Joindre ce que l'app a fait au cours des {{count}} dernières secondes ?",
+  "reportProblem.noEvents": "Rien n'a encore été enregistré.",
+  "reportProblem.send": "Envoyer à l'agent",
+  "reportProblem.copy": "Copier le rapport de problème",
+  "reportProblem.attaching": "Ajout en cours…",
+  "reportProblem.notAttached": "Le rapport n'a pas été joint.",
+  "reportProblem.agentMessage":
+    "Un problème est survenu dans l'app. Utilisez le rapport de problème joint pour expliquer ce qui s'est passé.",
 };
 
 export default messages;

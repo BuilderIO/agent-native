@@ -1,6 +1,8 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "block.renderUnavailable": "Este bloque no está disponible temporalmente.",
+  "block.loading": "Cargando bloque.",
   "composer.contextUrlLabel": "Dirección URL",
   "composer.contextInvalidUrl": "Introduce una URL HTTP o HTTPS válida.",
   "composer.contextAttach": "Adjuntar",
@@ -160,9 +162,9 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderActivationChecking":
     "Comprobando si se pueden crear cuentas nuevas.",
   "onboarding.builderActivationUnavailable":
-    "Esta aplicación no permite crear cuentas nuevas. Puedes conectar una cuenta existente.",
+    "Crea una cuenta o inicia sesión para conectar Builder.io.",
   "onboarding.builderActivationUnavailableInMode":
-    "La activación de una cuenta nueva no está disponible en este modo. Aún puedes conectar una cuenta existente.",
+    "Crea una cuenta o inicia sesión para conectar Builder.io.",
   "onboarding.builderActivationCheckFailed":
     "No se pudo comprobar si esta aplicación permite crear cuentas nuevas.",
 
@@ -177,6 +179,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "Política de privacidad",
   "onboarding.builderConsentAnd": "y",
   "onboarding.builderExistingAccount": "Tengo una cuenta de Builder.io",
+  "onboarding.builderConnect": "Conectar Builder.io",
   "onboarding.builderActivating":
     "Activando los créditos gratuitos de Builder.io",
   "onboarding.builderConnecting":
@@ -216,6 +219,11 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.keySummary": "Vectores semánticos",
   "onboarding.capability.embeddings.why":
     "Los vectores semánticos mejoran la búsqueda semántica. La búsqueda por palabras clave sigue funcionando sin ellos.",
+  "onboarding.capability.webSearch.label": "Búsqueda web",
+  "onboarding.capability.webSearch.keySummary":
+    "Búsqueda web gestionada por Builder",
+  "onboarding.capability.webSearch.why":
+    "Busca en fuentes públicas actuales de la web. La búsqueda gestionada por Builder usa los créditos de IA incluidos, así que no hace falta una clave de búsqueda aparte.",
   "onboarding.capability.systemOne.why":
     "Jev es un modelo de decisión opcional que ayuda a elegir herramientas y habilidades relevantes antes de la primera solicitud al modelo del agente.",
   "onboarding.capability.assetsImageGeneration.label": "Generación de imágenes",
@@ -837,6 +845,12 @@ const messages: ToolkitAgentChatTranslation = {
     "Esta ejecución ya no se puede continuar. Envía un mensaje para seguir.",
   "errorMessages.invalidAttachmentNamed":
     "El proveedor del modelo rechazó {{name}} porque su formato o tamaño no es compatible. Para imágenes, exporta un PNG, JPEG, GIF o WebP más pequeño; para documentos, usa un formato compatible o pega el texto relevante y vuelve a intentarlo.",
+  "recovery.resendVerificationEmail": "Reenviar correo de verificación",
+  "recovery.sendingVerificationEmail": "Enviando...",
+  "recovery.verificationEmailRequested":
+    "Se ha solicitado el correo de verificación. Revisa la bandeja de entrada y la carpeta de spam.",
+  "recovery.verificationEmailFailed":
+    "No se pudo solicitar el correo de verificación. Inténtalo de nuevo.",
   "recovery.retryWithoutAttachment": "Reintentar sin el archivo adjunto",
   "recovery.retryAttachmentUnavailable":
     "Esta solicitud incluía un archivo que no se puede volver a enviar. Vuelve a adjuntarlo en el cuadro de mensaje y vuelve a intentarlo.",
@@ -882,6 +896,8 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.emptyMore":
     "y {{count}} más en Nuevo, o agrega cualquier clave personalizada",
   "secrets.emptyTitle": "Aún no hay claves.",
+  "secrets.figmaTokenMustBeToken":
+    "Pega un token de acceso de Figma, no una URL de archivo de Figma.",
   "secrets.fromEnvironment": "Proporcionado por el entorno de implementación.",
   "secrets.managedInVault":
     "Se administra en el Vault del espacio de trabajo. Todas las apps de este espacio de trabajo usan este valor.",
@@ -1337,6 +1353,10 @@ const messages: ToolkitAgentChatTranslation = {
     "El proveedor del modelo rechazó esta solicitud por estar mal formada, así que no se reintentó. Vuelve a intentarlo o inicia un chat nuevo si sigue ocurriendo.",
   "errorMessages.requestTooLarge":
     "Esta solicitud superó el límite de tamaño del servidor (HTTP 413). Inicia un chat nuevo o quita archivos adjuntos o referencias grandes y vuelve a intentarlo.",
+  "errorMessages.capabilityUnavailable":
+    "No pudimos enviar tu mensaje en este momento. Inténtalo de nuevo en breve.",
+  "errorMessages.capabilityUnsupported":
+    "Esta aplicación aún no puede volver a intentar tu mensaje guardado de forma segura. Actualiza la aplicación y vuelve a intentarlo.",
   "errorMessages.runInterrupted": "El agente se detuvo antes de terminar.",
   "errorMessages.runFailed": "La ejecución del agente falló.",
   "errorMessages.runUnverified":
@@ -2780,6 +2800,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.search.appDefaultModel": "Modelo predeterminado de la app",
   "settingsShell.search.backgroundAgents": "Agentes en segundo plano",
   "settingsShell.search.browserAutomation": "Automatización del navegador",
+  "settingsShell.search.webSearch": "Búsqueda web",
   "settingsShell.search.connectedAgents": "Agentes conectados",
   "settingsShell.search.database": "Base de datos",
   "settingsShell.search.defaultModel": "Modelo predeterminado",
@@ -2917,6 +2938,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.whyBackground": "Hace cambios en el código desde producción.",
   "settingsInfra.whyBrowser":
     "Permite que el agente use un navegador en producción.",
+  "settingsInfra.whyWebSearch":
+    "Encuentra información pública actual y documentación oficial.",
   "settingsInfra.provider": "Proveedor",
   "settingsInfra.keyOrg": "Usa la clave de {{provider}} de la organización.",
   "settingsInfra.manageKey": "Gestionar clave",
@@ -3268,6 +3291,20 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsSubAgents.close": "Cerrar",
   "observability.insights.rawTrace":
     "Traza completa (todos los spans, con entradas y salidas)",
+  "reportProblem.menuItem": "Informar de un problema",
+  "reportProblem.title_one":
+    "¿Adjuntar lo que hizo la app en el último {{count}} segundo?",
+  "reportProblem.title_many":
+    "¿Adjuntar lo que hizo la app en los últimos {{count}} segundos?",
+  "reportProblem.title_other":
+    "¿Adjuntar lo que hizo la app en los últimos {{count}} segundos?",
+  "reportProblem.noEvents": "Todavía no hay nada registrado.",
+  "reportProblem.send": "Enviar al agente",
+  "reportProblem.copy": "Copiar informe del problema",
+  "reportProblem.attaching": "Adjuntando…",
+  "reportProblem.notAttached": "El informe no se adjuntó.",
+  "reportProblem.agentMessage":
+    "Algo salió mal en la app. Usa el informe del problema adjunto para explicar qué pasó.",
 };
 
 export default messages;

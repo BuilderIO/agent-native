@@ -185,6 +185,8 @@ export interface ElementInfo {
     c: number;
     d: number;
   };
+  relativeContainingBlockDirection?: "ltr" | "rtl";
+  absoluteSiblingVisualOrigin?: { x: number; y: number };
   textContent?: string;
   textContentTruncated?: boolean;
   htmlContent?: string;

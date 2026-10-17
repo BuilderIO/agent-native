@@ -1,4 +1,6 @@
 const messages = {
+  "block.renderUnavailable": "This block is temporarily unavailable.",
+  "block.loading": "Loading block.",
   "composer.contextUrlLabel": "URL",
   "composer.contextInvalidUrl": "Enter a valid HTTP or HTTPS URL.",
   "composer.contextAttach": "Attach",
@@ -154,9 +156,9 @@ const messages = {
   "onboarding.builderActivationChecking":
     "Checking whether new account activation is available.",
   "onboarding.builderActivationUnavailable":
-    "New account creation isn't enabled for this app. You can still connect an existing account.",
+    "Create a Builder.io account or sign in to connect.",
   "onboarding.builderActivationUnavailableInMode":
-    "New account activation isn't available in this mode. You can still connect an existing account.",
+    "Create a Builder.io account or sign in to connect.",
   "onboarding.builderActivationCheckFailed":
     "Couldn't check whether this app can create new accounts.",
 
@@ -165,6 +167,7 @@ const messages = {
   "onboarding.builderOrgActivationDescription":
     "We'll create your Builder.io account in one click so your organization can use it.",
   "onboarding.builderCreateAndActivate": "Create and activate",
+  "onboarding.builderConnect": "Connect Builder.io",
   "onboarding.builderConsentPrefix":
     "By creating a Builder.io account, you agree to our",
   "onboarding.builderTerms": "Terms of Service",
@@ -205,6 +208,10 @@ const messages = {
   "onboarding.capability.embeddings.keySummary": "Embeddings",
   "onboarding.capability.embeddings.why":
     "Embeddings improve semantic search. Keyword search still works without them.",
+  "onboarding.capability.webSearch.label": "Web search",
+  "onboarding.capability.webSearch.keySummary": "Builder-managed web search",
+  "onboarding.capability.webSearch.why":
+    "Search current public web sources. Builder-managed search uses included Builder AI credits, so no separate search API key is needed.",
   "onboarding.capability.systemOne.why":
     "Jev is an optional decision model that helps choose relevant tools and skills before the agent's first model request.",
   "onboarding.capability.assetsImageGeneration.label": "Image generation",
@@ -671,6 +678,10 @@ const messages = {
     "The model provider rejected this request as malformed, so it was not retried. Retry, or start a new chat if it keeps happening.",
   "errorMessages.requestTooLarge":
     "This request exceeded the server's size limit (HTTP 413). Start a new chat or remove large attachments or references, then retry.",
+  "errorMessages.capabilityUnavailable":
+    "We couldn't send your message right now. Please try again shortly.",
+  "errorMessages.capabilityUnsupported":
+    "This app can't safely retry your saved prompt yet. Update the app, then try again.",
   "errorMessages.runInterrupted": "The agent stopped before finishing.",
   "errorMessages.runFailed": "The agent run failed.",
   "errorMessages.runUnverified":
@@ -1177,6 +1188,12 @@ const messages = {
     "This run can't be continued anymore. Send a message to keep going.",
   "errorMessages.invalidAttachmentNamed":
     "The model provider rejected {{name}} because its format or size is unsupported. For images, export a smaller PNG, JPEG, GIF, or WebP; for documents, use a supported format or paste the relevant text, then retry.",
+  "recovery.resendVerificationEmail": "Resend verification email",
+  "recovery.sendingVerificationEmail": "Sending...",
+  "recovery.verificationEmailRequested":
+    "Verification email requested. Check your inbox and spam folder.",
+  "recovery.verificationEmailFailed":
+    "Couldn't request the verification email. Please try again.",
   "recovery.retryWithoutAttachment": "Retry without attachment",
   "recovery.retryAttachmentUnavailable":
     "This request included a file that can’t be retried. Attach it again in the message box, then try again.",
@@ -1220,6 +1237,8 @@ const messages = {
   "secrets.emptyHint": "Add a key to use your own accounts.",
   "secrets.emptyMore": "and {{count}} more under New, or add any custom key",
   "secrets.emptyTitle": "No keys yet.",
+  "secrets.figmaTokenMustBeToken":
+    "Paste a Figma access token, not a Figma file URL.",
   "secrets.fromEnvironment": "Provided by the deployment environment.",
   "secrets.managedInVault":
     "Managed in the workspace Vault. Every app in this workspace uses this value.",
@@ -2636,6 +2655,7 @@ const messages = {
   "settingsShell.search.appDefaultModel": "App default model",
   "settingsShell.search.backgroundAgents": "Background agents",
   "settingsShell.search.browserAutomation": "Browser automation",
+  "settingsShell.search.webSearch": "Web search",
   "settingsShell.search.connectedAgents": "Connected agents",
   "settingsShell.search.database": "Database",
   "settingsShell.search.defaultModel": "Default model",
@@ -2769,6 +2789,8 @@ const messages = {
     "Keeps generated slides and designs on brand.",
   "settingsInfra.whyBackground": "Makes code changes from production.",
   "settingsInfra.whyBrowser": "Lets the agent use a browser in production.",
+  "settingsInfra.whyWebSearch":
+    "Finds current public information and official documentation.",
   "settingsInfra.provider": "Provider",
   "settingsInfra.keyOrg": "Uses the organization {{provider}} key.",
   "settingsInfra.manageKey": "Manage key",
@@ -3098,6 +3120,18 @@ const messages = {
   "settingsSubAgents.close": "Close",
   "observability.insights.rawTrace":
     "Raw trace (every span, with inputs and outputs)",
+  "reportProblem.menuItem": "Report a problem",
+  "reportProblem.title_one":
+    "Attach what the app did in the last {{count}} second?",
+  "reportProblem.title_other":
+    "Attach what the app did in the last {{count}} seconds?",
+  "reportProblem.noEvents": "Nothing recorded yet.",
+  "reportProblem.send": "Send to agent",
+  "reportProblem.copy": "Copy problem report",
+  "reportProblem.attaching": "Attaching…",
+  "reportProblem.notAttached": "The report was not attached.",
+  "reportProblem.agentMessage":
+    "Something went wrong in the app. Use the attached problem report to explain what happened.",
 } as const;
 
 export default messages;

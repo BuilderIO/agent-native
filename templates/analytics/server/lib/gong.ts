@@ -37,6 +37,7 @@ interface GongProviderResponse {
     headers?: Record<string, string>;
     json?: unknown;
     text?: string;
+    truncated?: boolean;
   };
 }
 
@@ -110,6 +111,11 @@ async function executeGongRequest<T>(options: {
   })) as GongProviderResponse;
 
   if (!result.response.ok) throw gongApiError(result.response);
+  if (result.response.truncated) {
+    throw new Error(
+      "Gong response was cut at the response size limit, so it is incomplete. Narrow the date window or the call set, or ask Gong's native search instead.",
+    );
+  }
   return result.response.json as T;
 }
 

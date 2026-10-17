@@ -1,6 +1,11 @@
 import type { PlanBlock } from "@shared/plan-content";
 import { useRef, type MutableRefObject } from "react";
 
+import {
+  hasPlanBlockStructureChange,
+  visitPlanBlocks,
+} from "../plan/plan-block-structure";
+
 type ChangeKind = "text" | "data" | "structural";
 
 interface Snapshot {
@@ -38,39 +43,22 @@ function clone(blocks: PlanBlock[]): PlanBlock[] {
   return JSON.parse(JSON.stringify(blocks)) as PlanBlock[];
 }
 
-function structuralSignature(blocks: PlanBlock[]): string {
-  const parts: string[] = [];
-  const walk = (list: PlanBlock[], depth: number) => {
-    for (const block of list) {
-      parts.push(`${depth}:${block.id}:${block.type}`);
-      if (block.type === "columns") {
-        for (const column of block.data.columns) walk(column.blocks, depth + 1);
-      } else if (block.type === "tabs") {
-        for (const tab of block.data.tabs) walk(tab.blocks, depth + 1);
-      }
-    }
-  };
-  walk(blocks, 0);
-  return parts.join("|");
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object";
+}
+
+function isContainerBlock(block: PlanBlock): boolean {
+  return block.type === "tabs" || block.type === "columns";
 }
 
 function findLeafBlock(blocks: PlanBlock[], id: string): PlanBlock | null {
-  for (const block of blocks) {
-    if (block.type === "columns") {
-      for (const column of block.data.columns) {
-        const found = findLeafBlock(column.blocks, id);
-        if (found) return found;
-      }
-    } else if (block.type === "tabs") {
-      for (const tab of block.data.tabs) {
-        const found = findLeafBlock(tab.blocks, id);
-        if (found) return found;
-      }
-    } else if (block.id === id) {
-      return block;
+  let found: PlanBlock | null = null;
+  visitPlanBlocks(blocks, (block) => {
+    if (found === null && block.id === id && !isContainerBlock(block)) {
+      found = block;
     }
-  }
-  return null;
+  });
+  return found;
 }
 
 function replaceLeafBlock(
@@ -79,14 +67,30 @@ function replaceLeafBlock(
   replacement: PlanBlock,
 ): boolean {
   for (let i = 0; i < blocks.length; i++) {
-    const block = blocks[i];
-    if (block.type === "columns") {
-      for (const column of block.data.columns) {
-        if (replaceLeafBlock(column.blocks, id, replacement)) return true;
-      }
-    } else if (block.type === "tabs") {
-      for (const tab of block.data.tabs) {
-        if (replaceLeafBlock(tab.blocks, id, replacement)) return true;
+    const value: unknown = blocks[i];
+    if (
+      !isRecord(value) ||
+      typeof value.id !== "string" ||
+      typeof value.type !== "string"
+    ) {
+      continue;
+    }
+
+    const block = value as PlanBlock;
+    if (block.type === "columns" || block.type === "tabs") {
+      const data = isRecord(block.data) ? block.data : null;
+      const key = block.type === "tabs" ? "tabs" : "columns";
+      const regions = data?.[key];
+      if (!Array.isArray(regions)) continue;
+      for (const region of regions) {
+        if (
+          !isRecord(region) ||
+          !Array.isArray(region.blocks) ||
+          !replaceLeafBlock(region.blocks as PlanBlock[], id, replacement)
+        ) {
+          continue;
+        }
+        return true;
       }
     } else if (block.id === id) {
       blocks[i] = replacement;
@@ -100,21 +104,13 @@ function leafDataById(
   blocks: PlanBlock[],
 ): Map<string, { type: string; data: string }> {
   const out = new Map<string, { type: string; data: string }>();
-  const walk = (list: PlanBlock[]) => {
-    for (const block of list) {
-      if (block.type === "columns") {
-        for (const column of block.data.columns) walk(column.blocks);
-      } else if (block.type === "tabs") {
-        for (const tab of block.data.tabs) walk(tab.blocks);
-      } else {
-        out.set(block.id, {
-          type: block.type,
-          data: JSON.stringify((block as { data?: unknown }).data ?? null),
-        });
-      }
-    }
-  };
-  walk(blocks);
+  visitPlanBlocks(blocks, (block) => {
+    if (isContainerBlock(block)) return;
+    out.set(block.id, {
+      type: block.type,
+      data: JSON.stringify((block as { data?: unknown }).data ?? null),
+    });
+  });
   return out;
 }
 
@@ -122,7 +118,7 @@ function classify(
   prev: PlanBlock[],
   next: PlanBlock[],
 ): { kind: ChangeKind; changedBlockId: string | null } {
-  if (structuralSignature(prev) !== structuralSignature(next)) {
+  if (hasPlanBlockStructureChange(prev, next)) {
     return { kind: "structural", changedBlockId: null };
   }
   const prevLeaves = leafDataById(prev);

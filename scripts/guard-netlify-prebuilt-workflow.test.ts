@@ -101,7 +101,7 @@ describe("Google callback deploy verification guard", () => {
   it("accepts a pinned beta source while main advances during the queue", () => {
     assert.match(
       reusableSource,
-      /const comparison = await github\.rest\.repos\.compareCommits\([\s\S]*?Beta source \$\{sourceSha\} is not an ancestor of main \$\{mainSha\}/,
+      /async function compareCommitsWithRetry\(base, head\)[\s\S]*?github\.rest\.repos\.compareCommits\([\s\S]*?base,[\s\S]*?head,[\s\S]*?status < 500[\s\S]*?status >= 600[\s\S]*?attempt === 3[\s\S]*?const comparison = await compareCommitsWithRetry\(sourceSha, mainSha\)[\s\S]*?Beta source \$\{sourceSha\} is not an ancestor of main \$\{mainSha\}/,
     );
     assert.doesNotMatch(
       reusableSource,
@@ -557,6 +557,25 @@ describe("Netlify API rate-limit guard", () => {
         ),
       ).join("\n"),
       /raw Netlify fetch calls/,
+    );
+  });
+
+  it("uses the docs retry backoff when Retry-After is absent or invalid", () => {
+    const docsProductionSource = readFileSync(
+      ".github/workflows/deploy-docs-production.yml",
+      "utf8",
+    );
+    assert.match(
+      docsProductionSource,
+      /retryAfterHeader === null \|\| !retryAfterHeader\.trim\(\)[\s\S]*?Number\.NaN/,
+    );
+    assert.match(
+      docsProductionSource,
+      /Number\.isFinite\(retryAfter\) && retryAfter >= 0[\s\S]*?: attempt \* 1_000/,
+    );
+    assert.doesNotMatch(
+      docsProductionSource,
+      /Number\(response\.headers\.get\(['"]retry-after['"]\)\)/,
     );
   });
 });

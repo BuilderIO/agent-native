@@ -9,13 +9,13 @@ const LOOPBACK_ONLY_DESIGN_SPECS = new Set([
   "e2e/home-system-selection.spec.ts",
 ]);
 const LONG_LANDING_PAGE_TEST_TITLES = [
-  "step 1: Screen tool draws the root Landing Page frame at 1440x1024 with the default top-level frame fill and clip",
-  "the secondary button is built and both hero buttons are grouped in HeroCTAGroup",
-  "final structure: mobile screen layer tree (names + order + nesting) matches the adapted design",
+  "Shift+A wraps four selected nav links into a horizontal auto-layout frame inside Navbar without moving them",
+  "Cmd+G groups two layers selected in the Layers panel and one Cmd+Z restores the ungrouped document",
+  "Cmd+D on a screen creates an independent sibling screen: deleting a layer in the copy leaves the original untouched",
 ] as const;
 const LONG_MUSIC_APP_TEST_TITLES = [
-  "create a responsive music-app desktop shell under a Screen root",
-  "create a responsive music-app tablet Screen from the desktop shell",
+  "a drawn empty Frame refreshes its inspector after auto layout",
+  "sizing mode actions survive the selected layer route update",
 ] as const;
 
 type IsFile = (specPath: string) => boolean;

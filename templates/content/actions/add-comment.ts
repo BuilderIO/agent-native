@@ -16,36 +16,18 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  assertMentionsInText,
+  submittedCommentMentions,
+} from "../server/lib/comment-mention-input.js";
 import { notifyDocumentComment } from "../server/lib/comment-notifications.js";
+import { commentSubmissionSource } from "../server/lib/comment-submission-source.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
-
-type Mention = { email: string; name: string };
-
-function parseMentions(value: unknown): Mention[] {
-  let raw: unknown = value;
-  if (typeof raw === "string") {
-    const trimmed = raw.trim();
-    if (!trimmed) return [];
-    try {
-      raw = JSON.parse(trimmed);
-    } catch {
-      return [];
-    }
-  }
-  if (!Array.isArray(raw)) return [];
-  const mentions: Mention[] = [];
-  for (const entry of raw) {
-    if (!entry || typeof entry !== "object") continue;
-    const email = (entry as Record<string, unknown>).email;
-    const name = (entry as Record<string, unknown>).name;
-    if (typeof email !== "string" || !email) continue;
-    mentions.push({
-      email,
-      name: typeof name === "string" ? name : "",
-    });
-  }
-  return mentions;
-}
+import {
+  personMentions,
+  readStoredCommentMentions,
+  serializeStoredCommentMentions,
+} from "../shared/comment-mentions.js";
 
 function displayNameFromEmail(email: string): string {
   const localPart = email.split("@")[0] ?? "";
@@ -99,7 +81,7 @@ const commentSchema = z.object({
     .union([z.string(), z.array(z.unknown())])
     .optional()
     .describe(
-      'JSON-encoded array of {email, name} mentions, e.g. [{"email":"a@x.com","name":"A"}]',
+      'JSON-encoded mentions, one per @name in text order (one entry covers a person named again). People: {"email":"a@x.com","name":"A"}; agents: {"kind":"agent","model":"<model id>","name":"<label>"}. A malformed list, or an entry no @name in the text reaches, is rejected with a 400.',
     ),
 });
 
@@ -114,6 +96,16 @@ export function commentIdForIdempotency(
     .slice(0, 32);
   return `${digest.slice(0, 8)}-${digest.slice(8, 12)}-4${digest.slice(13, 16)}-8${digest.slice(17, 20)}-${digest.slice(20)}`;
 }
+
+/** A retried submission may arrive from another run; these may differ. */
+const RUN_PROVENANCE_KEYS = new Set([
+  "authorName",
+  "submissionSource",
+  "submissionRunId",
+  "submissionThreadId",
+  "authorModel",
+  "authorEffort",
+]);
 
 type CommentTransaction = Parameters<
   Parameters<ReturnType<typeof getDb>["transaction"]>[0]
@@ -152,8 +144,12 @@ export async function addCommentWithGuard(
     ctx?.caller === "a2a"
       ? "agent"
       : "human";
-  const runModel = getRequestRunContext()?.model?.trim();
+  const runContext = getRequestRunContext();
+  const runModel = runContext?.model?.trim();
   const authorModel = actorKind === "agent" && runModel ? runModel : null;
+  const authorEffort = authorModel
+    ? (runContext?.reasoningEffort ?? null)
+    : null;
   const requestName =
     actorKind === "agent" ? undefined : getRequestUserName()?.trim();
   let name: string;
@@ -164,15 +160,15 @@ export async function addCommentWithGuard(
     name = derived || "AI Agent";
   }
 
-  const mentions = parseMentions(args.mentions);
-  const mentionsJson = mentions.length > 0 ? JSON.stringify(mentions) : null;
-  const submissionSource =
-    ctx?.caller === "mcp" || ctx?.caller === "webmcp"
-      ? "mcp"
-      : ctx?.caller === "tool"
-        ? "agent"
-        : (ctx?.caller ?? null);
+  const mentions = submittedCommentMentions(args.mentions ?? []);
+  assertMentionsInText(content, mentions);
+  const mentionsJson = serializeStoredCommentMentions(mentions);
+  const submissionSource = commentSubmissionSource(ctx?.caller);
   const submissionRunId = ctx?.runId ?? null;
+  const submissionThreadId =
+    actorKind === "agent"
+      ? (ctx?.threadId ?? runContext?.threadId ?? null)
+      : null;
 
   const values = {
     id,
@@ -190,8 +186,10 @@ export async function addCommentWithGuard(
     authorName: name,
     submissionSource,
     submissionRunId,
+    submissionThreadId,
     actorKind,
     authorModel,
+    authorEffort,
   };
 
   const inserted = await db.transaction(async (tx) => {
@@ -209,13 +207,17 @@ export async function addCommentWithGuard(
         .limit(1);
       if (!existing) return false;
       if (
-        Object.entries(values).some(
-          ([key, value]) =>
-            key !== "authorName" &&
-            key !== "submissionSource" &&
-            key !== "submissionRunId" &&
-            existing[key as keyof typeof existing] !== value,
-        )
+        Object.entries(values).some(([key, value]) => {
+          if (RUN_PROVENANCE_KEYS.has(key)) return false;
+          if (key === "mentionsJson") {
+            return (
+              serializeStoredCommentMentions(
+                readStoredCommentMentions(existing.mentionsJson),
+              ) !== value
+            );
+          }
+          return existing[key as keyof typeof existing] !== value;
+        })
       ) {
         fail("Comment submission ID conflicts with another submission", {
           statusCode: 409,
@@ -305,7 +307,7 @@ export async function addCommentWithGuard(
     authorName: name,
     submissionSource,
     content,
-    mentions,
+    mentions: personMentions(mentions),
     isReply: Boolean(parentId ?? args.threadId),
   });
 

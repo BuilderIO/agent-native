@@ -187,6 +187,8 @@ export interface MultiScreenCanvasProps {
   interactMode?: boolean;
   interactScreenId?: string | null;
   focusedInteractViewport?: { width: number; height: number } | null;
+  /** The corner class of the focused Interact frame; a string, so the memoised canvas compares it by value. */
+  focusedInteractCornerClass?: string | null;
   readOnly?: boolean;
   editableScreenIds?: ReadonlySet<string>;
   activeScreenHasHoveredChild?: boolean;
@@ -357,7 +359,7 @@ export interface MultiScreenCanvasProps {
       row: number;
       rowEnd: number;
     };
-    targetAnchorRect?: CrossScreenHitTestAnchorRect;
+    targetAbsoluteOrigin?: CrossScreenHitTestOrigin;
     targetCanvasPoint?: Point;
     targetLocalPoint?: Point;
     targetOutsideBoardContentBounds?: boolean;
@@ -1023,6 +1025,11 @@ export interface CrossScreenHitTestAnchorRect {
   height: number;
 }
 
+export interface CrossScreenHitTestOrigin {
+  left: number;
+  top: number;
+}
+
 export interface CrossScreenHitTestResult {
   targetAnchorProvenance?: SourceNodeProvenance;
   anchorNodeId?: string;
@@ -1035,6 +1042,7 @@ export interface CrossScreenHitTestResult {
   dropMode?: CrossScreenDropMode;
   anchorRect?: CrossScreenHitTestAnchorRect;
   guideRect?: CrossScreenHitTestAnchorRect;
+  absoluteOrigin?: CrossScreenHitTestOrigin;
   gridPlacement?: {
     column: number;
     columnEnd: number;

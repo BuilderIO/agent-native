@@ -5,12 +5,14 @@ import type {
 } from "@agent-native/agentkit/protocol";
 import {
   AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE,
+  AGENT_TOOL_RESULT_HISTORY_MEDIA_TYPE,
   createAgentKitProtocolVersionOffer,
   parseAgentEvent,
   resumeEntryFromApproval,
 } from "@agent-native/agentkit/protocol";
 import { describe, expect, it, vi } from "vitest";
 
+import { approvalKeyForHistory } from "../../agent/approval-key.js";
 import {
   AUTO_CONTINUE_PROMPT,
   CONTINUE_OF_RUN_METADATA_KEY,
@@ -316,6 +318,7 @@ describe("createAgentKitProtocolAdapter", () => {
                 id: "call-get-document",
                 name: "get_document",
                 input: { documentId: "doc-1" },
+                approvalKey: "get_document:approved",
               },
             },
             {
@@ -325,6 +328,7 @@ describe("createAgentKitProtocolAdapter", () => {
                 id: "call-get-document",
                 name: "get_document",
                 resultText: "Document title: Project Brief",
+                approvalPause: true,
               },
             },
             {
@@ -387,12 +391,18 @@ describe("createAgentKitProtocolAdapter", () => {
               toolCallId: "call-get-document",
               toolName: "get_document",
               input: { documentId: "doc-1" },
+              approval: {
+                approvalKey: "get_document:approved",
+                askId: "agent-tool-approval-doc-1",
+              },
             },
             {
               type: "tool-result",
               toolCallId: "call-get-document",
               toolName: "get_document",
               resultText: "Document title: Project Brief",
+              approvalPause: true,
+              approvalAskId: "agent-tool-approval-doc-1",
             },
             {
               type: "tool-call",
@@ -1077,6 +1087,549 @@ describe("createAgentKitProtocolAdapter", () => {
     expect(resumed.at(-1)?.type).toBe("run.completed");
   });
 
+  it("settles an excluded decline after the backing run has expired", async () => {
+    async function* noEvents(): AsyncIterable<AgentChatRuntimeEvent> {}
+    const transport = createAgentKitProtocolAdapter(
+      createRuntime(noEvents, {
+        capabilities: {
+          messages: { streaming: true },
+          resumableRuns: true,
+          rich: { connectionRequests: true },
+        },
+        async readRunState() {
+          return {
+            status: "missing",
+            pendingConnectionRequestId: null,
+          };
+        },
+        async subscribe() {
+          return noEvents();
+        },
+      }),
+    );
+
+    await expect(
+      transport.resolveConnectionRequest?.({
+        threadId: "thread-1",
+        runId: "expired-run",
+        requestId: "expired-request",
+        response: { status: "declined" },
+      }),
+    ).resolves.toBeUndefined();
+    await transport.dispose();
+  });
+
+  it("does not accept a decline when a non-resumable run cannot be verified", async () => {
+    async function* noEvents(): AsyncIterable<AgentChatRuntimeEvent> {}
+    const transport = createAgentKitProtocolAdapter(
+      createRuntime(noEvents, {
+        capabilities: {
+          messages: { streaming: true },
+          rich: { connectionRequests: true },
+        },
+      }),
+    );
+
+    await expect(
+      transport.resolveConnectionRequest?.({
+        threadId: "thread-1",
+        runId: "unknown-run",
+        requestId: "unknown-request",
+        response: { status: "declined" },
+      }),
+    ).rejects.toThrow("Unknown AgentKit run: unknown-run");
+    await transport.dispose();
+  });
+
+  it("does not treat an unrecorded live successor request as a stale decline", async () => {
+    async function* noEvents(): AsyncIterable<AgentChatRuntimeEvent> {}
+    let markSubscriptionStarted!: () => void;
+    const subscriptionStarted = new Promise<void>((resolve) => {
+      markSubscriptionStarted = resolve;
+    });
+    let releaseSubscription!: () => void;
+    const subscriptionEnded = new Promise<void>((resolve) => {
+      releaseSubscription = resolve;
+    });
+    const subscribe = vi.fn(
+      async ({ abortSignal }: { abortSignal?: AbortSignal }) => {
+        markSubscriptionStarted();
+        return (async function* (): AsyncIterable<AgentChatRuntimeEvent> {
+          await new Promise<void>((resolve) => {
+            if (abortSignal?.aborted) {
+              resolve();
+              return;
+            }
+            abortSignal?.addEventListener("abort", resolve, { once: true });
+          });
+          releaseSubscription();
+        })();
+      },
+    );
+    const transport = createAgentKitProtocolAdapter(
+      createRuntime(noEvents, {
+        capabilities: {
+          messages: { streaming: true },
+          resumableRuns: true,
+          rich: { connectionRequests: true },
+        },
+        async createSession() {
+          return {
+            id: "thread-1",
+            runtimeId: "runtime-test",
+            startTurn: async () => ({
+              id: "turn-1",
+              runId: "successor-run",
+              sessionId: "thread-1",
+              events: noEvents(),
+            }),
+          };
+        },
+        async readRunState() {
+          return {
+            status: "running",
+            runId: "successor-run",
+            turnId: "turn-1",
+            terminalReason: null,
+            pendingConnectionRequestId: null,
+          };
+        },
+        subscribe,
+      }),
+    );
+
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const decline = transport.resolveConnectionRequest!({
+        threadId: "thread-1",
+        runId: "previous-run",
+        requestId: "previous-request",
+        response: { status: "declined" },
+      });
+      await subscriptionStarted;
+      await expect(
+        Promise.race([
+          decline,
+          new Promise((resolve) => {
+            timeout = setTimeout(() => resolve("still waiting"), 50);
+          }),
+        ]),
+      ).rejects.toThrow(
+        "Could not verify whether the restored connection request is still pending.",
+      );
+      expect(subscribe).toHaveBeenCalledWith(
+        expect.objectContaining({ runId: "successor-run" }),
+      );
+    } finally {
+      if (timeout) clearTimeout(timeout);
+      await transport.dispose();
+      await subscriptionEnded;
+    }
+  });
+
+  it("retries a restored decline after its first replay wait times out", async () => {
+    vi.useFakeTimers();
+    async function* noEvents(): AsyncIterable<AgentChatRuntimeEvent> {}
+    let markSubscriptionStarted!: () => void;
+    const subscriptionStarted = new Promise<void>((resolve) => {
+      markSubscriptionStarted = resolve;
+    });
+    let releaseRequestReplay!: () => void;
+    const requestReplay = new Promise<void>((resolve) => {
+      releaseRequestReplay = resolve;
+    });
+    let releaseSubscription!: () => void;
+    const subscriptionEnded = new Promise<void>((resolve) => {
+      releaseSubscription = resolve;
+    });
+    const subscribe = vi.fn(async () => {
+      markSubscriptionStarted();
+      return (async function* (): AsyncIterable<AgentChatRuntimeEvent> {
+        try {
+          await requestReplay;
+          yield {
+            type: "connection-request",
+            requestId: "restored-request",
+            provider: "gong",
+            reason: "connect",
+          };
+        } finally {
+          releaseSubscription();
+        }
+      })();
+    });
+    const continueTurn = vi.fn(async () => ({
+      id: "turn-2",
+      runId: "run-2",
+      sessionId: "thread-1",
+      events: noEvents(),
+    }));
+    const transport = createAgentKitProtocolAdapter(
+      createRuntime(noEvents, {
+        capabilities: {
+          messages: { streaming: true },
+          resumableRuns: true,
+          rich: { connectionRequests: true },
+        },
+        async createSession() {
+          return {
+            id: "thread-1",
+            runtimeId: "runtime-test",
+            startTurn: async () => ({
+              id: "turn-1",
+              runId: "restored-run",
+              sessionId: "thread-1",
+              events: noEvents(),
+            }),
+            continueTurn,
+          };
+        },
+        async readRunState() {
+          return {
+            status: "running",
+            runId: "restored-run",
+            turnId: "turn-1",
+            terminalReason: null,
+            pendingConnectionRequestId: "restored-request",
+          };
+        },
+        subscribe,
+      }),
+    );
+
+    try {
+      const decline = transport.resolveConnectionRequest!({
+        threadId: "thread-1",
+        runId: "restored-run",
+        requestId: "restored-request",
+        response: { status: "declined" },
+      });
+      const declineAssertion = expect(decline).rejects.toMatchObject({
+        code: "connection_request_unverified",
+        retryable: true,
+        message:
+          "Could not verify whether the restored connection request is still pending.",
+      });
+      await subscriptionStarted;
+      await vi.advanceTimersByTimeAsync(5_000);
+      await declineAssertion;
+      expect(continueTurn).not.toHaveBeenCalled();
+      expect(subscribe).toHaveBeenCalledWith(
+        expect.objectContaining({ runId: "restored-run", after: 0 }),
+      );
+
+      const retry = transport.resolveConnectionRequest!({
+        threadId: "thread-1",
+        runId: "restored-run",
+        requestId: "restored-request",
+        response: { status: "declined" },
+      });
+      releaseRequestReplay();
+      await retry;
+      expect(continueTurn).toHaveBeenCalledOnce();
+      expect(subscribe).toHaveBeenCalledOnce();
+    } finally {
+      releaseRequestReplay();
+      vi.useRealTimers();
+      await transport.dispose();
+      await subscriptionEnded;
+    }
+  });
+
+  it("does not apply a restored decline replay check to later requests", async () => {
+    async function* noEvents(): AsyncIterable<AgentChatRuntimeEvent> {}
+    async function* laterConnectionEvents(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "connection-request",
+        requestId: "later-request",
+        provider: "calendar",
+        reason: "connect",
+      };
+    }
+    let continuationCount = 0;
+    const continueTurn = vi.fn(async () => {
+      continuationCount += 1;
+      return continuationCount === 1
+        ? {
+            id: "turn-2",
+            runId: "run-2",
+            sessionId: "thread-1",
+            events: laterConnectionEvents(),
+          }
+        : {
+            id: "turn-3",
+            runId: "run-3",
+            sessionId: "thread-1",
+            events: noEvents(),
+          };
+    });
+    const transport = createAgentKitProtocolAdapter(
+      createRuntime(noEvents, {
+        capabilities: {
+          messages: { streaming: true },
+          resumableRuns: true,
+          rich: { connectionRequests: true },
+        },
+        async createSession() {
+          return {
+            id: "thread-1",
+            runtimeId: "runtime-test",
+            startTurn: async () => ({
+              id: "turn-1",
+              runId: "restored-run",
+              sessionId: "thread-1",
+              events: noEvents(),
+            }),
+            continueTurn,
+          };
+        },
+        async readRunState() {
+          return {
+            status: "running",
+            runId: "restored-run",
+            turnId: "turn-1",
+            terminalReason: null,
+            pendingConnectionRequestId: "restored-request",
+          };
+        },
+        async subscribe() {
+          return (async function* (): AsyncIterable<AgentChatRuntimeEvent> {
+            yield {
+              type: "connection-request",
+              requestId: "restored-request",
+              provider: "gong",
+              reason: "connect",
+            };
+          })();
+        },
+      }),
+    );
+
+    try {
+      await transport.resolveConnectionRequest?.({
+        threadId: "thread-1",
+        runId: "restored-run",
+        requestId: "restored-request",
+        response: { status: "declined" },
+      });
+      for await (const event of transport.subscribeToRun({
+        threadId: "thread-1",
+        runId: "run-2",
+      })) {
+        if (
+          event.type === "connection.requested" &&
+          event.request.id === "later-request"
+        ) {
+          break;
+        }
+      }
+      await transport.resolveConnectionRequest?.({
+        threadId: "thread-1",
+        runId: "run-2",
+        requestId: "later-request",
+        response: { status: "declined" },
+      });
+
+      expect(continueTurn).toHaveBeenCalledTimes(2);
+    } finally {
+      await transport.dispose();
+    }
+  });
+
+  it("restores the pending request before declining an excluded provider", async () => {
+    async function* noEvents(): AsyncIterable<AgentChatRuntimeEvent> {}
+    const subscribe = vi.fn(async () => {
+      return (async function* (): AsyncIterable<AgentChatRuntimeEvent> {
+        yield {
+          type: "connection-request",
+          requestId: "restored-request",
+          provider: "gong",
+          reason: "connect",
+        };
+      })();
+    });
+    const continueTurn = vi.fn(async () => ({
+      id: "turn-2",
+      runId: "run-2",
+      sessionId: "thread-1",
+      events: noEvents(),
+    }));
+    const transport = createAgentKitProtocolAdapter(
+      createRuntime(noEvents, {
+        capabilities: {
+          messages: { streaming: true },
+          resumableRuns: true,
+          rich: { connectionRequests: true },
+        },
+        async createSession() {
+          return {
+            id: "thread-1",
+            runtimeId: "runtime-test",
+            startTurn: async () => ({
+              id: "turn-1",
+              runId: "run-1",
+              sessionId: "thread-1",
+              events: noEvents(),
+            }),
+            continueTurn,
+          };
+        },
+        async readRunState() {
+          return {
+            status: "running",
+            runId: "successor-run",
+            turnId: "turn-1",
+            terminalReason: null,
+            pendingConnectionRequestId: "restored-request",
+          };
+        },
+        subscribe,
+      }),
+    );
+
+    await expect(
+      transport.resolveConnectionRequest?.({
+        threadId: "thread-1",
+        runId: "run-1",
+        requestId: "restored-request",
+        response: { status: "declined" },
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(subscribe).toHaveBeenCalledWith(
+      expect.objectContaining({ runId: "successor-run", after: 0 }),
+    );
+    expect(continueTurn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        turnId: "turn-1",
+        connection: { id: "gong", status: "declined" },
+      }),
+    );
+    await transport.dispose();
+  });
+
+  it("replays declined requests for resumable runtimes without run authority", async () => {
+    async function* noEvents(): AsyncIterable<AgentChatRuntimeEvent> {}
+    async function* connectionEvents(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "connection-request",
+        requestId: "resumed-request",
+        provider: "gong",
+        reason: "connect",
+      };
+    }
+    const continueTurn = vi.fn(async () => ({
+      id: "turn-2",
+      runId: "run-2",
+      sessionId: "thread-1",
+      events: noEvents(),
+    }));
+    const resume = vi.fn(async ({ runId }: { runId: string }) => ({
+      id: "turn-1",
+      runId,
+      sessionId: "thread-1",
+      events: connectionEvents(),
+    }));
+    const transport = createAgentKitProtocolAdapter(
+      createRuntime(noEvents, {
+        capabilities: {
+          messages: { streaming: true },
+          resumableRuns: true,
+          rich: { connectionRequests: true },
+        },
+        async createSession() {
+          return {
+            id: "thread-1",
+            runtimeId: "runtime-test",
+            startTurn: async () => ({
+              id: "turn-1",
+              runId: "run-1",
+              sessionId: "thread-1",
+              events: noEvents(),
+            }),
+            continueTurn,
+          };
+        },
+        resume,
+      }),
+    );
+
+    await expect(
+      transport.resolveConnectionRequest?.({
+        threadId: "thread-1",
+        runId: "restored-run",
+        requestId: "resumed-request",
+        response: { status: "declined" },
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(resume).toHaveBeenCalledWith(
+      expect.objectContaining({ runId: "restored-run" }),
+    );
+    expect(continueTurn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        turnId: "turn-1",
+        connection: { id: "gong", status: "declined" },
+      }),
+    );
+    await transport.dispose();
+  });
+
+  it("settles an excluded decline when its pending run was cancelled", async () => {
+    const cancel = vi.fn(async () => ({ status: "cancelled" as const }));
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "connection-request",
+        requestId: "cancelled-request",
+        provider: "gong",
+        reason: "connect",
+      };
+    }
+    const runtime = createRuntime(events, {
+      capabilities: {
+        messages: { streaming: true },
+        rich: { connectionRequests: true },
+      },
+    });
+    runtime.createSession = async () => ({
+      id: "thread-1",
+      runtimeId: runtime.id,
+      startTurn: async () => ({
+        id: "turn-1",
+        runId: "cancelled-run",
+        sessionId: "thread-1",
+        events: events(),
+        cancel,
+      }),
+    });
+    const transport = createAgentKitProtocolAdapter(runtime);
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Open the connection request")],
+    });
+    const iterator = transport
+      .subscribeToRun({ threadId: "thread-1", runId })
+      [Symbol.asyncIterator]();
+    while (true) {
+      const next = await iterator.next();
+      if (next.value?.type === "connection.requested") break;
+    }
+    expect((await iterator.next()).done).toBe(true);
+
+    await transport.cancelRun({ threadId: "thread-1", runId });
+
+    await expect(
+      transport.resolveConnectionRequest?.({
+        threadId: "thread-1",
+        runId,
+        requestId: "cancelled-request",
+        response: { status: "declined" },
+      }),
+    ).resolves.toBeUndefined();
+    expect(cancel).toHaveBeenCalledWith({ reason: "user" });
+    await transport.dispose();
+  });
+
   it("terminates a paused run when connection setup fails", async () => {
     async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
       yield {
@@ -1192,6 +1745,194 @@ describe("createAgentKitProtocolAdapter", () => {
     );
   });
 
+  it("serializes approval metadata with structured tool history", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "message-start",
+        message: {
+          id: "assistant-approval-history",
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: "call-approval-history",
+              toolName: "send-large-data",
+              input: { payload: "large" },
+              approval: {
+                approvalKey: "send-large-data:approved",
+                askId: "agent-tool-approval-large-1",
+              },
+            },
+            {
+              type: "tool-result",
+              toolCallId: "call-approval-history",
+              toolName: "send-large-data",
+              result: "The action paused.",
+              approvalPause: true,
+              approvalAskId: "agent-tool-approval-large-1",
+            },
+          ],
+        },
+      };
+      yield { type: "done", reason: "complete" };
+    }
+    const transport = createAgentKitProtocolAdapter(createRuntime(events));
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Save approval history")],
+    });
+    const result = await drain(
+      transport.subscribeToRun({ threadId: "thread-1", runId }),
+    );
+    const created = result.find((event) => event.type === "message.created");
+
+    expect(created).toMatchObject({
+      type: "message.created",
+      message: {
+        parts: [
+          {
+            type: "data",
+            mediaType: AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE,
+            data: {
+              id: "call-approval-history",
+              name: "send-large-data",
+              input: { payload: "large" },
+              approvalKey: approvalKeyForHistory("send-large-data:approved"),
+              approvalAskId: "agent-tool-approval-large-1",
+            },
+          },
+          {
+            type: "data",
+            mediaType: AGENT_TOOL_RESULT_HISTORY_MEDIA_TYPE,
+            data: {
+              id: "call-approval-history",
+              name: "send-large-data",
+              result: "The action paused.",
+              approvalPause: true,
+              approvalAskId: "agent-tool-approval-large-1",
+            },
+          },
+        ],
+      },
+    });
+  });
+
+  it("keeps ask-ID approval history within the protocol event budget", async () => {
+    const input = { payload: "x".repeat(140 * 1024) };
+    const approvalKey = `send-large-data:${JSON.stringify(input)}`;
+    const askId = "agent-tool-approval-large-payload";
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "message-start",
+        message: {
+          id: "assistant-large-approval-history",
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: "call-large-approval-history",
+              toolName: "send-large-data",
+              input,
+              approval: { approvalKey, askId },
+            },
+            {
+              type: "tool-result",
+              toolCallId: "call-large-approval-history",
+              toolName: "send-large-data",
+              result: "The action paused.",
+              approvalPause: true,
+              approvalAskId: askId,
+            },
+          ],
+        },
+      };
+      yield { type: "done", reason: "complete" };
+    }
+    const transport = createAgentKitProtocolAdapter(createRuntime(events));
+    const { runId } = await transport.startRun({
+      threadId: "thread-large-approval-history",
+      messages: [userMessage("Save the approval history")],
+    });
+    const result = await drain(
+      transport.subscribeToRun({
+        threadId: "thread-large-approval-history",
+        runId,
+      }),
+    );
+    const created = result.find((event) => event.type === "message.created")!;
+    if (created.type !== "message.created") {
+      throw new Error("Approval history message event was not created");
+    }
+    const callPart = created.message.parts.find(
+      (part) =>
+        part.type === "data" &&
+        part.mediaType === AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE,
+    );
+    expect(callPart).toMatchObject({
+      type: "data",
+      mediaType: AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE,
+      data: {
+        id: "call-large-approval-history",
+        name: "send-large-data",
+        input,
+        approvalKey: approvalKeyForHistory(approvalKey),
+        approvalAskId: askId,
+      },
+    });
+    expect(
+      new TextEncoder().encode(JSON.stringify(created) ?? "").byteLength,
+    ).toBeLessThan(256 * 1024);
+  });
+
+  it("preserves raw keys for legacy key-only approval history", async () => {
+    const approvalKey = "send-large-data:approved";
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "message-start",
+        message: {
+          id: "assistant-legacy-approval-history",
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: "call-legacy-approval-history",
+              toolName: "send-large-data",
+              input: { payload: "small" },
+              approval: { approvalKey },
+            },
+          ],
+        },
+      };
+      yield { type: "done", reason: "complete" };
+    }
+    const transport = createAgentKitProtocolAdapter(createRuntime(events));
+    const { runId } = await transport.startRun({
+      threadId: "thread-legacy-approval-history",
+      messages: [userMessage("Save legacy approval history")],
+    });
+    const result = await drain(
+      transport.subscribeToRun({
+        threadId: "thread-legacy-approval-history",
+        runId,
+      }),
+    );
+
+    expect(result).toContainEqual(
+      expect.objectContaining({
+        type: "message.created",
+        message: expect.objectContaining({
+          parts: expect.arrayContaining([
+            expect.objectContaining({
+              type: "data",
+              mediaType: AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE,
+              data: expect.objectContaining({ approvalKey }),
+            }),
+          ]),
+        }),
+      }),
+    );
+  });
+
   it("translates Core turn events and supports in-process sequence replay", async () => {
     async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
       yield {
@@ -1283,7 +2024,7 @@ describe("createAgentKitProtocolAdapter", () => {
     });
     expect(result[4]).toMatchObject({
       type: "tool.started",
-      toolCall: { id: "tool-1", messageId: "assistant-1" },
+      toolCall: { id: "tool-1", runId, messageId: "assistant-1" },
     });
     expect(result[7]).toMatchObject({
       type: "tool.updated",
@@ -1382,6 +2123,7 @@ describe("createAgentKitProtocolAdapter", () => {
         toolName: "search",
         status: "completed",
         result: { found: true },
+        completedSideEffect: true,
       };
       yield {
         type: "message-start",
@@ -1414,6 +2156,8 @@ describe("createAgentKitProtocolAdapter", () => {
         input: { query: "agentkit" },
         output: { found: true },
         status: "completed",
+        runId,
+        metadata: { completedSideEffect: true },
         messageId: "assistant-1",
       },
     });
@@ -1421,6 +2165,54 @@ describe("createAgentKitProtocolAdapter", () => {
       (event) => event.type === "message.created",
     )?.sequence;
     expect(toolUpdates[1]!.sequence).toBeGreaterThan(messageCreatedSequence!);
+  });
+
+  it("persists approval pause metadata on a completed tool call", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "tool-start",
+        toolCall: {
+          id: "call-1",
+          name: "publish-release",
+          input: { releaseId: "release-1" },
+        },
+      };
+      yield {
+        type: "tool-done",
+        toolCallId: "call-1",
+        toolName: "publish-release",
+        status: "completed",
+        result: "Awaiting human approval. This action did NOT execute.",
+        approvalPause: true,
+        approvalAskId: "approval-1",
+      };
+      yield { type: "done", reason: "complete" };
+    }
+
+    const transport = createAgentKitProtocolAdapter(createRuntime(events));
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Publish it")],
+    });
+    const result = await drain(
+      transport.subscribeToRun({ threadId: "thread-1", runId }),
+    );
+
+    expect(result.find((event) => event.type === "tool.updated")).toMatchObject(
+      {
+        type: "tool.updated",
+        toolCall: {
+          id: "call-1",
+          name: "publish-release",
+          status: "completed",
+          runId,
+          metadata: {
+            approvalPause: true,
+            approvalAskId: "approval-1",
+          },
+        },
+      },
+    );
   });
 
   it("keeps an explicit tool-first message association over later assistant messages", async () => {
@@ -2130,6 +2922,46 @@ describe("createAgentKitProtocolAdapter", () => {
       reasoningEffort: "high",
       providerOptions: { toolChoice: "auto", parallelToolCalls: true },
       metadata: { locale: "en-CA" },
+    });
+  });
+
+  it("preserves message status when adapting protocol history", async () => {
+    let receivedInput: unknown;
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield { type: "done", reason: "complete" };
+    }
+    const runtime = createRuntime(events);
+    runtime.createSession = async () => ({
+      id: "thread-1",
+      runtimeId: runtime.id,
+      startTurn: async (input) => {
+        receivedInput = input;
+        return {
+          id: "turn-1",
+          sessionId: "thread-1",
+          events: events(),
+        };
+      },
+    });
+    const transport = createAgentKitProtocolAdapter(runtime);
+
+    await transport.startRun({
+      threadId: "thread-1",
+      messages: [
+        {
+          ...userMessage("The first request did not start."),
+          id: "failed-user",
+          status: "error",
+        },
+        { ...userMessage("Start this request."), id: "current-user" },
+      ],
+    });
+
+    expect(receivedInput).toMatchObject({
+      messages: [
+        expect.objectContaining({ id: "failed-user", status: "error" }),
+        expect.objectContaining({ id: "current-user" }),
+      ],
     });
   });
 
@@ -3305,6 +4137,47 @@ describe("createAgentKitProtocolAdapter", () => {
     expect(disposeSession).toHaveBeenCalledOnce();
   });
 
+  it("tells the approval card its server approval id and whether it can persist", async () => {
+    async function* approvalEvents(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "approval-request",
+        approvalId: "agent-tool-approval-1",
+        askId: "agent-tool-approval-1",
+        toolCallId: "tool-1",
+        toolName: "publish",
+        message: "Publish?",
+        allowPersistentApproval: false,
+      };
+    }
+    const transport = createAgentKitProtocolAdapter(
+      createRuntime(approvalEvents, {
+        capabilities: {
+          messages: { streaming: true },
+          tools: { events: true, approvals: true },
+        },
+      }),
+    );
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Publish")],
+    });
+    const events = await drain(
+      transport.subscribeToRun({ threadId: "thread-1", runId }),
+    );
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "approval.requested",
+        request: expect.objectContaining({
+          metadata: expect.objectContaining({
+            approvalAskId: "agent-tool-approval-1",
+            allowPersistentApproval: false,
+          }),
+        }),
+      }),
+    );
+  });
+
   it("binds approval decisions to the exact pending request and fails closed", async () => {
     const continueTurn = vi.fn(
       async (input?: {
@@ -3458,6 +4331,87 @@ describe("createAgentKitProtocolAdapter", () => {
     ).rejects.toThrow("already terminal");
   });
 
+  it("retags open tool and activity records on approval continuation", async () => {
+    async function* approvalEvents(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "tool-start",
+        toolCall: { id: "tool-1", name: "publish", input: {} },
+      };
+      yield {
+        type: "approval-request",
+        approvalId: "approval-1",
+        toolCallId: "tool-1",
+        toolName: "publish",
+        message: "Publish?",
+      };
+      yield { type: "done", reason: "tool-use" };
+    }
+    async function* completedEvents(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield { type: "done", reason: "complete" };
+    }
+    const runtime = createRuntime(approvalEvents, {
+      capabilities: {
+        messages: { streaming: true },
+        tools: { events: true, approvals: true },
+      },
+    });
+    runtime.createSession = async () => ({
+      id: "thread-1",
+      runtimeId: runtime.id,
+      startTurn: async () => ({
+        id: "turn-1",
+        runId: "runtime-run-1",
+        sessionId: "thread-1",
+        events: approvalEvents(),
+      }),
+      continueTurn: async () => ({
+        id: "turn-2",
+        runId: "runtime-run-2",
+        sessionId: "thread-1",
+        events: completedEvents(),
+      }),
+    });
+    const transport = createAgentKitProtocolAdapter(runtime);
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Publish")],
+    });
+    await drain(transport.subscribeToRun({ threadId: "thread-1", runId }));
+
+    const resumed = await transport.resumeRun?.({
+      threadId: "thread-1",
+      runId,
+      resume: [
+        resumeEntryFromApproval({
+          approvalId: "approval-1",
+          response: approvalResponse("deny"),
+        }),
+      ],
+    });
+    const continuationEvents = await drain(
+      transport.subscribeToRun({ threadId: "thread-1", runId: resumed!.runId }),
+    );
+
+    const completedTool = continuationEvents.find(
+      (event) => event.type === "tool.updated",
+    );
+    expect(completedTool).toMatchObject({
+      runId: resumed!.runId,
+      toolCall: { id: "tool-1", runId: resumed!.runId, status: "completed" },
+    });
+    const completedActivity = continuationEvents.find(
+      (event) => event.type === "activity.completed",
+    );
+    expect(completedActivity).toMatchObject({
+      runId: resumed!.runId,
+      activity: { id: "tool-1", runId: resumed!.runId, status: "completed" },
+    });
+    continuationEvents.forEach((event) =>
+      expect(() => parseAgentEvent(event)).not.toThrow(),
+    );
+    await transport.dispose();
+  });
+
   it("reports an incomplete Core stream instead of claiming completion", async () => {
     async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
       yield { type: "status", message: "Working" };
@@ -3477,6 +4431,53 @@ describe("createAgentKitProtocolAdapter", () => {
       error: { code: "stream_ended" },
     });
     expect(result.some((event) => event.type === "run.completed")).toBe(false);
+  });
+
+  it("reads the durable pending connection request for a restored run", async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({
+        runId: "run-1",
+        status: "running",
+        pendingConnectionRequestId: "request-1",
+      }),
+    ) as typeof fetch;
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetchMock,
+    });
+
+    await expect(
+      runtime.readRunState?.({
+        sessionId: "thread-1",
+        runId: "run-1",
+        includePendingConnectionRequest: true,
+      }),
+    ).resolves.toMatchObject({
+      status: "running",
+      runId: "run-1",
+      pendingConnectionRequestId: "request-1",
+    });
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
+      "includePendingConnectionRequest=true",
+    );
+  });
+
+  it("does not treat an unreadable pending request as absent", async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({ runId: "run-1", status: "running" }),
+    ) as typeof fetch;
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetchMock,
+    });
+
+    await expect(
+      runtime.readRunState?.({
+        sessionId: "thread-1",
+        runId: "run-1",
+        includePendingConnectionRequest: true,
+      }),
+    ).rejects.toMatchObject({ code: "run_state_unreadable" });
   });
 
   it("follows native server-driven continuation runs", async () => {

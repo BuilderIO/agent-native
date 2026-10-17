@@ -32,11 +32,14 @@ function srgbToLinear(channel: number): number {
     : ((channel + 0.055) / 1.055) ** 2.4;
 }
 
-export function readOceanColors(element: Element): OceanColors {
+export function readOceanColors(
+  element: Element,
+  { matchPageSurface = false }: { matchPageSurface?: boolean } = {},
+): OceanColors {
   const styles = getComputedStyle(element);
   const fg = hexToLinearRgb(styles.getPropertyValue("--b-hero-shader-fg"));
   const bg = hexToLinearRgb(styles.getPropertyValue("--b-bg-page"));
-  if (fg && bg) return { fg, bg };
+  const customColors = fg && bg ? { fg, bg } : null;
 
   const root = document.documentElement;
   const dark = root.classList.contains("dark")
@@ -45,8 +48,40 @@ export function readOceanColors(element: Element): OceanColors {
       ? false
       : root.getAttribute("data-theme") === "dark";
   const colors = dark ? DARK_COLORS : LIGHT_COLORS;
+  const fallbackFg = hexToLinearRgb(colors.fg) ?? HERO_FALLBACK_COLORS.fg;
+  const fallbackBg = hexToLinearRgb(colors.bg) ?? HERO_FALLBACK_COLORS.bg;
+  const pageSurface = matchPageSurface
+    ? readOpaqueAncestorSurface(element)
+    : null;
+
   return {
-    fg: hexToLinearRgb(colors.fg) ?? HERO_FALLBACK_COLORS.fg,
-    bg: hexToLinearRgb(colors.bg) ?? HERO_FALLBACK_COLORS.bg,
+    fg: customColors?.fg ?? fallbackFg,
+    bg: pageSurface ?? customColors?.bg ?? fallbackBg,
   };
+}
+
+function readOpaqueAncestorSurface(
+  element: Element,
+): readonly [number, number, number] | null {
+  for (
+    let ancestor = element.parentElement;
+    ancestor;
+    ancestor = ancestor.parentElement
+  ) {
+    const color = getComputedStyle(ancestor).backgroundColor;
+    const match = color.match(
+      /^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:\s*[,/]\s*([\d.]+))?\s*\)$/i,
+    );
+    if (!match || (match[4] !== undefined && Number(match[4]) !== 1)) {
+      continue;
+    }
+
+    return [
+      srgbToLinear(Number(match[1]) / 255),
+      srgbToLinear(Number(match[2]) / 255),
+      srgbToLinear(Number(match[3]) / 255),
+    ];
+  }
+
+  return null;
 }

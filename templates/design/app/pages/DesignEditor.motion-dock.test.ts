@@ -9,16 +9,22 @@ import { renderMotionDockPanel } from "./design-editor/view/motion-dock-panel";
 function renderRestoredMotionDock(motionLabEnabled: boolean) {
   return renderMotionDockPanel({
     editorCore: { hostOwnsChrome: false },
-    editorHistory: { motionDockMounted: true, motionDockOpen: true },
+    editorHistory: {
+      motionDockMounted: true,
+      motionDockOpen: true,
+      hiddenLayerIds: new Set<string>(),
+    },
     editorGenerationAndAccess: { motionAutosavePending: false },
     editorActiveScreenAndGeometry: {
       activeFile: { id: "active-screen" },
     },
     editorCanvasAndScreens: { canvasIframeRef: { current: null } },
+    editorLayerActions: { handleToggleLayerHidden: () => {} },
     editorLiveEditsAndPresence: {
       initialGenerationChromeLimited: false,
       motionLabEnabled,
       motionTracks: [],
+      activeCodeLayerProjection: { nodes: [] },
       motionDurationMs: 1000,
       motionDefaultEase: "ease",
       motionAutoKeyframeEnabled: false,
@@ -81,12 +87,29 @@ describe("DesignEditor motion dock transition", () => {
     expect(source).toContain("editorLiveEditsAndPresence.motionLabEnabled ? (");
   });
 
-  it("keeps inspector motion controls gated and preserves explicit collapse", () => {
+  it("switches the inspector to Motion while the dock is open for a selected layer", () => {
     expect(source).toContain(
-      "motionKeyframeState: editorLiveEditsAndPresence.motionLabEnabled\n      ? motionKeyframeState\n      : undefined,",
+      "motionInspector:\n      editorLiveEditsAndPresence.motionLabEnabled &&\n      motionDockOpen &&\n      Boolean(activeFile?.id) &&\n      selectedInspectorElements.length > 0,",
+    );
+    expect(source).not.toContain("setActiveInspectorTab");
+  });
+
+  it("requires design edit access for both Motion write gates", () => {
+    expect(source).toContain(
+      "const canWriteMotion =\n    canEditDesign && editorContentAndComponents.motionControlsWritable;",
     );
     expect(source).toContain(
-      "onToggleMotionKeyframe:\n      editorLiveEditsAndPresence.motionLabEnabled && canEditDesign\n        ? handleToggleMotionKeyframe",
+      "onToggleMotionKeyframe:\n      editorLiveEditsAndPresence.motionLabEnabled &&\n      canEditDesign &&\n      canWriteMotion",
+    );
+    expect(source).toContain("motionWriteUnavailable: !canWriteMotion,");
+  });
+
+  it("keeps inspector motion controls gated and preserves explicit collapse", () => {
+    expect(source).toContain(
+      "motionKeyframeState:\n      editorLiveEditsAndPresence.motionLabEnabled && canWriteMotion\n        ? motionKeyframeState\n        : undefined,",
+    );
+    expect(source).toContain(
+      "onToggleMotionKeyframe:\n      editorLiveEditsAndPresence.motionLabEnabled &&\n      canEditDesign &&\n      canWriteMotion\n        ? handleToggleMotionKeyframe",
     );
     expect(source).toContain(
       'if (!initialGenerationChromeLimited) return;\n    setActiveLeftPanel("agent");\n  }, [initialGenerationChromeLimited]);',

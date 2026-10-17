@@ -1,9 +1,29 @@
 const messages = {
   meetingAsk: { resizeOrDismissAnswers: "जवाबों का आकार बदलें या बंद करें" },
+  meetingBrowserConfirmation:
+    "Clips इस ब्राउज़र में माइक्रोफ़ोन गतिविधि देखता है, लेकिन यह नहीं पहचान सकता कि मीटिंग किस टैब में है।",
+  meetingReplacement: {
+    title: "मीटिंग नोट्स पर ध्यान देना ज़रूरी है",
+    description:
+      "पिछली मीटिंग के नोट्स सेव नहीं हो सके। यह मीटिंग शुरू करने से पहले उन्हें कॉपी करें।",
+    copyAndStart: "नोट्स कॉपी करके शुरू करें",
+    actionFailed: "मीटिंग की बहाली जारी नहीं हो सकी। फिर से कोशिश करें।",
+  },
+  quitRecovery: {
+    title: "Clips अभी मीटिंग को पूरा कर रहा है",
+    body: "Clips इस मीटिंग को रोककर सेव करना पूरा नहीं कर पाया है। अभी बंद करने पर सबसे नई ट्रांसक्रिप्ट खो सकती है।",
+    keepOpen: "Clips खुला रखें",
+    quitAnyway: "फिर भी बंद करें",
+    actionFailed:
+      "Clips बंद करने की रिकवरी स्थिति अपडेट नहीं कर सका। फिर से कोशिश करें।",
+  },
   lookbackContext: {
     includeLast: "पिछले शामिल करें",
     whatIsThis: "यह क्या है?",
     off: "बंद",
+    none: "कोई नहीं",
+    noneExplanation:
+      "“कोई नहीं” का मतलब है कि नए Clip में पहले का स्क्रीन समय शामिल नहीं होगा। Rewind चालू रहने तक आपकी स्क्रीन रिकॉर्ड होती रहेगी। इसे रोकने के लिए नीचे “बंद करें” चुनें।",
     custom: "कस्टम…",
     customLabel: "कस्टम अवधि",
     customAmount: "अवधि",
@@ -15,9 +35,27 @@ const messages = {
     customErrorInvalid: "सेकंड या मिनट में पूरी संख्या दर्ज करें।",
     customErrorTooLong: "5 मिनट या उससे कम रखें।",
     turnOnRewind: "Rewind चालू करें",
+    turnOffRewind: "बंद करें",
+    turnOffRewindFailed:
+      "Rewind बंद नहीं किया जा सका। रिकॉर्डिंग रोकें और फिर से प्रयास करें।",
+    turnOnRewindFailed: "Rewind चालू नहीं हो सका। फिर से प्रयास करें।",
+    turnOnRewindPermissionFailed:
+      "System Settings > Privacy & Security > Screen & System Audio Recording में Clips के लिए स्क्रीन रिकॉर्डिंग की अनुमति दें, फिर Clips को पुनः प्रारंभ करके दोबारा प्रयास करें।",
+    turnOnRewindUnsupported: "Rewind स्क्रीन रिकॉर्डिंग केवल macOS पर उपलब्ध है।",
+    turnOnRewindNoSpace:
+      "Rewind शुरू करने के लिए डिस्क में पर्याप्त जगह नहीं है। जगह खाली करके फिर से प्रयास करें।",
+    turnOnRewindStopClip: "Rewind चालू करने से पहले मौजूदा Clip रोकें।",
+    turnOnRewindStorageFailed:
+      "Rewind स्टोरेज तक पहुँचा नहीं जा सका। डिस्क की जगह और फ़ोल्डर की अनुमतियाँ जाँचकर फिर से प्रयास करें।",
+    rewindConsentTitle: "Rewind चालू करें?",
+    rewindConsentBody:
+      "Rewind चालू रहने पर Clips आपकी स्क्रीन लगातार रिकॉर्ड करता है और इस डिवाइस पर हाल का इतिहास आपकी समय या स्टोरेज सीमा पूरी होने तक रखता है। माइक्रोफ़ोन और सिस्टम ऑडियो भी रिकॉर्ड करने के लिए “Screen + audio” चुनें। जुड़े हुए एजेंट Clips की मंज़ूरी के बिना सीधे स्क्रीन की तस्वीरें देख सकते हैं; आगे इन तस्वीरों का इस्तेमाल कैसे होता है, यह एजेंट पर निर्भर करता है। पहले की स्क्रीन के लिए चुनी अवधि Clips हर नए Clip में अपने आप जोड़ता है और उस Clip की शेयरिंग सेटिंग लागू होती हैं। चुनी हुई अवधि को Clip के रूप में साझा करने के अनुरोध डिफ़ॉल्ट रूप से भेजने से पहले जाँचे जाते हैं। Rewind सेटिंग में भेजने से पहले समीक्षा बंद करें, ताकि ऐसे अनुरोध अपने आप भेजे जाएँ। Clip में रिकॉर्ड किया गया माइक्रोफ़ोन और सिस्टम ऑडियो शामिल हो सकता है। Rewind बंद करने से नई रिकॉर्डिंग रुकती है, लेकिन सहेजा हुआ इतिहास बना रहता है। Rewind बंद रहने पर इतिहास समय या स्टोरेज सीमा से आगे भी रह सकता है, जब तक रिकॉर्डिंग फिर शुरू न हो। अभी मिटाने के लिए “Delete all” चुनें।",
+    rewindConsentCancel: "अभी नहीं",
+    rewindConsentConfirm: "Rewind चालू करें",
+    rewindConsentBusy: "Rewind चालू हो रहा है…",
     rewindOffTitle: "Rewind चालू करें",
     rewindOffBody:
-      "Rewind आपकी स्क्रीन का स्थानीय इतिहास रखता है, ताकि आप रिकॉर्डिंग से पहले के आख़िरी कुछ मिनट शामिल कर सकें। फ़ुटेज तभी अपलोड होता है जब आप उसे शामिल करें या मंज़ूरी दें।",
+      "पहले का स्क्रीन समय शामिल करने के लिए पहले Rewind चालू करें। Rewind चालू रहने पर यह इस डिवाइस पर हाल का स्क्रीन इतिहास समय और स्टोरेज सीमाओं के भीतर रखता है। Rewind बंद रहने पर सहेजा हुआ इतिहास इन सीमाओं से आगे भी रह सकता है, जब तक रिकॉर्डिंग फिर शुरू न हो। इसे अभी मिटाने के लिए Settings > Rewind > Storage > On this device खोलें और Delete all चुनें। Clip साझा करने के अनुरोध डिफ़ॉल्ट रूप से भेजने से पहले जाँचे जाते हैं, जब तक कि आप Rewind सेटिंग में भेजने से पहले समीक्षा बंद न करें।",
     requestFailed:
       "पहले का स्क्रीन समय शामिल नहीं किया जा सका। रिकॉर्डिंग इसके बिना जारी रहती है।",
     localOnlyUnavailable:
@@ -200,9 +238,12 @@ const messages = {
     expandSidebar: "साइडबार फैलाएँ",
     collapseSidebar: "साइडबार समेटें",
     agentEmptyState: "आपकी रिकॉर्डिंग में मैं कैसे मदद कर सकता हूँ?",
-    agentSuggestionSummary: "मेरी पिछली रिकॉर्डिंग का सारांश दें",
-    agentSuggestionPricing: "जहाँ मैंने कीमतों का ज़िक्र किया है वह ढूँढें",
-    agentSuggestionFiller: "इस क्लिप से फिलर शब्द हटाएँ",
+    agentSuggestionSummary: "रिकॉर्डिंग का सारांश दें",
+    agentSuggestionPricing: "कीमत के उल्लेख खोजें",
+    agentSuggestionFiller: "फ़िलर शब्द हटाएँ",
+    agentScreenshotSuggestionSummary: "स्क्रीनशॉट का सारांश दें",
+    agentScreenshotSuggestionText: "स्क्रीनशॉट में टेक्स्ट खोजें",
+    agentScreenshotSuggestionCompare: "स्क्रीनशॉट की तुलना करें",
     createFolderError: "बनाने में विफल",
     folderCreated: "फ़ोल्डर बन गया",
     folderNamePlaceholder: "फ़ोल्डर का नाम",
@@ -298,6 +339,10 @@ const messages = {
     transcriptionCompleted: "प्रतिलेखन पूरा हुआ",
     transcriptNotReady: "प्रतिलेख अभी तैयार नहीं है",
     tryAfterTranscription: "प्रतिलेखन समाप्त होने के बाद पुनः प्रयास करें।",
+    silenceTranscriptUnavailableTitle:
+      "इस ट्रांसक्रिप्ट का उपयोग खामोशी हटाने के लिए नहीं किया जा सकता",
+    silenceTranscriptUnavailableDescription:
+      "नई ट्रांसक्रिप्ट बनाने की कोशिश करें, फिर खामोशी हटाने के लिए दोबारा प्रयास करें।",
     titleGenerationQueued: "शीर्षक बनाया जा रहा है…",
     descriptionQueued: "विवरण बनाया जा रहा है…",
     chapterQueued: "अध्याय बनाए जा रहे हैं…",
@@ -596,6 +641,33 @@ const messages = {
     groqKeysStart: "Groq कुंजियाँ प्रारंभ होती हैं",
     waiting: "इंतज़ार में…",
     nativeSpeechPrimary: "नेटिव स्पीच मुख्य प्रतिलेखन स्रोत बनी रहती है।",
+  },
+  transcriptImport: {
+    addFile: "प्रतिलेख फ़ाइल जोड़ें",
+    imported: "आयातित",
+    replaceTitle: "प्रतिलेख बदलें?",
+    replaceDescription: "{{fileName}} मौजूदा प्रतिलेख की जगह ले लेगी।",
+    replace: "बदलें",
+    regenerateOverImportTitle: "आयात किया गया प्रतिलेख बदलें?",
+    regenerateOverImportDescription:
+      "रिकॉर्डिंग के ऑडियो से बना नया प्रतिलेख फ़ाइल से आयात किए गए प्रतिलेख की जगह ले लेगा।",
+    added: "प्रतिलेख जोड़ा गया",
+    replaced: "प्रतिलेख बदला गया",
+    failed: "प्रतिलेख नहीं जोड़ा जा सका",
+    invalidFile: "{{fileName}} को पढ़ा नहीं जा सका",
+    errorEmpty: "फ़ाइल में कोई प्रतिलेख टेक्स्ट नहीं है।",
+    errorTooLarge: "फ़ाइल आयात करने के लिए बहुत बड़ी है।",
+    errorNotUtf8:
+      "फ़ाइल UTF-8 टेक्स्ट नहीं है। इसे UTF-8 के रूप में सेव करें और फिर से कोशिश करें।",
+    errorMissingTiming:
+      "पंक्ति {{line}}: 00:00:01.000 --> 00:00:04.000 जैसी उपशीर्षक समय-पंक्ति अपेक्षित थी।",
+    errorBadTiming: "पंक्ति {{line}}: उपशीर्षक का समय पढ़ा नहीं जा सका।",
+    errorBadRange:
+      "पंक्ति {{line}}: उपशीर्षक अपने शुरू होने से पहले ही समाप्त हो जाता है।",
+    errorMissingTimestamp:
+      "पंक्ति {{line}}: 0:21 या [0:21] जैसा शुरुआती समय अपेक्षित था।",
+    errorOutOfOrder: "पंक्ति {{line}}: यह समय पिछले समय से पहले का है।",
+    errorPastEnd: "पंक्ति {{line}}: यह समय वीडियो के समाप्त होने के बाद का है।",
   },
   thumbnailPicker: {
     failedCapture: "फ़्रेम कैप्चर करने में विफल",
@@ -1503,6 +1575,9 @@ const messages = {
     disconnected: "माइक्रोफ़ोन डिस्कनेक्ट हो गया।",
   },
   storageSetup: {
+    builderStorageOffer:
+      "Builder.io के मुफ़्त प्लान में वीडियो स्टोरेज शामिल है, जिसे एक क्लिक में सेट अप किया जा सकता है।",
+    customKeys: "कस्टम कुंजियाँ",
     builderConnectPopupError:
       "Builder.io नहीं खुल सका। अगर यह ऐप किसी चैट में एम्बेड है, तो इसे ब्राउज़र टैब में खोलें; अन्यथा फिर कोशिश करें।",
     builderConnectError:
@@ -1516,12 +1591,13 @@ const messages = {
     builderGrantAskAdmin:
       "किसी मालिक या एडमिन से क्लिप अपलोड की अनुमति के साथ Builder.io कनेक्ट करने को कहें।",
     statusUnavailable: "वीडियो स्टोरेज की स्थिति जाँची नहीं जा सकी।",
+    hostedStorageUnavailable:
+      "Clips का होस्टेड स्टोरेज अभी उपलब्ध नहीं है। आपके मुफ़्त क्लिप की सीमा नहीं बदली है; बाद में अपलोड फिर से करें।",
     checkingBuilderConnection: "Builder कनेक्शन जांच रहे हैं…",
     builderTimeout: "पुष्टि नहीं हो सकी कि Builder.io स्टोरेज तैयार है। फिर कोशिश करें।",
     builderConnected: "Builder.io कनेक्ट है",
     waitingForBuilder: "Builder की प्रतीक्षा...",
-    description:
-      "रिकॉर्ड किए गए वीडियो को Builder.io या S3-संगत स्टोरेज में सहेजें। Builder.io में मुफ़्त होस्टिंग और AI क्रेडिट शामिल हैं।",
+    description: "चुनें कि रिकॉर्ड किए गए वीडियो कहाँ सहेजने हैं।",
     createBuilderAccount: "Builder.io इस्तेमाल करें",
     signInWithBuilderAccount: "Builder.io खाते से साइन इन करें",
     free: "मुफ्त",
@@ -1807,6 +1883,16 @@ const messages = {
     validWebUrl: "मान्य http:// या https:// पता दर्ज करें।",
   },
   recordRoute: {
+    freeClipsLeft_one: "{{count}} मुफ़्त क्लिप बाकी",
+    freeClipsLeft_other: "{{count}} मुफ़्त क्लिप बाकी",
+    hostedClipsExhaustedTitle:
+      "रिकॉर्डिंग जारी रखने के लिए Builder.io को मुफ़्त में कनेक्ट करें",
+    hostedClipsExhaustedDescription:
+      "आपके मुफ़्त होस्ट किए गए क्लिप इस्तेमाल हो चुके हैं। अपनी लाइब्रेरी में क्लिप सेव करते रहने के लिए Builder.io स्टोरेज कनेक्ट करें।",
+    clipExceedsSizeLimit: "यह क्लिप मौजूदा अपलोड आकार सीमा से बड़ी है।",
+    clipExceedsMaxDuration: "यह क्लिप मौजूदा रिकॉर्डिंग अवधि सीमा से लंबी है।",
+    maxClipDurationReached:
+      "क्लिप की अधिकतम अवधि पूरी हो गई है। रिकॉर्डिंग सेव हो रही है।",
     pageTitle: "New recording — Clips (स्थानीयकृत)",
     uploadFailed: "Upload failed (स्थानीयकृत)",
     uploadFailedAtChunk:
@@ -1829,6 +1915,8 @@ const messages = {
     noLocalRecordingData:
       "No local recording data is available to download. (स्थानीयकृत)",
     recordingDownloadStarted: "Recording download started (स्थानीयकृत)",
+    partialLocalCopyDownloadStarted:
+      "स्थानीय कॉपी अधूरी हो सकती है। उपलब्ध रिकॉर्डिंग डेटा डाउनलोड हो रहा है।",
     backToLibrary: "Back to library (स्थानीयकृत)",
     clipsRecorder: "Clips recorder (स्थानीयकृत)",
     preparingSources: "Preparing sources… (स्थानीयकृत)",
@@ -1989,6 +2077,10 @@ const messages = {
     cleanupWithAi: "Cleanup with AI (स्थानीयकृत)",
     cleanupComplete: "डिक्टेशन साफ़ किया गया",
     cleanupFailed: "डिक्टेशन साफ़ नहीं किया जा सका",
+    undoCleanup: "पूर्ववत करें",
+    restoreOriginal: "मूल वापस लाएँ",
+    cleanupRestored: "मूल डिक्टेशन बहाल किया गया",
+    cleanupRestoreFailed: "मूल डिक्टेशन बहाल नहीं किया जा सका",
     startFirst: "अपने विचारों को टेक्स्ट में बदलें",
     recordOnDesktop: "डेस्कटॉप पर रिकॉर्ड करें",
     emptyDesktopDescription:
@@ -2034,6 +2126,10 @@ const messages = {
     vocabularyRemoveFailed: "शब्द नहीं हटाया जा सका",
   },
   clipsFinalRaw: {
+    hostedStorageFull:
+      "Clips का होस्ट किया गया स्टोरेज भर गया है। क्लिप सेव करते रहने के लिए Builder.io स्टोरेज कनेक्ट करें।",
+    hostedRecordingTakenDown:
+      "यह रिकॉर्डिंग Clips के होस्ट किए गए स्टोरेज से हटा दी गई।",
     splitAtPlayhead: "प्लेहेड पर विभाजित करें (S)",
     selectedCount: "{{count}} चुने गए",
     selectAll: "सभी चुनें",
@@ -2064,6 +2160,7 @@ const messages = {
     viewsCount: "{{count}} बार देखा गया",
     recordingMenu: "रिकॉर्डिंग मेनू",
     moveToFolder: "फ़ोल्डर में ले जाएं",
+    moveHere: "यहाँ ले जाएँ",
     unarchive: "आर्काइव से हटाएं",
     shareNamedMeeting: '"{{title}}" साझा करें',
     shareMeeting: "मीटिंग साझा करें",
@@ -2214,9 +2311,15 @@ const messages = {
     issues: "समस्याएँ",
     consoleSource: "कंसोल",
     networkSource: "नेटवर्क",
+    appSource: "ऐप गतिविधि",
+    appEvent: "इवेंट",
+    appData: "डेटा",
+    appFailureSummary: "{{count}} ऐप विफलताएँ",
+    appUnavailable: "ऐप गतिविधि लोड नहीं हो सकी।",
     consoleCount: "कंसोल {{count}}",
     networkCount: "नेटवर्क {{count}}",
     afterRecording: "रिकॉर्डिंग के बाद",
+    beforeRecording: "रिकॉर्डिंग से पहले",
     seekToTime: "{{time}} पर जाएँ",
     occurrences: "घटनाएँ",
     message: "संदेश",
@@ -2228,6 +2331,7 @@ const messages = {
     noIssuesTitle: "ब्राउज़र की कोई समस्या नहीं मिली",
     noConsoleTitle: "कोई कंसोल इवेंट नहीं",
     noNetworkTitle: "कोई नेटवर्क अनुरोध नहीं",
+    noAppTitle: "कोई ऐप गतिविधि नहीं",
     capturedDescription: "इस रिकॉर्डिंग के लिए डायग्नोस्टिक्स कैप्चर किए गए।",
   },
   timeline: { clipStartedHere: "क्लिप यहाँ शुरू हुई" },

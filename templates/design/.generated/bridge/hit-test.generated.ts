@@ -123,7 +123,7 @@ export const hitTestBridgeScript: string = `"use strict";
       for (var i = 0; i < children.length; i += 1) {
         var child = children[i];
         var childTag = (child.tagName || "").toLowerCase();
-        if (BRIDGE_LEAF_TAGS.indexOf(childTag) === -1 && !INLINE_TEXT_TAGS.has(childTag) && BRIDGE_INTERACTIVE_LEAF_TAGS.indexOf(childTag) === -1) {
+        if (BRIDGE_LEAF_TAGS.indexOf(childTag) === -1 && !INLINE_TEXT_TAGS.has(childTag)) {
           return false;
         }
         if (child.children.length && !hasOnlyLeafContent(child)) return false;
@@ -630,6 +630,21 @@ export const hitTestBridgeScript: string = `"use strict";
       if (primitive === "frame" && cs.position === "relative") return true;
       return cs.position === "absolute" || cs.position === "fixed";
     }
+    function isFreeformDropContainer(el) {
+      if (isAutoLayoutElement(el)) return false;
+      var hasChild = false;
+      for (var i = 0; i < el.children.length; i += 1) {
+        var child = el.children[i];
+        if (isOverlayElement(child)) continue;
+        var childStyle = window.getComputedStyle(child);
+        if (childStyle.display === "none") continue;
+        if (childStyle.position !== "absolute" && childStyle.position !== "fixed") {
+          return false;
+        }
+        hasChild = true;
+      }
+      return hasChild || window.getComputedStyle(el).position !== "static";
+    }
     function hasAbsolutePositionedChild(el) {
       var kids = el.children;
       for (var i = 0; i < kids.length; i += 1) {
@@ -1066,7 +1081,7 @@ export const hitTestBridgeScript: string = `"use strict";
             anchor: blockCursor,
             placement: "inside",
             axis: "y",
-            dropMode: "flow-insert"
+            dropMode: isFreeformDropContainer(blockCursor) ? "absolute-container" : "flow-insert"
           };
         }
         blockCursor = blockCursor.parentElement;
@@ -1152,9 +1167,28 @@ export const hitTestBridgeScript: string = `"use strict";
       }
       var containerPrimitive = (container.getAttribute("data-an-primitive") || container.getAttribute("data-agent-native-primitive") || "").toLowerCase();
       if (isAutoLayoutElement(container) && container.parentElement === document.body && containerPrimitive !== "frame") {
-        return nearestChildInsertionTarget(document.body, clientX, clientY);
+        var besideContainer = nearestChildInsertionTarget(
+          document.body,
+          clientX,
+          clientY
+        );
+        if (besideContainer && isFreeformDropContainer(document.body)) {
+          besideContainer.dropMode = "absolute-container";
+        }
+        return besideContainer;
       }
       return null;
+    }
+    function absoluteOriginForTarget(target) {
+      var container = target.placement === "inside" ? target.anchor : target.anchor.parentElement;
+      if (!container) return null;
+      var probe = document.createElement("div");
+      probe.setAttribute("data-agent-native-edit-overlay", "absolute-origin");
+      probe.style.cssText = "position:absolute;left:0;top:0;width:0;height:0;margin:0;visibility:hidden;pointer-events:none";
+      container.appendChild(probe);
+      var probeRect = probe.getBoundingClientRect();
+      probe.remove();
+      return { left: probeRect.left, top: probeRect.top };
     }
     function showInsertionGuideFor(target) {
       if (!target || !target.anchor) {
@@ -1464,6 +1498,7 @@ export const hitTestBridgeScript: string = `"use strict";
       var axis = result ? result.axis : "y";
       var dropMode = result ? result.dropMode : "flow-insert";
       var anchorRect = result ? result.anchor.getBoundingClientRect() : null;
+      var absoluteOrigin = result && dropMode === "absolute-container" && !e.data.preview ? absoluteOriginForTarget(result) : null;
       try {
         window.parent.postMessage(
           {
@@ -1486,7 +1521,8 @@ export const hitTestBridgeScript: string = `"use strict";
               width: anchorRect.width,
               height: anchorRect.height
             } : void 0,
-            guideRect: result ? result.guideRect : void 0
+            guideRect: result ? result.guideRect : void 0,
+            absoluteOrigin: absoluteOrigin || void 0
           },
           "*"
         );

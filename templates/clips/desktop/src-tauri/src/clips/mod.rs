@@ -29,6 +29,7 @@ use crate::util::{
 };
 
 const COUNTDOWN_LABEL: &str = "countdown";
+static COUNTDOWN_SHOW_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
 const TOOLBAR_LABEL: &str = "toolbar";
 static TOOLBAR_TOPMOST_GENERATION: AtomicU64 = AtomicU64::new(0);
 const COUNTDOWN_CONTROL_OFFSET_X: f64 = 200.0;
@@ -37,6 +38,7 @@ const COUNTDOWN_CONTROL_HIT_PAD: f64 = 8.0;
 static COUNTDOWN_CONTROL_TRACKING: AtomicBool = AtomicBool::new(false);
 static TOOLBAR_FINISHING: AtomicBool = AtomicBool::new(false);
 const BUBBLE_LABEL: &str = "bubble";
+pub(crate) const BUBBLE_WINDOW_TITLE: &str = "Clips Camera";
 const BUBBLE_DESTROYED_EVENT: &str = "clips:bubble-destroyed";
 const PREPARING_LABEL: &str = "preparing";
 const FINALIZING_LABEL: &str = "finalizing";
@@ -69,6 +71,14 @@ const POPOVER_DEFAULT_HEIGHT_LOGICAL: f64 = 520.0;
 const POPOVER_MIN_HEIGHT_LOGICAL: f64 = 260.0;
 const POPOVER_SCREEN_MARGIN_LOGICAL: f64 = 16.0;
 const OVERLAY_SHADOW_GUTTER_LOGICAL: f64 = 18.0;
+
+async fn with_countdown_show_lock<T>(operation: impl std::future::Future<Output = T>) -> T {
+    let _show_guard = COUNTDOWN_SHOW_LOCK
+        .get_or_init(|| tokio::sync::Mutex::new(()))
+        .lock()
+        .await;
+    operation.await
+}
 
 #[cfg(target_os = "macos")]
 #[link(name = "AppKit", kind = "framework")]
@@ -607,56 +617,103 @@ fn load_bubble_position(app: &AppHandle) -> Option<BubblePositionPreference> {
 }
 
 #[tauri::command]
-pub async fn show_countdown(app: AppHandle) -> Result<u64, String> {
+pub async fn show_countdown(app: AppHandle, attempt_id: String) -> Result<u64, String> {
     dlog!("[clips-tray] show_countdown invoked");
-    mark_popover_shown(&app);
-    if let Some(existing) = app.get_webview_window(COUNTDOWN_LABEL) {
-        stop_countdown_control_tracking();
-        let _ = existing.close();
+    if attempt_id.len() != 36
+        || !attempt_id
+            .chars()
+            .all(|character| character.is_ascii_hexdigit() || character == '-')
+    {
+        return Err("Invalid countdown attempt ID.".to_string());
     }
-    let (mx, my, mw, mh) = tray_monitor_physical_rect(&app);
-    dlog!(
-        "[clips-tray] countdown target {}x{} at ({},{}) physical",
-        mw,
-        mh,
-        mx,
-        my
-    );
-    let win = WebviewWindowBuilder::new(&app, COUNTDOWN_LABEL, build_overlay_url("countdown"))
-        .title("Countdown")
-        .decorations(false)
-        .transparent(true)
-        .always_on_top(true)
-        .skip_taskbar(true)
-        .shadow(false)
-        .visible(false)
-        .focused(true)
-        .build()
-        .map_err(|e| {
-            eprintln!("[clips-tray] countdown build failed: {}", e);
-            e.to_string()
-        })?;
-    let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(mw, mh)));
-    let _ = win.set_position(PhysicalPosition::new(mx, my));
-    let _ = win.set_ignore_cursor_events(true);
-    set_capture_excluded(&win);
-    configure_overlay_behavior(&win);
-    let generation = match crate::shortcuts::prepare_countdown_shortcuts(app.clone()).await {
-        Ok(generation) => generation,
-        Err(error) => {
-            let _ = win.close();
-            return Err(error);
+    // Keep the shared window label and shortcut generation on the same attempt.
+    with_countdown_show_lock(async move {
+        mark_popover_shown(&app);
+        // Retire the previous generation before reusing the countdown window label.
+        crate::shortcuts::retire_countdown_shortcuts(app.clone()).await?;
+        if let Some(existing) = app.get_webview_window(COUNTDOWN_LABEL) {
+            stop_countdown_control_tracking();
+            let _ = existing.close();
         }
-    };
-    present_interactive_window(&win);
-    start_countdown_control_tracking(&app);
-    dlog!("[clips-tray] countdown shown");
-    Ok(generation)
+        let (mx, my, mw, mh) = tray_monitor_physical_rect(&app);
+        dlog!(
+            "[clips-tray] countdown target {}x{} at ({},{}) physical",
+            mw,
+            mh,
+            mx,
+            my
+        );
+        let countdown_route = format!("countdown/{attempt_id}");
+        let win =
+            WebviewWindowBuilder::new(&app, COUNTDOWN_LABEL, build_overlay_url(&countdown_route))
+                .title("Countdown")
+                .decorations(false)
+                .transparent(true)
+                .always_on_top(true)
+                .skip_taskbar(true)
+                .shadow(false)
+                .visible(false)
+                .focused(true)
+                .build()
+                .map_err(|e| {
+                    eprintln!("[clips-tray] countdown build failed: {}", e);
+                    e.to_string()
+                })?;
+        let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(mw, mh)));
+        let _ = win.set_position(PhysicalPosition::new(mx, my));
+        let _ = win.set_ignore_cursor_events(true);
+        set_capture_excluded(&win);
+        configure_overlay_behavior(&win);
+        let generation =
+            match crate::shortcuts::prepare_countdown_shortcuts(app.clone(), attempt_id).await {
+                Ok(generation) => generation,
+                Err(error) => {
+                    let _ = win.close();
+                    return Err(error);
+                }
+            };
+        present_interactive_window(&win);
+        start_countdown_control_tracking(&app);
+        dlog!("[clips-tray] countdown shown");
+        Ok(generation)
+    })
+    .await
 }
 
 #[tauri::command]
 pub async fn finish_countdown_shortcuts(app: AppHandle, generation: u64) -> Result<(), String> {
     crate::shortcuts::finish_countdown_shortcuts(app, generation).await
+}
+
+#[tauri::command]
+pub async fn dismiss_countdown_for_generation(
+    app: AppHandle,
+    generation: u64,
+) -> Result<(), String> {
+    with_countdown_show_lock(async move {
+        if crate::shortcuts::is_active_countdown_generation(generation) {
+            stop_countdown_control_tracking();
+            let close_result = match app.get_webview_window(COUNTDOWN_LABEL) {
+                Some(countdown) => countdown
+                    .close()
+                    .map_err(|error| format!("Failed to close countdown window: {error}")),
+                None => Ok(()),
+            };
+            let shortcuts_result =
+                crate::shortcuts::finish_countdown_shortcuts(app, generation).await;
+            match (close_result, shortcuts_result) {
+                (Ok(()), Ok(())) => Ok(()),
+                (Err(close_error), Ok(())) => Err(close_error),
+                (Ok(()), Err(shortcuts_error)) => Err(shortcuts_error),
+                (Err(close_error), Err(shortcuts_error)) => Err(format!(
+                    "{close_error}; shortcut cleanup also failed: {shortcuts_error}"
+                )),
+            }
+        } else {
+            Ok(())
+        }
+    })
+    .await
 }
 
 fn cursor_over_countdown_control(window: &WebviewWindow) -> bool {
@@ -1573,7 +1630,7 @@ pub async fn show_bubble(app: AppHandle) -> Result<(), String> {
     );
     #[allow(unused_mut)]
     let mut builder = WebviewWindowBuilder::new(&app, BUBBLE_LABEL, build_overlay_url("bubble"))
-        .title("Clips Camera")
+        .title(BUBBLE_WINDOW_TITLE)
         .decorations(false)
         .transparent(true)
         .always_on_top(true)
@@ -2863,11 +2920,12 @@ fn read_clipboard() -> Option<String> {
 }
 
 #[cfg(target_os = "macos")]
-fn frontmost_bundle_identifier() -> Option<String> {
+pub(crate) fn frontmost_bundle_identifier() -> Option<String> {
     use objc2::msg_send;
+    use objc2::rc::autoreleasepool;
     use objc2::runtime::{AnyClass, AnyObject};
 
-    unsafe {
+    autoreleasepool(|_| unsafe {
         let class_name = std::ffi::CString::new("NSWorkspace").ok()?;
         let cls: &AnyClass = AnyClass::get(&class_name)?;
         let workspace: *mut AnyObject = msg_send![cls, sharedWorkspace];
@@ -2880,7 +2938,7 @@ fn frontmost_bundle_identifier() -> Option<String> {
         }
         let bundle_id: *mut AnyObject = msg_send![app, bundleIdentifier];
         ns_string_to_owned(bundle_id)
-    }
+    })
 }
 
 #[cfg(target_os = "macos")]
@@ -3071,28 +3129,244 @@ pub async fn get_active_meeting_id(app: AppHandle) -> Result<Option<String>, Str
         .and_then(|s| s.0.lock().ok().and_then(|g| g.clone())))
 }
 
+pub const QUIT_TEARDOWN_PENDING: u8 = 1;
+pub const QUIT_TEARDOWN_RECOVERY: u8 = 3;
+pub const QUIT_TEARDOWN_EXIT_ALLOWED: u8 = 2;
+// 0 is idle, 2 allows exit, and 1/3 guard an active meeting quit attempt.
 pub static QUIT_TEARDOWN_STATE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+static QUIT_TEARDOWN_RECOVERY_ATTEMPT: std::sync::Mutex<u64> = std::sync::Mutex::new(0);
 
-/// Called by the popover webview once it has finished (or given up on)
-/// stopping an in-progress meeting during app quit. Marks teardown done and
-/// asks Tauri to exit again — this second `app.exit(0)` is the one that
-/// actually terminates the process, since the `ExitRequested` handler only
-/// calls `prevent_exit()` on the FIRST pass (gated on this same atomic).
-///
-/// compare_exchange (not load-then-store) so this and lib.rs's 3s watchdog
-/// can't both observe state==1 and both call `app.exit()` — only whichever
-/// wins the CAS proceeds. If this loses the race (watchdog already fired),
-/// there's nothing left to do: the process is already exiting.
+pub const fn quit_teardown_blocks_exit(state: u8) -> bool {
+    state != 0 && state != QUIT_TEARDOWN_EXIT_ALLOWED
+}
+
+fn transition_quit_teardown_state(
+    state: &std::sync::atomic::AtomicU8,
+    allowed_from: &[u8],
+    next: u8,
+) -> bool {
+    let mut current = state.load(Ordering::SeqCst);
+    loop {
+        if !allowed_from.contains(&current) {
+            return false;
+        }
+        match state.compare_exchange_weak(current, next, Ordering::SeqCst, Ordering::SeqCst) {
+            Ok(_) => return true,
+            Err(observed) => current = observed,
+        }
+    }
+}
+
+fn begin_quit_teardown_for(
+    state: &std::sync::atomic::AtomicU8,
+    recovery_attempt: &std::sync::Mutex<u64>,
+) -> Option<u64> {
+    let mut recovery_attempt = recovery_attempt
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if !transition_quit_teardown_state(state, &[0], QUIT_TEARDOWN_PENDING) {
+        return None;
+    }
+    *recovery_attempt = recovery_attempt.wrapping_add(1);
+    Some(*recovery_attempt)
+}
+
+pub fn begin_quit_teardown() -> Option<u64> {
+    begin_quit_teardown_for(&QUIT_TEARDOWN_STATE, &QUIT_TEARDOWN_RECOVERY_ATTEMPT)
+}
+
+fn show_quit_teardown_recovery_for(
+    state: &std::sync::atomic::AtomicU8,
+    recovery_attempt: &std::sync::Mutex<u64>,
+    expected_attempt: u64,
+) -> bool {
+    let recovery_attempt = recovery_attempt
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if *recovery_attempt != expected_attempt {
+        return false;
+    }
+    transition_quit_teardown_state(state, &[QUIT_TEARDOWN_PENDING], QUIT_TEARDOWN_RECOVERY)
+}
+
+pub fn show_quit_teardown_recovery(expected_attempt: u64) -> bool {
+    show_quit_teardown_recovery_for(
+        &QUIT_TEARDOWN_STATE,
+        &QUIT_TEARDOWN_RECOVERY_ATTEMPT,
+        expected_attempt,
+    )
+}
+
+pub fn cancel_quit_teardown() -> bool {
+    transition_quit_teardown_state(
+        &QUIT_TEARDOWN_STATE,
+        &[QUIT_TEARDOWN_PENDING, QUIT_TEARDOWN_RECOVERY],
+        0,
+    )
+}
+
+fn finish_quit_teardown() -> bool {
+    transition_quit_teardown_state(
+        &QUIT_TEARDOWN_STATE,
+        &[QUIT_TEARDOWN_PENDING, QUIT_TEARDOWN_RECOVERY],
+        QUIT_TEARDOWN_EXIT_ALLOWED,
+    )
+}
+
+fn force_quit_teardown_for(state: &std::sync::atomic::AtomicU8) -> bool {
+    transition_quit_teardown_state(state, &[QUIT_TEARDOWN_RECOVERY], QUIT_TEARDOWN_EXIT_ALLOWED)
+}
+
+pub fn force_quit_teardown() -> bool {
+    let forced = force_quit_teardown_for(&QUIT_TEARDOWN_STATE);
+    if forced {
+        eprintln!("[clips-tray] second native quit request during recovery");
+    }
+    forced
+}
+
+/// Called after the popover has confirmed that the meeting stopped and its
+/// transcript was flushed. The second `app.exit(0)` is allowed through by the
+/// `ExitRequested` handler once this state moves past the pending value.
 #[tauri::command]
 pub async fn quit_teardown_done(app: AppHandle) -> Result<(), String> {
-    if QUIT_TEARDOWN_STATE
-        .compare_exchange(1, 2, Ordering::SeqCst, Ordering::SeqCst)
-        .is_ok()
-    {
+    if finish_quit_teardown() {
         eprintln!("[clips-tray] quit_teardown_done — meeting teardown finished, exiting");
         app.exit(0);
     }
     Ok(())
+}
+
+#[tauri::command]
+pub async fn quit_teardown_cancel(app: AppHandle) -> Result<(), String> {
+    let canceled = cancel_quit_teardown();
+    let state = QUIT_TEARDOWN_STATE.load(Ordering::SeqCst);
+    if !canceled && state != 0 {
+        return Err("Quit recovery is no longer pending.".to_string());
+    }
+    app.emit("meetings:quit-cancelled", ())
+        .map_err(|error| format!("Could not resume Clips after quit recovery: {error}"))
+}
+
+#[tauri::command]
+pub async fn quit_teardown_force(app: AppHandle) -> Result<(), String> {
+    if !force_quit_teardown_for(&QUIT_TEARDOWN_STATE) {
+        return Err("Quit recovery is no longer pending.".to_string());
+    }
+    eprintln!("[clips-tray] quit_teardown_force — explicit quit during recovery");
+    app.exit(0);
+    Ok(())
+}
+
+#[cfg(test)]
+mod quit_teardown_tests {
+    use super::{
+        begin_quit_teardown_for, force_quit_teardown_for, quit_teardown_blocks_exit,
+        show_quit_teardown_recovery_for, transition_quit_teardown_state,
+        QUIT_TEARDOWN_EXIT_ALLOWED, QUIT_TEARDOWN_PENDING, QUIT_TEARDOWN_RECOVERY,
+    };
+    use std::sync::{atomic::AtomicU8, Mutex};
+
+    #[test]
+    fn pending_and_recovery_states_block_unapproved_exit() {
+        assert!(quit_teardown_blocks_exit(QUIT_TEARDOWN_PENDING));
+        assert!(quit_teardown_blocks_exit(QUIT_TEARDOWN_RECOVERY));
+        assert!(quit_teardown_blocks_exit(4));
+        assert!(!quit_teardown_blocks_exit(0));
+        assert!(!quit_teardown_blocks_exit(QUIT_TEARDOWN_EXIT_ALLOWED));
+    }
+
+    #[test]
+    fn pending_quit_can_show_recovery_then_resume_recording() {
+        let state = AtomicU8::new(0);
+
+        assert!(transition_quit_teardown_state(
+            &state,
+            &[0],
+            QUIT_TEARDOWN_PENDING
+        ));
+        assert!(transition_quit_teardown_state(
+            &state,
+            &[QUIT_TEARDOWN_PENDING],
+            QUIT_TEARDOWN_RECOVERY,
+        ));
+        assert!(transition_quit_teardown_state(
+            &state,
+            &[QUIT_TEARDOWN_PENDING, QUIT_TEARDOWN_RECOVERY],
+            0,
+        ));
+        assert!(!transition_quit_teardown_state(
+            &state,
+            &[QUIT_TEARDOWN_PENDING, QUIT_TEARDOWN_RECOVERY],
+            QUIT_TEARDOWN_EXIT_ALLOWED,
+        ));
+    }
+
+    #[test]
+    fn completed_stop_wins_the_recovery_timeout_race() {
+        let state = AtomicU8::new(QUIT_TEARDOWN_PENDING);
+
+        assert!(transition_quit_teardown_state(
+            &state,
+            &[QUIT_TEARDOWN_PENDING, QUIT_TEARDOWN_RECOVERY],
+            2,
+        ));
+        assert!(!transition_quit_teardown_state(
+            &state,
+            &[QUIT_TEARDOWN_PENDING],
+            QUIT_TEARDOWN_RECOVERY,
+        ));
+    }
+
+    #[test]
+    fn recovery_quit_requires_an_explicit_force_transition() {
+        let state = AtomicU8::new(QUIT_TEARDOWN_RECOVERY);
+
+        assert!(force_quit_teardown_for(&state));
+        assert_eq!(
+            state.load(std::sync::atomic::Ordering::SeqCst),
+            QUIT_TEARDOWN_EXIT_ALLOWED
+        );
+        assert!(!force_quit_teardown_for(&state));
+        assert!(!transition_quit_teardown_state(
+            &state,
+            &[QUIT_TEARDOWN_PENDING, QUIT_TEARDOWN_RECOVERY],
+            0,
+        ));
+    }
+
+    #[test]
+    fn canceled_quit_timer_cannot_open_recovery_for_a_later_attempt() {
+        let state = AtomicU8::new(0);
+        let recovery_attempt = Mutex::new(0);
+
+        let stale_attempt = begin_quit_teardown_for(&state, &recovery_attempt).unwrap();
+        assert!(transition_quit_teardown_state(
+            &state,
+            &[QUIT_TEARDOWN_PENDING, QUIT_TEARDOWN_RECOVERY],
+            0,
+        ));
+        let current_attempt = begin_quit_teardown_for(&state, &recovery_attempt).unwrap();
+
+        assert!(!show_quit_teardown_recovery_for(
+            &state,
+            &recovery_attempt,
+            stale_attempt,
+        ));
+        assert_eq!(
+            state.load(std::sync::atomic::Ordering::SeqCst),
+            QUIT_TEARDOWN_PENDING
+        );
+        assert!(show_quit_teardown_recovery_for(
+            &state,
+            &recovery_attempt,
+            current_attempt,
+        ));
+        assert_eq!(
+            state.load(std::sync::atomic::Ordering::SeqCst),
+            QUIT_TEARDOWN_RECOVERY
+        );
+    }
 }
 
 #[tauri::command]
@@ -3530,4 +3804,62 @@ pub fn position_popover_with_size(
         .clamp(min_x, max_x.max(min_x));
     let y = (mon_pos.y + margin_top).clamp(min_y, max_y.max(min_y));
     let _ = window.set_position(PhysicalPosition::new(x, y));
+}
+
+#[cfg(test)]
+mod countdown_show_tests {
+    use super::with_countdown_show_lock;
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+    use tokio::sync::oneshot;
+
+    #[tokio::test]
+    async fn serializes_setup_through_presentation() {
+        let phase = Arc::new(AtomicUsize::new(0));
+        let first_phase = Arc::clone(&phase);
+        let (first_started_tx, first_started_rx) = oneshot::channel();
+        let (present_first_tx, present_first_rx) = oneshot::channel();
+        let first = tokio::spawn(with_countdown_show_lock(async move {
+            first_phase.store(1, Ordering::SeqCst);
+            first_started_tx.send(()).unwrap();
+            present_first_rx.await.unwrap();
+            first_phase.store(2, Ordering::SeqCst);
+        }));
+        first_started_rx.await.unwrap();
+
+        let second_phase = Arc::clone(&phase);
+        let (second_waiting_tx, second_waiting_rx) = oneshot::channel();
+        let (second_started_tx, mut second_started_rx) = oneshot::channel();
+        let second = tokio::spawn(async move {
+            second_waiting_tx.send(()).unwrap();
+            with_countdown_show_lock(async move {
+                second_started_tx
+                    .send(second_phase.load(Ordering::SeqCst))
+                    .unwrap();
+            })
+            .await;
+        });
+        second_waiting_rx.await.unwrap();
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(10), &mut second_started_rx)
+                .await
+                .is_err()
+        );
+
+        present_first_tx.send(()).unwrap();
+        first.await.unwrap();
+        assert_eq!(second_started_rx.await.unwrap(), 2);
+        second.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn releases_lock_when_setup_fails() {
+        let failed = with_countdown_show_lock(async { Err::<(), _>("build failed") }).await;
+        assert_eq!(failed, Err("build failed"));
+
+        let succeeded = with_countdown_show_lock(async { Ok::<(), &str>(()) }).await;
+        assert_eq!(succeeded, Ok(()));
+    }
 }

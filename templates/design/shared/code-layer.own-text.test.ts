@@ -44,6 +44,14 @@ describe("which elements hold text of their own", () => {
     expect(paintsOwnText(html, "row")).toBe(true);
   });
 
+  it("keeps generated Motion text units attached to their authored layer", () => {
+    const html =
+      '<body><button class="target"><span data-agent-native-motion-text-unit="0">Motion</span>' +
+      '<span data-agent-native-motion-text-unit="1"> target</span></button></body>';
+
+    expect(paintsOwnText(html, "target")).toBe(true);
+  });
+
   it("does not count whitespace between children as text", () => {
     const html = `<body><li class="row">\n  <span class="a">one</span>\n  <span class="b">two</span>\n</li></body>`;
 

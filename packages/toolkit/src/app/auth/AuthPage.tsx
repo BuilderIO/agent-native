@@ -6,6 +6,7 @@ import {
 } from "@agent-native/core/client/analytics";
 import { frameworkRoutePrefix } from "@agent-native/core/client/api-path";
 import {
+  identityBootstrapCallbackHref,
   isAgentNativeDesktop,
   isBuilderDesktop,
   normalizeOAuthReturnPath,
@@ -769,13 +770,10 @@ export function AuthPage(props: AuthPageProps) {
   const identityBootstrapHref = React.useCallback(
     (target?: string) => {
       const safeTarget = target || resumeHref();
-      if (!identitySsoEnabled || isAgentNativeDesktop()) return safeTarget;
-      const url = new URL(
-        apiPath("/_agent-native/identity/bootstrap"),
-        window.location.origin,
-      );
-      url.searchParams.set("return", safeTarget);
-      return `${url.pathname}${url.search}`;
+      return identityBootstrapCallbackHref(safeTarget, {
+        enabled: identitySsoEnabled,
+        bootstrapPath: apiPath("/_agent-native/identity/bootstrap"),
+      });
     },
     [apiPath, identitySsoEnabled, resumeHref],
   );

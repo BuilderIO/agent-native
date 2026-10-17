@@ -90,6 +90,7 @@ import {
   createMcpApprovalGrant,
 } from "./approval-store.js";
 import { getBuiltinCrossAppTools } from "./builtin-tools.js";
+import { mcpCallAttribution } from "./call-attribution.js";
 import {
   MCP_CONNECT_OAUTH_CLIENT_ID,
   MCP_CONNECT_SCOPE,
@@ -1811,6 +1812,11 @@ function mcpDirectoryWidgetSessionTool(config: MCPConfig): Tool | null {
       },
       required: ["sourceTicket"],
     },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      openWorldHint: false,
+    },
     _meta: { ui: { visibility: ["app"] } },
   } as Tool;
 }
@@ -2936,12 +2942,23 @@ export async function createMCPServerForRequest(
     ) as Promise<T>;
   }
 
+  // Distinct from `undefined` (no approval needed) so the audit row records
+  // that the MCP client accepted this call's elicitation.
+  const MCP_ACTION_ELICITATION_ACCEPTED = Symbol(
+    "mcp-action-elicitation-accepted",
+  );
+
   async function requireMcpActionApproval(
     entry: ActionEntry,
     name: string,
     args: Record<string, unknown>,
     ctx: ServerContext,
-  ): Promise<CallToolResult | InputRequiredResult | undefined> {
+  ): Promise<
+    | CallToolResult
+    | InputRequiredResult
+    | typeof MCP_ACTION_ELICITATION_ACCEPTED
+    | undefined
+  > {
     const verifiedState =
       ctx.mcpReq.requestState<McpActionApprovalState>() ?? undefined;
     const argumentsHash = await sha256Base64Url(canonicalJson(args));
@@ -2989,7 +3006,7 @@ export async function createMCPServerForRequest(
       if (approval?.decision !== "approve") {
         return actionApprovalError(`${name} was not approved.`);
       }
-      return undefined;
+      return MCP_ACTION_ELICITATION_ACCEPTED;
     }
 
     if (entry.needsApproval === undefined) return undefined;
@@ -3458,7 +3475,10 @@ export async function createMCPServerForRequest(
             (args as Record<string, unknown>) ?? {},
             ctx,
           );
-          if (approvalResult !== undefined) return approvalResult;
+          const clientAccepted =
+            approvalResult === MCP_ACTION_ELICITATION_ACCEPTED;
+          if (approvalResult !== undefined && !clientAccepted)
+            return approvalResult;
 
           const result = await entry.run(
             (args as Record<string, string>) ?? {},
@@ -3468,6 +3488,12 @@ export async function createMCPServerForRequest(
               appId: config.appId,
               caller: "mcp",
               actionName: name,
+              ...mcpCallAttribution({
+                request,
+                envelope: ctx.mcpReq.envelope,
+                oauthClientId: effectiveIdentity?.oauthClientId,
+                clientAccepted,
+              }),
             },
           );
           const mcpResult = isMcpActionResult(result) ? result : null;
@@ -3971,6 +3997,13 @@ export class McpIdentityVerificationUnavailableError extends Error {
     super("MCP identity verification is temporarily unavailable");
     this.name = "McpIdentityVerificationUnavailableError";
     this.cause = cause;
+  }
+}
+
+export class McpIdentityVerificationRefusedError extends Error {
+  constructor() {
+    super("MCP identity verification was refused");
+    this.name = "McpIdentityVerificationRefusedError";
   }
 }
 
@@ -4498,6 +4531,9 @@ export async function verifyAuth(
     if (error instanceof McpIdentityVerificationUnavailableError) {
       return { authed: false, unavailable: true };
     }
+    if (error instanceof McpIdentityVerificationRefusedError) {
+      return { authed: false, refusal: "invalid" };
+    }
     throw error;
   }
   if (payload) {
@@ -4587,13 +4623,17 @@ export async function resolveOrgIdFromDomain(
   orgDomain: string | undefined,
 ): Promise<string | undefined> {
   if (!orgDomain) return undefined;
+  const { lookupOrgByDomain } = await import("../org/context.js");
+  let result: Awaited<ReturnType<typeof lookupOrgByDomain>>;
   try {
-    const { resolveOrgByDomain } = await import("../org/context.js");
-    const org = await resolveOrgByDomain(orgDomain);
-    return org?.orgId ?? undefined;
-  } catch {
-    return undefined;
+    result = await lookupOrgByDomain(orgDomain);
+  } catch (cause) {
+    throw new McpIdentityVerificationUnavailableError(cause);
   }
+  if (result.status === "ambiguous") {
+    throw new McpIdentityVerificationRefusedError();
+  }
+  return result.status === "found" ? result.org.orgId : undefined;
 }
 
 export async function resolveMcpIdentityOrgId(
@@ -4601,8 +4641,13 @@ export async function resolveMcpIdentityOrgId(
 ): Promise<string | undefined> {
   if (identity?.orgId !== undefined) return identity.orgId ?? undefined;
 
-  const orgIdFromDomain = await resolveOrgIdFromDomain(identity?.orgDomain);
-  if (orgIdFromDomain) return orgIdFromDomain;
+  if (identity?.orgDomain !== undefined) {
+    const orgIdFromDomain = await resolveOrgIdFromDomain(identity.orgDomain);
+    if (!orgIdFromDomain) {
+      throw new McpIdentityVerificationRefusedError();
+    }
+    return orgIdFromDomain;
+  }
 
   const userEmail = identity?.userEmail?.trim();
   if (!userEmail) return undefined;

@@ -122,10 +122,17 @@ async function fetchFilesInto(
 function withRevision(
   bundle: SourceIndexBundle,
   revision: string,
+  repository: DbtRepository,
 ): SourceIndexBundle {
   return parseSourceIndexBundle({
     ...bundle,
-    sources: bundle.sources.map((source) => ({ ...source, revision })),
+    sources: bundle.sources.map((source) => ({
+      ...source,
+      sourceKind: "dbt",
+      repositoryRef: `${repository.owner}/${repository.repo}`,
+      revision,
+      generatedAt: bundle.generatedAt,
+    })),
     entries: bundle.entries.map((entry) =>
       entry.sourceKind === "dbt"
         ? { ...entry, sourceRevision: revision }
@@ -174,7 +181,10 @@ export async function buildDbtSourceIndexFromGitHub(
         generatedAt: head.committedAt,
       }),
     );
-    return { bundle: withRevision(bundle, head.sha), revision: head.sha };
+    return {
+      bundle: withRevision(bundle, head.sha, repository),
+      revision: head.sha,
+    };
   } finally {
     await rm(parent, { recursive: true, force: true });
   }

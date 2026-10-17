@@ -18,9 +18,10 @@ import {
 import { requireRequestCredentialContext } from "./credentials-context.js";
 import { firstPartyEventPushdownPredicates } from "./first-party-analytics-pushdown.js";
 import { validateAnalyticsSqlFunctions } from "./first-party-analytics-sql-policy.js";
+import type { AnalyticsQueryResult } from "./first-party-analytics.js";
 import {
   fetchGoogleWithRetry,
-  getAccessToken,
+  getBigQueryAccessToken,
   raceWithAbort,
 } from "./gcloud.js";
 import {
@@ -663,7 +664,7 @@ export async function createFirstPartyAnalyticsInserter(
   const table = await getFirstPartyAnalyticsTable(configuredTable);
   return async (rows) => {
     if (!rows.length) return 0;
-    const token = await getAccessToken();
+    const token = await getBigQueryAccessToken({ preferServiceAccount: true });
     const payloadRows = rows.map(firstPartyEventRowToBigQuery);
     const result = await insertPayloadRowsWithResults(
       table,
@@ -692,7 +693,7 @@ async function insertFirstPartyAnalyticsRowsWithResultsInternal(
   requireRequestCredentialContext("GOOGLE_APPLICATION_CREDENTIALS_JSON");
   const [table, token] = await Promise.all([
     getFirstPartyAnalyticsTable(configuredTable),
-    getAccessToken(),
+    getBigQueryAccessToken({ preferServiceAccount: true }),
   ]);
   const payloadRows = rows.map(firstPartyEventRowToBigQuery);
   return insertPayloadRowsWithResults(table, token, payloadRows, options);
@@ -1568,11 +1569,7 @@ export async function queryFirstPartyAnalyticsInBigQuery(
     timeoutMs?: number;
     signal?: AbortSignal;
   } = {},
-): Promise<{
-  rows: Record<string, unknown>[];
-  schema: { name: string; type: string }[];
-  truncated?: boolean;
-}> {
+): Promise<AnalyticsQueryResult> {
   const timeoutMs = options.timeoutMs;
   if (
     timeoutMs !== undefined &&
@@ -1610,7 +1607,13 @@ export async function queryFirstPartyAnalyticsInBigQuery(
   return {
     rows: result.rows,
     schema: result.schema,
-    ...(result.truncated ? { truncated: true } : {}),
+    bytesProcessed: result.bytesProcessed,
+    ...(result.cached !== undefined ? { cached: result.cached } : {}),
+    ...(result.providerCacheHit !== undefined
+      ? { providerCacheHit: result.providerCacheHit }
+      : {}),
+    ...(result.fetchedAt !== undefined ? { fetchedAt: result.fetchedAt } : {}),
+    ...(result.truncated !== undefined ? { truncated: result.truncated } : {}),
   };
 }
 

@@ -98,6 +98,19 @@ describe("runSwapFillStroke", () => {
     });
   });
 
+  it("carries a partial opacity into a wide-gamut colour without flattening it", () => {
+    const patch = swap(
+      element("path", {
+        fill: "oklch(70% 0.3 150)",
+        fillOpacity: "0.5",
+        stroke: "none",
+        strokeWidth: "0px",
+      }),
+    );
+
+    expect(patch?.stroke).toBe("oklch(70% 0.3 150 / 50%)");
+  });
+
   it("swaps a box's background and border colours", () => {
     const patch = swap(
       element("div", {

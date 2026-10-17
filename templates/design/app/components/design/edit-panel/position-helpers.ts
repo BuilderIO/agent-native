@@ -1,8 +1,6 @@
 import {
-  parseCssColor,
   parseCssColorExtended,
-  rgbaToCss,
-  withColorOpacity,
+  withCssColorOpacity,
 } from "@shared/color-utils";
 
 export function cssLengthNumber(
@@ -157,10 +155,8 @@ export function strokeShowPatch(
   width: string,
   styleValue: string,
 ): Record<string, string> {
-  const parsed = parseCssColor(color);
-  const restoredColor = parsed
-    ? rgbaToCss(withColorOpacity(parsed, 100))
-    : "#000000";
+  // guard:allow-raw-color — a stroke with no readable color restores to concrete black.
+  const restoredColor = withCssColorOpacity(color, 100) ?? "#000000";
   const patch: Record<string, string> = {
     [`${prefix}Color`]: restoredColor,
     [`${prefix}Width`]: width === "0px" ? "1px" : width || "1px",

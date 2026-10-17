@@ -8,6 +8,7 @@
  */
 
 import { CORE_ACTION_GROUPS } from "../framework-tools.js";
+import { agentTroubleCauseForCode } from "../shared/analytics-events.js";
 import {
   getRegisteredObservabilityProvider,
   type ObservabilityMeterProvider,
@@ -231,8 +232,18 @@ export interface GenAiChatMetric {
   supportedModels?: readonly string[];
   durationMs?: number;
   failed?: boolean;
+  /** The engine's error code for a failed call, bounded before it becomes `error.type`. */
+  errorCode?: string;
   inputTokens?: number;
   outputTokens?: number;
+}
+
+// Error codes are thrower-supplied strings, so only HTTP statuses and the
+// closed trouble-cause set reach the label; everything else stays `_OTHER`.
+function boundedGenAiErrorType(errorCode: string | undefined): string {
+  const normalized = errorCode?.trim().toLowerCase();
+  if (normalized && /^http_[45]\d\d$/.test(normalized)) return normalized;
+  return agentTroubleCauseForCode(normalized) ?? "_OTHER";
 }
 
 /** One model round trip (`gen_ai.operation.name=chat`). */
@@ -250,7 +261,12 @@ export function recordGenAiChat(call: GenAiChatMetric): void {
   if (call.durationMs !== undefined) {
     recorded.genAiOperationDuration.record(
       Math.max(0, call.durationMs) / 1_000,
-      call.failed ? { ...attributes, "error.type": "_OTHER" } : attributes,
+      call.failed
+        ? {
+            ...attributes,
+            "error.type": boundedGenAiErrorType(call.errorCode),
+          }
+        : attributes,
     );
   }
   for (const [tokenType, tokens] of [

@@ -1,6 +1,8 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "block.renderUnavailable": "このブロックは一時的に利用できません。",
+  "block.loading": "ブロックを読み込み中です。",
   "composer.contextUrlLabel": "URL",
   "composer.contextInvalidUrl":
     "有効な HTTP または HTTPS の URL を入力してください。",
@@ -160,9 +162,9 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderActivationChecking":
     "新しいアカウントを作成できるか確認しています。",
   "onboarding.builderActivationUnavailable":
-    "このアプリでは新しいアカウントの作成が有効になっていません。既存のアカウントは接続できます。",
+    "Builder.io に接続するには、アカウントを作成するかサインインしてください。",
   "onboarding.builderActivationUnavailableInMode":
-    "このモードでは新しいアカウントを有効化できません。既存のアカウントは引き続き接続できます。",
+    "Builder.io に接続するには、アカウントを作成するかサインインしてください。",
   "onboarding.builderActivationCheckFailed":
     "このアプリで新しいアカウントを作成できるか確認できませんでした。",
 
@@ -177,6 +179,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "プライバシーポリシー",
   "onboarding.builderConsentAnd": "および",
   "onboarding.builderExistingAccount": "Builder.io アカウントを持っています",
+  "onboarding.builderConnect": "Builder.io に接続",
   "onboarding.builderActivating": "Builder.io 無料クレジットを有効化しています",
   "onboarding.builderConnecting": "Builder.io の無料クレジットを設定しています",
   "onboarding.builderProvisioningDescription":
@@ -213,6 +216,10 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.keySummary": "埋め込み",
   "onboarding.capability.embeddings.why":
     "埋め込みは意味検索を改善します。埋め込みがなくてもキーワード検索は使えます。",
+  "onboarding.capability.webSearch.label": "ウェブ検索",
+  "onboarding.capability.webSearch.keySummary": "Builder が管理するウェブ検索",
+  "onboarding.capability.webSearch.why":
+    "ウェブ上の最新の公開情報を検索します。Builder 管理の検索では付属の Builder AI クレジットを使うため、別の検索 API キーは不要です。",
   "onboarding.capability.systemOne.why":
     "Jev は、エージェントが最初にモデルへリクエストする前に、関連するツールやスキルを選ぶための任意の判断モデルです。",
   "onboarding.capability.assetsImageGeneration.label": "画像生成",
@@ -684,6 +691,10 @@ const messages: ToolkitAgentChatTranslation = {
     "モデルプロバイダーがこのリクエストを不正な形式として拒否したため、再試行されませんでした。再試行するか、繰り返し発生する場合は新しいチャットを開始してください。",
   "errorMessages.requestTooLarge":
     "このリクエストはサーバーのサイズ上限を超えました（HTTP 413）。新しいチャットを開始するか、大きな添付ファイルや参照を削除して再試行してください。",
+  "errorMessages.capabilityUnavailable":
+    "現在メッセージを送信できませんでした。少し待ってからもう一度お試しください。",
+  "errorMessages.capabilityUnsupported":
+    "このアプリは、保存したプロンプトをまだ安全に再試行できません。アプリを更新してから、もう一度お試しください。",
   "errorMessages.runInterrupted": "エージェントは完了前に停止しました。",
   "errorMessages.runFailed": "エージェントの実行に失敗しました。",
   "errorMessages.runUnverified":
@@ -1191,6 +1202,12 @@ const messages: ToolkitAgentChatTranslation = {
     "この実行はもう続行できません。続けるにはメッセージを送信してください。",
   "errorMessages.invalidAttachmentNamed":
     "モデルプロバイダーは、形式またはサイズがサポートされていないため、{{name}} を拒否しました。画像はより小さい PNG、JPEG、GIF、または WebP として書き出してください。文書は対応形式を使うか、関連するテキストを貼り付けて再試行してください。",
+  "recovery.resendVerificationEmail": "確認メールを再送信",
+  "recovery.sendingVerificationEmail": "送信中...",
+  "recovery.verificationEmailRequested":
+    "確認メールの送信をリクエストしました。受信トレイと迷惑メールフォルダーを確認してください。",
+  "recovery.verificationEmailFailed":
+    "確認メールをリクエストできませんでした。もう一度お試しください。",
   "recovery.retryWithoutAttachment": "添付ファイルなしで再試行",
   "recovery.retryAttachmentUnavailable":
     "このリクエストには再試行できないファイルが含まれています。メッセージ入力欄でファイルを添付し直してから、もう一度お試しください。",
@@ -1235,6 +1252,8 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.emptyMore":
     "他{{count}}件は「新規」の下にあるか、任意のカスタムキーを追加できます",
   "secrets.emptyTitle": "キーはまだありません。",
+  "secrets.figmaTokenMustBeToken":
+    "Figma ファイル URL ではなく、Figma アクセストークンを貼り付けてください。",
   "secrets.fromEnvironment": "デプロイ環境から提供されています。",
   "secrets.managedInVault":
     "ワークスペースの Vault で管理されています。このワークスペース内のすべてのアプリがこの値を使用します。",
@@ -2627,6 +2646,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.search.appDefaultModel": "アプリのデフォルトモデル",
   "settingsShell.search.backgroundAgents": "バックグラウンドエージェント",
   "settingsShell.search.browserAutomation": "ブラウザ自動化",
+  "settingsShell.search.webSearch": "ウェブ検索",
   "settingsShell.search.connectedAgents": "接続済みエージェント",
   "settingsShell.search.database": "データベース",
   "settingsShell.search.defaultModel": "デフォルトモデル",
@@ -2762,6 +2782,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.whyBackground": "本番環境からコードを変更します。",
   "settingsInfra.whyBrowser":
     "本番環境でエージェントがブラウザを使えるようにします。",
+  "settingsInfra.whyWebSearch":
+    "最新の公開情報や公式ドキュメントを検索します。",
   "settingsInfra.provider": "プロバイダー",
   "settingsInfra.keyOrg": "組織の {{provider}} キーを使います。",
   "settingsInfra.manageKey": "キーを管理",
@@ -3096,6 +3118,16 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsSubAgents.connectTitle": "{{name}} を接続",
   "settingsSubAgents.close": "閉じる",
   "observability.insights.rawTrace": "生のトレース（すべてのスパンと入出力）",
+  "reportProblem.menuItem": "問題を報告",
+  "reportProblem.title_other":
+    "過去 {{count}} 秒間のアプリの動作を添付しますか？",
+  "reportProblem.noEvents": "まだ記録はありません。",
+  "reportProblem.send": "エージェントに送信",
+  "reportProblem.copy": "問題レポートをコピー",
+  "reportProblem.attaching": "添付中…",
+  "reportProblem.notAttached": "レポートは添付されませんでした。",
+  "reportProblem.agentMessage":
+    "アプリで問題が発生しました。添付の問題レポートをもとに、何が起きたのか説明してください。",
 };
 
 export default messages;

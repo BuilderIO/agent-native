@@ -155,7 +155,6 @@ export default defineAction({
       fileId: file.id,
       filename: file.filename,
       selectedNodeId: nodeId,
-      inspectorTab: "design",
       inspectorSection: "component",
     });
 

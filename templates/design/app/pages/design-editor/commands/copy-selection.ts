@@ -104,10 +104,18 @@ export async function runCopySelection({
 }: CopySelectionArgs) {
   const snapshots = getSelectedLayerSnapshots();
   const entries: CanvasLayerClipboardEntry[] = snapshots.map((snapshot) => ({
-    html: preserveClipboardLayerName(snapshot.html, snapshot.node.layerName),
+    html: preserveClipboardLayerName(
+      snapshot.html,
+      snapshot.node.layerNameSource === "text"
+        ? undefined
+        : snapshot.node.layerName,
+    ),
     rootNodeId: snapshot.rootNodeId,
     sourceParentNodeId: snapshot.sourceParentNodeId,
     sourceFileId: snapshot.sourceFileId,
+    ...(snapshot.sourceRelativeOffset !== undefined
+      ? { sourceRelativeOffset: snapshot.sourceRelativeOffset }
+      : {}),
     ...portableStylesForClipboard(snapshot, readPortableStyleSnapshot),
     managedStyleSnapshot: snapshot.managedStyleSnapshot,
   }));
@@ -139,6 +147,7 @@ export async function runCopySelection({
               filename: file.filename,
               fileType: file.fileType,
               content,
+              sourceScreenId: screenId,
               canvasFrame: canvasFrameGeometryById[screenId],
             };
           })

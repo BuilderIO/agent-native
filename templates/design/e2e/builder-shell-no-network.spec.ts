@@ -1,6 +1,6 @@
 import { createServer, type Server } from "node:http";
 
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./rails";
 
 const STUB_APP = `<!doctype html><html lang="en"><head><meta charset="utf-8" /><title>Stub app</title></head>
 <body style="margin:0;font-family:system-ui">
@@ -61,49 +61,56 @@ test("the Builder shell canvas makes no agent-native requests", async ({
 }) => {
   const shellUrl = `${baseURL}/visual-edit/shell?view=overview&embedChrome=1`;
   const { server, hostUrl } = await startHostStub(shellUrl);
-
+  const isAgentNativeRequest = (url: string) =>
+    url.includes("/_agent-native/") &&
+    !url.includes("/_agent-native/webmcp/manifest");
   const requests: string[] = [];
   page.on("request", (request) => {
-    const url = request.url();
-    if (!url.includes("/_agent-native/")) return;
-    const path = url.replace(String(baseURL), "");
-    if (path.startsWith("/_agent-native/webmcp/manifest")) return;
-    requests.push(`${request.method()} ${path}`);
+    if (isAgentNativeRequest(request.url())) {
+      requests.push(
+        `${request.method()} ${request.url().replace(String(baseURL), "")}`,
+      );
+    }
   });
 
   try {
     await page.goto(hostUrl, { waitUntil: "domcontentloaded" });
     const shell = page.frameLocator("#design");
+    await expect(shell.locator("[data-screen-shell]")).toHaveCount(2);
+    const rail = shell.locator('[data-design-chrome-region="workspace-rail"]');
+
+    await rail.getByRole("button", { name: "Tokens", exact: true }).click();
     await expect(
-      shell.getByText("Fusion home", { exact: false }).first(),
+      rail.getByRole("button", { name: "Tokens", exact: true }),
+    ).toHaveAttribute("aria-current", "page");
+    await expect(
+      shell.getByText("Tokens require editor access", { exact: true }),
     ).toBeVisible();
-
-    for (const label of [
-      "Assets",
-      "Import",
-      "Tools",
-      "Tokens",
-      "Code",
-      "Layers",
-    ]) {
-      await shell
-        .getByText(label, { exact: true })
-        .first()
-        .click({ timeout: 5000 })
-        .catch(() => {});
-      await page.waitForTimeout(400);
-    }
+    await rail.getByRole("button", { name: "Layers", exact: true }).click();
+    const layers = shell.getByRole("tree", { name: "Layers" });
+    await expect(layers.getByRole("treeitem")).toHaveText([
+      "Fusion about",
+      "Fusion home",
+    ]);
+    await layers.getByRole("treeitem", { name: "Fusion about" }).click();
+    await expect(
+      shell.locator('[role="treeitem"][aria-selected="true"]'),
+    ).toHaveText(["Fusion about"]);
     await shell
-      .getByText("Fusion home", { exact: false })
-      .first()
-      .dblclick({ timeout: 5000 })
-      .catch(() => {});
-    await page.waitForTimeout(3000);
+      .locator("[data-frame-title]")
+      .filter({ hasText: "Fusion home" })
+      .dblclick();
+    await page.keyboard.press("Escape");
 
+    await expect(
+      page.waitForRequest((request) => isAgentNativeRequest(request.url()), {
+        timeout: 3000,
+      }),
+    ).rejects.toThrow(/Timeout/);
     expect(
       requests,
       `unauthorized requests from the shell:\n${requests.join("\n")}`,
-    ).toEqual([]);
+    ).toStrictEqual([]);
   } finally {
     server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));
