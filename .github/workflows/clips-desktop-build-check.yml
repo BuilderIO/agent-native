@@ -140,7 +140,7 @@ jobs:
             binaries/ffmpeg-x86_64-apple-darwin \
             -output binaries/ffmpeg-universal-apple-darwin
           chmod +x binaries/ffmpeg-universal-apple-darwin
-          lipo -verify_arch arm64 x86_64 binaries/ffmpeg-universal-apple-darwin
+          lipo binaries/ffmpeg-universal-apple-darwin -verify_arch arm64 x86_64
 
       - name: Build Tauri app (no signing, no publish)
         working-directory: ${{ env.TAURI_APP_PATH }}
