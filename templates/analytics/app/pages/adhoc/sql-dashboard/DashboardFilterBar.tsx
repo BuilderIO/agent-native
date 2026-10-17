@@ -400,7 +400,9 @@ function DashboardFilterBarContent({
                   onSavePreset={
                     onSavePreset &&
                     ((preset) => {
-                      if (canUpdateFilters()) onSavePreset(f.id, preset);
+                      if (!canUpdateFilters()) return false;
+                      onSavePreset(f.id, preset);
+                      return true;
                     })
                   }
                   shared={shared}
@@ -612,7 +614,7 @@ function MultiSelectFilter({
   filter: DashboardFilter;
   value: string;
   setValue: (updates: Record<string, string>) => void;
-  onSavePreset?: (preset: FilterPreset) => void;
+  onSavePreset?: (preset: FilterPreset) => boolean;
   shared: boolean;
   disabled: boolean;
   onCloseAutoFocus: (event: Event) => void;
@@ -629,8 +631,6 @@ function MultiSelectFilter({
     "",
     filter.id,
   );
-  const disabledRef = useRef(disabled);
-  disabledRef.current = disabled;
   useEffect(() => {
     if (!disabled) return;
     setOpen(false);
@@ -731,20 +731,17 @@ function MultiSelectFilter({
     setGroupName("");
   };
   const saveGroup = () => {
+    if (!onSavePreset || !trimmedGroupName || groupNameTaken) return;
     if (
-      disabledRef.current ||
-      !onSavePreset ||
-      !trimmedGroupName ||
-      groupNameTaken
+      !onSavePreset({
+        label: trimmedGroupName,
+        values: options
+          .filter((option) => selectedSet.has(option.value))
+          .map((option) => option.value),
+      })
     )
       return;
     savedPresetLabelRef.current = trimmedGroupName;
-    onSavePreset({
-      label: trimmedGroupName,
-      values: options
-        .filter((option) => selectedSet.has(option.value))
-        .map((option) => option.value),
-    });
     stopNaming();
   };
 
@@ -965,7 +962,7 @@ interface FilterControlProps {
   vars: Record<string, string>;
   hasParam: (key: string) => boolean;
   setValue: (updates: Record<string, string>) => void;
-  onSavePreset?: (preset: FilterPreset) => void;
+  onSavePreset?: (preset: FilterPreset) => boolean;
   shared: boolean;
   disabled: boolean;
   onCloseAutoFocus: (event: Event) => void;

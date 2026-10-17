@@ -467,6 +467,84 @@ describe("dashboard filter feedback during navigation", () => {
     expect(appTrigger().disabled).toBe(false);
   });
 
+  it.each(["foreign", "POST", "revoked owner"])(
+    "retains a preset name when live admission rejects %s before controls disable",
+    async (reason) => {
+      savePreset = vi.fn<() => void>();
+      loadedOwner = "selected";
+      const original = "/dashboards/test?id=selected&f_app=chat,slides";
+      await render(original, undefined, true, {
+        synchronous: reason === "revoked owner",
+      });
+      act(() => appTrigger().click());
+      act(() => button("Save as group…").click());
+      const input = document.querySelector<HTMLInputElement>(
+        'input[aria-label="Group name"]',
+      )!;
+      act(() => {
+        Object.getOwnPropertyDescriptor(
+          HTMLInputElement.prototype,
+          "value",
+        )!.set!.call(input, " Review apps ");
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      const form = input.closest("form")!;
+      act(() => {
+        startTransition(() => {
+          void router.navigate(
+            reason === "POST"
+              ? `${original}#write`
+              : reason === "revoked owner"
+                ? "/dashboards/test?id=foreign&f_app=chat,slides"
+                : "/dashboards/other?id=foreign&f_app=chat,slides",
+            reason === "POST"
+              ? { formMethod: "POST", formData: new FormData() }
+              : undefined,
+          );
+          expect(queuedAdmission!()).toBe(false);
+          expect(appTrigger().disabled).toBe(false);
+          expect(container.querySelector('[aria-busy="true"]')).toBeNull();
+          expect(form.isConnected).toBe(true);
+          if (reason === "revoked owner") {
+            expect(router.state.navigation.state).toBe("idle");
+          }
+          form.dispatchEvent(
+            new Event("submit", { bubbles: true, cancelable: true }),
+          );
+          expect(savePreset).not.toHaveBeenCalled();
+        });
+      });
+      act(() => {
+        void router.navigate(original);
+      });
+      if (reason !== "revoked owner") await settle();
+      expect(queuedAdmission!()).toBe(true);
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+      act(() => appTrigger().click());
+      act(() => button("Save as group…").click());
+      expect(
+        document.querySelector<HTMLInputElement>(
+          'input[aria-label="Group name"]',
+        )!.value,
+      ).toBe(" Review apps ");
+      expect(savePreset).not.toHaveBeenCalled();
+      act(() => button("Save").click());
+      expect(savePreset).toHaveBeenCalledExactlyOnceWith("app", {
+        label: "Review apps",
+        values: ["chat", "slides"],
+      });
+      expect(
+        document.querySelector('input[aria-label="Group name"]'),
+      ).toBeNull();
+      act(() => button("Save as group…").click());
+      expect(
+        document.querySelector<HTMLInputElement>(
+          'input[aria-label="Group name"]',
+        )!.value,
+      ).toBe("");
+    },
+  );
+
   it.each(["failure", "cancel", "POST"])(
     "preserves a nonempty preset name after temporary busy %s until manual reopen",
     async (outcome) => {
