@@ -497,10 +497,11 @@ describe("moving a page that takes body writes through its live copy", () => {
     expect(moved).toMatchObject({ titleFlush: { status: "no_open_editor" } });
   });
 
-  it("refuses, retryably and naming the page, a move to another space its open editor doesn't confirm in time", async () => {
+  it("refuses, retryably and naming the page, a move to another space its open editor takes and doesn't confirm in time", async () => {
     const page = await as(OWNER, () => createDocument.run({ title: "Plan" }));
     await liveCopy.putPageOnLiveCopy(page.id);
     await tabs.openEditorTab(page.id, EDITOR, { canFlushTitle: true });
+    const taken = tabs.takeFlushRequest(page.id, EDITOR);
 
     await expect(
       as(OWNER, () =>
@@ -513,6 +514,9 @@ describe("moving a page that takes body writes through its live copy", () => {
       errorCode: "OPEN_EDITOR_TITLE_NOT_SAVED",
       statusCode: 409,
       details: { documentId: page.id, reason: "timeout", retryable: true },
+    });
+    await expect(taken).resolves.toMatchObject({
+      held: { scope: "title", status: "taken" },
     });
     expect(await documentRows([page.id])).toEqual([
       expect.objectContaining({ spaceId: personalContentSpaceId(OWNER) }),

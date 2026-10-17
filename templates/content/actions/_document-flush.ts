@@ -46,6 +46,7 @@ export type OpenEditorTitleFlush =
         | "timeout"
         | "editor_error"
         | "request_not_delivered"
+        | "request_not_received"
         | "acknowledgement_unreadable";
       documentId: string;
       code?: string;
@@ -142,9 +143,15 @@ async function deliverFlushRequest(
       return true;
     }
     const occupied = await appStateGet(session, flushKey);
+    // A title request's server stops waiting within FLUSH_TIMEOUT_MS of its
+    // ts, so an older one, pending or taken, is one whose cleanup failed. A
+    // whole flush can wait up to twice that, so its pending request stays.
     if (
       occupied &&
-      (occupied.status === "success" || occupied.status === "error") &&
+      (occupied.status === "success" ||
+        occupied.status === "error" ||
+        (occupied.scope === "title" &&
+          (occupied.status === "pending" || occupied.status === "taken"))) &&
       typeof occupied.ts === "number" &&
       Date.now() - occupied.ts >= FLUSH_TIMEOUT_MS
     ) {
@@ -270,12 +277,14 @@ async function requestTitleSave(
     // A mailbox read that fails counts as no answer yet, as on main's whole
     // flush; the outcome says so if its session never answers.
     let unreadable: { error: unknown } | null = null;
+    let notReceived = false;
     while (Date.now() < deadline) {
       await pollWait(deadline);
       const reads = await Promise.allSettled(
         plan.sessions.map((session) => appStateGet(session, flushKey)),
       );
       unreadable = null;
+      notReceived = false;
       let saved = 0;
       for (const read of reads) {
         if (read.status === "rejected") {
@@ -298,6 +307,7 @@ async function requestTitleSave(
           };
         }
         if (response.status === "success") saved += 1;
+        else if (response.status === "pending") notReceived = true;
       }
       if (saved === plan.sessions.length) return null;
     }
@@ -315,6 +325,11 @@ async function requestTitleSave(
         reason: "acknowledgement_unreadable",
         documentId,
       };
+    }
+    // An editor marks the request taken before it saves, so one still pending
+    // never reached its editor; one taken and left unanswered is a timeout.
+    if (notReceived) {
+      return { status: "failed", reason: "request_not_received", documentId };
     }
     return { status: "failed", reason: "timeout", documentId };
   } finally {
@@ -399,6 +414,8 @@ function openEditorTitleNotSavedMessage(flush: OpenEditorTitleFlushFailure) {
       return `An open editor couldn't save the title of page ${flush.documentId}${flush.error ? `: ${flush.error}` : "."}`;
     case "request_not_delivered":
       return `Couldn't ask the open editor of page ${flush.documentId} to save its title.`;
+    case "request_not_received":
+      return `An open editor of page ${flush.documentId} never picked up the request to save its title.`;
     case "acknowledgement_unreadable":
       return `Couldn't read whether the open editor of page ${flush.documentId} saved its title.`;
   }

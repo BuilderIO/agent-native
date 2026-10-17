@@ -242,11 +242,11 @@ describe("flushOpenDocumentEditorToSql", () => {
       ]);
     });
 
-    it("refuses with a typed, retryable code when no editor acknowledges in time", async () => {
+    it("refuses with a typed, retryable timeout when an editor takes the request and doesn't answer in time", async () => {
       mocks.loadAwarenessRowsStrict.mockResolvedValue([
         titleEditor("owner@example.com"),
       ]);
-      mocks.appStateGet.mockImplementation(async () => sentRequest());
+      answerWith({ status: "taken" });
 
       const error = await refusal(
         flushOpenDocumentEditorToSql({ documentId: "doc-1" }),
@@ -262,6 +262,94 @@ describe("flushOpenDocumentEditorToSql", () => {
         "flush-request-doc-1",
         { requestSource: "agent" },
       );
+    });
+
+    it("refuses as request_not_received when its request is still pending at the deadline", async () => {
+      mocks.loadAwarenessRowsStrict.mockResolvedValue([
+        titleEditor("owner@example.com"),
+      ]);
+      mocks.appStateGet.mockImplementation(async () => sentRequest());
+
+      const error = await refusal(
+        flushOpenDocumentEditorToSql({ documentId: "doc-1" }),
+      );
+
+      expect(error).toMatchObject({
+        errorCode: "OPEN_EDITOR_TITLE_NOT_SAVED",
+        statusCode: 409,
+        message: expect.stringContaining(
+          "never picked up the request to save its title",
+        ),
+        details: {
+          documentId: "doc-1",
+          reason: "request_not_received",
+          retryable: true,
+        },
+      });
+      expect(mocks.appStateDelete).toHaveBeenCalledWith(
+        "owner@example.com",
+        "flush-request-doc-1",
+        { requestSource: "agent" },
+      );
+    });
+
+    it("refuses as request_not_received when one session took the request and another never did", async () => {
+      mocks.loadAwarenessRowsStrict.mockResolvedValue([
+        titleEditor("a@example.com"),
+        titleEditor("b@example.com"),
+      ]);
+      mocks.appStateGet.mockImplementation(async (session: string) => ({
+        ...sentRequest(),
+        ...(session === "a@example.com" ? { status: "taken" } : {}),
+      }));
+
+      const error = await refusal(
+        flushOpenDocumentEditorToSql({ documentId: "doc-1" }),
+      );
+
+      expect(error).toMatchObject({
+        details: { reason: "request_not_received" },
+      });
+    });
+
+    it("keeps waiting while an editor has taken the request, and takes its answer", async () => {
+      mocks.loadAwarenessRowsStrict.mockResolvedValue([
+        titleEditor("owner@example.com"),
+      ]);
+      mocks.appStateGet
+        .mockImplementationOnce(async () => sentRequest())
+        .mockImplementationOnce(async () => ({
+          ...sentRequest(),
+          status: "taken",
+        }))
+        .mockImplementation(async () => ({
+          ...sentRequest(),
+          status: "success",
+          saved: true,
+        }));
+
+      const flush = flushOpenDocumentEditorToSql({ documentId: "doc-1" });
+      await vi.advanceTimersByTimeAsync(600);
+
+      await expect(flush).resolves.toEqual({ status: "flushed" });
+    });
+
+    it("refuses as a timeout when an editor took the request after an early poll saw it pending", async () => {
+      mocks.loadAwarenessRowsStrict.mockResolvedValue([
+        titleEditor("owner@example.com"),
+      ]);
+      mocks.appStateGet
+        .mockImplementationOnce(async () => sentRequest())
+        .mockImplementation(async () => ({
+          ...sentRequest(),
+          status: "taken",
+        }));
+
+      const error = await refusal(
+        flushOpenDocumentEditorToSql({ documentId: "doc-1" }),
+      );
+
+      expect(error).toMatchObject({ details: { reason: "timeout" } });
     });
 
     it("refuses with the editor's code when it couldn't save the title", async () => {
@@ -470,7 +558,7 @@ describe("flushOpenDocumentEditorToSql", () => {
             ),
           ),
       );
-      mocks.appStateGet.mockImplementation(async () => sentRequest());
+      answerWith({ status: "taken" });
       let settled: unknown;
       void flushOpenDocumentEditorToSql({ documentId: "doc-1" }).catch(
         (error: unknown) => {
@@ -506,6 +594,75 @@ describe("flushOpenDocumentEditorToSql", () => {
         reason: "timeout",
         documentId: "page-40",
       });
+    });
+
+    it.each(["pending", "taken"])(
+      "reclaims a title request left %s after its server stopped waiting",
+      async (status) => {
+        mocks.loadAwarenessRowsStrict.mockResolvedValue([
+          titleEditor("owner@example.com"),
+        ]);
+        const orphan = {
+          id: "doc-1",
+          ts: Date.now() - 4_001,
+          requestId: "orphaned-request",
+          scope: "title",
+          status,
+        };
+        mocks.appStateCompareAndSet
+          .mockResolvedValueOnce(false)
+          .mockResolvedValueOnce(true)
+          .mockResolvedValue(true);
+        mocks.appStateGet
+          .mockResolvedValueOnce(orphan)
+          .mockImplementation(async () => ({
+            ...mocks.appStatePut.mock.calls.at(-1)?.[2],
+            status: "success",
+            saved: true,
+          }));
+
+        const flush = flushOpenDocumentEditorToSql({ documentId: "doc-1" });
+        await vi.advanceTimersByTimeAsync(1_000);
+
+        await expect(flush).resolves.toEqual({ status: "flushed" });
+        expect(mocks.appStateCompareAndSet).toHaveBeenCalledWith(
+          "owner@example.com",
+          "flush-request-doc-1",
+          orphan,
+          null,
+          { requestSource: "agent" },
+        );
+      },
+    );
+
+    it("leaves a title request another server is still waiting on", async () => {
+      mocks.loadAwarenessRowsStrict.mockResolvedValue([
+        titleEditor("owner@example.com"),
+      ]);
+      const fresh = {
+        id: "doc-1",
+        ts: Date.now(),
+        requestId: "concurrent-request",
+        scope: "title",
+        status: "taken",
+      };
+      mocks.appStateCompareAndSet.mockResolvedValue(false);
+      mocks.appStateGet.mockResolvedValue(fresh);
+
+      const error = await refusal(
+        flushOpenDocumentEditorToSql({ documentId: "doc-1" }),
+      );
+
+      expect(error).toMatchObject({
+        details: { reason: "request_not_delivered" },
+      });
+      expect(mocks.appStateCompareAndSet).not.toHaveBeenCalledWith(
+        "owner@example.com",
+        "flush-request-doc-1",
+        fresh,
+        null,
+        { requestSource: "agent" },
+      );
     });
   });
 
@@ -640,6 +797,35 @@ describe("flushOpenDocumentEditorToSql", () => {
       "owner@example.com",
       "flush-request-doc-1",
       fresh,
+      null,
+      { requestSource: "agent" },
+    );
+  });
+
+  it("leaves a whole flush's old pending request in place, as main does", async () => {
+    const waiting = {
+      id: "doc-1",
+      requestId: "slow-request",
+      status: "pending",
+      ts: Date.now() - 4_001,
+    };
+    mocks.appStateCompareAndSet.mockResolvedValue(false);
+    mocks.appStateGet.mockResolvedValue(waiting);
+
+    const flush = flushOpenDocumentEditorToSql({
+      documentId: "doc-1",
+      propertyId: "notes",
+    });
+    const rejected = expect(flush).rejects.toThrow(
+      /could not ask the open document editor/i,
+    );
+    await vi.advanceTimersByTimeAsync(4_200);
+
+    await rejected;
+    expect(mocks.appStateCompareAndSet).not.toHaveBeenCalledWith(
+      "owner@example.com",
+      "flush-request-doc-1",
+      waiting,
       null,
       { requestSource: "agent" },
     );

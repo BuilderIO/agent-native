@@ -30,30 +30,48 @@ export async function openEditorTab(
 
 /**
  * The tab's side of a flush request: it waits for a request for page `id` in
- * `email`'s mailbox, runs `save`, answers with `answer`, and returns the
- * request it answered. It reads the mailbox itself, not through the editor's
- * sync wake, so a test using it proves nothing about a real tab hearing of
- * the request.
+ * `email`'s mailbox and marks a title request taken as the editor does. It
+ * returns the request and the value the mailbox now holds. It reads the
+ * mailbox itself, not through the editor's sync wake, so a test using it
+ * proves nothing about a real tab hearing of the request.
  */
+export async function takeFlushRequest(
+  id: string,
+  email: string,
+): Promise<{
+  request: Record<string, unknown>;
+  held: Record<string, unknown>;
+}> {
+  const key = `flush-request-${id}`;
+  const deadline = Date.now() + 4_000;
+  while (Date.now() < deadline) {
+    const request = await appStateGet(email, key);
+    if (request?.status === "pending") {
+      if (request.scope !== "title") return { request, held: request };
+      // The mailbox compares stored JSON text, so the mark keeps every key
+      // in place and changes only the status.
+      const taken = { ...request, status: "taken" };
+      if (await appStateCompareAndSet(email, key, request, taken)) {
+        return { request, held: taken };
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(`No flush request for ${id} reached ${email}'s tab.`);
+}
+
+/** Takes the flush request, runs `save`, answers with `answer`, and returns the request it answered. */
 export async function answerFlushRequest(
   id: string,
   email: string,
   answer: Record<string, unknown>,
   save?: () => Promise<void>,
 ): Promise<Record<string, unknown>> {
-  const key = `flush-request-${id}`;
-  const deadline = Date.now() + 4_000;
-  while (Date.now() < deadline) {
-    const request = await appStateGet(email, key);
-    if (request?.status === "pending") {
-      await save?.();
-      await appStateCompareAndSet(email, key, request, {
-        ...request,
-        ...answer,
-      });
-      return request;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-  throw new Error(`No flush request for ${id} reached ${email}'s tab.`);
+  const { request, held } = await takeFlushRequest(id, email);
+  await save?.();
+  await appStateCompareAndSet(email, `flush-request-${id}`, held, {
+    ...held,
+    ...answer,
+  });
+  return request;
 }

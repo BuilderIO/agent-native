@@ -25,6 +25,7 @@ import * as nfm from "../../shared/nfm.js";
 import {
   answerFlushRequest,
   openEditorTab,
+  takeFlushRequest,
 } from "../test-support/open-editor-tab.js";
 
 const { outcomeCounter } = vi.hoisted(() => ({ outcomeCounter: vi.fn() }));
@@ -2729,11 +2730,12 @@ describe("a version restore on a switched page", () => {
     ).resolves.toBeNull();
   });
 
-  it("refuses, retryably, when an open tab doesn't confirm in time that it saved the title", async () => {
+  it("refuses, retryably, when an open tab takes the request and doesn't confirm in time that it saved the title", async () => {
     await switchedPage("restore-silent", "First draft");
     await serverEdit("restore-silent", "Second draft");
     const versionId = await versionHolding("restore-silent", "First draft");
     await openEditorTab("restore-silent", OWNER, { canFlushTitle: true });
+    const taken = takeFlushRequest("restore-silent", OWNER);
 
     await expect(
       restore(
@@ -2749,6 +2751,9 @@ describe("a version restore on a switched page", () => {
         reason: "timeout",
         retryable: true,
       },
+    });
+    await expect(taken).resolves.toMatchObject({
+      held: { scope: "title", status: "taken" },
     });
     expect((await page("restore-silent")).content).toBe("Second draft");
     await expect(
@@ -2993,7 +2998,7 @@ describe("a version restore on a switched page", () => {
 });
 
 describe("pull-document on a switched page", () => {
-  it("refuses, typed and retryable, when an open tab doesn't confirm in time that it saved the title", async () => {
+  it("refuses, typed and retryable, when an open tab never picks up the request to save the title", async () => {
     await switchedPage("pull-silent", "Body");
     await openEditorTab("pull-silent", OWNER, { canFlushTitle: true });
     const pull = (await import("../../actions/pull-document.js")).default;
@@ -3006,10 +3011,13 @@ describe("pull-document on a switched page", () => {
       errorCode: "OPEN_EDITOR_TITLE_NOT_SAVED",
       details: {
         documentId: "pull-silent",
-        reason: "timeout",
+        reason: "request_not_received",
         retryable: true,
       },
     });
+    await expect(
+      appStateGet(OWNER, "flush-request-pull-silent"),
+    ).resolves.toBeNull();
   });
 
   it("reads the page with a tab too old for the title flush open, and says so", async () => {
