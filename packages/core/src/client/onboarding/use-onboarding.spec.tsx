@@ -28,6 +28,7 @@ import {
   requestCustomKeyOnboardingAbandonment,
   setCustomKeyOnboardingAttempt,
   setCustomKeyOnboardingSetupKind,
+  setOnboardingExperiment,
   trackCustomKeyOnboardingOutcome,
   trackOnboardingEvent,
   useCustomKeyOnboardingAttemptLifecycle,
@@ -375,6 +376,36 @@ describe("useOnboarding — hinted session preload", () => {
 });
 
 describe("trackOnboardingEvent", () => {
+  afterEach(() => setOnboardingExperiment(null));
+
+  it("tags only first-run events with the exposed experiment arm", () => {
+    setOnboardingExperiment({
+      id: "first_run_builder_credits",
+      variant: "credits",
+    });
+    trackEventMock.mockClear();
+    trackOnboardingEvent("onboarding_method_clicked", {
+      flow: "first_run",
+      step_id: "choice",
+    });
+    trackOnboardingEvent("onboarding_step_viewed", {
+      flow: "checklist",
+      step_id: "choice",
+    });
+    expect(trackEventMock).toHaveBeenNthCalledWith(
+      1,
+      "onboarding_method_clicked",
+      expect.objectContaining({
+        experiment_id: "first_run_builder_credits",
+        experiment_variant: "credits",
+      }),
+    );
+    expect(trackEventMock.mock.calls[1]?.[1]).toEqual({
+      flow: "checklist",
+      step_id: "choice",
+    });
+  });
+
   beforeEach(() => {
     trackEventMock.mockReset();
     analyticsSessionIdMock.mockReturnValue("browser-session-42");

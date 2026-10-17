@@ -729,9 +729,11 @@ let onboardingExperiment: {
 } | null = null;
 
 /**
- * Tags every later onboarding event with the experiment arm the user is in, so
- * funnels split by variant without each emitter (including the settings-side
- * custom-key outcome) knowing about the experiment.
+ * Tags later first-run onboarding events with the experiment arm the user was
+ * exposed to, so funnels split by variant without each emitter (including the
+ * settings-side custom-key outcome) knowing about the experiment. Only
+ * `flow: "first_run"` events are tagged: the checklist and other onboarding
+ * flows share this tracker and must not inherit the arm.
  */
 export function setOnboardingExperiment(
   experiment: { id: string; variant: string } | null,
@@ -797,7 +799,12 @@ export function trackOnboardingEvent(
     if (seenOnboardingEvents.has(key)) return;
     seenOnboardingEvents.add(key);
   }
-  trackEvent(name, { ...properties, ...onboardingExperiment });
+  trackEvent(
+    name,
+    properties.flow === "first_run"
+      ? { ...properties, ...onboardingExperiment }
+      : properties,
+  );
 }
 
 export interface UseOnboardingResult {

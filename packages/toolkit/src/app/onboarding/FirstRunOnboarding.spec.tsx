@@ -51,7 +51,7 @@ const mocks = vi.hoisted(() => ({
   useOnboardingPreviewMode: vi.fn(),
   useOnboardingPreviewStep: vi.fn(),
   setOnboardingExperiment: vi.fn(),
-  setupVariant: "control" as "control" | "credits",
+  setupVariant: "control" as "control" | "credits" | null,
 }));
 
 vi.mock("react-router", async (importOriginal) => {
@@ -2858,13 +2858,56 @@ describe("FirstRunOnboarding", () => {
       mocks.setupVariant = "credits";
     });
 
-    it("tags onboarding events with the assigned arm", () => {
+    it("tags events and records one exposure once the credits page is shown", () => {
       mocks.useBuilderConnectFlow.mockReturnValue(flow());
       openChoice();
       expect(mocks.setOnboardingExperiment).toHaveBeenCalledWith({
         id: "first_run_builder_credits",
         variant: "credits",
       });
+      expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+        "onboarding_experiment_exposed",
+        { flow: "first_run", step_id: "choice" },
+      );
+    });
+
+    it("does not expose users who cannot be shown the credits page", () => {
+      mocks.useBuilderConnectFlow.mockReturnValue(
+        flow({ agentNativeProvisioningEnabled: false }),
+      );
+      openChoice();
+      expect(mocks.setOnboardingExperiment).not.toHaveBeenCalled();
+      expect(mocks.trackOnboardingEvent).not.toHaveBeenCalledWith(
+        "onboarding_experiment_exposed",
+        expect.anything(),
+      );
+    });
+
+    it("keeps already-connected users out of the experiment and on the existing page", () => {
+      mocks.useBuilderConnectFlow.mockReturnValue(flow({ configured: true }));
+      openChoice();
+      expect(q("first-run-credits-offer")).toBeNull();
+      expect(q("first-run-builder-create-account")).not.toBeNull();
+      expect(mocks.setOnboardingExperiment).not.toHaveBeenCalled();
+    });
+
+    it("exposes control users under the same eligibility rule", () => {
+      mocks.setupVariant = "control";
+      mocks.useBuilderConnectFlow.mockReturnValue(flow());
+      openChoice();
+      expect(mocks.setOnboardingExperiment).toHaveBeenCalledWith({
+        id: "first_run_builder_credits",
+        variant: "control",
+      });
+      expect(q("first-run-credits-offer")).toBeNull();
+    });
+
+    it("leaves users outside the experiment when no stable arm exists", () => {
+      mocks.setupVariant = null;
+      mocks.useBuilderConnectFlow.mockReturnValue(flow());
+      openChoice();
+      expect(q("first-run-credits-offer")).toBeNull();
+      expect(mocks.setOnboardingExperiment).not.toHaveBeenCalled();
     });
 
     const openClipsChoice = (start = vi.fn()) => {

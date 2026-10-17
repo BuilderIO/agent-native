@@ -1377,8 +1377,11 @@ LEFT JOIN first_choice_summary ON first_choice_summary.method_id = method_list.m
 LEFT JOIN selection_summary ON selection_summary.method_id = method_list.method_id
 LEFT JOIN attempt_summary ON attempt_summary.method_id = method_list.method_id
 ORDER BY method_list.method_id`;
-// Each person is assigned to the variant on their first choice-screen view, so
-// later events are counted for that cohort even if an event lacks the variant.
+// Each person is assigned to the variant on their first
+// onboarding_experiment_exposed event (fired only when the user was eligible).
+// A downstream event counts only when it carries that same variant and happened
+// at or after the first exposure, so identity-merged users cannot leak into the
+// opposite arm.
 const ONBOARDING_AB_COHORT_SQL = `${ONBOARDING_EVENTS_CTE}, experiment_events AS (
   SELECT funnel_user_key, event_name, event_date, id,
     timestamp::timestamptz AS event_at,
@@ -1387,19 +1390,19 @@ const ONBOARDING_AB_COHORT_SQL = `${ONBOARDING_EVENTS_CTE}, experiment_events AS
     COALESCE(NULLIF(properties::jsonb ->> 'method_id', ''), '') AS method_id,
     COALESCE(NULLIF(properties::jsonb ->> 'outcome', ''), '') AS outcome
   FROM onboarding_events
-  WHERE event_name IN ('onboarding_step_viewed', 'onboarding_step_skipped', 'onboarding_method_clicked', 'onboarding_method_outcome', 'onboarding_more_info_opened')
+  WHERE event_name IN ('onboarding_experiment_exposed', 'onboarding_step_skipped', 'onboarding_method_clicked', 'onboarding_method_outcome', 'onboarding_more_info_opened')
     AND COALESCE(NULLIF(properties::jsonb ->> 'flow', ''), '') = 'first_run'
     AND COALESCE(NULLIF(properties::jsonb ->> 'experiment_id', ''), '') = 'first_run_builder_credits'
     AND NULLIF(properties::jsonb ->> 'experiment_variant', '') IS NOT NULL
     AND funnel_user_key IS NOT NULL
 ), ranked_exposures AS (
-  SELECT funnel_user_key, variant, event_date AS exposed_date,
+  SELECT funnel_user_key, variant, event_date AS exposed_date, event_at AS exposed_at,
     ROW_NUMBER() OVER (PARTITION BY funnel_user_key ORDER BY event_at, id) AS exposure_number
   FROM experiment_events
-  WHERE event_name = 'onboarding_step_viewed'
+  WHERE event_name = 'onboarding_experiment_exposed'
     AND step_id = 'choice'
 ), exposed AS (
-  SELECT funnel_user_key, variant, exposed_date
+  SELECT funnel_user_key, variant, exposed_date, exposed_at
   FROM ranked_exposures
   WHERE exposure_number = 1
 ), exposed_flags AS (
@@ -1410,7 +1413,11 @@ const ONBOARDING_AB_COHORT_SQL = `${ONBOARDING_EVENTS_CTE}, experiment_events AS
     MAX(CASE WHEN e.event_name = 'onboarding_step_skipped' AND e.step_id = 'choice' THEN 1 ELSE 0 END) AS skipped,
     MAX(CASE WHEN e.event_name = 'onboarding_more_info_opened' AND e.step_id = 'choice' THEN 1 ELSE 0 END) AS more_info
   FROM exposed
-  LEFT JOIN experiment_events e ON e.funnel_user_key = exposed.funnel_user_key
+  LEFT JOIN experiment_events e
+    ON e.funnel_user_key = exposed.funnel_user_key
+    AND e.event_name <> 'onboarding_experiment_exposed'
+    AND e.variant = exposed.variant
+    AND e.event_at >= exposed.exposed_at
   GROUP BY exposed.funnel_user_key, exposed.variant, exposed.exposed_date
 )`;
 const ONBOARDING_AB_COMPARISON_SQL = `${ONBOARDING_AB_COHORT_SQL}

@@ -24,30 +24,28 @@ function hashToUnit(input: string): number {
 /**
  * 50/50 split keyed on the anonymous analytics id, so the arm survives sign-in
  * and reloads. The arm is also stored: the id can be regenerated, the arm must
- * not flip under a user who has already seen one.
+ * not flip under a user who has already seen one. Returns null — outside the
+ * experiment, existing page — whenever a stable arm cannot be guaranteed:
+ * analytics off (nothing measurable) or storage blocked (the anonymous id is
+ * regenerated per page load, so the arm could change on reload).
  */
-export function assignFirstRunSetupVariant(): FirstRunSetupVariant {
-  if (typeof window === "undefined") return "control";
+export function assignFirstRunSetupVariant(): FirstRunSetupVariant | null {
+  if (typeof window === "undefined") return null;
   try {
     const stored = window.localStorage.getItem(STORAGE_KEY);
     if (isVariant(stored)) return stored;
-  } catch {
-    // coercion-ok: storage-blocked browsers re-derive the same arm from the anonymous id below.
-  }
-  // No anonymous id means analytics is off: nothing can be measured, so keep
-  // the user on the existing page rather than exposing an unmeasurable arm.
-  const anonymousId = getAnalyticsAnonymousId();
-  if (!anonymousId) return "control";
-  const variant: FirstRunSetupVariant =
-    hashToUnit(`${FIRST_RUN_SETUP_EXPERIMENT_ID}:${anonymousId}`) < 0.5
-      ? "credits"
-      : "control";
-  try {
+    const anonymousId = getAnalyticsAnonymousId();
+    if (!anonymousId) return null;
+    const variant: FirstRunSetupVariant =
+      hashToUnit(`${FIRST_RUN_SETUP_EXPERIMENT_ID}:${anonymousId}`) < 0.5
+        ? "credits"
+        : "control";
     window.localStorage.setItem(STORAGE_KEY, variant);
+    return variant;
   } catch {
-    // coercion-ok: assignment is deterministic from the anonymous id, so a failed write only skips the cache.
+    // coercion-ok: null means "not in the experiment", and the caller renders the existing page for it.
+    return null;
   }
-  return variant;
 }
 
 /** Preview links pin an arm (`?onboarding=preview&variant=credits`) without touching the stored assignment. */

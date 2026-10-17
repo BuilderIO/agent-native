@@ -267,15 +267,6 @@ export function FirstRunOnboarding({
       assignFirstRunSetupVariant(),
     [previewMode],
   );
-  // Declared before the tracking effects below so the arm tags the first
-  // onboarding event, not only the ones after the choice screen.
-  useEffect(() => {
-    if (previewMode) return;
-    setOnboardingExperiment({
-      id: FIRST_RUN_SETUP_EXPERIMENT_ID,
-      variant: setupVariant,
-    });
-  }, [previewMode, setupVariant]);
   useEffect(() => {
     if (!previewMode || !previewStep) return;
     setScreen(previewStep === "references" ? "extension" : previewStep);
@@ -572,6 +563,32 @@ export function FirstRunOnboarding({
     previewMode ||
     connectFlow.hasFetchedStatus ||
     connectFlow.statusUnavailable;
+  // The experiment only counts users who could be shown the credits page: an
+  // unavailable activation, or an already-connected user, gets the existing
+  // page in both arms and stays out of the results.
+  const setupExperimentEligible =
+    setupStatusSettled &&
+    canActivateBuilderFreeCredits &&
+    !connectFlow.configured;
+  useEffect(() => {
+    if (
+      previewMode ||
+      !firstRun ||
+      screen !== "choice" ||
+      !setupVariant ||
+      !setupExperimentEligible
+    ) {
+      return;
+    }
+    setOnboardingExperiment({
+      id: FIRST_RUN_SETUP_EXPERIMENT_ID,
+      variant: setupVariant,
+    });
+    trackOnboardingEvent("onboarding_experiment_exposed", {
+      flow: "first_run",
+      step_id: "choice",
+    });
+  }, [firstRun, previewMode, screen, setupExperimentEligible, setupVariant]);
   const retryOnboardingCompletion = useCallback(() => {
     const attempt = completionAttemptRef.current;
     void finishOnboarding(
@@ -803,7 +820,7 @@ export function FirstRunOnboarding({
     // The credits page only makes sense where activation exists. Hold the
     // skeleton until that is known so the full page never flashes first.
     if (inCreditsArm && !setupStatusSettled) return <OnboardingSkeleton />;
-    const creditsEligible = inCreditsArm && canActivateBuilderFreeCredits;
+    const creditsEligible = inCreditsArm && setupExperimentEligible;
 
     const builderStatusError =
       connectFlow.error && connectFlow.errorKind === "status-read" ? (

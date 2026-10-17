@@ -43,8 +43,36 @@ describe("first-run setup experiment", () => {
 
   it("does not expose an unmeasurable arm without an anonymous id", () => {
     analytics.getAnalyticsAnonymousId.mockReturnValue(undefined);
-    expect(assignFirstRunSetupVariant()).toBe("control");
+    expect(assignFirstRunSetupVariant()).toBeNull();
     expect(window.localStorage.length).toBe(0);
+  });
+
+  it("stays out of the experiment when storage cannot hold the arm", () => {
+    analytics.getAnalyticsAnonymousId.mockReturnValue("anon-1");
+    const original = Object.getOwnPropertyDescriptor(window, "localStorage")!;
+    const blocked = (failing: "getItem" | "setItem") => {
+      const fake = {
+        getItem: () => {
+          if (failing === "getItem") throw new Error("blocked");
+          return null;
+        },
+        setItem: () => {
+          if (failing === "setItem") throw new Error("blocked");
+        },
+      };
+      Object.defineProperty(window, "localStorage", {
+        value: fake,
+        configurable: true,
+      });
+    };
+    try {
+      blocked("setItem");
+      expect(assignFirstRunSetupVariant()).toBeNull();
+      blocked("getItem");
+      expect(assignFirstRunSetupVariant()).toBeNull();
+    } finally {
+      Object.defineProperty(window, "localStorage", original);
+    }
   });
 
   it("pins a preview arm from the query string only for known arms", () => {

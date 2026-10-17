@@ -74,6 +74,7 @@ describe("onboarding funnel metrics", () => {
       anonymousId?: string;
       userKey?: string | null;
       authUserId?: string | null;
+      at?: string;
     } = {},
   ) {
     const canonicalAuthUserId =
@@ -90,7 +91,7 @@ describe("onboarding funnel metrics", () => {
           : `${authUserId}@example.com`,
         options.anonymousId ?? `anon-${authUserId}`,
         options.userKey ?? null,
-        `${eventDay}T12:00:00.000Z`,
+        options.at ?? `${eventDay}T12:00:00.000Z`,
         eventDay,
         JSON.stringify({
           ...properties,
@@ -581,10 +582,18 @@ describe("onboarding funnel metrics", () => {
       experiment_variant: variant,
     });
     for (const user of ["c1", "c2", "c3"]) {
-      await insertEvent("onboarding_step_viewed", user, experiment("control"));
+      await insertEvent(
+        "onboarding_experiment_exposed",
+        user,
+        experiment("control"),
+      );
     }
     for (const user of ["v1", "v2", "v3"]) {
-      await insertEvent("onboarding_step_viewed", user, experiment("credits"));
+      await insertEvent(
+        "onboarding_experiment_exposed",
+        user,
+        experiment("credits"),
+      );
     }
     await insertEvent("onboarding_step_viewed", "untagged", choice);
     await insertEvent("onboarding_method_clicked", "c1", {
@@ -620,6 +629,32 @@ describe("onboarding funnel metrics", () => {
     await insertEvent("onboarding_method_clicked", "untagged", {
       ...choice,
       method_id: "builder_create_account",
+    });
+    // Tagged events without an exposure event are excluded.
+    await insertEvent("onboarding_method_clicked", "noexp", {
+      ...experiment("credits"),
+      method_id: "builder_create_account",
+    });
+    // Opposite-arm event after exposure is not counted in the wrong arm.
+    await insertEvent(
+      "onboarding_method_clicked",
+      "c3",
+      { ...experiment("credits"), method_id: "builder_create_account" },
+      { at: `${eventDay}T13:00:00.000Z` },
+    );
+    await insertEvent(
+      "onboarding_method_outcome",
+      "v3",
+      {
+        ...experiment("control"),
+        method_id: "builder_create_account",
+        outcome: "connected",
+      },
+      { at: `${eventDay}T13:00:00.000Z` },
+    );
+    // Event before the first exposure is ignored.
+    await insertEvent("onboarding_step_skipped", "v2", experiment("credits"), {
+      at: `${eventDay}T11:00:00.000Z`,
     });
 
     const comparison = buildPanel("onboarding-ab-comparison")!;
