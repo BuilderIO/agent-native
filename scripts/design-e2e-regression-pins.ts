@@ -937,6 +937,7 @@ type TestAlias =
   | { kind: "test"; path: string[] }
   | { kind: "namespace" }
   | { kind: "unrecognized-namespace" }
+  | { kind: "unrecognized-commonjs-namespace" }
   | { kind: "ordinary-namespace" };
 
 type TestAliasResolver = {
@@ -945,6 +946,9 @@ type TestAliasResolver = {
   isKnownModifierReference(expression: TypeScript.Expression): boolean;
   isUnrecognizedDynamicTestModifier(expression: TypeScript.Expression): boolean;
 };
+
+const UNKNOWN_COMMONJS_MODULE = "\0unknown-require-module";
+const UNRECOGNIZED_COMMONJS_TEST_ROOT = "unrecognized-commonjs-test";
 
 function isFunctionLikeNode(
   node: TypeScript.Node,
@@ -1075,6 +1079,29 @@ function testImports(
   };
 
   for (const statement of sourceFile.statements) {
+    if (ts.isImportEqualsDeclaration(statement)) {
+      const moduleReference = ts.isExternalModuleReference(
+        statement.moduleReference,
+      )
+        ? statement.moduleReference.expression
+        : undefined;
+      const moduleSpecifier =
+        moduleReference && ts.isStringLiteral(moduleReference)
+          ? moduleReference.text
+          : undefined;
+      recordImport(sourceFile, statement.name.text, {
+        kind:
+          moduleSpecifier === "node:test"
+            ? "ordinary-namespace"
+            : moduleSpecifier !== undefined &&
+                isKnownDesignE2ETestModule(moduleSpecifier)
+              ? "namespace"
+              : moduleReference && !ts.isStringLiteral(moduleReference)
+                ? "unrecognized-commonjs-namespace"
+                : "unrecognized-namespace",
+      });
+      continue;
+    }
     if (!ts.isImportDeclaration(statement) || !statement.importClause) continue;
     const moduleSpecifier = ts.isStringLiteral(statement.moduleSpecifier)
       ? statement.moduleSpecifier.text
@@ -1242,16 +1269,22 @@ function testImports(
     }
     return undefined;
   };
-  const resolveRequireModule = (
+  const resolveModuleSpecifier = (
     expression: TypeScript.Expression,
   ): string | undefined => {
-    const candidate = unwrapExpression(expression, ts);
-    if (!ts.isCallExpression(candidate) || candidate.arguments.length !== 1) {
-      return undefined;
+    let candidate = unwrapExpression(expression, ts);
+    if (ts.isAwaitExpression(candidate)) {
+      candidate = unwrapExpression(candidate.expression, ts);
     }
+    if (!ts.isCallExpression(candidate)) return undefined;
     const callee = unwrapExpression(candidate.expression, ts);
-    if (!ts.isIdentifier(callee) || callee.text !== "require") return undefined;
-    return constantStringExpression(candidate.arguments[0]!, ts);
+    const isRequire = ts.isIdentifier(callee) && callee.text === "require";
+    const isDynamicImport = callee.kind === ts.SyntaxKind.ImportKeyword;
+    if (!isRequire && !isDynamicImport) return undefined;
+    return candidate.arguments.length === 1
+      ? (constantStringExpression(candidate.arguments[0]!, ts) ??
+          UNKNOWN_COMMONJS_MODULE)
+      : UNKNOWN_COMMONJS_MODULE;
   };
   const loopAuthorityMemberTargetLength = (
     expression: TypeScript.Expression,
@@ -1279,7 +1312,7 @@ function testImports(
           ...propertyPath(expression, ts).slice(memberTargetLength),
         ];
       }
-      return normalizedTestPath(expression, lookup, ts, resolveRequireModule);
+      return normalizedTestPath(expression, lookup, ts, resolveModuleSpecifier);
     },
     isAmbiguous(expression) {
       if (loopAuthorityMemberTargetLength(expression) !== undefined) {
@@ -1337,10 +1370,11 @@ function testImports(
         candidate.expression,
         lookup,
         ts,
-        resolveRequireModule,
+        resolveModuleSpecifier,
       );
       return (
-        receiverPath[0] === "unrecognized-test" &&
+        (receiverPath[0] === "unrecognized-test" ||
+          receiverPath[0] === UNRECOGNIZED_COMMONJS_TEST_ROOT) &&
         (receiverPath.length === 1 ||
           (receiverPath.length === 2 && receiverPath[1] === "describe"))
       );
@@ -1741,7 +1775,8 @@ export function findDesignE2ESuppressionCallSites(
         (resolvedPath.length === 2 &&
           resolvedPath[0] === "test" &&
           resolvedPath[1] === "dynamic-bound") ||
-        (resolvedPath[0] === "unrecognized-test" &&
+        ((resolvedPath[0] === "unrecognized-test" ||
+          resolvedPath[0] === UNRECOGNIZED_COMMONJS_TEST_ROOT) &&
           modifierForPath(["test", ...resolvedPath.slice(1)]) !== undefined) ||
         hasDynamicTestModifier(node.expression) ||
         aliases.isKnownModifierReference(node.expression) ||
@@ -1766,7 +1801,7 @@ function normalizedTestPath(
   expression: TypeScript.Expression,
   lookup: (name: string, at: TypeScript.Node) => TestAlias | undefined,
   ts: typeof TypeScript,
-  resolveRequireModule: (
+  resolveModuleSpecifier: (
     expression: TypeScript.Expression,
   ) => string | undefined,
 ): string[] {
@@ -1775,9 +1810,25 @@ function normalizedTestPath(
     value: TypeScript.Expression,
   ): string[] | undefined => {
     const access = unwrapExpression(value, ts);
-    const moduleSpecifier = resolveRequireModule(access);
+    const moduleSpecifier = resolveModuleSpecifier(access);
     if (moduleSpecifier !== undefined) {
       return ["commonjs-module", moduleSpecifier];
+    }
+    if (ts.isConditionalExpression(access)) {
+      const whenTrue = commonJsModulePath(access.whenTrue);
+      const whenFalse = commonJsModulePath(access.whenFalse);
+      if (
+        whenTrue &&
+        whenFalse &&
+        whenTrue.length === whenFalse.length &&
+        whenTrue.every((segment, index) => segment === whenFalse[index])
+      ) {
+        return whenTrue;
+      }
+      if (whenTrue || whenFalse) {
+        return ["commonjs-module", UNKNOWN_COMMONJS_MODULE];
+      }
+      return undefined;
     }
     if (ts.isPropertyAccessExpression(access)) {
       const parentPath = commonJsModulePath(access.expression);
@@ -1803,7 +1854,7 @@ function normalizedTestPath(
         : moduleSpecifier !== undefined &&
             isKnownDesignE2ETestModule(moduleSpecifier)
           ? "test"
-          : "unrecognized-test";
+          : UNRECOGNIZED_COMMONJS_TEST_ROOT;
     return [testRoot, ...members.slice(1)];
   };
   const samePath = (left: string[], right: string[]) =>
@@ -1816,20 +1867,27 @@ function normalizedTestPath(
       conditional.whenTrue,
       lookup,
       ts,
-      resolveRequireModule,
+      resolveModuleSpecifier,
     );
     const whenFalse = normalizedTestPath(
       conditional.whenFalse,
       lookup,
       ts,
-      resolveRequireModule,
+      resolveModuleSpecifier,
     );
     if (samePath(whenTrue, whenFalse)) return whenTrue;
     return whenTrue[0] === "test" ||
       whenTrue[0] === "unrecognized-test" ||
+      whenTrue[0] === UNRECOGNIZED_COMMONJS_TEST_ROOT ||
       whenFalse[0] === "test" ||
-      whenFalse[0] === "unrecognized-test"
-      ? ["unrecognized-test"]
+      whenFalse[0] === "unrecognized-test" ||
+      whenFalse[0] === UNRECOGNIZED_COMMONJS_TEST_ROOT
+      ? [
+          whenTrue[0] === UNRECOGNIZED_COMMONJS_TEST_ROOT ||
+          whenFalse[0] === UNRECOGNIZED_COMMONJS_TEST_ROOT
+            ? UNRECOGNIZED_COMMONJS_TEST_ROOT
+            : "unrecognized-test",
+        ]
       : [];
   };
 
@@ -1879,7 +1937,7 @@ function normalizedTestPath(
         receiver,
         lookup,
         ts,
-        resolveRequireModule,
+        resolveModuleSpecifier,
       );
       return receiverPath.length === 1 && receiverPath[0] === "test"
         ? ["test"]
@@ -1915,7 +1973,7 @@ function normalizedTestPath(
       access.expression,
       lookup,
       ts,
-      resolveRequireModule,
+      resolveModuleSpecifier,
     );
     return (
       (receiverPath.length === 1 && receiverPath[0] === "test") ||
@@ -1945,7 +2003,7 @@ function normalizedTestPath(
         boundReceiver,
         lookup,
         ts,
-        resolveRequireModule,
+        resolveModuleSpecifier,
       );
       if (
         (boundPath.length === 2 &&
@@ -1963,7 +2021,7 @@ function normalizedTestPath(
       candidate.expression,
       lookup,
       ts,
-      resolveRequireModule,
+      resolveModuleSpecifier,
     );
     if (
       factoryPath.length === 2 &&
@@ -2014,6 +2072,12 @@ function normalizedTestPath(
   if (alias?.kind === "unrecognized-namespace" && segments[1] === "test") {
     return ["unrecognized-test", ...segments.slice(2)];
   }
+  if (
+    alias?.kind === "unrecognized-commonjs-namespace" &&
+    segments[1] === "test"
+  ) {
+    return [UNRECOGNIZED_COMMONJS_TEST_ROOT, ...segments.slice(2)];
+  }
   if (alias?.kind === "ordinary-namespace" && segments[1] === "test") {
     return ["ordinary-test", ...segments.slice(2)];
   }
@@ -2053,6 +2117,47 @@ function testCallKind(
   const testPath = aliases.resolve(call.expression);
   const expression = unwrapExpression(call.expression, ts);
   if (testPath[0] === "ordinary-test") return undefined;
+  if (testPath[0] === UNRECOGNIZED_COMMONJS_TEST_ROOT) {
+    const apiPath = testPath.slice(1);
+    const modifier =
+      apiPath.length === 1 && TEST_MODIFIERS.has(apiPath[0]!)
+        ? apiPath[0]
+        : apiPath.length === 2 &&
+            apiPath[0] === "describe" &&
+            TEST_MODIFIERS.has(apiPath[1]!)
+          ? apiPath[1]
+          : undefined;
+    if (modifier) {
+      return {
+        kind: "runtime",
+        modifier,
+        uncertain: true,
+        uncertainty: "unsupported-playwright",
+      };
+    }
+    if (apiPath.length === 0) {
+      return {
+        kind: "test",
+        uncertain: true,
+        uncertainty: "unsupported-playwright",
+      };
+    }
+    if (apiPath.length === 1 && apiPath[0] === "describe") {
+      return {
+        kind: "describe",
+        uncertain: true,
+        uncertainty: "unsupported-playwright",
+      };
+    }
+    if (apiPath.length === 1 && TEST_LIFECYCLE_HOOKS.has(apiPath[0]!)) {
+      return {
+        kind: "hook",
+        uncertain: true,
+        uncertainty: "unsupported-playwright",
+      };
+    }
+    return undefined;
+  }
   if (testPath[0] === "unrecognized-test") {
     const modifierPath = testPath.slice(1);
     const modifier =

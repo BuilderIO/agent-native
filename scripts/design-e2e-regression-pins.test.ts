@@ -821,6 +821,120 @@ test("static CommonJS test aliases preserve Playwright and node:test origins", (
   );
 });
 
+test("TypeScript import-equals and awaited dynamic imports preserve test origins", () => {
+  const importEquals = [
+    'import playwright = require("@playwright/test");',
+    'playwright.test("import-equals behavior", () => {});',
+  ].join("\n");
+  assert.deepEqual(
+    findDesignE2ETestRegistrations(importEquals, "fixture.ts").map(
+      ({ title }) => title,
+    ),
+    ["import-equals behavior"],
+  );
+
+  const awaitedDynamicImport = [
+    'const { test: pw } = await import("@playwright/test");',
+    'pw("awaited dynamic import behavior", () => {});',
+  ].join("\n");
+  assert.deepEqual(
+    findDesignE2ETestRegistrations(awaitedDynamicImport, "fixture.mts").map(
+      ({ title }) => title,
+    ),
+    ["awaited dynamic import behavior"],
+  );
+
+  const unknownImportEquals = [
+    "import runner = require(process.env.TEST_MODULE);",
+    'runner.test("unknown import-equals behavior", () => {});',
+  ].join("\n");
+  assert.throws(
+    () => findDesignE2ETestRegistrations(unknownImportEquals, "fixture.ts"),
+    /Unable to inspect unsupported Playwright modifier invocation/,
+  );
+
+  const unknownAwaitedDynamicImport = [
+    "const { test: pw } = await import(process.env.TEST_MODULE);",
+    'pw("unknown awaited import behavior", () => {});',
+  ].join("\n");
+  assert.throws(
+    () =>
+      findDesignE2ETestRegistrations(
+        unknownAwaitedDynamicImport,
+        "fixture.mts",
+      ),
+    /Unable to inspect unsupported Playwright modifier invocation/,
+  );
+});
+
+test("dynamic CommonJS test roots fail closed for registrations and suppression callsites", () => {
+  const sources = [
+    [
+      "dynamic destructured require",
+      [
+        "const { test: pw } = require(process.env.TEST_MODULE);",
+        'pw.fixme("dynamic test source", () => {});',
+      ].join("\n"),
+    ],
+    [
+      "conditional CommonJS module root",
+      [
+        '(flag ? require("@playwright/test") : require(other)).test.fixme("conditional test source", () => {});',
+      ].join("\n"),
+    ],
+  ] as const;
+
+  const testRegistrations = [
+    [
+      "dynamic destructured require",
+      [
+        "const { test: pw } = require(process.env.TEST_MODULE);",
+        'pw("dynamic test registration", () => {});',
+      ].join("\n"),
+    ],
+    [
+      "conditional CommonJS module root",
+      [
+        '(flag ? require("@playwright/test") : require(other)).test("conditional test registration", () => {});',
+      ].join("\n"),
+    ],
+  ] as const;
+
+  for (const [description, source] of testRegistrations) {
+    assert.throws(
+      () => findDesignE2ETestRegistrations(source, "fixture.cjs"),
+      /Unable to inspect unsupported Playwright modifier invocation/,
+      description,
+    );
+  }
+
+  for (const [description, source] of sources) {
+    assert.throws(
+      () => findDesignE2ETestRegistrations(source, "fixture.cjs"),
+      /Unable to inspect unsupported Playwright modifier invocation/,
+      description,
+    );
+    assert.throws(
+      () => findDesignE2ESuppressionCallSites(source, "fixture.cjs"),
+      /unsupported dynamic Playwright test modifier callsite/,
+      description,
+    );
+  }
+
+  const ordinaryNodeTest = [
+    'const { test: nodeTest } = require("node:test");',
+    'nodeTest.skip("ordinary node test", () => {});',
+  ].join("\n");
+  assert.deepEqual(
+    findDesignE2ETestRegistrations(ordinaryNodeTest, "fixture.cjs"),
+    [],
+  );
+  assert.deepEqual(
+    findDesignE2ESuppressionCallSites(ordinaryNodeTest, "fixture.cjs"),
+    [],
+  );
+});
+
 test("computed Playwright modifiers resolve or fail closed", () => {
   const computedFixme = [
     'test["fi" + "xme"]("pinned behavior", () => {});',

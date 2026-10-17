@@ -986,6 +986,7 @@ test("traces Design E2E helper imports and literal dynamic imports", () => {
     const scope = classifyChangedPaths([helperPath], [], fixtureRoot);
     assert.deepEqual(scope.designCanvasE2eSpecs, expectedSpecs);
     assert.deepEqual(scope.designCanvasE2eDiagnosticSpecs, expectedSpecs);
+    assert.equal(scope.checks.pre_auth_session_replay_e2e, true);
     assert.ok(
       !scope.designCanvasE2eSpecs.includes(
         "templates/design/e2e/unrelated.test.tsx",
@@ -996,6 +997,73 @@ test("traces Design E2E helper imports and literal dynamic imports", () => {
         "templates/design/e2e/pre-auth-session-replay-smoke.spec.ts",
       ),
     );
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("raw import matching keeps regex quotes from hiding helper consumers", () => {
+  const fixtureRoot = mkdtempSync(
+    join(tmpdir(), "ci-change-scope-design-regex-import-"),
+  );
+  const writeSource = (path: string, source: string) => {
+    const destination = join(fixtureRoot, path);
+    mkdirSync(dirname(destination), { recursive: true });
+    writeFileSync(destination, source);
+  };
+  const helperPath = "templates/design/e2e/shared-helper.ts";
+  const consumerPath = "templates/design/e2e/regex-quoted-consumer.spec.tsx";
+
+  try {
+    writeSource(helperPath, "export const helper = true;\n");
+    writeSource(
+      consumerPath,
+      [
+        'const pattern = /".*?/;',
+        'import "./shared-helper";',
+        'const view = <div>text "</div>;',
+      ].join("\n"),
+    );
+    writeSource(
+      "templates/design/e2e/unrelated.test.tsx",
+      "export const fixture = true;\n",
+    );
+
+    assert.deepEqual(
+      classifyChangedPaths([helperPath], [], fixtureRoot).designCanvasE2eSpecs,
+      [consumerPath],
+    );
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("fails closed when JSX quotes make helper imports ambiguous", () => {
+  const fixtureRoot = mkdtempSync(
+    join(tmpdir(), "ci-change-scope-design-jsx-import-"),
+  );
+  const writeSource = (path: string, source: string) => {
+    const destination = join(fixtureRoot, path);
+    mkdirSync(dirname(destination), { recursive: true });
+    writeFileSync(destination, source);
+  };
+  const helperPath = "templates/design/e2e/shared-helper.ts";
+  const consumerPath = "templates/design/e2e/jsx-quoted-consumer.spec.tsx";
+  const unrelatedPath = "templates/design/e2e/unrelated.test.tsx";
+
+  try {
+    writeSource(helperPath, "export const helper = true;\n");
+    writeSource(
+      consumerPath,
+      [
+        'const view = <div>quoted " text</div>;',
+        'import "./shared-helper";',
+      ].join("\n"),
+    );
+    writeSource(unrelatedPath, "export const fixture = true;\n");
+
+    const scope = classifyChangedPaths([helperPath], [], fixtureRoot);
+    assert.deepEqual(scope.designCanvasE2eSpecs, [consumerPath, unrelatedPath]);
   } finally {
     rmSync(fixtureRoot, { recursive: true, force: true });
   }

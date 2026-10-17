@@ -34,6 +34,8 @@ const DOCS_SUPPORT_PATHS = new Set([
 ]);
 
 const COMMUNITY_TEMPLATES_ROOT = "community-templates";
+const PRE_AUTH_SESSION_REPLAY_E2E_SPEC =
+  "templates/design/e2e/pre-auth-session-replay-smoke.spec.ts";
 
 // Agent instructions are inputs to core (bundled skills, prompt resources) and
 // to the skills package, and several guards read them, so they are not docs.
@@ -157,7 +159,7 @@ const PRE_AUTH_SESSION_REPLAY_E2E_FILES = new Set([
   "templates/analytics/server/handlers/session-replay.ts",
   "templates/analytics/server/lib/session-replay.ts",
   "templates/clips/server/plugins/config.ts",
-  "templates/design/e2e/pre-auth-session-replay-smoke.spec.ts",
+  PRE_AUTH_SESSION_REPLAY_E2E_SPEC,
   "templates/design/playwright.config.ts",
   "templates/design/server/plugins/config.ts",
   "templates/slides/server/plugins/config.ts",
@@ -553,8 +555,18 @@ function isDeployGuidePath(path: string): boolean {
 function isDesignCanvasE2eSpecPath(path: string): boolean {
   return (
     path.startsWith("templates/design/e2e/") &&
-    path !== "templates/design/e2e/pre-auth-session-replay-smoke.spec.ts" &&
+    path !== PRE_AUTH_SESSION_REPLAY_E2E_SPEC &&
     /\.(?:spec|test)\.[cm]?[jt]sx?$/u.test(path)
+  );
+}
+
+function isEligibleDesignCanvasE2eSpecPath(
+  path: string,
+  includePreAuthSessionReplay: boolean,
+): boolean {
+  return (
+    isDesignCanvasE2eSpecPath(path) ||
+    (includePreAuthSessionReplay && path === PRE_AUTH_SESSION_REPLAY_E2E_SPEC)
   );
 }
 
@@ -716,6 +728,18 @@ function moduleSpecifiersInE2eSource(source: string): {
     }
   }
 
+  // Extra graph edges only over-select CI; the token scanner can mistake regex or JSX quotes for strings.
+  const rawImportPatterns = [
+    /\b(?:import|require)\s*\(\s*(["'`])((?:\.{1,2}\/)[^"'`\\$]*)\1/gu,
+    /\bimport\s*(["'`])((?:\.{1,2}\/)[^"'`\\$]*)\1/gu,
+    /\bfrom\s*(["'`])((?:\.{1,2}\/)[^"'`\\$]*)\1/gu,
+  ];
+  for (const pattern of rawImportPatterns) {
+    for (const match of source.matchAll(pattern)) {
+      if (match[2]) specifiers.add(match[2]);
+    }
+  }
+
   return { specifiers: [...specifiers], uncertain };
 }
 
@@ -820,9 +844,12 @@ function relativeE2eImportTargets(
 export function designCanvasE2eSpecsForPaths(
   paths: readonly string[],
   repositoryRoot = process.cwd(),
+  includePreAuthSessionReplay = false,
 ): string[] {
   const changedPaths = paths.map(normalizeChangedPath);
-  const directSpecs = changedPaths.filter(isDesignCanvasE2eSpecPath);
+  const isTargetSpec = (path: string) =>
+    isEligibleDesignCanvasE2eSpecPath(path, includePreAuthSessionReplay);
+  const directSpecs = changedPaths.filter(isTargetSpec);
   const changedHelpers = changedPaths.filter(isDesignCanvasE2eSupportPath);
   if (changedHelpers.length === 0) return [...new Set(directSpecs)].sort();
 
@@ -835,11 +862,9 @@ export function designCanvasE2eSpecsForPaths(
   const sourcePathSet = new Set(sourcePaths);
   const importersByPath = new Map<string, string[]>();
   const allEligibleSpecs = () => {
-    let specs = sourcePaths.filter(isDesignCanvasE2eSpecPath);
+    let specs = sourcePaths.filter(isTargetSpec);
     if (specs.length === 0) {
-      specs = designCanvasE2ePathsFromGit(repositoryRoot).filter(
-        isDesignCanvasE2eSpecPath,
-      );
+      specs = designCanvasE2ePathsFromGit(repositoryRoot).filter(isTargetSpec);
     }
     if (specs.length === 0) {
       throw new Error(
@@ -889,7 +914,7 @@ export function designCanvasE2eSpecsForPaths(
       for (const importer of importersByPath.get(current) ?? []) {
         if (visited.has(importer)) continue;
         visited.add(importer);
-        if (isDesignCanvasE2eSpecPath(importer)) {
+        if (isTargetSpec(importer)) {
           consumers.add(importer);
         }
         pending.push(importer);
@@ -1175,9 +1200,16 @@ export function classifyChangedPaths(
   const docsOnly = changedPaths.length > 0 && nonDocsPaths.length === 0;
   const workspaceFilters = workspaceFiltersForPaths(changedPaths);
   const testWorkspaceFilters = testWorkspaceFiltersForPaths(changedPaths);
-  const designCanvasE2eSpecs = designCanvasE2eSpecsForPaths(
+  const allDesignCanvasE2eSpecs = designCanvasE2eSpecsForPaths(
     changedPaths,
     repositoryRoot,
+    true,
+  );
+  const preAuthSessionReplayE2eChanged = allDesignCanvasE2eSpecs.includes(
+    PRE_AUTH_SESSION_REPLAY_E2E_SPEC,
+  );
+  const designCanvasE2eSpecs = allDesignCanvasE2eSpecs.filter(
+    (path) => path !== PRE_AUTH_SESSION_REPLAY_E2E_SPEC,
   );
   const full =
     changedPaths.length === 0 ||
@@ -1195,6 +1227,9 @@ export function classifyChangedPaths(
         ]),
       ) as CheckSelection)
     : buildChecks(changedPaths, full);
+  if (preAuthSessionReplayE2eChanged) {
+    checks.pre_auth_session_replay_e2e = true;
+  }
   const queryBudgetApps = queryBudgetAppsFor(changedPaths, full, checks);
   const changedDesignDiagnosticSpecs = designCanvasE2eSpecs.filter(
     (path) => !sameDirectoryPureDesignSpecRenameSet.has(path),
