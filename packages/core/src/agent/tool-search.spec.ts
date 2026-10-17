@@ -921,6 +921,16 @@ describe("tool-search zero-hit fallback", () => {
     expect(result.message).toContain("Check the Tool index");
   });
 
+  it("does not dead-end a query made only of stop words", () => {
+    const result = searchToolRegistry(
+      { "send-email": action("Send an email message") },
+      { query: "the" },
+    );
+
+    expect(result.results).toEqual([]);
+    expect(result.message).toContain("Check the Tool index");
+  });
+
   it("leaves menu mode without suggestions", () => {
     const result = searchToolRegistry(
       { "send-email": action("Send an email message") },

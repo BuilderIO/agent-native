@@ -407,7 +407,7 @@ function searchOnce(
 
   let suggestions: Array<{ name: string; description: string }> | undefined;
   let fallbackMessage: string | undefined;
-  if (!exactNames && candidates.length === 0 && queryTokens.length > 0) {
+  if (!exactNames && !listAll && candidates.length === 0) {
     suggestions = suggestCloseTools(rankable, queryTokens);
     if (suggestions.length > 0) {
       fallbackMessage = `No tool matched "${query}". Closest tool names: ${suggestions.map((s) => s.name).join(", ")}. Load one by exact name with \`names\`, or search again with a different capability word — the Tool index in your instructions lists every tool by topic.`;
