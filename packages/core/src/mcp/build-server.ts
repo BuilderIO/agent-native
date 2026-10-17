@@ -2596,20 +2596,83 @@ function mcpAppStructuredContent(
   return Object.keys(out).length > 0 ? out : { status: "ok" };
 }
 
-function truncateToolText(value: string, max = 2000): string {
-  if (value.length <= max) return value;
-  return `${value.slice(0, max - 1)}…`;
+const MCP_TEXT_PAGING_INPUTS = [
+  "cursor",
+  "pageToken",
+  "offset",
+  "page",
+  "after",
+] as const;
+
+// Only a read-only action is safe to name as re-callable: the same inputs on a
+// mutating action (`fields` on update-form replaces the form) would repeat the
+// write. Names are matched, not proven to page, so the notice never promises
+// that following them returns the rest.
+export function textPagingInputs(
+  parameters: unknown,
+  readOnly: boolean,
+): string[] {
+  if (!readOnly) return [];
+  const properties =
+    parameters && typeof parameters === "object"
+      ? (parameters as { properties?: unknown }).properties
+      : undefined;
+  if (!properties || typeof properties !== "object") return [];
+  return MCP_TEXT_PAGING_INPUTS.filter((parameter) =>
+    Object.hasOwn(properties, parameter),
+  );
+}
+
+// Lengths are counted in code points so a cut never splits a surrogate pair.
+function cutAtCodePoints(
+  value: string,
+  max: number,
+): { shown: string; total: number } | undefined {
+  if (value.length <= max) return undefined;
+  let total = 0;
+  let cutIndex = value.length;
+  for (let i = 0; i < value.length; i++, total++) {
+    if (total === max) cutIndex = i;
+    const unit = value.charCodeAt(i);
+    if (unit >= 0xd800 && unit <= 0xdbff && i + 1 < value.length) {
+      const next = value.charCodeAt(i + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) i++;
+    }
+  }
+  if (total <= max) return undefined;
+  return { shown: value.slice(0, cutIndex), total };
+}
+
+// A text-only host reads this notice and nothing else, so it has to say that
+// the result is incomplete and how much was cut.
+function truncateToolText(
+  value: string,
+  max = 2000,
+  paging: readonly string[] = [],
+): string {
+  const cut = cutAtCodePoints(value, max);
+  if (!cut) return value;
+  const pages =
+    paging.length > 0 ? ` This tool pages with ${paging.join(", ")}.` : "";
+  return `${cut.shown}\n[Truncated: showing the first ${max} of ${cut.total} characters. This result is incomplete.${pages}]`;
+}
+
+function shortenLinkText(value: string, max = 500): string {
+  const cut = cutAtCodePoints(value, max);
+  if (!cut) return value;
+  return `${cut.shown}… [URL shortened: showing the first ${max} of ${cut.total} characters.]`;
 }
 
 function conciseMcpAppToolText(
   name: string,
   result: unknown,
   structuredContent: Record<string, unknown>,
+  paging?: readonly string[],
 ): string {
-  if (typeof result === "string") return truncateToolText(result);
+  if (typeof result === "string") return truncateToolText(result, 2000, paging);
   const message = structuredContent.message;
   if (typeof message === "string" && message.trim()) {
-    return truncateToolText(message.trim());
+    return truncateToolText(message.trim(), 2000, paging);
   }
   const title = structuredContent.title ?? structuredContent.name;
   if (typeof title === "string" && title.trim()) {
@@ -2638,14 +2701,18 @@ function isSuccessOnlyResult(value: Record<string, unknown>): boolean {
 export function conciseToolResultText(
   name: string,
   result: unknown,
-  options?: { preserveObjectResult?: boolean },
+  options?: {
+    preserveObjectResult?: boolean;
+    paging?: readonly string[];
+  },
 ): string {
+  const paging = options?.paging;
   const purged = purgeEmbedStartUrls(result);
   // Text-only clients need the query payload: collection metadata alone can
   // consume a text cap before any row in an already-paginated result.
   const maxTextLength = options?.preserveObjectResult ? Infinity : 2000;
   if (typeof purged === "string")
-    return truncateToolText(purged, maxTextLength);
+    return truncateToolText(purged, maxTextLength, paging);
   if (options?.preserveObjectResult) {
     const text = JSON.stringify(purged);
     return text === undefined ? `${name} completed.` : text;
@@ -2659,10 +2726,10 @@ export function conciseToolResultText(
       record.nextRequiredAction.trim()
         ? ` Next: ${record.nextRequiredAction.trim()}`
         : "";
-    const tail = `${typeof link === "string" && link.trim() ? ` ${truncateToolText(link.trim(), 500)}` : ""}${next}`;
+    const tail = `${typeof link === "string" && link.trim() ? ` ${shortenLinkText(link.trim())}` : ""}${next}`;
     const message = record.message ?? record.summary;
     if (typeof message === "string" && message.trim()) {
-      return `${truncateToolText(message.trim(), maxTextLength)}${tail}`;
+      return `${truncateToolText(message.trim(), maxTextLength, paging)}${tail}`;
     }
     const id = record.id ?? record.planId ?? record.commentId;
     const title = record.title ?? record.name;
@@ -2683,7 +2750,7 @@ export function conciseToolResultText(
   const text = JSON.stringify(purged);
   return text === undefined
     ? `${name} completed.`
-    : truncateToolText(text, maxTextLength);
+    : truncateToolText(text, maxTextLength, paging);
 }
 
 export async function createMCPServerForRequest(
@@ -3657,13 +3724,19 @@ export async function createMCPServerForRequest(
               : structuredResult
                 ? mcpAppStructuredContent(structuredResult, responseMeta)
                 : undefined;
+          const paging = textPagingInputs(
+            entry.tool.parameters,
+            entry.readOnly === true,
+          );
           const text = mcpAppResource
             ? conciseMcpAppToolText(
                 name,
                 textResultForClient,
                 structuredContent!,
+                paging,
               )
             : conciseToolResultText(name, textResultForClient, {
+                paging,
                 preserveObjectResult:
                   returnsQueryPayload(entry) ||
                   (entry as MCPActionEntry)[PRESERVE_MCP_OBJECT_RESULT] ===
