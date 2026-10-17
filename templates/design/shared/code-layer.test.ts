@@ -3480,6 +3480,51 @@ describe("autoLayout", () => {
     expect(patch.content).not.toContain("align-items: flex-start");
   });
 
+  it("restores the default cross-axis alignment when auto-layout is re-enabled", () => {
+    const html = `<div data-agent-native-node-id="box" class="row"><span data-agent-native-node-id="child">A</span></div>`;
+    const enabled = applyVisualEdit(html, {
+      kind: "autoLayout",
+      targetId: "box",
+      enabled: true,
+    });
+    expect(enabled.result.status).toBe("applied");
+    expect(enabled.content).toContain('class="row items-start"');
+    expect(enabled.content).toContain(
+      'data-agent-native-auto-layout-cross-axis-default=""',
+    );
+
+    const disabled = applyVisualEdit(enabled.content, {
+      kind: "autoLayout",
+      targetId: "box",
+      enabled: false,
+      childRects: { child: { x: 0, y: 0, width: 20, height: 20 } },
+      containerRect: { width: 20, height: 20 },
+    });
+    expect(disabled.result.status).toBe("applied");
+    expect(disabled.content).toContain('class="row"');
+    expect(disabled.content).not.toContain("items-start");
+    expect(disabled.content).not.toContain(
+      "data-agent-native-auto-layout-cross-axis-default",
+    );
+    expect(disabled.content).not.toContain(
+      "data-agent-native-auto-layout-defaults",
+    );
+
+    const reenabled = applyVisualEdit(disabled.content, {
+      kind: "autoLayout",
+      targetId: "box",
+      enabled: true,
+    });
+    expect(reenabled.result.status).toBe("applied");
+    expect(reenabled.content).toContain('class="row items-start"');
+    expect(reenabled.content).toContain(
+      'data-agent-native-auto-layout-cross-axis-default=""',
+    );
+    expect(reenabled.content).toContain(
+      ":where([data-agent-native-auto-layout-cross-axis-default]){align-items:flex-start}",
+    );
+  });
+
   it("preserves an authored cross-axis alignment when enabling auto-layout", () => {
     const patch = applyVisualEdit(
       `<div data-agent-native-node-id="box" style="align-items: center"><span>A</span></div>`,

@@ -10078,11 +10078,36 @@ function applyAutoLayout(
           serializeStyleDeclarations(childDecls),
         );
       }
-      result = removeAttributeFromHtml(
-        result,
-        updatedTarget,
-        DEFAULT_AUTO_LAYOUT_ALIGNMENT_ATTRIBUTE,
-      );
+      if (
+        getAttribute(updatedTarget, DEFAULT_AUTO_LAYOUT_ALIGNMENT_ATTRIBUTE)
+      ) {
+        const currentClasses = classList(updatedTarget);
+        const nextClasses = currentClasses.filter(
+          (className) => className !== "items-start",
+        );
+        if (nextClasses.length !== currentClasses.length) {
+          result = nextClasses.length
+            ? replaceOrInsertAttribute(
+                result,
+                updatedTarget,
+                "class",
+                nextClasses.join(" "),
+              )
+            : removeAttributeFromHtml(result, updatedTarget, "class");
+        }
+        const targetAfterClassEdit = parseHtmlElements(result).find((fe) =>
+          targetAttr
+            ? attributeValue(fe, "data-agent-native-node-id") === targetAttr
+            : fe.start === element.start,
+        );
+        if (targetAfterClassEdit) {
+          result = removeAttributeFromHtml(
+            result,
+            targetAfterClassEdit,
+            DEFAULT_AUTO_LAYOUT_ALIGNMENT_ATTRIBUTE,
+          );
+        }
+      }
       result = removeDefaultAutoLayoutAlignmentFallback(result);
     }
     return {

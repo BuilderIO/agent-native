@@ -168,7 +168,7 @@ test("auto-layout defaults leave stylesheet alignment in control", async ({
 
   const savedBox = (await app.savedNodes(id)).get("box")!;
   expect(savedBox.attrs.class).toContain("items-start");
-  expect(styleOf(savedBox)).not.toHaveProperty("align-items");
+  expect(savedBox.attrs.style ?? "").not.toMatch(/(?:^|;)\s*align-items\s*:/i);
   await expect(app.node("box")).toHaveCSS("align-items", "center");
 });
 
