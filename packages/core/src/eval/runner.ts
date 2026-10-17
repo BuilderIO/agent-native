@@ -61,6 +61,8 @@ async function runScorer(
 interface ScoreEvalOptions {
   thresholdOverride?: number;
   onRunOutput?: (output: AgentRunOutput) => void;
+  /** Preserve production policy when scoring through the lower-level APIs. */
+  productionPath?: boolean;
 }
 
 export async function scoreEval(
@@ -85,13 +87,16 @@ export async function scoreEval(
     };
   }
 
-  if (evalCase.run && isProductionContextAgentRunner(runner)) {
+  if (
+    evalCase.run &&
+    (opts.productionPath || isProductionContextAgentRunner(runner))
+  ) {
     throw new Error(
       "Production-path evals cannot define custom run callbacks; every case must use the production chat adapter.",
     );
   }
   if (
-    isProductionContextAgentRunner(runner) &&
+    (opts.productionPath || isProductionContextAgentRunner(runner)) &&
     !hasOriginalProductionContextAgentRunnerMethods(runner)
   ) {
     throw new Error(
@@ -387,6 +392,7 @@ export async function runEvalSuite(
   const report = await runEvals(evals, runner, {
     thresholdOverride: opts.thresholdOverride,
     persist: opts.persist ?? true,
+    productionPath: Boolean(productionContext),
   });
   return { report, files };
 }

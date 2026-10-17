@@ -223,6 +223,15 @@ describe("scoreEval with a JS scorer", () => {
       engine: runner.engine,
       model: runner.model,
     };
+    const reconstructedWithFreshEngine: AgentRunner = {
+      runAgent: (input, options) => runner.runAgent(input, options),
+      analyzeContext: () => ({
+        ...runner.analyzeContext(),
+        engine: new Proxy({ ...runner.engine }, {}),
+      }),
+      engine: new Proxy({ ...runner.engine }, {}),
+      model: runner.model,
+    };
 
     await expect(scoreEval(evalCase, runner)).rejects.toThrow(
       "cannot define custom run callbacks",
@@ -240,6 +249,11 @@ describe("scoreEval with a JS scorer", () => {
       scoreEval(evalCase, reconstructedRunnerWithForwarders),
     ).rejects.toThrow("cannot define custom run callbacks");
     await expect(
+      scoreEval(evalCase, reconstructedWithFreshEngine, {
+        productionPath: true,
+      }),
+    ).rejects.toThrow("cannot define custom run callbacks");
+    await expect(
       runEvals([evalCase], runner, { persist: false }),
     ).rejects.toThrow("cannot define custom run callbacks");
     await expect(
@@ -247,6 +261,12 @@ describe("scoreEval with a JS scorer", () => {
     ).rejects.toThrow("cannot define custom run callbacks");
     await expect(
       runEvals([evalCase], forwardingRunner, { persist: false }),
+    ).rejects.toThrow("cannot define custom run callbacks");
+    await expect(
+      runEvals([evalCase], reconstructedWithFreshEngine, {
+        persist: false,
+        productionPath: true,
+      }),
     ).rejects.toThrow("cannot define custom run callbacks");
 
     expect(customRun).not.toHaveBeenCalled();
@@ -860,6 +880,10 @@ describe("createAgentRunner over a mocked runAgentLoop (no real model)", () => {
         model: "fake-model",
       })) as never,
     });
+
+    const scorerEngine = runner.analyzeContext().engine;
+    expect(Reflect.set(scorerEngine, "stream", vi.fn())).toBe(false);
+    expect(engine.stream).toBe(stream);
 
     await runner.analyzeContext().judge({ prompt: "Score this" });
 

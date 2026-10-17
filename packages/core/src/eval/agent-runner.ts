@@ -143,6 +143,10 @@ function preserveProductionContextEngine(
       boundMethods.set(value, boundMethod);
       return boundMethod;
     },
+    set: () => false,
+    defineProperty: () => false,
+    deleteProperty: () => false,
+    setPrototypeOf: () => false,
   });
   productionContextRunnerEngineTokens.set(wrapped, token);
   return wrapped;
