@@ -155,6 +155,12 @@ literally empty, pass non-whitespace `initializeContent` instead of `find` or `e
 Initialization rejects whitespace-only and all other nonempty bodies, preserves
 the Markdown bytes exactly, and safely replays an identical retry.
 
+A page in Trash refuses edits with `DOCUMENT_NOT_FOUND`, the same way
+`get-document` refuses to read it, including a page moved to Trash while the
+edit commits. Restore it before editing. A local-folder sync
+(`import-content-source`) leaves a page in Trash unchanged and lists it in
+`skipped`.
+
 ### update-document
 
 Update an existing document's metadata or browser-owned content. External
@@ -166,6 +172,10 @@ pnpm action update-document --id abc123 --content "# Updated Content\n\nNew text
 pnpm action update-document --id abc123 --title "New Title" --content "New content"
 pnpm action update-document --id abc123 --description "Stable guidance for what belongs on this page"
 ```
+
+A page in Trash refuses `update-document` (except a favorite toggle),
+`restore-document-version` and a Blocks value set with `set-document-property`,
+with `DOCUMENT_NOT_FOUND`, like `edit-document`.
 
 ### Suggested edits
 

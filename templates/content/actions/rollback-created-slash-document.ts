@@ -7,10 +7,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { requireDocumentRequestActor } from "../server/lib/document-attribution.js";
 import { assertDocumentMutationAccess } from "./_document-mutation-access.js";
-import {
-  lockDatabasesForTrash,
-  trashDocumentSubtree,
-} from "./delete-document.js";
+import { lockLifecycleGroup, trashDocumentSubtree } from "./delete-document.js";
 
 const ROLLBACK_WINDOW_MS = 5 * 60 * 1000;
 
@@ -81,6 +78,13 @@ export default defineAction({
     const db = getDb();
     const deletedIds = await db.transaction(async (transaction) => {
       const tx = transaction as unknown as ReturnType<typeof getDb>;
+      // The new page's collections, then it and its parent, in the one
+      // row-lock order Trash and restore use.
+      const locks = await lockLifecycleGroup(tx, {
+        operation: "trash",
+        roots: [{ id, ownerEmail }],
+        alsoLockDocumentIds: [parentId],
+      });
       const [parent] = await tx
         .select({ content: schema.documents.content })
         .from(schema.documents)
@@ -90,8 +94,7 @@ export default defineAction({
             eq(schema.documents.ownerEmail, ownerEmail),
             isNull(schema.documents.trashedAt),
           ),
-        )
-        .for("update");
+        );
       const [child] = await tx
         .select({
           createdBy: schema.documents.createdBy,
@@ -107,8 +110,7 @@ export default defineAction({
             eq(schema.documents.id, id),
             eq(schema.documents.ownerEmail, ownerEmail),
           ),
-        )
-        .for("update");
+        );
       if (!parent) {
         throw new ActionContractError(
           "The new page is unavailable for rollback.",
@@ -166,14 +168,7 @@ export default defineAction({
         hasDatabaseItems: !!databaseItem || !!database?.systemRole,
         now: Date.now(),
       });
-      const lockedDatabaseIds = await lockDatabasesForTrash(tx, id, ownerEmail);
-      return trashDocumentSubtree(
-        tx,
-        id,
-        ownerEmail,
-        undefined,
-        lockedDatabaseIds,
-      );
+      return trashDocumentSubtree(tx, id, ownerEmail, undefined, locks);
     });
     if (deletedIds.length > 0) {
       await writeAppState("refresh-signal", { ts: Date.now() });

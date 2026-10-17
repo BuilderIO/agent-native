@@ -25,6 +25,7 @@ import {
 import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { resolveContentDocumentAccess } from "./_content-document-access.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
+import { assertEditableDocument } from "./_document-edit-mutation.js";
 import {
   getDatabaseById,
   listPropertiesForDatabaseDocuments,
@@ -32,6 +33,7 @@ import {
   normalizedValueJson,
 } from "./_property-utils.js";
 import { validateRelationWrite } from "./_relation-values.js";
+import { lockDocumentRows } from "./_row-lock-order.js";
 
 async function assertPropertyWritableByRowMutation(
   db: ReturnType<typeof getDb>,
@@ -153,6 +155,16 @@ export default defineAction({
           tx as unknown as ReturnType<typeof getDb>,
           documentId,
         );
+        // A Blocks value is the page's body or one of its fields, so a page
+        // in Trash refuses it as edit-document does.
+        await lockDocumentRows(tx as unknown as ReturnType<typeof getDb>, [
+          documentId,
+        ]);
+        const [lockedPage] = await tx
+          .select({ trashedAt: schema.documents.trashedAt })
+          .from(schema.documents)
+          .where(eq(schema.documents.id, documentId));
+        assertEditableDocument(lockedPage);
         const [lockedDefinition] = await tx
           .select()
           .from(schema.documentPropertyDefinitions)
