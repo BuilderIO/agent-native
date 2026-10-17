@@ -3601,7 +3601,9 @@ function validateInventory(
           if (
             fixedScopes.some(
               (fixedScope) =>
-                !reply.evidence.includes(fixedScope.verification.trim()),
+                !normalizeScope(reply.evidence).includes(
+                  normalizeScope(fixedScope.verification),
+                ),
             )
           ) {
             throw new Error(
@@ -7512,6 +7514,20 @@ if (args[0] === "--self-test" && args.length === 1) {
     validateInventory(withTestThreadSnapshots(inventory));
   try {
     validateTestInventory(valid);
+    const caseInsensitiveVerification = JSON.parse(
+      JSON.stringify(valid),
+    ) as Inventory;
+    const caseInsensitiveRoot =
+      caseInsensitiveVerification.channels[0]!.pages[0]!.parents.find(
+        (parent) => parent.ts === "10.000000",
+      )!;
+    caseInsensitiveRoot.fixedScopes = [
+      {
+        scope: "initial route screen",
+        verification: "Focused test passed",
+      },
+    ];
+    validateTestInventory(caseInsensitiveVerification);
     validateTestInventory(
       withSweepOwnedParent({
         latestRelevantHumanReply: {
@@ -9321,7 +9337,7 @@ if (args[0] === "--self-test" && args.length === 1) {
       }
     }
     console.log(
-      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + 3} negative cases; 29 positive inventory cases; 6 handoff phrase cases).`,
+      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + 3} negative cases; 30 positive inventory cases; 6 handoff phrase cases).`,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

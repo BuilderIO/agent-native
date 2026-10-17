@@ -164,7 +164,6 @@ export function AddLocalhostScreenDialog({
     search.trim().length > 0 &&
     !connectionsFetching &&
     !connectionError &&
-    search.trim().length > 0 &&
     filteredRoutes.length === 0 &&
     !showCustomPathOption &&
     (availableConnections.length === 0 || Boolean(selectedConnection));
