@@ -646,7 +646,10 @@ export function readOnlyStatusProbeFailureEvidence<T>(
   };
 }
 
-const retiredBrowserSessionPollConsoleGraceMs = 250;
+export const retiredBrowserSessionPollConsoleGraceMs = 250;
+// A matching page error can arrive during one grace window, then inspection takes another.
+const cleanupRecoveryClaimEvidenceRetentionMs =
+  retiredBrowserSessionPollConsoleGraceMs * 2;
 const reloadNavigationSuccessfulClaimGraceMs = 250;
 const outgoingBrowserSessionAbortWindowMs = 1_000;
 const authoringFuzzStepStallTimeoutMs = 120_000;
@@ -1836,6 +1839,57 @@ export function isExpectedCleanupBrowserSessionPollConsoleError(
   );
 }
 
+export function isPotentialCleanupRecoveryPageBrowserSessionError(
+  message: string,
+) {
+  if (
+    message ===
+    "[Agent-Native browser session] poll failed: TypeError: Load failed"
+  ) {
+    return true;
+  }
+
+  const corsUrl =
+    /^Fetch API cannot load (https?:\/\/\S+) due to access control checks\.(?:\s+at\b[\s\S]*)?$/.exec(
+      message,
+    )?.[1] ?? null;
+  if (corsUrl === null) return false;
+
+  if (!URL.canParse(corsUrl)) return false;
+  return /^\/_agent-native\/browser-sessions\/[^/]+\/requests\/claim$/.test(
+    new URL(corsUrl).pathname,
+  );
+}
+
+export function isWithinCleanupRecoveryClaimCorrelationWindow(
+  failedAt: number,
+  pageErrorAt: number,
+) {
+  return (
+    Math.abs(failedAt - pageErrorAt) <= retiredBrowserSessionPollConsoleGraceMs
+  );
+}
+
+export function cleanupRecoveryClaimRequestAgeMs(
+  startedAt: number,
+  pageErrorAt: number,
+) {
+  return pageErrorAt - startedAt;
+}
+
+export function shouldRetainCleanupRecoveryClaimEvidence(
+  failedAt: number,
+  now: number,
+  pendingPageErrorAts: readonly number[],
+) {
+  return (
+    now - failedAt <= cleanupRecoveryClaimEvidenceRetentionMs ||
+    pendingPageErrorAts.some((pageErrorAt) =>
+      isWithinCleanupRecoveryClaimCorrelationWindow(failedAt, pageErrorAt),
+    )
+  );
+}
+
 export function isExpectedCleanupRecoveryPageBrowserSessionError(
   message: string,
   candidates: Array<{
@@ -1844,7 +1898,7 @@ export function isExpectedCleanupRecoveryPageBrowserSessionError(
     method: string;
     sessionId: string;
     requestAgeMs: number;
-    failureAgeMs: number;
+    failureOffsetMs: number;
     sameOrigin: boolean;
     competingClaimStartedAfterFailure: boolean;
     competingClaimPendingAtFailure: boolean;
@@ -1891,8 +1945,8 @@ export function isExpectedCleanupRecoveryPageBrowserSessionError(
     !competingClaimPending &&
     candidate.requestAgeMs >= 0 &&
     candidate.requestAgeMs < cleanupNavigationBrowserSessionMaxRequestAgeMs &&
-    candidate.failureAgeMs >= 0 &&
-    candidate.failureAgeMs <= retiredBrowserSessionPollConsoleGraceMs &&
+    candidate.failureOffsetMs >= -retiredBrowserSessionPollConsoleGraceMs &&
+    candidate.failureOffsetMs <= retiredBrowserSessionPollConsoleGraceMs &&
     (corsUrl === null || candidate.url === corsUrl)
   );
 }

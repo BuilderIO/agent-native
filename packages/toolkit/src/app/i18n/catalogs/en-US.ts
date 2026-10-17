@@ -2876,8 +2876,6 @@ const messages = {
     "Created and rotated by {{owner}}. Disconnect it there.",
   "settingsApiKeys.membersLocked":
     "Only owners and admins can share keys with {{org}}.",
-  "settingsApiKeys.modelFootnote": "To use your own model provider, {{link}}.",
-  "settingsApiKeys.modelFootnoteLink": "add it in Model",
   "settingsApiKeys.name": "Name",
   "settingsApiKeys.noKeys": "No keys yet",
   "settingsApiKeys.noKeysDescription":
