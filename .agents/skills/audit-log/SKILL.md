@@ -89,6 +89,12 @@ minimum useful addition is `target: () => ({ type, id })`.
   server cannot verify who responded. The recorder reads these from
   `ctx.approvedToolCallKey` or `ctx.mcpClientAccepted`. Never infer approval
   from the email, and never backfill these fields on older rows.
+- **Attribution comes from one helper** — `recordActionAudit` and
+  `recordOrgAdminAuditEvent` require an `attribution` (source, reported
+  client, OAuth client, approval, run and network ids), and only
+  `auditAttribution(ctx)` makes one; a Nitro route outside any action uses
+  `routeAuditAttribution(event)`. Never copy `caller`, `threadId` or the client
+  fields into a hand-built context: a field the copy forgets is stored as null.
 - **Source is verified, not claimed** — on an action route, a request that
   authenticated with an MCP OAuth or connect token records as `mcp` with that
   token's `oauthClientId`, whatever headers it sends. `getMcpOAuthBearerSession`
@@ -126,7 +132,11 @@ Use the helpers in `@agent-native/core/audit` instead of hand-setting
 `visibility`, so every org setting lands in the organization trail the same way:
 
 ```ts
-import { orgAdminAudit, recordOrgAdminAuditEvent } from "@agent-native/core/audit";
+import {
+  orgAdminAudit,
+  recordOrgAdminAuditEvent,
+  routeAuditAttribution,
+} from "@agent-native/core/audit";
 
 defineAction({
   // ...
@@ -144,12 +154,13 @@ await recordOrgAdminAuditEvent({
   summary: "Connected Builder.io for the organization",
   userEmail,
   orgId,
+  attribution: routeAuditAttribution(event),
 });
 ```
 
 Pass `personal: true` to `recordOrgAdminAuditEvent` when the change affects
-only the actor. New settings actions (restrict personal keys, service
-providers) use `orgAdminAudit`.
+only the actor. An action that records by hand instead of through
+`orgAdminAudit` passes `attribution: auditAttribution(ctx)`.
 
 ## Reading the log
 
