@@ -5,7 +5,6 @@ import path from "node:path";
 
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
 import {
-  accessFilter,
   registerShareableResource,
   resolveAccess,
 } from "@agent-native/core/sharing";
@@ -822,10 +821,14 @@ describe("public review link", () => {
 });
 
 describe("org visibility", () => {
+  beforeEach(async () => {
+    await seedOrg(ORG, "Sharing matrix organization");
+    await seedOrgMember(ORG, VIEWER);
+  });
+
   it("an org-visible plan is readable by same-org members, not other orgs", async () => {
     const planId = await createPlanAs(OWNER, ORG);
     await setVisibility(OWNER, ORG, planId, "org");
-    await seedOrgMember(ORG, VIEWER);
 
     const got = await asUser({ userEmail: VIEWER, orgId: ORG }, () =>
       getVisualPlan.run({ id: planId }),
@@ -842,7 +845,6 @@ describe("org visibility", () => {
   it("org visibility grants read but not edit to a non-owner org member", async () => {
     const planId = await createPlanAs(OWNER, ORG);
     await setVisibility(OWNER, ORG, planId, "org");
-    await seedOrgMember(ORG, VIEWER);
 
     await expect(
       asUser({ userEmail: VIEWER, orgId: ORG }, () =>
