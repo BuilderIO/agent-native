@@ -7,7 +7,7 @@ type Handoff = {
   owner: string;
   ownerSlackId?: string;
   action: string;
-  status?: "accepted" | "completed";
+  status?: "unassigned" | "accepted" | "completed";
   requestReply?: {
     ts: string;
     threadParentTs: string;
@@ -755,9 +755,9 @@ function validateThreadSnapshot(
     }
     const acceptance = handoff.acceptanceReply;
     if (
-      !acceptance ||
-      repliesByTimestamp.get(acceptance.ts)?.actorId !== acceptance.actorId ||
-      repliesByTimestamp.get(acceptance.ts)?.text !== acceptance.text
+      acceptance &&
+      (repliesByTimestamp.get(acceptance.ts)?.actorId !== acceptance.actorId ||
+        repliesByTimestamp.get(acceptance.ts)?.text !== acceptance.text)
     ) {
       throw new Error(
         `${parentName}: threadSnapshot must confirm each handoff acceptance in the source thread`,
@@ -885,12 +885,20 @@ function normalizeReplyPhrase(phrase: string): string {
 
 function replyNamesHandoffs(text: string, handoffs: Handoff[]): boolean {
   const reply = ` ${normalizeReplyPhrase(text)} `;
-  return handoffs.every((handoff) =>
-    [handoff.scope, handoff.owner, handoff.action].every((phrase) => {
+  return handoffs.every((handoff) => {
+    const namesRecordedAction = [
+      handoff.scope,
+      handoff.owner,
+      handoff.action,
+    ].every((phrase) => {
       const normalizedPhrase = normalizeReplyPhrase(phrase);
       return normalizedPhrase !== "" && reply.includes(` ${normalizedPhrase} `);
-    }),
-  );
+    });
+    return (
+      namesRecordedAction &&
+      (handoff.status !== "unassigned" || reply.includes(" unassigned "))
+    );
+  });
 }
 
 function replyNamesHandoffAction(text: string, action: string): boolean {
@@ -924,10 +932,7 @@ function replyDirectlyRequestsHandoff(text: string, handoff: Handoff): boolean {
 }
 
 function replyExplicitlyRefusesHandoff(text: string): boolean {
-  const normalized = text
-    .normalize("NFKC")
-    .replace(/[’‘]/g, "'")
-    .toLowerCase();
+  const normalized = text.normalize("NFKC").replace(/[’‘]/g, "'").toLowerCase();
   const refusedAction =
     "(?:take|handle|do|own|accept|review|investigate|fix|choose|configure|set|schedule|complete|test|expand|supersede|help with|work on|commit|promise)";
   return (
@@ -941,10 +946,7 @@ function replyExplicitlyRefusesHandoff(text: string): boolean {
 }
 
 function replyExplicitlyAcceptsHandoff(text: string): boolean {
-  const normalized = text
-    .normalize("NFKC")
-    .replace(/[’‘]/g, "'")
-    .toLowerCase();
+  const normalized = text.normalize("NFKC").replace(/[’‘]/g, "'").toLowerCase();
   if (replyExplicitlyRefusesHandoff(normalized)) return false;
   const firstClause = normalized.split(/[.!?;\n]/, 1)[0] ?? normalized;
   if (
@@ -1001,6 +1003,37 @@ function validateHandoffAcceptance(
 ): void {
   const acceptance = handoff.acceptanceReply;
   const request = handoff.requestReply;
+  if (handoff.status === "unassigned") {
+    if (handoff.ownerSlackId !== undefined || acceptance !== undefined) {
+      throw new Error(
+        `${parentName}: an unassigned handoff cannot claim a Slack owner or acceptance`,
+      );
+    }
+    if (request) {
+      const requestTs = slackTimestamp(
+        request.ts,
+        `${parentName}.handoff.requestReply.ts`,
+      );
+      if (
+        request.actorId !== sweepActorId ||
+        !isSlackUserId(request.actorId) ||
+        slackTimestamp(
+          request.threadParentTs,
+          `${parentName}.handoff.requestReply.threadParentTs`,
+        ) !== threadParentTs ||
+        requestTs <= rootTs ||
+        requestTs >= statusReplyTs ||
+        typeof request.text !== "string" ||
+        !request.text.trim() ||
+        !replyNamesHandoffAction(request.text, handoff.action)
+      ) {
+        throw new Error(
+          `${parentName}: an unassigned handoff request must be this actor's read-back in the source thread and name the recorded action`,
+        );
+      }
+    }
+    return;
+  }
   const explicitlyAcceptsAction =
     !!acceptance &&
     replyExplicitlyAcceptsHandoff(acceptance.text) &&
@@ -1540,7 +1573,7 @@ function validateStatusReactionLanguage(
   const ticketMentioned = /(?:🎫|:ticket:)/i.test(text);
   if (hasTicket && !ticketMentioned) {
     throw new Error(
-      `${parentName}: status reply must name this actor's accepted 🎫 handoff`,
+      `${parentName}: status reply must name this actor's 🎫 human/team action`,
     );
   }
   if (
@@ -1569,7 +1602,7 @@ function validateHumanOwnerBlock(
     (activeHandoffs.length === 0 || !hasTicket)
   ) {
     throw new Error(
-      `${parentName}: Blocked on human owner needs a distinct handoff assigned to a named individual and this actor's 🎫`,
+      `${parentName}: Blocked on human owner needs a distinct human/team action and this actor's 🎫`,
     );
   }
 }
@@ -2000,21 +2033,32 @@ function validateHandoffDefinitions(
       !handoff.scope.trim() ||
       typeof handoff.owner !== "string" ||
       !handoff.owner.trim() ||
-      !isNamedHumanOwner(handoff.owner) ||
       typeof handoff.action !== "string" ||
       !handoff.action.trim()
     ) {
       throw new Error(
-        `${parentName}: handoff ${handoffIndex + 1} needs a distinct scope, assigned individual, and action`,
+        `${parentName}: handoff ${handoffIndex + 1} needs a distinct scope, responsible person/team, and action`,
       );
     }
     if (
       handoff.status !== undefined &&
+      handoff.status !== "unassigned" &&
       handoff.status !== "accepted" &&
       handoff.status !== "completed"
     ) {
       throw new Error(
-        `${parentName}: handoff status must be accepted or completed`,
+        `${parentName}: handoff status must be unassigned, accepted, or completed`,
+      );
+    }
+    if (
+      handoff.status === "unassigned"
+        ? isNamedHumanOwner(handoff.owner) ||
+          handoff.ownerSlackId !== undefined ||
+          handoff.acceptanceReply !== undefined
+        : !isNamedHumanOwner(handoff.owner)
+    ) {
+      throw new Error(
+        `${parentName}: unassigned handoffs may name a team/role, while accepted handoffs need the named individual`,
       );
     }
     if (handoff.completion !== undefined && handoff.status !== "completed") {
@@ -2047,7 +2091,7 @@ function validateHandoffTicketParity(
   }
   if (handoffs.length === 0 && hasTicket && !hasHistoricalTicket) {
     throw new Error(
-      `${parentName}: this actor's 🎫 needs a distinct active or explicitly historical accepted handoff`,
+      `${parentName}: this actor's 🎫 needs a distinct active or explicitly historical human action`,
     );
   }
 }
@@ -3808,15 +3852,16 @@ function validateInventory(
         0,
       );
       const distinctHandoffs = new Set<string>();
+      const unassignedHandoffs = new Set<string>();
       for (const parent of ownedTickets) {
         const handoffs =
           parent.handoffs ?? (parent.handoff ? [parent.handoff] : []);
         for (const handoff of handoffs) {
-          distinctHandoffs.add(
-            [handoff.scope, handoff.owner, handoff.action]
-              .map(normalizeScope)
-              .join("\u0000"),
-          );
+          const key = [handoff.scope, handoff.owner, handoff.action]
+            .map(normalizeScope)
+            .join("\u0000");
+          distinctHandoffs.add(key);
+          if (handoff.status === "unassigned") unassignedHandoffs.add(key);
         }
       }
       const eyeOnlyRows = ownedEyes.filter(
@@ -3835,7 +3880,7 @@ function validateInventory(
         (parent) => !openDispositions.has(parent.disposition),
       );
       summaries.push(
-        `${channel.channelId}: in-scope ${label} ${rows.length}; owned 👀 ${ownedEyes.length}, ✅ marks ${ownedCheckmarks.length} for ${verifiedScopeCount} verified scopes, 🎫 marks ${ownedTickets.length} for ${distinctHandoffs.size} accepted human actions (including completed history), eye-only ${eyeOnlyRows.length}`,
+        `${channel.channelId}: in-scope ${label} ${rows.length}; owned 👀 ${ownedEyes.length}, ✅ marks ${ownedCheckmarks.length} for ${verifiedScopeCount} verified scopes, 🎫 marks ${ownedTickets.length} for ${distinctHandoffs.size} distinct human actions (${distinctHandoffs.size - unassignedHandoffs.size} accepted, ${unassignedHandoffs.size} unassigned; including completed history), eye-only ${eyeOnlyRows.length}`,
       );
       if (openEyeOnlyRows.length > 0) {
         summaries.push(
@@ -4205,7 +4250,7 @@ if (args[0] === "--self-test" && args.length === 1) {
       actorId: "USWEEPER",
       disposition,
       evidence,
-      text: `${disposition}: ${evidence}. No :white_check_mark: — no root scope has passed verification. No :ticket: — no distinct action has been accepted by a named human. this was sent from a bot.`,
+      text: `${disposition}: ${evidence}. No :white_check_mark: — no root scope has passed verification. No :ticket: — no separate human/team action remains unfinished. this was sent from a bot.`,
     };
     return supplementalRootAudit("8.500000", {
       reactionSummary: "eyes (1): USWEEPER",
@@ -4520,7 +4565,7 @@ if (args[0] === "--self-test" && args.length === 1) {
       actorId: "USWEEPER",
       disposition: "In progress",
       evidence: "the reported root scope still needs verification",
-      text: "In progress: the reported root scope still needs verification. No :white_check_mark: — no root scope has passed verification. No :ticket: — no distinct action has been accepted by a named human. this was sent from a bot.",
+      text: "In progress: the reported root scope still needs verification. No :white_check_mark: — no root scope has passed verification. No :ticket: — no separate human/team action remains unfinished. this was sent from a bot.",
     };
     const inventory = withSupplementalRootAudit(
       ownedSupplementalRootAudit({ statusReply }),
@@ -4708,6 +4753,30 @@ if (args[0] === "--self-test" && args.length === 1) {
       })),
     })),
   });
+  const withUnassignedTeamTicket = (
+    overrides: Partial<Parent> = {},
+  ): Inventory =>
+    withUnownedTicket({
+      latestRelevantHumanReply: null,
+      handoffs: [
+        {
+          scope: "remaining design choice",
+          owner: "Product team",
+          action: "choose the remaining behavior",
+          status: "unassigned",
+        },
+      ],
+      statusReply: {
+        ts: "12.000000",
+        threadParentTs: "10.000000",
+        actorId: "USWEEPER",
+        disposition: "In progress",
+        evidence:
+          "the Product team still needs to choose the remaining behavior",
+        text: "In progress: the Product team still needs to choose the remaining behavior. Handoff: remaining design choice — Product team — choose the remaining behavior; owner unassigned. No :white_check_mark: — no verified scope is complete yet. :ticket: tracks the unfinished Product team action; owner unassigned. this was sent from a bot.",
+      },
+      ...overrides,
+    });
   const withOtherOwnerRoot = (overrides: Partial<Parent> = {}): Inventory => ({
     ...valid,
     channels: valid.channels.map((channel) => ({
@@ -5868,7 +5937,7 @@ if (args[0] === "--self-test" && args.length === 1) {
             actorId: "USWEEPER",
             disposition: "Partially fixed",
             evidence: "root motion timeline passed focused verification",
-            text: "Partially fixed: root motion timeline passed focused verification. :white_check_mark: covers the root motion timeline. No :ticket: — no distinct action has been accepted by a named human. this was sent from a bot.",
+            text: "Partially fixed: root motion timeline passed focused verification. :white_check_mark: covers the root motion timeline. No :ticket: — no separate human/team action remains unfinished. this was sent from a bot.",
           },
         }),
       ),
@@ -6457,6 +6526,26 @@ if (args[0] === "--self-test" && args.length === 1) {
             owner: "Product/engineering lead (not assigned)",
             ownerSlackId: "UOTHER",
             action: "choose the remaining behavior",
+            acceptanceReply: {
+              ts: "11.500000",
+              threadParentTs: "10.000000",
+              actorId: "UOTHER",
+              text: "I will choose the remaining behavior.",
+            },
+          },
+        ],
+      }),
+    },
+    {
+      name: "unassigned team handoff cannot claim a named owner",
+      inventory: withUnassignedTeamTicket({
+        handoffs: [
+          {
+            scope: "remaining design choice",
+            owner: "Alex Rivera",
+            ownerSlackId: "UOTHER",
+            action: "choose the remaining behavior",
+            status: "unassigned",
             acceptanceReply: {
               ts: "11.500000",
               threadParentTs: "10.000000",
@@ -7298,13 +7387,15 @@ if (args[0] === "--self-test" && args.length === 1) {
     "handoff without a fixed scope is not partially fixed":
       "Partially fixed needs a verified fixed scope and a distinct unfinished report scope or handoff",
     "ticket reaction without a human handoff":
-      "this actor's 🎫 needs a distinct active or explicitly historical accepted handoff",
+      "this actor's 🎫 needs a distinct active or explicitly historical human action",
     "human handoff without a ticket reaction":
       "every handoff needs this actor's 🎫",
     "ticket handoff cannot name an unassigned role":
-      "handoff 1 needs a distinct scope, assigned individual, and action",
+      "unassigned handoffs may name a team/role, while accepted handoffs need the named individual",
+    "unassigned team handoff cannot claim a named owner":
+      "unassigned handoffs may name a team/role, while accepted handoffs need the named individual",
     "ticket handoff needs the assigned human's acceptance":
-      "threadSnapshot must confirm each handoff acceptance in the source thread",
+      "🎫 needs a named human other than this actor and explicit acceptance of the recorded action, or a direct in-thread request followed by their assent",
     "ticket handoff cannot assign the sweep actor":
       "🎫 needs a named human other than this actor and explicit acceptance of the recorded action, or a direct in-thread request followed by their assent",
     "ticket acceptance must come from the assigned human":
@@ -7350,7 +7441,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     "later refusal stays visible after a later benign owner reply":
       "the assigned owner withdrew the handoff after accepting it",
     "Blocked on human owner without a handoff or ticket":
-      "Blocked on human owner needs a distinct handoff assigned to a named individual and this actor's 🎫",
+      "Blocked on human owner needs a distinct human/team action and this actor's 🎫",
     "Fixed disposition cannot retain an unfinished handoff":
       "Fixed disposition cannot retain an unfinished scope or handoff; use Partially fixed",
     "duplicate handoff scopes are not distinct":
@@ -8089,7 +8180,9 @@ if (args[0] === "--self-test" && args.length === 1) {
       }),
     );
     validateTestInventory(withUnownedCheckmark());
-    // Handoff-only work remains In progress and can carry 🎫 without a fixed scope.
+    // Unassigned team work is ticketed before a person accepts it.
+    validateTestInventory(withUnassignedTeamTicket());
+    // Accepted handoff-only work remains In progress and can carry 🎫 without a fixed scope.
     validateTestInventory(withUnownedTicket());
     const completedHandoffReply = {
       ts: "12.000000",
@@ -8566,7 +8659,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     if (
       !cutoffOverlapSummary.some((line) =>
         line.includes(
-          "in-scope report roots 2; owned 👀 0, ✅ marks 1 for 1 verified scopes, 🎫 marks 0 for 0 accepted human actions (including completed history)",
+          "in-scope report roots 2; owned 👀 0, ✅ marks 1 for 1 verified scopes, 🎫 marks 0 for 0 distinct human actions (0 accepted, 0 unassigned; including completed history)",
         ),
       ) ||
       !cutoffOverlapSummary.some((line) =>

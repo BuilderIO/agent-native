@@ -22,11 +22,15 @@ eligibility: do not exclude Design feedback because it is visual or subjective;
 new capability requests still require the invoking identity's `:upvote:`. For
 every report root this actor owns with `👀`, `✅`, or `🎫`, keep one concise,
 current same-actor status reply after the latest human message. Reconcile root
-marks with every directly verified scope (`✅`) and every specific action a
-named person accepted (`🎫`), then read back the reply and reactions. Reuse the
-status while evidence, disposition, and next action remain current; update it
-when one changes. The linked `review-latest-feedback` reaction reference owns
-the exact proof, acceptance, and inventory rules.
+marks with every directly verified scope (`✅`) and every distinct unfinished
+human/team action (`🎫`), including actions that are unassigned or unaccepted.
+Record `owner: unassigned` and `status: unassigned` until a named person
+explicitly accepts the action; record the exact acceptance only after their
+reply. A Slack `🎫` is a workflow reaction, not proof that an external tracker
+ticket exists. Read back the reply and reactions. Reuse the status while
+evidence, disposition, and next action remain current; update it when one
+changes. The linked `review-latest-feedback` reaction reference owns the exact
+proof, acceptance, and inventory rules.
 Praise, status updates, merge or review requests, bot forwards, duplicates, and
 other unrelated messages stay out of scope. Content remains with Alice unless
 the user explicitly assigns it.
@@ -290,8 +294,10 @@ reporter reply to one short, plain-language paragraph. Start with
 `ty for the feedback -` or `thanks for the feedback -`; end with
 `this was sent from a bot.`.
 
-Say what changed, what meaningful scope remains, and the next action/owner or
-ticket if one is needed. For a beta app fix in an open PR, link it and say it
+Say what changed, what meaningful scope remains, and the next action/owner.
+Link an external tracker ticket only if one exists. The workflow's Slack `🎫`
+reaction tracks a handoff; it does not mean an external ticket was created or
+assigned. For a beta app fix in an open PR, link it and say it
 should reach beta soon after merge; do not give an exact date or claim it is
 live. If work continues beyond this run, name the concrete action and owner.
 For a clarification, ask one direct question only when reporter input changes

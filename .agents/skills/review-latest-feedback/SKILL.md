@@ -56,9 +56,13 @@ actor's 👀, ✅, or 🎫 in the full inventory, including marks from earlier
 runs. Reconcile each root's latest human reply, current same-actor status,
 verified scopes, and exact root reactions. If any scope has direct
 post-change proof, add and read back the root ✅ even while its PR is open; if
-no scope qualifies, say why in the status. Add 🎫 only for a separate action
-accepted by a named person. Never let a high 👀 count hide an unchecked
-verified fix or an owned root without a current reply. The final inventory
+no scope qualifies, say why in the status. Add 🎫 for a distinct unfinished
+action another human must take, including an unassigned team/role request or
+priority/ownership decision. Do not wait for a named person to accept or an
+  external tracker ticket to exist. Record the exact scope and action, name the
+  responsible person/team or say the owner is unassigned, and keep reporter-only evidence
+requests separate. Never let a high 👀 count hide an unchecked verified fix or
+an owned root without a current reply. The final inventory
 checker must validate the raw captured Slack pages as well as the receipt and
 disposition rows.
 
@@ -73,7 +77,7 @@ on person-assigned work.
 
 Resolve known duplicates before claiming. Add this task's root `👀` before
 investigating an eligible unowned report and read it back. Reconcile every
-root this actor already owns, including eye-only, checkmarked, and ticketed
+root this actor already owns, including eye-only, checkmarked, and `🎫`-marked
 roots; do not target a reaction ratio. Keep one concise, current status reply
 by the same actor after the latest human message. Reuse a reply that still
 matches; update it when new human input, evidence, disposition, or next action
@@ -88,15 +92,19 @@ after merge and direct proof. Upvoted feature work earns `✅` only when the
 accepted improvement is delivered and verified. Reserve **Shipped** and
 **Live verified** for delivery/runtime proof.
 
-Add one root `🎫` only after a different named person accepts a specific
-separate action in the source thread. Record the exact acceptance and action;
-keep the mark as history when the action completes. A team ping, role, ask
-without acceptance, or inferred owner is not a handoff. Never remove or clean
-up `👀`, `✅`, or `🎫`, including after closure. Explain in the current status
-why an open scope has no `✅` or why no `🎫` applies. The reply and root marks
-are both required; one never substitutes for the other. See
+Add one root `🎫` for each distinct unfinished action another person or
+team must take outside this workflow, whether or not anyone has accepted it or
+an external tracker ticket exists. This includes unassigned priority, ownership,
+and team requests. Record the scope, exact action, and responsible person/team; if no
+owner is assigned, say so and use `status: "unassigned"` in the ledger. Record
+an accepting person's Slack ID and exact reply only after they accept. A
+reporter-only wait for a URL, access, or evidence does not get `🎫` by itself.
+Keep the mark as history when the action completes. Never remove or clean up
+`👀`, `✅`, or `🎫`, including after closure. Explain in the current status why
+an open scope has no `✅` or why no human action needs `🎫`. The reply and root
+marks are both required; one never substitutes for the other. See
 [`slack-reaction-replies.md`](references/slack-reaction-replies.md) for exact
-ownership, proof, acceptance, reply, and historical-mark rules.
+ownership, proof, handoff state, reply, and historical-mark rules.
 
 Fix defects or ask only for the reporter fact/action that gates progress.
 Inspect supplied evidence and never ask for details already present. Try local
@@ -400,6 +408,14 @@ reporter follow-ups. End Slack replies with `this was sent from a bot.`.
 
 Replies are one or two sentences: the change or question, its limit, and the next step. Never explain reactions, ledgers, or tickets. Never send **Open**/**pending** or a symptom recap. Ask for reporter input only when it changes the next step; never request supplied evidence or internal access. Keep hashes, branches, CI, publisher, and run details in the recap.
 
+That brevity rule is for a reporter-facing reply. Separately, every root this
+actor marks with `👀`, `✅`, or `🎫` still needs the current same-actor status
+reply required by the Slack reaction reference. One concise reply may serve both
+purposes when it answers the reporter and records the current disposition,
+verified/open scopes, owner/action, and any missing-proof reason. A Slack `🎫`
+reaction tracks a distinct unfinished human/team action; it does not mean an
+external tracker ticket was created or assigned. Never imply that it was.
+
 Keep publisher and beta checks in the internal recap after the disposition;
 they do not trigger a second reporter reply.
 
@@ -408,9 +424,12 @@ they do not trigger a second reporter reply.
 Track publisher state and beta verification in the internal recap. Do not send
 a routine post-merge reporter reply; answer only a direct reporter follow-up.
 
-For a fixed behavior with a ticketed handoff, state the done behavior and
-remaining action/owner/ticket separately; don't imply the fixed scope is open.
-Don't promise a ticket until created and assigned. Ask one targeted question if
+For a fixed behavior with a Slack `🎫` handoff, state the done behavior and
+remaining action/owner separately; don't imply the fixed scope is open. The
+Slack reaction tracks a distinct unfinished human/team action, including an
+unassigned action; it does not mean an external tracker ticket exists. Link an
+existing tracker ticket when there is one, and do not claim a tracker ticket
+was created or assigned unless that is true. Ask one targeted question if
 needed.
 
 - **Fixed** / **Shipped** / **Live verified** meet Phase 2 bars. Recorded live

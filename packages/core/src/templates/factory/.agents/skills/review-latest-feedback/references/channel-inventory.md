@@ -144,19 +144,27 @@ place of Slack source messages.
   administrative post or duplicate; record the reason and link a duplicate to
   its canonical report. Include
   the root `threadParentTs`, reply timestamp, author ID, matching disposition,
-  evidence, and read-back text. For each human handoff, the visible status reply
-  must name its distinct scope, recorded owner, and action. A person being
-  named or assigned is not acceptance: each `handoffs[]` entry must record the
-  owner's exact Slack ID
-  and accepting reply read from the source thread. A contextual assent qualifies
-  only when a preceding direct request names the owner and exact action; an
-  explicit first-person commitment that names the action also qualifies without
-  a preceding request. Record the exact acceptance reply and, for contextual
-  assent, both the request and assent as described below. The accepting actor must match
-  the owner, differ from `sweepActorId`, and reply after the root and before the
-  status reply. Do not create a ticket or use **Blocked on
-  human owner** until this acceptance exists; never assign the handoff to
-  yourself. Reuse a qualifying reply while disposition and evidence remain
+  evidence, and read-back text. For each human/team handoff, the visible status
+  reply must name its distinct scope, owner state, and action. Every distinct
+  unfinished team action gets this actor's root `🎫`, even when no person has
+  accepted it. For `status: "unassigned"`, record the responsible team/role or
+  `unassigned`; omit the owner Slack ID and acceptance. If this actor asked a
+  named person to take the action but they have not accepted, record the exact
+  request and keep the handoff unassigned. For `status: "accepted"` or
+  `"completed"`, a person being named or assigned is not enough: record that
+  owner's exact Slack ID and acceptance reply from the source thread. A
+  contextual assent qualifies only when a preceding direct request names the
+  owner and exact action; an explicit first-person commitment that names the
+  action also qualifies without a preceding request. Record the exact
+  acceptance reply and, for contextual assent, both the request and assent as
+  described below. The accepting actor must match the owner, differ from
+  `sweepActorId`, and reply after the root and before the status reply. Reserve
+  **Blocked on human owner** for an accepted named-owner action that blocks
+  progress; keep an unassigned action in **In progress** or another accurate
+  open disposition while still marking it with `🎫`. A Slack `🎫` does not
+  mean an external tracker ticket exists; link one only if it already exists.
+  Never assign a handoff to yourself. Reuse a qualifying reply while
+  disposition and evidence remain
   current; update it when either materially changes. Do
   not send a new message on every sweep. For a recent unanswered question, do
   not repeat the question; if no qualifying reply exists, send at most one
@@ -171,19 +179,24 @@ place of Slack source messages.
   reply. If a human answers later, update the disposition and status before
   reconciling it.
   Record each verified `fixedScopes` entry with its proof; record every
-  distinct human handoff in `handoffs[]`, with scope, assigned individual,
-  owner Slack ID, action, and an `acceptanceReply` containing exact `ts`,
-  `threadParentTs`, `actorId`, and verbatim `text`. When the acceptance is a
-  contextual assent that does not repeat the action, also record `requestReply`
-  with the exact preceding in-thread request's `ts`, `threadParentTs`,
-  `actorId`, and verbatim `text`. The request must be by this sweep actor, name
-  the accepted owner, request the exact ticketed action, and precede the
-  owner's unambiguous assent. A direct request may ask whether the named
-  person's TODO or PR already includes the exact action; a clear “yes, it's on
-  my PR” plus a stated next step also qualifies. Record the exact request and
-  assent. Scope the ticket only to the request; do not infer
-  a broader fix, PR, or delivery promise. A role or unassigned team is not an
-  owner. When the accepted action is completed, keep it in `handoffs[]` with
+  distinct unfinished human/team action in `handoffs[]`. For
+  `status: "unassigned"`, record its scope, exact action, and responsible
+  team/role or `unassigned`; omit `ownerSlackId` and `acceptanceReply`. If this
+  sweep actor already asked a named person to take the exact action, record
+  that exact `requestReply` while the handoff stays unassigned. For
+  `status: "accepted"`, record the named individual, their Slack ID, and an
+  `acceptanceReply` with exact `ts`, `threadParentTs`,
+  `actorId`, and verbatim `text`. When that acceptance is a contextual assent
+  that does not repeat the action, also record `requestReply` with the exact
+  preceding in-thread request's `ts`, `threadParentTs`, `actorId`, and verbatim
+  `text`. The request must be by this sweep actor, name the accepted owner,
+  request the exact action, and precede the owner's unambiguous assent. A
+  direct request may ask whether the named person's TODO or PR already includes
+  the exact action; a clear “yes, it's on my PR” plus a stated next step also
+  qualifies. Record the exact request and assent. The Slack `🎫` covers only
+  the recorded action; do not infer a broader fix, PR, or delivery promise. A
+  role or unassigned team is not a named individual owner. When an accepted
+  action is completed, keep it in `handoffs[]` with
   `status: "completed"` and `completion: { evidence, sourceUrl }` or an exact
   owner `reply` (`ts`, `threadParentTs`, `actorId`, and verbatim `text`). The
   current status must cite that completion evidence. Keep the root `🎫` as
@@ -197,8 +210,9 @@ place of Slack source messages.
   remains open. After merge, record **Fixed** (or **Partially fixed** when
   another scope remains). Never remove or clean up a reaction. Do not wait for
   unrelated scopes to close. This actor's single root `✅` covers the
-  verified scopes listed in `fixedScopes[]`; an accepted human action requires
-  this actor's `🎫`, including after completion. For an eligible open scope this workflow takes, retain the
+  verified scopes listed in `fixedScopes[]`; every unfinished human/team
+  action requires this actor's `🎫`, including while unassigned, and the mark
+  remains as history after completion. For an eligible open scope this workflow takes, retain the
   root `👀` as permanent history; do not use it to infer whether work remains.
   The same-thread status reply must name the verified scope(s), the remaining
   open scope(s), each open scope's blocker and next action, and why `✅` or `🎫`
@@ -208,7 +222,7 @@ place of Slack source messages.
   invalidates a retained `✅`, remove that scope from active `fixedScopes[]`
   and add `historicalReactionMarks[]` with the mark's `emoji`, `scope`, exact
   `reason`, and the earlier `previousStatus` (`ts`, `threadParentTs`, `actorId`,
-  `disposition`, `evidence`, and verbatim `text`). When an accepted ticket owner
+  `disposition`, `evidence`, and verbatim `text`). When an accepted handoff owner
   withdraws, move that action out of current `handoffs[]` and record a historical
   `🎫` with its earlier accepted `handoff` plus the owner's exact
   `withdrawalReply` (`ts`, `threadParentTs`, `actorId`, and verbatim `text`).
@@ -237,11 +251,14 @@ place of Slack source messages.
   required final thread/reaction reads before recap when that window expires.
   It rejects any root mark this actor owns without a current same-actor
   status reply, a
-  handoff without the named owner's explicit acceptance, a handoff reply
+  assigned-human handoff without that person's explicit acceptance, an
+  unassigned handoff that claims a Slack owner or acceptance, a handoff reply
   omitting its scope/owner/action, a missing or
   inconsistent `✅`/`🎫` decision, a verified fixed scope without that actor's
-  `✅`, a `✅` without verified scope, a `🎫` without a distinct accepted
-  handoff, or a completed handoff without read-back completion evidence. A
+  `✅`, a `✅` without verified scope, a `🎫` without a distinct unfinished
+  human/team action (an unassigned or unaccepted action qualifies; a
+  reporter-only evidence request does not), or a completed handoff without
+  read-back completion evidence. A
   completed accepted handoff retains its `🎫` but is excluded from open-follow-up
   disposition checks. It rejects supplemental roots at or after the cutoff and checks
   that `reactionSummary` and `reactionOwners` contain the same emoji and exact
@@ -264,8 +281,11 @@ audits apart from report totals. Never include older cutoff-overlap rows in
 current report counts. Revisit every owned marked root, including every
 eye-only root, regardless of how many other roots have checkmarks or tickets.
 Check each scope for new proof; record each verified scope and add/read back
-the root `✅`; record each separately accepted human action and add/read back
-`🎫`; otherwise state the exact proof gap, blocker, and next owner/action. An
+the root `✅`; record each distinct unfinished human/team action and add/read
+back `🎫` even when it is unassigned or unaccepted. Record acceptance only
+after a named person's exact reply; otherwise state `owner: unassigned` and
+`status: unassigned`. For reporter-only evidence waits, do not add `🎫`. In the
+current status, state the exact proof gap, blocker, and next owner/action. An
 eye-only root with unfinished work is pending; an eye-only root with a closed
 verified disposition may retain the eye as history. Never remove or clean up a
 reaction. Slack thread replies appear under the root's reply count, not as

@@ -1739,7 +1739,7 @@ test.describe("authenticated beta Design interactions", () => {
         .locator('[data-inspector-layout="paint-row"]')
         .getByRole("button", { name: "Open color picker" })
         .click();
-      await page.getByRole("button", { name: "Linear", exact: true }).click();
+      await page.getByRole("button", { name: "Gradient", exact: true }).click();
       await expect(
         page.getByRole("group", { name: "Gradient stops" }),
       ).toBeVisible();

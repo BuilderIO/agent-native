@@ -16,8 +16,8 @@ timestamp and author ID instead of duplicating it. Do not accept a vague or
 negated substring such as `Not fixed` as the `Fixed` label; reject the whole
 reply if a `Fixed` label is later contradicted by a claim that the scope remains
 not fixed, unfixed, or broken. Use `Partially fixed` while any distinct scope
-or accepted handoff remains unfinished. A completed handoff is retained
-history, not an open follow-up.
+remains unfinished or a human/team handoff is still `unassigned` or `accepted`.
+A completed handoff is retained history, not an open follow-up.
 This is one current status reply per owned root, not a reply on every sweep.
 Reuse the existing same-actor reply while its disposition and evidence remain
 current; send an update when either materially changes. For a recent
@@ -114,13 +114,13 @@ not a substitute.
 
 Reactions are permanent history and do not replace the current disposition or
 status reply. At the root, `👀` records this workflow's claim, `✅` marks one or
-more named scopes that passed direct post-change proof, and `🎫` marks accepted
-handoffs to named humans. The eye alone does not mean work remains open. One
-root `✅` covers every verified scope listed in `fixedScopes[]`; one root `🎫`
-covers every accepted action listed in `handoffs[]`, including actions marked
-`completed`. Completion evidence changes its status, not the historical ticket
-mark. For every root carrying any
-of this actor's marks, post or reuse a current status in that root's thread;
+more named scopes that passed direct post-change proof, and `🎫` tracks distinct
+human/team actions, including actions with no named owner yet. The eye alone
+does not mean work remains open. One root `✅` covers every verified scope
+listed in `fixedScopes[]`; one root `🎫` covers every action listed in
+`handoffs[]`, including unassigned, accepted, and completed actions. Completion
+evidence changes its status, not the historical `🎫` reaction. For every root
+carrying any of this actor's marks, post or reuse a current status in that root's thread;
 unclaimed items and another actor's marks are not ours to reply to. Reconcile
 each report as one unit: send or verify its current same-thread status reply,
 then immediately update and read back each applicable root reaction before
@@ -145,27 +145,34 @@ viewport or replay the flow in the running app. Use an app/preview replay when
 the regression does not meet that bar. For non-UI scopes, use the area-specific
 action, query, or test proof. Say that merge or rollout is still pending; the
 checkmark records the verified scope and does not claim it is shipped or live.
-Before leaving each report, compare verified scopes and accepted handoffs with
-a fresh root-reaction read. Ensure one `✅` is present when any scope passed the
-proof bar and one `🎫` whenever any distinct action has a named human
-acceptance, even after that action is complete; read back each changed root
-reaction and verify its owner. If either mark does
+Before leaving each report, compare verified scopes and human/team handoffs
+with a fresh root-reaction read. Ensure one `✅` is present when any scope passed the
+proof bar and one `🎫` whenever any distinct unfinished action requires another
+person or team to act, even before ownership is assigned or accepted. Keep the
+mark as history after completion; read back each changed root reaction and
+verify its owner. If either mark does
 not apply, the current reply must say why. Emoji text in a reply is not a
 reaction. Preserve every existing reaction. If later proof invalidates a prior
 checkmark, move that scope out of active `fixedScopes[]` and add a
 `historicalReactionMarks[]` entry with `emoji`, `scope`, `reason`, and the exact
 prior `previousStatus`; the current status and reaction decision must explain
-why the retained mark is historical. If the owner withdraws an accepted ticketed
-action, also preserve the exact earlier accepted `handoff` and owner
+why the retained mark is historical. If the owner withdraws an accepted action
+tracked by `🎫`, also preserve the exact earlier accepted `handoff` and owner
 `withdrawalReply`, move it out of current `handoffs[]`, and explain the history
 in the current status. The checker validates these records against the captured
 thread; never remove or clean up a reaction.
-Add `🎫` only after a different named human accepts a specific unfinished
-action in the source thread. Keep that accepted action in `handoffs[]` with
-`status: "completed"` and recorded completion evidence when it is done; the
-ticket remains as history and no longer counts as an open blocker. Only a later
-owner withdrawal removes it from current handoffs and uses the historical-mark
-record. An unambiguous contextual “yes”/“sure” may accept a
+Add `🎫` as soon as a distinct unfinished action requires another person or
+team to act outside this workflow, whether or not a named person has accepted
+it or an external tracker ticket exists. Record each action in `handoffs[]`
+with its exact scope, action, and responsible person/team; when no person owns it, use the team/role
+or `unassigned` as `owner` and set `status: "unassigned"`. Do not invent a
+person, Slack ID, request, or acceptance. If a named human later accepts,
+record their Slack ID and exact acceptance reply and change the status to
+`"accepted"`; when the accepted action is done, use `status: "completed"` with
+completion evidence. The `🎫` reaction remains as history after completion and
+no longer counts as an open blocker. Only a later owner withdrawal removes an
+accepted action from current handoffs and uses the historical-mark record. An
+unambiguous contextual “yes”/“sure” may accept a
 preceding direct request when it names the human and exact action. That request
 may ask whether the named person's TODO or PR already includes the action; a
 clear “yes, it's on my PR” with a stated next step such as “taking a look now”
@@ -176,13 +183,16 @@ even without a preceding request (for example, “I'll test this today” or “
 expand it to all apps”). Record that exact acceptance reply. Tentative language
 such as “I might test this” is not acceptance. Keep acceptance and refusal verbs
 covered by the inventory checker's self-tests.
-ticket covers only that requested action: do not infer a broader fix, PR, or
-delivery promise. A role assignment, generic team ping, ask without a reply, or
-ambiguous/hedged assent is not acceptance. A partial fix with a separately
-accepted handoff can have both `✅` and `🎫`.
+The `🎫` reaction covers only that recorded action: do not infer a broader fix,
+PR, or delivery promise. A role assignment, generic team ping, or ask without a reply
+is not acceptance, but it still gets `🎫` when a distinct team action remains
+unfinished. Ambiguous or hedged assent does not change `status: "unassigned"`.
+A partial fix with a separately unfinished human/team action can have both
+`✅` and `🎫`.
 Work that remains with this workflow is active, not a human handoff. An
-unanswered reporter request stays at `👀` without `🎫`. Link a ticket only if
-one already exists; do not create or promise one without authorization. If a
+unanswered reporter request stays at `👀` without `🎫`. Link an external
+tracker ticket only if one already exists; do not create or promise one without
+authorization. If a
 human later refuses the accepted action, preserve `🎫` as history and update
 the status with the refusal and blocker.
 
@@ -202,9 +212,9 @@ reaction and status update.
 
 An unanswered request for a reporter-provided URL, access grant, or evidence is
 **Asked** or **Clarification needed**, not a separate human handoff. Keep `👀`
-and state the exact question; do not add `🎫` solely for that wait. Use `🎫`
-only after a named person accepts that distinct action in the source thread. A
-role or requested handoff without acceptance does not qualify.
+and state the exact question; do not add `🎫` solely for that wait. This
+reporter-only exception does not suppress `🎫` for a separate engineering,
+product, team, ownership, or priority action that remains unfinished.
 
 Resolve duplicate clusters before claiming. Represent non-owner duplicates
 by permalink and **Clustered** in one owner-thread status; do not react or reply
@@ -218,16 +228,18 @@ distinct scopes and their status clear.
 Compare each reported symptom with the evidence. State what is fixed and what
 is not. Use one root `✅` when at least one fixed scope is verified; it covers every
 verified scope listed in `fixedScopes[]`, which the status must name with its
-proof. Use one root `🎫` whenever at least one distinct action has been accepted
-by a named human; it covers the accepted actions listed in `handoffs[]`,
-including completed actions whose evidence and `status: "completed"` remain in
-the ledger.
+proof. Use one root `🎫` whenever at least one distinct unfinished action
+requires another person or team to act; it covers the actions listed in
+`handoffs[]`, including unassigned actions and completed actions whose evidence
+and `status: "completed"` remain in the ledger.
 Do not add duplicate copies of either reaction for additional scopes. Link an
-existing ticket if there is one, and record the person's Slack ID, exact
-acceptance, and action. If nobody
-has accepted, keep `👀` and state who still needs to act or what reporter input
-is needed, with no `🎫`. Do not create or promise a ticket without
-authorization. Never imply a partial fix resolved the whole report.
+external tracker ticket if there is one. Record a person's Slack ID and exact reply
+only after that person accepts; until then record the responsible team/role or
+`unassigned` and set `status: "unassigned"`. Keep `👀` while work remains. A
+reporter-only wait for input gets no `🎫`, but an unfinished team/role action
+does. Do not create or promise an external tracker ticket without
+authorization. Never imply a
+partial fix resolved the whole report.
 
 For beta app fixes, check the matching merge-triggered publisher and keep
 details in the recap. Do not post a routine second reply for merge or rollout.
@@ -256,10 +268,11 @@ Read back the reaction and reply through the same connector, and verify their
 actor IDs match the recorded sweep identity before recording the item as
 replied. In the final recap, count marks by distinct report root and this
 actor's reaction-owner IDs: historical `👀` marks, verified `✅` scopes, and
-`🎫` handoffs accepted by a named person. Count active/open dispositions from
-the latest status separately; an eye does not say whether work remains open.
-Explain why an open scope has no `✅` and why an unfinished action has no
-`🎫`; a low count is valid when no scope has passed verification or nobody has
-accepted a separate action. Do not balance reactions for appearance. Treat
+unfinished human/team actions tracked by `🎫`; report accepted and unassigned
+actions separately. Count active/open dispositions from the latest status
+separately; an eye does not say whether work remains open. Explain why an open
+scope has no `✅` and why a reporter-only wait has no `🎫`; do not omit a ticket
+just because a person has not accepted a distinct team action. Do not balance
+reactions for appearance. Treat
 reaction text in a reply, another actor's mark, or a reply-row reaction as no
 substitute for the required root read-back.

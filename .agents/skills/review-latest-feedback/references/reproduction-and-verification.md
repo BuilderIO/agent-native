@@ -36,8 +36,8 @@ surface is the contract:
    After the fix is merged and its behavior has direct post-change proof, mark
    that scope **Fixed**/`✅` even if release/live layers remain. Preserve all
    reactions when every report scope and follow-up is closed.
-   Routine rollout and optional beta checks aren't
-   ticketed follow-ups. **Shipped**/**Live verified** need their own
+   Routine rollout and optional beta checks are not human handoffs tracked by
+   `🎫`. **Shipped**/**Live verified** need their own
    release/runtime evidence.
    Reopen repeats only with a fresh failing pre-change reproduction.
 
