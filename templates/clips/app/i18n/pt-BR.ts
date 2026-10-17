@@ -1613,6 +1613,9 @@ const messages = {
     disconnected: "Microfone desconectado.",
   },
   storageSetup: {
+    builderStorageOffer:
+      "O plano gratuito do Builder.io inclui armazenamento de vídeo, com configuração em um clique.",
+    customKeys: "Chaves personalizadas",
     builderConnectPopupError:
       "Não foi possível abrir o Builder.io. Se este app estiver incorporado em um chat, abra-o em uma aba do navegador; caso contrário, tente novamente.",
     builderConnectError:
@@ -1634,8 +1637,7 @@ const messages = {
       "Não foi possível confirmar que o armazenamento do Builder.io está pronto. Tente novamente.",
     builderConnected: "Builder.io conectado",
     waitingForBuilder: "Aguardando Builder...",
-    description:
-      "Armazene os vídeos gravados com o Builder.io ou com um armazenamento compatível com S3. O Builder.io inclui hospedagem gratuita e créditos de IA.",
+    description: "Escolha onde salvar seus vídeos gravados.",
     createBuilderAccount: "Usar Builder.io",
     signInWithBuilderAccount: "Entrar com uma conta do Builder.io",
     free: "Grátis",

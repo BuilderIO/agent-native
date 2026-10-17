@@ -19,6 +19,14 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../labs/store.js", () => mocks);
+vi.mock("../oauth-tokens/index.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../oauth-tokens/index.js")>()),
+  listOAuthAccountsByOwner: vi.fn(async () => []),
+}));
+vi.mock("../settings/user-settings.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../settings/user-settings.js")>()),
+  getUserSetting: vi.fn(async () => null),
+}));
 
 // Account reads hit the settings and OAuth tables, which a fresh test database
 // does not have. Each read defaults to "no account"; a test that seeds an

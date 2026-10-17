@@ -1514,6 +1514,9 @@ const messages = {
     disconnected: "Microphone disconnected.",
   },
   storageSetup: {
+    builderStorageOffer:
+      "Builder.io's free tier includes video storage, with one-click setup.",
+    customKeys: "Custom keys",
     builderConnectPopupError:
       "Builder.io couldn't open. If this app is embedded in a chat, open it in a browser tab; otherwise, try again.",
     builderConnectError:
@@ -1534,8 +1537,7 @@ const messages = {
       "Couldn't confirm that Builder.io storage is ready. Try again.",
     builderConnected: "Builder.io connected",
     waitingForBuilder: "Waiting for Builder...",
-    description:
-      "Store recorded videos with Builder.io or S3-compatible storage. Builder.io includes free hosting and AI credits.",
+    description: "Choose where to store your recorded videos.",
     createBuilderAccount: "Use Builder.io",
     signInWithBuilderAccount: "Sign in with Builder.io account",
     free: "Free",
