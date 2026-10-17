@@ -230,11 +230,19 @@ describe("SqlChart drilldown clicks", () => {
       );
     });
 
-    const summary = container.querySelector<HTMLElement>("details > summary");
-    const mailPoint = container.querySelector<HTMLButtonElement>(
-      'details button[aria-label*="mail"]',
-    );
+    const disclosure = container.querySelector<HTMLDetailsElement>("details");
+    const summary = disclosure?.querySelector<HTMLElement>("summary");
     expect(summary?.textContent).toBe("sqlDashboard.drilldownFilterRows");
+
+    expect(disclosure?.querySelector("button")).toBeNull();
+    await act(async () => {
+      disclosure!.open = true;
+      disclosure!.dispatchEvent(new Event("toggle"));
+    });
+
+    const mailPoint = disclosure?.querySelector<HTMLButtonElement>(
+      'button[aria-label*="mail"]',
+    );
     expect(mailPoint?.type).toBe("button");
     expect(mailPoint).not.toBeNull();
 
@@ -243,6 +251,7 @@ describe("SqlChart drilldown clicks", () => {
     expect(onDatumClick).toHaveBeenCalledWith({
       x: "2026-10-15",
       series: "mail",
+      value: 2,
     });
   });
 
@@ -261,15 +270,23 @@ describe("SqlChart drilldown clicks", () => {
       );
     });
 
-    const point = container.querySelector<HTMLButtonElement>(
-      'details button[aria-label*="clips"]',
+    const disclosure = container.querySelector<HTMLDetailsElement>("details");
+    expect(disclosure?.querySelector("button")).toBeNull();
+
+    await act(async () => {
+      disclosure!.open = true;
+      disclosure!.dispatchEvent(new Event("toggle"));
+    });
+
+    const point = disclosure?.querySelector<HTMLButtonElement>(
+      'button[aria-label*="clips"]',
     );
     expect(point?.type).toBe("button");
     expect(point).not.toBeNull();
 
     await act(async () => point!.click());
 
-    expect(onDatumClick).toHaveBeenCalledWith({ x: "clips" });
+    expect(onDatumClick).toHaveBeenCalledWith({ x: "clips", value: 3 });
   });
 
   it("passes outcome funnel stage clicks and keyboard activation to drilldown", async () => {

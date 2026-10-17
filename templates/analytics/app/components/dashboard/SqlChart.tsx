@@ -960,7 +960,7 @@ function ChartFrame({
   onFilterLegendKey?: (key: string) => void;
   showCustomLegend?: boolean;
   footer?: ReactNode;
-  drilldownItems?: AccessibleDrilldownItem[];
+  drilldownItems?: () => AccessibleDrilldownItem[];
   onDatumClick?: DatumClickHandler;
   children: ReactNode;
 }) {
@@ -976,7 +976,7 @@ function ChartFrame({
           {children}
         </div>
         <ChartDrilldownList
-          items={drilldownItems}
+          getItems={drilldownItems}
           onDatumClick={onDatumClick}
         />
         {footer}
@@ -993,7 +993,10 @@ function ChartFrame({
       >
         {children}
       </div>
-      <ChartDrilldownList items={drilldownItems} onDatumClick={onDatumClick} />
+      <ChartDrilldownList
+        getItems={drilldownItems}
+        onDatumClick={onDatumClick}
+      />
       <SeriesLegend
         keys={legendKeys}
         colors={colors}
@@ -1277,49 +1280,60 @@ function chartDrilldownItems(
   seriesKeys: string[],
   formatXLabel: (value: unknown) => string,
   formatSeriesLabel: (key: string) => string,
+  valueKey?: string,
 ): AccessibleDrilldownItem[] {
   return rows.flatMap((row) => {
     const x = stringifyValue(row[xKey]);
     const label = formatXLabel(row[xKey]);
     return seriesKeys.length > 0
       ? seriesKeys.map((series) => ({
-          datum: { x, series },
+          datum: { x, series, value: row[series] },
           label: `${label} · ${formatSeriesLabel(series)}`,
         }))
-      : [{ datum: { x }, label }];
+      : [{ datum: { x, value: valueKey ? row[valueKey] : undefined }, label }];
   });
 }
 
 function ChartDrilldownList({
-  items = [],
+  getItems,
   onDatumClick,
 }: {
-  items?: AccessibleDrilldownItem[];
+  getItems?: () => AccessibleDrilldownItem[];
   onDatumClick?: DatumClickHandler;
 }) {
   const t = useT();
-  if (!onDatumClick || items.length === 0) return null;
+  const [open, setOpen] = useState(false);
+  const items = useMemo(
+    () => (open ? (getItems?.() ?? []) : []),
+    [getItems, open],
+  );
+  if (!onDatumClick || !getItems) return null;
 
   const actionLabel = t("sqlDashboard.drilldownFilterRows");
   return (
-    <details className="px-1 text-xs">
+    <details
+      className="px-1 text-xs"
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+    >
       <summary className="w-fit cursor-pointer rounded px-1 py-1 text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
         {actionLabel}
       </summary>
-      <ul className="mt-1 max-h-24 space-y-0.5 overflow-y-auto rounded-sm border border-border/50 p-1">
-        {items.map(({ datum, label }, index) => (
-          <li key={`${datum.x}:${datum.series ?? ""}:${index}`}>
-            <button
-              type="button"
-              aria-label={`${actionLabel}: ${label}`}
-              className="w-full rounded px-2 py-1 text-left text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              onClick={() => onDatumClick(datum)}
-            >
-              {label}
-            </button>
-          </li>
-        ))}
-      </ul>
+      {open && (
+        <ul className="mt-1 max-h-24 space-y-0.5 overflow-y-auto rounded-sm border border-border/50 p-1">
+          {items.map(({ datum, label }, index) => (
+            <li key={`${datum.x}:${datum.series ?? ""}:${index}`}>
+              <button
+                type="button"
+                aria-label={`${actionLabel}: ${label}`}
+                className="w-full rounded px-2 py-1 text-left text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={() => onDatumClick(datum)}
+              >
+                {label}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </details>
   );
 }
@@ -2921,13 +2935,19 @@ function PieRenderer({
       panel={panel}
       legendKeys={legendKeys}
       colors={colors}
-      drilldownItems={chartDrilldownItems(
-        rows,
-        xKey,
-        [],
-        (value) => seriesNameFormatter(stringifyValue(value)),
-        seriesNameFormatter,
-      )}
+      drilldownItems={
+        rows.length > 0
+          ? () =>
+              chartDrilldownItems(
+                rows,
+                xKey,
+                [],
+                (value) => seriesNameFormatter(stringifyValue(value)),
+                seriesNameFormatter,
+                yKey,
+              )
+          : undefined
+      }
       onDatumClick={onDatumClick}
     >
       <ChartResponsiveContainer>
@@ -3146,13 +3166,21 @@ function BarRenderer({
       onToggleLegendKey={toggleSeries}
       onFilterLegendKey={filterSeries}
       showCustomLegend
-      drilldownItems={chartDrilldownItems(
-        rows,
-        xKey,
-        panel.config?.pivot ? yKeys.filter((key) => !hiddenKeys.has(key)) : [],
-        xLabelFormatter,
-        seriesNameFormatter,
-      )}
+      drilldownItems={
+        rows.length > 0
+          ? () =>
+              chartDrilldownItems(
+                rows,
+                xKey,
+                panel.config?.pivot
+                  ? yKeys.filter((key) => !hiddenKeys.has(key))
+                  : [],
+                xLabelFormatter,
+                seriesNameFormatter,
+                yKeys[0],
+              )
+          : undefined
+      }
       onDatumClick={onDatumClick}
       footer={
         <DataNoteLines notes={dataNoteLayout.unplaced} panelId={panel.id} />
@@ -3301,13 +3329,21 @@ function ComboRenderer({
       onToggleLegendKey={toggleSeries}
       onFilterLegendKey={filterSeries}
       showCustomLegend
-      drilldownItems={chartDrilldownItems(
-        rows,
-        xKey,
-        panel.config?.pivot ? yKeys.filter((key) => !hiddenKeys.has(key)) : [],
-        xLabelFormatter,
-        seriesNameFormatter,
-      )}
+      drilldownItems={
+        rows.length > 0
+          ? () =>
+              chartDrilldownItems(
+                rows,
+                xKey,
+                panel.config?.pivot
+                  ? yKeys.filter((key) => !hiddenKeys.has(key))
+                  : [],
+                xLabelFormatter,
+                seriesNameFormatter,
+                yKeys[0],
+              )
+          : undefined
+      }
       onDatumClick={onDatumClick}
       footer={
         <DataNoteLines notes={dataNoteLayout.unplaced} panelId={panel.id} />
@@ -3485,13 +3521,19 @@ function TimeSeriesRenderer({
         onToggleLegendKey={toggleSeries}
         onFilterLegendKey={filterSeries}
         showCustomLegend
-        drilldownItems={chartDrilldownItems(
-          chartRows,
-          xKey,
-          panel.config?.pivot ? visibleKeys : [],
-          xLabelFormatter,
-          seriesNameFormatter,
-        )}
+        drilldownItems={
+          chartRows.length > 0
+            ? () =>
+                chartDrilldownItems(
+                  chartRows,
+                  xKey,
+                  panel.config?.pivot ? visibleKeys : [],
+                  xLabelFormatter,
+                  seriesNameFormatter,
+                  yKeys[0],
+                )
+            : undefined
+        }
         onDatumClick={onDatumClick}
         footer={
           <DataNoteLines notes={dataNoteLayout.unplaced} panelId={panel.id} />
@@ -3607,13 +3649,19 @@ function TimeSeriesRenderer({
       onToggleLegendKey={toggleSeries}
       onFilterLegendKey={filterSeries}
       showCustomLegend
-      drilldownItems={chartDrilldownItems(
-        chartRows,
-        xKey,
-        panel.config?.pivot ? visibleKeys : [],
-        xLabelFormatter,
-        seriesNameFormatter,
-      )}
+      drilldownItems={
+        chartRows.length > 0
+          ? () =>
+              chartDrilldownItems(
+                chartRows,
+                xKey,
+                panel.config?.pivot ? visibleKeys : [],
+                xLabelFormatter,
+                seriesNameFormatter,
+                yKeys[0],
+              )
+          : undefined
+      }
       onDatumClick={onDatumClick}
       footer={
         <DataNoteLines notes={dataNoteLayout.unplaced} panelId={panel.id} />

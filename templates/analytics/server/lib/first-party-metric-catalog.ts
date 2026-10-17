@@ -3314,12 +3314,13 @@ export function getFirstPartyDrilldown(
   panelSource: string,
   panelSql: string,
 ): FirstPartyDrilldown | null {
-  if (
-    panelSource !== "first-party" ||
-    !Object.prototype.hasOwnProperty.call(DRILLDOWNS, panelId)
-  ) {
-    return null;
-  }
+  if (panelSource !== "first-party") return null;
 
-  return buildPanel(panelId)?.sql === panelSql ? DRILLDOWNS[panelId] : null;
+  const catalogIds = Object.keys(DRILLDOWNS);
+  const catalogId =
+    (catalogIds.includes(panelId) && buildPanel(panelId)?.sql === panelSql
+      ? panelId
+      : catalogIds.find((id) => buildPanel(id)?.sql === panelSql)) ?? null;
+
+  return catalogId ? DRILLDOWNS[catalogId] : null;
 }

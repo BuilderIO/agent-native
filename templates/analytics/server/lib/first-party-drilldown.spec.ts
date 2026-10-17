@@ -161,10 +161,18 @@ describe("first-party panel drilldowns", () => {
 
   it("only enables drilldowns for the supported source and catalog SQL", () => {
     const panel = buildPanel("signups-over-time")!;
+    const catalogDrilldown = getFirstPartyDrilldown(
+      panel.id,
+      panel.source,
+      panel.sql,
+    );
 
     expect(getFirstPartyDrilldown(panel.id, "bigquery", panel.sql)).toBeNull();
     expect(
       getFirstPartyDrilldown(panel.id, panel.source, `${panel.sql} LIMIT 10`),
     ).toBeNull();
+    expect(
+      getFirstPartyDrilldown("custom-panel", panel.source, panel.sql),
+    ).toEqual(catalogDrilldown);
   });
 });
