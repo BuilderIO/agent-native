@@ -1423,7 +1423,22 @@ const requestTranscriptAction = defineAction({
           };
         }
       } catch (err) {
-        if (isRecordingMediaChanged(err)) throw err;
+        if (isRecordingMediaChanged(err)) {
+          if (!regeneratingReadyTranscript) {
+            const kept = await writeTranscriptOrKeepImport(db, {
+              recordingId: args.recordingId,
+              ownerEmail,
+              status: "failed",
+              failureReason: transcriptFailureMessage("CLOUD_FAILED"),
+              failureCode: "CLOUD_FAILED",
+              now,
+              retryCount: currentRetryCount + 1,
+            });
+            if (kept) return kept;
+            await writeAppState("refresh-signal", { ts: Date.now() });
+          }
+          throw err;
+        }
         const reason = (err as Error).message;
         const details = serializeError(err);
         const chunkErr = err instanceof ChunkTranscriptionError ? err : null;

@@ -412,6 +412,20 @@ describe("apply-rewind-extension", () => {
     expect(JSON.parse(stored.chaptersJson)).toEqual([intro]);
   });
 
+  it("continues an apply after the request was left applying", async () => {
+    stored.request = {
+      ...stored.request!,
+      status: "applying",
+    };
+
+    await expect(action.run(args)).resolves.toMatchObject({
+      request: { status: "applied" },
+    });
+    expect(JSON.parse(stored.chaptersJson)).toEqual([
+      { ...intro, startMs: 30_000 },
+    ]);
+  });
+
   it("asks for the thumbnail again when a retry finds the shift already made", async () => {
     mockDispatch.mockRejectedValueOnce(new Error("queue down"));
     await expect(action.run(args)).rejects.toThrow("queue down");

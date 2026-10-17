@@ -640,8 +640,14 @@ describe("requestTranscript regeneration", () => {
         },
       ],
       [],
+      [{ mediaUpdatedAt: "media-2" }],
+      [{ recordingId: "rec_native" }],
     ];
-    mockSelectRows.lockedRows = [[{ id: "rec_native" }], []];
+    mockSelectRows.lockedRows = [
+      [{ id: "rec_native" }],
+      [],
+      [{ id: "rec_native" }],
+    ];
 
     await expect(
       requestTranscript.run({ recordingId: "rec_native" }),
@@ -652,6 +658,13 @@ describe("requestTranscript regeneration", () => {
     expect(
       mockUpdateSet.mock.calls.some(([row]) => (row as any).status === "ready"),
     ).toBe(false);
+    expect(mockUpdateSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "failed",
+        failureCode: "CLOUD_FAILED",
+        retryCount: 1,
+      }),
+    );
   });
 
   it("fails a multi-part recording as CHUNK_FAILED without saving a partial transcript", async () => {

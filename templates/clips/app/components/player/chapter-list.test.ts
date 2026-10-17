@@ -100,6 +100,31 @@ describe("parseChapterLines", () => {
     ).toEqual({ chapters: [{ startMs: 65_000, title: "Already there" }] });
   });
 
+  it("keeps existing empty-title chapters editable without allowing new ones", () => {
+    const existingMs = new Map([[48_000, 1]]);
+    const existingEmptyTitleMs = new Map([[48_000, 1]]);
+    const before = [{ startMs: 48_734, title: "" }];
+
+    const parsed = parseChapterLines("0:48", {
+      existingMs,
+      existingEmptyTitleMs,
+    });
+    expect(parsed).toEqual({
+      chapters: [{ startMs: 48_000, title: "" }],
+    });
+    if ("chapters" in parsed) {
+      expect(chaptersToSave(parsed.chapters, before, DEFAULT_EDITS)).toEqual(
+        before,
+      );
+    }
+    expect(parseChapterLines("0:48", { existingMs })).toEqual({
+      error: { kind: "shape", line: 1 },
+    });
+    expect(parseChapterLines("0:48", { existingEmptyTitleMs })).toEqual({
+      error: { kind: "shape", line: 1 },
+    });
+  });
+
   it("refuses a new chapter on a moment that already has one", () => {
     expect(parseChapterLines("0:48 A\n0:48 B")).toEqual({
       error: { kind: "duplicate", line: 2, value: "0:48" },

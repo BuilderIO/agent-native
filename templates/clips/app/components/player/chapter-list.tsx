@@ -124,15 +124,17 @@ export function parseChapterLines(
      * second apart show at the same whole second).
      */
     existingMs?: ReadonlyMap<number, number>;
+    /** Existing chapters without a title are accepted at their shown time. */
+    existingEmptyTitleMs?: ReadonlyMap<number, number>;
   } = {},
 ): { chapters: Chapter[] } | { error: ChapterLineError } {
-  const { maxMs, existingMs } = options;
+  const { maxMs, existingMs, existingEmptyTitleMs } = options;
   const lines = text.split("\n");
   const chapters: Chapter[] = [];
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
     if (!line) continue;
-    const match = line.match(/^(\S+)\s+(.*)$/);
+    const match = line.match(/^(\S+)(?:\s+(.*))?$/);
     if (!match) return { error: { kind: "shape", line: i + 1 } };
     const ms = parseTimestamp(match[1]);
     if (ms == null) {
@@ -146,13 +148,24 @@ export function parseChapterLines(
     ) {
       return { error: { kind: "pastEnd", line: i + 1, value: match[1] } };
     }
+    const title = match[2]?.trim() ?? "";
+    const atThisTime = chapters.filter((c) => c.startMs === ms).length;
+    const atThisTimeEmpty = chapters.filter(
+      (chapter) => chapter.startMs === ms && !chapter.title,
+    ).length;
+    if (
+      !title &&
+      (atThisTime >= (existingMs?.get(ms) ?? 0) ||
+        atThisTimeEmpty >= (existingEmptyTitleMs?.get(ms) ?? 0))
+    ) {
+      return { error: { kind: "shape", line: i + 1 } };
+    }
     // No new chapter on a moment that already has one; repeats the list
     // already had are kept.
-    const atThisTime = chapters.filter((c) => c.startMs === ms).length;
     if (atThisTime >= Math.max(1, existingMs?.get(ms) ?? 0)) {
       return { error: { kind: "duplicate", line: i + 1, value: match[1] } };
     }
-    chapters.push({ startMs: ms, title: match[2].trim() });
+    chapters.push({ startMs: ms, title });
   }
   return { chapters: chapters.sort((a, b) => a.startMs - b.startMs) };
 }
@@ -482,6 +495,14 @@ function EditableChapterList({
         const second = Math.floor(v.editedMs / 1000) * 1000;
         return counts.set(second, (counts.get(second) ?? 0) + 1);
       }, new Map<number, number>()),
+      existingEmptyTitleMs: visibleChapters(from.chapters, edits).reduce(
+        (counts, v) => {
+          if (oneLine(v.chapter.title)) return counts;
+          const second = Math.floor(v.editedMs / 1000) * 1000;
+          return counts.set(second, (counts.get(second) ?? 0) + 1);
+        },
+        new Map<number, number>(),
+      ),
     });
     if ("error" in parsed) {
       setError(describe(parsed.error));
