@@ -1570,6 +1570,12 @@ interface VisualEditorProps {
   requestCollabSync?: () => Promise<{
     status: "synced" | "failed" | "unavailable";
   }>;
+  discoverCollabPeers?: () => Promise<{
+    status: "ready" | "failed" | "unavailable";
+    error?: unknown;
+    current?: () => boolean;
+  }>;
+  flushCollabUpdates?: () => Promise<boolean>;
   onBaseAwareReconcile?: (result: {
     status: "merged" | "conflict" | "failed";
     content: string;
@@ -3043,6 +3049,8 @@ export function VisualEditor({
   acknowledgedLocalSnapshot,
   collabContentRevision,
   requestCollabSync,
+  discoverCollabPeers,
+  flushCollabUpdates,
   onBaseAwareReconcile,
   onRemoteSnapshotChange,
   isEditorClean,
@@ -3414,7 +3422,8 @@ export function VisualEditor({
       },
     ) => {
       const guards = guardsRef.current;
-      if (!guards) return "failed" as const;
+      // Commands and uploads reach here without an update the guards see.
+      if (!guards || guards.isJoinPending()) return "failed" as const;
       try {
         const serialized = serializeEditorDraftForPersistence(editorToPersist);
         if (serialized === null)
@@ -4188,6 +4197,8 @@ export function VisualEditor({
       ? null
       : collabContentRevision,
     requestCollabSync,
+    discoverCollabPeers,
+    flushCollabUpdates,
     onBaseAwareReconcile,
     onRemoteSnapshotChange,
     isEditorClean,
@@ -4739,7 +4750,7 @@ export function VisualEditor({
       <RegistryBlockDataProvider value={registryBlockDataValue}>
         <EditorContent editor={editor} />
       </RegistryBlockDataProvider>
-      {collabState.initialSeedFailed ? (
+      {collabState.initialSeedFailed || collabState.joinEvidenceFailed ? (
         <div
           role="alert"
           className="flex items-center gap-2 px-4 py-2 text-sm text-destructive"
@@ -4749,7 +4760,11 @@ export function VisualEditor({
             type="button"
             variant="outline"
             size="sm"
-            onClick={collabState.retryInitialSeed}
+            onClick={
+              collabState.initialSeedFailed
+                ? collabState.retryInitialSeed
+                : collabState.retryJoinEvidence
+            }
           >
             {t("comments.retry")}
           </Button>

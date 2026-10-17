@@ -42,7 +42,8 @@ export default defineConfig({
         url: `${BASE_URL}/_agent-native/ping`,
         reuseExistingServer: false,
         timeout: 180_000,
-        stdout: "ignore",
+        // In the job log, timestamped, to read beside a save that hung.
+        stdout: "pipe",
         stderr: "pipe",
       }
     : undefined,

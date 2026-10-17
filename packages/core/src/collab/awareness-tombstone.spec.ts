@@ -32,6 +32,11 @@ vi.mock("./awareness-store.js", () => ({
       .filter(([key]) => key.startsWith(`${docId}:`))
       .map(([, row]) => row),
   ),
+  loadAwarenessRowsStrict: vi.fn(async (docId: string) =>
+    Array.from(storedRows.entries())
+      .filter(([key]) => key.startsWith(`${docId}:`))
+      .map(([, row]) => row),
+  ),
   upsertAwarenessRow: vi.fn(),
 }));
 

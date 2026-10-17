@@ -23,6 +23,7 @@ import { seedFromText, seedFromJson } from "../collab/ydoc-manager.js";
 import { getDbExec, withDbExec, type DbExec } from "../db/client.js";
 import { getOrgContext } from "../org/context.js";
 import { resolveAccess, assertAccess } from "../sharing/access.js";
+import { ROLE_RANK } from "../sharing/schema.js";
 import { getSession } from "./auth.js";
 import { FRAMEWORK_ROUTE_PREFIX } from "./core-routes-plugin.js";
 import { getH3App, awaitBootstrap } from "./framework-request-handler.js";
@@ -495,6 +496,11 @@ export function createCollabPlugin(
               };
               if (event.context) {
                 event.context._collabAwarenessScope = awarenessScope;
+                // Clients trust a collaborator's presence to say what the doc
+                // holds, so a caller that cannot write it is marked as such.
+                if (ROLE_RANK[access.role] < ROLE_RANK.editor) {
+                  event.context._collabAwarenessReadOnly = true;
+                }
               }
             }
           }
