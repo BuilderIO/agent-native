@@ -36,6 +36,7 @@ import {
 } from "../server/lib/document-attribution.js";
 import {
   findDocumentBodyIntent,
+  hasDocumentBodyIntentAfterGeneration,
   preserveDocumentBodyIntent,
   readDocumentBodyIntents,
   recordDocumentBodyIntent,
@@ -1150,7 +1151,7 @@ const updateDocumentAction = defineAction({
           }
           let replayExtendsDiscardedGeneration = false;
           if (settlesPreviewDraft) {
-            const settledGeneration = await lockPreviewDocumentDraftSettlement({
+            await lockPreviewDocumentDraftSettlement({
               db: tx,
               ownerEmail: requestUserEmail as string,
               orgId: requestOrgId,
@@ -1176,12 +1177,21 @@ const updateDocumentAction = defineAction({
             }
             // A journal replay resends typing from an editor that is no
             // longer open. If recovery discarded one of its generations and
-            // nothing from the session settled since, a later generation was
-            // typed on top of the discarded edits and still holds them.
+            // no later body from the session was applied here, a later
+            // generation was typed on top of the discarded edits and still
+            // holds them. The settled generation cannot tell: Save separately
+            // settles one without applying its body here, and a body applied
+            // under a title another writer changed settles none.
             replayExtendsDiscardedGeneration =
               args.journalReplay === true &&
               discardedGeneration !== null &&
-              settledGeneration === discardedGeneration;
+              !(await hasDocumentBodyIntentAfterGeneration({
+                db: tx as ReturnType<typeof getDb>,
+                ownerEmail,
+                documentId: id,
+                writerId: `browser:${(requestUserEmail as string).toLowerCase()}:${args.editorSessionId}`,
+                generation: discardedGeneration,
+              }));
           }
           const [historyBefore] = await tx
             .select({
@@ -1353,11 +1363,6 @@ const updateDocumentAction = defineAction({
               return;
             }
           }
-          if (replayExtendsDiscardedGeneration && content !== undefined) {
-            await preserveUnmergedContent(content, "provenance");
-            measurement.reason_code = "discarded_generation_replay";
-            return;
-          }
           if (
             ctx?.caller === "frontend" &&
             !authoredBase &&
@@ -1448,6 +1453,15 @@ const updateDocumentAction = defineAction({
           ) {
             measurement.reason_code = "title_base_changed";
             contentCasConflict = true;
+            return;
+          }
+          // After every refusal an unmarked save would reach.
+          if (replayExtendsDiscardedGeneration && content !== undefined) {
+            await preserveUnmergedContent(
+              authoredCandidateContent ?? content,
+              "provenance",
+            );
+            measurement.reason_code = "discarded_generation_replay";
             return;
           }
           const updatedAt =

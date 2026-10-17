@@ -60,6 +60,29 @@ export async function findDocumentBodyIntent(args: {
   return intent ?? null;
 }
 
+/** Whether a body from `writerId` after `generation` was applied to the page. */
+export async function hasDocumentBodyIntentAfterGeneration(args: {
+  db: ContentDb;
+  ownerEmail: string;
+  documentId: string;
+  writerId: string;
+  generation: number;
+}): Promise<boolean> {
+  const [intent] = await args.db
+    .select({ id: schema.documentBodyIntents.id })
+    .from(schema.documentBodyIntents)
+    .where(
+      and(
+        eq(schema.documentBodyIntents.ownerEmail, args.ownerEmail),
+        eq(schema.documentBodyIntents.documentId, args.documentId),
+        eq(schema.documentBodyIntents.writerId, args.writerId),
+        gt(schema.documentBodyIntents.generation, args.generation),
+      ),
+    )
+    .limit(1);
+  return intent !== undefined;
+}
+
 export async function findDocumentBodyBase(args: {
   db: ContentDb;
   ownerEmail: string;

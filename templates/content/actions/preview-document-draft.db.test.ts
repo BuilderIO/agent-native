@@ -190,12 +190,13 @@ function replayJournal(input: {
   content: string;
   journalBase: Awaited<ReturnType<typeof authoredSaveBase>>;
   fromOpenEditor?: boolean;
+  browserSaveAttemptId?: string;
 }) {
   return asUser(input.userEmail, () =>
     updateDocument.run(
       {
         id: input.documentId,
-        browserSaveAttemptId: crypto.randomUUID(),
+        browserSaveAttemptId: input.browserSaveAttemptId ?? crypto.randomUUID(),
         ...(input.fromOpenEditor ? {} : { journalReplay: true as const }),
         content: input.content,
         baseUpdatedAt: documentUpdatedAt(input.documentId),
@@ -1059,6 +1060,184 @@ describe("private preview document drafts", () => {
       },
     );
 
+    it("keeps a newer journal generation in History after Save separately settles a later one elsewhere", async () => {
+      const { documentId, editorSessionId, journalBase } =
+        await discardDraftGeneration(OWNER);
+      await asUser(OWNER, () =>
+        updateDraft.run({
+          operation: "upsert",
+          documentId,
+          expectedVersion: null,
+          draft: {
+            ...payload("Local recovery, then more typing"),
+            deferredReason: "conflict" as const,
+            editorSessionId,
+            editGeneration: 2,
+          },
+        }),
+      );
+      await expect(
+        asUser(OWNER, () =>
+          resolveDraft.run({
+            choice: "save_separately",
+            documentId,
+            expectedDraftVersion: 1,
+            expectedDraftTitle: "Builder row",
+            expectedDraftContent: "Local recovery, then more typing",
+            expectedDocumentUpdatedAt: documentUpdatedAt(documentId),
+          }),
+        ),
+      ).resolves.toMatchObject({ status: "resolved" });
+      expect(await settlementOf(editorSessionId)).toEqual([[2, 1]]);
+
+      const replayed = await replayJournal({
+        userEmail: OWNER,
+        documentId,
+        editorSessionId,
+        editGeneration: 3,
+        content: "Local recovery, then more typing, last word",
+        journalBase,
+      });
+
+      expect(replayed).toMatchObject({ preservationRequired: true });
+      expect((await documentRowForDraftTest(documentId)).content).toBe(
+        "Server body",
+      );
+      expect(await historyContent((replayed as any).checkpointId)).toBe(
+        "Local recovery, then more typing, last word",
+      );
+    });
+
+    it("keeps a newer journal generation in History after a title-only save settles a later one", async () => {
+      const { documentId, editorSessionId, journalBase } =
+        await discardDraftGeneration(OWNER);
+      await asUser(OWNER, () =>
+        updateDocument.run(
+          {
+            id: documentId,
+            title: "New title",
+            editorSessionId,
+            editorEditGeneration: 2,
+            editorSnapshotTitle: "New title",
+            editorSnapshotContent: "Server body",
+            reuseLabels: [],
+          },
+          { caller: "frontend" } as any,
+        ),
+      );
+      expect(await settlementOf(editorSessionId)).toEqual([[2, 1]]);
+
+      const replayed = await replayJournal({
+        userEmail: OWNER,
+        documentId,
+        editorSessionId,
+        editGeneration: 3,
+        content: "Local recovery, then more typing",
+        journalBase,
+      });
+
+      expect(replayed).toMatchObject({ preservationRequired: true });
+      expect((await documentRowForDraftTest(documentId)).content).toBe(
+        "Server body",
+      );
+    });
+
+    it("merges a newer journal generation onto a body the session saved under a title another writer changed", async () => {
+      const { documentId, editorSessionId, journalBase } =
+        await discardDraftGeneration(OWNER);
+      await getDb()
+        .update(schema.documents)
+        .set({ title: "Peer title" })
+        .where(eq(schema.documents.id, documentId));
+      await replayJournal({
+        userEmail: OWNER,
+        documentId,
+        editorSessionId,
+        editGeneration: 2,
+        content: "Local recovery, then more typing",
+        journalBase,
+        fromOpenEditor: true,
+      });
+      expect((await documentRowForDraftTest(documentId)).content).toBe(
+        "Local recovery, then more typing",
+      );
+      // The body was applied, but its snapshot's title is not the page's.
+      expect(await settlementOf(editorSessionId)).toEqual([[1, 1]]);
+      createdDocumentUpdatedAt.set(
+        documentId,
+        (await documentRowForDraftTest(documentId)).updatedAt,
+      );
+
+      const replayed = await replayJournal({
+        userEmail: OWNER,
+        documentId,
+        editorSessionId,
+        editGeneration: 3,
+        content: "Local recovery, then more typing, last word",
+        journalBase: await authoredSaveBase(documentId, ""),
+      });
+
+      expect(replayed).not.toHaveProperty("preservationRequired");
+      expect((await documentRowForDraftTest(documentId)).content).toBe(
+        "Local recovery, then more typing, last word",
+      );
+    });
+
+    it.each([
+      [
+        "a title another writer changed",
+        { title: "Local title", baseTitle: "Builder row" },
+        { conflict: true },
+      ],
+      [
+        "an invalid base revision",
+        { baseRevision: "invalid" },
+        { errorCode: "INVALID_BASE_REVISION" },
+      ],
+    ])(
+      "refuses a replay over %s as it refuses an open editor's save",
+      async (_case, change, refusal) => {
+        const { documentId, editorSessionId, journalBase } =
+          await discardDraftGeneration(OWNER);
+        if ("title" in change) {
+          await getDb()
+            .update(schema.documents)
+            .set({ title: "Peer title" })
+            .where(eq(schema.documents.id, documentId));
+        }
+        const save = (marker: { journalReplay?: true }) =>
+          asUser(OWNER, async () => {
+            try {
+              return await updateDocument.run(
+                {
+                  id: documentId,
+                  browserSaveAttemptId: crypto.randomUUID(),
+                  ...marker,
+                  content: "Local recovery, then more typing",
+                  ...journalBase,
+                  ...change,
+                  authoredCandidateContent: "Local recovery, then more typing",
+                  editorSessionId,
+                  editorEditGeneration: 2,
+                  editorSnapshotTitle: "Local title",
+                  editorSnapshotContent: "Local recovery, then more typing",
+                  reuseLabels: [],
+                },
+                { caller: "frontend" } as any,
+              );
+            } catch (error) {
+              return error;
+            }
+          });
+
+        expect(await save({})).toMatchObject(refusal);
+        expect(await save({ journalReplay: true })).toMatchObject(refusal);
+        expect((await documentRowForDraftTest(documentId)).content).toBe(
+          "Server body",
+        );
+      },
+    );
+
     it("still refuses a replay of the discarded generation itself", async () => {
       const { documentId, editorSessionId, journalBase } =
         await discardDraftGeneration(OWNER);
@@ -1130,6 +1309,35 @@ describe("private preview document drafts", () => {
       );
       expect(await settlementOf(editorSessionId)).toEqual([[3, 1]]);
     });
+
+    // During a deploy, a request an older server took without the marker can
+    // be retried against a newer one, or the other way round.
+    it.each([
+      ["without", "with"],
+      ["with", "without"],
+    ])(
+      "refuses a retry sent %s the marker after a first request %s it as a reused attempt",
+      async (retried, first) => {
+        const documentId = await createDocument();
+        const replay = {
+          userEmail: OWNER,
+          documentId,
+          editorSessionId: `tab:${documentId}:closed-retry`,
+          editGeneration: 2,
+          content: "Typed before the tab closed",
+          journalBase: await authoredSaveBase(documentId, ""),
+          browserSaveAttemptId: crypto.randomUUID(),
+        };
+
+        await replayJournal({ ...replay, fromOpenEditor: first === "without" });
+        await expect(
+          replayJournal({ ...replay, fromOpenEditor: retried === "without" }),
+        ).rejects.toMatchObject({ errorCode: "BROWSER_SAVE_ATTEMPT_REUSED" });
+        expect((await documentRowForDraftTest(documentId)).content).toBe(
+          "Typed before the tab closed",
+        );
+      },
+    );
 
     it("replays an entry normally from a session with nothing discarded", async () => {
       const documentId = await createDocument();
