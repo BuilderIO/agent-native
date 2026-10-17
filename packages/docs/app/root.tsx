@@ -583,12 +583,15 @@ export default function Root() {
 
   useEffect(() => {
     // Ahrefs counts visits, so where the banner applies it waits for
-    // analytics consent like the Google tags.
+    // analytics consent like the Google tags. A reject then an accept
+    // runs this again; it can't be unloaded, so it stops on the next page.
     void import("@agent-native/core/client/consent").then(
       ({ whenConsentAllows }) => {
         whenConsentAllows("performance", () => {
+          const src = "https://analytics.ahrefs.com/analytics.js";
+          if (document.querySelector(`script[src="${src}"]`)) return;
           const script = document.createElement("script");
-          script.src = "https://analytics.ahrefs.com/analytics.js";
+          script.src = src;
           script.async = true;
           script.dataset.key = "z2Qe9BlsuxGKqijbSuv8ow";
           document.head.appendChild(script);

@@ -1486,6 +1486,7 @@ describe("browser analytics pageviews", () => {
     const sent = JSON.parse(String(analyticsCalls[0]![1].body));
     expect(sent.event).toBe("before_leaving");
     expect(sent.anonymousId).toBeUndefined();
+    expect(sent.properties.analytics_consent).toBe("unknown");
   });
 
   it("mirrors timing browser events to the OTel bridge", async () => {

@@ -2663,10 +2663,14 @@ function sendAgentNativeAnalytics(
         publicKey,
         event: name,
         // The visitor id waits for analytics consent; mark the event so
-        // reports can tell it from one that lost its id some other way.
+        // reports can tell it from one that lost its id some other way, and
+        // a refusal from a page that closed before the region was known.
         properties: anonymousId
           ? properties
-          : { ...properties, analytics_consent: "withheld" },
+          : {
+              ...properties,
+              analytics_consent: decided ? "withheld" : "unknown",
+            },
         userId,
         anonymousId,
         sessionId,

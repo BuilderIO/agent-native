@@ -702,6 +702,7 @@
         "@agent-native/core/client/analytics",
         "@agent-native/core/client/api-path",
         "@agent-native/core/client/auth/auth-page-helpers",
+        "@agent-native/core/client/consent",
         "@agent-native/core/client/oauth-popup",
         "@agent-native/core/client/sign-in-return",
         "@agent-native/core/client/use-session",

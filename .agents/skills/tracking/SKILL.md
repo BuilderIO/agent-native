@@ -295,12 +295,16 @@ Everyone else gets no banner and every tag at once.
   `getOrCreateAnalyticsAnonymousId()` returns `undefined` and stores nothing,
   and events go out with no `anonymousId` and
   `properties.analytics_consent: "withheld"`. Events sent before the region
-  is known wait for it, or leave without the id if the page closes first. A
+  is known wait for it, or leave without the id, marked
+  `analytics_consent: "unknown"`, if the page closes first. The plain
+  sign-in page reads the id through the same helper; never write `an_aid`
+  directly. A
   reject clears a stored id.
   Those rows count as events and views but never as people; the Analytics
   activation funnel joins them to a signup in the same session. Session
   replay waits for `performance` too, with no time-zone head start; a reject
-  stops it and discards what it hasn't uploaded. Amplitude rechecks the
+  stops it, discards what it hasn't uploaded (including a batch an upload in
+  flight puts back), and forgets its stored replay identity. Amplitude rechecks the
   choice before it initializes and never sends events from before an accept.
   Google events held for the region's answer go out only if it allows them. Sentry error capture and the session id `an_sid` aren't
   gated.
