@@ -1,9 +1,9 @@
 import { ActionContractError } from "@agent-native/core";
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, type ActionRunContext } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { agentTouchDocument } from "@agent-native/core/collab";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { assertAccess } from "@agent-native/core/sharing";
+import { assertAccess, currentAccess } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import {
   getGenerationCreativeContext,
@@ -23,6 +23,15 @@ import {
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
 import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
+import { isLiveBodyWriterPage } from "../server/lib/live-body-writer.js";
+import { CONTENT_LIVE_COPY_EDITS } from "../server/live-copy/binding.js";
+import { drizzleOverExec } from "../server/live-copy/exec-db.js";
+import {
+  editContentLiveCopy,
+  liveCopyBaseChanged,
+  liveCopyWriteLeftPath,
+  unrepresentableBodyError,
+} from "../server/live-copy/write.js";
 import { applyDocumentTextEdits } from "../shared/document-text-edits.js";
 import { inspectNfmFidelity } from "../shared/nfm.js";
 import {
@@ -223,6 +232,54 @@ async function resolveEditCreativeContext(args: {
             elementProvenance,
           ),
   };
+}
+
+/**
+ * Writes an edit without a revision to a switched page through its live
+ * copy. False when the page isn't switched, or left its live copy before
+ * anything committed.
+ */
+async function editThroughLiveCopy(args: {
+  id: string;
+  expected: string;
+  content: string;
+  ctx: ActionRunContext | undefined;
+  creativeContext: Awaited<ReturnType<typeof resolveEditCreativeContext>>;
+}): Promise<boolean> {
+  if (!(await isLiveBodyWriterPage(args.id))) return false;
+  try {
+    await editContentLiveCopy(args.id, {
+      cause: { ctx: args.ctx, operation: "edit-document" },
+      edit: CONTENT_LIVE_COPY_EDITS.replaceBody,
+      input: { content: args.content, expected: args.expected },
+      persist: async (tx, change) => {
+        await assertAccess("document", args.id, "editor", {
+          ...currentAccess(),
+          transaction: tx,
+        });
+        if (!change.changed || !args.creativeContext) return;
+        await recordGenerationCreativeContext(
+          {
+            appId: "content",
+            artifactType: "document",
+            artifactId: args.id,
+            ...args.creativeContext,
+          },
+          { db: drizzleOverExec(tx) },
+        );
+      },
+    });
+    return true;
+  } catch (error) {
+    if (liveCopyBaseChanged(error)) {
+      throw new ActionContractError(
+        "The document changed before this edit could be written. Read it again and retry.",
+        { errorCode: "DOCUMENT_REVISION_CONFLICT", statusCode: 409 },
+      );
+    }
+    if (liveCopyWriteLeftPath(error)) return false;
+    throw unrepresentableBodyError(error) ?? error;
+  }
 }
 
 export default defineAction({
@@ -498,6 +555,33 @@ export default defineAction({
         status: receipt.status,
         path: receipt.path,
         runtime: receipt.runtime,
+      };
+    }
+
+    if (
+      !isLinkedLocalSource &&
+      (await editThroughLiveCopy({
+        id,
+        expected: existing.content ?? "",
+        content,
+        ctx,
+        creativeContext,
+      }))
+    ) {
+      countOutcome("applied", "transition");
+      await writeAppState("refresh-signal", { ts: Date.now() });
+      return {
+        applied: changeCount,
+        total: edits.length,
+        results,
+        contentFidelity: inspectNfmFidelity(content),
+        ...(creativeContext
+          ? {
+              contextMode: creativeContext.contextMode,
+              contextPackId: creativeContext.contextPackId,
+              reuseLabels: creativeContext.reuseLabels,
+            }
+          : {}),
       };
     }
 
