@@ -765,6 +765,75 @@ describe("useCollabReconcile: a tab joining a live doc mid-save", () => {
     },
   );
 
+  it.each(
+    (["pending", "failed", "ready"] as const).flatMap((status) =>
+      (
+        [
+          ["orders the revisions", compareRevisions],
+          ["gives no order", null],
+          ["can't order them", () => null],
+        ] as const
+      ).flatMap(([order, compare]) =>
+        (["without", "with"] as const).map(
+          (time) => [status, order, time, compare] as const,
+        ),
+      ),
+    ),
+  )(
+    "neither edits nor saves when an older body matches the live doc undated after a newer stored edit (evidence %s, a caller that %s, first seen %s its time)",
+    async (status, _order, time, compare) => {
+      const tabs = makeTabs({ compare });
+      vi.useFakeTimers();
+      try {
+        tabs.reportToC(1, peer("A"));
+        await openCWhileASaves(tabs);
+        // The older body holds A's next edit, which hasn't reached C, so it
+        // can't finish the join when it first arrives.
+        const older: Snapshot = {
+          ...ACKNOWLEDGED,
+          value: SAVED.replace("Alpha paragraph.", "Alpha paragraph. extra"),
+        };
+        const showC = (snapshotC: Snapshot, undatedC: boolean) =>
+          act(() =>
+            root.render(
+              React.createElement(tabs.Tabs, {
+                snapshot: STORED,
+                snapshotC,
+                withC: true,
+                undatedC,
+              }),
+            ),
+          );
+        showC(older, time === "without");
+        await act(async () => vi.advanceTimersByTimeAsync(100));
+        if (status !== "pending")
+          await act(async () => tabs.discoverPeers(status, []));
+        showC(AGENT_EDIT, false);
+        await act(async () => vi.advanceTimersByTimeAsync(100));
+        if (status === "ready")
+          await act(async () => tabs.discoverPeers("ready", []));
+        act(() =>
+          tabs.editAsA((author) =>
+            author.commands.insertContentAt(17, " extra"),
+          ),
+        );
+        expect(tabs.markdown("C")).toBe(older.value);
+        tabs.saves.C.mockClear();
+
+        // A delayed response delivers the older body again, without its time.
+        showC(older, true);
+        await act(async () => vi.advanceTimersByTimeAsync(100));
+
+        expect(tabs.markdown("C")).not.toContain(CHARLIE);
+        expect(tabs.results.C!.isJoinPending()).toBe(true);
+        expect(tabs.editors.C!.isEditable).toBe(false);
+        expect(tabs.saves.C).not.toHaveBeenCalled();
+      } finally {
+        tabs.dispose();
+      }
+    },
+  );
+
   it("neither edits nor saves when an acknowledgement it refused for a newer stored edit comes back as a body the live doc wrote", async () => {
     const tabs = makeTabs();
     vi.useFakeTimers();

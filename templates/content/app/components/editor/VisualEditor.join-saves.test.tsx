@@ -60,7 +60,7 @@ const STORED = "Alpha paragraph agent\n\nBravo paragraph";
 interface StoredBody {
   content: string;
   contentRevision: string;
-  contentUpdatedAt: string;
+  contentUpdatedAt?: string;
   /** The body is one the live doc already holds. */
   collabContentRevision?: string;
 }
@@ -318,6 +318,35 @@ describe("a joining editor's saves", () => {
     expect(onSaveContent).not.toHaveBeenCalled();
     expect(onChange).not.toHaveBeenCalled();
   });
+
+  it.each(["pending", "failed", "ready"] as const)(
+    "saves nothing when an older stored body matching the doc comes back undated while the join is %s",
+    async (join) => {
+      vi.useFakeTimers();
+      // A lower-id collaborator leads, so this editor waits for the agent edit.
+      ydoc.clientID = 100;
+      awareness.setLocalState({ user: { name: "C" } });
+      awareness
+        .getStates()
+        .set(1, { user: { name: "A" }, canFlushDocument: true });
+      const { onSaveContent, show } = await mount(join);
+      await act(async () => vi.advanceTimersByTimeAsync(100));
+      // A delayed response delivers the older body the live doc holds, with
+      // no stored time.
+      show({ content: LIVE, contentRevision: "body:1:older" });
+      await act(async () => vi.advanceTimersByTimeAsync(100));
+
+      let persisted: unknown;
+      await act(async () => {
+        persisted = await captured.slash!.onDraftPersisted!(LIVE);
+      });
+      const editor = captured.editor!;
+      expect(editor.getText()).not.toContain("agent");
+      expect(persisted).toBe(false);
+      expect(editor.isEditable).toBe(false);
+      expect(onSaveContent).not.toHaveBeenCalled();
+    },
+  );
 
   it("saves nothing, and says so, when a locked block refuses the stored body", async () => {
     vi.useFakeTimers();

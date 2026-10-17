@@ -662,7 +662,10 @@ export function useCollabReconcile({
         ydoc,
         updatedAt: updatedAt ?? null,
         revision,
-        earlier: new Set(),
+        earlier: new Set([
+          ...(current?.earlier ?? []),
+          ...(current?.revision ? [current.revision] : []),
+        ]),
       };
       return true;
     }
@@ -690,10 +693,9 @@ export function useCollabReconcile({
   const isCurrentJoinSnapshot = () => {
     const current = joinSnapshotRef.current;
     return (
-      !contentUpdatedAt ||
-      (current?.ydoc === ydoc &&
-        current.updatedAt === contentUpdatedAt &&
-        current.revision === (contentRevision ?? null))
+      current?.ydoc === ydoc &&
+      current.revision === (contentRevision ?? null) &&
+      (!contentUpdatedAt || current.updatedAt === contentUpdatedAt)
     );
   };
   const reportedConflictRevisionRef = useRef<string | null>(null);
