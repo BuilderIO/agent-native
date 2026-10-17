@@ -29,8 +29,9 @@ the rows returned by a warehouse query belong to that customer.
 ## Source order and completeness
 
 1. Use the catalog and organization data dictionary before writing warehouse
-   SQL. Approved definitions and saved query shapes outrank a table name that
-   merely sounds right.
+   SQL. For contract and usage metrics, the dbt Semantic Layer
+   (`query-dbt-semantic-metric`) is the approved definition. Approved definitions
+   and saved query shapes outrank a table name that merely sounds right.
 2. Gather available CRM, contract, support, and conversation evidence. Treat
    that context as complementary, not as a complete usage result.
 3. For account health, product usage is mandatory: query approved definitions

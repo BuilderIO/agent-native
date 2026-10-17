@@ -2132,6 +2132,8 @@ export default {
     dbtDisabled: "Disabled",
     dbtAdminOnly: "Only organization admins can change this connection.",
     dbtReadFailed: "The dbt connection could not be loaded.",
+    dbtSeveralConnections:
+      "Several dbt connections are granted to Analytics, so this panel cannot edit one of them. Remove the extra connections in Settings → Integrations to keep one.",
     dbtSave: "Save connection",
     dbtChecking: "Checking",
     dbtSaveFailed: "The dbt connection could not be saved.",

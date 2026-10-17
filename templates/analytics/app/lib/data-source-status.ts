@@ -1,5 +1,7 @@
 import { dataSources, type DataSource } from "@/lib/data-sources";
 
+import type { DbtConnectionReadiness } from "../../server/lib/dbt-connection";
+
 export interface EnvKeyStatus {
   key: string;
   label: string;
@@ -40,6 +42,8 @@ export interface WorkspaceConnectionProviderSummary {
   hasActiveWorkspaceConnection: boolean;
   statuses?: WorkspaceConnectionStatus[];
   connections?: WorkspaceConnectionStatusEntry[];
+  // dbt only: the Semantic Layer readiness, which also needs the org token and environment ID.
+  dbtReadiness?: DbtConnectionReadiness;
 }
 
 export interface DataSourceProviderStatus {

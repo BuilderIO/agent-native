@@ -2126,6 +2126,8 @@ export default {
     dbtDisabled: "معطّل",
     dbtAdminOnly: "يمكن لمسؤولي المؤسسة فقط تغيير هذا الاتصال.",
     dbtReadFailed: "تعذّر تحميل اتصال dbt.",
+    dbtSeveralConnections:
+      "تم منح Analytics عدة اتصالات dbt، لذلك لا يمكن لهذه اللوحة تحرير أي منها. أزل الاتصالات الإضافية من الإعدادات ← التكاملات للاحتفاظ باتصال واحد.",
     dbtSave: "حفظ الاتصال",
     dbtChecking: "جارٍ التحقق",
     dbtSaveFailed: "تعذّر حفظ اتصال dbt.",
