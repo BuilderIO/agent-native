@@ -44,6 +44,10 @@ interface Snapshot {
   updatedAt: string;
 }
 
+interface Acknowledgement extends Snapshot {
+  sequence: number;
+}
+
 // Content's body revisions: a counter, then a hash the order ignores.
 const STORED: Snapshot = {
   value: ORIGINAL,
@@ -208,10 +212,12 @@ function makeTabs({
     name,
     snapshot,
     joins = joinsOnPeers,
+    acknowledged = null,
   }: {
     name: "B" | "C";
     snapshot: Snapshot;
     joins?: boolean;
+    acknowledged?: Acknowledgement | null;
   }) {
     // Wired as Content's editor wires them.
     const editor = useEditor({
@@ -236,6 +242,7 @@ function makeTabs({
       contentRevision: snapshot.revision,
       contentUpdatedAt: snapshot.updatedAt,
       compareContentRevisions: compare ?? undefined,
+      acknowledgedLocalSnapshot: acknowledged,
       ...(joins
         ? {
             discoverCollabPeers: discover[name],
@@ -256,11 +263,13 @@ function makeTabs({
     snapshotC = snapshot,
     withC,
     joinsC,
+    acknowledgedC,
   }: {
     snapshot: Snapshot;
     snapshotC?: Snapshot;
     withC: boolean;
     joinsC?: boolean;
+    acknowledgedC?: Acknowledgement;
   }) {
     return React.createElement(
       React.Fragment,
@@ -271,6 +280,7 @@ function makeTabs({
             name: "C",
             snapshot: snapshotC,
             joins: joinsC,
+            acknowledged: acknowledgedC,
           })
         : null,
     );
@@ -1201,6 +1211,188 @@ describe("useCollabReconcile: what finishes a join", () => {
       }
     },
   );
+
+  // A stale response brings back the snapshot C opened on after C took a
+  // same-time one over it, under revisions nothing can order.
+  it.each([
+    ["one that cannot order them", () => null],
+    ["absent", null],
+  ])(
+    "does not finish on a same-time snapshot it took another over when the comparator is %s",
+    async (_, compare) => {
+      const tabs = makeTabs({ ids: { A: 5, B: 2, C: 3 }, compare });
+      const opened: Snapshot = { ...STORED, revision: "opaque:first" };
+      const taken: Snapshot = {
+        ...AGENT_EDIT,
+        revision: "opaque:second",
+        updatedAt: opened.updatedAt,
+      };
+      vi.useFakeTimers();
+      try {
+        await openCWhileASaves(tabs, { snapshotC: opened });
+        for (const snapshotC of [taken, opened]) {
+          // A takes its word back, so the doc holds the replayed body.
+          if (snapshotC === opened)
+            act(() =>
+              tabs.editAsA((author) => author.commands.setContent(ORIGINAL)),
+            );
+          act(() =>
+            root.render(
+              React.createElement(tabs.Tabs, {
+                snapshot: STORED,
+                snapshotC,
+                withC: true,
+              }),
+            ),
+          );
+          await act(async () => vi.advanceTimersByTimeAsync(100));
+        }
+
+        expect(tabs.markdown("C")).toBe(ORIGINAL);
+        expect(tabs.results.C!.isJoinPending()).toBe(true);
+        expect(tabs.editors.C!.isEditable).toBe(false);
+        expect(heldRevision(tabs.awareness.C)).toBeUndefined();
+      } finally {
+        tabs.dispose();
+      }
+    },
+  );
+
+  it("does not apply a same-time snapshot it took another over that a collaborator holds", async () => {
+    const tabs = makeTabs({ ids: { A: 5, B: 6, C: 3 }, compare: () => null });
+    const opened: Snapshot = { ...STORED, revision: "opaque:first" };
+    const taken: Snapshot = {
+      ...AGENT_EDIT,
+      revision: "opaque:second",
+      updatedAt: opened.updatedAt,
+    };
+    const live = `${SAVED}\n\n${CHARLIE}`;
+    vi.useFakeTimers();
+    try {
+      await openCWhileASaves(tabs, { snapshotC: opened });
+      act(() => tabs.editAsA((author) => author.commands.setContent(live)));
+      for (const snapshotC of [taken, opened]) {
+        act(() =>
+          root.render(
+            React.createElement(tabs.Tabs, {
+              snapshot: STORED,
+              snapshotC,
+              withC: true,
+            }),
+          ),
+        );
+        await act(async () => vi.advanceTimersByTimeAsync(100));
+      }
+      // C leads, and A reports holding the snapshot C took.
+      await act(async () =>
+        tabs.discoverPeers("ready", [[5, peer("A", taken.revision)]]),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(6_000));
+
+      expect(tabs.markdown("C")).toBe(live);
+      expect(tabs.counts()).toEqual({ A: 1, B: 1, C: 1 });
+      expect(tabs.results.C!.isJoinPending()).toBe(true);
+      expect(heldRevision(tabs.awareness.C)).toBeUndefined();
+      // No newer snapshot comes, so it reports the join it cannot finish.
+      await act(async () => vi.advanceTimersByTimeAsync(15_000));
+      expect(tabs.joinFailed("C")).toBe(true);
+      expect(tabs.markdown("C")).toBe(live);
+    } finally {
+      tabs.dispose();
+    }
+  });
+
+  // C accepts the acknowledgement of a save that lands after the snapshot it
+  // opened on, and then the doc moves to an older snapshot.
+  const acknowledged: Acknowledgement = {
+    ...AGENT_EDIT,
+    value: SAVED,
+    revision: "body:3:d",
+    sequence: 1,
+  };
+  const between: Snapshot = {
+    ...AGENT_EDIT,
+    value: `${SAVED}\n\n${CHARLIE}`,
+    updatedAt: "2024-01-01T00:00:07.000Z",
+  };
+  it.each([
+    [
+      "that arrives after it",
+      between,
+      (author: CoreEditor) =>
+        author.commands.insertContentAt(author.state.doc.content.size, {
+          type: "paragraph",
+          content: [{ type: "text", text: CHARLIE }],
+        }),
+    ],
+    [
+      "it already had",
+      STORED,
+      (author: CoreEditor) => author.commands.setContent(ORIGINAL),
+    ],
+  ])(
+    "does not finish on a snapshot older than a save it has had acknowledged %s",
+    async (_, older, move) => {
+      const tabs = makeTabs({ ids: { A: 5, B: 2, C: 3 } });
+      vi.useFakeTimers();
+      try {
+        await openCWhileASaves(tabs);
+        for (const [snapshotC, moves] of [
+          [STORED, false],
+          [older, true],
+        ] as const) {
+          if (moves) act(() => tabs.editAsA(move));
+          act(() =>
+            root.render(
+              React.createElement(tabs.Tabs, {
+                snapshot: STORED,
+                snapshotC,
+                withC: true,
+                acknowledgedC: acknowledged,
+              }),
+            ),
+          );
+          await act(async () => vi.advanceTimersByTimeAsync(100));
+        }
+
+        expect(tabs.markdown("C")).toBe(older.value);
+        expect(tabs.results.C!.isJoinPending()).toBe(true);
+        expect(tabs.editors.C!.isEditable).toBe(false);
+        expect(heldRevision(tabs.awareness.C)).toBe(acknowledged.revision);
+      } finally {
+        tabs.dispose();
+      }
+    },
+  );
+
+  it("finishes on a snapshot the doc matches that equals a save it has had acknowledged", async () => {
+    const tabs = makeTabs({ ids: { A: 5, B: 2, C: 3 } });
+    vi.useFakeTimers();
+    try {
+      await openCWhileASaves(tabs);
+      expect(tabs.results.C!.isJoinPending()).toBe(true);
+      act(() =>
+        root.render(
+          React.createElement(tabs.Tabs, {
+            snapshot: STORED,
+            snapshotC: ACKNOWLEDGED,
+            withC: true,
+            acknowledgedC: { ...ACKNOWLEDGED, sequence: 1 },
+          }),
+        ),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(100));
+
+      expect(tabs.counts()).toEqual({ A: 1, B: 1, C: 1 });
+      expect(tabs.results.C!.isJoinPending()).toBe(false);
+      expect(tabs.editors.C!.isEditable).toBe(true);
+      expect(heldRevision(tabs.awareness.C)).toBe(ACKNOWLEDGED.revision);
+      await act(async () => vi.advanceTimersByTimeAsync(21_000));
+      expect(tabs.joinFailed("C")).toBe(false);
+    } finally {
+      tabs.dispose();
+    }
+  });
 
   // C leads and no collaborator holds either stored body, so C applies one.
   it.each([

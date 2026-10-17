@@ -577,25 +577,64 @@ export function useCollabReconcile({
     requestJoinEvidence(doc, revision);
     return null;
   };
-  const latestObservedUpdatedAtRef = useRef<string | null>(
-    contentUpdatedAt ?? null,
-  );
-  const latestObservedRevisionRef = useRef<string | null>(
-    contentRevision ?? null,
-  );
-  // Until a joining doc holds a stored body, a snapshot known to be older than
-  // one it has seen may not finish its join: even one the doc matches lacks the
-  // newer stored edit. Same-time revisions that can't be ordered are taken, as
-  // the reconcile below takes them; refusing them would leave the join unable
-  // to finish at all.
-  const propsKnownOlderThanObserved = () => {
-    const newestAt = latestObservedUpdatedAtRef.current;
-    if (!contentUpdatedAt || !newestAt) return false;
-    if (contentUpdatedAt !== newestAt) return contentUpdatedAt < newestAt;
-    const newest = latestObservedRevisionRef.current;
-    if (!contentRevision || !newest || contentRevision === newest) return false;
-    const order = compareContentRevisions?.(contentRevision, newest);
-    return typeof order === "number" && order <= 0;
+  // The stored snapshot a joining doc takes as current, which the reconcile
+  // below records only after turning away anything it rejects, and the others
+  // it took at that time. Until the doc holds a stored body, only the current
+  // one may finish its join, and not once a save acknowledged after it is
+  // accepted: an older one, even one the doc matches, lacks the newer stored
+  // edit. Same-time revisions nothing can order count in the order they
+  // arrive, so one taken earlier cannot come back.
+  const joinSnapshotRef = useRef<{
+    ydoc: YDoc;
+    updatedAt: string;
+    revision: string | null;
+    earlier: Set<string>;
+  } | null>(null);
+  const takeJoinSnapshot = () => {
+    if (
+      !joinsOnPeerEvidence ||
+      !ydoc ||
+      lastAppliedSerializedRef.current !== null ||
+      !contentUpdatedAt
+    )
+      return true;
+    const revision = contentRevision ?? null;
+    const current =
+      joinSnapshotRef.current?.ydoc === ydoc ? joinSnapshotRef.current : null;
+    if (!current || contentUpdatedAt > current.updatedAt) {
+      joinSnapshotRef.current = {
+        ydoc,
+        updatedAt: contentUpdatedAt,
+        revision,
+        earlier: new Set(),
+      };
+      return true;
+    }
+    if (contentUpdatedAt < current.updatedAt) return false;
+    if (revision === current.revision) return true;
+    const order =
+      revision && current.revision
+        ? compareContentRevisions?.(revision, current.revision)
+        : null;
+    if (
+      typeof order === "number"
+        ? order <= 0
+        : revision !== null && current.earlier.has(revision)
+    )
+      return false;
+    if (current.revision) current.earlier.add(current.revision);
+    current.revision = revision;
+    return true;
+  };
+  const isCurrentJoinSnapshot = () => {
+    const current = joinSnapshotRef.current;
+    return (
+      !contentUpdatedAt ||
+      (current?.ydoc === ydoc &&
+        current.updatedAt === contentUpdatedAt &&
+        current.revision === (contentRevision ?? null) &&
+        !propsOlderThanAcknowledged())
+    );
   };
   const reportedConflictRevisionRef = useRef<string | null>(null);
   const reconcileCallbacksRef = useRef({
@@ -629,32 +668,6 @@ export function useCollabReconcile({
   }, [editor, joinPending, joinEvidence]);
   // The editor can outlive the hook, or be replaced under it.
   useEffect(() => () => releaseJoinReadOnly(), [editor]);
-  // A join, pending, failed or waiting for the stored body, is moot once the
-  // doc holds that body, whether the stored body or the doc moved. That body
-  // becomes the base at once: the doc can move on again before the next
-  // reconcile, which would then find it differing with no join left to wait
-  // for.
-  useEffect(() => {
-    if (!editor || editor.isDestroyed || joinEvidence?.ydoc !== ydoc) return;
-    const check = () => {
-      if (editor.isDestroyed || propsKnownOlderThanObserved()) return;
-      const callbacks = reconcileCallbacksRef.current;
-      const normalizedValue = callbacks.normalizeValue(value);
-      if (callbacks.getMarkdown(editor) !== normalizedValue) return;
-      lastAppliedValueRef.current = value;
-      lastAppliedSerializedRef.current = normalizedValue;
-      if (contentUpdatedAt) lastAppliedUpdatedAtRef.current = contentUpdatedAt;
-      if (contentRevision)
-        holdAuthoritativeBase({ value, revision: contentRevision });
-      reportedConflictRevisionRef.current = null;
-      finishJoin();
-    };
-    check();
-    editor.on("update", check);
-    return () => {
-      editor.off("update", check);
-    };
-  }, [contentRevision, contentUpdatedAt, editor, joinEvidence, value, ydoc]);
   // A doc the lead merged the stored body into also holds unsaved text, so it
   // never equals the stored body. The lead's report is how a waiting client
   // learns it arrived, and a report is trusted only after catching up again.
@@ -687,6 +700,20 @@ export function useCollabReconcile({
     updatedAt: string;
     sequence: number;
   } | null>(null);
+  const propsOlderThanAcknowledged = () => {
+    const acknowledged = acknowledgedLocalSnapshotRef.current;
+    return (
+      !!acknowledged &&
+      !!contentUpdatedAt &&
+      contentUpdatedAt < acknowledged.updatedAt
+    );
+  };
+  const latestObservedUpdatedAtRef = useRef<string | null>(
+    contentUpdatedAt ?? null,
+  );
+  const latestObservedRevisionRef = useRef<string | null>(
+    contentRevision ?? null,
+  );
   const acknowledgementBaseRollbackRef = useRef<{
     acknowledgementRevision: string;
     updatedAt: string;
@@ -1200,7 +1227,7 @@ export function useCollabReconcile({
           (acknowledged.updatedAt < latestObservedUpdatedAtRef.current ||
             (acknowledged.updatedAt === latestObservedUpdatedAtRef.current &&
               latestObservedRevisionRef.current !== acknowledged.revision));
-        if (!acknowledgementWasSuperseded) {
+        if (!acknowledgementWasSuperseded && takeJoinSnapshot()) {
           holdAuthoritativeBase({
             value: acknowledged.value,
             revision: acknowledged.revision,
@@ -1215,13 +1242,7 @@ export function useCollabReconcile({
         }
         return;
       }
-      if (
-        acknowledged &&
-        contentUpdatedAt &&
-        contentUpdatedAt < acknowledged.updatedAt
-      ) {
-        return;
-      }
+      if (propsOlderThanAcknowledged() || !takeJoinSnapshot()) return;
       if (collab && !collabSynced) {
         retry = setTimeout(() => apply(deferred), 300);
         return;
@@ -1241,12 +1262,6 @@ export function useCollabReconcile({
         peerWait.deadline = null;
         return;
       }
-      if (
-        joinsOnPeerEvidence &&
-        lastAppliedSerializedRef.current === null &&
-        propsKnownOlderThanObserved()
-      )
-        return;
       const currentMarkdown = callbacks.getMarkdown(editor);
       const normalizedValue = callbacks.normalizeValue(value);
       const editorUnchangedSinceApply =
@@ -1667,6 +1682,38 @@ export function useCollabReconcile({
     joinEvidence,
     awareness,
   ]);
+
+  // A join, pending, failed or waiting for the stored body, is moot once the
+  // doc holds that body, whether the stored body or the doc moved. That body
+  // becomes the base at once: the doc can move on again before the next
+  // reconcile, which would then find it differing with no join left to wait
+  // for. It runs after the reconcile, which takes the snapshot it checks for.
+  useEffect(() => {
+    if (!editor || editor.isDestroyed || joinEvidence?.ydoc !== ydoc) return;
+    const check = () => {
+      if (
+        editor.isDestroyed ||
+        joinEvidenceRef.current?.ydoc !== ydoc ||
+        !isCurrentJoinSnapshot()
+      )
+        return;
+      const callbacks = reconcileCallbacksRef.current;
+      const normalizedValue = callbacks.normalizeValue(value);
+      if (callbacks.getMarkdown(editor) !== normalizedValue) return;
+      lastAppliedValueRef.current = value;
+      lastAppliedSerializedRef.current = normalizedValue;
+      if (contentUpdatedAt) lastAppliedUpdatedAtRef.current = contentUpdatedAt;
+      if (contentRevision)
+        holdAuthoritativeBase({ value, revision: contentRevision });
+      reportedConflictRevisionRef.current = null;
+      finishJoin();
+    };
+    check();
+    editor.on("update", check);
+    return () => {
+      editor.off("update", check);
+    };
+  }, [contentRevision, contentUpdatedAt, editor, joinEvidence, value, ydoc]);
 
   const shouldIgnoreUpdate = (transaction: Transaction): boolean => {
     if (!editable || isSettingContentRef.current || isJoinPending())
