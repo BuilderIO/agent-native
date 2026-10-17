@@ -20,6 +20,11 @@ const ROW_HTML = `<!doctype html><html><head><meta charset="utf-8"></head>
   <section data-agent-native-node-id="card" data-agent-native-layer-name="Card" style="margin-top:40px;width:400px;height:160px;background:#eef2ff"></section>
 </body></html>`;
 
+const SECOND_SCREEN_HTML = `<!doctype html><html><head><meta charset="utf-8"><title>Page Two</title></head>
+<body style="margin:0;padding:40px;background:#f3f4f6">
+  <section data-agent-native-node-id="second-screen-content" data-agent-native-layer-name="Second Screen Content" style="width:240px;height:120px;background:#dbeafe"></section>
+</body></html>`;
+
 const FREE_HTML = `<!doctype html><html><head><meta charset="utf-8"></head>
 <body style="margin:0;position:relative;width:900px;height:600px;background:#ffffff">
   <div data-agent-native-node-id="box" data-agent-native-layer-name="Free Box" style="position:absolute;left:80px;top:80px;width:120px;height:80px;background:#6366f1"></div>
@@ -210,17 +215,27 @@ test("Cmd+A with no selection selects every Screen", async ({
   app,
   page,
 }) => {
-  const id = await openSeeded(app, ROW_HTML);
+  const id = await openSeeded(app, ROW_HTML, {
+    "page-two.html": SECOND_SCREEN_HTML,
+  });
   await expect.poll(() => app.selectedLayers()).toStrictEqual([]);
-  const before = await app.savedNodes(id);
+  const before = {
+    one: await app.savedNodes(id),
+    two: await app.savedNodes(id, "page-two.html"),
+  };
 
   await page.keyboard.press("ControlOrMeta+a");
 
   await expect
     .poll(async () => (await app.selectedLayers()).sort())
-    .toStrictEqual(["Home"]);
+    .toStrictEqual(["Home", "Two"]);
   await app.settled();
-  expectOnlyChanged(before, await app.savedNodes(id), []);
+  expectOnlyChanged(before.one, await app.savedNodes(id), []);
+  expectOnlyChanged(
+    before.two,
+    await app.savedNodes(id, "page-two.html"),
+    [],
+  );
 });
 
 test("Cmd+D after moving the first duplicate repeats that move for the next duplicate", async ({
