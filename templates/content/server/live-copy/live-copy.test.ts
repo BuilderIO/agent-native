@@ -74,46 +74,39 @@ vi.mock("../lib/document-body-steps.js", async (importOriginal) => {
 });
 
 // The live copy's worker bundles its own Yjs and serializer, so these record
-// only what ran on this thread, and only while `recording` is set.
+// only what ran on this thread, and only while `recording` is set. They record
+// every call and construction of every export: an export reaches the others'
+// work through the module's own bindings, which a wrapper never sees.
 const { thisThread, recordedOnThisThread } = vi.hoisted(() => {
   const thisThread = { recording: false, calls: [] as string[] };
-  function recordedOnThisThread<T extends object>(
-    actual: T,
-    names: readonly string[],
-  ): T {
+  const record = (name: string) => {
+    if (thisThread.recording) thisThread.calls.push(name);
+  };
+  function recordedOnThisThread<T extends object>(actual: T): T {
     const recorded = { ...actual } as Record<string, unknown>;
-    for (const name of names) {
-      const call = recorded[name] as (...args: unknown[]) => unknown;
-      recorded[name] = (...args: unknown[]) => {
-        if (thisThread.recording) thisThread.calls.push(name);
-        return call(...args);
-      };
+    for (const [name, value] of Object.entries(recorded)) {
+      if (typeof value !== "function") continue;
+      recorded[name] = new Proxy(value, {
+        apply(target, self, args) {
+          record(name);
+          return Reflect.apply(target, self, args);
+        },
+        construct(target, args, newTarget) {
+          record(`new ${name}`);
+          return Reflect.construct(target, args, newTarget);
+        },
+      });
     }
     return recorded as T;
   }
   return { thisThread, recordedOnThisThread };
 });
 vi.mock("yjs", async (importOriginal) =>
-  recordedOnThisThread(await importOriginal<typeof import("yjs")>(), [
-    "applyUpdate",
-    "applyUpdateV2",
-    "readUpdate",
-    "readUpdateV2",
-    "diffUpdate",
-    "diffUpdateV2",
-    "mergeUpdates",
-    "mergeUpdatesV2",
-    "decodeUpdate",
-    "decodeUpdateV2",
-    "decodeStateVector",
-    "encodeStateVectorFromUpdate",
-    "encodeStateVectorFromUpdateV2",
-  ]),
+  recordedOnThisThread(await importOriginal<typeof import("yjs")>()),
 );
 vi.mock("../../shared/nfm.js", async (importOriginal) =>
   recordedOnThisThread(
     await importOriginal<typeof import("../../shared/nfm.js")>(),
-    ["docToNfm", "nfmToDoc"],
   ),
 );
 
@@ -2861,6 +2854,13 @@ describe("the SF-07 bound on Content's derive and build", () => {
     );
     expect(result.tasks).toEqual([]);
     expect(result.thisThread).toContain("applyUpdate");
+  });
+
+  it("records serializer work this thread reaches through any export", async () => {
+    const result = await whereItRan(async () =>
+      nfm.canonicalizeNfm("Hello there"),
+    );
+    expect(result.thisThread).toEqual(["canonicalizeNfm"]);
   });
 
   it("refuses indent feeding repeat() (about 100 MB) as output_too_large", async () => {
