@@ -168,7 +168,9 @@ export class ChatThreadListError extends Error {
 
 export interface ChatThreadListPageRequest {
   apiUrl?: string;
+  /** Non-negative safe integer. Undefined uses the server default. */
   offset?: number;
+  /** Positive safe integer. Undefined uses the server default. */
   limit?: number;
   /** Switches the endpoint to search; ownership still narrows before paging. */
   query?: string;
@@ -234,6 +236,20 @@ function parseChatThreadListRow(
 async function requestChatThreadListPage(
   request: ChatThreadListPageRequest,
 ): Promise<{ threads: unknown[]; hasMore: boolean | undefined }> {
+  // Zero offsets keep their canonical URL omission, but invalid arguments
+  // must fail before serialization can turn them into a default page.
+  for (const [parameter, minimum] of [
+    ["limit", 1],
+    ["offset", 0],
+  ] as const) {
+    const value = request[parameter];
+    if (value === undefined) continue;
+    if (!Number.isSafeInteger(value) || value < minimum) {
+      throw new TypeError(
+        `Chat history ${parameter} must be a safe integer of at least ${minimum}.`,
+      );
+    }
+  }
   const apiUrl = request.apiUrl ?? agentNativePath("/_agent-native/agent-chat");
   const params = new URLSearchParams();
   const query = request.query?.trim();
@@ -276,7 +292,8 @@ async function requestChatThreadListPage(
  * `ChatThreadListError` for a non-2xx response, a body that is not a thread
  * list, or a row missing `ownerEmail` / `accessBasis` / `visibility` or sitting
  * on the wrong side of `ownership`, so callers cannot mistake a failed page
- * for an empty one.
+ * for an empty one. Invalid explicit pagination arguments reject with
+ * `TypeError` before a request is sent.
  */
 export async function fetchChatThreadListPage(
   request: ChatThreadListPageRequest = {},
