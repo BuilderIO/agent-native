@@ -253,7 +253,10 @@ export interface TabRecord {
   errorToasts: string[];
   saveRequests: number;
   saveOutcomes: Partial<Record<SaveOutcome, number>>;
-  /** Refusal codes, and the reason the server gave for a History diversion. */
+  /**
+   * Refusal codes, the reason the server gave for a History diversion, and
+   * `stranded` for a save a SaveGate held when its page went away.
+   */
   saveCodes: Record<string, number>;
   saveLineage: SaveLineageEvent[];
   saveLineageDropped: number;
@@ -365,6 +368,9 @@ function refuseRealtimeStream(route: Route) {
   return route.fulfill({ status: 204, body: "" });
 }
 
+// A SaveGate reports the saves it strands to its context's TabSet.
+const tabSets = new WeakMap<BrowserContext, TabSet>();
+
 /**
  * One browser context with the tabs a scenario opens. Every tab gets the
  * visibility shim and the observer. Unless the server already refuses it, every
@@ -382,7 +388,7 @@ export class TabSet {
     { record: TabRecord; entry: UpdateDocumentRequestLineage }
   >();
   private readonly activeSaveLineage = new Set<UpdateDocumentRequestLineage>();
-  private savesInFlight = 0;
+  private readonly inFlight = new Set<Request>();
 
   private constructor(readonly context: BrowserContext) {}
 
@@ -391,6 +397,7 @@ export class TabSet {
     { refuseRealtime = true }: { refuseRealtime?: boolean } = {},
   ): Promise<TabSet> {
     const set = new TabSet(context);
+    tabSets.set(context, set);
     await context.addInitScript(TAB_VISIBILITY);
     await context.addInitScript(OBSERVER);
     await context.exposeBinding(
@@ -485,7 +492,7 @@ export class TabSet {
       contentHash: document.contentHash,
       bodyRevision: document.bodyRevision,
       revision: document.revision,
-      savesInFlight: this.savesInFlight,
+      savesInFlight: this.inFlight.size,
       pendingRequestOrders: [...this.activeSaveLineage]
         .map((entry) => entry.order)
         .sort((left, right) => left - right),
@@ -493,18 +500,48 @@ export class TabSet {
   }
 
   /**
-   * Wait until no tab has a save on the wire. Reloading or closing a tab cuts
-   * off its save in flight, which is a race of its own; without this wait the
-   * refresh check races whichever save the tab sent last.
+   * Wait until no tab has a save on the wire or held at a gate. Reloading or
+   * closing a tab cuts off its save in flight, which is a race of its own;
+   * without this wait the refresh check races whichever save the tab sent last.
    */
   async quiet(): Promise<void> {
     await expect
-      .poll(() => this.savesInFlight, {
+      .poll(() => this.unanswered(), {
         message: "saves still in flight after the scenario ended",
         timeout: CONVERGENCE_DEADLINE_MS,
       })
-      .toBe(0);
+      .toEqual([]);
     await this.settled();
+  }
+
+  /**
+   * Settle a save as aborted, never as answered: its request failed, or a
+   * SaveGate held it when its page went away, which `code` names.
+   */
+  settleAborted(request: Request, code?: string) {
+    if (!this.inFlight.delete(request)) return;
+    const record = this.recordOf(request);
+    record.saveOutcomes.aborted = (record.saveOutcomes.aborted ?? 0) + 1;
+    if (code) record.saveCodes[code] = (record.saveCodes[code] ?? 0) + 1;
+    const lineage = this.lineageByRequest.get(request);
+    if (lineage) {
+      this.activeSaveLineage.delete(lineage.entry);
+      this.saveLineage.failRequest(lineage.entry);
+    }
+  }
+
+  /** The saves still on the wire or held at a gate, and whose they are. */
+  private unanswered(): string[] {
+    const now = Date.now();
+    return [...this.inFlight].map(
+      (request) =>
+        `${this.recordOf(request).label}'s save sent ${now - (this.sentAt.get(request) ?? now)} ms ago`,
+    );
+  }
+
+  private recordOf(request: Request): TabRecord {
+    const page = pageOf(request);
+    return (page && this.tabs.get(page)) || this.detached;
   }
 
   private observe(page: Page, kind: string, detail: string) {
@@ -527,11 +564,10 @@ export class TabSet {
 
   private onRequest(request: Request) {
     const url = new URL(request.url());
-    const page = pageOf(request);
-    const record = (page && this.tabs.get(page)) || this.detached;
+    const record = this.recordOf(request);
     if (url.pathname === SAVE_PATH && request.method() === "POST") {
       record.saveRequests++;
-      this.savesInFlight++;
+      this.inFlight.add(request);
       this.sentAt.set(request, Date.now());
       const entry = this.saveLineage.captureRequest(record, request.postData());
       if (entry) {
@@ -550,15 +586,14 @@ export class TabSet {
   private onResponse(response: Response) {
     const request = response.request();
     const { pathname } = new URL(request.url());
-    const page = pageOf(request);
-    const record = (page && this.tabs.get(page)) || this.detached;
+    const record = this.recordOf(request);
     if (pathname === EVENTS_PATH) {
       if (response.status() === 204) record.realtimeRefusals++;
       if (response.status() === 200) record.realtimeStreams++;
       return;
     }
     if (pathname !== SAVE_PATH || request.method() !== "POST") return;
-    this.savesInFlight--;
+    this.inFlight.delete(request);
     const sentAt = this.sentAt.get(request);
     if (sentAt !== undefined) record.saveDurationsMs.push(Date.now() - sentAt);
     const lineage = this.lineageByRequest.get(request);
@@ -587,15 +622,7 @@ export class TabSet {
       request.method() !== "POST"
     )
       return;
-    this.savesInFlight--;
-    const page = pageOf(request);
-    const record = (page && this.tabs.get(page)) || this.detached;
-    record.saveOutcomes.aborted = (record.saveOutcomes.aborted ?? 0) + 1;
-    const lineage = this.lineageByRequest.get(request);
-    if (lineage) {
-      this.activeSaveLineage.delete(lineage.entry);
-      this.saveLineage.failRequest(lineage.entry);
-    }
+    this.settleAborted(request);
   }
 }
 
@@ -613,11 +640,29 @@ export class SaveGate {
   private latencyMs = 0;
   private queue: HeldSave[] = [];
   heldCount = 0;
+  // Once the page that sent a held save is gone, Playwright drops the save:
+  // continue() and fulfill() resolve, and no answer or failure event follows.
+  // The gate counts the tab's documents so it can settle those saves itself.
+  private document = 0;
+  private navigating = false;
+  private readonly documentOf = new WeakMap<Request, number>();
+  private readonly holding = new Set<Request>();
 
   private constructor(private readonly page: Page) {}
 
   static async install(page: Page): Promise<SaveGate> {
     const gate = new SaveGate(page);
+    page.on("request", (request) => {
+      if (request.isNavigationRequest() && request.frame() === page.mainFrame())
+        gate.navigating = true;
+      else gate.documentOf.set(request, gate.document);
+    });
+    // A same-page history change also navigates the frame, but sends no
+    // navigation request first and leaves the document in place.
+    page.on("framenavigated", (frame) => {
+      if (frame === page.mainFrame() && gate.navigating) gate.leaveDocument();
+    });
+    page.on("close", () => gate.leaveDocument());
     await page.route(
       (url) => url.pathname === SAVE_PATH,
       (route) => gate.handle(route),
@@ -673,13 +718,17 @@ export class SaveGate {
   }
 
   private async handle(route: Route) {
-    if (route.request().method() !== "POST") return route.continue();
+    const request = route.request();
+    if (request.method() !== "POST") return route.continue();
+    if ((this.documentOf.get(request) ?? this.document) !== this.document)
+      return this.strand(request);
+    this.holding.add(request);
     if (this.latencyMs > 0) await delay(this.latencyMs);
     if (this.mode === "arrival") {
       this.heldCount++;
       this.queue.push({
-        release: () => forward(() => route.continue()),
-        cutOff: () => forward(() => route.abort("aborted")),
+        release: () => this.send(request, () => route.continue()),
+        cutOff: () => this.send(request, () => route.abort("aborted")),
       });
       return;
     }
@@ -693,12 +742,28 @@ export class SaveGate {
         throw error;
       }
       this.queue.push({
-        release: () => forward(() => route.fulfill({ response })),
-        cutOff: () => forward(() => route.abort("aborted")),
+        release: () => this.send(request, () => route.fulfill({ response })),
+        cutOff: () => this.send(request, () => route.abort("aborted")),
       });
       return;
     }
-    await forward(() => route.continue());
+    await this.send(request, () => route.continue());
+  }
+
+  /** Pass on a save the gate still holds; a stranded one is already settled. */
+  private async send(request: Request, step: () => Promise<void>) {
+    if (this.holding.delete(request)) await forward(step);
+  }
+
+  private leaveDocument() {
+    this.document++;
+    this.navigating = false;
+    for (const request of this.holding) this.strand(request);
+  }
+
+  private strand(request: Request) {
+    this.holding.delete(request);
+    tabSets.get(this.page.context())?.settleAborted(request, "stranded");
   }
 }
 
