@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { ActionEntry } from "../../agent/production-agent.js";
+import {
+  toolCallCacheKey,
+  type ActionEntry,
+} from "../../agent/production-agent.js";
 import { CORE_ACTION_GROUPS } from "../../framework-tools.js";
 import {
   getRequestRunContext,
@@ -10,6 +13,7 @@ import {
   assembleA2AFinalResponse,
   buildAuthenticatedAgentA2ASkills,
   buildPublicAgentA2ASkills,
+  executeApprovedA2AToolCall,
   filterDelegatedA2ACapabilityActions,
   filterDirectA2AActions,
   filterMcpOnlyActions,
@@ -33,6 +37,54 @@ function action(overrides: Partial<ActionEntry> = {}): ActionEntry {
     ...overrides,
   };
 }
+
+describe("executeApprovedA2AToolCall", () => {
+  it("runs the approved call with the paused A2A task's linkage", async () => {
+    const input = { to: "ceo@example.test" };
+    const approvalKey = toolCallCacheKey("send-email", input);
+    const run = vi.fn(async () => "sent");
+
+    const result = await executeApprovedA2AToolCall(
+      {
+        id: "approval-1",
+        taskId: "task-1",
+        ownerEmail: "owner@example.test",
+        orgId: "org-1",
+        tool: "send-email",
+        input,
+        approvalKey,
+        callId: "call-1",
+      },
+      {
+        actions: {
+          "send-email": action({
+            run,
+            http: { method: "POST" },
+            readOnly: false,
+            needsApproval: true,
+          }),
+        },
+        appId: "mail",
+      },
+    );
+
+    expect(result).toEqual({ status: "completed", output: "sent" });
+    expect(run).toHaveBeenCalledWith(
+      input,
+      expect.objectContaining({
+        userEmail: "owner@example.test",
+        orgId: "org-1",
+        caller: "tool",
+        networkProtocol: "a2a",
+        networkId: "task-1",
+        runId: "task-1",
+        threadId: "task-1",
+        turnId: "task-1",
+        approvedToolCallKey: approvalKey,
+      }),
+    );
+  });
+});
 
 describe("delegated agent loops", () => {
   it.each([

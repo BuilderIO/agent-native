@@ -445,6 +445,7 @@ import {
   DEFAULT_DELEGATED_MAX_ITERATIONS,
   DEFAULT_DELEGATED_MAX_RUN_INPUT_TOKENS,
   DEFAULT_DELEGATED_MAX_TOOL_RESULT_CHARS,
+  executeApprovedA2AToolCall,
   filterAgentTools,
   filterMcpOnlyActions,
   filterPublicAgentActions,
@@ -2320,26 +2321,11 @@ export function createAgentChatPlugin(
           }
           return { status: result.status, output: result.output };
         },
-        executeApproval: async (approval) => {
-          const result = await executeAgentToolCall({
+        executeApproval: (approval) =>
+          executeApprovedA2AToolCall(approval, {
             actions: externalFullActions ?? externalActions,
-            name: approval.tool,
-            input: approval.input,
-            callId: approval.callId,
-            ownerEmail: approval.ownerEmail,
-            orgId: approval.orgId ?? null,
             appId: options?.appId,
-            approvedToolCalls: [approval.approvalKey],
-          });
-          if (result.status === "approval_required") {
-            return {
-              status: "failed" as const,
-              output:
-                "The approved action was unexpectedly gated again and did not run.",
-            };
-          }
-          return { status: result.status, output: result.output };
-        },
+          }),
         handler: async function* (message, context) {
           // Resolve the caller's identity for user-scoped data access.
           // Priority: A2A-JWT verified email (set by the A2A handler in

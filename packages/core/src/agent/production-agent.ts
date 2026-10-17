@@ -4816,6 +4816,7 @@ export interface ExecuteAgentToolCallOptions {
   delegationDepth?: number;
   visitedApps?: string[];
   threadId?: string;
+  runId?: string;
   turnId?: string;
   approvedToolCalls?: string[];
   approvedToolCallAskId?: string;
@@ -4929,6 +4930,7 @@ export async function executeAgentToolCall(
       executionMode: "act",
       maxIterations: 2,
       threadId: options.threadId,
+      runId: options.runId,
       turnId: options.turnId,
       approvedToolCalls: options.approvedToolCalls,
       approvedToolCallAskId: options.approvedToolCallAskId,

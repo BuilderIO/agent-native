@@ -8,11 +8,12 @@ import {
   type A2AToolResultSummary,
 } from "../../a2a/artifact-response.js";
 import { collectFinalResponseTextFromAgentEvents } from "../../a2a/response-text.js";
-import type { AgentSkill } from "../../a2a/types.js";
+import type { A2AApprovalExecution, AgentSkill } from "../../a2a/types.js";
 import { isActionExposedToExternalAgents } from "../../action.js";
 import { resolveMainChatMaxOutputTokens } from "../../agent/engine/output-tokens.js";
 import type { EngineTool } from "../../agent/engine/types.js";
 import {
+  executeAgentToolCall,
   filterInitialEngineTools,
   resolveAgentRequestReasoningEffort,
   type ActionEntry,
@@ -587,6 +588,41 @@ export async function runA2AAgentLoop(
   } catch (error) {
     throw withAgentNativeErrorCode(error);
   }
+}
+
+/**
+ * Runs the tool call an A2A task paused on, once its owner approved it.
+ */
+export async function executeApprovedA2AToolCall(
+  approval: A2AApprovalExecution,
+  options: { actions: Record<string, ActionEntry>; appId?: string },
+): Promise<{ status: "completed" | "failed"; output: string }> {
+  const result = await executeAgentToolCall({
+    actions: options.actions,
+    name: approval.tool,
+    input: approval.input,
+    callId: approval.callId,
+    ownerEmail: approval.ownerEmail,
+    orgId: approval.orgId ?? null,
+    appId: options.appId,
+    approvedToolCalls: [approval.approvalKey],
+    // The ids the paused A2A run gave the call, which keyed all of them to its
+    // task, so the replay records as that task's call. Its caller app is not
+    // stored with the approval, so `networkPeer` stays empty.
+    networkProtocol: "a2a",
+    networkId: approval.taskId,
+    runId: approval.taskId,
+    threadId: approval.taskId,
+    turnId: approval.taskId,
+  });
+  if (result.status === "approval_required") {
+    return {
+      status: "failed",
+      output:
+        "The approved action was unexpectedly gated again and did not run.",
+    };
+  }
+  return { status: result.status, output: result.output };
 }
 
 export function runMCPAgentLoop(
