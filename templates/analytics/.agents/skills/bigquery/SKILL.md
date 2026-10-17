@@ -77,7 +77,17 @@ Never label a current partial-month snapshot as last month's completed usage.
 | `data-source-status --key bigquery`     | Check whether BigQuery credentials and project are configured.      |
 | `find-data --question <topic>` | Find ranked metric definitions and saved query examples before SQL. |
 | `search-bigquery-schema`                | List datasets, list tables in a dataset, or describe table columns. |
+| `estimate-query-cost --sql "<sql>"`     | Free dry run: bytes, $ per run, and $ per month for scheduled runs. |
 | `bigquery --sql "<sql>"`                | Run a real warehouse query after table/column names are known.      |
+
+## Check Cost Before Big Queries
+
+Before running a query over a large event or pageview table, call
+`estimate-query-cost` with the same SQL. It dry-runs the query (BigQuery reads
+and bills nothing) and prices it at on-demand rates. Pass `runsPerMonth` for
+anything scheduled, such as 8640 for an alert that polls every 5 minutes.
+Estimates over $1 per run or $50 per month are flagged: tell the user the number
+before going ahead.
 
 For direct Amplitude/PostHog/Mixpanel product-event data (outside the warehouse
 copy), there is no first-class action — call `provider-api-catalog` /
