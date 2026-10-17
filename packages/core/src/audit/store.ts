@@ -68,16 +68,9 @@ export const auditStore = defineStore({
         ];
 
         await ensureTableExists("agent_audit_log", AGENT_AUDIT_LOG_CREATE_SQL);
-        // `app` and the attribution columns are added here rather than in the
-        // base CREATE, which org migration 1032 replays verbatim.
-        for (const column of [
-          ...lineageColumns,
-          "app",
-          "reported_client_name",
-          "reported_client_version",
-          "oauth_client_id",
-          "approval",
-        ]) {
+        // `app` is added here rather than in the base CREATE, which org
+        // migration 1032 replays verbatim.
+        for (const column of [...lineageColumns, "app"]) {
           await ensureColumnExists(
             "agent_audit_log",
             column,
@@ -113,6 +106,16 @@ export const auditStore = defineStore({
           `CREATE INDEX IF NOT EXISTS idx_audit_created ON agent_audit_log (created_at)`,
         );
       },
+    },
+    {
+      // Not in the base CREATE either, for the same reason as `app`.
+      name: "mcp-client-attribution",
+      sql: [
+        "ALTER TABLE agent_audit_log ADD COLUMN IF NOT EXISTS reported_client_name TEXT",
+        "ALTER TABLE agent_audit_log ADD COLUMN IF NOT EXISTS reported_client_version TEXT",
+        "ALTER TABLE agent_audit_log ADD COLUMN IF NOT EXISTS oauth_client_id TEXT",
+        "ALTER TABLE agent_audit_log ADD COLUMN IF NOT EXISTS approval TEXT",
+      ],
     },
   ],
 });

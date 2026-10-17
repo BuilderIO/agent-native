@@ -17,6 +17,7 @@ import { FRAMEWORK_STORES } from "../db/store-registry.generated.js";
 import {
   __resetStoreLedgerSnapshotForTests,
   __setSchemaSnapshotForTests,
+  migrationChecksum,
 } from "../db/store-registry.js";
 import { runFrameworkReleaseMigrations } from "./release-migrations.js";
 
@@ -129,17 +130,39 @@ describe("schema snapshot", () => {
     const stores = await Promise.all(
       FRAMEWORK_STORES.map(([, load]) => load()),
     );
+    // The checksum catches an edited SQL migration; a `run` migration has none,
+    // so the equivalence test above is what catches an edited one.
     const declared = stores
       .flatMap((store) =>
         store.migrations
           .filter((migration) => migration.kind !== "data")
-          .map((migration) => `${store.id}/${migration.name}`),
+          .map(
+            (migration) =>
+              `${store.id}/${migration.name}@${migrationChecksum(migration)}`,
+          ),
       )
       .sort();
     const covered = SCHEMA_SNAPSHOT.migrations
-      .map(([storeId, name]) => `${storeId}/${name}`)
+      .map(([storeId, name, checksum]) => `${storeId}/${name}@${checksum}`)
       .sort();
     expect(covered).toEqual(declared);
+  });
+
+  it("names every data migration in a boot list, so the snapshot's MAX(version) cannot mark one applied", async () => {
+    const stores = await Promise.all(
+      FRAMEWORK_STORES.map(([, load]) => load()),
+    );
+    const unnamed = stores.flatMap((store) =>
+      store.migrations
+        .filter(
+          (migration) =>
+            migration.kind === "data" &&
+            migration.legacy?.ranAtBoot &&
+            !migration.legacy.name,
+        )
+        .map((migration) => `${store.id}/${migration.name}`),
+    );
+    expect(unnamed).toEqual([]);
   });
 
   it("installs on a first local boot", async () => {

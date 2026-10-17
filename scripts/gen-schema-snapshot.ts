@@ -10,6 +10,8 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 
+import { assertIsolatedPglite, useIsolatedPglite } from "./isolated-pglite.js";
+
 const SNAPSHOT_FILE = "packages/core/src/db/schema-snapshot.generated.ts";
 const LEDGER_TABLES = new Set([
   "_an_store_migrations",
@@ -17,10 +19,22 @@ const LEDGER_TABLES = new Set([
 ]);
 
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "schema-snapshot-"));
-process.env.DATABASE_URL = `pglite:${dataDir}`;
+const databaseUrl = useIsolatedPglite(dataDir);
 
-const { closeDbExec, getDbExec } =
-  await import("../packages/core/src/db/client.js");
+const {
+  closeDbExec,
+  getDatabaseUrl,
+  getDbExec,
+  getLocalDatabaseUrl,
+  getMigrationDatabaseUrl,
+  getRuntimeDatabaseUrl,
+} = await import("../packages/core/src/db/client.js");
+assertIsolatedPglite(databaseUrl, {
+  getDatabaseUrl: () => getDatabaseUrl(),
+  getRuntimeDatabaseUrl: () => getRuntimeDatabaseUrl(),
+  getLocalDatabaseUrl: () => getLocalDatabaseUrl(),
+  getMigrationDatabaseUrl: () => getMigrationDatabaseUrl(),
+});
 const { withMigrationRuntime } =
   await import("../packages/core/src/db/migration-runtime.js");
 const { __setSchemaSnapshotForTests } =
