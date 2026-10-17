@@ -30,7 +30,11 @@ channels are `#product-agent-native-feedback` (`C0ATH3CCZT4`),
 `#qa-agent-native` (`C0C4U4XRT6X`), and
 `#dev-agent-native-feedback` (`C0AJ5QV0J03`). Honor narrower invocation scope.
 Scan five days by default; a supplied timestamp or permalink is the inclusive
-lower bound, even when older. `#dev-agent-native-feedback` is not an exclusion.
+lower bound for the whole invocation, even when older. A permalink sets a time
+boundary, not a channel filter: keep every default channel unless the user
+explicitly narrows scope, and apply the same cutoff to every scoped channel,
+including channels other than the one containing the permalink.
+`#dev-agent-native-feedback` is not an exclusion.
 
 For every scoped channel, run the exact channel-wide, bot-inclusive
 `slack_search_public` query with only `in:<#CHANNEL>` and the recorded lower
