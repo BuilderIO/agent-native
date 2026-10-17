@@ -2,6 +2,11 @@ import { defineAction, embedApp } from "@agent-native/core";
 import { readAppState } from "@agent-native/core/application-state";
 import { buildDeepLink, signShortLivedToken } from "@agent-native/core/server";
 import { resolveAccess, ForbiddenError } from "@agent-native/core/sharing";
+import { transcriptContextAt } from "@shared/comment-transcript-context";
+import {
+  embedFramesUnavailableReason,
+  recordingEmbedProvider,
+} from "@shared/embed-provider";
 import { isImageRecording, resolveRecordingKind } from "@shared/recording-kind";
 import { asc, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -128,7 +133,7 @@ function recordingDeepLink(recordingId: string): string {
 
 export default defineAction({
   description:
-    "Fetch everything the player page needs for a recording: metadata, transcript, comments, reactions, chapters, tags, CTAs, the counted-view total, and the caller's effective role. Agent calls receive a bounded transcript chunk; pass transcriptOffset from nextFullTextOffset until it is null to read the complete transcript. Browser player calls receive the full transcript.",
+    "Fetch everything the player page needs for a recording: metadata, transcript, comments, reactions, chapters, tags, CTAs, the counted-view total, and the caller's effective role. Agent calls receive a bounded transcript chunk; pass transcriptOffset from nextFullTextOffset until it is null to read the complete transcript. Agent calls also get media (whether frames exist; a YouTube clip has none) and, on each comment, transcriptContext: the transcript spoken around its videoTimestampMs. Browser player calls receive the full transcript.",
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
     transcriptOffset: z.coerce.number().int().min(0).optional(),
@@ -317,14 +322,16 @@ export default defineAction({
       !transcript.fullText?.trim() &&
       transcriptSegments.length === 0;
     const transcriptPresentation = resolveTranscriptPresentation(transcript);
-    const agentTranscript =
-      ctx?.caller === "tool" || ctx?.caller === "mcp" || ctx?.caller === "a2a"
-        ? boundTranscriptForAgent({
-            fullText: transcript?.fullText,
-            segments: transcriptSegments,
-            fullTextOffset: args.transcriptOffset,
-          })
-        : null;
+    const isAgentCall =
+      ctx?.caller === "tool" || ctx?.caller === "mcp" || ctx?.caller === "a2a";
+    const embedProvider = recordingEmbedProvider(rec);
+    const agentTranscript = isAgentCall
+      ? boundTranscriptForAgent({
+          fullText: transcript?.fullText,
+          segments: transcriptSegments,
+          fullTextOffset: args.transcriptOffset,
+        })
+      : null;
 
     const resolvedVideoUrl = resolvePlayerVideoUrl(rec, {
       addPasswordToken: access.role !== "owner",
@@ -347,6 +354,19 @@ export default defineAction({
     return {
       role: access.role,
       canComment: canCommentRecording,
+      ...(isAgentCall
+        ? {
+            media: {
+              embedProvider,
+              framesAvailable: !embedProvider,
+              ...(embedProvider
+                ? {
+                    note: `${embedFramesUnavailableReason(embedProvider)} Each comment carries transcriptContext, the transcript spoken around its videoTimestampMs.`,
+                  }
+                : {}),
+            },
+          }
+        : {}),
       viewCount,
       agentViewCount,
       recording: {
@@ -495,6 +515,14 @@ export default defineAction({
         content: c.content,
         mentions: displayCommentMentions(c.mentionsJson),
         videoTimestampMs: c.videoTimestampMs,
+        ...(isAgentCall
+          ? {
+              transcriptContext: transcriptContextAt(
+                transcriptSegments,
+                c.videoTimestampMs,
+              ),
+            }
+          : {}),
         emojiReactionsJson: c.emojiReactionsJson,
         resolved: Boolean(c.resolved),
         createdAt: c.createdAt,

@@ -1415,6 +1415,15 @@ const messages = {
     playClip: "Lire le clip",
     unsupportedFormat:
       "Ce navigateur ne peut pas lire cette vidéo. Essayez d’ouvrir le lien dans Chrome, Edge ou Firefox.",
+    youtubeLoading: "Chargement du lecteur YouTube",
+    youtubeUnavailable: "Cette vidéo YouTube est privée ou a été supprimée.",
+    youtubeEmbedBlocked:
+      "Le propriétaire de cette vidéo n’autorise pas sa lecture en dehors de YouTube.",
+    youtubeInvalid: "Ce lien YouTube ne mène à aucune vidéo lisible.",
+    youtubePlaybackFailed: "YouTube n’a pas pu lire cette vidéo ici.",
+    youtubeApiUnavailable:
+      "Le lecteur YouTube ne s’est pas chargé. Vérifiez votre connexion ou votre bloqueur de contenu, puis rechargez la page.",
+    watchOnYouTube: "Regarder sur YouTube",
   },
   searchBar: {
     placeholder: "Rechercher des enregistrements…",
@@ -1990,6 +1999,8 @@ const messages = {
       "Storage needed to finish Loom import (Localisé)",
     loomImported: "Loom imported (Localisé)",
     couldNotImportLoom: "Impossible d’importer ce Loom.",
+    youtubeImported: "Vidéo YouTube ajoutée",
+    couldNotImportVideo: "Impossible d’importer cette vidéo.",
     recordingReadyToUpload: "Recording is ready to upload (Localisé)",
     recordingSaved: "Recording saved (Localisé)",
     linkCopied: "Lien copié",
@@ -2101,7 +2112,7 @@ const messages = {
     urlPlaceholder: "https://www.loom.com/share/...",
     cta: "Importer",
     helperText:
-      "Fonctionne très bien avec Loom. Vous pouvez aussi coller le lien de tout autre enregistrement d'écran ou fichier vidéo.",
+      "Fonctionne très bien avec Loom et YouTube. Vous pouvez aussi coller le lien de tout autre enregistrement d'écran ou fichier vidéo.",
     stageFetching: "Récupération de votre vidéo…",
     stageUploading: "Envoi des rushes…",
     stageTranscript:

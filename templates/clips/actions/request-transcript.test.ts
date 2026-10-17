@@ -1553,3 +1553,29 @@ describe("importLoomTranscriptForRecording", () => {
     );
   });
 });
+
+describe("requestTranscript for a YouTube clip", () => {
+  it("refuses before queueing work, since Clips has no copy of the audio", async () => {
+    vi.clearAllMocks();
+    mockSelectRows.queue = [];
+    mockAssertAccess.mockResolvedValue({
+      role: "editor",
+      resource: {
+        sourceAppName: "YouTube",
+        sourceWindowTitle: "https://www.youtube.com/watch?v=jNQXAC9IVRw",
+        videoUrl: "https://www.youtube.com/embed/jNQXAC9IVRw",
+      },
+    });
+
+    await expect(
+      requestTranscript.run({ recordingId: "rec_youtube" }, {
+        caller: "tool",
+      } as any),
+    ).rejects.toMatchObject({
+      errorCode: "native_media_required",
+      statusCode: 422,
+    });
+    expect(mockDispatchPostFinalizeJob).not.toHaveBeenCalled();
+    expect(mockDb.select).not.toHaveBeenCalled();
+  });
+});
