@@ -74,6 +74,14 @@ const isBlockedExtensionUrlWithDns = vi.fn();
 const createSsrfSafeDispatcher = vi.fn();
 const listOAuthAccountsByOwner = vi.fn();
 const saveOAuthTokens = vi.fn();
+const withOAuthTokenRefreshLock = vi.fn(
+  async (
+    _provider: string,
+    _accountId: string,
+    _owner: string,
+    run: () => Promise<unknown>,
+  ) => run(),
+);
 const deleteOAuthTokens = vi.fn();
 const resolveWorkspaceConnectionForApp = vi.fn();
 const resolveWorkspaceConnectionCredentialForApp = vi.fn();
@@ -96,6 +104,7 @@ vi.mock("../oauth-tokens/index.js", () => ({
   deleteOAuthTokens,
   listOAuthAccountsByOwner,
   saveOAuthTokens,
+  withOAuthTokenRefreshLock,
 }));
 
 vi.mock("../workspace-connections/store.js", async (importOriginal) => ({
@@ -184,6 +193,10 @@ describe("provider API runtime", () => {
     listOAuthAccountsByOwner.mockReset();
     listOAuthAccountsByOwner.mockResolvedValue([]);
     saveOAuthTokens.mockReset();
+    withOAuthTokenRefreshLock.mockReset();
+    withOAuthTokenRefreshLock.mockImplementation(
+      async (_provider, _accountId, _owner, run) => run(),
+    );
     deleteOAuthTokens.mockReset();
     resolveWorkspaceConnectionForApp.mockReset();
     resolveWorkspaceConnectionCredentialForApp.mockReset();
@@ -470,6 +483,191 @@ describe("provider API runtime", () => {
       "ada@example.com",
     );
     expect(JSON.stringify(result)).not.toContain("fresh-access-token");
+  });
+
+  it("refreshes a rotating Sigma token only once when requests race", async () => {
+    const connection = {
+      id: "sigma-oauth-connection",
+      provider: "sigma",
+      label: "Sigma: Ada",
+      accountId: "org-1:user-1::ada@example.com",
+      ownerEmail: "ada@example.com",
+      orgId: "org-1",
+      config: {
+        credentialMode: "oauth",
+        sigmaBaseUrl: "https://aws-api.sigmacomputing.com",
+      },
+      scopes: ["api:access"],
+      status: "connected",
+    };
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection,
+      appAccess: { available: true },
+      reason: "",
+    });
+    const originalTokens = {
+      access_token: "expired-sigma-token",
+      expiry_date: Date.now() - 1_000,
+      refresh_token: "sigma-refresh-token",
+      sigma_api_base_url: "https://aws-api.sigmacomputing.com",
+      sigma_token_url: "https://aws-api.sigmacomputing.com/mcp/token",
+      sigma_client_id: "sigma-oauth-client-id",
+      sigma_token_endpoint_auth_method: "none" as const,
+    };
+    let storedTokens: Record<string, unknown> = originalTokens;
+    listOAuthAccountsByOwner.mockImplementation(async () => [
+      {
+        accountId: connection.accountId,
+        displayName: "Ada",
+        tokens: { ...storedTokens },
+      },
+    ]);
+    saveOAuthTokens.mockImplementation(
+      async (_provider, _accountId, tokens) => {
+        storedTokens = { ...storedTokens, ...tokens };
+      },
+    );
+
+    let lockTail = Promise.resolve();
+    withOAuthTokenRefreshLock.mockImplementation(
+      async (_provider, _accountId, _owner, run) => {
+        const previous = lockTail;
+        let release!: () => void;
+        lockTail = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        await previous;
+        try {
+          return await run();
+        } finally {
+          release();
+        }
+      },
+    );
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input: RequestInfo | URL) => {
+        if (String(input).endsWith("/mcp/token")) {
+          return new Response(
+            JSON.stringify({
+              access_token: "fresh-access-token",
+              refresh_token: "rotated-sigma-refresh-token",
+              expires_in: 3600,
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      });
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["sigma"],
+      getCredentialContext: () => credentialContext,
+      resolveCredential: vi.fn(),
+    });
+
+    await Promise.all([
+      runtime.executeRequest({
+        provider: "sigma",
+        path: "/v2/workbooks",
+        query: { page: 1 },
+        connectionId: connection.id,
+      }),
+      runtime.executeRequest({
+        provider: "sigma",
+        path: "/v2/workbooks",
+        query: { page: 2 },
+        connectionId: connection.id,
+      }),
+    ]);
+
+    expect(
+      fetchMock.mock.calls.filter(([input]) =>
+        String(input).endsWith("/mcp/token"),
+      ),
+    ).toHaveLength(1);
+    expect(saveOAuthTokens).toHaveBeenCalledTimes(1);
+    expect(
+      fetchMock.mock.calls.filter(([, init]) =>
+        String(
+          init?.headers && new Headers(init.headers).get("Authorization"),
+        ).includes("fresh-access-token"),
+      ),
+    ).toHaveLength(2);
+  });
+
+  it("rejects a Sigma refresh response without a valid token lifetime", async () => {
+    const connection = {
+      id: "sigma-oauth-connection",
+      provider: "sigma",
+      label: "Sigma: Ada",
+      accountId: "org-1:user-1::ada@example.com",
+      ownerEmail: "ada@example.com",
+      orgId: "org-1",
+      config: {
+        credentialMode: "oauth",
+        sigmaBaseUrl: "https://aws-api.sigmacomputing.com",
+      },
+      scopes: ["api:access"],
+      status: "connected",
+    };
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection,
+      appAccess: { available: true },
+      reason: "",
+    });
+    listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: connection.accountId,
+        displayName: "Ada",
+        tokens: {
+          access_token: "expired-sigma-token",
+          expiry_date: Date.now() - 1_000,
+          refresh_token: "sigma-refresh-token",
+          sigma_api_base_url: "https://aws-api.sigmacomputing.com",
+          sigma_token_url: "https://aws-api.sigmacomputing.com/mcp/token",
+          sigma_client_id: "sigma-oauth-client-id",
+          sigma_token_endpoint_auth_method: "none",
+        },
+      },
+    ]);
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      async (input: RequestInfo | URL) =>
+        String(input).endsWith("/mcp/token")
+          ? new Response(
+              JSON.stringify({ access_token: "fresh-access-token" }),
+              {
+                status: 200,
+                headers: { "content-type": "application/json" },
+              },
+            )
+          : new Response(JSON.stringify({ ok: true }), {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            }),
+    );
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["sigma"],
+      getCredentialContext: () => credentialContext,
+      resolveCredential: vi.fn(),
+    });
+
+    await expect(
+      runtime.executeRequest({
+        provider: "sigma",
+        path: "/v2/workbooks",
+        connectionId: connection.id,
+      }),
+    ).rejects.toThrow(
+      "Sigma OAuth refresh returned an invalid token lifetime.",
+    );
+    expect(saveOAuthTokens).not.toHaveBeenCalled();
   });
 
   it("allows the configured provider origin alongside registered host suffixes", async () => {

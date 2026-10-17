@@ -278,6 +278,34 @@ describe("SigmaMigrationDialog", () => {
     expect(container.textContent).toContain("Connect personal Sigma");
   });
 
+  it("lets the server choose the app identity for personal Sigma OAuth", async () => {
+    clientMocks.canManageOrg = false;
+    clientMocks.hasConnectionError = false;
+    clientMocks.listResult = {
+      ...clientMocks.listResult,
+      connected: false,
+      connections: [],
+    };
+    await renderDialog();
+
+    const assign = vi
+      .spyOn(window.location, "assign")
+      .mockImplementation(() => undefined);
+    const button = [...container.querySelectorAll("button")].find((candidate) =>
+      candidate.textContent?.includes("Connect personal Sigma"),
+    );
+    await act(async () => {
+      button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const [destination] = assign.mock.calls[0] ?? [];
+    expect(destination).toBeTruthy();
+    expect(
+      new URL(destination!, window.location.origin).searchParams.has("appId"),
+    ).toBe(false);
+    assign.mockRestore();
+  });
+
   it("preselects the Sigma connection returned by OAuth", async () => {
     clientMocks.hasConnectionError = false;
     clientMocks.listResult = {

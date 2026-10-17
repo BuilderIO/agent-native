@@ -20,6 +20,9 @@ let conflictOwnerAfterUpsert: string | null = null;
 let upsertAttempted = false;
 
 const mockDb = {
+  transaction: vi.fn(async (run: (tx: typeof mockDb) => Promise<unknown>) =>
+    run(mockDb),
+  ),
   execute: vi.fn(async (input: string | { sql: string; args?: unknown[] }) => {
     const sql = typeof input === "string" ? input : input.sql;
     const args = typeof input === "string" ? [] : (input.args ?? []);
@@ -117,6 +120,7 @@ const mockDb = {
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => mockDb,
+  withDbExec: (_exec: unknown, run: () => unknown) => run(),
 }));
 
 vi.mock("../db/ddl-guard.js", () => ({
@@ -133,6 +137,7 @@ const {
   listOAuthTokenOwners,
   replaceOAuthTokensIfRevision,
   saveOAuthTokens,
+  withOAuthTokenRefreshLock,
 } = await import("./store.js");
 
 function lastInsert(): ExecCall {
@@ -185,6 +190,23 @@ describe("oauth token store", () => {
     expect(reads.every((call) => call.args[0] === "mcp")).toBe(true);
     await expect(listOAuthTokenOwners("mcp", [])).resolves.toEqual([]);
     mockDb.execute.mockImplementation(original);
+  });
+
+  it("serializes OAuth refreshes with an owner and account scoped database lock", async () => {
+    const run = vi.fn(async () => "refreshed");
+
+    await expect(
+      withOAuthTokenRefreshLock("sigma", "acct-1", "Alice@example.com", run),
+    ).resolves.toBe("refreshed");
+
+    const lock = execCalls.find((call) =>
+      call.sql.includes("pg_advisory_xact_lock"),
+    );
+    expect(mockDb.transaction).toHaveBeenCalledOnce();
+    expect(lock?.args).toEqual([
+      "oauth-token-refresh:sigma:acct-1:alice@example.com",
+    ]);
+    expect(run).toHaveBeenCalledOnce();
   });
 
   it("refuses to rebind a Google account owned by a different user", async () => {

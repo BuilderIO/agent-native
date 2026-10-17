@@ -30,6 +30,7 @@ import {
   deleteOAuthTokens,
   listOAuthAccountsByOwner,
   saveOAuthTokens,
+  withOAuthTokenRefreshLock,
 } from "../oauth-tokens/index.js";
 import { resolveSecret } from "../server/credential-provider.js";
 import { resolveGoogleProviderCredentialCandidates } from "../server/google-oauth-credentials.js";
@@ -5205,105 +5206,151 @@ async function getValidOAuthAccessToken(options: {
     return refreshSentryOAuthToken(options, refreshToken);
   }
   if (options.oauthProvider === "sigma") {
-    return refreshSigmaOAuthToken(options, refreshToken);
+    return refreshSigmaOAuthToken(options);
   }
   throw new Error(
     `${options.oauthProvider} OAuth token is expired and automatic refresh is not configured for provider-api.`,
   );
 }
 
-async function refreshSigmaOAuthToken(
-  options: {
-    oauthProvider: string;
-    accountId: string;
-    ownerEmail: string;
-    tokens: OAuthTokens;
-  },
-  refreshToken: string,
-): Promise<string> {
-  const apiBaseUrl = normalizeSigmaApiBaseUrl(
-    options.tokens.sigma_api_base_url ?? "",
-  );
-  const clientId = options.tokens.sigma_client_id?.trim();
-  const tokenUrl = options.tokens.sigma_token_url;
-  const authMethod = options.tokens.sigma_token_endpoint_auth_method;
-  if (!apiBaseUrl || !clientId || !tokenUrl) {
-    throw new Error(
-      "Sigma OAuth connection is missing its refresh configuration.",
-    );
-  }
-  let parsedTokenUrl: URL;
-  try {
-    parsedTokenUrl = new URL(tokenUrl);
-  } catch {
-    throw new Error("Sigma OAuth token endpoint is invalid.");
-  }
-  if (
-    parsedTokenUrl.protocol !== "https:" ||
-    parsedTokenUrl.origin !== apiBaseUrl
-  ) {
-    throw new Error("Sigma OAuth token endpoint is outside its API region.");
-  }
-  if (
-    authMethod !== "none" &&
-    authMethod !== "client_secret_basic" &&
-    authMethod !== "client_secret_post"
-  ) {
-    throw new Error("Sigma OAuth token endpoint authentication is invalid.");
-  }
-  const fields = new URLSearchParams({
-    grant_type: "refresh_token",
-    client_id: clientId,
-    refresh_token: refreshToken,
-  });
-  const headers: Record<string, string> = {
-    "Content-Type": "application/x-www-form-urlencoded",
-  };
-  const clientSecret = options.tokens.sigma_client_secret;
-  if (authMethod === "client_secret_basic") {
-    if (!clientSecret) {
-      throw new Error(
-        "Sigma OAuth client secret is missing for token refresh.",
-      );
-    }
-    headers.Authorization = `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`;
-  } else if (authMethod === "client_secret_post") {
-    if (!clientSecret) {
-      throw new Error(
-        "Sigma OAuth client secret is missing for token refresh.",
-      );
-    }
-    fields.set("client_secret", clientSecret);
-  }
-  const { response, data } = await fetchBoundedOAuthRefreshJson<{
-    access_token?: string;
-    refresh_token?: string;
-    expires_in?: number;
-    token_type?: string;
-  }>(
-    parsedTokenUrl.href,
-    { method: "POST", headers, body: fields, redirect: "error" },
-    "Sigma",
-  );
-  if (!response.ok || !data.access_token) {
-    throw new Error(`Sigma OAuth refresh failed (${response.status}).`);
-  }
-  const updated: OAuthTokens = {
-    ...options.tokens,
-    access_token: data.access_token,
-    refresh_token: data.refresh_token ?? refreshToken,
-    token_type: data.token_type ?? options.tokens.token_type,
-    ...(Number.isFinite(data.expires_in) && (data.expires_in ?? 0) > 0
-      ? { expiry_date: Date.now() + (data.expires_in as number) * 1_000 }
-      : {}),
-  };
-  await saveOAuthTokens(
+async function refreshSigmaOAuthToken(options: {
+  oauthProvider: string;
+  accountId: string;
+  ownerEmail: string;
+  tokens: OAuthTokens;
+}): Promise<string> {
+  return withOAuthTokenRefreshLock(
     options.oauthProvider,
     options.accountId,
-    updated as unknown as Record<string, unknown>,
     options.ownerEmail,
+    async () => {
+      const account = (
+        await listOAuthAccountsByOwner(
+          options.oauthProvider,
+          options.ownerEmail,
+        )
+      ).find((candidate) => candidate.accountId === options.accountId);
+      const tokens = account?.tokens as OAuthTokens | undefined;
+      const accessToken = tokens?.access_token ?? tokens?.accessToken;
+      if (!tokens || typeof accessToken !== "string" || !accessToken) {
+        throw new Error("Sigma OAuth connection is no longer available.");
+      }
+      const expiresAt = tokens.expiry_date ?? tokens.expiresAt;
+      if (
+        !expiresAt ||
+        !Number.isFinite(expiresAt) ||
+        expiresAt > Date.now() + 60_000
+      ) {
+        return accessToken;
+      }
+      const refreshToken = tokens.refresh_token ?? tokens.refreshToken;
+      if (typeof refreshToken !== "string" || !refreshToken) {
+        return accessToken;
+      }
+
+      const apiBaseUrl = normalizeSigmaApiBaseUrl(
+        tokens.sigma_api_base_url ?? "",
+      );
+      const clientId = tokens.sigma_client_id?.trim();
+      const tokenUrl = tokens.sigma_token_url;
+      const authMethod = tokens.sigma_token_endpoint_auth_method;
+      if (!apiBaseUrl || !clientId || !tokenUrl) {
+        throw new Error(
+          "Sigma OAuth connection is missing its refresh configuration.",
+        );
+      }
+      let parsedTokenUrl: URL;
+      try {
+        parsedTokenUrl = new URL(tokenUrl);
+      } catch {
+        throw new Error("Sigma OAuth token endpoint is invalid.");
+      }
+      if (
+        parsedTokenUrl.protocol !== "https:" ||
+        parsedTokenUrl.origin !== apiBaseUrl
+      ) {
+        throw new Error(
+          "Sigma OAuth token endpoint is outside its API region.",
+        );
+      }
+      if (
+        authMethod !== "none" &&
+        authMethod !== "client_secret_basic" &&
+        authMethod !== "client_secret_post"
+      ) {
+        throw new Error(
+          "Sigma OAuth token endpoint authentication is invalid.",
+        );
+      }
+      const fields = new URLSearchParams({
+        grant_type: "refresh_token",
+        client_id: clientId,
+        refresh_token: refreshToken,
+      });
+      const headers: Record<string, string> = {
+        "Content-Type": "application/x-www-form-urlencoded",
+      };
+      const clientSecret = tokens.sigma_client_secret;
+      if (authMethod === "client_secret_basic") {
+        if (!clientSecret) {
+          throw new Error(
+            "Sigma OAuth client secret is missing for token refresh.",
+          );
+        }
+        headers.Authorization = `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`;
+      } else if (authMethod === "client_secret_post") {
+        if (!clientSecret) {
+          throw new Error(
+            "Sigma OAuth client secret is missing for token refresh.",
+          );
+        }
+        fields.set("client_secret", clientSecret);
+      }
+      const { response, data } = await fetchBoundedOAuthRefreshJson<{
+        access_token?: string;
+        refresh_token?: string;
+        expires_in?: number;
+        token_type?: string;
+      }>(
+        parsedTokenUrl.href,
+        { method: "POST", headers, body: fields, redirect: "error" },
+        "Sigma",
+      );
+      if (
+        !response.ok ||
+        typeof data.access_token !== "string" ||
+        !data.access_token.trim()
+      ) {
+        throw new Error(`Sigma OAuth refresh failed (${response.status}).`);
+      }
+      if (
+        typeof data.expires_in !== "number" ||
+        !Number.isSafeInteger(data.expires_in) ||
+        data.expires_in <= 0
+      ) {
+        throw new Error(
+          "Sigma OAuth refresh returned an invalid token lifetime.",
+        );
+      }
+      const updated: OAuthTokens = {
+        ...tokens,
+        access_token: data.access_token,
+        refresh_token:
+          typeof data.refresh_token === "string" && data.refresh_token
+            ? data.refresh_token
+            : refreshToken,
+        token_type: data.token_type ?? tokens.token_type,
+        expiry_date: Date.now() + data.expires_in * 1_000,
+      };
+      await saveOAuthTokens(
+        options.oauthProvider,
+        options.accountId,
+        updated as unknown as Record<string, unknown>,
+        options.ownerEmail,
+      );
+      return data.access_token;
+    },
   );
-  return data.access_token;
 }
 
 async function refreshFigmaOAuthToken(

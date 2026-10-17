@@ -1,4 +1,4 @@
-import { getDbExec } from "../db/client.js";
+import { getDbExec, withDbExec } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
 import { defineStore } from "../db/store-registry.js";
 import { fromMigrationEntries } from "../db/versioned-store-migrations.js";
@@ -117,6 +117,34 @@ export const oauthTokensStore = defineStore({
 
 export function ensureTable(): Promise<void> {
   return oauthTokensStore.ready();
+}
+
+export async function withOAuthTokenRefreshLock<T>(
+  provider: string,
+  accountId: string,
+  owner: string,
+  run: () => Promise<T>,
+): Promise<T> {
+  const ownerKey = owner.trim().toLowerCase();
+  if (!provider.trim() || !accountId.trim() || !ownerKey) {
+    throw new Error("OAuth token refresh identity is incomplete.");
+  }
+  await ensureTable();
+  const dbExec = getDbExec();
+  if (!dbExec.transaction) {
+    throw new Error(
+      "OAuth token refresh requires database transaction support.",
+    );
+  }
+  return dbExec.transaction(async (tx) =>
+    withDbExec(tx, async () => {
+      await tx.execute({
+        sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
+        args: [`oauth-token-refresh:${provider}:${accountId}:${ownerKey}`],
+      });
+      return run();
+    }),
+  );
 }
 
 export async function getOAuthTokens(

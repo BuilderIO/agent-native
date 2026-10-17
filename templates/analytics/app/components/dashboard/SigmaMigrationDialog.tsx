@@ -454,7 +454,6 @@ export function SigmaMigrationDialog({
 
   const startPersonalSigmaOAuth = () => {
     const params = new URLSearchParams({
-      appId: "analytics",
       scope: "user",
       return: "/dashboards?openSigma=1",
       baseUrl: sigmaApiBaseUrl,

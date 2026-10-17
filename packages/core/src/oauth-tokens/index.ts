@@ -3,6 +3,7 @@ export {
   getOAuthTokenSnapshot,
   OAuthAccountOwnedByOtherUserError,
   saveOAuthTokens,
+  withOAuthTokenRefreshLock,
   replaceOAuthTokensIfRevision,
   deleteOAuthTokens,
   deleteOAuthTokensIfRevision,
