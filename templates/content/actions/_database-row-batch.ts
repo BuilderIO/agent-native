@@ -1,7 +1,10 @@
+import { ActionContractError } from "@agent-native/core/action";
 import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { lockDatabaseMemberships } from "./_database-membership-lock.js";
+import { lockDocumentRows } from "./_row-lock-order.js";
 
 export const DATABASE_ROW_BATCH_LIMIT = 100;
 
@@ -184,32 +187,58 @@ export async function resolveDatabaseRowsForBatch(
   };
 }
 
+/**
+ * Pass `heldMembershipIds` when the caller locked the collection's
+ * memberships before any page: a membership outside that set was added since,
+ * and locking it now would come after pages the caller holds.
+ */
 export async function renumberDatabaseRows(
   db: ReturnType<typeof getDb>,
   database: typeof schema.contentDatabases.$inferSelect,
   now: string,
+  heldMembershipIds?: ReadonlySet<string>,
 ) {
+  // Trashed rows keep their slot: renumbering only the visible rows lets a
+  // visible row take a trashed row's number, and the restored row then sorts
+  // after it. The tiebreaks match the collection read's.
   const rows = await db
     .select({
       id: schema.contentDatabaseItems.id,
       documentId: schema.contentDatabaseItems.documentId,
     })
     .from(schema.contentDatabaseItems)
-    .innerJoin(
-      schema.documents,
-      eq(schema.documents.id, schema.contentDatabaseItems.documentId),
-    )
-    .where(
-      and(
-        eq(schema.contentDatabaseItems.databaseId, database.id),
-        isNull(schema.documents.trashedAt),
-      ),
-    )
-    .orderBy(asc(schema.contentDatabaseItems.position));
+    .where(eq(schema.contentDatabaseItems.databaseId, database.id))
+    .orderBy(
+      asc(schema.contentDatabaseItems.position),
+      asc(schema.contentDatabaseItems.createdAt),
+      asc(schema.contentDatabaseItems.id),
+    );
   if (rows.length === 0) return;
+  if (heldMembershipIds && rows.some((row) => !heldMembershipIds.has(row.id)))
+    throw new ActionContractError(
+      "Database memberships changed before the operation completed.",
+      { errorCode: "DATABASE_MEMBERSHIPS_CHANGED", statusCode: 409 },
+    );
 
   const itemIds = rows.map((row) => row.id);
   const documentIds = rows.map((row) => row.documentId);
+  const renumberedPages = and(
+    eq(schema.documents.ownerEmail, database.ownerEmail),
+    eq(schema.documents.parentId, database.documentId),
+    inArray(schema.documents.id, documentIds),
+  );
+  // An UPDATE locks rows in scan order. Take them in Content's row-lock order
+  // first; callers already hold the collection.
+  await lockDatabaseMemberships(db, itemIds);
+  await lockDocumentRows(
+    db,
+    (
+      await db
+        .select({ id: schema.documents.id })
+        .from(schema.documents)
+        .where(renumberedPages)
+    ).map((page) => page.id),
+  );
   await db
     .update(schema.contentDatabaseItems)
     .set({
@@ -237,11 +266,5 @@ export async function renumberDatabaseRows(
       ),
       updatedAt: now,
     })
-    .where(
-      and(
-        eq(schema.documents.ownerEmail, database.ownerEmail),
-        eq(schema.documents.parentId, database.documentId),
-        inArray(schema.documents.id, documentIds),
-      ),
-    );
+    .where(renumberedPages);
 }

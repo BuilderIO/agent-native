@@ -12,7 +12,7 @@ import {
   validateGenerationCreativeContext,
 } from "@agent-native/creative-context/server";
 import type { CreativeContextReuseLabel } from "@agent-native/creative-context/types";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -34,7 +34,10 @@ import {
   recordContentSaveOutcome,
   type ContentSaveOutcomeDimensions,
 } from "./_content-save-outcomes.js";
-import { mutateDocumentBody } from "./_document-edit-mutation.js";
+import {
+  assertEditableDocument,
+  mutateDocumentBody,
+} from "./_document-edit-mutation.js";
 import { editLinkedLocalDocumentThroughBrowser } from "./_linked-local-document-edit.js";
 
 interface TextEdit {
@@ -390,6 +393,7 @@ export default defineAction({
       return result;
     }
 
+    assertEditableDocument(existing);
     const applied = applyDocumentTextEdits(existing.content ?? "", edits);
     let { content } = applied;
     const { results, changeCount } = applied;
@@ -519,10 +523,16 @@ export default defineAction({
             and(
               eq(schema.documents.id, id),
               eq(schema.documents.updatedAt, existing.updatedAt),
+              isNull(schema.documents.trashedAt),
             ),
           )
           .returning({ id: schema.documents.id });
         if (mirrored.length !== 1) {
+          const [current] = await tx
+            .select()
+            .from(schema.documents)
+            .where(eq(schema.documents.id, id));
+          assertEditableDocument(current);
           throw new Error(
             "The document changed before Content history could be updated.",
           );

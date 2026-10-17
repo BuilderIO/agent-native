@@ -61,6 +61,7 @@ import {
   nextAppendPosition,
   withPositionLock,
 } from "./_position-utils.js";
+import { lockParentOfNewPage } from "./_row-lock-order.js";
 
 type CreationTransactionWrite = {
   documentId: string;
@@ -863,6 +864,15 @@ export default defineAction({
           const scoped = creationTransactionWrite.getStore();
           if (scoped?.documentId === id) {
             await scoped.write(tx as unknown as ReturnType<typeof getDb>);
+          }
+          if (parentId) {
+            // Last, after the import lock the write above can take, which
+            // undo-import holds while it locks pages.
+            await lockParentOfNewPage(
+              tx as unknown as ReturnType<typeof getDb>,
+              parentId,
+              { ownerEmail, spaceId, orgId, visibility },
+            );
           }
           return true;
         });

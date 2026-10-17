@@ -400,13 +400,12 @@ describe("page Trash through external MCP", () => {
       expectedUpdatedAt: (await readPage(parent.id)).updatedAt,
       idempotencyKey: "restore-lock-trash",
     });
-    const moveDocument = (await import("./move-document.js")).default;
-    await runWithRequestContext({ userEmail: owner }, () =>
-      moveDocument.run(
-        { id: child.id, parentId: destination.id },
-        { caller: "frontend" },
-      ),
-    );
+    // A move refuses a page in Trash, so the member's parent is changed the
+    // way data from before that refusal can have it.
+    await getDb()
+      .update(schema.documents)
+      .set({ parentId: destination.id })
+      .where(eq(schema.documents.id, child.id));
 
     const locks = await import("./_content-database-mutation-lock.js");
     const lockDatabase = locks.lockContentDatabaseMutation;

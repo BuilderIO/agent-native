@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { ActionContractError, defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import {
   getRequestOrgId,
@@ -25,6 +25,7 @@ import {
 import { inspectNfmFidelity } from "../shared/nfm.js";
 import {
   favoriteDocumentIds,
+  favoriteMembershipIds,
   setFavoriteMembership,
 } from "./_content-favorites.js";
 import { ensureDocumentsFilesMembership } from "./_content-files.js";
@@ -34,10 +35,18 @@ import {
   personalContentSpaceId,
   provisionContentSpaces,
 } from "./_content-spaces.js";
+import { lockDatabaseMemberships } from "./_database-membership-lock.js";
+import { lockDocumentRows, lockOwnerPageTree } from "./_row-lock-order.js";
 
 const MAX_SOURCE_FILES = 500;
 const MAX_SOURCE_FILE_BYTES = 2 * 1024 * 1024;
 const MAX_DOCUMENT_BODY_BYTES = 512 * 1024;
+const TRASHED_PAGE_SKIP =
+  "Skipped update: the page is in Trash. Restore it, then import again.";
+
+type ContentTx = Parameters<
+  Parameters<ReturnType<typeof getDb>["transaction"]>[0]
+>[0];
 
 function nanoid(size = 12): string {
   const chars =
@@ -143,38 +152,33 @@ function hasParentCycle(
   return false;
 }
 
-async function assertParentIsNotDescendant(input: {
-  ownerEmail: string;
-  id: string;
-  parentId: string | null;
-}) {
-  if (!input.parentId) return;
-  const db = getDb();
-  const queue = [input.id];
+async function parentIsDescendant(
+  db: ReturnType<typeof getDb>,
+  input: {
+    ownerEmail: string;
+    id: string;
+    parentId: string;
+  },
+) {
+  // Walks up from the parent, one query per level: the reparent runs this
+  // while it holds the owner's page-tree lock.
   const visited = new Set<string>();
-
-  while (queue.length > 0) {
-    const currentId = queue.shift()!;
-    if (visited.has(currentId)) continue;
+  let currentId: string | null = input.parentId;
+  while (currentId && !visited.has(currentId)) {
+    if (currentId === input.id) return true;
     visited.add(currentId);
-
-    const children = await db
-      .select({ id: schema.documents.id })
+    const [current] = await db
+      .select({ parentId: schema.documents.parentId })
       .from(schema.documents)
       .where(
         and(
+          eq(schema.documents.id, currentId),
           eq(schema.documents.ownerEmail, input.ownerEmail),
-          eq(schema.documents.parentId, currentId),
         ),
       );
-
-    for (const child of children) {
-      if (child.id === input.parentId) {
-        throw new Error("Skipped parent update: cycle.");
-      }
-      queue.push(child.id);
-    }
+    currentId = current?.parentId ?? null;
   }
+  return false;
 }
 
 export default defineAction({
@@ -348,6 +352,10 @@ export default defineAction({
         continue;
       }
 
+      if (existing?.trashedAt) {
+        skipped.push({ path: file.path, reason: TRASHED_PAGE_SKIP });
+        continue;
+      }
       if (existing) {
         const existingSpaceId = existing.spaceId ?? defaultSpaceId;
         ownerById.set(id, existing.ownerEmail as string);
@@ -414,7 +422,14 @@ export default defineAction({
           continue;
         }
 
-        const mutation = await db.transaction(async (tx) => {
+        const applyUpdate = async (tx: ContentTx) => {
+          // Removing a favorite deletes its membership, and an edit locks a
+          // page's memberships before the page, so this does too.
+          const heldFavoriteIds =
+            file.isFavorite === false
+              ? await favoriteMembershipIds(tx, currentUserEmail, id)
+              : [];
+          await lockDatabaseMemberships(tx, heldFavoriteIds);
           await tx
             .select({ id: schema.documents.id })
             .from(schema.documents)
@@ -437,6 +452,13 @@ export default defineAction({
             .limit(1);
           if (!locked) {
             throw new Error(`Document "${id}" no longer exists.`);
+          }
+          if (locked.trashedAt) {
+            return {
+              changed: false,
+              visibilityForbidden: false,
+              trashed: true,
+            };
           }
 
           const lockedTitleChanged = file.title !== locked.title;
@@ -557,6 +579,17 @@ export default defineAction({
             );
           }
           if (lockedFavoriteChanged) {
+            if (
+              file.isFavorite === false &&
+              (await favoriteMembershipIds(tx, currentUserEmail, id)).some(
+                (membershipId) => !heldFavoriteIds.includes(membershipId),
+              )
+            ) {
+              throw new ActionContractError(
+                "The page's Favorites membership changed while it was being imported. Import it again.",
+                { errorCode: "DATABASE_MEMBERSHIPS_CHANGED", statusCode: 409 },
+              );
+            }
             await setFavoriteMembership({
               db: tx,
               userEmail: currentUserEmail,
@@ -566,8 +599,30 @@ export default defineAction({
             });
           }
           return { changed: true, visibilityForbidden: false };
-        });
+        };
+        let mutation: Awaited<ReturnType<typeof applyUpdate>>;
+        try {
+          mutation = await db.transaction(applyUpdate);
+        } catch (err) {
+          // Earlier files have committed; one file's conflict fails only it.
+          if (
+            !(err instanceof ActionContractError) ||
+            err.errorCode !== "DATABASE_MEMBERSHIPS_CHANGED"
+          ) {
+            throw err;
+          }
+          errors.push({ path: file.path, reason: err.message });
+          desiredParentById.delete(id);
+          desiredPositionById.delete(id);
+          continue;
+        }
 
+        if (mutation.trashed) {
+          skipped.push({ path: file.path, reason: TRASHED_PAGE_SKIP });
+          desiredParentById.delete(id);
+          desiredPositionById.delete(id);
+          continue;
+        }
         if (mutation.visibilityForbidden) {
           skipped.push({
             path: file.path,
@@ -633,13 +688,15 @@ export default defineAction({
             );
           });
           if (file.isFavorite) {
-            await setFavoriteMembership({
-              db,
-              userEmail: currentUserEmail,
-              documentId: id,
-              favorite: true,
-              now,
-            });
+            await db.transaction((tx) =>
+              setFavoriteMembership({
+                db: tx,
+                userEmail: currentUserEmail,
+                documentId: id,
+                favorite: true,
+                now,
+              }),
+            );
           }
         } catch (err) {
           errors.push({
@@ -692,19 +749,14 @@ export default defineAction({
             (parentAccess.resource.ownerEmail as string) === ownerEmail &&
             parentAccess.resource.spaceId === spaceById.get(id)
           ) {
-            try {
-              await assertParentIsNotDescendant({ ownerEmail, id, parentId });
-              safeParentId = parentId;
-            } catch (err) {
+            if (await parentIsDescendant(db, { ownerEmail, id, parentId })) {
               skipped.push({
                 path: pathById.get(id) ?? id,
-                reason:
-                  err instanceof Error
-                    ? err.message
-                    : "Skipped parent update: cycle.",
+                reason: "Skipped parent update: cycle.",
               });
               continue;
             }
+            safeParentId = parentId;
           } else {
             skipped.push({
               path: pathById.get(id) ?? id,
@@ -722,25 +774,89 @@ export default defineAction({
           continue;
         }
 
-        await db
-          .update(schema.documents)
-          .set({
-            parentId: safeParentId,
-            position: nextPosition,
-            updatedAt: sql<string>`TO_CHAR(
+        const skippedReason = await db.transaction(async (transaction) => {
+          const tx = transaction as unknown as typeof db;
+          // Rechecked even when the parent is unchanged: a move or Trash
+          // elsewhere can change the page or its parent after the checks
+          // above. move-document serializes on the same tree lock.
+          if (safeParentId) await lockOwnerPageTree(tx, ownerEmail);
+          await lockDocumentRows(tx, safeParentId ? [id, safeParentId] : [id]);
+          const [page] = await tx
+            .select({
+              ownerEmail: schema.documents.ownerEmail,
+              spaceId: schema.documents.spaceId,
+              trashedAt: schema.documents.trashedAt,
+              parentId: schema.documents.parentId,
+            })
+            .from(schema.documents)
+            .where(eq(schema.documents.id, id));
+          if (!page || page.trashedAt) {
+            return "Skipped layout update: the page was deleted or moved to Trash.";
+          }
+          if (
+            page.ownerEmail !== ownerEmail ||
+            (page.spaceId ?? defaultSpaceId) !== spaceById.get(id)
+          ) {
+            return "Skipped layout update: the page moved to another Content space.";
+          }
+          // The layout was planned from the parent read before these locks; a
+          // page moved since would be put back.
+          if ((page.parentId ?? null) !== (currentParentById.get(id) ?? null)) {
+            return "Skipped layout update: the page moved while it was being imported.";
+          }
+          if (safeParentId) {
+            const [parent] = await tx
+              .select({
+                ownerEmail: schema.documents.ownerEmail,
+                spaceId: schema.documents.spaceId,
+                trashedAt: schema.documents.trashedAt,
+              })
+              .from(schema.documents)
+              .where(eq(schema.documents.id, safeParentId));
+            if (parent?.trashedAt) {
+              return `Skipped parent "${safeParentId}" because it is in Trash.`;
+            }
+            if (
+              !parent ||
+              parent.ownerEmail !== ownerEmail ||
+              parent.spaceId !== spaceById.get(id)
+            ) {
+              return `Skipped parent "${safeParentId}" because it is not editable in the same Content space.`;
+            }
+            if (
+              await parentIsDescendant(tx, {
+                ownerEmail,
+                id,
+                parentId: safeParentId,
+              })
+            ) {
+              return "Skipped parent update: cycle.";
+            }
+          }
+          await tx
+            .update(schema.documents)
+            .set({
+              parentId: safeParentId,
+              position: nextPosition,
+              updatedAt: sql<string>`TO_CHAR(
               GREATEST(
                 ${schema.documents.updatedAt}::timestamptz + INTERVAL '1 millisecond',
                 CURRENT_TIMESTAMP
               ) AT TIME ZONE 'UTC',
               'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
             )`,
-          })
-          .where(
-            and(
-              eq(schema.documents.id, id),
-              eq(schema.documents.ownerEmail, ownerEmail),
-            ),
-          );
+            })
+            .where(
+              and(
+                eq(schema.documents.id, id),
+                eq(schema.documents.ownerEmail, ownerEmail),
+              ),
+            );
+          return null;
+        });
+        if (skippedReason) {
+          skipped.push({ path: pathById.get(id) ?? id, reason: skippedReason });
+        }
       }
 
       await ensureDocumentsFilesMembership(
