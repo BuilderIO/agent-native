@@ -45,7 +45,11 @@ import {
   documentContentHash,
   documentRevisionToken,
 } from "./_document-edit-mutation.js";
-import { flushOpenDocumentEditorToSql } from "./_document-flush.js";
+import {
+  assertOpenEditorTitlesSaved,
+  flushOpenDocumentEditorToSql,
+  saveOpenEditorTitles,
+} from "./_document-flush.js";
 
 function isLinkedLocalSource(
   documentId: string,
@@ -324,7 +328,7 @@ export default defineAction({
     if (isLinkedLocalSource(documentId, source))
       linkedLocalRestoreUnsupported();
     const db = getDb();
-    if (await isLiveBodyWriterPage(documentId)) {
+    const readCurrent = async () => {
       const [current] = await db
         .select()
         .from(schema.documents)
@@ -341,15 +345,26 @@ export default defineAction({
           statusCode: 404,
         });
       }
-      if (current.updatedAt !== args.expectedUpdatedAt) {
+      return current;
+    };
+    let preparedUpdatedAt = args.expectedUpdatedAt;
+    if (await isLiveBodyWriterPage(documentId)) {
+      const prepared = await readCurrent();
+      if (prepared.updatedAt !== args.expectedUpdatedAt) {
         restoreConflict(
           "The document changed after this restore was prepared.",
           {
             expectedUpdatedAt: args.expectedUpdatedAt,
-            currentUpdatedAt: current.updatedAt,
+            currentUpdatedAt: prepared.updatedAt,
           },
         );
       }
+      // History records the page as it stands before the restore, and an
+      // open editor may not have saved the title yet; its body is already in
+      // the live copy.
+      const flushed = await saveOpenEditorTitles([documentId]);
+      const titleFlush = flushed && assertOpenEditorTitlesSaved(flushed);
+      const current = await readCurrent();
       const restored = await restoreThroughLiveCopy({
         ctx,
         documentId,
@@ -359,11 +374,14 @@ export default defineAction({
       });
       if (restored) {
         await publishRestoreRefresh();
-        return restoreResult(
-          restored.document,
-          restored.softDeletedDatabaseIds,
-        );
+        return {
+          ...restoreResult(restored.document, restored.softDeletedDatabaseIds),
+          ...(titleFlush ? { titleFlush } : {}),
+        };
       }
+      // The page left its live copy before anything committed. The title
+      // save this restore asked for moved it on, which is no conflict.
+      preparedUpdatedAt = current.updatedAt;
     }
     const [versionForScope] = await db
       .select({ title: schema.documentVersions.title })
@@ -392,9 +410,9 @@ export default defineAction({
         statusCode: 404,
       });
     }
-    if (beforeFlush.updatedAt !== args.expectedUpdatedAt) {
+    if (beforeFlush.updatedAt !== preparedUpdatedAt) {
       restoreConflict("The document changed after this restore was prepared.", {
-        expectedUpdatedAt: args.expectedUpdatedAt,
+        expectedUpdatedAt: preparedUpdatedAt,
         currentUpdatedAt: beforeFlush.updatedAt,
       });
     }
@@ -523,7 +541,7 @@ export default defineAction({
           and(
             eq(schema.documents.id, documentId),
             eq(schema.documents.ownerEmail, ownerEmail),
-            eq(schema.documents.updatedAt, args.expectedUpdatedAt),
+            eq(schema.documents.updatedAt, preparedUpdatedAt),
           ),
         )
         .returning();

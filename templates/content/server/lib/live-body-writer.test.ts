@@ -77,6 +77,40 @@ async function insertPage(
   await collab.saveYDocState(id, Y.encodeStateAsUpdate(new Y.Doc()), "Body");
 }
 
+// A tab's live-copy commit, which moves the page's marker and its collab
+// doc's version together.
+async function commitThroughLiveCopy(id: string) {
+  await collab.saveYDocState(id, Y.encodeStateAsUpdate(new Y.Doc()), "Body");
+  await getDb()
+    .update(schema.documents)
+    .set({ liveCopyVersion: 1 })
+    .where(eq(schema.documents.id, id));
+}
+
+// The Content database, with `commit` landing right after its first read.
+function dbCommittingAfterFirstRead(commit: () => Promise<void>) {
+  let reads = 0;
+  const select = (fields: never) => {
+    const builder = getDb().select(fields);
+    if (reads++ > 0) return builder;
+    const from = builder.from.bind(builder);
+    return Object.assign(builder, {
+      from: (table: never) => {
+        const query = from(table);
+        const run = query.then.bind(query);
+        return Object.assign(query, {
+          then: (...handlers: Parameters<typeof run>) =>
+            run(async (rows) => {
+              await commit();
+              return rows;
+            }).then(...handlers),
+        });
+      },
+    });
+  };
+  return { select } as unknown as Pick<ReturnType<typeof getDb>, "select">;
+}
+
 beforeAll(async () => {
   process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../db/index.js");
@@ -288,6 +322,30 @@ describe("live-body writer gate", () => {
     await expect(gate.liveBodyWriterGate("moved")).resolves.toEqual({
       writePath: "legacy",
       reason: "stored_body_behind",
+    });
+  });
+
+  it("answers for many pages as the gate does for each, with a commit between its reads leaving a page on its live copy", async () => {
+    await setFlags({
+      shadow: { emails: [OWNER] },
+      writer: { emails: [OWNER] },
+    });
+    await insertPage("committing");
+    await insertPage("behind", { collabBodyRevision: 2 });
+    await insertPage("unswitched", { switched: false });
+
+    const ids = await gate.liveBodyWriterPageIds(
+      ["committing", "behind", "unswitched", "missing"],
+      {
+        db: dbCommittingAfterFirstRead(() =>
+          commitThroughLiveCopy("committing"),
+        ),
+      },
+    );
+
+    expect([...ids]).toEqual(["committing"]);
+    await expect(gate.liveBodyWriterGate("committing")).resolves.toEqual({
+      writePath: "live_copy",
     });
   });
 
