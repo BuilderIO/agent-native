@@ -53,8 +53,9 @@ vi.mock("../../actions/_document-flush.js", async (importOriginal) => {
     },
   };
 });
-// Runs once, after the next write-path read from another module: a legacy
-// edit reads its path before its transaction.
+// Runs once, after the next write-path read from another module: a server
+// writer reads its path after it read the body it changes, and a legacy
+// edit reads it before its transaction.
 const { afterWritePathRead } = vi.hoisted(() => ({
   afterWritePathRead: { current: null as null | (() => Promise<void>) },
 }));
@@ -2007,6 +2008,49 @@ describe("edit-document on a switched page", () => {
     expect((await page("no-revision")).content).toBe("Hello world");
     expect(await gateFor("no-revision")).toEqual({ writePath: "live_copy" });
   });
+
+  it("refuses an edit without a revision whose editor access was revoked before it committed", async () => {
+    await switchedPage("no-revision-revoked", "Hello there");
+    await getDb().insert(schema.documentShares).values({
+      id: "no-revision-revoked-share",
+      resourceId: "no-revision-revoked",
+      principalType: "user",
+      principalId: OTHER,
+      role: "editor",
+      createdBy: OWNER,
+      createdAt: new Date().toISOString(),
+    });
+    const version = await collabVersion("no-revision-revoked");
+    const action = (await import("../../actions/edit-document.js")).default;
+    const runner = binding.contentLiveCopy.runner;
+    const run = runner.run.bind(runner);
+    const spy = vi.spyOn(runner, "run").mockImplementation(async (...args) => {
+      const result = await run(...args);
+      await getDb()
+        .delete(schema.documentShares)
+        .where(eq(schema.documentShares.id, "no-revision-revoked-share"));
+      return result;
+    });
+    try {
+      await expect(
+        runWithRequestContext({ userEmail: OTHER }, async () =>
+          action.run(
+            {
+              id: "no-revision-revoked",
+              find: "there",
+              replace: "world",
+            } as never,
+            { caller: "frontend", userEmail: OTHER } as never,
+          ),
+        ),
+      ).rejects.toThrow("No access to document no-revision-revoked");
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect((await page("no-revision-revoked")).content).toBe("Hello there");
+    expect(await collabVersion("no-revision-revoked")).toBe(version);
+  });
 });
 
 describe("a server rewrite of a switched page's body", () => {
@@ -2074,6 +2118,36 @@ describe("a server rewrite of a switched page's body", () => {
     }
 
     const after = await page("alt-text-same-url");
+    expect(after.content).toContain(`![peer](${IMAGE})`);
+    expect(after.content).toContain(`Original\n![A cat](${IMAGE})`);
+    expect(after.content).not.toContain("![original]");
+  });
+
+  it("writes alt text to the image it read, though a tab added one with the same URL before the write began", async () => {
+    await switchedPage(
+      "alt-text-early-tab",
+      `Original\n\n![original](${IMAGE})`,
+    );
+    afterWritePathRead.current = async () => {
+      await asOwner(async () =>
+        collab.applyUpdate(
+          "alt-text-early-tab",
+          await editorUpdate(
+            "alt-text-early-tab",
+            markdownBlocks(
+              `Inserted\n\n![peer](${IMAGE})\n\nOriginal\n\n![original](${IMAGE})`,
+            ),
+          ),
+        ),
+      );
+    };
+    try {
+      await setAltText("alt-text-early-tab", "A cat");
+    } finally {
+      afterWritePathRead.current = null;
+    }
+
+    const after = await page("alt-text-early-tab");
     expect(after.content).toContain(`![peer](${IMAGE})`);
     expect(after.content).toContain(`Original\n![A cat](${IMAGE})`);
     expect(after.content).not.toContain("![original]");
@@ -2341,6 +2415,36 @@ describe("a version restore on a switched page", () => {
     expect((await metadata("restore-files-title")).title).toBe("Untitled");
     expect(await lastHistoryTitle("restore-files-title")).toBe("Untitled");
   });
+
+  for (const bodyChanges of [true, false]) {
+    it(`records the same title on main's path when a blank-titled version's restore changes ${bodyChanges ? "the body" : "only the title"} (SF-11)`, async () => {
+      const id = bodyChanges ? "restore-files-off" : "restore-files-title-off";
+      await switchedPage(id, "Same body");
+      await serverEdit(id, "Other body");
+      const versionId = await versionHolding(id, "Same body");
+      if (!bodyChanges) await serverEdit(id, "Same body");
+      await filesPageWithBlankVersion(id, versionId);
+      await setFlags(false);
+
+      const restored = await restore(
+        id,
+        versionId,
+        (await metadata(id)).updatedAt,
+      );
+
+      expect(restored).toMatchObject({
+        title: "Untitled",
+        content: "Same body",
+      });
+      expect((await metadata(id)).title).toBe("Untitled");
+      expect(await lastHistoryTitle(id)).toBe("Untitled");
+      const [files] = await getDb()
+        .select({ title: schema.contentDatabases.title })
+        .from(schema.contentDatabases)
+        .where(eq(schema.contentDatabases.id, `${id}-files`));
+      expect(files?.title).toBe("Untitled");
+    });
+  }
 
   it("records a title-only restore whose commit changes the live copy but not the body", async () => {
     const body = "Read [the guide](https://example.com)";
