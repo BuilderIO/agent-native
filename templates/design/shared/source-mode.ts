@@ -381,11 +381,18 @@ export function designScreenSourceTypeFromData(
     : null;
 
   if (screenSourceType) return screenSourceType;
+  if (
+    !isRecord(screen) &&
+    isRecord(legacyScreen) &&
+    typeof legacyScreen.sourceFile === "string" &&
+    legacyScreen.sourceFile.trim().length > 0
+  ) {
+    return "localhost";
+  }
   const designSourceType =
     normalizeDesignSourceType(data.sourceType) ??
     normalizeDesignSourceType(data.sourceMode);
-  // Every localhost screen records its own sourceType; adding one flips the
-  // whole design to localhost, so its unmarked screens are still inline.
+  // Canonical screenMetadata stays inline without an explicit source type.
   return designSourceType === "localhost" ? "inline" : designSourceType;
 }
 

@@ -1498,9 +1498,38 @@ it("defers status probes to strict navigation evidence in the reload abort match
       "/_agent-native/actions/get-deck-access-status",
       "NS_BINDING_ABORTED",
       "save/reload",
-      undefined,
+      "GET",
       true,
       100,
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSameOriginSaveReloadAbort(
+      "/_agent-native/actions/get-deck-access-status",
+      "net::ERR_ABORTED",
+      "save/reload",
+      "GET",
+      true,
+      30_000,
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSameOriginSaveReloadAbort(
+      "/_agent-native/actions/get-deck-access-status",
+      "net::ERR_ABORTED",
+      "save/reload",
+      "POST",
+      true,
+      30_000,
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSameOriginSaveReloadAbort(
+      "/_agent-native/actions/get-deck-access-status",
+      "net::ERR_ABORTED",
+      "save/reload",
+      "GET",
+      true,
     ),
   ).toBe(false);
   expect(
@@ -1701,7 +1730,7 @@ it("defers status probes to strict navigation evidence in the reload abort match
       "/_agent-native/actions/get-deck-access-status",
       "net::ERR_ABORTED",
       "save/reload",
-      undefined,
+      "GET",
       true,
       100,
     ),

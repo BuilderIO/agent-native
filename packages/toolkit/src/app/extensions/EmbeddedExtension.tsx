@@ -32,6 +32,10 @@ import {
   invalidateExtensionRemoval,
 } from "./delete-extension.js";
 import {
+  extensionFrameNameWithLinkNonce,
+  useExternalExtensionLinks,
+} from "./extension-links.js";
+import {
   extensionLoadError,
   extensionLoadErrorStatus,
   shouldRetryExtensionLoad,
@@ -63,8 +67,10 @@ interface Extension {
   };
 }
 
-const EXTENSION_IFRAME_SANDBOX =
-  normalizeAgentNativeExtensionSandbox(undefined);
+const EXTENSION_IFRAME_SANDBOX = normalizeAgentNativeExtensionSandbox(
+  undefined,
+  { mode: "nonce" },
+);
 
 function readHostThemeVars(): Record<string, string> {
   if (typeof document === "undefined") return {};
@@ -182,6 +188,11 @@ export function EmbeddedExtension({
     retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 4000),
   });
   extensionRef.current = extension ?? null;
+  const iframeKey = `${extensionId}-${extension?.updatedAt ?? ""}`;
+  const linkNonce = useExternalExtensionLinks(
+    iframeRef,
+    `${iframeKey}:${Boolean(extension)}`,
+  );
 
   const onUnavailableRef = useRef(onUnavailable);
   onUnavailableRef.current = onUnavailable;
@@ -465,8 +476,11 @@ export function EmbeddedExtension({
       <iframe
         {...{ [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }}
         ref={iframeRef}
-        key={`${extensionId}-${extension.updatedAt ?? ""}-${frameKey}`}
-        src={iframeSrc}
+        key={`${iframeKey}-${frameKey}-${linkNonce ?? "no-link-nonce"}`}
+        name={
+          linkNonce ? extensionFrameNameWithLinkNonce(linkNonce) : undefined
+        }
+        src={linkNonce ? iframeSrc : undefined}
         title={extension.name}
         sandbox={EXTENSION_IFRAME_SANDBOX}
         style={{ width: "100%", border: 0, height, display: "block" }}

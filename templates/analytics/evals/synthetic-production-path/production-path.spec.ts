@@ -1088,10 +1088,6 @@ type Capture = {
 function evalCaseFor(testCase: SyntheticCase, capture: Capture): Eval {
   const scorer: Scorer<AgentRunOutput> = {
     name: "synthetic-retrieval-rank",
-    preprocess: (output) => {
-      capture.output = output;
-      return output;
-    },
     generateScore: (output) => {
       const reason = reasonForRun(testCase, output, capture.receipt!);
       return ["rank_1", "no_match_expected"].includes(reason) ? 1 : 0;
@@ -1230,6 +1226,9 @@ async function runOnce(testCase: SyntheticCase) {
   });
   const report = await runEvals([evalCaseFor(testCase, capture)], runner, {
     persist: false,
+    onRunOutput: (output) => {
+      capture.output = output;
+    },
   });
   if (!capture.output || !capture.receipt) {
     throw new Error("Synthetic production run did not produce its receipt.");

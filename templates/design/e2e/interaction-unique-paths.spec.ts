@@ -98,6 +98,38 @@ async function searchLayers(page: Page, query: string) {
   await expect(layerRowButton(page, "Alpha Button")).toBeVisible();
 }
 
+async function dragLayerToggle(
+  page: Page,
+  actionName: "Hide layer" | "Lock layer",
+  targetArea: "icon" | "name",
+) {
+  const sourceRow = layerRowButton(page, "Beta Button");
+  const targetRow = layerRowButton(page, "Gamma Button");
+  await sourceRow.hover();
+  const action = sourceRow
+    .locator('xpath=ancestor::*[@role="treeitem"][1]')
+    .getByRole("button", { name: actionName });
+  await expect(action).toBeVisible();
+  const actionBounds = (await action.boundingBox())!;
+  const targetBounds = (await targetRow.boundingBox())!;
+  const start = {
+    x: actionBounds.x + actionBounds.width / 2,
+    y: actionBounds.y + actionBounds.height / 2,
+  };
+  const end = {
+    x:
+      targetArea === "icon"
+        ? start.x
+        : targetBounds.x + Math.min(40, targetBounds.width / 2),
+    y: targetBounds.y + targetBounds.height / 2,
+  };
+
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  await page.mouse.move(end.x, end.y, { steps: 6 });
+  await page.mouse.up();
+}
+
 function newIds(before: Map<string, unknown>, after: Map<string, unknown>) {
   return [...after.keys()].filter((id) => !before.has(id));
 }
@@ -336,6 +368,68 @@ test("dragging down the Layers panel's eye column hides every layer the drag cro
   });
   expectOnlyChanged(before, after, ["gamma", "beta"]);
   await expect(app.node("gamma")).toBeHidden();
+  await expect(app.node("beta")).toBeHidden();
+  await expect(app.node("alpha")).toBeVisible();
+});
+
+test("dragging down the Layers panel's lock column locks every layer the drag crosses, and only those", async ({
+  app,
+  page,
+}) => {
+  const id = await openSeeded(app, ROW_HTML);
+  await searchLayers(page, "Button");
+  const before = await app.savedNodes(id);
+  await dragLayerToggle(page, "Lock layer", "icon");
+  await app.settled();
+
+  const after = await app.savedNodes(id);
+  expect(childrenOf(after, "row")).toStrictEqual(["alpha", "beta", "gamma"]);
+  expect({
+    gamma: after.get("gamma")?.attrs,
+    beta: after.get("beta")?.attrs,
+  }).toStrictEqual({
+    gamma: {
+      ...before.get("gamma")?.attrs,
+      "data-agent-native-locked": "true",
+    },
+    beta: {
+      ...before.get("beta")?.attrs,
+      "data-agent-native-locked": "true",
+    },
+  });
+  expectOnlyChanged(before, after, ["gamma", "beta"]);
+  await expect(app.node("gamma")).toBeVisible();
+  await expect(app.node("beta")).toBeVisible();
+  await expect(app.node("alpha")).toBeVisible();
+});
+
+test("dragging across layer names only toggles the source row", async ({
+  app,
+  page,
+}) => {
+  const id = await openSeeded(app, ROW_HTML);
+  await searchLayers(page, "Button");
+  const before = await app.savedNodes(id);
+
+  await dragLayerToggle(page, "Hide layer", "name");
+  await dragLayerToggle(page, "Lock layer", "name");
+  await app.settled();
+
+  const after = await app.savedNodes(id);
+  expect(childrenOf(after, "row")).toStrictEqual(["alpha", "beta", "gamma"]);
+  expect({
+    gamma: after.get("gamma")?.attrs,
+    beta: after.get("beta")?.attrs,
+  }).toStrictEqual({
+    gamma: before.get("gamma")?.attrs,
+    beta: {
+      ...before.get("beta")?.attrs,
+      "data-agent-native-hidden": "true",
+      "data-agent-native-locked": "true",
+    },
+  });
+  expectOnlyChanged(before, after, ["beta"]);
+  await expect(app.node("gamma")).toBeVisible();
   await expect(app.node("beta")).toBeHidden();
   await expect(app.node("alpha")).toBeVisible();
 });

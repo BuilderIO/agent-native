@@ -1857,6 +1857,8 @@ export default {
         "新しいフレームとして追加するルートを選ぶか、パスを入力してください。",
       searchPlaceholder: "ルートを検索…",
       noRoutes: "一致するルートがありません",
+      noDiscoveredRoutes:
+        "このアプリでルートが見つかりません。画面を追加するにはパスを入力してください。",
       useCustomPath: "「{{path}}」を追加",
       viewportDesktop: "デスクトップ",
       viewportMobile: "モバイル",

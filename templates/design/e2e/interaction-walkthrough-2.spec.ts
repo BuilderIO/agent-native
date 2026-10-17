@@ -394,6 +394,7 @@ test.describe("interaction: responsive card with auto layout and constraints", (
     });
   });
 
+  // Hug-sized children keep their width when Shift+A creates an auto-layout wrapper.
   test("Shift+A wraps the shift-clicked title and creator in a vertical auto-layout frame without moving them, and saves a gap of 4", async ({
     app,
     page,
@@ -424,8 +425,8 @@ test.describe("interaction: responsive card with auto layout and constraints", (
       top: "40px",
       display: "flex",
       "flex-direction": "column",
-      gap: "8px",
       "align-items": "flex-start",
+      gap: "8px",
     });
     expect(styleOf(wrapped.get("title"))).toEqual({
       margin: "0",
