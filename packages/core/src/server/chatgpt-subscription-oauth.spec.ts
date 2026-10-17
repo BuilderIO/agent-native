@@ -1,24 +1,40 @@
+import crypto from "node:crypto";
+
 import * as jose from "jose";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import {
+  CHATGPT_SUBSCRIPTION_RESOURCE,
+  CHATGPT_SUBSCRIPTION_SCOPES,
+} from "../agent/chatgpt-subscription-contract.js";
 import { CHATGPT_SUBSCRIPTION_LAB } from "../labs/core-labs.js";
 import { _resetLabRegistryForTests, registerLabs } from "../labs/registry.js";
 
 const mocks = vi.hoisted(() => ({
   getUserLabEnabled: vi.fn(),
+  listOAuthAccountsByOwner: vi.fn(),
   getUserSetting: vi.fn(),
+  putUserSetting: vi.fn(),
+  readOAuthCredentialState: vi.fn(),
 }));
 
 vi.mock("../labs/store.js", () => mocks);
+// Account reads hit the settings and OAuth tables, which a fresh test database
+// does not have. Each read defaults to "no account"; a test that seeds an
+// account must set the mock itself. The unresolved-scope test asserts that the
+// credential check never reads them; its status call reads them on purpose.
+// The mocked credential reader skips isChatGPTCredential, so seeded credentials
+// must pass that validator by hand.
 vi.mock("../oauth-tokens/index.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../oauth-tokens/index.js")>()),
-  listOAuthAccountsByOwner: vi.fn(async () => []),
+  listOAuthAccountsByOwner: mocks.listOAuthAccountsByOwner,
+  readOAuthCredentialState: mocks.readOAuthCredentialState,
 }));
 vi.mock("../settings/user-settings.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../settings/user-settings.js")>()),
   getUserSetting: mocks.getUserSetting,
   mutateUserSetting: vi.fn(),
-  putUserSetting: vi.fn(),
+  putUserSetting: mocks.putUserSetting,
   deleteUserSetting: vi.fn(),
 }));
 
@@ -41,7 +57,9 @@ const NONCE = "fresh-test-nonce";
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.getUserLabEnabled.mockResolvedValue(false);
+  mocks.listOAuthAccountsByOwner.mockResolvedValue([]);
   mocks.getUserSetting.mockResolvedValue(null);
+  mocks.readOAuthCredentialState.mockResolvedValue({ kind: "missing" });
   _resetLabRegistryForTests();
   registerLabs([CHATGPT_SUBSCRIPTION_LAB]);
 });
@@ -103,12 +121,83 @@ describe("ChatGPT subscription OAuth contract", () => {
         await expect(
           hasChatGPTSubscriptionCredential("alice@example.com"),
         ).resolves.toBe(false);
+        expect(mocks.listOAuthAccountsByOwner).not.toHaveBeenCalled();
+        expect(mocks.getUserSetting).not.toHaveBeenCalled();
+        // Status reads account summaries once the lab is enabled, even though
+        // this request is not local loopback. Pin that read and its empty result.
         await expect(
           getChatGPTSubscriptionStatus("alice@example.com"),
         ).resolves.toMatchObject({
           supported: false,
           localLoopback: false,
           supportReason: "requires_local_loopback",
+          accounts: [],
+        });
+        expect(mocks.listOAuthAccountsByOwner).toHaveBeenCalled();
+        await expect(
+          getChatGPTSubscriptionAccess("alice@example.com"),
+        ).rejects.toThrow("available only from a local app");
+      },
+    );
+  });
+
+  it("reports saved accounts in an unsupported status without granting access", async () => {
+    mocks.getUserLabEnabled.mockResolvedValue(true);
+    const subject = "subject-alice";
+    const accountId = `siwc_${crypto
+      .createHash("sha256")
+      .update(JSON.stringify(["alice@example.com", CLIENT_ID, subject]))
+      .digest("hex")}`;
+    const resourceSuffix = `:resource:${crypto
+      .createHash("sha256")
+      .update(CHATGPT_SUBSCRIPTION_RESOURCE)
+      .digest("hex")}`;
+    mocks.listOAuthAccountsByOwner.mockResolvedValue([
+      { accountId: `${accountId}${resourceSuffix}` },
+    ]);
+    mocks.readOAuthCredentialState.mockResolvedValue({
+      kind: "connected",
+      credential: {
+        clientId: CLIENT_ID,
+        subject,
+        email: "alice@example.com",
+        displayName: "Alice",
+        extAgentHostId: "urn:uuid:11111111-1111-4111-8111-111111111111",
+        idToken: "id-token-alice",
+        tokenExpiresAt: Date.now() + 60 * 60 * 1000,
+        grantedScopes: [...CHATGPT_SUBSCRIPTION_SCOPES],
+        tokens: {
+          access_token: "access-alice",
+          refresh_token: "refresh-alice",
+        },
+      },
+    });
+
+    await runWithRequestContext(
+      {
+        isLoopbackRequest: true,
+        isDirectLoopbackRequest: false,
+        requestOrigin: "http://127.0.0.1:1455",
+        orgScope: "personal",
+      },
+      async () => {
+        await expect(
+          hasChatGPTSubscriptionCredential("alice@example.com"),
+        ).resolves.toBe(false);
+        await expect(
+          getChatGPTSubscriptionStatus("alice@example.com"),
+        ).resolves.toMatchObject({
+          supported: false,
+          localLoopback: false,
+          connected: false,
+          accounts: [
+            expect.objectContaining({
+              id: accountId,
+              email: "alice@example.com",
+              label: "Alice",
+              connected: true,
+            }),
+          ],
         });
         await expect(
           getChatGPTSubscriptionAccess("alice@example.com"),
