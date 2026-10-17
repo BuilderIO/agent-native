@@ -3511,6 +3511,44 @@ describe("autoLayout", () => {
     expect(patch.content).not.toContain("align-items: flex-start");
   });
 
+  it("adds the default cross-axis alignment when containerStyles are supplied", () => {
+    const patch = applyVisualEdit(
+      `<div data-agent-native-node-id="box"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+        containerStyles: {
+          display: "flex",
+          flexDirection: "row",
+          gap: "8px",
+        },
+      },
+    );
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("align-items: flex-start");
+  });
+
+  it("preserves explicit cross-axis alignment in containerStyles", () => {
+    const patch = applyVisualEdit(
+      `<div data-agent-native-node-id="box"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+        containerStyles: {
+          display: "flex",
+          alignItems: "center",
+        },
+      },
+    );
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("align-items: center");
+    expect(patch.content).not.toContain("align-items: flex-start");
+  });
+
   it("keeps direct Frame children as containing blocks when enabling auto-layout", () => {
     const html =
       `<div data-agent-native-node-id="workspace">` +

@@ -359,53 +359,29 @@ function topmostBoxContaining(
 }
 
 function paintedSurfaceLightnessAtPoint(
-  root: Element,
   x: number,
   y: number,
   liveDocument?: Document,
 ): boolean | null {
   const liveView = liveDocument?.defaultView;
   if (
-    liveDocument &&
-    liveView &&
-    typeof liveDocument.elementsFromPoint === "function"
+    !liveDocument ||
+    !liveView ||
+    typeof liveDocument.elementsFromPoint !== "function"
   ) {
-    const candidates = liveDocument.elementsFromPoint(
-      x - liveView.scrollX,
-      y - liveView.scrollY,
-    );
-    for (const candidate of candidates) {
-      const lightness = resolveDestinationBackgroundLightnessOrNull([
-        { color: liveView.getComputedStyle(candidate).backgroundColor },
-      ]);
-      if (lightness !== null) return lightness;
-    }
-    return destinationBackgroundLightness(liveDocument.body, liveDocument);
+    return null;
   }
-
-  const candidates = Array.from(root.querySelectorAll<HTMLElement>("*"))
-    .map((element) => ({ element, rect: absoluteRect(element) }))
-    .filter(
-      (
-        candidate,
-      ): candidate is {
-        element: HTMLElement;
-        rect: { x: number; y: number; w: number; h: number };
-      } => {
-        return (
-          candidate.rect !== null &&
-          x >= candidate.rect.x &&
-          y >= candidate.rect.y &&
-          x <= candidate.rect.x + candidate.rect.w &&
-          y <= candidate.rect.y + candidate.rect.h &&
-          destinationBackgroundLightness(candidate.element) !== null
-        );
-      },
-    );
-  // Detached markup has no computed cascade or paint stack; keep DOM order as
-  // a conservative fallback for callers without a live preview document.
-  const surface = candidates[candidates.length - 1]?.element;
-  return surface ? destinationBackgroundLightness(surface) : null;
+  const candidates = liveDocument.elementsFromPoint(
+    x - liveView.scrollX,
+    y - liveView.scrollY,
+  );
+  for (const candidate of candidates) {
+    const lightness = resolveDestinationBackgroundLightnessOrNull([
+      { color: liveView.getComputedStyle(candidate).backgroundColor },
+    ]);
+    if (lightness !== null) return lightness;
+  }
+  return destinationBackgroundLightness(liveDocument.body, liveDocument);
 }
 
 export interface LayerSize {
@@ -762,7 +738,6 @@ export function appendCanvasPrimitiveToHtml(
           : destinationBackgroundLightness(hostOrBody);
       const surfaceIsLight = measuredIsLight ?? boardSurfaceIsLight;
       const paintedSurfaceIsLight = paintedSurfaceLightnessAtPoint(
-        doc.body,
         left,
         top,
         options?.liveDocument,

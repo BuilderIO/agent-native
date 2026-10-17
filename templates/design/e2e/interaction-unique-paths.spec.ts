@@ -458,7 +458,6 @@ test("dragging across layer names does not toggle eye or lock state", async ({
   await expect(app.node("alpha")).toBeVisible();
 });
 
-// fixme: fails on current main after the merge: Error: expect(locator).toHaveCSS(expected) failed
 test("Alt-hovering a sibling that sits inside the selection's margin shows their 10px gap and keeps it while the pointer moves", async ({
   app,
   page,

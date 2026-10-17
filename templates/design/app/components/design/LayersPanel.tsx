@@ -297,12 +297,16 @@ function beginIconToggleDrag(kind: "hidden" | "locked", value: boolean): void {
   const clear = () => {
     activeIconToggleDrag = null;
     window.removeEventListener("pointerup", clear);
-    window.removeEventListener("pointercancel", clear);
+    window.removeEventListener("pointercancel", clearOnPointerCancel);
     window.removeEventListener("mouseup", clear);
     window.removeEventListener("blur", clear);
   };
+  const clearOnPointerCancel: EventListener = (event) => {
+    const pointerType = (event as Event & { pointerType?: string }).pointerType;
+    if (pointerType !== "mouse") clear();
+  };
   window.addEventListener("pointerup", clear, { once: true });
-  window.addEventListener("pointercancel", clear, { once: true });
+  window.addEventListener("pointercancel", clearOnPointerCancel);
   window.addEventListener("mouseup", clear, { once: true });
   window.addEventListener("blur", clear, { once: true });
 }

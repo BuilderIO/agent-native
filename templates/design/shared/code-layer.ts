@@ -10082,10 +10082,15 @@ function applyAutoLayout(
     setOrReplace("flex-direction", direction);
     setOrReplace("gap", gap);
     writtenProperties.push("display", "flex-direction", "gap");
-    if (!hasAuthoredCrossAxisAlignment) {
-      setOrReplace("align-items", "flex-start");
-      writtenProperties.push("align-items");
-    }
+  }
+  if (
+    !hasAuthoredCrossAxisAlignment &&
+    !effectiveStyleDeclarations(declarations).some(
+      (declaration) => cssPropertyKey(declaration.prop) === "align-items",
+    )
+  ) {
+    setOrReplace("align-items", "flex-start");
+    writtenProperties.push("align-items");
   }
   let result = replaceOrInsertAttribute(
     html,
