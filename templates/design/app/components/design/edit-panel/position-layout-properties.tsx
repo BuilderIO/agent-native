@@ -425,6 +425,7 @@ export function constraintsStylePatch(
 
 export function PositionLayoutProperties({
   element,
+  sharedRotation,
   onStyleChange,
   onStylesChange,
   onAlignSelection,
@@ -435,6 +436,7 @@ export function PositionLayoutProperties({
   onMotionOriginEditingChange,
 }: {
   element: ElementInfo;
+  sharedRotation?: number;
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
   onAlignSelection?: (
@@ -476,6 +478,9 @@ export function PositionLayoutProperties({
   const rotationTransform = isMixedValue(styles.transform)
     ? undefined
     : (authoredTransform ?? styles.transform);
+  const displayedRotation = isMixedValue(styles.transform)
+    ? sharedRotation
+    : parseRotationValue(rotationTransform);
   const constraintsValue = deriveConstraintsValue(element);
   const [constraintsExpanded, setConstraintsExpanded] = useState(false);
   const constraintsSuppressed =
@@ -907,9 +912,9 @@ export function PositionLayoutProperties({
               icon={IconAngle}
               labelClassName="[&>span]:sr-only"
               value={
-                isMixedValue(styles.transform)
+                displayedRotation === undefined
                   ? MIXED_VALUE
-                  : `${-parseRotationValue(rotationTransform)}${motionInspector ? "°" : "deg"}`
+                  : `${-displayedRotation}${motionInspector ? "°" : "deg"}`
               }
               unit={motionInspector ? "°" : "deg"}
               inputClassName="h-6"

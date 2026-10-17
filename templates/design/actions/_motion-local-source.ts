@@ -1,4 +1,7 @@
-import { designSourceTypeFromData } from "../shared/source-mode.js";
+import {
+  designScreenSourceTypeFromData,
+  designSourceTypeFromData,
+} from "../shared/source-mode.js";
 
 const SHA256_VERSION_HASH = /^[a-f0-9]{64}$/i;
 
@@ -102,6 +105,12 @@ export function resolveMotionLocalSourceRoute(args: {
       .map((record) => record.sourceFile)
       .filter((value): value is string => typeof value === "string"),
   );
+  if (filePaths.size === 0) {
+    throw new MotionLocalSourceError(
+      "unmapped-source-file",
+      "The selected localhost screen has no saved source file.",
+    );
+  }
   if (filePaths.size !== 1) {
     throw new MotionLocalSourceError(
       "ambiguous-source-file",
@@ -156,6 +165,17 @@ export function resolveMotionLocalSourceRoute(args: {
   }
 
   return { screenId: args.screenId, connectionId, sourceFile: filePath };
+}
+
+/** A localhost Design's board and inline screens keep their Motion in their own HTML. */
+export function isMotionLocalhostScreen(
+  designData: unknown,
+  screenId: string,
+): boolean {
+  return (
+    designScreenSourceTypeFromData(parseDesignData(designData), screenId) ===
+    "localhost"
+  );
 }
 
 /** Resolves the requested module candidate; bridge graph verification proves membership. */

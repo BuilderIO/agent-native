@@ -125,6 +125,8 @@ explaining it.
 
 Do not use `app-db` as a dashboard source. For first-party events collected through `/track`, use `source: "first-party"` or the `query-agent-native-analytics` action rather than raw internal `db-query`.
 
+There is no dbt Semantic Layer panel source. For a Semantic Layer metric, answer in chat with `query-dbt-semantic-metric`; build a warehouse panel only on a table the owner names.
+
 AI-generated first-party panels are dashboard-time-bound by default. Set
 `config.timeScope` to `"dashboard"` and include the matching dashboard time
 filter in the SQL. The allowed values are:
@@ -844,6 +846,7 @@ Hosted agent runs have a **~40s budget**. Many sequential `update-dashboard` cal
   not proof the chart renders: only `verified: true` is (with
   `noRenderAffected: true` no chart changed). On `verified: false`, follow
   `nextStep` and call `inspect-dashboard-panel` for the changed panels.
+- After any timeout, read the dashboard back with `get-sql-dashboard` before reporting success or retrying.
 
 ```bash
 # Add or edit several panels in ONE atomic call (never one call per panel)

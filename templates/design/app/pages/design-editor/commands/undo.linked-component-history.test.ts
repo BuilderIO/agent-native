@@ -152,6 +152,11 @@ function commandArgs() {
     applyFileContentUpdate,
     applyLocalContentUpdate,
     canEditDesign: true,
+    captureCurrentSelection: () => ({
+      overviewSelectedScreenIds: [],
+      selectedLayerIds: [],
+      activeFileId: null,
+    }),
     clipboardPasteRedoStackRef: { current: [] as ContentHistoryChange[] },
     clipboardPasteUndoStackRef: { current: [] as ContentHistoryChange[] },
     codeLayerOwnerByNodeIdRef: { current: new Map() },

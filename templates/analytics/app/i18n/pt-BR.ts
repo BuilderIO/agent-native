@@ -653,6 +653,7 @@ export default {
     notConnected: "Não conectado",
     needsReauth: "Reautenticação necessária",
     error: "Erro",
+    unknown: "Desconhecido",
     indexNotImported: "Nenhum índice gerado foi importado.",
     indexUnreadable:
       "Não foi possível ler o índice salvo. Envie um índice válido.",
@@ -1248,6 +1249,8 @@ export default {
       "Adicione um evento e selecione-o para ver os resultados",
     queryError: "Query error: {{message}}",
     noDataReturned: "Nenhum dado retornado",
+    incompleteResultsWarning:
+      "Este resultado pode estar incompleto. Linhas ou dados de origem ausentes podem afetar os totais.",
     rowsRange: "{{start}}-{{end}} of {{total}}",
     filterBy: "Filtrar por",
     pickPropertyToFilter: "Escolha uma propriedade para filtrar",
@@ -1372,6 +1375,23 @@ export default {
     resetFilters: "Redefinir filtros",
     collapseFilters: "Recolher filtros",
     expandFilters: "Expandir filtros",
+    drilldownChartPoints: "Pontos do gráfico",
+    drilldownPreviousPage: "Página anterior dos pontos do gráfico",
+    drilldownNextPage: "Página seguinte dos pontos do gráfico",
+    drilldownPageRange: "Exibindo {{start}}–{{end}} de {{total}}",
+    drilldownFilterRows: "Filtrar linhas",
+    drilldownShowSql: "Mostrar SQL",
+    drilldownHideSql: "Ocultar SQL",
+    drilldownDownloadCsv: "Baixar CSV",
+    drilldownShowing: "Mostrando {{shown}} de {{total}} registros",
+    drilldownCsvTruncated:
+      "Exportação incompleta: a consulta encontrou {{total}} registros, mas apenas os primeiros {{loaded}} foram carregados; este arquivo inclui {{exported}} após a filtragem.",
+    drilldownCountMismatch:
+      "O gráfico mostra {{chart}}, mas {{total}} registros correspondem",
+    drilldownAggregateOnly:
+      "Este painel tem apenas linhas agregadas. As linhas do ponto clicado estão destacadas.",
+    drilldownNoRecords: "Nenhum registro correspondente",
+    drilldownLoadFailed: "Não foi possível carregar os registros",
     filterSeries: "Filter",
     chartTimeRangeOverride: "Substituir o intervalo de tempo deste gráfico",
     chartTimeRangeInherit: "Intervalo do painel",
@@ -2194,6 +2214,8 @@ export default {
     dbtAdminOnly:
       "Somente administradores da organização podem alterar esta conexão.",
     dbtReadFailed: "Não foi possível carregar a conexão com o dbt.",
+    dbtSeveralConnections:
+      "Várias conexões dbt estão concedidas ao Analytics, então este painel não pode editar nenhuma delas. Remova as conexões extras em Configurações → Integrações para manter apenas uma.",
     dbtSave: "Salvar conexão",
     dbtChecking: "Verificando",
     dbtSaveFailed: "Não foi possível salvar a conexão com o dbt.",

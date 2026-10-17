@@ -99,6 +99,13 @@ describe("resolveOverviewScreenSourceType", () => {
     ).toBe("localhost");
   });
 
+  it("keeps an unmarked screen inline in a localhost design", () => {
+    expect(resolveOverviewScreenSourceType({}, "localhost")).toBe("inline");
+    expect(
+      resolveOverviewScreenSourceType({ sourceType: "localhost" }, "inline"),
+    ).toBe("localhost");
+  });
+
   it("prefers an explicit source type over bridge metadata", () => {
     expect(
       resolveOverviewScreenSourceType({

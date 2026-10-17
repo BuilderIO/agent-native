@@ -660,6 +660,7 @@ export default {
     notConnected: "Nicht verbunden",
     needsReauth: "Erneute Authentifizierung erforderlich",
     error: "Fehler",
+    unknown: "Unbekannt",
     indexNotImported: "Es wurde kein generierter Index importiert.",
     indexUnreadable:
       "Der gespeicherte Index konnte nicht gelesen werden. Lade einen gültigen Index hoch.",
@@ -1263,6 +1264,8 @@ export default {
       "Fügen Sie ein Ereignis hinzu und wählen Sie es aus, um Ergebnisse anzuzeigen",
     queryError: "Query error: {{message}}",
     noDataReturned: "Es wurden keine Daten zurückgegeben",
+    incompleteResultsWarning:
+      "Dieses Ergebnis ist möglicherweise unvollständig. Fehlende Zeilen oder Quelldaten können Summen beeinflussen.",
     rowsRange: "{{start}}-{{end}} of {{total}}",
     filterBy: "Filtern nach",
     pickPropertyToFilter: "Wählen Sie eine Eigenschaft zum Filtern aus",
@@ -1388,6 +1391,23 @@ export default {
     resetFilters: "Filter zurücksetzen",
     collapseFilters: "Filter ausblenden",
     expandFilters: "Filter erweitern",
+    drilldownChartPoints: "Diagrammpunkte",
+    drilldownPreviousPage: "Vorherige Seite der Diagrammpunkte",
+    drilldownNextPage: "Nächste Seite der Diagrammpunkte",
+    drilldownPageRange: "{{start}}–{{end}} von {{total}} werden angezeigt",
+    drilldownFilterRows: "Zeilen filtern",
+    drilldownShowSql: "SQL anzeigen",
+    drilldownHideSql: "SQL ausblenden",
+    drilldownDownloadCsv: "CSV herunterladen",
+    drilldownShowing: "{{shown}} von {{total}} Datensätzen werden angezeigt",
+    drilldownCsvTruncated:
+      "Unvollständiger Export: Die Abfrage ergab {{total}} Datensätze, aber nur die ersten {{loaded}} wurden geladen; diese Datei enthält nach dem Filtern {{exported}}.",
+    drilldownCountMismatch:
+      "Das Diagramm zeigt {{chart}}, aber {{total}} Datensätze passen",
+    drilldownAggregateOnly:
+      "Dieses Panel enthält nur aggregierte Zeilen. Zeilen zum angeklickten Punkt sind hervorgehoben.",
+    drilldownNoRecords: "Keine passenden Datensätze",
+    drilldownLoadFailed: "Datensätze konnten nicht geladen werden",
     filterSeries: "Filter",
     chartTimeRangeOverride: "Zeitraum für dieses Diagramm überschreiben",
     chartTimeRangeInherit: "Dashboard-Zeitraum",
@@ -2221,6 +2241,8 @@ export default {
     dbtAdminOnly:
       "Nur Organisationsadministratoren können diese Verbindung ändern.",
     dbtReadFailed: "Die dbt-Verbindung konnte nicht geladen werden.",
+    dbtSeveralConnections:
+      "Mehrere dbt-Verbindungen sind für Analytics freigegeben, daher kann dieses Panel keine davon bearbeiten. Entfernen Sie die zusätzlichen Verbindungen unter Einstellungen → Integrationen, um eine zu behalten.",
     dbtSave: "Verbindung speichern",
     dbtChecking: "Wird geprüft",
     dbtSaveFailed: "Die dbt-Verbindung konnte nicht gespeichert werden.",

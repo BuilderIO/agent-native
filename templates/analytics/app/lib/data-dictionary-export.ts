@@ -1,3 +1,5 @@
+import { csvCell } from "./csv";
+
 export interface DictionaryExportEntry {
   id?: unknown;
   metric?: unknown;
@@ -108,27 +110,16 @@ const EXPORT_FIELDS = [
   "updatedAt",
 ] as const satisfies ReadonlyArray<keyof DictionaryExportEntry>;
 
-function exportValue(value: unknown): string {
-  if (value === null || value === undefined) return "";
-  if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean") {
-    return String(value);
-  }
-  return JSON.stringify(value) ?? "";
-}
-
-function csvCell(value: unknown): string {
-  let text = exportValue(value);
-  if (/^\s*[=+\-@\t\r]/.test(text)) text = `'${text}`;
-  return `"${text.replace(/"/g, '""')}"`;
-}
-
 export function dictionaryEntriesToCsv(
   entries: DictionaryExportEntry[],
 ): string {
-  const header = EXPORT_FIELDS.map(csvCell).join(",");
+  const header = EXPORT_FIELDS.map((field) =>
+    csvCell(field, { alwaysQuote: true }),
+  ).join(",");
   const rows = entries.map((entry) =>
-    EXPORT_FIELDS.map((field) => csvCell(entry[field])).join(","),
+    EXPORT_FIELDS.map((field) =>
+      csvCell(entry[field], { alwaysQuote: true }),
+    ).join(","),
   );
   return [header, ...rows].join("\r\n");
 }

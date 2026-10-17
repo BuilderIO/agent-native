@@ -53,10 +53,11 @@ vi.mock("./lib/agents-md-context.js", () => ({
 
 import finalizeMeeting from "./finalize-meeting";
 
-function createDb() {
+function createDb(transcriptStatus: "pending" | "ready" = "ready") {
   const meeting = {
     id: "meeting-1",
     recordingId: "recording-1",
+    transcriptStatus,
     bulletsJson: "[]",
     actionItemsJson: "[]",
   };
@@ -116,5 +117,15 @@ describe("finalize-meeting", () => {
     await expect(
       finalizeMeeting.run({ meetingId: "meeting-1", force: true }),
     ).rejects.toThrow("no transcript text available yet");
+  });
+
+  it("leaves a pending meeting retryable while its transcript row is unavailable", async () => {
+    const db = createDb("pending");
+    mockGetDb.mockReturnValue(db);
+
+    await expect(
+      finalizeMeeting.run({ meetingId: "meeting-1", force: true }),
+    ).resolves.toMatchObject({ skipped: "transcript-pending" });
+    expect(db.update).not.toHaveBeenCalled();
   });
 });

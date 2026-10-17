@@ -130,10 +130,13 @@ describe("MotionNativeStyleEditor", () => {
   }
 
   async function clickButtonWithText(text: string) {
-    const button = Array.from(
-      document.body.querySelectorAll<HTMLButtonElement>("button"),
-    ).find((candidate) => candidate.textContent?.trim() === text);
-    if (!button) throw new Error(`Missing button ${text}`);
+    const button = await vi.waitFor(() => {
+      const found = Array.from(
+        document.body.querySelectorAll<HTMLButtonElement>("button"),
+      ).find((candidate) => candidate.textContent?.trim() === text);
+      if (!found) throw new Error(`Missing button ${text}`);
+      return found;
+    });
     await act(async () => button.click());
   }
 
@@ -787,6 +790,11 @@ describe("MotionNativeStyleEditor", () => {
       expect.objectContaining({ index: 0, styleKey: "Position" }),
     );
 
+    // Radix refocuses the Select trigger a macrotask after closing; a popover
+    // opened before then reads that focus as outside and dismisses itself.
+    await vi.waitFor(() =>
+      expect(document.activeElement).toBe(styleNameSelect),
+    );
     const easingSelect = document.body.querySelector<HTMLButtonElement>(
       'button[aria-label="designEditor.motion.animationStyles.easingPresets.easeOut"]',
     )!;
