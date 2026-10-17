@@ -5,6 +5,12 @@ import {
   isMcpActionResult,
 } from "../mcp-client/app-result.js";
 import {
+  assertServicePrincipalMayCall,
+  assertServicePrincipalMayRun,
+  recordServicePrincipalDenial,
+  ServicePrincipalRefusedError,
+} from "../org/service-principal-guard.js";
+import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
@@ -97,6 +103,81 @@ export function isEmbedStartUrl(value: string): boolean {
   }
 }
 
+const EMBED_START_ROUTE = "_agent-native/embed/start";
+const MAX_DECODE_ROUNDS = 8;
+
+const ESCAPE =
+  /%([0-9a-f]{2})|&#x([0-9a-f]{1,6});?|&#([0-9]{1,7});?|&(sol|bsol|lowbar|period|amp);|\\u\{([0-9a-f]{1,6})\}|\\u([0-9a-f]{4})|\\x([0-9a-f]{2})/gi;
+
+const NAMED_REFERENCES: Record<string, string> = {
+  sol: "/",
+  bsol: "\\",
+  lowbar: "_",
+  period: ".",
+  amp: "&",
+};
+
+/** Removes one layer of URL, HTML and JavaScript string escaping. */
+function unescapeOnce(text: string): string {
+  return text.replace(
+    ESCAPE,
+    (match, percent, hexRef, decimalRef, named, braced, unicode, hex) => {
+      if (named !== undefined) return NAMED_REFERENCES[named.toLowerCase()];
+      const code =
+        decimalRef !== undefined
+          ? Number.parseInt(decimalRef, 10)
+          : Number.parseInt(percent ?? hexRef ?? braced ?? unicode ?? hex, 16);
+      return code <= 0x10ffff ? String.fromCodePoint(code) : match;
+    },
+  );
+}
+
+/**
+ * Both readings of a path, so neither a `..` after the route nor one inside
+ * it hides it: the segments as written, and the segments a browser resolves.
+ */
+function pathReadings(text: string): string[] {
+  const segments = text
+    .replace(/[\t\n\r]/g, "")
+    .replace(/\\/g, "/")
+    .toLowerCase()
+    .split("/")
+    .filter((segment) => segment !== "");
+  const resolved: string[] = [];
+  for (const segment of segments) {
+    if (segment === ".") continue;
+    if (segment === ".." && resolved.length > 0) resolved.pop();
+    else resolved.push(segment);
+  }
+  return [segments.join("/"), resolved.join("/")];
+}
+
+/**
+ * The sanitized path's credential test. `isEmbedStartUrl` reads only a URL's
+ * own path, so the embed start route in a query, a fragment or a URL nested
+ * in another one gets past it. This looks for the route anywhere in the
+ * string, under every layer of percent, HTML and JavaScript escaping.
+ */
+function mentionsEmbedStartRoute(text: string): boolean {
+  if (isEmbedStartUrl(text)) return true;
+  let current = text;
+  for (let round = 0; round < MAX_DECODE_ROUNDS; round += 1) {
+    if (
+      pathReadings(current).some((reading) =>
+        reading.includes(EMBED_START_ROUTE),
+      )
+    ) {
+      return true;
+    }
+    const decoded = unescapeOnce(current);
+    if (decoded === current) return false;
+    current = decoded;
+  }
+  // Escaped more deeply than any real nesting: treated as carrying a
+  // credential rather than passed through unread.
+  return true;
+}
+
 /**
  * Recursively redact embed-ticket-bearing URLs from any value before it gets
  * serialized into a model-visible text payload. Embed start URLs carry a
@@ -123,18 +204,22 @@ function isEmbedCredentialKey(key: string): boolean {
   return key === "ticket" || /Ticket$/.test(key);
 }
 
+function carriesEmbedCredential(text: string, strict: boolean): boolean {
+  return strict ? mentionsEmbedStartRoute(text) : isEmbedStartUrl(text);
+}
+
 function containsEmbedRoutingSignal(
   value: unknown,
   seen = new WeakSet<object>(),
-  countKeys = false,
+  strict = false,
 ): boolean {
-  if (typeof value === "string") return isEmbedStartUrl(value);
+  if (typeof value === "string") return carriesEmbedCredential(value, strict);
   if (!value || typeof value !== "object") return false;
   if (seen.has(value)) return false;
   seen.add(value);
   if (Array.isArray(value)) {
     const result = value.some((item) =>
-      containsEmbedRoutingSignal(item, seen, countKeys),
+      containsEmbedRoutingSignal(item, seen, strict),
     );
     seen.delete(value);
     return result;
@@ -142,12 +227,12 @@ function containsEmbedRoutingSignal(
   for (const [key, val] of Object.entries(value)) {
     if (
       EMBED_RESULT_SENSITIVE_KEYS.has(key) ||
-      (countKeys && isEmbedStartUrl(key))
+      (strict && mentionsEmbedStartRoute(key))
     ) {
       seen.delete(value);
       return true;
     }
-    if (containsEmbedRoutingSignal(val, seen, countKeys)) {
+    if (containsEmbedRoutingSignal(val, seen, strict)) {
       seen.delete(value);
       return true;
     }
@@ -164,9 +249,10 @@ export function purgeEmbedStartUrls(
   return purge(value, seen, embedContext, false);
 }
 
-// `strict` is the sanitized path: it also treats object keys as values that
-// can carry a credential, and keeps every other JSON key. The direct wire path
-// is not strict, so its output stays as it has always been.
+// `strict` is the sanitized path: it finds the embed start route anywhere in a
+// string (`mentionsEmbedStartRoute`), treats object keys as values that can
+// carry a credential, and keeps every other JSON key. The direct wire path is
+// not strict, so its output stays as it has always been.
 function purge(
   value: unknown,
   seen: WeakSet<object>,
@@ -174,7 +260,7 @@ function purge(
   strict: boolean,
 ): unknown {
   if (typeof value === "string") {
-    return isEmbedStartUrl(value) ? "[hidden embed URL]" : value;
+    return carriesEmbedCredential(value, strict) ? "[hidden embed URL]" : value;
   }
   if (Array.isArray(value)) {
     if (seen.has(value)) return "[circular result]";
@@ -205,8 +291,8 @@ function purge(
         continue;
       }
       if (
-        (typeof val === "string" && isEmbedStartUrl(val)) ||
-        (strict && isEmbedStartUrl(key))
+        (typeof val === "string" && carriesEmbedCredential(val, strict)) ||
+        (strict && mentionsEmbedStartRoute(key))
       ) {
         continue;
       }
@@ -297,12 +383,19 @@ export interface McpActionApprovalRequest {
 }
 
 /**
- * Where a call failed. `approval` failed before the action ran. `action`
- * means the action was invoked and threw, so it may have done part of its
- * work. `result` means the action finished but its value could not be made
- * into JSON, so its work is done even though the caller gets no value.
+ * Where a call failed. `authorization` means the caller's service-principal
+ * grant refused the call before the action was invoked, and `approval` failed
+ * before the action ran; in both, nothing ran. `action` means the action was
+ * invoked and threw, so it may have done part of its work. `result` means the
+ * action finished but its value could not be made into JSON, so its work is
+ * done even though the caller gets no value. No stage says whether partial
+ * work was committed.
  */
-export type McpActionCallFailureStage = "approval" | "action" | "result";
+export type McpActionCallFailureStage =
+  | "authorization"
+  | "approval"
+  | "action"
+  | "result";
 
 /**
  * Plain, frozen JSON data in which every string has had embed session
@@ -334,6 +427,8 @@ export async function executeMcpActionCall(
   context: McpActionCallContext,
   call: McpActionCall,
 ): Promise<McpActionCallOutcome> {
+  const refused = await refuseOutsideServiceGrant(context, call.name);
+  if (refused !== undefined) return refused;
   const outcome = await runMcpActionCallUnredacted(context, call);
   switch (outcome.status) {
     case "ran":
@@ -357,8 +452,10 @@ export async function executeMcpActionCall(
 }
 
 /**
- * The same steps, returning the action's own value, its thrown error and the
- * signed approval state with its grant nonce. These can hold credentials, so
+ * The same steps after the service-principal check, which the direct adapter
+ * makes itself before its own built-in tools. Returns the action's own value,
+ * its thrown error and the signed approval state with its grant nonce. These
+ * can hold credentials, so
  * only the direct `tools/call` adapter calls this (`.oxlintrc.json` and
  * `guard:mcp-unredacted-call-boundary` reject other importers, dynamic
  * imports and requires): it moves embed tickets into `_meta`, mints the approval
@@ -445,8 +542,50 @@ function completedOutcome(result: unknown): McpActionCallOutcome {
   }
 }
 
+/**
+ * The direct adapter refuses a service principal outside its grant before it
+ * looks up the tool, and this is the same check at the same point. The
+ * action's own wrapper checks again when it runs, but a refusal thrown from
+ * inside `run` cannot prove the action body never started, so only a refusal
+ * from here is reported at the `authorization` stage.
+ */
+async function refuseOutsideServiceGrant(
+  context: McpActionCallContext,
+  name: string,
+): Promise<McpActionCallOutcome | undefined> {
+  const email = context.identity?.userEmail;
+  try {
+    const { allowedActions } = await assertServicePrincipalMayRun(
+      email,
+      typeof context.identity?.orgId === "string"
+        ? context.identity.orgId
+        : undefined,
+    );
+    assertServicePrincipalMayCall(allowedActions, name);
+    return undefined;
+  } catch (error) {
+    if (error instanceof ServicePrincipalRefusedError) {
+      try {
+        await recordServicePrincipalDenial({
+          email,
+          orgId: getRequestOrgId(),
+          actionName: name,
+          caller: "mcp",
+          error,
+        });
+      } catch (recordError) {
+        console.error(
+          "[mcp] Could not record a service-principal denial",
+          recordError,
+        );
+      }
+    }
+    return failedOutcome("authorization", error);
+  }
+}
+
 function redactText(text: string): string {
-  return isEmbedStartUrl(text) ? "[hidden embed URL]" : text;
+  return mentionsEmbedStartRoute(text) ? "[hidden embed URL]" : text;
 }
 
 function failedOutcome(
@@ -461,7 +600,12 @@ function failedOutcome(
       typeof raw === "string"
         ? redactText(raw)
         : "The call failed without an error message.";
-    const code: unknown = mcpActionErrorCode(error);
+    // A service-principal refusal carries a typed code the direct adapter
+    // never prints, so only this path reads it.
+    const code: unknown =
+      error instanceof ServicePrincipalRefusedError
+        ? error.errorCode
+        : mcpActionErrorCode(error);
     if (code !== undefined && typeof code !== "string") {
       throw new TypeError("The error code is not a string.");
     }

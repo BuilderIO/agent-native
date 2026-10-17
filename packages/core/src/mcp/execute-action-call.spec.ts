@@ -5,6 +5,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ActionContractError } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
+import {
+  ServicePrincipalRefusedError,
+  assertServicePrincipalMayRun,
+  recordServicePrincipalDenial,
+  servicePrincipalActionDeniedError,
+} from "../org/service-principal-guard.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import {
   type McpActionCallContext,
@@ -27,6 +33,16 @@ vi.mock("./approval-store.js", () => ({
     return true;
   }),
 }));
+
+vi.mock("../org/service-principal-guard.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../org/service-principal-guard.js")>();
+  return {
+    ...actual,
+    assertServicePrincipalMayRun: vi.fn(actual.assertServicePrincipalMayRun),
+    recordServicePrincipalDenial: vi.fn(async () => {}),
+  };
+});
 
 const EMBED_START =
   "https://mail.agent-native.com/_agent-native/embed/start?ticket=secret-ticket";
@@ -340,6 +356,77 @@ describe("executeMcpActionCall", () => {
       message: "publish requires approval from a verified user identity.",
     });
   });
+
+  it("refuses a service principal outside its grant before the action is looked up or run", async () => {
+    const denial = vi.mocked(recordServicePrincipalDenial);
+    denial.mockClear();
+    const run = vi.fn(async () => ({ ok: true }));
+    const callable = { write: entry({ run }) };
+    const denied = {
+      status: "failed",
+      stage: "authorization",
+      message: "Forbidden: write is not permitted for this service principal.",
+      errorCode: "service_principal_action_denied",
+    };
+
+    vi.mocked(assertServicePrincipalMayRun).mockResolvedValueOnce({
+      allowedActions: ["read"],
+    });
+    await expect(execute(callable, "write")).resolves.toEqual(denied);
+    expect(denial).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionName: "write",
+        caller: "mcp",
+        error: expect.any(ServicePrincipalRefusedError),
+      }),
+    );
+
+    // A denial that cannot be audited is still a denial.
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    denial.mockRejectedValueOnce(new Error("audit store down"));
+    vi.mocked(assertServicePrincipalMayRun).mockResolvedValueOnce({
+      allowedActions: ["read"],
+    });
+    await expect(execute({}, "write")).resolves.toEqual(denied);
+    expect(logged).toHaveBeenCalledTimes(1);
+    logged.mockRestore();
+
+    vi.mocked(assertServicePrincipalMayRun).mockRejectedValueOnce(
+      new ServicePrincipalRefusedError(
+        "service_principal_unavailable",
+        "Status unavailable.",
+      ),
+    );
+    await expect(execute(callable, "write")).resolves.toEqual({
+      status: "failed",
+      stage: "authorization",
+      message: "Status unavailable.",
+      errorCode: "service_principal_unavailable",
+    });
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("keeps the code of a refusal thrown after the action was invoked, at the action stage", async () => {
+    // The action's own wrapper refuses from inside `run`, where nothing proves
+    // the body did not start.
+    await expect(
+      execute(
+        {
+          write: entry({
+            run: async () => {
+              throw servicePrincipalActionDeniedError("write");
+            },
+          }),
+        },
+        "write",
+      ),
+    ).resolves.toEqual({
+      status: "failed",
+      stage: "action",
+      message: "Forbidden: write is not permitted for this service principal.",
+      errorCode: "service_principal_action_denied",
+    });
+  });
 });
 
 describe("executeMcpActionCall sanitizing", () => {
@@ -395,6 +482,88 @@ describe("executeMcpActionCall sanitizing", () => {
       reportedError: false,
     });
     expect(JSON.stringify(outcome)).not.toContain("secret-ticket");
+  });
+
+  // An embed start URL inside another URL's query or fragment, escaped in the
+  // ways a URL picks up when it is nested in a URL, JSON or HTML. The outer
+  // URL's own path is never the embed route.
+  const nestedEmbedStarts = [
+    `https://redirect.example/?next=${EMBED_START}`,
+    `https://redirect.example/?next=${encodeURIComponent(EMBED_START)}`,
+    `https://redirect.example/?next=${encodeURIComponent(encodeURIComponent(EMBED_START))}`,
+    `https://redirect.example/#next=${EMBED_START}`,
+    `https://redirect.example/?next=${EMBED_START.replace("/start", "/x/../start")}`,
+    `https://redirect.example/?next=${EMBED_START.replace("start?", "start/../?")}`,
+    JSON.stringify({ next: EMBED_START }).replaceAll("/", "\\/"),
+    `<a href="https://redirect.example/?next=${EMBED_START.replaceAll("/", "&#x2F;")}">open</a>`,
+    `https://redirect.example/?next=${EMBED_START.replaceAll("/", "\\u002f")}`,
+  ];
+
+  it("redacts an embed start URL nested anywhere in a string, key or message", async () => {
+    for (const nested of nestedEmbedStarts) {
+      const callable = {
+        value: entry({
+          readOnly: true,
+          run: async () => ({
+            next: nested,
+            ticket: "secret-ticket",
+            keep: "me",
+          }),
+        }),
+        key: entry({
+          readOnly: true,
+          run: async () => ({
+            links: {
+              [nested]: { label: "open" },
+              ticket: "secret-ticket",
+              keep: "me",
+            },
+          }),
+        }),
+        sibling: entry({
+          readOnly: true,
+          run: async () => ({
+            items: [{ url: nested }, { ticket: "secret-ticket", id: "kept" }],
+          }),
+        }),
+        bare: entry({ readOnly: true, run: async () => nested }),
+      };
+      const expected: Record<string, unknown> = {
+        value: { keep: "me" },
+        key: { links: { keep: "me" } },
+        sibling: { items: [{}, { id: "kept" }] },
+        bare: "[hidden embed URL]",
+      };
+      for (const [name, value] of Object.entries(expected)) {
+        const outcome = await execute(callable, name);
+        expect(outcome, `${name}: ${nested}`).toEqual({
+          status: "completed",
+          value,
+          reportedError: false,
+        });
+        expect(JSON.stringify(outcome)).not.toContain("secret-ticket");
+      }
+      await expect(execute({}, `open ${nested}`)).resolves.toEqual({
+        status: "unknown-tool",
+        message: "[hidden embed URL]",
+      });
+    }
+  });
+
+  it("keeps ordinary nested URLs and ticket fields with no embed route beside them", async () => {
+    const value = {
+      next: `https://redirect.example/?next=${encodeURIComponent("https://mail.agent-native.com/inbox")}`,
+      support: {
+        ticket: "SUP-12",
+        url: "https://support.example/_agent-native/embed#start",
+      },
+    };
+    await expect(
+      execute(
+        { read: entry({ readOnly: true, run: async () => value }) },
+        "read",
+      ),
+    ).resolves.toEqual({ status: "completed", value, reportedError: false });
   });
 
   it("keeps __proto__ keys from JSON and freezes everything under them", async () => {
