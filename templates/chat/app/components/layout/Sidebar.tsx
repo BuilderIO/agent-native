@@ -52,7 +52,9 @@ interface SidebarProps {
   onCollapsedChange?: (collapsed: boolean) => void;
 }
 
-function threadUpdatedAt(thread: ChatThreadSummary) {
+function threadUpdatedAt(
+  thread: Pick<ChatThreadSummary, "createdAt" | "updatedAt">,
+) {
   return Number.isFinite(thread.updatedAt)
     ? thread.updatedAt
     : Number.isFinite(thread.createdAt)
@@ -93,7 +95,13 @@ function ThreadHistoryTitle({
   title,
   running,
 }: {
-  thread: ChatThreadSummary;
+  thread: Pick<
+    ChatThreadSummary,
+    "id" | "messageCount" | "createdAt" | "updatedAt"
+  > &
+    Partial<
+      Pick<ChatThreadSummary, "preview" | "scope" | "source" | "pinnedAt">
+    >;
   title: string;
   running: boolean;
 }) {
@@ -304,16 +312,14 @@ function ChatThreadsSection({ collapsed }: { collapsed: boolean }) {
       if (kind === "rename") toast.error(t("chat.renameFailed"));
     },
     decorateItem: (item, row) => {
-      if (!("scope" in row)) return item;
-      const thread = row as ChatThreadSummary;
-      const title = thread.title || thread.preview || t("chat.untitledChat");
+      const title = row.title || row.preview || t("chat.untitledChat");
       return {
         ...item,
         title: (
           <ThreadHistoryTitle
-            thread={thread}
+            thread={row}
             title={title}
-            running={workingThreadIds.has(thread.id)}
+            running={workingThreadIds.has(row.id)}
           />
         ),
       };

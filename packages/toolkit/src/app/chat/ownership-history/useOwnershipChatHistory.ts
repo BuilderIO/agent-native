@@ -3,6 +3,7 @@ import {
   type ChatThreadListRow,
   type UseChatThreadListOptions,
 } from "@agent-native/core/client/agent-chat";
+import { agentNativePath } from "@agent-native/core/client/api-path";
 import {
   DEFAULT_LOCALE,
   useOptionalLocale,
@@ -100,6 +101,27 @@ type Override = {
 };
 
 const OVERRIDE_FIELDS = ["title", "pinned", "hidden"] as const;
+
+// Accepted writes outlive views, including a replacement mount for this resource.
+const writeTails = new Map<string, Promise<void>>();
+
+function persistInOrder(key: string, persist: () => Promise<boolean>) {
+  const previous = writeTails.get(key);
+  let release!: () => void;
+  const tail = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  writeTails.set(key, tail);
+  const run = async () => {
+    try {
+      return await persist();
+    } finally {
+      if (writeTails.get(key) === tail) writeTails.delete(key);
+      release();
+    }
+  };
+  return previous ? previous.then(run) : run();
+}
 
 function projectedIntent<Value>(state: FieldState<Value> | undefined) {
   if (!state) return undefined;
@@ -199,21 +221,23 @@ export function useOwnershipChatHistory(
     minePreviewCount = 5,
     sharedPreviewCount = 5,
   } = options;
+  const endpoint = apiUrl ?? agentNativePath("/_agent-native/agent-chat");
   const normalizedQuery = query?.trim() ?? "";
   const listOptions = {
-    apiUrl,
+    apiUrl: endpoint,
     scope,
     includeExternal,
     query: normalizedQuery,
     pageSize,
     enabled,
+    refreshOnThreadUpdates: false,
   };
   const mine = useChatThreadList({ ...listOptions, ownership: "mine" });
   const shared = useChatThreadList({ ...listOptions, ownership: "shared" });
   const t = useT();
   const locale = useOptionalLocale()?.locale ?? DEFAULT_LOCALE;
   const scopeKey = JSON.stringify([
-    apiUrl,
+    endpoint,
     scope?.type,
     scope?.id,
     includeExternal,
@@ -228,6 +252,8 @@ export function useOwnershipChatHistory(
       dirty: false,
       needsRefresh: false,
       inFlight: 0,
+      writes: 0,
+      threadUpdates: false,
       lastRefresh: -Infinity,
     }),
     [scopeKey],
@@ -276,6 +302,7 @@ export function useOwnershipChatHistory(
     if (!enabled || !current()) return ["disabled", "disabled"] as const;
     const view = generation.view;
     const settled = successfulIntents(generation.rows);
+    generation.threadUpdates = false;
     generation.inFlight += 1;
     try {
       const outcomes = await Promise.all([
@@ -300,7 +327,11 @@ export function useOwnershipChatHistory(
     } finally {
       generation.inFlight -= 1;
       generation.lastRefresh = Date.now();
-      if (current() && generation.needsRefresh && generation.inFlight === 0)
+      if (
+        current() &&
+        (generation.needsRefresh || generation.threadUpdates) &&
+        generation.inFlight === 0
+      )
         publish((value) => value + 1);
     }
   }, [current, enabled, generation, updateOverrides]);
@@ -322,11 +353,17 @@ export function useOwnershipChatHistory(
       )
         refreshIfDue();
     };
+    const onUpdated = () => {
+      generation.threadUpdates = true;
+      if (!generation.writes && !generation.inFlight) void refresh();
+    };
     window.addEventListener("focus", refreshIfDue);
     window.addEventListener("agentNative.chatRunning", onRunEnd);
+    window.addEventListener("agent-chat:threads-updated", onUpdated);
     return () => {
       window.removeEventListener("focus", refreshIfDue);
       window.removeEventListener("agentNative.chatRunning", onRunEnd);
+      window.removeEventListener("agent-chat:threads-updated", onUpdated);
     };
   }, [enabled, generation, refresh]);
 
@@ -357,12 +394,15 @@ export function useOwnershipChatHistory(
     if (
       !enabled ||
       !current() ||
-      !generation.needsRefresh ||
-      generation.inFlight
+      (!generation.needsRefresh && !generation.threadUpdates) ||
+      generation.inFlight ||
+      generation.writes
     )
       return;
+    const needsRefresh =
+      generation.threadUpdates || successfulIntents(generation.rows).length > 0;
     generation.needsRefresh = false;
-    if (successfulIntents(generation.rows).length) void refreshWithResults();
+    if (needsRefresh) void refreshWithResults();
   }, [current, enabled, generation, refreshWithResults, revision]);
 
   const mineRows = enabled ? mine.threads : [];
@@ -389,6 +429,7 @@ export function useOwnershipChatHistory(
     const view = generation.view;
     const permitted = () => current() && generation.view === view;
     const token = ++tokenRef.current;
+    generation.writes += 1;
     const intent = {
       value,
       token,
@@ -404,6 +445,7 @@ export function useOwnershipChatHistory(
       });
     });
     const complete = (succeeded: boolean) => {
+      generation.writes -= 1;
       let isLatest = false;
       updateOverrides((rows) => {
         const state = rows.get(id)?.[field];
@@ -423,7 +465,10 @@ export function useOwnershipChatHistory(
     };
     let succeeded: boolean;
     try {
-      succeeded = await persist();
+      succeeded = await persistInOrder(
+        JSON.stringify([endpoint, id, field]),
+        persist,
+      );
     } catch (cause) {
       const isLatest = complete(false);
       if (permitted() && isLatest)
@@ -471,6 +516,7 @@ export function useOwnershipChatHistory(
   const listProps: OwnershipChatHistoryListProps = {};
   if (options.mutations?.pin)
     listProps.onTogglePin = async (id) => {
+      const persist = options.mutations!.pin!;
       const row = findMine(id);
       if (!row) return false;
       const nextPinned = !(
@@ -478,19 +524,19 @@ export function useOwnershipChatHistory(
         ("pinnedAt" in row && row.pinnedAt != null)
       );
       return mutate("pin", id, "pinned", nextPinned, () =>
-        latest.current.options.mutations!.pin!(id, nextPinned),
+        persist(id, nextPinned),
       );
     };
   if (options.mutations?.rename)
-    listProps.onRename = (id, title) =>
-      mutate("rename", id, "title", title, () =>
-        latest.current.options.mutations!.rename!(id, title),
-      );
+    listProps.onRename = (id, title) => {
+      const persist = options.mutations!.rename!;
+      return mutate("rename", id, "title", title, () => persist(id, title));
+    };
   if (options.mutations?.archive)
-    listProps.onDelete = (id) =>
-      mutate("archive", id, "hidden", true, () =>
-        latest.current.options.mutations!.archive!(id),
-      );
+    listProps.onDelete = (id) => {
+      const persist = options.mutations!.archive!;
+      return mutate("archive", id, "hidden", true, () => persist(id));
+    };
 
   const mapItem = (
     row: ChatThreadListRow | OwnDraftRow,
