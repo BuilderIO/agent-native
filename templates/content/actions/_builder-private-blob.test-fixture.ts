@@ -18,6 +18,7 @@ export function registerMemoryPrivateBlobProvider() {
   const blobs = new Map<string, Uint8Array>();
   let nextId = 0;
   let putsUnavailable = false;
+  let deletesUnavailable = false;
   const provider: PrivateBlobProvider = {
     id: PROVIDER_ID,
     name: "Content test memory",
@@ -36,7 +37,9 @@ export function registerMemoryPrivateBlobProvider() {
       return { data, handle };
     },
     delete: async (handle: PrivateBlobHandle) => ({
-      deleted: blobs.delete(handle.id),
+      ...(deletesUnavailable
+        ? { deleted: false, reason: "temporary storage failure" }
+        : { deleted: blobs.delete(handle.id) }),
       provider: PROVIDER_ID,
     }),
   };
@@ -45,6 +48,9 @@ export function registerMemoryPrivateBlobProvider() {
     blobs,
     setPutsUnavailable: (value: boolean) => {
       putsUnavailable = value;
+    },
+    setDeletesUnavailable: (value: boolean) => {
+      deletesUnavailable = value;
     },
     unregister: () => unregisterPrivateBlobProvider(PROVIDER_ID),
   };

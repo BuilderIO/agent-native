@@ -194,6 +194,7 @@ function buildDeps(args: {
     getExecution: vi.fn(async () => args.execution),
     updateExecutionState: vi.fn(async () => {}),
     claimExecution: vi.fn(async () => true),
+    renewExecutionClaim: vi.fn(async () => true),
     markResponseCheckpointFailed: vi.fn(async () => true),
     markExecutionSucceeded: vi.fn(async (call) => {
       args.onSucceeded(call);

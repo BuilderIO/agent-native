@@ -83,6 +83,9 @@ let previewReview: typeof import("./preview-builder-source-review.js").default;
 let prepareExecution: typeof import("./prepare-builder-source-execution.js").default;
 let validateExecution: typeof import("./validate-builder-source-execution.js").default;
 let realExecutionDeps: typeof import("./execute-builder-source-execution.js").realExecutionDeps;
+let cleanupBuilderPrivatePayload: typeof import("./_builder-cms-blob-custody.js").cleanupBuilderPrivatePayload;
+let getContentDatabaseSourceSnapshot: typeof import("./_database-source-utils.js").getContentDatabaseSourceSnapshot;
+let getContentDatabaseSourceSnapshotForWrite: typeof import("./_database-source-utils.js").getContentDatabaseSourceSnapshotForWrite;
 let builderReviewSourceValueTextProjection: typeof import("./_database-source-utils.js").builderReviewSourceValueTextProjection;
 
 beforeAll(async () => {
@@ -100,8 +103,14 @@ beforeAll(async () => {
     .default;
   realExecutionDeps = (await import("./execute-builder-source-execution.js"))
     .realExecutionDeps;
-  ({ builderReviewSourceValueTextProjection } =
-    await import("./_database-source-utils.js"));
+  cleanupBuilderPrivatePayload = (
+    await import("./_builder-cms-blob-custody.js")
+  ).cleanupBuilderPrivatePayload;
+  ({
+    builderReviewSourceValueTextProjection,
+    getContentDatabaseSourceSnapshot,
+    getContentDatabaseSourceSnapshotForWrite,
+  } = await import("./_database-source-utils.js"));
 }, 60000);
 
 afterAll(() => {
@@ -519,6 +528,30 @@ describe("Builder source review execution gates", () => {
     await expect(
       claim({ state: "ready", updatedAt: validatedAt }),
     ).resolves.toBe(true);
+
+    await expect(
+      deps.renewExecutionClaim({
+        executionId,
+        attemptToken: "attempt-1",
+        now: "2026-06-29T16:01:30.000Z",
+      }),
+    ).resolves.toBe(true);
+    await expect(
+      deps.renewExecutionClaim({
+        executionId,
+        attemptToken: "reclaimed-attempt",
+        now: "2026-06-29T16:01:31.000Z",
+      }),
+    ).resolves.toBe(false);
+    const [renewed] = await db
+      .select()
+      .from(schema.contentDatabaseSourceExecutions)
+      .where(eq(schema.contentDatabaseSourceExecutions.id, executionId));
+    expect(renewed).toMatchObject({
+      state: "running",
+      attemptToken: "attempt-1",
+      updatedAt: "2026-06-29T16:01:30.000Z",
+    });
 
     await deps.releaseExecutionClaim({
       executionId,
@@ -945,6 +978,45 @@ describe("Builder source review execution gates", () => {
     expect(payload.dryRun.status).toBe("validated");
   });
 
+  it("hydrates execution payloads only for a source snapshot scoped to a document", async () => {
+    const seeded = await seedBuilderSource({
+      sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
+      changeSetState: "approved",
+    });
+    await asOwner(() =>
+      prepareExecution.run({
+        documentId: seeded.databaseDocumentId,
+        sourceId: seeded.sourceId,
+        changeSetId: seeded.changeSetId,
+        pushModeConfirmation: "autosave",
+      }),
+    );
+    const [database] = await getDb()
+      .select()
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, seeded.databaseId));
+
+    const unscoped = await asOwner(() =>
+      getContentDatabaseSourceSnapshot(database!),
+    );
+    expect(unscoped?.changeSets[0]?.executions[0]).toMatchObject({
+      payloadUnavailable: true,
+      payload: { unavailable: true },
+    });
+
+    const targeted = await asOwner(() =>
+      getContentDatabaseSourceSnapshotForWrite(database!, seeded.sourceId, [
+        seeded.rowDocumentId,
+      ]),
+    );
+    expect(
+      targeted?.changeSets[0]?.executions[0]?.payloadUnavailable,
+    ).toBeUndefined();
+    expect(targeted?.changeSets[0]?.executions[0]?.payload).toHaveProperty(
+      "request",
+    );
+  });
+
   it("does not validate over a Builder execution with an active attempt", async () => {
     const seeded = await seedBuilderSource({
       sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
@@ -983,6 +1055,47 @@ describe("Builder source review execution gates", () => {
     expect(after).toMatchObject({
       state: "running",
       attemptToken,
+      payloadJson: execution.payloadJson,
+    });
+  });
+
+  it("does not reopen a Builder execution that requires reconciliation", async () => {
+    const seeded = await seedBuilderSource({
+      sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
+      changeSetState: "approved",
+    });
+    const args = {
+      documentId: seeded.databaseDocumentId,
+      sourceId: seeded.sourceId,
+      changeSetId: seeded.changeSetId,
+      pushModeConfirmation: "autosave" as const,
+    };
+    await asOwner(() => prepareExecution.run(args));
+    const [execution] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceExecutions)
+      .where(
+        eq(schema.contentDatabaseSourceExecutions.sourceId, seeded.sourceId),
+      );
+    await getDb()
+      .update(schema.contentDatabaseSourceExecutions)
+      .set({ state: "reconciliation_required", attemptToken: null })
+      .where(eq(schema.contentDatabaseSourceExecutions.id, execution.id));
+
+    await expect(
+      asOwner(() => validateExecution.run(args)),
+    ).rejects.toMatchObject({
+      errorCode: "builder_execution_reconciliation_required",
+      statusCode: 409,
+    });
+
+    const [after] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceExecutions)
+      .where(eq(schema.contentDatabaseSourceExecutions.id, execution.id));
+    expect(after).toMatchObject({
+      state: "reconciliation_required",
+      attemptToken: null,
       payloadJson: execution.payloadJson,
     });
   });
@@ -1244,6 +1357,132 @@ describe("Builder source review execution gates", () => {
       privateBlobs.setPutsUnavailable(false);
     }
     expect(await readGate()).toEqual(before);
+  });
+
+  it("records reconciliation in SQL when ambiguous-outcome payload storage fails", async () => {
+    const seeded = await seedBuilderSource({
+      sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
+      changeSetState: "approved",
+    });
+    await asOwner(() =>
+      prepareExecution.run({
+        documentId: seeded.databaseDocumentId,
+        sourceId: seeded.sourceId,
+        changeSetId: seeded.changeSetId,
+        pushModeConfirmation: "autosave",
+      }),
+    );
+    const [execution] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceExecutions)
+      .where(
+        eq(schema.contentDatabaseSourceExecutions.sourceId, seeded.sourceId),
+      );
+    const attemptToken = "ambiguous-builder-attempt";
+    await getDb()
+      .update(schema.contentDatabaseSourceExecutions)
+      .set({ state: "running", attemptToken })
+      .where(eq(schema.contentDatabaseSourceExecutions.id, execution.id));
+
+    privateBlobs.setPutsUnavailable(true);
+    try {
+      await asOwner(() =>
+        realExecutionDeps(
+          seeded.sourceId,
+          seeded.changeSetId,
+        ).markExecutionFailed({
+          executionId: execution.id,
+          attemptToken,
+          state: "reconciliation_required",
+          summary: "Builder execution requires reconciliation.",
+          payload: { response: { status: 503 } },
+          lastError: "The Builder write outcome is ambiguous.",
+          now: "2026-06-29T15:01:00.000Z",
+        }),
+      );
+    } finally {
+      privateBlobs.setPutsUnavailable(false);
+    }
+
+    const [after] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceExecutions)
+      .where(eq(schema.contentDatabaseSourceExecutions.id, execution.id));
+    expect(after).toMatchObject({
+      state: "reconciliation_required",
+      attemptToken,
+      payloadJson: execution.payloadJson,
+      lastError: "The Builder write outcome is ambiguous.",
+    });
+  });
+
+  it("keeps failed private payload deletion in the durable cleanup queue", async () => {
+    const seeded = await seedBuilderSource({
+      sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
+      changeSetState: "approved",
+    });
+    await asOwner(() =>
+      prepareExecution.run({
+        documentId: seeded.databaseDocumentId,
+        sourceId: seeded.sourceId,
+        changeSetId: seeded.changeSetId,
+        pushModeConfirmation: "autosave",
+      }),
+    );
+    const [execution] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceExecutions)
+      .where(
+        eq(schema.contentDatabaseSourceExecutions.sourceId, seeded.sourceId),
+      );
+    const payload = JSON.parse(execution.payloadJson) as Record<
+      string,
+      unknown
+    >;
+    const blobReference = payload[
+      "__builder.execution.privatePayload"
+    ] as string;
+    const blobId = (JSON.parse(blobReference) as { handle: { id: string } })
+      .handle.id;
+    await getDb()
+      .delete(schema.contentDatabaseSourceExecutions)
+      .where(eq(schema.contentDatabaseSourceExecutions.id, execution.id));
+
+    privateBlobs.setDeletesUnavailable(true);
+    try {
+      await asOwner(() =>
+        cleanupBuilderPrivatePayload(blobReference, "test cleanup"),
+      );
+    } finally {
+      privateBlobs.setDeletesUnavailable(false);
+    }
+    const queued = await getDb()
+      .select()
+      .from(schema.contentDatabaseBuilderBlobCleanup)
+      .where(
+        eq(
+          schema.contentDatabaseBuilderBlobCleanup.blobReference,
+          blobReference,
+        ),
+      );
+    expect(queued).toHaveLength(1);
+    expect(privateBlobs.blobs.has(blobId)).toBe(true);
+
+    await asOwner(() =>
+      cleanupBuilderPrivatePayload(blobReference, "test cleanup retry"),
+    );
+
+    const retried = await getDb()
+      .select()
+      .from(schema.contentDatabaseBuilderBlobCleanup)
+      .where(
+        eq(
+          schema.contentDatabaseBuilderBlobCleanup.blobReference,
+          blobReference,
+        ),
+      );
+    expect(retried).toHaveLength(0);
+    expect(privateBlobs.blobs.has(blobId)).toBe(false);
   });
 
   it("preserves legacy duplicate gates and blocks their canonical claim", async () => {

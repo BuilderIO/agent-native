@@ -7,9 +7,13 @@ import {
   readPrivateBlob,
   type PrivateBlobHandle,
 } from "@agent-native/core/private-blob";
+import { asc, eq } from "drizzle-orm";
+
+import { getDb, schema } from "../server/db/index.js";
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
+const BUILDER_PRIVATE_PAYLOAD_CLEANUP_BATCH_SIZE = 50;
 
 export const BUILDER_EXECUTION_PAYLOAD_BLOB_KEY =
   "__builder.execution.privatePayload";
@@ -233,13 +237,59 @@ export async function cleanupBuilderPrivatePayload(
   label: string,
 ) {
   if (!isBuilderPrivatePayloadReference(reference)) return;
+  const blobReference = reference as string;
+  const db = getDb();
+  const cleanupQueue = schema.contentDatabaseBuilderBlobCleanup;
   try {
-    const deleted = await deleteBuilderPrivatePayload(reference);
-    if (!deleted) {
-      console.error(`[builder-private-payload] ${label} cleanup was declined`);
-    }
+    await db
+      .insert(cleanupQueue)
+      .values({ blobReference })
+      .onConflictDoNothing();
   } catch (error) {
-    console.error(`[builder-private-payload] ${label} cleanup failed`, error);
+    console.error(
+      `[builder-private-payload] ${label} cleanup could not be queued`,
+      error,
+    );
+    return;
+  }
+
+  let pending: Array<{ blobReference: string }>;
+  try {
+    const backlog = await db
+      .select({ blobReference: cleanupQueue.blobReference })
+      .from(cleanupQueue)
+      .orderBy(asc(cleanupQueue.createdAt))
+      .limit(BUILDER_PRIVATE_PAYLOAD_CLEANUP_BATCH_SIZE);
+    pending = [
+      { blobReference },
+      ...backlog.filter((item) => item.blobReference !== blobReference),
+    ].slice(0, BUILDER_PRIVATE_PAYLOAD_CLEANUP_BATCH_SIZE);
+  } catch (error) {
+    console.error(
+      `[builder-private-payload] ${label} cleanup queue could not be read`,
+      error,
+    );
+    return;
+  }
+
+  for (const queued of pending) {
+    try {
+      const deleted = await deleteBuilderPrivatePayload(queued.blobReference);
+      if (!deleted) {
+        console.error(
+          `[builder-private-payload] ${label} cleanup was declined; retry retained`,
+        );
+        continue;
+      }
+      await db
+        .delete(cleanupQueue)
+        .where(eq(cleanupQueue.blobReference, queued.blobReference));
+    } catch (error) {
+      console.error(
+        `[builder-private-payload] ${label} cleanup remains queued`,
+        error,
+      );
+    }
   }
 }
 

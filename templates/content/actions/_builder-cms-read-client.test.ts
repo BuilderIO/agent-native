@@ -338,7 +338,9 @@ describe("Builder CMS read client", () => {
         apiKey: "selected-space-key",
         "query.modelId": "model-uuid",
         "sort.id": "1",
-        offset: fetchImpl.mock.calls.length === 2 ? "0" : "2",
+        ...(fetchImpl.mock.calls.length === 2
+          ? { offset: "0" }
+          : { "query.id.$gt": "published-1" }),
         limit: fetchImpl.mock.calls.length === 2 ? "3" : "1",
         fetchTotalCount: "true",
       });
@@ -372,13 +374,13 @@ describe("Builder CMS read client", () => {
             : {
                 results: [
                   {
-                    id: "draft-2",
+                    id: "z-draft-2",
                     modelId: "model-uuid",
                     published: "draft",
                     data: { title: "Second draft" },
                   },
                 ],
-                totalCount: 3,
+                totalCount: 1,
               },
         ),
         { status: 200 },
@@ -397,14 +399,46 @@ describe("Builder CMS read client", () => {
       entries: [
         { id: "draft-1", rawEntry: { data: { unknown: { preserved: true } } } },
         { id: "published-1" },
-        { id: "draft-2" },
+        { id: "z-draft-2" },
       ],
-      progress: { hasMore: false, partial: false, readMode: "builder-api" },
+      progress: {
+        hasMore: false,
+        partial: false,
+        nextCursor: "z-draft-2",
+        readMode: "builder-api",
+      },
     });
     expect(fetchImpl).toHaveBeenCalledTimes(3);
   });
 
-  it("rejects a duplicate general query-data page instead of claiming completion", async () => {
+  it("requires a saved source binding before an unbound OAuth refresh", async () => {
+    resolveBuilderCredentialMock.mockResolvedValue(null);
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "general-oauth-token",
+      authorization: "Bearer general-oauth-token",
+      source: "oauth",
+      oauthResource: "general",
+      oauthSelectedPublicKey: "selected-space-key",
+      oauthConnectionId: "connection-1",
+    });
+    const fetchImpl = vi.fn();
+
+    await expect(
+      readBuilderCmsContentEntries({
+        model: "blog_article",
+        requireBoundOAuth: true,
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).resolves.toMatchObject({
+      state: "error",
+      message: expect.stringContaining(
+        "requires a saved space and connection binding",
+      ),
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("rejects a query-data page that ignores the stable cursor", async () => {
     resolveBuilderCredentialMock.mockResolvedValue(null);
     resolveBuilderRequestAuthorizationMock.mockResolvedValue({
       token: "general-oauth-token",
@@ -431,7 +465,7 @@ describe("Builder CMS read client", () => {
               data: { title: "Duplicate" },
             },
           ],
-          totalCount: 2,
+          totalCount: fetchImpl.mock.calls.length === 2 ? 2 : 1,
         }),
         { status: 200 },
       );
@@ -445,7 +479,7 @@ describe("Builder CMS read client", () => {
       }),
     ).resolves.toMatchObject({
       state: "error",
-      message: expect.stringContaining("duplicate entries"),
+      message: expect.stringContaining("repeated or reordered"),
     });
     expect(fetchImpl).toHaveBeenCalledTimes(3);
   });
@@ -587,6 +621,54 @@ describe("Builder CMS read client", () => {
     ).rejects.toMatchObject({ errorCode: "builder_source_binding_invalid" });
     expect(resolveBuilderRequestAuthorizationMock).not.toHaveBeenCalled();
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("aborts a stalled live preflight without retrying the request", async () => {
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "general-oauth-token",
+      authorization: "Bearer general-oauth-token",
+      source: "oauth",
+      oauthResource: "general",
+      oauthSelectedPublicKey: "selected-space-key",
+      oauthConnectionId: "oauth-connection-1",
+    });
+    const controller = new AbortController();
+    let markStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    const fetchImpl = vi.fn(async (_input: URL, init?: RequestInit) => {
+      markStarted();
+      return await new Promise<Response>((_resolve, reject) => {
+        const signal = init?.signal;
+        if (signal?.aborted) {
+          reject(signal.reason);
+          return;
+        }
+        signal?.addEventListener("abort", () => reject(signal.reason), {
+          once: true,
+        });
+      });
+    });
+    const pending = readBuilderCmsEntryLiveState({
+      model: "blog_article",
+      entryId: "builder-entry-1",
+      expectedSourceSpace: "selected-space-key",
+      expectedSourceConnectionId: "oauth-connection-1",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      signal: controller.signal,
+    });
+
+    await started;
+    controller.abort(
+      new Error("Builder live preflight exceeded its time limit."),
+    );
+
+    await expect(pending).rejects.toThrow(
+      "Builder live preflight exceeded its time limit.",
+    );
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(fetchImpl.mock.calls[0]?.[1]?.signal).toBe(controller.signal);
   });
 
   it("sends every OAuth read to cdn.builder.io even when both host overrides are set", async () => {

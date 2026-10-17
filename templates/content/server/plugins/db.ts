@@ -1459,6 +1459,14 @@ export const runContentMigrations = runMigrations(
       sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS author_effort TEXT;
         ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS submission_thread_id TEXT`,
     },
+    {
+      version: 122,
+      name: "builder-private-payload-cleanup-queue",
+      sql: `CREATE TABLE IF NOT EXISTS content_database_builder_blob_cleanup (
+        blob_reference TEXT PRIMARY KEY,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+    },
   ],
   { table: "content_migrations" },
 );

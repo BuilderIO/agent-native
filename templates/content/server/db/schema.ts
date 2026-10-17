@@ -774,6 +774,14 @@ export const contentDatabaseSourceExecutions = table(
   },
 );
 
+export const contentDatabaseBuilderBlobCleanup = table(
+  "content_database_builder_blob_cleanup",
+  {
+    blobReference: text("blob_reference").primaryKey(),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+);
+
 export const contentDatabaseSourceExecutionClaims = table(
   "content_database_source_execution_claims",
   {

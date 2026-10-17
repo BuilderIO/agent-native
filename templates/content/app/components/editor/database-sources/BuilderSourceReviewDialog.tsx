@@ -238,6 +238,7 @@ export function builderReviewRowCanCancelPrepared(
 ) {
   const execution = row.execution;
   if (!execution) return false;
+  if (execution.payloadUnavailable) return false;
   if (
     execution.state !== "ready" &&
     execution.state !== "write_disabled" &&

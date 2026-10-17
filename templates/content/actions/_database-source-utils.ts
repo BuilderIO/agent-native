@@ -204,6 +204,7 @@ type SourceMetadataRecord = {
   lastReadPartial?: boolean;
   lastReadHasMore?: boolean;
   lastReadNextOffset?: number;
+  lastReadNextCursor?: string;
   lastReadSuspiciousEmpty?: boolean;
   activeReadSourceRowIds?: string[];
   sourceFetchState?: "idle" | "fetching" | "error";
@@ -4048,6 +4049,7 @@ export async function getContentDatabaseSourceSnapshotForWrite(
       ? loadSourceSnapshot(source, database, {
           includeHeavyBuilderBodyValues: true,
           documentIds,
+          hydrateExecutionPayloads: documentIds !== undefined,
         })
       : null;
   }
@@ -4063,6 +4065,7 @@ export async function getContentDatabaseSourceSnapshotForWrite(
     ? loadSourceSnapshot(source, database, {
         includeHeavyBuilderBodyValues: true,
         documentIds,
+        hydrateExecutionPayloads: documentIds !== undefined,
       })
     : null;
 }
@@ -4208,6 +4211,7 @@ export async function getContentDatabaseSourceSnapshotForReview(
   if (reviewableChanges.some((changeSet) => !changeSet.documentId)) {
     return loadSourceSnapshot(source, database, {
       includeHeavyBuilderBodyValues: true,
+      hydrateExecutionPayloads: true,
     });
   }
   const candidateDocumentIds = new Set(
@@ -4548,7 +4552,11 @@ export async function hydrateSnapshotExecutionRows(
 async function loadSourceSnapshot(
   source: ContentDatabaseSourceRowDb,
   database: ContentDatabaseRow | ContentDatabase,
-  options: { includeHeavyBuilderBodyValues: boolean; documentIds?: string[] },
+  options: {
+    includeHeavyBuilderBodyValues: boolean;
+    documentIds?: string[];
+    hydrateExecutionPayloads?: boolean;
+  },
 ): Promise<ContentDatabaseSource> {
   const db = getDb();
   const [fieldRows, changeRows, propertyDefs] = await Promise.all([
@@ -4661,7 +4669,12 @@ async function loadSourceSnapshot(
     ContentDatabaseSourceExecution[]
   >();
   const hydratedExecutionRows =
-    await hydrateSnapshotExecutionRows(executionRows);
+    options.documentIds !== undefined || options.hydrateExecutionPayloads
+      ? await hydrateSnapshotExecutionRows(executionRows)
+      : executionRows.map((row) => ({
+          ...row,
+          payloadUnavailable: true as const,
+        }));
   for (const row of hydratedExecutionRows) {
     const executions = executionsByChangeSetId.get(row.changeSetId) ?? [];
     executions.push(serializeExecution(row));
@@ -5243,6 +5256,7 @@ export function serializeBuilderCmsSourceReadMetadataRecord(args: {
     lastReadPartial: args.progress?.partial,
     lastReadHasMore: args.progress?.hasMore,
     lastReadNextOffset: args.progress?.nextOffset,
+    lastReadNextCursor: args.progress?.nextCursor,
     lastReadSuspiciousEmpty: args.suspiciousEmpty === true,
     activeReadSourceRowIds: args.suspiciousEmpty
       ? []
@@ -7045,6 +7059,12 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
       : BUILDER_CMS_REFRESH_INITIAL_PAGES,
     limit: args.runFullRefresh ? 10_000 : undefined,
     offset: continueOffset,
+    afterId:
+      continueOffset > 0 &&
+      typeof sourceMetadata.lastReadNextCursor === "string"
+        ? sourceMetadata.lastReadNextCursor
+        : undefined,
+    requireBoundOAuth: true,
     startingFetchedEntryCount:
       continueOffset > 0 ? activeReadSourceRowIds.length : 0,
   });

@@ -221,6 +221,7 @@ function depsFor(args: {
   execution: BuilderSourceExecutionRecord | null;
   writeResult?: BuilderCmsWriteResult;
   claimExecution?: boolean;
+  renewExecutionClaim?: boolean;
   readLiveEntry?: BuilderCmsEntryLiveState;
   lookupMatches?: Array<{
     id: string;
@@ -239,6 +240,7 @@ function depsFor(args: {
     getExecution: vi.fn(async () => args.execution),
     updateExecutionState: vi.fn(async () => {}),
     claimExecution: vi.fn(async () => args.claimExecution ?? true),
+    renewExecutionClaim: vi.fn(async () => args.renewExecutionClaim ?? true),
     markResponseCheckpointFailed: vi.fn(async () => true),
     markExecutionSucceeded: vi.fn(async () => {}),
     markExecutionFailed: vi.fn(async () => {}),
@@ -562,12 +564,47 @@ describe("execute Builder source execution", () => {
     expect(deps.executeWrite).toHaveBeenCalledTimes(1);
     const readCallOrder = vi.mocked(deps.readLiveEntry).mock
       .invocationCallOrder[0]!;
+    const renewCallOrder = vi.mocked(deps.renewExecutionClaim).mock
+      .invocationCallOrder[0]!;
     const claimCallOrder = vi.mocked(deps.claimExecution).mock
       .invocationCallOrder[0]!;
     const writeCallOrder = vi.mocked(deps.executeWrite).mock
       .invocationCallOrder[0]!;
     expect(claimCallOrder).toBeLessThan(readCallOrder);
-    expect(readCallOrder).toBeLessThan(writeCallOrder);
+    expect(readCallOrder).toBeLessThan(renewCallOrder);
+    expect(renewCallOrder).toBeLessThan(writeCallOrder);
+  });
+
+  it("does not dispatch after preflight when another attempt reclaimed the lease", async () => {
+    const approvedChangeSet = changeSet({ pushMode: "draft" });
+    const builderSource = source({ changeSets: [approvedChangeSet] });
+    const execution = executionFor({
+      source: builderSource,
+      changeSet: approvedChangeSet,
+    });
+    const deps = depsFor({
+      source: builderSource,
+      execution,
+      renewExecutionClaim: false,
+    });
+
+    await expect(
+      executeBuilderSourceExecutionWithDeps(
+        {
+          databaseId: "database-1",
+          changeSetId: approvedChangeSet.id,
+          pushModeConfirmation: "draft",
+        },
+        deps,
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      message: "Builder execution lease was reclaimed during live preflight.",
+    });
+
+    expect(deps.renewExecutionClaim).toHaveBeenCalledTimes(1);
+    expect(deps.executeWrite).not.toHaveBeenCalled();
+    expect(deps.releaseExecutionClaim).not.toHaveBeenCalled();
   });
 
   it("blocks stale live entries before writing and hands the claim back as blocked", async () => {

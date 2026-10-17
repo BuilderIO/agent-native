@@ -116,6 +116,11 @@ export interface ExecuteBuilderSourceExecutionDeps {
     staleBefore: string;
     attemptToken: string;
   }) => Promise<boolean>;
+  renewExecutionClaim: (args: {
+    executionId: string;
+    attemptToken: string;
+    now: string;
+  }) => Promise<boolean>;
   checkpointResponse?: (args: {
     executionId: string;
     attemptToken: string;
@@ -192,6 +197,7 @@ export interface ExecuteBuilderSourceExecutionDeps {
 }
 
 const RUNNING_EXECUTION_TIMEOUT_MS = 10 * 60 * 1000;
+const BUILDER_LIVE_PREFLIGHT_TIMEOUT_MS = 60 * 1000;
 const BUILDER_RESPONSE_CHECKPOINT_FAILURE =
   "Builder accepted the write, but its response could not be saved for reconciliation. Do not retry this execution; inspect the live Builder entry before preparing another write.";
 
@@ -1031,6 +1037,23 @@ export function realExecutionDeps(
       }
       return builderExecutionAffectedRows(result) > 0;
     },
+    renewExecutionClaim: async (args) => {
+      const result = await getDb()
+        .update(schema.contentDatabaseSourceExecutions)
+        .set({ updatedAt: args.now })
+        .where(
+          and(
+            eq(schema.contentDatabaseSourceExecutions.id, args.executionId),
+            eq(schema.contentDatabaseSourceExecutions.state, "running"),
+            eq(
+              schema.contentDatabaseSourceExecutions.attemptToken,
+              args.attemptToken,
+            ),
+          ),
+        )
+        .returning({ id: schema.contentDatabaseSourceExecutions.id });
+      return result.length > 0;
+    },
     checkpointResponse: async (args) => {
       const prepared = await storedPayloadJson(args.executionId, args.payload);
       let result;
@@ -1172,7 +1195,61 @@ export function realExecutionDeps(
       await cleanupCommittedPrevious(prepared);
     },
     markExecutionFailed: async (args) => {
-      const prepared = await storedPayloadJson(args.executionId, args.payload);
+      let prepared: Awaited<ReturnType<typeof storedPayloadJson>>;
+      try {
+        prepared = await storedPayloadJson(args.executionId, args.payload);
+      } catch (error) {
+        if (args.state !== "reconciliation_required") throw error;
+        const [current] = await getDb()
+          .select()
+          .from(schema.contentDatabaseSourceExecutions)
+          .where(
+            eq(schema.contentDatabaseSourceExecutions.id, args.executionId),
+          )
+          .limit(1);
+        if (!current) throw error;
+        const result = await getDb()
+          .update(schema.contentDatabaseSourceExecutions)
+          .set({
+            state: "reconciliation_required",
+            summary: args.summary,
+            lastError:
+              args.lastError ??
+              "Builder outcome requires reconciliation; payload could not be checkpointed.",
+            updatedAt: args.now,
+          })
+          .where(
+            and(
+              eq(schema.contentDatabaseSourceExecutions.id, args.executionId),
+              eq(
+                schema.contentDatabaseSourceExecutions.payloadJson,
+                current.payloadJson,
+              ),
+              eq(schema.contentDatabaseSourceExecutions.state, current.state),
+              notInArray(schema.contentDatabaseSourceExecutions.state, [
+                "succeeded",
+                "failed",
+              ]),
+              args.attemptToken
+                ? eq(
+                    schema.contentDatabaseSourceExecutions.attemptToken,
+                    args.attemptToken,
+                  )
+                : isNull(schema.contentDatabaseSourceExecutions.attemptToken),
+            ),
+          )
+          .returning({ id: schema.contentDatabaseSourceExecutions.id });
+        if (result.length === 0) {
+          fail(
+            "Builder execution changed before reconciliation was recorded.",
+            {
+              errorCode: "builder_execution_changed",
+              statusCode: 409,
+            },
+          );
+        }
+        return;
+      }
       let result;
       try {
         result = await getDb()
@@ -1288,7 +1365,24 @@ export function realExecutionDeps(
       await cleanupCommittedPrevious(prepared);
     },
     executeWrite: (args) => executeBuilderCmsWrite(args),
-    readLiveEntry: (args) => readBuilderCmsEntryLiveState(args),
+    readLiveEntry: async (args) => {
+      const controller = new AbortController();
+      const timeout = setTimeout(
+        () =>
+          controller.abort(
+            new Error("Builder live preflight exceeded its time limit."),
+          ),
+        BUILDER_LIVE_PREFLIGHT_TIMEOUT_MS,
+      );
+      try {
+        return await readBuilderCmsEntryLiveState({
+          ...args,
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeout);
+      }
+    },
     reconcileWrite: reconcileBuilderCmsWrite,
     getResponse: (databaseId) =>
       getContentDatabaseResponse(databaseId, { limit: 100, offset: 0 }),
@@ -1666,6 +1760,16 @@ export async function executeBuilderSourceExecutionWithDeps(
           lastError: error instanceof Error ? error.message : String(error),
         });
         throw error;
+      }
+      const claimRenewed = await deps.renewExecutionClaim({
+        executionId: execution.id,
+        attemptToken,
+        now: deps.now(),
+      });
+      if (!claimRenewed) {
+        throw builderExecutionConflict(
+          "Builder execution lease was reclaimed during live preflight.",
+        );
       }
       const baselineLastUpdated = plan.payload.target.reviewedLastUpdated;
       console.info("builder_source_live_preflight", {

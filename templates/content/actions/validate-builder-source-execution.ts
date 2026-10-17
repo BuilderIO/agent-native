@@ -113,6 +113,12 @@ export default defineAction({
         "Prepare the Builder execution gate before validating it.",
       );
     }
+    if (execution.state === "reconciliation_required") {
+      fail("Builder execution requires reconciliation before validation.", {
+        errorCode: "builder_execution_reconciliation_required",
+        statusCode: 409,
+      });
+    }
     if (execution.state === "running" || execution.attemptToken) {
       fail("Builder execution is already running.", {
         errorCode: "builder_execution_running",

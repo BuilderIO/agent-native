@@ -37,6 +37,7 @@ export interface BuilderCmsReadProgress {
   pageSize: number;
   startOffset: number;
   nextOffset: number;
+  nextCursor?: string;
   fetchedEntryCount: number;
   hasMore: boolean;
   partial: boolean;
@@ -475,13 +476,22 @@ async function fetchBuilderContentPage(args: {
   fetchImpl: FetchLike;
   url: URL;
   privateKey?: string;
+  signal?: AbortSignal;
 }): Promise<Response> {
   let lastError: unknown = null;
   for (let attempt = 0; attempt <= BUILDER_CMS_READ_RETRIES; attempt += 1) {
+    if (args.signal?.aborted) {
+      throw args.signal.reason instanceof Error
+        ? args.signal.reason
+        : new Error("Builder request was aborted.");
+    }
     try {
       const headers: Record<string, string> = { accept: "application/json" };
       if (args.privateKey) headers.authorization = `Bearer ${args.privateKey}`;
-      const response = await args.fetchImpl(args.url, { headers });
+      const response = await args.fetchImpl(args.url, {
+        headers,
+        ...(args.signal ? { signal: args.signal } : {}),
+      });
       if (
         !retryableBuilderReadStatus(response.status) ||
         attempt === BUILDER_CMS_READ_RETRIES
@@ -490,7 +500,7 @@ async function fetchBuilderContentPage(args: {
       }
     } catch (error) {
       lastError = error;
-      if (attempt === BUILDER_CMS_READ_RETRIES) {
+      if (args.signal?.aborted || attempt === BUILDER_CMS_READ_RETRIES) {
         throw error;
       }
     }
@@ -646,6 +656,7 @@ async function readBuilderCmsGeneralModels(args: {
   expectedSourceSpace?: string | null;
   expectedSourceConnectionId?: string | null;
   fetchImpl: FetchLike;
+  signal?: AbortSignal;
 }) {
   const publicKey = requireBuilderOAuthPublicKey(
     args.authorization,
@@ -658,6 +669,7 @@ async function readBuilderCmsGeneralModels(args: {
     fetchImpl: args.fetchImpl,
     url,
     privateKey: args.authorization.token,
+    signal: args.signal,
   });
   if (!response.ok) {
     fail(`Builder model discovery failed with HTTP ${response.status}.`, {
@@ -675,6 +687,7 @@ async function resolveBuilderCmsGeneralModelId(args: {
   expectedSourceSpace?: string | null;
   expectedSourceConnectionId?: string | null;
   fetchImpl: FetchLike;
+  signal?: AbortSignal;
 }) {
   const requestedModel = args.model.trim().toLowerCase();
   const models = await readBuilderCmsGeneralModels(args);
@@ -1359,6 +1372,7 @@ async function readBuilderCmsContentEntriesViaGeneralApi(args: {
   limit?: number;
   maxPages?: number;
   offset?: number;
+  afterId?: string;
   fetchImpl: FetchLike;
   authorization: BuilderRequestAuthorization;
   expectedSourceSpace?: string | null;
@@ -1370,6 +1384,13 @@ async function readBuilderCmsContentEntriesViaGeneralApi(args: {
     typeof args.offset === "number" && Number.isFinite(args.offset)
       ? Math.max(0, Math.floor(args.offset))
       : 0;
+  const startAfterId = args.afterId?.trim() || null;
+  if (startOffset > 0 && !startAfterId) {
+    fail(
+      "Builder query-data continuation needs a stable entry cursor. Restart the source refresh to establish one.",
+      { errorCode: "builder_source_continuation_mismatch", statusCode: 409 },
+    );
+  }
   const publicKey = requireBuilderOAuthPublicKey(
     args.authorization,
     args.expectedSourceSpace,
@@ -1379,8 +1400,9 @@ async function readBuilderCmsContentEntriesViaGeneralApi(args: {
   const entries: BuilderCmsSourceEntry[] = [];
   const seenIds = new Set<string>();
   let offset = startOffset;
+  let cursor = startAfterId;
   let pagesRead = 0;
-  let expectedTotal: number | null = null;
+  let expectedRemainingCount: number | null = null;
   let hasMore = false;
 
   while (entries.length < requestedLimit) {
@@ -1390,7 +1412,11 @@ async function readBuilderCmsContentEntriesViaGeneralApi(args: {
     url.searchParams.set("apiKey", publicKey);
     url.searchParams.set("query.modelId", modelId);
     url.searchParams.set("sort.id", "1");
-    url.searchParams.set("offset", String(offset));
+    if (cursor) {
+      url.searchParams.set("query.id.$gt", cursor);
+    } else {
+      url.searchParams.set("offset", "0");
+    }
     url.searchParams.set("limit", String(pageLimit));
     url.searchParams.set("fetchTotalCount", "true");
     url.searchParams.set("noCache", "true");
@@ -1411,6 +1437,7 @@ async function readBuilderCmsContentEntriesViaGeneralApi(args: {
           pageSize: BUILDER_CMS_PAGE_SIZE,
           startOffset,
           nextOffset: offset,
+          nextCursor: cursor ?? undefined,
           fetchedEntryCount: startOffset + entries.length,
           hasMore: false,
           partial: entries.length > 0,
@@ -1421,19 +1448,28 @@ async function readBuilderCmsContentEntriesViaGeneralApi(args: {
     const json = (await response.json()) as unknown;
     const { results: rawPageEntries, totalCount } =
       parseBuilderGeneralQueryDataResponse(json);
-    if (expectedTotal !== null && totalCount !== expectedTotal) {
+    if (
+      expectedRemainingCount !== null &&
+      totalCount !== expectedRemainingCount
+    ) {
       fail(
-        "Builder query-data total changed during pagination; refresh the source to restart the observed collection read.",
+        "Builder query-data collection changed during cursor pagination; refresh the source to restart the observed collection read.",
         { errorCode: "builder_source_changed", statusCode: 409 },
       );
     }
-    expectedTotal = totalCount;
     const pageEntries = rawPageEntries
       .map((entry) => normalizeBuilderCmsApiEntry(entry, args.model))
       .filter((entry): entry is BuilderCmsSourceEntry => Boolean(entry));
     if (pageEntries.length !== rawPageEntries.length) {
       fail(
         "Builder query-data returned a malformed entry before the observed collection was complete.",
+        { errorCode: "builder_response_invalid", statusCode: 424 },
+      );
+    }
+    const priorCursor = cursor;
+    if (priorCursor && pageEntries.some((entry) => entry.id <= priorCursor)) {
+      fail(
+        "Builder query-data cursor pagination repeated or reordered an entry.",
         { errorCode: "builder_response_invalid", statusCode: 424 },
       );
     }
@@ -1446,13 +1482,15 @@ async function readBuilderCmsContentEntriesViaGeneralApi(args: {
     }
     pagesRead += 1;
     offset += pageEntries.length;
-    if (offset > totalCount) {
+    if (pageEntries.length > totalCount) {
       fail(
         "Builder query-data returned more entries than its reported totalCount.",
         { errorCode: "builder_response_invalid", statusCode: 424 },
       );
     }
-    hasMore = offset < totalCount;
+    cursor = pageEntries[pageEntries.length - 1]?.id ?? cursor;
+    expectedRemainingCount = totalCount - pageEntries.length;
+    hasMore = expectedRemainingCount > 0;
     if (hasMore && (pageEntries.length === 0 || appended === 0)) {
       fail(
         "Builder query-data pagination returned no new entries before the observed collection was complete.",
@@ -1472,6 +1510,7 @@ async function readBuilderCmsContentEntriesViaGeneralApi(args: {
       pageSize: BUILDER_CMS_PAGE_SIZE,
       startOffset,
       nextOffset: offset,
+      nextCursor: cursor ?? undefined,
       fetchedEntryCount: offset,
       hasMore,
       partial: hasMore,
@@ -1489,6 +1528,7 @@ async function readBuilderCmsGeneralApiEntry(args: {
   expectedSourceSpace?: string | null;
   expectedSourceConnectionId?: string | null;
   fetchImpl: FetchLike;
+  signal?: AbortSignal;
 }) {
   const publicKey = requireBuilderOAuthPublicKey(
     args.authorization,
@@ -1513,6 +1553,7 @@ async function readBuilderCmsGeneralApiEntry(args: {
     fetchImpl: args.fetchImpl,
     url,
     privateKey: args.authorization.token,
+    signal: args.signal,
   });
 }
 
@@ -1567,6 +1608,7 @@ export async function readBuilderCmsEntryLiveState(args: {
   expectedSourceSpace?: string | null;
   expectedSourceConnectionId?: string | null;
   fetchImpl?: FetchLike;
+  signal?: AbortSignal;
 }): Promise<BuilderCmsEntryLiveState> {
   const { authorization: generalAuthorization } =
     await readGeneralBuilderContentAuthorization(
@@ -1588,6 +1630,7 @@ export async function readBuilderCmsEntryLiveState(args: {
       expectedSourceSpace: args.expectedSourceSpace,
       expectedSourceConnectionId: args.expectedSourceConnectionId,
       fetchImpl: args.fetchImpl ?? fetch,
+      signal: args.signal,
     });
     if (!response.ok) {
       fail(`Builder CMS live entry read failed with HTTP ${response.status}.`, {
@@ -1625,6 +1668,7 @@ export async function readBuilderCmsEntryLiveState(args: {
   const response = await fetchBuilderContentPage({
     fetchImpl: args.fetchImpl ?? fetch,
     url,
+    signal: args.signal,
   });
   if (response.status === 404) {
     return {
@@ -2082,7 +2126,9 @@ export async function readBuilderCmsContentEntries(args: {
   limit?: number;
   maxPages?: number;
   offset?: number;
+  afterId?: string;
   startingFetchedEntryCount?: number;
+  requireBoundOAuth?: boolean;
   fetchImpl?: FetchLike;
 }): Promise<BuilderCmsReadResult> {
   const fetchedAt = new Date().toISOString();
@@ -2144,12 +2190,25 @@ export async function readBuilderCmsContentEntries(args: {
   }
   if (isGeneralBuilderOAuth(authorization)) {
     try {
+      if (
+        args.requireBoundOAuth === true &&
+        !isBuilderReadSourceBound(
+          args.expectedSourceSpace,
+          args.expectedSourceConnectionId,
+        )
+      ) {
+        fail(
+          "Builder OAuth refresh requires a saved space and connection binding. Reconnect the source before refreshing.",
+          { errorCode: "builder_source_binding_required", statusCode: 409 },
+        );
+      }
       return preserveProjectedBuilderFieldAbsence(
         await readBuilderCmsContentEntriesViaGeneralApi({
           model: args.model,
           limit: args.limit,
           maxPages: args.maxPages,
           offset: args.offset,
+          afterId: args.afterId,
           fetchImpl,
           authorization,
           expectedSourceSpace: args.expectedSourceSpace,
@@ -2172,6 +2231,7 @@ export async function readBuilderCmsContentEntries(args: {
           pageSize: BUILDER_CMS_PAGE_SIZE,
           startOffset: args.offset ?? 0,
           nextOffset: args.offset ?? 0,
+          nextCursor: args.afterId,
           fetchedEntryCount: args.offset ?? 0,
           hasMore: false,
           partial: false,

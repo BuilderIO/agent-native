@@ -160,6 +160,18 @@ describe("content database migrations", () => {
     );
   });
 
+  it("queues Builder private payload cleanup for retry", () => {
+    const source = readFileSync(
+      join(__dirname, "..", "plugins", "db.ts"),
+      "utf8",
+    );
+
+    expect(source).toContain(
+      "CREATE TABLE IF NOT EXISTS content_database_builder_blob_cleanup",
+    );
+    expect(source).toContain('name: "builder-private-payload-cleanup-queue"');
+  });
+
   it("cleans source review and execution rows when database pages are deleted", () => {
     const source = readFileSync(
       join(__dirname, "..", "..", "actions", "_database-utils.ts"),
