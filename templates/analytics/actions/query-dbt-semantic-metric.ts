@@ -64,7 +64,7 @@ const queryMetricOutputSchema = z.discriminatedUnion("status", [
   z.object({
     status: z.literal("connection_error"),
     metricName: z.string(),
-    connection: metricConnectionSchema,
+    connection: metricConnectionSchema.optional(),
     message: z.string(),
   }),
   z.object({
@@ -525,7 +525,6 @@ export default defineAction({
         return {
           status: "connection_error",
           metricName,
-          connection: { id: connections[0].id, label: connections[0].label },
           message:
             "The dbt token could not be checked. Retry the request or check the workspace secrets.",
         };

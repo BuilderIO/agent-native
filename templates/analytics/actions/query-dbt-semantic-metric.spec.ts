@@ -297,9 +297,31 @@ describe("query-dbt-semantic-metric", () => {
       { ...connection, id: "conn_b", label: "Staging dbt" },
     ]);
 
-    await expect(
-      action.run({ metricName: "active_workspaces", limit: 20 }),
-    ).resolves.toMatchObject({ status: "connection_error" });
+    const result = await action.run({
+      metricName: "active_workspaces",
+      limit: 20,
+    });
+
+    expect(result).toMatchObject({ status: "connection_error" });
+    expect(result).not.toHaveProperty("connection");
+    expect(mocks.executeProviderApiRequest).not.toHaveBeenCalled();
+  });
+
+  it("does not attribute a missing org context to one dbt connection", async () => {
+    mocks.getRequestOrgId.mockReturnValueOnce(null);
+    mocks.listWorkspaceConnectionsForApp.mockResolvedValueOnce([
+      connection,
+      { ...connection, id: "conn_b", label: "Staging dbt" },
+    ]);
+
+    const result = await action.run({
+      metricName: "active_workspaces",
+      limit: 20,
+    });
+
+    expect(result).toMatchObject({ status: "connection_error" });
+    expect(result).not.toHaveProperty("connection");
+    expect(mocks.hasAppSecret).not.toHaveBeenCalled();
     expect(mocks.executeProviderApiRequest).not.toHaveBeenCalled();
   });
 
