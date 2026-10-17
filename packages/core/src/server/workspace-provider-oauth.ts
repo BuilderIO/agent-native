@@ -22,6 +22,7 @@ import {
   normalizeSigmaApiBaseUrl,
   SIGMA_DEFAULT_API_BASE_URL,
 } from "../connections/sigma-api.js";
+import { getDbExec, withDbExec } from "../db/client.js";
 import {
   OAuthAccountOwnedByOtherUserError,
   saveOAuthTokens,
@@ -1508,72 +1509,100 @@ async function loadOrCreateSigmaOAuthClient(input: {
   const pending = sigmaRegistrationPromises.get(key);
   if (pending) return pending;
   const registration = (async () => {
-    const ref = {
-      key: SIGMA_OAUTH_CLIENTS_SECRET,
-      scope: "user" as const,
-      scopeId: input.owner,
-    };
-    const [secret, secretMeta] = await Promise.all([
-      readAppSecret(ref),
-      readAppSecretMeta(ref),
-    ]);
-    if (secretMeta && !secret) {
-      throw new Error("Saved Sigma OAuth client registration is unreadable.");
-    }
-    let registrations: Record<string, unknown> = {};
-    if (secret) {
-      try {
-        const parsed: unknown = JSON.parse(secret.value);
-        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-          throw new Error("Sigma OAuth client registrations are invalid.");
-        }
-        registrations = parsed as Record<string, unknown>;
-      } catch {
-        throw new Error("Saved Sigma OAuth client registration is unreadable.");
-      }
-    }
-    const existingValue = registrations[key];
-    const existing = parseSigmaOAuthClientRegistration(existingValue);
-    if (existingValue !== undefined && !existing) {
-      throw new Error("Saved Sigma OAuth client registration is invalid.");
-    }
-    if (existing && (!existing.expiresAt || existing.expiresAt > Date.now())) {
-      return existing;
-    }
-    const { response, body } = await fetchBoundedProviderJson(
-      registrationUrl,
-      {
-        method: "POST",
-        headers: {
-          Accept: "application/json",
-          "Content-Type": "application/json",
-        },
-        redirect: "error",
-        body: JSON.stringify({
-          client_name: `Agent-Native ${input.appId}`,
-          redirect_uris: [input.redirectUri],
-          grant_types: ["authorization_code", "refresh_token"],
-          response_types: ["code"],
-          token_endpoint_auth_method: "none",
-          scope: "api:access",
-        }),
-      },
-      "Sigma",
-    );
-    const created = parseSigmaOAuthClientRegistration(body);
-    if (!response.ok || !created) {
+    const dbExec = getDbExec();
+    if (!dbExec.transaction) {
       throw new Error(
-        `Sigma OAuth client registration failed (${response.status}).`,
+        "Sigma OAuth client registration requires database transaction support.",
       );
     }
-    await writeAppSecret({
-      key: SIGMA_OAUTH_CLIENTS_SECRET,
-      value: JSON.stringify({ ...registrations, [key]: created }),
-      scope: "user",
-      scopeId: input.owner,
-      description: "Sigma OAuth client registration for Analytics connections.",
-    });
-    return created;
+    return dbExec.transaction(async (tx) =>
+      withDbExec(tx, async () => {
+        await tx.execute({
+          sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
+          args: [
+            `sigma-oauth-client-registrations:${input.owner.trim().toLowerCase()}`,
+          ],
+        });
+        const ref = {
+          key: SIGMA_OAUTH_CLIENTS_SECRET,
+          scope: "user" as const,
+          scopeId: input.owner,
+        };
+        const [secret, secretMeta] = await Promise.all([
+          readAppSecret(ref),
+          readAppSecretMeta(ref),
+        ]);
+        let registrations: Record<string, unknown> = {};
+        let cacheNeedsRepair = false;
+        if (secretMeta && !secret) {
+          // Unreadable registrations cannot be recovered from this blob, so
+          // rebuild it only after Sigma accepts a new registration.
+          cacheNeedsRepair = true;
+        } else if (secret) {
+          let parsed: unknown;
+          try {
+            parsed = JSON.parse(secret.value);
+          } catch {
+            cacheNeedsRepair = true;
+          }
+          if (
+            !cacheNeedsRepair &&
+            (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+          ) {
+            cacheNeedsRepair = true;
+          }
+          if (!cacheNeedsRepair) {
+            registrations = parsed as Record<string, unknown>;
+          }
+        }
+        const existingValue = cacheNeedsRepair ? undefined : registrations[key];
+        const existing = parseSigmaOAuthClientRegistration(existingValue);
+        if (
+          existing &&
+          (!existing.expiresAt || existing.expiresAt > Date.now())
+        ) {
+          return existing;
+        }
+        const { response, body } = await fetchBoundedProviderJson(
+          registrationUrl,
+          {
+            method: "POST",
+            headers: {
+              Accept: "application/json",
+              "Content-Type": "application/json",
+            },
+            redirect: "error",
+            body: JSON.stringify({
+              client_name: `Agent-Native ${input.appId}`,
+              redirect_uris: [input.redirectUri],
+              grant_types: ["authorization_code", "refresh_token"],
+              response_types: ["code"],
+              token_endpoint_auth_method: "none",
+              scope: "api:access",
+            }),
+          },
+          "Sigma",
+        );
+        const created = parseSigmaOAuthClientRegistration(body);
+        if (!response.ok || !created) {
+          throw new Error(
+            `Sigma OAuth client registration failed (${response.status}).`,
+          );
+        }
+        await writeAppSecret({
+          key: SIGMA_OAUTH_CLIENTS_SECRET,
+          value: JSON.stringify({
+            ...(cacheNeedsRepair ? {} : registrations),
+            [key]: created,
+          }),
+          scope: "user",
+          scopeId: input.owner,
+          description:
+            "Sigma OAuth client registration for Analytics connections.",
+        });
+        return created;
+      }),
+    );
   })();
   sigmaRegistrationPromises.set(key, registration);
   try {

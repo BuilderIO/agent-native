@@ -1,3 +1,4 @@
+import type { H3Event } from "h3";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const resolveSecretMock = vi.hoisted(() => vi.fn());
@@ -115,6 +116,36 @@ afterEach(() => {
   sigmaSecretMocks.writeAppSecret.mockReset();
   vi.clearAllMocks();
 });
+
+function sigmaStartEvent(apiBaseUrl: string): H3Event {
+  const requestUrl = new URL(
+    "https://example.test/_agent-native/connections/oauth/sigma/start",
+  );
+  requestUrl.searchParams.set("appId", "analytics");
+  requestUrl.searchParams.set("scope", "user");
+  requestUrl.searchParams.set("baseUrl", apiBaseUrl);
+  return {
+    req: new Request(requestUrl),
+    res: { status: 200, headers: new Headers() },
+  } as never;
+}
+
+function sigmaMetadataResponse(apiBaseUrl: string): Response {
+  return new Response(
+    JSON.stringify({
+      issuer: `${apiBaseUrl}/`,
+      authorization_endpoint: `${apiBaseUrl}/mcp/authorize`,
+      token_endpoint: `${apiBaseUrl}/mcp/token`,
+      registration_endpoint: `${apiBaseUrl}/mcp/register`,
+      code_challenge_methods_supported: ["S256"],
+      grant_types_supported: ["authorization_code", "refresh_token"],
+      response_types_supported: ["code"],
+      scopes_supported: ["api:access"],
+      token_endpoint_auth_methods_supported: ["none"],
+    }),
+    { status: 200, headers: { "content-type": "application/json" } },
+  );
+}
 
 describe("workspace provider OAuth", () => {
   it("keeps the return URL in the encrypted OAuth flow cookie", async () => {
@@ -307,6 +338,168 @@ describe("workspace provider OAuth", () => {
       sigmaOAuthClientId: "sigma-dynamic-client",
       sigmaTokenUrl: `${apiBaseUrl}/mcp/token`,
     });
+  });
+
+  it.each([
+    { registrationStatus: 201, shouldPersist: true },
+    { registrationStatus: 503, shouldPersist: false },
+  ])(
+    "recovers an unreadable Sigma OAuth registration cache only after DCR succeeds ($registrationStatus)",
+    async ({ registrationStatus, shouldPersist }) => {
+      const email = "requester@example.com";
+      const apiBaseUrl = "https://api.eu.aws.sigmacomputing.com";
+      defineAppConfig({ app: { id: "analytics", workspaceId: "analytics" } });
+      vi.stubEnv("BETTER_AUTH_SECRET", "test-only-oauth-secret");
+      callbackMocks.getSession.mockResolvedValue({ email });
+      callbackMocks.getOrgContext.mockResolvedValue({
+        orgId: "org-1",
+        email,
+        role: "member",
+      });
+      sigmaSecretMocks.readAppSecret.mockResolvedValue(null);
+      sigmaSecretMocks.readAppSecretMeta.mockResolvedValue({
+        key: "SIGMA_OAUTH_CLIENT_REGISTRATIONS",
+        scope: "user",
+        scopeId: email,
+        last4: "",
+        description:
+          "Sigma OAuth client registration for Analytics connections.",
+        urlAllowlist: null,
+        createdAt: 1,
+        updatedAt: 1,
+      });
+      const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(String(input));
+        if (url.pathname === "/.well-known/oauth-authorization-server") {
+          return sigmaMetadataResponse(apiBaseUrl);
+        }
+        return new Response(
+          JSON.stringify({
+            client_id: "sigma-repaired-client",
+            token_endpoint_auth_method: "none",
+          }),
+          {
+            status: registrationStatus,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const result = await handleWorkspaceProviderOAuthStart(
+        sigmaStartEvent(apiBaseUrl),
+        "sigma",
+      );
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(sigmaSecretMocks.writeAppSecret).toHaveBeenCalledTimes(
+        shouldPersist ? 1 : 0,
+      );
+      if (shouldPersist) {
+        expect(result).toBeInstanceOf(Response);
+        const savedValue =
+          sigmaSecretMocks.writeAppSecret.mock.calls[0]?.[0]?.value;
+        const savedRegistrations = JSON.parse(savedValue);
+        expect(Object.keys(savedRegistrations)).toHaveLength(1);
+        expect(Object.values(savedRegistrations)).toEqual([
+          expect.objectContaining({
+            clientId: "sigma-repaired-client",
+            tokenEndpointAuthMethod: "none",
+          }),
+        ]);
+      } else {
+        expect(result).toMatchObject({
+          error: "Sigma OAuth client registration failed (503).",
+        });
+      }
+    },
+  );
+
+  it("preserves distinct Sigma OAuth registrations created concurrently for one user", async () => {
+    const email = "requester@example.com";
+    const apiBaseUrls = [
+      "https://aws-api.sigmacomputing.com",
+      "https://api.eu.aws.sigmacomputing.com",
+    ];
+    defineAppConfig({ app: { id: "analytics", workspaceId: "analytics" } });
+    vi.stubEnv("BETTER_AUTH_SECRET", "test-only-oauth-secret");
+    callbackMocks.getSession.mockResolvedValue({ email });
+    callbackMocks.getOrgContext.mockResolvedValue({
+      orgId: "org-1",
+      email,
+      role: "member",
+    });
+    let savedValue: string | null = null;
+    sigmaSecretMocks.readAppSecret.mockImplementation(async () =>
+      savedValue ? { value: savedValue, last4: "", updatedAt: 1 } : null,
+    );
+    sigmaSecretMocks.readAppSecretMeta.mockImplementation(async () =>
+      savedValue
+        ? {
+            key: "SIGMA_OAUTH_CLIENT_REGISTRATIONS",
+            scope: "user",
+            scopeId: email,
+            last4: "",
+            description:
+              "Sigma OAuth client registration for Analytics connections.",
+            urlAllowlist: null,
+            createdAt: 1,
+            updatedAt: 1,
+          }
+        : null,
+    );
+    sigmaSecretMocks.writeAppSecret.mockImplementation(async ({ value }) => {
+      savedValue = value;
+      return "sigma-client-secret-row";
+    });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      const apiBaseUrl = url.origin;
+      if (url.pathname === "/.well-known/oauth-authorization-server") {
+        return sigmaMetadataResponse(apiBaseUrl);
+      }
+      return new Response(
+        JSON.stringify({
+          client_id: `sigma-client-${url.hostname}`,
+          token_endpoint_auth_method: "none",
+        }),
+        { status: 201, headers: { "content-type": "application/json" } },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const results = await Promise.all([
+      handleWorkspaceProviderOAuthStart(
+        sigmaStartEvent(apiBaseUrls[0]!),
+        "sigma",
+      ),
+      handleWorkspaceProviderOAuthStart(
+        sigmaStartEvent(apiBaseUrls[1]!),
+        "sigma",
+      ),
+      handleWorkspaceProviderOAuthStart(
+        sigmaStartEvent(apiBaseUrls[0]!),
+        "sigma",
+      ),
+    ]);
+
+    expect(results.every((result) => result instanceof Response)).toBe(true);
+    expect(
+      fetchMock.mock.calls.filter(([input]) =>
+        String(input).endsWith("/mcp/register"),
+      ),
+    ).toHaveLength(2);
+    expect(sigmaSecretMocks.writeAppSecret).toHaveBeenCalledTimes(2);
+    expect(Object.values(JSON.parse(savedValue!))).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          clientId: "sigma-client-aws-api.sigmacomputing.com",
+        }),
+        expect.objectContaining({
+          clientId: "sigma-client-api.eu.aws.sigmacomputing.com",
+        }),
+      ]),
+    );
   });
 
   it("keeps Sigma OAuth discovery limited to supported API regions", async () => {
