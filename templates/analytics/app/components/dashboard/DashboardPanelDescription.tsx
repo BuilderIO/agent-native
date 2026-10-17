@@ -1,3 +1,4 @@
+import { isExtensionApiPath } from "@agent-native/toolkit/app/extensions";
 import { InlineMarkdown } from "@agent-native/toolkit/app/review";
 import type { ReactNode } from "react";
 
@@ -14,6 +15,10 @@ export function safeDashboardLinkHref(value: unknown): string | null {
 
   const parsed = new URL(href, base);
   if (isRelative && parsed.origin !== relativeBase.origin) return null;
+  const sameOrigin =
+    isRelative ||
+    (typeof window !== "undefined" && parsed.origin === window.location.origin);
+  if (sameOrigin && isExtensionApiPath(parsed.pathname)) return null;
   return parsed.protocol === "http:" || parsed.protocol === "https:"
     ? href
     : null;

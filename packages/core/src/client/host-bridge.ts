@@ -337,9 +337,12 @@ function messageError(error: unknown): Error {
 function serializeForMessage<T>(value: T, label: string): T {
   if (value === undefined) return value;
   try {
+    structuredClone(value);
     return JSON.parse(JSON.stringify(value)) as T;
   } catch {
-    throw new Error(`${label} must be JSON-serializable`);
+    throw new Error(
+      `${label} must be JSON-serializable and structured-cloneable`,
+    );
   }
 }
 

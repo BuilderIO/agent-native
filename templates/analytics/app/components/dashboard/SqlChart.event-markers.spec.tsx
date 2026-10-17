@@ -75,6 +75,7 @@ vi.mock("@/lib/sql-query", () => ({
 vi.mock("@agent-native/toolkit/app/extensions", () => ({
   EmbeddedExtension: () => null,
   ExtensionSlot: () => null,
+  isExtensionApiPath: () => false,
 }));
 
 vi.mock("@shared/panel-events", async (importOriginal) => {

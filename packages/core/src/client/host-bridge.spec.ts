@@ -107,6 +107,34 @@ describe("createAgentNativeHostBridge", () => {
     bridge.stop();
   });
 
+  it("returns an error response when the host context is not cloneable", async () => {
+    const target = targetWindow();
+    const bridge = createAgentNativeHostBridge({
+      targetWindow: target.win,
+      agentOrigin: "https://agent.example",
+      getContext: () => ({
+        resource: { id: "acme" },
+        unsupported: () => "not cloneable",
+      }),
+    }).start();
+
+    dispatchFromAgent(target.win, "https://agent.example", {
+      type: AGENT_NATIVE_HOST_MESSAGE_TYPES.GET_CONTEXT,
+      requestId: "ctx-uncloneable",
+    });
+    await nextTick();
+
+    expect(target.sent).toHaveLength(1);
+    expect(target.sent[0].message).toMatchObject({
+      type: AGENT_NATIVE_HOST_MESSAGE_TYPES.CONTEXT,
+      ok: false,
+      requestId: "ctx-uncloneable",
+      error: "Host context must be JSON-serializable and structured-cloneable",
+    });
+
+    bridge.stop();
+  });
+
   it("sends init with auth after the iframe announces readiness", async () => {
     const target = targetWindow();
     const events: string[] = [];

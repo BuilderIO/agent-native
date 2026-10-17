@@ -44,6 +44,7 @@ export {
 export {
   createExternalExtensionLinkNonce,
   extensionFrameUrlWithLinkNonce,
+  isExtensionApiPath,
   useExternalExtensionLinks,
   type ExternalExtensionLinkOptions,
 } from "./extension-links.js";

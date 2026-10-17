@@ -1,5 +1,5 @@
 import { openMcpAppHostLink } from "@agent-native/core/client/agent-chat";
-import { agentNativePath } from "@agent-native/core/client/api-path";
+import { agentNativePath, appPath } from "@agent-native/core/client/api-path";
 import { isEmbedMcpChatBridgeActive } from "@agent-native/core/client/host";
 import {
   EXTENSION_LINK_CHANNEL_ACK_MESSAGE_TYPE,
@@ -342,14 +342,36 @@ function navigateSameOriginExtensionLink(value: unknown): boolean {
   return true;
 }
 
-function isExtensionApiPath(pathname: string): boolean {
-  const extensionsPath = new URL(
-    agentNativePath("/_agent-native/extensions"),
-    window.location.href,
-  ).pathname.replace(/\/+$/, "");
-  return (
-    pathname === extensionsPath || pathname.startsWith(`${extensionsPath}/`)
-  );
+export function isExtensionApiPath(pathname: string): boolean {
+  const baseHref =
+    typeof window === "undefined"
+      ? "http://agent-native.invalid/"
+      : window.location.href;
+  const apiPathPrefixes = ["/_agent-native/extensions", "/_agent-native/tools"]
+    .flatMap((path) => [agentNativePath(path), appPath(path)])
+    .map((path) => new URL(path, baseHref).pathname.replace(/\/+$/, ""));
+  const matchesApiPath = (candidate: string) =>
+    apiPathPrefixes.some(
+      (prefix) => candidate === prefix || candidate.startsWith(`${prefix}/`),
+    );
+
+  let candidate = pathname;
+  for (let decodePass = 0; decodePass < 3; decodePass += 1) {
+    if (matchesApiPath(candidate)) return true;
+    const decoded = candidate
+      .split("/")
+      .map((segment) => {
+        try {
+          return decodeURIComponent(segment);
+        } catch {
+          return segment;
+        }
+      })
+      .join("/");
+    if (decoded === candidate) return false;
+    candidate = decoded;
+  }
+  return matchesApiPath(candidate);
 }
 
 function reserveExternalLinkFallbackWindow(): Window | null {

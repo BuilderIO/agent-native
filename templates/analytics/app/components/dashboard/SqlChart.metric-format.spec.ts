@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 
 import type { SqlPanel } from "@/pages/adhoc/sql-dashboard/types";
 
@@ -120,6 +120,37 @@ describe("safeDashboardLinkHref", () => {
     expect(safeDashboardLinkHref("/dashboards/example")).toBe(
       "/dashboards/example",
     );
+    expect(
+      safeDashboardLinkHref(
+        "https://example.com/_agent-native/tools/ext/render",
+      ),
+    ).toBe("https://example.com/_agent-native/tools/ext/render");
+    expect(
+      safeDashboardLinkHref(
+        "https://agent-native.local/_agent-native/tools/ext/render",
+      ),
+    ).toBe("https://agent-native.local/_agent-native/tools/ext/render");
+  });
+
+  it("blocks extension API documents from same-origin Markdown links", () => {
+    vi.stubGlobal("window", {
+      location: new URL("https://app.example/analytics"),
+    });
+    try {
+      expect(
+        safeDashboardLinkHref("/_agent-native/extensions/ext/render"),
+      ).toBeNull();
+      expect(
+        safeDashboardLinkHref("/_agent-native/tools/ext/r%65nder"),
+      ).toBeNull();
+      expect(
+        safeDashboardLinkHref(
+          "https://app.example/_agent-native/tools/ext/render",
+        ),
+      ).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("blocks unsafe or incomplete link targets", () => {

@@ -15,6 +15,8 @@ const extensionContent = `
 <a id="same-origin-named-link" href="/__extension-e2e-app-popup" target="report">Open report</a>
 <a id="same-origin-extension-render-link" href="/_agent-native/extensions/unsafe-extension/render">Open extension render route</a>
 <a id="same-origin-extension-render-new-context-link" href="/_agent-native/extensions/unsafe-extension/r%65nder" target="_blank">Open encoded extension render route</a>
+<a id="same-origin-legacy-tools-render-link" href="/_agent-native/tools/unsafe-extension/render">Open legacy tools render route</a>
+<a id="same-origin-legacy-tools-render-new-context-link" href="/_agent-native/tools/unsafe-extension/r%65nder" target="_blank">Open encoded legacy tools render route</a>
 <svg width="120" height="32"><a id="svg-metric-link" href="https://external.example.test/svg"><text x="0" y="20">SVG docs</text></a></svg>
 <svg width="120" height="32" xmlns:xlink="http://www.w3.org/1999/xlink"><a id="xlink-svg-metric-link" xlink:href="https://external.example.test/xlink-svg"><text x="0" y="20">Legacy SVG docs</text></a></svg>
 <button id="open-script-popup">Open script popup</button>

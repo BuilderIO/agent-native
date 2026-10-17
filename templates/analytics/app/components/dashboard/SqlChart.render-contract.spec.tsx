@@ -31,6 +31,9 @@ vi.mock("@/lib/sql-query", () => ({
 vi.mock("@agent-native/toolkit/app/extensions", () => ({
   EmbeddedExtension: () => null,
   ExtensionSlot: () => null,
+  isExtensionApiPath: (pathname: string) =>
+    pathname.startsWith("/_agent-native/extensions/") ||
+    pathname.startsWith("/_agent-native/tools/"),
 }));
 
 import { SqlChart } from "./SqlChart";
@@ -134,7 +137,7 @@ describe("SqlChart render contract parity", () => {
               {
                 severity: "info",
                 message:
-                  "Read [the docs](https://example.com/guide) or [unsafe](javascript:alert(1)).",
+                  "Read [the docs](https://example.com/guide), [unsafe](javascript:alert(1)), or [extension](/_agent-native/tools/ext/render).",
               },
             ],
           }}
@@ -148,6 +151,24 @@ describe("SqlChart render contract parity", () => {
     expect(links[0]?.getAttribute("target")).toBe("_blank");
     expect(links[0]?.getAttribute("rel")).toBe("noopener noreferrer");
     expect(container.textContent).toContain("unsafe");
+    expect(container.textContent).toContain("extension");
+  });
+
+  it("renders extension API links as text in panel descriptions", async () => {
+    const target = panel({
+      chartType: "metric",
+      config: {
+        description: "Read [the extension](/_agent-native/tools/ext/r%65nder).",
+      },
+    });
+    await act(async () => {
+      root.render(
+        <SqlChart panel={target} resultOverride={{ rows: [{ value: 42 }] }} />,
+      );
+    });
+
+    expect(container.querySelectorAll("a")).toHaveLength(0);
+    expect(container.textContent).toContain("the extension");
   });
 
   it("renders safe Markdown links in metric descriptions", async () => {

@@ -111,6 +111,15 @@ async function startHostServer(): Promise<ViteDevServer> {
               );
             },
           );
+          devServer.middlewares.use(
+            "/_agent-native/tools/unsafe-extension/render",
+            (_req, res) => {
+              res.setHeader("Content-Type", "text/html");
+              res.end(
+                '<!doctype html><script>document.documentElement.dataset.unsafeExtensionLoaded="true"</script>',
+              );
+            },
+          );
         },
       },
     ],
@@ -561,8 +570,12 @@ describe("AgentNativeExtensionFrame browser links", () => {
         if (
           request.isNavigationRequest() &&
           request.frame() === page.mainFrame() &&
-          new URL(request.url()).pathname ===
-            "/_agent-native/extensions/unsafe-extension/render"
+          (new URL(request.url()).pathname.startsWith(
+            "/_agent-native/extensions/unsafe-extension/",
+          ) ||
+            new URL(request.url()).pathname.startsWith(
+              "/_agent-native/tools/unsafe-extension/",
+            ))
         ) {
           extensionRenderNavigations += 1;
         }
@@ -574,6 +587,12 @@ describe("AgentNativeExtensionFrame browser links", () => {
         .click();
       await extensionFrame
         .locator("#same-origin-extension-render-new-context-link")
+        .click();
+      await extensionFrame
+        .locator("#same-origin-legacy-tools-render-link")
+        .click();
+      await extensionFrame
+        .locator("#same-origin-legacy-tools-render-new-context-link")
         .click();
       await page.waitForTimeout(100);
       expect(extensionRenderNavigations).toBe(0);
