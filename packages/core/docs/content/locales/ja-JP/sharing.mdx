@@ -169,6 +169,8 @@ const shared = useChatThreadList({ ownership: "shared", pageSize: 50 });
 // shared.threads, shared.hasMore, shared.loadMore(), shared.error
 ```
 
+`refreshOnThreadUpdates` の既定値は `true` です。`false` にすると、`notifyChatThreadsUpdated()` による再取得を無効にできます。初回読み込み、手動の `refresh()`、ページ分割、Activity 再開後の再読み込みは引き続き機能します。このオプションを変更しても読み込み済みの行は保持され、変更だけでリクエストが発生することはありません。
+
 リクエストが失敗すると `error` が設定され、すでに読み込まれた行は保持されます。空のリストに見えることはありません。`<ShareButton>` と `<ShareDialog>` は、保存後にマウント中のチャットリストを更新します。それ以外の方法でチャットの共有を変更した場合は、`notifyChatThreadsUpdated()` を呼び出して、マウント中のリストを再取得させてください。
 
 ## 同じモデル、エージェント、UI {#agent-and-ui}

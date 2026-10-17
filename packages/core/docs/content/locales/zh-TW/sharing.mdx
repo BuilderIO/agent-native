@@ -169,6 +169,8 @@ const shared = useChatThreadList({ ownership: "shared", pageSize: 50 });
 // shared.threads, shared.hasMore, shared.loadMore(), shared.error
 ```
 
+`refreshOnThreadUpdates` 預設為 `true`。設為 `false` 可略過由 `notifyChatThreadsUpdated()` 觸發的重新整理。初始載入、手動呼叫 `refresh()`、分頁和 Activity 恢復後的重新載入仍然有效。變更此選項會保留已載入的資料列，且不會自行發出請求。
+
 請求失敗會設定 `error`，並保留已載入的列。它不會看起來像空清單。`<ShareButton>` 和 `<ShareDialog>` 會在儲存後重新整理已掛載的聊天清單。如果你以其他方式變更了聊天的共用，請呼叫 `notifyChatThreadsUpdated()`，讓已掛載的清單重新擷取。
 
 ## 與 UI 相同型號、代理 {#agent-and-ui}

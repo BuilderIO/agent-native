@@ -190,6 +190,8 @@ const shared = useChatThreadList({ ownership: "shared", pageSize: 50 });
 // shared.threads, shared.hasMore, shared.loadMore(), shared.error
 ```
 
+`refreshOnThreadUpdates` defaults to `true`. Set it to `false` to skip refreshes triggered by `notifyChatThreadsUpdated()`. Initial loading, manual `refresh()`, paging, and reloading after an Activity resumes still work. Changing this option preserves loaded rows and does not fetch by itself.
+
 A failed request sets `error` and keeps the rows already loaded. It never looks like an empty list. `<ShareButton>` and `<ShareDialog>` refresh mounted chat lists after they save. If you change a chat's sharing some other way, call `notifyChatThreadsUpdated()` so mounted lists refetch.
 
 For a ready-made sidebar that combines owned chats, shared chats, and eligible started drafts, import `useOwnershipChatHistory()` and `OwnershipChatHistoryRail` from `@agent-native/toolkit/app/chat/ownership-history`. The adapter keeps owner and access-basis details on shared rows, pages each section independently, and retains rows and local optimistic changes when a refresh fails. Its mutation callbacks return `Promise<boolean>`, allowing the app to navigate only after a write succeeds. See [Sharing Kit](/docs/toolkit-sharing#shared-chat-history) for an example.

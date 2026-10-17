@@ -169,6 +169,8 @@ const shared = useChatThreadList({ ownership: "shared", pageSize: 50 });
 // shared.threads, shared.hasMore, shared.loadMore(), shared.error
 ```
 
+`refreshOnThreadUpdates` es `true` de forma predeterminada. Con `false`, se omiten las actualizaciones activadas por `notifyChatThreadsUpdated()`. La carga inicial, `refresh()` manual, la paginación y la recarga al reanudar una Activity siguen funcionando. Cambiar esta opción conserva las filas cargadas y no inicia ninguna petición por sí solo.
+
 Una solicitud fallida establece `error` y conserva las filas ya cargadas. Nunca parece una lista vacía. `<ShareButton>` y `<ShareDialog>` actualizan las listas de chat montadas después de guardar. Si cambia el uso compartido de un chat de otra manera, llame a `notifyChatThreadsUpdated()` para que las listas montadas se vuelvan a cargar.
 
 ## Mismo modelo, agente y UI {#agent-and-ui}
