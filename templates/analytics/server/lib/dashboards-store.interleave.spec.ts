@@ -798,6 +798,33 @@ describe("dashboards-store concurrency", () => {
     expect(state.otherDashboards[0]?.createdBy).toBe("bob@example.com");
   });
 
+  it("refuses to save at a built-in's id", async () => {
+    await expect(
+      upsertDashboard(
+        "builtin-demo-node-exporter",
+        "sql",
+        { name: "Mine now", panels: [] },
+        { email: "bob@example.com", orgId: null },
+      ),
+    ).rejects.toThrow(/built-in and is read-only/);
+    expect(state.otherDashboards).toEqual([]);
+  });
+
+  it("refuses to save over a copy the built-in pass hid", async () => {
+    state.dashboard.hiddenAt = "2026-10-16T00:00:00.000Z";
+    state.dashboard.hiddenBy = "analytics:builtin-dashboards";
+
+    await expect(
+      upsertDashboard(
+        "traffic",
+        "sql",
+        { name: "Traffic", panels: [panel("a"), panel("b")] },
+        ctx,
+      ),
+    ).rejects.toThrow(/built-in and is read-only/);
+    expect(state.updateAttempts).toBe(0);
+  });
+
   it("reports a peer's convergent write as a conflict retry with no local write", async () => {
     let mutateCalls = 0;
     const outcome = await upsertDashboardWithRetryOutcome(

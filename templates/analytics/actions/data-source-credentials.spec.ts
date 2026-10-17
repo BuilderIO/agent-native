@@ -5,7 +5,7 @@ const mocks = vi.hoisted(() => ({
   deleteResolvedCredential: vi.fn(),
   getScopedSettingRecord: vi.fn(),
   hasCredential: vi.fn(),
-  loadDashboardSeed: vi.fn(),
+  installBuiltinDashboardOnce: vi.fn(),
   putScopedSettingRecord: vi.fn(),
   resolveOrgRole: vi.fn(),
   resolveRequestScope: vi.fn(),
@@ -37,8 +37,8 @@ vi.mock("../server/lib/credentials-context", () => ({
   tryRequestCredentialContext: mocks.tryRequestCredentialContext,
 }));
 
-vi.mock("../server/lib/dashboard-seeds", () => ({
-  loadDashboardSeed: mocks.loadDashboardSeed,
+vi.mock("../server/lib/builtin-dashboards", () => ({
+  installBuiltinDashboardOnce: mocks.installBuiltinDashboardOnce,
 }));
 
 vi.mock("../server/lib/scoped-settings", () => ({
@@ -58,7 +58,7 @@ describe("data source credential actions", () => {
     mocks.deleteResolvedCredential.mockReset();
     mocks.getScopedSettingRecord.mockReset();
     mocks.hasCredential.mockReset();
-    mocks.loadDashboardSeed.mockReset();
+    mocks.installBuiltinDashboardOnce.mockReset();
     mocks.putScopedSettingRecord.mockReset();
     mocks.resolveOrgRole.mockReset();
     mocks.resolveRequestScope.mockReset();
@@ -76,11 +76,10 @@ describe("data source credential actions", () => {
     });
     mocks.getScopedSettingRecord.mockResolvedValue(null);
     mocks.hasCredential.mockResolvedValue(false);
-    mocks.loadDashboardSeed.mockReturnValue({ panels: [] });
     mocks.resolveOrgRole.mockResolvedValue("member");
   });
 
-  it("saves recognized credentials and seeds the GA dashboard through action scope", async () => {
+  it("saves recognized credentials and installs the GA built-in through action scope", async () => {
     const serviceAccountJson = JSON.stringify({
       type: "service_account",
       private_key: "private-key",
@@ -120,10 +119,9 @@ describe("data source credential actions", () => {
         scope: "user",
       },
     );
-    expect(mocks.putScopedSettingRecord).toHaveBeenCalledWith(
+    expect(mocks.installBuiltinDashboardOnce).toHaveBeenCalledWith(
       { email: "ada@example.com", orgId: "org-1" },
-      "sql-dashboard-google-analytics",
-      { panels: [] },
+      "google-analytics",
     );
   });
 

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import { fail } from "@agent-native/core/action";
 import { getRequestRunContext, recordChange } from "@agent-native/core/server";
 import {
   getOrgSetting,
@@ -27,6 +28,10 @@ import {
   sql,
 } from "drizzle-orm";
 
+import {
+  BUILTIN_DASHBOARD_HIDDEN_BY,
+  builtinDashboardIdFor,
+} from "../../shared/builtin-dashboard-ids";
 import {
   describeDashboardChanges,
   parseDashboardChangeSummary,
@@ -1785,6 +1790,26 @@ export async function createDashboardRevisionSnapshot(
  * writes) still rely on. Those saves retry the same requested body against the
  * latest revision so every successful write advances its version token.
  */
+/**
+ * Built-ins are served from code, so a write at a built-in's id, or to an old
+ * copy the deploy pass hid in favor of one, would save something no reader
+ * sees. Saving under a new id is the only way to change one.
+ */
+function assertNotBuiltinDashboard(
+  id: string,
+  existing: DashboardRecord | null,
+): void {
+  const builtin = existing
+    ? existing.hiddenBy === BUILTIN_DASHBOARD_HIDDEN_BY
+    : builtinDashboardIdFor(id) !== null;
+  if (builtin) {
+    fail(
+      `Dashboard "${id}" is a built-in and is read-only. Call duplicate-dashboard to make an editable copy, then edit the copy.`,
+      { errorCode: "builtin_dashboard_read_only", statusCode: 409 },
+    );
+  }
+}
+
 export interface DashboardUpsertOutcome {
   dashboard: DashboardRecord;
   didWrite: boolean;
@@ -1806,6 +1831,7 @@ async function upsertDashboardWithOutcome(
   expectedUpdatedAt?: string,
 ): Promise<DashboardUpsertOutcome> {
   const existing = await getDashboard(id, ctx);
+  assertNotBuiltinDashboard(id, existing);
   const observedUpdatedAt = expectedUpdatedAt ?? existing?.updatedAt;
   if (!existing && expectedUpdatedAt !== undefined) {
     throw new DashboardConflictError(id);
