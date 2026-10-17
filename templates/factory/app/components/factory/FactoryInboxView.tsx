@@ -416,29 +416,31 @@ export function FactoryInboxView({
                       <div
                         key={id}
                         ref={selectedId === id ? selectedRowRef : undefined}
-                        role="button"
-                        tabIndex={0}
-                        className={`grid cursor-pointer rounded-lg bg-muted/20 px-4 py-3 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${inboxListColumns}`}
+                        className={`grid cursor-pointer rounded-lg bg-muted/20 px-4 py-3 text-left transition-colors hover:bg-muted/50 ${inboxListColumns}`}
                         onClick={() => selectItem(id)}
-                        onKeyDown={(event) => {
-                          if (event.key !== "Enter" && event.key !== " ")
-                            return;
-                          event.preventDefault();
-                          selectItem(id);
-                        }}
                       >
                         <span className="min-w-0">
-                          <span className="block truncate text-[11px] uppercase tracking-wide text-muted-foreground">
-                            {listIdentityLine}
-                          </span>
-                          <span className="mt-0.5 block truncate text-sm font-medium">
-                            <SlackMrkdwn
-                              text={snippet}
-                              inline
-                              mentionLabels={rowItem.userLabels}
-                              builderSlackUserId={listBuilderSlackUserId}
-                            />
-                          </span>
+                          <button
+                            type="button"
+                            aria-pressed={selectedId === id}
+                            className="w-full min-w-0 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              selectItem(id);
+                            }}
+                          >
+                            <span className="block truncate text-[11px] uppercase tracking-wide text-muted-foreground">
+                              {listIdentityLine}
+                            </span>
+                            <span className="mt-0.5 block truncate text-sm font-medium">
+                              <SlackMrkdwn
+                                text={snippet}
+                                inline
+                                mentionLabels={rowItem.userLabels}
+                                builderSlackUserId={listBuilderSlackUserId}
+                              />
+                            </span>
+                          </button>
                         </span>
                         <span>
                           <span className="mb-1 block text-[11px] uppercase tracking-wide text-muted-foreground sm:hidden">

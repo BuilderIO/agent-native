@@ -74,15 +74,14 @@ describe("FactoryInboxView", () => {
   it("lets a person resolve or reopen an item without going through automation", () => {
     const source = readViewSource();
     expect(source).toContain("TriageOutcomeMenu");
-    expect(source).toContain('role="button"');
-    expect(source).toContain("tabIndex={0}");
-    // The row is a role="button" div, not a real <button>, so the outcome
-    // menu's own trigger button can nest inside it without invalid HTML.
+    expect(source).toContain("aria-pressed={selectedId === id}");
+    // The selection control and outcome menu are separate native buttons.
+    expect(source).toContain(
+      '<button\n                            type="button"',
+    );
+    expect(source).not.toContain('role="button"');
     const rowAt = source.indexOf("<div\n                        key={id}");
     expect(rowAt).toBeGreaterThan(-1);
-    // The nested menu trigger's Enter/Space must not bubble into the row's
-    // own onKeyDown and also call selectItem.
-    expect(source).toContain("onKeyDown={(event) => event.stopPropagation()}");
   });
 
   it("surfaces the latest task summary before the reason, evidence, and log", () => {

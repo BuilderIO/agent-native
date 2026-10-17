@@ -8,6 +8,12 @@ const recordManualFactoryAuditMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (definition: unknown) => definition,
+  fail: (message: string, options: Record<string, unknown>) => {
+    throw Object.assign(new Error(message), {
+      actionContractError: true,
+      ...options,
+    });
+  },
 }));
 
 vi.mock("../server/db/index.js", () => ({
@@ -164,6 +170,28 @@ describe("set-triage-item-outcome action", () => {
     );
   });
 
+  it("reopens a GitHub issue item to received", async () => {
+    const { default: action } = await import("./set-triage-item-outcome.js");
+    const { setMock } = mockDb(
+      item({
+        id: "item-3",
+        source: "github_issue",
+        status: "needs_manual",
+        metadataJson: "{}",
+      }),
+    );
+
+    const result = await action.run(
+      { factoryId: "default", itemId: "item-3", outcome: "reopen" },
+      {},
+    );
+
+    expect(result).toEqual({ ok: true, itemId: "item-3", status: "received" });
+    expect(setMock).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "received", metadataJson: "{}" }),
+    );
+  });
+
   it("clears the parked babysit state when resolving a GitHub PR item too", async () => {
     const { default: action } = await import("./set-triage-item-outcome.js");
     const { setMock } = mockDb(
@@ -197,7 +225,12 @@ describe("set-triage-item-outcome action", () => {
         { factoryId: "default", itemId: "missing", outcome: "resolved" },
         {},
       ),
-    ).rejects.toThrow("Triage item not found");
+    ).rejects.toMatchObject({
+      message: "Triage item not found",
+      actionContractError: true,
+      errorCode: "factory_triage_item_not_found",
+      statusCode: 404,
+    });
   });
 
   it("throws a conflict error when the item changed since it was read", async () => {
@@ -209,7 +242,12 @@ describe("set-triage-item-outcome action", () => {
         { factoryId: "default", itemId: "item-1", outcome: "resolved" },
         {},
       ),
-    ).rejects.toThrow("This item changed since it was loaded");
+    ).rejects.toMatchObject({
+      message: "This item changed since it was loaded. Refresh and try again.",
+      actionContractError: true,
+      errorCode: "factory_triage_item_conflict",
+      statusCode: 409,
+    });
     expect(recordManualFactoryAuditMock).not.toHaveBeenCalled();
   });
 });

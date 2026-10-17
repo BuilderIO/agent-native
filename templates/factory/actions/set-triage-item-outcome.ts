@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -57,7 +57,12 @@ export default defineAction({
           )
           .limit(1)
       )[0];
-      if (!item) throw new Error("Triage item not found");
+      if (!item) {
+        fail("Triage item not found", {
+          errorCode: "factory_triage_item_not_found",
+          statusCode: 404,
+        });
+      }
 
       const nextStatus =
         outcome === "resolved"
@@ -100,9 +105,10 @@ export default defineAction({
         )
         .returning({ id: triageItems.id });
       if (updated.length === 0) {
-        throw new Error(
-          "This item changed since it was loaded. Refresh and try again.",
-        );
+        fail("This item changed since it was loaded. Refresh and try again.", {
+          errorCode: "factory_triage_item_conflict",
+          statusCode: 409,
+        });
       }
 
       await recordManualFactoryAudit(
