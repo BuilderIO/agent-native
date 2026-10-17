@@ -459,6 +459,19 @@ describe("Clip WebMCP tools", () => {
         { signal: new AbortController().signal },
       ),
     ).rejects.toThrow(/endMs must be greater than startMs/);
+
+    // The clip is 5 seconds long; the server clamps the range the same way.
+    fetchMock.mockResolvedValueOnce(jsonResponse(contextPayload()));
+    const pastEnd = JSON.parse(
+      await framesTool.execute(
+        { startMs: 6000, endMs: 9000, fps: 10 },
+        { signal: new AbortController().signal },
+      ),
+    );
+    expect(pastEnd).toMatchObject({ startMs: 4997, endMs: 5000, fps: 10 });
+    expect(pastEnd.imageUrl).toBe(
+      `${window.location.origin}/api/agent-frames.jpg?id=rec-1&agent_access=token&startMs=4997&endMs=5000&fps=10`,
+    );
   });
 
   it("explains that a screenshot has no frame sheet", async () => {

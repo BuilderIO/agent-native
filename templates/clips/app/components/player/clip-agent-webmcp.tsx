@@ -2,6 +2,7 @@ import { defineClientAction } from "@agent-native/core/client/host";
 import { createAgentNativeWebMcpRegistration } from "@agent-native/core/client/webmcp";
 import { useEffect } from "react";
 
+import { clampFrameSheetRange } from "../../../server/lib/video-frame-sheet";
 import {
   AGENT_CONTEXT_ENDPOINT,
   AGENT_FRAME_ENDPOINT,
@@ -645,7 +646,7 @@ export function createClipAgentWebMcpActions({
     run: async (input, runtime) => {
       if (!agentContextUrl)
         throw new Error("Clip agent context is unavailable");
-      const { startMs, endMs, fps } = parseFrameSheetInput(input);
+      const requested = parseFrameSheetInput(input);
       const payload = await fetchAgentJson(agentContextUrl, runtime.signal);
       if (!optionalRecord(payload.apis)?.frames) {
         const status = stringValue(optionalRecord(payload.clip)?.status);
@@ -656,6 +657,21 @@ export function createClipAgentWebMcpActions({
           "Frame sheets are only available for videos. Use clips-get-frame for a single frame or the picture.",
         );
       }
+
+      // Clamp the range to the clip's length as the server does, so the
+      // startMs returned here is where the sheet really starts.
+      const range = clampFrameSheetRange(
+        {
+          startMs: requested.startMs,
+          endMs: requested.endMs ?? null,
+          fps: requested.fps ?? null,
+        },
+        numberValue(optionalRecord(payload.clip)?.durationMs),
+      );
+      if (!range.ok) throw new Error(`${range.error} ${range.nextStep}`);
+      const { startMs } = range.value;
+      const endMs = range.value.endMs ?? undefined;
+      const { fps } = requested;
 
       const imageUrl = buildRelatedAgentUrl(
         agentContextUrl,
@@ -676,7 +692,7 @@ export function createClipAgentWebMcpActions({
         mimeType: "image/jpeg",
         sourceUrl: imageUrl,
         instructions:
-          "Fetch the exact imageUrl as an image: one contact sheet of consecutive frames. Cells read left to right, then top to bottom; cell i shows the frame on screen at startMs + i * 1000 / fps. Solid black cells at the end of the grid hold no frame. Without fps, the sheet uses the video's own frame rate, given with each cell's time in the X-Clips-Frame-Sheet-Fps and X-Clips-Frame-Sheet-Times response headers. For any non-2xx response, inspect the JSON failureKind, error, and nextStep. If failureKind=request, the range or fps was out of bounds; follow nextStep, which names a request that fits. Other failure kinds mean the same as for clips-get-frame.",
+          "Fetch the exact imageUrl as an image: one contact sheet of consecutive frames. Cells read left to right, then top to bottom; cell i shows the frame on screen at startMs + i * 1000 / fps. The startMs and endMs returned here are the range the sheet covers, moved inside the clip if the request went past its end. Solid black cells at the end of the grid hold no frame. Without fps, the sheet uses the video's own frame rate, given with each cell's time in the X-Clips-Frame-Sheet-Fps and X-Clips-Frame-Sheet-Times response headers. For any non-2xx response, inspect the JSON failureKind, error, and nextStep. If failureKind=request, the range or fps was out of bounds; follow nextStep, which names a request that fits. Other failure kinds mean the same as for clips-get-frame.",
       };
     },
   });
