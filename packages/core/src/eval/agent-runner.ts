@@ -898,6 +898,13 @@ function normalizeProductionPathUsage(
     "receiptChangedFalseCount",
     "firstEngineEventAtMs",
   ] as const;
+  const integerFields = [
+    ...requiredNumberFields,
+    "llmCalls",
+    "followUpInputTokens",
+    "receiptUnverifiedCount",
+    "receiptChangedFalseCount",
+  ] as const;
   const isUsageNumber = (field: string) => {
     const fieldValue = usage[field];
     return (
@@ -906,9 +913,17 @@ function normalizeProductionPathUsage(
       fieldValue >= 0
     );
   };
+  const isUsageInteger = (field: string) => {
+    const fieldValue = usage[field];
+    return (
+      fieldValue === undefined ||
+      (typeof fieldValue === "number" && Number.isInteger(fieldValue))
+    );
+  };
 
   if (
     !requiredNumberFields.every(isUsageNumber) ||
+    integerFields.some((field) => !isUsageInteger(field)) ||
     !identifiers.model.trim() ||
     (usage.usageReported !== undefined &&
       typeof usage.usageReported !== "boolean") ||

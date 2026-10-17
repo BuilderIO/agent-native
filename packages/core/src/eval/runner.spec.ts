@@ -1565,6 +1565,44 @@ describe("runEvalSuite runner creation", () => {
     );
   });
 
+  it("rejects fractional adapter usage counts without observed usage", async () => {
+    const evalCase = defineEval({
+      name: "fractional-production-adapter-usage",
+      input: { prompt: "find active users" },
+      scorers: [contains("active users")],
+    });
+    const productionChatPath = testProductionChatPath();
+    productionChatPath.run = async (args) => {
+      const result = await testProductionChatPath().run({
+        ...args,
+        onUsage: () => {},
+      });
+      return {
+        ...result,
+        output: {
+          ...result.output,
+          usage: { ...result.output.usage, inputTokens: 1.5 },
+        },
+      };
+    };
+
+    const suite = await runEvalSuite({
+      evals: [evalCase],
+      productionContext: {
+        ...testProductionContext(),
+        productionChatPath,
+      },
+      requireProductionChatPath: true,
+      persist: false,
+    });
+
+    expect(suite.report.results[0]).toMatchObject({
+      status: "failed",
+      error: "Production chat eval adapter did not return or report usage.",
+    });
+    expect(suite.report.results[0].usage).toBeUndefined();
+  });
+
   it("rejects partial usage after a malformed callback and omits malformed returned usage", async () => {
     const evalCase = defineEval({
       name: "malformed-production-adapter-usage-callback",
