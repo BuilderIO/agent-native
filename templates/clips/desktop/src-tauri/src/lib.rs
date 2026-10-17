@@ -29,6 +29,7 @@ mod screen_memory_transcript;
 mod sentry_report;
 mod shortcuts;
 mod silence_detector;
+mod speech_capture_ownership;
 mod state;
 mod system_audio;
 mod tray;
@@ -242,8 +243,10 @@ pub fn run() {
             clips::show_signin,
             clips::close_signin,
             clips::show_flow_bar,
+            clips::set_flow_bar_expanded,
             clips::hide_flow_bar,
             clips::complete_voice_dictation,
+            clips::copy_voice_dictation,
             clips::paste_last_dictation,
             clips::set_recording_state,
             clips::release_recording_state,
