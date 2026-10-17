@@ -199,6 +199,11 @@ export default {
     sigmaChooseConnectionPlaceholder: "選擇連線",
     sigmaChooseConnectionDescription: "選擇要瀏覽其活頁簿的 Sigma 工作區。",
     sigmaNoConnection: "尚未連線 Sigma",
+    sigmaApiRegion: "Sigma API 區域",
+    sigmaOAuthConnect: "連線個人 Sigma 帳戶",
+    sigmaOAuthAddAnother: "連線另一個 Sigma 帳戶",
+    sigmaOAuthCancel: "取消",
+    sigmaOAuthDescription: "使用你的帳戶登入 Sigma，瀏覽你有權存取的活頁簿。",
     sigmaClientId: "用戶端 ID",
     sigmaClientSecret: "用戶端密鑰",
     sigmaBaseUrl: "API 基礎 URL（選填）",
@@ -210,8 +215,7 @@ export default {
     sigmaCredentialStageFailed:
       "無法暫存 Sigma 臨時認證資料。請檢查 Vault 存取權限後再試一次。",
     sigmaCredentialsRequired: "請先儲存 Sigma 用戶端 ID 和用戶端密鑰。",
-    sigmaBaseUrlInvalid:
-      "請使用 sigmacomputing.com 網域下的 HTTPS Sigma API URL。",
+    sigmaBaseUrlInvalid: "請選擇 Sigma 官方支援的 API 區域 URL。",
     sigmaPersistenceUnavailable:
       "Analytics 目前無法安全地儲存 Sigma 連線。請再試一次。",
     sigmaPolicyInvalid:
@@ -224,7 +228,7 @@ export default {
     sigmaDirectCredentialsUnavailable:
       "無法讀取 Analytics 儲存的 Sigma 認證資料。組織管理員可以在 Dispatch 重新連線，或在 Analytics 重新輸入認證資料。",
     sigmaNoConnectionDescription:
-      "在此輸入認證資料以建立僅供 Analytics 使用的連線。在 Dispatch 中授權 Analytics 使用的 Sigma 連線會自動顯示於此；只有組織管理員可以直接儲存認證資料。",
+      "連線你的個人 Sigma 帳戶，或使用組織管理員儲存的認證資料。已授權 Analytics 使用的 Dispatch 連線也會顯示於此。",
     sigmaOpenDispatch: "在 Dispatch 中連線",
     sigmaOpenVault: "開啟 Vault",
     sigmaWorkbooksLoadFailed: "無法載入 Sigma 活頁簿",

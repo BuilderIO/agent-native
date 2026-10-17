@@ -434,11 +434,14 @@ to Analytics.
 
 Use an existing Dispatch Sigma connection when it is granted to Analytics; the
 import flow discovers accessible connections without copying their Vault
-values. If direct setup is needed, an organization owner or admin can enter
-Sigma client credentials in the Analytics dialog. Analytics saves those values
-under Analytics-specific encrypted organization secrets and links them to an
-Analytics-only connection. Credential values must never pass through agent chat,
-action arguments, logs, source, or screenshots.
+values. Any workspace member can connect a personal Sigma account with OAuth
+from the importer and choose the account's documented API region. OAuth tokens
+and the connection stay scoped to that user. If direct setup is needed, an
+organization owner or admin can still enter Sigma client credentials in the
+Analytics dialog. Analytics saves those values under Analytics-specific
+encrypted organization secrets and links them to an Analytics-only connection.
+Credential values must never pass through agent chat, action arguments, logs,
+source, or screenshots.
 
 If Sigma adds verifiable source mapping in the future, the planned import will
 create a private snapshot in the user's personal `Sigma` folder. Other source
