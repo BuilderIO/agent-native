@@ -254,6 +254,9 @@ describe("scoreEval with a JS scorer", () => {
       }),
     ).rejects.toThrow("cannot define custom run callbacks");
     await expect(
+      scoreEval(evalCase, reconstructedWithFreshEngine),
+    ).rejects.toThrow("require an explicit non-production path");
+    await expect(
       runEvals([evalCase], runner, { persist: false }),
     ).rejects.toThrow("cannot define custom run callbacks");
     await expect(
@@ -268,6 +271,16 @@ describe("scoreEval with a JS scorer", () => {
         persist: false,
       }),
     ).rejects.toThrow("cannot define custom run callbacks");
+    await expect(
+      runEvals([evalCase], reconstructedWithFreshEngine, { persist: false }),
+    ).rejects.toThrow("require an explicit non-production path");
+    await expect(
+      runEvalSuite({
+        evals: [evalCase],
+        runner: reconstructedWithFreshEngine,
+        persist: false,
+      }),
+    ).rejects.toThrow("require an explicit non-production path");
     await expect(
       runEvalSuite({
         evals: [evalCase],
@@ -615,7 +628,7 @@ describe("scoreEval with a JS scorer", () => {
     const report = await runEvals(
       [uncloneable, following],
       fakeRunner({ text: "ok" }),
-      { persist: false, onRunOutput },
+      { persist: false, onRunOutput, nonProductionPath: true },
     );
 
     expect(report).toMatchObject({ total: 2, passed: 1, failed: 1 });
@@ -651,12 +664,26 @@ describe("scoreEval with a JS scorer", () => {
     });
     const runner = fakeRunner({ text: "runner output" });
 
-    const row = await scoreEval(evalCase, runner);
-    const report = await runEvals([evalCase], runner, { persist: false });
+    await expect(scoreEval(evalCase, runner)).rejects.toThrow(
+      "require an explicit non-production path",
+    );
+    await expect(
+      runEvals([evalCase], runner, { persist: false }),
+    ).rejects.toThrow("require an explicit non-production path");
+    await expect(
+      runEvalSuite({ evals: [evalCase], runner, persist: false }),
+    ).rejects.toThrow("require an explicit non-production path");
+
+    const row = await scoreEval(evalCase, runner, { nonProductionPath: true });
+    const report = await runEvals([evalCase], runner, {
+      persist: false,
+      nonProductionPath: true,
+    });
     const suite = await runEvalSuite({
       evals: [evalCase],
       runner,
       persist: false,
+      nonProductionPath: true,
     });
 
     expect(row.passed).toBe(true);

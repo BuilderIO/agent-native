@@ -74,6 +74,8 @@ interface ScoreEvalOptions {
   onRunOutput?: (output: AgentRunOutput) => void;
   /** Marks unbranded lower-level runners that use the production chat path. */
   productionPath?: boolean;
+  /** @deprecated Explicitly opts lower-level scoring into the non-production path. */
+  nonProductionPath?: true;
 }
 
 export async function scoreEval(
@@ -101,10 +103,12 @@ export async function scoreEval(
   const capturedRunner = captureAgentRunnerForEval(runner);
   if (
     evalCase.run &&
-    (opts.productionPath === true || capturedRunner.isProductionContext)
+    (opts.productionPath === true ||
+      capturedRunner.isProductionContext ||
+      opts.nonProductionPath !== true)
   ) {
     throw new Error(
-      "Production-path evals cannot define custom run callbacks.",
+      "Production-path evals cannot define custom run callbacks; lower-level APIs require an explicit non-production path.",
     );
   }
   if (
@@ -355,6 +359,8 @@ export interface RunEvalSuiteOptions {
   productionContext?: EvalProductionContext;
   identity?: EvalProductionIdentity;
   requireProductionChatPath?: boolean;
+  /** @deprecated Explicitly opts an injected lower-level runner into the non-production path. */
+  nonProductionPath?: true;
   persist?: boolean;
   runner?: AgentRunner;
   evals?: Eval[];
@@ -436,6 +442,9 @@ export async function runEvalSuite(
     thresholdOverride: opts.thresholdOverride,
     persist: opts.persist ?? true,
     productionPath: Boolean(productionContext),
+    nonProductionPath:
+      opts.nonProductionPath ??
+      (!opts.runner && !productionContext ? true : undefined),
   });
   return { report, files };
 }
