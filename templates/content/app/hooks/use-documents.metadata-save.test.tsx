@@ -44,6 +44,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 
 import {
   documentQueryKey,
+  LIST_DOCUMENTS_QUERY_KEY,
   useDocument,
   useUpdateDocument,
 } from "./use-documents";
@@ -199,5 +200,53 @@ describe("a save that sends no body", () => {
       updatedAt: titled,
     });
     expect(reads()).toHaveLength(1);
+  });
+
+  it("gives list and database rows the answer's timestamp while the page keeps its body", async () => {
+    const databaseKey = [
+      "action",
+      "get-content-database",
+      { databaseId: "db-1" },
+    ];
+    queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, {
+      documents: [{ ...opened, content: undefined }],
+    });
+    queryClient.setQueryData(databaseKey, {
+      database: { id: "db-1" },
+      items: [{ id: "item-1", document: { ...opened, content: "" } }],
+    });
+    server.respond = (name) =>
+      name === "update-document"
+        ? Promise.resolve({
+            ...agentEdited,
+            icon: "file",
+            urlPath: "/page/doc-1",
+            softDeletedDatabaseIds: [],
+          })
+        : deferred<Document>().promise;
+
+    await act(async () => {
+      await save({ id: "doc-1", icon: "file" });
+    });
+
+    expect(cached()).toMatchObject({
+      icon: "file",
+      content: opened.content,
+      revision: opened.revision,
+      updatedAt: opened.updatedAt,
+    });
+    const list = queryClient.getQueryData<{ documents: Document[] }>(
+      LIST_DOCUMENTS_QUERY_KEY,
+    );
+    const database = queryClient.getQueryData<{
+      items: Array<{ document: Document }>;
+    }>(databaseKey);
+    expect({
+      list: list?.documents[0],
+      database: database?.items[0].document,
+    }).toMatchObject({
+      list: { icon: "file", updatedAt: agentEdited.updatedAt },
+      database: { icon: "file", updatedAt: agentEdited.updatedAt },
+    });
   });
 });

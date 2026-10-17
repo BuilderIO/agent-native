@@ -491,13 +491,17 @@ function patchDocumentWithFavoriteMembershipInDatabaseCache(
     : setDocumentFavoriteInDatabaseCache(patched, documentId, patch.isFavorite);
 }
 
+// Only the page's own reads hold its body; lists, database rows and navigation
+// carry none. `pagePatch` lets the page copies keep a body and its revision
+// together while the rest take the answer's metadata.
 export function patchDocumentCaches(
   queryClient: Pick<QueryClient, "setQueryData" | "setQueriesData">,
   documentId: string,
   patch: PageOwnedDocumentCachePatch,
+  pagePatch: PageOwnedDocumentCachePatch = patch,
 ) {
   queryClient.setQueriesData(documentQueryFilter(documentId), (old: unknown) =>
-    old && typeof old === "object" ? { ...old, ...patch } : old,
+    old && typeof old === "object" ? { ...old, ...pagePatch } : old,
   );
   queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: unknown) =>
     patchDocumentInListDocumentsCache(old, documentId, patch),
@@ -707,8 +711,8 @@ export function removeCreatedDocumentNavigation(
 // revision, hash and timestamp. If another writer moved the body since the
 // cache read it, those name a body the cache does not hold: beside the cached
 // body they make every later save's base invalid and stamp a draft with a body
-// it was not written on. The cache keeps its body and the fields that go with
-// it until a fresh read brings the new body.
+// it was not written on. The page's own reads keep their body and the fields
+// that go with it until a fresh read brings the new body.
 export function documentUpdateMovedBody(
   data: Pick<DocumentUpdateResponse, "bodyRevision">,
   variables: Pick<DocumentUpdateRequestWithCas, "content">,
@@ -1588,6 +1592,7 @@ export function useUpdateDocument(options?: { saveOrigin?: "recovery" }) {
         patchDocumentCaches(
           queryClient,
           variables.id,
+          documentUpdateSuccessPatch(data, variables),
           documentUpdateSuccessPatch(data, variables, bodyMovedElsewhere),
         );
         if (bodyMovedElsewhere)
