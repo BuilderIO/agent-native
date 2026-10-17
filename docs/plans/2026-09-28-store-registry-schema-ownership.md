@@ -834,8 +834,18 @@ them; marking them applied would leave fresh installs without default rows.
      the old table, exactly as before. The org and auth plugins now call
      `orgStore.ready()`. `release-migrations.ts` runs only the store pass,
      Better Auth and the sharing indexes.
-   - **2c:** Better Auth, which needs once-only handling (its v4 expires every
-     signing key).
+   - **2c, done:** Better Auth is the `better_auth` store (`after:
+     ["auth_sessions"]`), its list marked `ranAtBoot`. Its v4 expires every
+     signing key, so it is a data migration that runs at most once per
+     database: an old database imports it with the rest of the list, and a key
+     created after the first release is never expired by a later release or
+     boot. `runBetterAuthMigrations()` stays as a wrapper over the store.
+   - **Result:** step 2's exit criterion is met. `runFrameworkReleaseMigrations`
+     runs one runner (the store pass) plus database identity and the sharing
+     indexes; every framework schema change is a store migration in one
+     ledger. Old bookkeeping tables are read only to import history, and
+     hosted apps without release migrations keep using them for the
+     boot-time lists until they adopt release migrations.
 3. **Upgrade convergence test (Q9). Done in Phase 1.**
    `release-schema.upgrade.spec.ts` replays a dumped pre-registry schema and
    upgrades it; `db/schema-catalog.ts` is the dump and fingerprint code step 4

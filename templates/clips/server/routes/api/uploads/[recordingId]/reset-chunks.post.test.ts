@@ -26,6 +26,7 @@ const mockAllowsSqlRecordingChunkScratch = vi.hoisted(() => vi.fn());
 const mockResolveClipsVideoStorage = vi.hoisted(() => vi.fn());
 const mockReacquireHostedClipRecordingForRetry = vi.hoisted(() => vi.fn());
 const mockIsMediaVerificationPending = vi.hoisted(() => vi.fn());
+const mockReconcileMeetingOnRecordingFailed = vi.hoisted(() => vi.fn());
 const mockUpdateSets = vi.hoisted(() => [] as Record<string, unknown>[]);
 const mockEq = vi.hoisted(() => vi.fn((..._args: unknown[]) => "eq"));
 const mockResetWins = vi.hoisted(() => ({ current: true }));
@@ -126,6 +127,10 @@ vi.mock("../../../../lib/recordings.js", () => ({
   getEventOwnerContext: (...args: unknown[]) =>
     mockGetEventOwnerContext(...args),
   ownerEmailMatches: (...args: unknown[]) => mockOwnerEmailMatches(...args),
+}));
+vi.mock("../../../../lib/reconcile-meeting-on-finalize.js", () => ({
+  reconcileMeetingOnRecordingFailed: (...args: unknown[]) =>
+    mockReconcileMeetingOnRecordingFailed(...args),
 }));
 
 vi.mock("../../../../lib/recording-upload-state.js", () => ({
@@ -356,6 +361,12 @@ describe("/api/uploads/:recordingId/reset-chunks route", () => {
     expect(mockEq).toHaveBeenCalledWith(
       "recordings.uploadGenerationId",
       expect.not.stringMatching("generation-old"),
+    );
+    expect(mockReconcileMeetingOnRecordingFailed).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recordingId: "rec-1",
+        ownerEmail: "owner@example.com",
+      }),
     );
   });
 

@@ -12,6 +12,7 @@ import {
   getDefaultRecordingVisibility,
   nanoid,
 } from "../server/lib/recordings.js";
+import { detectMeetingPlatform } from "../shared/meeting-platform.js";
 
 const PLATFORMS = [
   "zoom",
@@ -254,12 +255,6 @@ export default defineAction({
 });
 
 function inferPlatformFromUrl(url: string): (typeof PLATFORMS)[number] {
-  const lower = url.toLowerCase();
-  if (lower.includes("zoom.us")) return "zoom";
-  if (lower.includes("meet.google.com")) return "meet";
-  if (lower.includes("teams.microsoft.com") || lower.includes("teams.live.com"))
-    return "teams";
-  if (lower.includes("webex")) return "webex";
   if (!url) return "adhoc";
-  return "other";
+  return detectMeetingPlatform(url);
 }

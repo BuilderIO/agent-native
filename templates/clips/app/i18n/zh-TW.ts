@@ -1,10 +1,27 @@
 const messages = {
   meetingAsk: { resizeOrDismissAnswers: "調整答案區域大小或關閉" },
+  meetingBrowserConfirmation:
+    "Clips 偵測到此瀏覽器正在使用麥克風，但無法判斷會議在哪個分頁進行。",
+  meetingReplacement: {
+    title: "會議筆記需要處理",
+    description: "上一場會議的筆記未能儲存。開始這場會議前，請先複製這些筆記。",
+    copyAndStart: "複製筆記並開始",
+    actionFailed: "無法繼續復原會議，請再試一次。",
+  },
+  quitRecovery: {
+    title: "Clips 正在完成會議",
+    body: "Clips 尚未完成停止並儲存此會議。現在結束可能會遺失最新的逐字稿。",
+    keepOpen: "保持 Clips 開啟",
+    quitAnyway: "仍要結束",
+    actionFailed: "Clips 無法更新結束復原狀態，請再試一次。",
+  },
   lookbackContext: {
     includeLast: "包含最近",
     whatIsThis: "這是什麼？",
     off: "關",
     none: "無",
+    noneExplanation:
+      "「無」表示新的 Clip 不會包含先前的螢幕時間。Rewind 開啟時仍會持續錄製螢幕。若要停止，請選擇下方的「關閉」。",
     custom: "自訂…",
     customLabel: "自訂長度",
     customAmount: "長度",
@@ -29,13 +46,13 @@ const messages = {
       "無法存取 Rewind 儲存空間。請檢查磁碟空間和資料夾權限後再試一次。",
     rewindConsentTitle: "開啟 Rewind？",
     rewindConsentBody:
-      "Clips 會持續錄製你的螢幕，並將內容保留在此裝置上。代理程式會取得文字摘錄，只有在你核准後才會分享影片。",
+      "Rewind 開啟時，Clips 會持續錄製螢幕，並在此裝置保留近期記錄，直到達到你設定的時間或儲存空間上限。選擇「螢幕 + 音訊」也會錄製麥克風和系統音效。已連線的代理程式無須 Clips 個別核准即可直接存取螢幕影像；之後如何使用這些影像取決於代理程式。你選擇的較早螢幕時間會自動加入每個新 Clip，並遵循該 Clip 的分享設定。預設情況下，將選定時段分享為 Clip 的要求會在傳送前審核。在 Rewind 設定中關閉傳送前審核，即可自動傳送這些要求。Clip 可能包含錄到的麥克風和系統音訊。關閉 Rewind 會停止新的錄製，但會保留已儲存的記錄。Rewind 關閉期間，記錄可能超過時間或儲存空間上限，直到錄製再次開始。選擇「全部刪除」可立即清除已儲存的記錄。",
     rewindConsentCancel: "暫不",
     rewindConsentConfirm: "開啟 Rewind",
     rewindConsentBusy: "正在開啟 Rewind…",
     rewindOffTitle: "開啟 Rewind",
     rewindOffBody:
-      "預設為關閉。螢幕歷程記錄會保留在此裝置上，直到你將它加入錄影或核准分享請求。",
+      "如要包含更早的螢幕時間，請先開啟 Rewind。Rewind 開啟時，會在此裝置保留近期螢幕記錄並遵守時間和儲存空間上限。Rewind 關閉期間，已儲存的記錄可能超過這些上限，直到錄製再次開始。若要立即清除，請開啟 Settings > Rewind > Storage > On this device 並選擇 Delete all。預設情況下，分享所選時段的 Clip 要求會在傳送前審核；在 Rewind 設定中關閉傳送前審核後，這些要求會自動傳送。",
     requestFailed: "無法包含更早的螢幕時間。錄製會繼續，但不含這部分。",
     localOnlyUnavailable: "僅限本機的錄製不會儲存更早的螢幕時間。",
     saving: "正在儲存錄製前的 {{window}}…",
@@ -1509,6 +1526,9 @@ const messages = {
     disconnected: "麥克風已中斷連線。",
   },
   storageSetup: {
+    builderStorageOffer:
+      "Builder.io 免費方案包含影片儲存空間，可一鍵完成設定。",
+    customKeys: "自訂金鑰",
     builderConnectPopupError:
       "無法開啟 Builder.io。如果此應用程式嵌入在聊天中，請在瀏覽器分頁中開啟；否則請重試。",
     builderConnectError:
@@ -1527,8 +1547,7 @@ const messages = {
     builderTimeout: "無法確認 Builder.io 儲存空間已就緒，請再試一次。",
     builderConnected: "Builder.io 已連線",
     waitingForBuilder: "正在等待 Builder...",
-    description:
-      "使用 Builder.io 或相容 S3 的儲存空間來保存錄製的影片。Builder.io 包含免費代管和 AI 額度。",
+    description: "選擇錄製影片的儲存位置。",
     createBuilderAccount: "使用 Builder.io",
     signInWithBuilderAccount: "使用 Builder.io 帳戶登入",
     free: "免費",

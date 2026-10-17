@@ -72,6 +72,9 @@ function Harness() {
       if (name === "get-meeting") {
         return { meeting: {}, transcript: null } as T;
       }
+      if (name === "stop-meeting-recording") {
+        return { actualEnd: "2026-10-17T03:00:00.000Z" } as T;
+      }
       return undefined as T;
     },
     serverUrl: "https://clips.test",
