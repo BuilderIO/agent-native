@@ -44,8 +44,14 @@ export type FrameSheetResult<T> =
   | { ok: true; value: T }
   | { ok: false; error: string; nextStep: string };
 
-function parseOptionalNumber(raw: string): number | null | undefined {
-  if (!raw) return null;
+// The advertised URL template carries {endMs} and {fps} placeholders. A
+// client that fills in only the values it has leaves the others as they
+// are, so an unfilled placeholder counts as left out.
+function parseOptionalNumber(
+  raw: string,
+  placeholder?: string,
+): number | null | undefined {
+  if (!raw || raw.trim() === placeholder) return null;
   const value = Number(raw);
   return Number.isFinite(value) ? value : undefined;
 }
@@ -56,8 +62,8 @@ export function parseFrameSheetRequest(query: {
   fps: string;
 }): FrameSheetResult<FrameSheetRequest> {
   const startMs = parseOptionalNumber(query.startMs);
-  const endMs = parseOptionalNumber(query.endMs);
-  const fps = parseOptionalNumber(query.fps);
+  const endMs = parseOptionalNumber(query.endMs, "{endMs}");
+  const fps = parseOptionalNumber(query.fps, "{fps}");
   if (startMs === undefined || (startMs !== null && startMs < 0)) {
     return {
       ok: false,

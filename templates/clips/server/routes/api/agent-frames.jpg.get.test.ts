@@ -165,6 +165,22 @@ describe("agent-frames.jpg route", () => {
     expect(event.headers.get("x-clips-frame-sheet-fps")).toBe("24");
   });
 
+  it("treats unfilled optional placeholders as left out", async () => {
+    const { event } = await run({
+      startMs: "1000",
+      endMs: "{endMs}",
+      fps: "{fps}",
+    });
+
+    expect(event.status).toBe(200);
+    expect(mockProbeFrameSheetFpsFromFile).toHaveBeenCalledTimes(1);
+    expect(lastPlan()).toMatchObject({
+      startMs: 1000,
+      fps: 30,
+      frameCount: 36,
+    });
+  });
+
   it("fills the sheet from startMs without passing the end of the clip", async () => {
     await run({ startMs: "9900", fps: "30" });
     expect(lastPlan()).toMatchObject({ startMs: 9900, frameCount: 3 });

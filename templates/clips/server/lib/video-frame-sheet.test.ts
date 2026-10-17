@@ -32,10 +32,23 @@ describe("parseFrameSheetRequest", () => {
     ).toEqual({ ok: true, value: { startMs: 0, endMs: 500, fps: 12.5 } });
   });
 
+  it("reads an unfilled optional placeholder as left out", () => {
+    expect(
+      parseFrameSheetRequest({
+        startMs: "1000",
+        endMs: "{endMs}",
+        fps: "{fps}",
+      }),
+    ).toEqual({ ok: true, value: { startMs: 1000, endMs: null, fps: null } });
+    expect(
+      parseFrameSheetRequest({ startMs: "{startMs}", endMs: "", fps: "" }),
+    ).toMatchObject({ ok: false });
+  });
+
   it("refuses values an agent can fix, with the fix", () => {
     const unfilled = parseFrameSheetRequest({
       startMs: "0",
-      endMs: "{endMs}",
+      endMs: "{end}",
       fps: "",
     });
     expect(unfilled).toMatchObject({
