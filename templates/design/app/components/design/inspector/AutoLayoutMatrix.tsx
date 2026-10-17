@@ -44,7 +44,6 @@ import {
 import { cn } from "@/lib/utils";
 
 import {
-  INSPECTOR_GRID_COLUMNS,
   INSPECTOR_GRID_ACTION_PAIR_SPAN,
   INSPECTOR_GRID_PAIR_GUTTER_SPAN,
   INSPECTOR_GRID_PAIR_SPAN,
