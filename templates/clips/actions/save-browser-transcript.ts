@@ -102,7 +102,7 @@ export default defineAction({
     const hasReadyTranscript =
       current?.status === "ready" &&
       (Boolean(current.fullText?.trim()) || Boolean(hasReadySegments));
-    const dispatchMeetingFinalization = async () => {
+    const dispatchMeetingFinalization = async (requireAccepted = true) => {
       const endedMeetings = await listEndedMeetingsForRecording(
         db,
         args.recordingId,
@@ -112,13 +112,23 @@ export default defineAction({
         await dispatchPostFinalizeJob({
           recordingId: args.recordingId,
           kind: "meeting-finalize",
-          requireAccepted: true,
+          requireAccepted,
         });
+      }
+    };
+    const dispatchPreservedTranscriptFinalization = async () => {
+      try {
+        await dispatchMeetingFinalization(false);
+      } catch (err) {
+        console.warn(
+          `[clips] meeting finalization re-dispatch failed for preserved transcript ${args.recordingId}:`,
+          (err as Error)?.message ?? String(err),
+        );
       }
     };
     const dispatchForExistingTranscript = async () => {
       if (hasReadyTranscript && current?.fullText?.trim()) {
-        await dispatchMeetingFinalization();
+        await dispatchPreservedTranscriptFinalization();
       }
     };
 
@@ -219,7 +229,7 @@ export default defineAction({
         .limit(1);
       if (row?.source === IMPORTED_TRANSCRIPT_SOURCE) {
         if (row.status === "ready" && row.fullText?.trim()) {
-          await dispatchMeetingFinalization();
+          await dispatchPreservedTranscriptFinalization();
         }
         return importKept;
       }

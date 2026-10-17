@@ -30,7 +30,9 @@ const tauri = vi.hoisted(() => {
 
 const transcription = vi.hoisted(() => ({
   start: vi.fn(async () => "whisper" as const),
-  stop: vi.fn(async (): Promise<void> => undefined),
+  stop: vi.fn(
+    async (_engine?: string, _runId?: number): Promise<void> => undefined,
+  ),
   restart: vi.fn(async () => undefined),
 }));
 
@@ -116,6 +118,7 @@ describe("useMeetingTranscription quit coordination", () => {
   afterEach(() => {
     act(() => root.unmount());
     host.remove();
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
@@ -431,6 +434,215 @@ describe("useMeetingTranscription quit coordination", () => {
         ([name]) => name === "stop-meeting-recording",
       ),
     ).toHaveLength(1);
+    expect(tauri.invoke).toHaveBeenCalledWith("quit_teardown_done");
+  });
+
+  it("stops the resolved native engine after delayed startup before acknowledging quit", async () => {
+    const engineStart = deferred<"whisper">();
+    const engineStop = deferred<void>();
+    const stopRecording = deferred<{ actualEnd: string }>();
+    const events: string[] = [];
+    transcription.start.mockImplementation(async () => {
+      const engine = await engineStart.promise;
+      events.push("startup-settled");
+      return engine;
+    });
+    transcription.stop.mockImplementation(async (engine) => {
+      events.push(`stop:${engine}`);
+      if (engine === "whisper" && events.includes("startup-settled")) {
+        return engineStop.promise;
+      }
+    });
+    const callClipsAction = vi.fn((name: string) => {
+      if (name === "start-meeting-recording") {
+        return Promise.resolve({
+          meetingId: "meeting-1",
+          recording: { id: "recording-1" },
+        });
+      }
+      if (name === "stop-meeting-recording") return stopRecording.promise;
+      if (name === "get-meeting") {
+        return Promise.resolve({ meeting: { title: "Meeting" } });
+      }
+      return Promise.resolve({});
+    });
+
+    await act(async () => {
+      root.render(<Probe callClipsAction={callClipsAction} />);
+    });
+    const startListener = [
+      ...(tauri.listeners.get("meetings:start-transcription") ?? []),
+    ][0];
+    const quitListener = [
+      ...(tauri.listeners.get("meetings:quit-requested") ?? []),
+    ][0];
+    expect(startListener).toBeDefined();
+    expect(quitListener).toBeDefined();
+
+    await act(async () => {
+      startListener!({ payload: { meetingId: "meeting-1" } });
+      await waitFor(() => transcription.start.mock.calls.length > 0);
+    });
+    await act(async () => {
+      quitListener!({ payload: undefined });
+      await waitFor(() => transcription.stop.mock.calls.length === 2);
+    });
+
+    expect(events).not.toContain("startup-settled");
+    expect(tauri.invoke).not.toHaveBeenCalledWith("quit_teardown_done");
+
+    await act(async () => {
+      engineStart.resolve("whisper");
+      await waitFor(
+        () => events.filter((event) => event === "stop:whisper").length === 2,
+      );
+    });
+
+    expect(events.indexOf("startup-settled")).toBeLessThan(
+      events.lastIndexOf("stop:whisper"),
+    );
+    expect(transcription.stop).toHaveBeenLastCalledWith(
+      "whisper",
+      expect.any(Number),
+    );
+    expect(
+      callClipsAction.mock.calls.some(
+        ([name]) => name === "stop-meeting-recording",
+      ),
+    ).toBe(false);
+    expect(tauri.invoke).not.toHaveBeenCalledWith("quit_teardown_done");
+
+    await act(async () => {
+      engineStop.resolve();
+      await waitFor(() =>
+        callClipsAction.mock.calls.some(
+          ([name]) => name === "stop-meeting-recording",
+        ),
+      );
+    });
+    expect(tauri.invoke).not.toHaveBeenCalledWith("quit_teardown_done");
+
+    await act(async () => {
+      stopRecording.resolve({ actualEnd: new Date().toISOString() });
+      await waitFor(() =>
+        tauri.invoke.mock.calls.some(
+          ([command]) => command === "quit_teardown_done",
+        ),
+      );
+    });
+
+    expect(tauri.invoke).toHaveBeenCalledWith("quit_teardown_done");
+  });
+
+  it("keeps quit pending and retries when stopping the resolved native engine fails", async () => {
+    const engineStart = deferred<"whisper">();
+    const retryEngineStop = deferred<void>();
+    const stopRecording = deferred<{ actualEnd: string }>();
+    const events: string[] = [];
+    let postStartWhisperStops = 0;
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    transcription.start.mockImplementation(async () => {
+      const engine = await engineStart.promise;
+      events.push("startup-settled");
+      return engine;
+    });
+    transcription.stop.mockImplementation(async (engine) => {
+      events.push(`stop:${engine}`);
+      if (engine === "whisper" && events.includes("startup-settled")) {
+        postStartWhisperStops += 1;
+        if (postStartWhisperStops === 1) {
+          throw new Error("Native stop failed once.");
+        }
+        return retryEngineStop.promise;
+      }
+    });
+    const callClipsAction = vi.fn((name: string) => {
+      if (name === "start-meeting-recording") {
+        return Promise.resolve({
+          meetingId: "meeting-1",
+          recording: { id: "recording-1" },
+        });
+      }
+      if (name === "stop-meeting-recording") return stopRecording.promise;
+      if (name === "get-meeting") {
+        return Promise.resolve({ meeting: { title: "Meeting" } });
+      }
+      return Promise.resolve({});
+    });
+
+    await act(async () => {
+      root.render(<Probe callClipsAction={callClipsAction} />);
+    });
+    const startListener = [
+      ...(tauri.listeners.get("meetings:start-transcription") ?? []),
+    ][0];
+    const quitListener = [
+      ...(tauri.listeners.get("meetings:quit-requested") ?? []),
+    ][0];
+    expect(startListener).toBeDefined();
+    expect(quitListener).toBeDefined();
+
+    await act(async () => {
+      startListener!({ payload: { meetingId: "meeting-1" } });
+      await waitFor(() => transcription.start.mock.calls.length > 0);
+    });
+    await act(async () => {
+      quitListener!({ payload: undefined });
+      await waitFor(() => transcription.stop.mock.calls.length === 2);
+    });
+    await act(async () => {
+      engineStart.resolve("whisper");
+      await waitFor(() =>
+        warning.mock.calls.some(
+          ([message]) =>
+            message ===
+            "[clips-popover] meeting stop is incomplete; preserving session for retry:",
+        ),
+      );
+    });
+
+    expect(postStartWhisperStops).toBe(1);
+    expect(
+      callClipsAction.mock.calls.some(
+        ([name]) => name === "stop-meeting-recording",
+      ),
+    ).toBe(false);
+    expect(tauri.invoke).not.toHaveBeenCalledWith("quit_teardown_done");
+
+    await act(async () => {
+      quitListener!({ payload: undefined });
+      await waitFor(() => transcription.stop.mock.calls.length === 4);
+    });
+    expect(transcription.stop).toHaveBeenLastCalledWith(
+      "whisper",
+      expect.any(Number),
+    );
+    expect(tauri.invoke).not.toHaveBeenCalledWith("quit_teardown_done");
+    expect(
+      callClipsAction.mock.calls.some(
+        ([name]) => name === "stop-meeting-recording",
+      ),
+    ).toBe(false);
+
+    await act(async () => {
+      retryEngineStop.resolve();
+      await waitFor(() =>
+        callClipsAction.mock.calls.some(
+          ([name]) => name === "stop-meeting-recording",
+        ),
+      );
+    });
+    expect(tauri.invoke).not.toHaveBeenCalledWith("quit_teardown_done");
+
+    await act(async () => {
+      stopRecording.resolve({ actualEnd: new Date().toISOString() });
+      await waitFor(() =>
+        tauri.invoke.mock.calls.some(
+          ([command]) => command === "quit_teardown_done",
+        ),
+      );
+    });
+
     expect(tauri.invoke).toHaveBeenCalledWith("quit_teardown_done");
   });
 

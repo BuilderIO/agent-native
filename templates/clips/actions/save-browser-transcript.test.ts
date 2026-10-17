@@ -165,7 +165,7 @@ describe("save-browser-transcript", () => {
     });
   });
 
-  it("requeues ended meeting notes when an imported transcript is preserved", async () => {
+  it("best-effort requeues ended meeting notes when an imported transcript is preserved", async () => {
     mocks.rows = [
       [
         {
@@ -179,7 +179,9 @@ describe("save-browser-transcript", () => {
     mocks.listEndedMeetingsForRecording.mockResolvedValue([
       { id: "meeting-1" },
     ]);
-    vi.mocked(dispatchPostFinalizeJob).mockResolvedValue(undefined);
+    vi.mocked(dispatchPostFinalizeJob).mockRejectedValue(
+      new Error("Post-finalize meeting-finalize worker returned HTTP 503"),
+    );
 
     const result = await saveBrowserTranscript.run({
       recordingId: "rec-1",
@@ -200,8 +202,45 @@ describe("save-browser-transcript", () => {
     expect(dispatchPostFinalizeJob).toHaveBeenCalledWith({
       recordingId: "rec-1",
       kind: "meeting-finalize",
-      requireAccepted: true,
+      requireAccepted: false,
     });
+  });
+
+  it("best-effort requeues ended meeting notes when an existing ready transcript is kept", async () => {
+    mocks.rows = [
+      [
+        {
+          status: "ready",
+          fullText: "A usable native transcript.",
+          segmentsJson: '[{"startMs":0,"endMs":1000,"text":"Ready."}]',
+          source: "web-speech",
+        },
+      ],
+    ];
+    mocks.listEndedMeetingsForRecording.mockResolvedValue([
+      { id: "meeting-1" },
+    ]);
+    vi.mocked(dispatchPostFinalizeJob).mockRejectedValue(
+      new Error("Post-finalize meeting-finalize worker returned HTTP 503"),
+    );
+
+    const result = await saveBrowserTranscript.run({
+      recordingId: "rec-1",
+      fullText: "Lower-confidence replacement text.",
+      source: "web-speech",
+    });
+
+    expect(result).toMatchObject({
+      status: "skipped",
+      reason: "Transcript already exists",
+    });
+    expect(dispatchPostFinalizeJob).toHaveBeenCalledWith({
+      recordingId: "rec-1",
+      kind: "meeting-finalize",
+      requireAccepted: false,
+    });
+    expect(mocks.update).not.toHaveBeenCalled();
+    expect(mocks.insert).not.toHaveBeenCalled();
   });
 
   it("does not report transcript save success before finalization is accepted", async () => {
@@ -386,7 +425,9 @@ describe("save-browser-transcript", () => {
     mocks.listEndedMeetingsForRecording.mockResolvedValue([
       { id: "meeting-1" },
     ]);
-    vi.mocked(dispatchPostFinalizeJob).mockResolvedValue(undefined);
+    vi.mocked(dispatchPostFinalizeJob).mockRejectedValue(
+      new Error("Post-finalize meeting-finalize worker returned HTTP 503"),
+    );
 
     const result = await saveBrowserTranscript.run({
       recordingId: "rec-1",
@@ -404,7 +445,7 @@ describe("save-browser-transcript", () => {
     expect(dispatchPostFinalizeJob).toHaveBeenCalledWith({
       recordingId: "rec-1",
       kind: "meeting-finalize",
-      requireAccepted: true,
+      requireAccepted: false,
     });
   });
 

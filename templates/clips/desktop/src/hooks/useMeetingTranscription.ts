@@ -290,45 +290,56 @@ export function useMeetingTranscription({
         : reason;
       session.stopping = true;
       const run = (async () => {
-        if (session.flushTimer) {
-          window.clearTimeout(session.flushTimer);
-          session.flushTimer = null;
-        }
-        await session.audioTransitionInFlight?.catch(() => {});
-        const engineWasStarting = Boolean(session.engineStarting);
-        const stoppingRunId = session.audioRunId;
-        const enginesToStop: TranscriptionEngine[] = engineWasStarting
-          ? ["whisper", "macos-native"]
-          : [session.engine];
-        const stopResults = await Promise.allSettled(
-          enginesToStop.map((engine) =>
-            stopTranscriptionEngine(engine, stoppingRunId),
-          ),
-        );
-        for (const result of stopResults) {
-          if (result.status === "rejected") {
-            console.warn(
-              "[clips-popover] meeting audio stop failed:",
-              result.reason,
-            );
-          }
-        }
-        await session.engineStartInFlight?.catch(() => {});
-        if (!session.paused) {
-          session.settlingRunDeadlines.set(
-            stoppingRunId,
-            Date.now() + TRANSCRIPTION_STOP_SETTLE_MS,
-          );
-        }
-        await waitForSettlingRunDeadlines(session.settlingRunDeadlines);
-        if (session.flushTimer) {
-          window.clearTimeout(session.flushTimer);
-          session.flushTimer = null;
-        }
-        unlistenAll(session.unlisten.splice(0));
-        await invoke("silence_detector_stop").catch(() => {});
         let terminalStopError: ClipsActionError | undefined;
         try {
+          if (session.flushTimer) {
+            window.clearTimeout(session.flushTimer);
+            session.flushTimer = null;
+          }
+          await session.audioTransitionInFlight?.catch(() => {});
+          const engineWasStarting = Boolean(session.engineStarting);
+          const stoppingRunId = session.audioRunId;
+          const enginesToStop: TranscriptionEngine[] = engineWasStarting
+            ? ["whisper", "macos-native"]
+            : [session.engine];
+          const stopResults = await Promise.allSettled(
+            enginesToStop.map((engine) =>
+              stopTranscriptionEngine(engine, stoppingRunId),
+            ),
+          );
+          for (const result of stopResults) {
+            if (result.status === "rejected") {
+              console.warn(
+                "[clips-popover] meeting audio stop failed:",
+                result.reason,
+              );
+            }
+          }
+          const firstStopFailure = stopResults.find(
+            (result) => result.status === "rejected",
+          );
+          if (!engineWasStarting && firstStopFailure?.status === "rejected") {
+            throw firstStopFailure.reason;
+          }
+          const startedEngine = await session.engineStartInFlight?.catch(
+            () => null,
+          );
+          if (engineWasStarting && startedEngine) {
+            await stopTranscriptionEngine(startedEngine, stoppingRunId);
+          }
+          if (!session.paused) {
+            session.settlingRunDeadlines.set(
+              stoppingRunId,
+              Date.now() + TRANSCRIPTION_STOP_SETTLE_MS,
+            );
+          }
+          await waitForSettlingRunDeadlines(session.settlingRunDeadlines);
+          if (session.flushTimer) {
+            window.clearTimeout(session.flushTimer);
+            session.flushTimer = null;
+          }
+          unlistenAll(session.unlisten.splice(0));
+          await invoke("silence_detector_stop").catch(() => {});
           await session.startRecordingInFlight;
           let stopConfirmed = false;
           const result = await stopMeetingBeforeTranscriptFlush({
