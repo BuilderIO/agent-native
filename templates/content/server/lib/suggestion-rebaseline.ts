@@ -64,6 +64,10 @@ export type PageRebaselineReport =
  * canonical body. Run it inside the conversion's transaction, holding the
  * page row, after the canonical body and its revision are known. When the
  * report is `blocked` it wrote nothing, and the conversion must roll back.
+ *
+ * Call `ensureSuggestionTables()` before opening that transaction: inside
+ * one, core can't create its suggestion tables, and a database that has
+ * never stored a suggestion fails here on the missing table.
  */
 export async function rebaselinePageForCanonicalBody(
   tx: DbExec,
@@ -168,11 +172,13 @@ export async function rebaselinePageForCanonicalBody(
       suggestionReport.push({ id: suggestion.id, outcome: "stale" });
       continue;
     }
-    // A suggestion already on the canonical text keeps its operation, but a
-    // base that was current stays current.
+    // A suggestion already on the canonical text keeps its operation. Its
+    // base moves only when it was current and the conversion gave the body a
+    // new revision.
     if (
       outcome.kind === "unchanged" &&
-      suggestion.baseRevision !== input.storedRevision
+      (suggestion.baseRevision !== input.storedRevision ||
+        suggestion.baseRevision === input.canonicalRevision)
     ) {
       suggestionReport.push({ id: suggestion.id, outcome: "unchanged" });
       continue;
