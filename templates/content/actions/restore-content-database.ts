@@ -151,66 +151,67 @@ export default defineAction({
       ownerBlockId: ownership.database.ownerBlockId,
     });
 
-    await retryRestoreOnMembershipChange(() =>
-      db.transaction(async (tx) => {
-        const transactionDb = tx as unknown as ReturnType<typeof getDb>;
-        const locks = await lockLifecycleGroup(transactionDb, {
-          operation: "restore",
-          roots: [
-            {
-              id: ownership.database.documentId,
-              ownerEmail: ownership.database.ownerEmail,
-            },
-          ],
-          alsoLockDatabaseIds: [databaseId],
-        });
-        const [backingDocument] = await tx
-          .select({
-            trashedAt: schema.documents.trashedAt,
-            trashRootId: schema.documents.trashRootId,
-          })
-          .from(schema.documents)
-          .where(eq(schema.documents.id, ownership.database.documentId))
-          .limit(1);
-        if (!backingDocument) {
-          throw new Error(`Database "${databaseId}" not found`);
-        }
-        if (
-          backingDocument.trashedAt &&
-          backingDocument.trashRootId !== ownership.database.documentId
-        ) {
-          throw new Error("Restore the parent Trash item instead");
-        }
+    const restoreOnce = async (
+      tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+    ) => {
+      const transactionDb = tx as unknown as ReturnType<typeof getDb>;
+      const locks = await lockLifecycleGroup(transactionDb, {
+        operation: "restore",
+        roots: [
+          {
+            id: ownership.database.documentId,
+            ownerEmail: ownership.database.ownerEmail,
+          },
+        ],
+        alsoLockDatabaseIds: [databaseId],
+      });
+      const [backingDocument] = await tx
+        .select({
+          trashedAt: schema.documents.trashedAt,
+          trashRootId: schema.documents.trashRootId,
+        })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, ownership.database.documentId))
+        .limit(1);
+      if (!backingDocument) {
+        throw new Error(`Database "${databaseId}" not found`);
+      }
+      if (
+        backingDocument.trashedAt &&
+        backingDocument.trashRootId !== ownership.database.documentId
+      ) {
+        throw new Error("Restore the parent Trash item instead");
+      }
 
-        const restoredDocumentIds = await restoreDocumentSubtree(
-          transactionDb,
-          ownership.database.documentId,
-          ownership.database.ownerEmail,
-          locks,
+      const restoredDocumentIds = await restoreDocumentSubtree(
+        transactionDb,
+        ownership.database.documentId,
+        ownership.database.ownerEmail,
+        locks,
+      );
+      if (
+        backingDocument.trashedAt &&
+        !restoredDocumentIds.includes(ownership.database.documentId)
+      ) {
+        throw new Error("Database backing page was not restored");
+      }
+      await tx
+        .update(schema.contentDatabases)
+        .set({
+          deletedAt: null,
+          updatedAt: now,
+          ...(clearInlineOwnership
+            ? { ownerDocumentId: null, ownerBlockId: null }
+            : {}),
+        })
+        .where(
+          and(
+            eq(schema.contentDatabases.id, databaseId),
+            isNotNull(schema.contentDatabases.deletedAt),
+          ),
         );
-        if (
-          backingDocument.trashedAt &&
-          !restoredDocumentIds.includes(ownership.database.documentId)
-        ) {
-          throw new Error("Database backing page was not restored");
-        }
-        await tx
-          .update(schema.contentDatabases)
-          .set({
-            deletedAt: null,
-            updatedAt: now,
-            ...(clearInlineOwnership
-              ? { ownerDocumentId: null, ownerBlockId: null }
-              : {}),
-          })
-          .where(
-            and(
-              eq(schema.contentDatabases.id, databaseId),
-              isNotNull(schema.contentDatabases.deletedAt),
-            ),
-          );
-      }),
-    );
+    };
+    await retryRestoreOnMembershipChange(() => db.transaction(restoreOnce));
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
