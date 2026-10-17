@@ -264,6 +264,68 @@ describe("local recording transcription", () => {
     );
   });
 
+  it("accepts a resumed-run final while the new engine is starting", async () => {
+    vi.useFakeTimers();
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: {
+        setTimeout: (callback: () => void, ms: number) =>
+          setTimeout(callback, ms),
+      },
+    });
+    let onFinal:
+      | ((event: {
+          text: string;
+          source: "mic";
+          segments: Array<{ startMs: number; endMs: number; text: string }>;
+          runId?: number;
+        }) => void)
+      | undefined;
+    let resolveResumeStart!: (engine: "whisper") => void;
+    transcriptionEngineMocks.onFinalTranscript.mockImplementation(
+      async (listener) => {
+        onFinal = listener;
+        return () => {};
+      },
+    );
+    transcriptionEngineMocks.startTranscriptionEngine
+      .mockResolvedValueOnce("whisper")
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveResumeStart = resolve;
+          }),
+      );
+    transcriptionEngineMocks.stopTranscriptionEngine.mockResolvedValue(
+      undefined,
+    );
+    transcriptionEngineMocks.resetTranscriptionTimeline.mockResolvedValue(
+      undefined,
+    );
+
+    const capture = await startTranscriptionCapture();
+    expect(capture).not.toBeNull();
+    await capture?.pause();
+    const resume = capture?.resume();
+    const resumedRunId = transcriptionEngineMocks.startTranscriptionEngine.mock
+      .calls[1][0].runId as number;
+    onFinal?.({
+      runId: resumedRunId,
+      text: "final during resume startup",
+      source: "mic",
+      segments: [
+        { startMs: 0, endMs: 100, text: "final during resume startup" },
+      ],
+    });
+    resolveResumeStart("whisper");
+    await resume;
+    await capture?.pause();
+    vi.setSystemTime(Date.now() + 1_501);
+
+    const result = await capture?.stop();
+    expect(result?.text).toBe("Me: final during resume startup");
+  });
+
   it("keeps the timeline live when the native pause fails", async () => {
     let now = 1_000;
     vi.spyOn(Date, "now").mockImplementation(() => now);

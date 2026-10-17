@@ -86,6 +86,14 @@ async function settle() {
   for (let index = 0; index < 30; index++) await Promise.resolve();
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
 async function dispatch(name: string, payload: unknown = {}) {
   await act(async () => {
     for (const handler of mocks.listeners.get(name) ?? []) {
@@ -193,5 +201,69 @@ describe("meeting transcription pause and resume", () => {
         (action) => action.name === "save-browser-transcript",
       ),
     ).toHaveLength(1);
+  });
+
+  it("accepts resumed-run finals while the new engine is starting", async () => {
+    const resumeStart = deferred<void>();
+    mocks.restartTranscriptionEngine.mockReturnValueOnce(resumeStart.promise);
+
+    await act(async () => {
+      root.render(createElement(Harness));
+      await settle();
+    });
+    await dispatch("meetings:start-transcription", { meetingId: "meeting-1" });
+
+    const pausedRunId = mocks.startTranscriptionEngine.mock.calls[0][0]
+      .runId as number;
+    await dispatch("clips:recorder-pause");
+    await dispatch("clips:recorder-resume");
+
+    const resumedRunId = mocks.restartTranscriptionEngine.mock
+      .calls[0][5] as number;
+    expect(resumedRunId).not.toBe(pausedRunId);
+    emitFinal(resumedRunId, "final during resume startup");
+    resumeStart.resolve();
+    await act(async () => settle());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_500);
+      await settle();
+    });
+
+    const savedTranscript = mocks.actions.find(
+      (action) => action.name === "save-browser-transcript",
+    );
+    expect(savedTranscript?.body.fullText).toBe(
+      "Me: final during resume startup",
+    );
+  });
+
+  it("keeps the paused-run listener through its settle deadline on stop", async () => {
+    await act(async () => {
+      root.render(createElement(Harness));
+      await settle();
+    });
+    await dispatch("meetings:start-transcription", { meetingId: "meeting-1" });
+
+    const pausedRunId = mocks.startTranscriptionEngine.mock.calls[0][0]
+      .runId as number;
+    await dispatch("clips:recorder-pause");
+    await dispatch("clips:pill-stop", { meetingId: "meeting-1" });
+    expect(mocks.finalListeners.size).toBeGreaterThan(0);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+      emitFinal(pausedRunId, "final before paused-run deadline");
+      await settle();
+      await vi.advanceTimersByTimeAsync(1_000);
+      await settle();
+    });
+
+    const savedTranscript = mocks.actions.find(
+      (action) => action.name === "save-browser-transcript",
+    );
+    expect(savedTranscript?.body.fullText).toBe(
+      "Me: final before paused-run deadline",
+    );
+    expect(mocks.finalListeners.size).toBe(0);
   });
 });

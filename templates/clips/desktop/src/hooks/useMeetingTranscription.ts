@@ -33,6 +33,7 @@ export interface MeetingTranscriptionPayload {
 interface MeetingTranscriptionSession {
   meetingId: string;
   audioRunId: number;
+  resumingRunId: number | null;
   settlingRunDeadlines: Map<number, number>;
   recordingId: string | null;
   lines: TranscriptLine[];
@@ -87,16 +88,27 @@ function acceptsFinalTranscriptRun(
   settlingRunDeadlines: Map<number, number>,
   receivedAt: number,
   activeRunPaused: boolean,
+  resumingRunId: number | null,
 ): boolean {
   for (const [settlingRunId, deadline] of settlingRunDeadlines) {
     if (deadline < receivedAt) settlingRunDeadlines.delete(settlingRunId);
   }
 
   return (
-    (!activeRunPaused && runId === activeRunId) ||
+    (runId === activeRunId && (!activeRunPaused || runId === resumingRunId)) ||
     (typeof runId === "number" &&
       (settlingRunDeadlines.get(runId) ?? 0) >= receivedAt)
   );
+}
+
+async function waitForSettlingRunDeadlines(
+  settlingRunDeadlines: Map<number, number>,
+): Promise<void> {
+  const deadline = Math.max(0, ...settlingRunDeadlines.values());
+  const remaining = deadline - Date.now();
+  if (remaining > 0) {
+    await new Promise<void>((resolve) => window.setTimeout(resolve, remaining));
+  }
 }
 
 function unlistenAll(unlisteners: Array<() => void>): void {
@@ -189,6 +201,11 @@ export function useMeetingTranscription({
           await stopTranscriptionEngine(session.engine, session.audioRunId);
         } catch (err) {
           console.warn("[clips-popover] meeting audio stop failed:", err);
+        }
+        await waitForSettlingRunDeadlines(session.settlingRunDeadlines);
+        if (session.flushTimer) {
+          window.clearTimeout(session.flushTimer);
+          session.flushTimer = null;
         }
         unlistenAll(session.unlisten.splice(0));
         await invoke("silence_detector_stop").catch(() => {});
@@ -347,6 +364,7 @@ export function useMeetingTranscription({
         const session: MeetingTranscriptionSession = {
           meetingId,
           audioRunId: allocateVoiceRunId(),
+          resumingRunId: null,
           settlingRunDeadlines: new Map(),
           recordingId: null,
           lines: [],
@@ -399,6 +417,7 @@ export function useMeetingTranscription({
                 session.settlingRunDeadlines,
                 Date.now(),
                 session.paused,
+                session.resumingRunId,
               )
             ) {
               return;
@@ -498,17 +517,25 @@ export function useMeetingTranscription({
           const engine = session.engine;
           const runId = allocateVoiceRunId();
           session.audioRunId = runId;
-          await restartTranscriptionEngine(
-            engine,
-            {
-              deviceId: selectedMicId,
-              label: selectedMicLabel,
-            },
-            true,
-            false,
-            true,
-            runId,
-          );
+          session.resumingRunId = runId;
+          try {
+            await restartTranscriptionEngine(
+              engine,
+              {
+                deviceId: selectedMicId,
+                label: selectedMicLabel,
+              },
+              true,
+              false,
+              true,
+              runId,
+            );
+          } catch (err) {
+            if (session.resumingRunId === runId) {
+              session.resumingRunId = null;
+            }
+            throw err;
+          }
           return { engine, runId };
         };
 
@@ -586,6 +613,9 @@ export function useMeetingTranscription({
                   return;
                 }
                 if (!sessionIsActive()) {
+                  if (session.resumingRunId === resumedAudio.runId) {
+                    session.resumingRunId = null;
+                  }
                   await stopStaleAudioTransition(
                     resumedAudio.engine,
                     resumedAudio.runId,
@@ -593,6 +623,9 @@ export function useMeetingTranscription({
                   return;
                 }
                 session.paused = false;
+                if (session.resumingRunId === resumedAudio.runId) {
+                  session.resumingRunId = null;
+                }
                 await invoke("silence_detector_start", {
                   config: silenceDetectorConfig,
                 }).catch(() => {});
