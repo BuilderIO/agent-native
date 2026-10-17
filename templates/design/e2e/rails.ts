@@ -533,12 +533,6 @@ export function styleOf(node: SavedNode | undefined) {
     const [property, ...value] = declaration.split(":");
     if (property?.trim()) style[property.trim()] = value.join(":").trim();
   }
-  if (
-    node?.attrs["data-agent-native-auto-layout-cross-axis-default"] !==
-    undefined
-  ) {
-    style["align-items"] ??= "flex-start";
-  }
   return style;
 }
 
