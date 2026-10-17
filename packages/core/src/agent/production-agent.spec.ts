@@ -8149,6 +8149,11 @@ describe("runAgentLoop", () => {
     expect(seenTools[1]).toContain("query-data");
     expect(streamCalls).toBe(3);
     expect(guard).toHaveBeenCalledTimes(2);
+    const guardStartTimes = guard.mock.calls.map(
+      ([context]) => context.runStartedAt,
+    );
+    expect(guardStartTimes[0]).toEqual(expect.any(Number));
+    expect(new Set(guardStartTimes).size).toBe(1);
   });
 
   it("passes the central default max output token cap to the engine", async () => {
@@ -16519,6 +16524,18 @@ describe("runAgentLoop", () => {
       "act",
       "act",
     ]);
+    expect(guard.mock.calls[1]?.[0].toolCalls).toContainEqual({
+      toolCallId: "query-1",
+      name: "query-data",
+      input: { sql: "select count(*)" },
+    });
+    expect(guard.mock.calls[1]?.[0].toolResults).toContainEqual(
+      expect.objectContaining({
+        toolCallId: "query-1",
+        name: "query-data",
+        isError: false,
+      }),
+    );
     expect(visibleEvents(events).slice(0, 2)).toEqual([
       {
         type: "text",

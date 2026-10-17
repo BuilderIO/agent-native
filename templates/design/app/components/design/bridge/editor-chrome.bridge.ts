@@ -24562,6 +24562,10 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     var dragEl = gestureEl;
     var gestureViewport = bridgeGestureViewport();
     var DRAG_THRESHOLD = 3;
+    var lastPointerClientX = startX;
+    var lastPointerClientY = startY;
+    var lateAltStartClientX: number | null = null;
+    var lateAltStartClientY: number | null = null;
     var bridgeMoveController = createCanvasGestureController({
       capabilities: { move: true, resize: true },
       drag: {
@@ -25004,9 +25008,22 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         moved = true;
       }
       // A late Alt copies on the next real move; the release replay is not one.
-      if (ev.altKey && moved && !duplicatedForDrag && !isRelease) {
+      var movedSinceLateAlt =
+        lateAltStartClientX === null ||
+        ev.clientX !== lateAltStartClientX ||
+        ev.clientY !== lateAltStartClientY;
+      if (
+        ev.type === events.move &&
+        !isRelease &&
+        ev.altKey &&
+        moved &&
+        movedSinceLateAlt &&
+        !duplicatedForDrag
+      ) {
         activateLateDuplicate(ev);
       }
+      lastPointerClientX = ev.clientX;
+      lastPointerClientY = ev.clientY;
       var rawDx = controllerMove.gesture.canvasDelta.x;
       var rawDy = controllerMove.gesture.canvasDelta.y;
       var nextLeft = originLeft + rawDx;
@@ -25190,6 +25207,10 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       return true;
     }
     function onMoveKeyDown(ev) {
+      if (ev.key === "Alt" && !ev.repeat && !duplicatedForDrag) {
+        lateAltStartClientX = lastPointerClientX;
+        lateAltStartClientY = lastPointerClientY;
+      }
       if (ev.key !== "Escape") return;
       stopNativeInteraction(ev);
       cancelMoveDrag();

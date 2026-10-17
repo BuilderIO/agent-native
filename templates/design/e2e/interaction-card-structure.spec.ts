@@ -5,6 +5,7 @@ import {
   childrenOf,
   expect,
   expectOnlyChanged,
+  normalizeStyleAttribute,
   savedNodeMap,
   styleOf,
   test,
@@ -59,43 +60,33 @@ async function selectCardRow(app: App) {
 
 /** Every node under `rootId` in document order, without ids, so a copy can be compared to its source. */
 function subtreeShape(nodes: Map<string, SavedNode>, rootId: string) {
-  const shape: {
-    tag: string;
-    attrs: Record<string, string>;
-    style: Record<string, string>;
-    text: string;
-  }[] = [];
+  const shape: { tag: string; attrs: Record<string, string>; text: string }[] =
+    [];
   const visit = (id: string) => {
     const node = nodes.get(id)!;
-    const {
-      "data-agent-native-node-id": _id,
-      style: _style,
-      ...attrs
-    } = node.attrs;
-    const style = Object.fromEntries(
-      Object.entries(styleOf(node)).map(([property, value]) => [
-        property,
-        normalizeCssColor(value),
-      ]),
-    );
-    shape.push({ tag: node.tag, attrs, style, text: node.text });
+    const { "data-agent-native-node-id": _id, ...attrs } = node.attrs;
+    shape.push({ tag: node.tag, attrs, text: node.text });
     for (const child of childrenOf(nodes, id)) visit(child);
   };
   visit(rootId);
   return shape;
 }
 
-function normalizeCssColor(value: string) {
-  const match = /^#([a-f\d]{3}|[a-f\d]{6})$/i.exec(value.trim());
-  if (!match) return value;
-  const hex =
-    match[1]!.length === 3
-      ? [...match[1]!].map((digit) => digit + digit).join("")
-      : match[1]!;
-  const channels = [0, 2, 4].map((index) =>
-    Number.parseInt(hex.slice(index, index + 2), 16),
+async function normalizedSubtreeShape(
+  app: App,
+  nodes: Map<string, SavedNode>,
+  rootId: string,
+) {
+  return Promise.all(
+    subtreeShape(nodes, rootId).map(async ({ attrs, ...node }) => {
+      const { style, ...otherAttrs } = attrs;
+      return {
+        ...node,
+        attrs: otherAttrs,
+        style: await normalizeStyleAttribute(app.page, style),
+      };
+    }),
   );
-  return `rgb(${channels.join(", ")})`;
 }
 
 function attrsBesidesStyle(node: SavedNode | undefined) {
@@ -171,7 +162,9 @@ test.describe("card component: structure, duplicate, rename, reorder, group", ()
     const after = await app.savedNodes(id);
     const copyId = childrenOf(after, "page")[1];
     expect(childrenOf(after, "page")).toStrictEqual(["card", copyId]);
-    expect(subtreeShape(after, copyId)).toEqual(subtreeShape(before, "card"));
+    expect(await normalizedSubtreeShape(app, after, copyId)).toEqual(
+      await normalizedSubtreeShape(app, before, "card"),
+    );
     const copyIds = subtreeIds(after, copyId);
     expect(
       copyIds.filter((nodeId) => before.has(nodeId)),
