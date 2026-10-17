@@ -695,6 +695,8 @@ async function runProductionChatPath(args: {
   let timer: ReturnType<typeof setTimeout> | undefined;
   let partialUsage: AgentLoopUsage | undefined;
   let malformedUsageEvent = false;
+  const getUsablePartialUsage = () =>
+    malformedUsageEvent ? undefined : partialUsage;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
       timedOut = true;
@@ -754,7 +756,7 @@ async function runProductionChatPath(args: {
       return malformedProductionPathOutput(
         receiptError ?? "Production chat eval adapter returned no run output.",
         Date.now() - started,
-        partialUsage,
+        getUsablePartialUsage(),
       );
     }
     const output = result.output;
@@ -762,7 +764,7 @@ async function runProductionChatPath(args: {
       return malformedProductionPathOutput(
         "Production chat eval adapter returned malformed run output.",
         Date.now() - started,
-        partialUsage,
+        getUsablePartialUsage(),
       );
     }
     if (!output.ok) {
@@ -813,7 +815,7 @@ async function runProductionChatPath(args: {
     return malformedProductionPathOutput(
       timedOut ? timeoutError.message : "Production chat eval failed.",
       Date.now() - started,
-      partialUsage,
+      getUsablePartialUsage(),
     );
   } finally {
     finished = true;

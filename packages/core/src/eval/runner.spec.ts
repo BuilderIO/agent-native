@@ -1617,6 +1617,53 @@ describe("runEvalSuite runner creation", () => {
     expect(JSON.stringify(suite.report)).not.toContain("adapter-secret");
   });
 
+  it("rejects partial usage when the adapter throws after a malformed callback", async () => {
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    const evalCase = defineEval({
+      name: "malformed-usage-before-adapter-error",
+      input: { prompt: "find active users" },
+      scorers: [contains("active users")],
+    });
+    const productionChatPath = testProductionChatPath();
+    productionChatPath.run = async (args) => {
+      args.onUsage({
+        inputTokens: 2,
+        outputTokens: 1,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "fake-model",
+      });
+      args.onUsage({
+        inputTokens: "customer@example.com",
+        outputTokens: Number.NaN,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "token=adapter-secret",
+      } as never);
+      throw new Error("token=adapter-secret");
+    };
+
+    const suite = await runEvalSuite({
+      evals: [evalCase],
+      productionContext: {
+        ...testProductionContext(),
+        productionChatPath,
+      },
+      requireProductionChatPath: true,
+      persist: false,
+    });
+
+    expect(suite.report.results[0]).toMatchObject({
+      status: "failed",
+      error: "Production chat eval failed.",
+    });
+    expect(suite.report.results[0].usage).toBeUndefined();
+    expect(JSON.stringify(suite.report)).not.toContain("customer@example.com");
+    expect(JSON.stringify(suite.report)).not.toContain("adapter-secret");
+    expect(JSON.stringify(errorLog.mock.calls)).not.toContain("adapter-secret");
+    errorLog.mockRestore();
+  });
+
   it("omits malformed usage from failed outputs when no usage callback ran", async () => {
     const evalCase = defineEval({
       name: "malformed-production-adapter-usage-without-callback",
