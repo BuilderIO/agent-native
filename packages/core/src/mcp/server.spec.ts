@@ -75,6 +75,15 @@ const approvalStoreMocks = vi.hoisted(() => {
   };
 });
 
+const auditInserts = vi.hoisted(() => [] as Array<Record<string, unknown>>);
+
+vi.mock("../audit/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../audit/store.js")>()),
+  insertAuditEvent: async (event: Record<string, unknown>) => {
+    auditInserts.push(event);
+  },
+}));
+
 vi.mock("./approval-store.js", () => ({
   createMcpApprovalGrant: approvalStoreMocks.create,
   consumeMcpApprovalGrant: approvalStoreMocks.consume,
@@ -4856,6 +4865,77 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         code: -32602,
         data: { uri: "ui://mail/missing/shell-v65" },
       });
+    } finally {
+      await client.close();
+    }
+  });
+
+  it("records an approved admin write with its MCP client, OAuth client and approval", async () => {
+    auditInserts.length = 0;
+    const { recordOrgAdminAuditEvent } = await import("../audit/org-admin.js");
+    const { auditAttribution } = await import("../audit/attribution.js");
+    const { client } = await createModernClient(
+      {
+        ...config,
+        actions: {
+          "restrict-personal-keys": {
+            tool: {
+              description: "Restrict personal API keys",
+              parameters: { type: "object" as const, properties: {} },
+            },
+            needsApproval: true,
+            run: async (_args: unknown, ctx: any) => {
+              await recordOrgAdminAuditEvent({
+                action: "restrict-personal-keys",
+                targetType: "provider-key-policy",
+                summary: "Restricted personal API keys",
+                userEmail: ctx.userEmail,
+                orgId: ctx.orgId,
+                attribution: auditAttribution(ctx),
+              });
+              return { ok: true };
+            },
+          },
+        },
+      },
+      {
+        manualInputRequired: true,
+        supportsElicitation: true,
+        requestHeaders: await mcpAppsAuthHeaders(),
+      },
+    );
+    try {
+      const first = (await client.callTool(
+        { name: "restrict-personal-keys", arguments: {} } as any,
+        { allowInputRequired: true } as any,
+      )) as any;
+      expect(first.resultType).toBe("input_required");
+
+      const approved = await client.callTool({
+        name: "restrict-personal-keys",
+        arguments: {},
+        requestState: first.requestState,
+        inputResponses: {
+          actionApproval: {
+            action: "accept",
+            content: { decision: "approve" },
+          },
+        },
+      } as any);
+      expect(approved.isError).not.toBe(true);
+      expect(
+        auditInserts.filter((row) => row.action === "restrict-personal-keys"),
+      ).toEqual([
+        expect.objectContaining({
+          caller: "mcp",
+          actorKind: "agent",
+          actorEmail: "oauth@example.com",
+          reportedClientName: "agent-native-server-spec",
+          reportedClientVersion: "1.0.0",
+          oauthClientId: "client-123",
+          approval: "mcp-client-accepted",
+        }),
+      ]);
     } finally {
       await client.close();
     }

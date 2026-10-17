@@ -50,6 +50,12 @@ export {
 } from "./ocsf.js";
 
 export { recordActionAudit } from "./record.js";
+export {
+  auditAttribution,
+  routeAuditAttribution,
+  type AuditAttribution,
+  type AuditAttributionSource,
+} from "./attribution.js";
 export { withCommittedActionAudit } from "./committed-outcome.js";
 
 export {

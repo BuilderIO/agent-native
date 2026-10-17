@@ -10,6 +10,7 @@ import {
   recordDefaultAgentEngineRefusal,
   resolveDefaultAgentEngineAuthority,
 } from "../agent/default-agent-engine.js";
+import { routeAuditAttribution } from "../audit/attribution.js";
 import { resolveAgentRunOrgScope } from "./agent-run-context.js";
 import { getSession } from "./auth.js";
 import { runWithRequestContext } from "./request-context.js";
@@ -58,7 +59,7 @@ export function createAgentEngineDisconnectHandler() {
       };
       const meta = {
         actionName: AGENT_ENGINE_DISCONNECT_ACTION_NAME,
-        caller: "http" as const,
+        attribution: routeAuditAttribution(event),
       };
       const authority = await resolveDefaultAgentEngineAuthority(ctx);
       if (!authority.allowed) {
@@ -175,7 +176,10 @@ export async function selectDefaultModelForSavedKey(
       () =>
         selectDefaultAgentEngine(
           input.request,
-          { actionName: AGENT_ENGINE_API_KEY_ACTION_NAME, caller: "http" },
+          {
+            actionName: AGENT_ENGINE_API_KEY_ACTION_NAME,
+            attribution: routeAuditAttribution(event),
+          },
           ctx,
         ),
     );

@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { AuditAttributionSource } from "./attribution.js";
+import type { AuditSubject, RecordActionAuditInput } from "./record.js";
 import type { AuditEvent } from "./types.js";
 
 const insertAuditEvent = vi.fn<(e: AuditEvent) => Promise<void>>();
@@ -14,7 +16,22 @@ vi.mock("../server/request-context.js", () => ({
 }));
 vi.mock("../server/capture-error.js", () => ({ captureError }));
 
-const { recordActionAudit } = await import("./record.js");
+const { recordActionAudit: recordWithAttribution } =
+  await import("./record.js");
+const { auditAttribution } = await import("./attribution.js");
+
+// Each case describes its call with one run context, the way an action's
+// audit wrapper passes it.
+function recordActionAudit(
+  input: Omit<RecordActionAuditInput, "ctx" | "attribution"> & {
+    ctx: (AuditSubject & AuditAttributionSource) | undefined;
+  },
+): Promise<void> {
+  return recordWithAttribution({
+    ...input,
+    attribution: auditAttribution(input.ctx),
+  });
+}
 
 function lastEvent(): AuditEvent {
   return insertAuditEvent.mock.calls.at(-1)![0];

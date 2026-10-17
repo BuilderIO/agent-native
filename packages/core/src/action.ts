@@ -993,11 +993,20 @@ function wrapRunWithAudit(
       threw = true;
     }
     try {
-      const { recordActionAudit } = await import("./audit/record.js");
+      const [{ recordActionAudit }, { auditAttribution }] = await Promise.all([
+        import("./audit/record.js"),
+        import("./audit/attribution.js"),
+      ]);
+      const call = {
+        config: auditConfig,
+        args,
+        ctx,
+        attribution: auditAttribution(ctx),
+      };
       await recordActionAudit(
         threw
-          ? { config: auditConfig, args, ctx, status: "error", error }
-          : { config: auditConfig, args, ctx, status: "success", result },
+          ? { ...call, status: "error", error }
+          : { ...call, status: "success", result },
       );
     } catch {
       // Recorder failed to load/run — never affect the action.

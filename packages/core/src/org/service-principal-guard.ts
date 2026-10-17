@@ -146,7 +146,10 @@ export async function recordServicePrincipalDenial(input: {
   if (!orgId) return;
   const identity = parseServiceIdentityEmail(input.email);
   if (!identity || identity.orgId !== orgId) return;
-  const { recordActionAudit } = await import("../audit/record.js");
+  const [{ recordActionAudit }, { auditAttribution }] = await Promise.all([
+    import("../audit/record.js"),
+    import("../audit/attribution.js"),
+  ]);
   await recordActionAudit({
     config: {
       enabled: true,
@@ -166,10 +169,11 @@ export async function recordServicePrincipalDenial(input: {
     args: {},
     ctx: {
       actionName: input.actionName,
-      caller: input.caller,
       userEmail: input.email ?? undefined,
       orgId,
     },
+    // Refused at admission, before any run context exists to read from.
+    attribution: auditAttribution({ caller: input.caller }),
     status: "error",
     error: input.error,
   });

@@ -2,6 +2,7 @@ import { getAppConfig } from "../app-config/index.js";
 import { captureError } from "../server/capture-error.js";
 import { getIntegrationRequestContext } from "../server/request-context.js";
 import { redact, redactErrorStack } from "../tracking/redaction.js";
+import type { AuditAttribution } from "./attribution.js";
 import { committedActionAuditOutcome } from "./committed-outcome.js";
 import {
   deriveActorKind,
@@ -19,26 +20,19 @@ import type {
   AuditTarget,
 } from "./types.js";
 
-export interface AuditRunContextLike {
+/** The action and the principal it ran as. */
+export interface AuditSubject {
   actionName?: string;
-  caller?: string;
   userEmail?: string;
   orgId?: string | null;
-  threadId?: string;
-  runId?: string;
-  turnId?: string;
-  networkProtocol?: "a2a" | "mcp" | "provider-api";
-  networkId?: string;
-  networkPeer?: string;
-  approvedToolCallKey?: string;
-  mcpClient?: { name?: string; version?: string; oauthClientId?: string };
-  mcpClientAccepted?: true;
 }
 
 export interface RecordActionAuditInput {
   config: ActionAuditConfig | undefined;
   args: unknown;
-  ctx: AuditRunContextLike | undefined;
+  ctx: AuditSubject | undefined;
+  /** From `auditAttribution` or `routeAuditAttribution`. */
+  attribution: AuditAttribution;
   status: AuditStatus;
   result?: unknown;
   error?: unknown;
@@ -112,11 +106,9 @@ function auditAppKey(): string | null {
   return (app.id ?? app.name)?.trim() || null;
 }
 
-function approvalEvidence(
-  ctx: AuditRunContextLike | undefined,
-): AuditApproval | null {
-  if (ctx?.approvedToolCallKey) return "agent-chat";
-  if (ctx?.mcpClientAccepted === true) return "mcp-client-accepted";
+function approvalEvidence(attribution: AuditAttribution): AuditApproval | null {
+  if (attribution.approvedToolCallKey) return "agent-chat";
+  if (attribution.mcpClientAccepted === true) return "mcp-client-accepted";
   return null;
 }
 
@@ -166,11 +158,12 @@ export async function recordActionAudit(
   try {
     if (isAuditDisabled()) return;
     const ctx = input.ctx;
+    const attribution = input.attribution;
     const actionName = ctx?.actionName;
     if (!actionName) return;
     if (!shouldRecordAudit(input.config, actionName)) return;
 
-    const caller = ctx?.caller ?? "http";
+    const caller = attribution.caller;
     const actorEmail = ctx?.userEmail ?? null;
     const committed =
       input.status === "error"
@@ -208,8 +201,8 @@ export async function recordActionAudit(
       actorKind: deriveActorKind(caller, actorEmail, ctx?.orgId),
       actorEmail,
       orgId: ctx?.orgId ?? null,
-      threadId: ctx?.threadId ?? null,
-      turnId: ctx?.turnId ?? null,
+      threadId: attribution.threadId ?? null,
+      turnId: attribution.turnId ?? null,
       targetType: target?.type ?? null,
       targetId: target?.id ?? null,
       status,
@@ -218,15 +211,15 @@ export async function recordActionAudit(
       errorCode: input.error ? errorCode(input.error) : null,
       ownerEmail: target?.ownerEmail ?? actorEmail,
       visibility: target?.visibility ?? "private",
-      runId: ctx?.runId ?? lineage?.runId ?? null,
-      networkProtocol: ctx?.networkProtocol ?? null,
-      networkId: ctx?.networkId ?? null,
-      networkPeer: ctx?.networkPeer ?? null,
+      runId: attribution.runId ?? lineage?.runId ?? null,
+      networkProtocol: attribution.networkProtocol ?? null,
+      networkId: attribution.networkId ?? null,
+      networkPeer: attribution.networkPeer ?? null,
       app: auditAppKey(),
-      reportedClientName: reportedLabel(ctx?.mcpClient?.name),
-      reportedClientVersion: reportedLabel(ctx?.mcpClient?.version),
-      oauthClientId: ctx?.mcpClient?.oauthClientId ?? null,
-      approval: approvalEvidence(ctx),
+      reportedClientName: reportedLabel(attribution.mcpClient?.name),
+      reportedClientVersion: reportedLabel(attribution.mcpClient?.version),
+      oauthClientId: attribution.mcpClient?.oauthClientId ?? null,
+      approval: approvalEvidence(attribution),
     };
     if (integration) {
       if (
@@ -236,7 +229,7 @@ export async function recordActionAudit(
       ) {
         event.visibility = "org";
       }
-      event.runId = ctx?.runId ?? lineage?.runId ?? null;
+      event.runId = attribution.runId ?? lineage?.runId ?? null;
       event.taskId = integration.taskId;
       event.parentTaskId = lineage?.parentTaskId ?? null;
       event.sourceKind = lineage?.source?.kind ?? null;

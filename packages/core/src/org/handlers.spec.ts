@@ -1433,6 +1433,12 @@ describe("org handlers", () => {
           previousRole: "member",
           role: "admin",
         },
+        attribution: expect.objectContaining({
+          caller: "http",
+          mcpClient: undefined,
+          mcpClientAccepted: undefined,
+          approvedToolCallKey: undefined,
+        }),
       });
     });
 

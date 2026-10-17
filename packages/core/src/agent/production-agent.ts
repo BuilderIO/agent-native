@@ -8183,21 +8183,27 @@ export async function runAgentLoop(opts: {
             ...(toolCall.id ? { toolCallId: toolCall.id } : {}),
           });
           try {
-            const { recordActionAudit } = await import("../audit/record.js");
+            const [{ recordActionAudit }, { auditAttribution }] =
+              await Promise.all([
+                import("../audit/record.js"),
+                import("../audit/attribution.js"),
+              ]);
             await recordActionAudit({
               config: undefined,
               args: toolCall.input,
               ctx: {
                 actionName: toolCall.name,
+                userEmail: getRequestUserEmail(),
+                orgId: getRequestOrgId() ?? null,
+              },
+              attribution: auditAttribution({
                 caller: opts.actionCaller ?? "tool",
                 networkProtocol: opts.networkProtocol,
                 networkId: opts.networkId,
                 networkPeer: opts.networkPeer,
-                userEmail: getRequestUserEmail(),
-                orgId: getRequestOrgId() ?? null,
-                ...(opts.threadId ? { threadId: opts.threadId } : {}),
-                ...(opts.turnId ? { turnId: opts.turnId } : {}),
-              },
+                threadId: opts.threadId,
+                turnId: opts.turnId,
+              }),
               status: "denied",
             });
           } catch {
