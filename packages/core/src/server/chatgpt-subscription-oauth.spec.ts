@@ -104,8 +104,6 @@ describe("ChatGPT subscription OAuth contract", () => {
         ).resolves.toBe(false);
       },
     );
-
-    expect(mocks.getUserLabEnabled).not.toHaveBeenCalled();
   });
 
   it("does not treat a loopback request with unresolved scope as personal", async () => {
@@ -123,8 +121,7 @@ describe("ChatGPT subscription OAuth contract", () => {
         ).resolves.toBe(false);
         expect(mocks.listOAuthAccountsByOwner).not.toHaveBeenCalled();
         expect(mocks.getUserSetting).not.toHaveBeenCalled();
-        // Status reads account summaries once the lab is enabled, even though
-        // this request is not local loopback. Pin that read and its empty result.
+        // Unsupported status can show account summaries without granting access.
         await expect(
           getChatGPTSubscriptionStatus("alice@example.com"),
         ).resolves.toMatchObject({
@@ -204,6 +201,7 @@ describe("ChatGPT subscription OAuth contract", () => {
         ).rejects.toThrow("available only from a local app");
       },
     );
+    expect(mocks.getUserLabEnabled).not.toHaveBeenCalled();
   });
 
   it("surfaces lab preference read failures instead of treating them as off", async () => {
@@ -272,6 +270,7 @@ describe("ChatGPT subscription OAuth contract", () => {
         ).rejects.toThrow("available only from a local app");
       },
     );
+    expect(mocks.getUserLabEnabled).not.toHaveBeenCalled();
   });
 
   it("accepts only the fixed HTTP 127.0.0.1 callback URI", () => {

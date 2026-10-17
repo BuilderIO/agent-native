@@ -964,8 +964,8 @@ const messages = {
     labMeetings: "会議と文字起こし",
     labMeetingsDescription:
       "会議の自動キャプチャと文字起こしをお試しください。",
-    labWisprFlow: "音声入力",
-    labWisprFlowDescription:
+    labVoiceDictation: "音声入力",
+    labVoiceDictationDescription:
       "Clips Desktop の音声入力を表示または非表示にします。",
     labLookbackContext: "以前の画面時間を含める",
     labLookbackContextDescription:
@@ -1671,16 +1671,32 @@ const messages = {
     placeholder: "Clip title (ローカライズ済み)",
     editLabel: "Edit clip title (ローカライズ済み)",
   },
+  chapterList: {
+    add: "チャプターを追加",
+    editLabel: "チャプターを編集",
+    placeholder: "0:00 はじめに\n1:30 次のセクション",
+    errorLineShape:
+      "{{line}} 行目: 時間の後にタイトルを入力してください（例: 「0:48 メモの日付を保存」）。",
+    errorBadTime:
+      "{{line}} 行目: 「{{value}}」は 0:48 のような時間ではありません。",
+    errorDuplicate: "{{line}} 行目: {{value}} にはすでにチャプターがあります。",
+    errorPastEnd: "{{line}} 行目: {{value}} はクリップの終わりより後です。",
+    changedWhileEditing:
+      "編集中にチャプターが変更されました。行を確認してから、もう一度保存すると置き換わります。",
+  },
   chapters: {
-    title: "Chapters (ローカライズ済み)",
-    addHere: "Add here (ローカライズ済み)",
-    empty: "No chapters yet. (ローカライズ済み)",
-    remove: "Remove chapter (ローカライズ済み)",
-    saveFailed: "Failed to save chapters (ローカライズ済み)",
-    duplicateAtPoint:
-      "A chapter already exists at this point (ローカライズ済み)",
-    defaultTitle: "Chapter {{count}} (ローカライズ済み)",
-    seekTo: "Seek to {{time}} (ローカライズ済み)",
+    title: "チャプター",
+    addHere: "ここに追加",
+    empty: "チャプターはまだありません。",
+    remove: "チャプターを削除",
+    saveFailed: "チャプターを保存できませんでした",
+    changedElsewhere:
+      "チャプターが別の場所で変更されたため、最後の変更は保存されませんでした。",
+    unreadable:
+      "保存済みのチャプターの一部を読み取れないため、ここでは変更を保存できません。エージェントにチャプターの置き換えを依頼してください。",
+    duplicateAtPoint: "この位置にはすでにチャプターがあります",
+    defaultTitle: "チャプター {{count}}",
+    seekTo: "{{time}} に移動",
   },
   editorToolbar: {
     undoTooltip: "Undo (Cmd/Ctrl+Z) (ローカライズ済み)",
@@ -2116,6 +2132,33 @@ const messages = {
     copy: "コピー",
     copied: "コピーしました",
     copyFailed: "コピーできませんでした",
+    flowStarting: "音声入力を開始しています…",
+    flowFinalizing: "音声入力を完了しています…",
+    flowBusy: "前の音声入力を完了しています…",
+    flowTranscribing: "文字起こし中…",
+    flowCleaning: "テキストを整えています…",
+    flowPasting: "テキストを貼り付けています…",
+    flowSavingHistory: "履歴に保存しています…",
+    flowPasted: "貼り付けました",
+    flowCopied: "クリップボードにコピーしました",
+    flowPastedHistoryFailed: "貼り付けましたが、履歴に保存できませんでした",
+    flowCopiedHistoryFailed: "コピーしましたが、履歴に保存できませんでした",
+    flowHistoryNotSaved: "音声入力を履歴に保存できませんでした",
+    flowPermissionFailed: "マイクの使用が許可されていません",
+    flowMicrophoneUnavailable: "マイクを利用できません",
+    flowProviderFailed: "音声を文字起こしできませんでした",
+    flowMeetingCaptureActive:
+      "文字起こしをする前に、会議の録音を停止してください",
+    flowPasteFailed: "文字起こしを貼り付けできませんでした",
+    flowCancelled: "音声入力をキャンセルしました",
+    flowRetryHistory: "履歴の保存を再試行",
+    flowDismiss: "閉じる",
+    flowTranscriptRecovery: "文字起こしの復元",
+    flowOriginalTranscript: "元の文字起こしを表示",
+    flowCleanupSkipped: "テキストの整理を省略し、元の文章を保持しました",
+    flowBacktrackSkipped: "テキスト編集を省略し、認識した文章を保持しました",
+    flowCancelDictation: "音声入力をキャンセル",
+    flowCopying: "文字起こしをコピーしています…",
     aiProcessed: "AI処理済み",
     aiCleaned: "AIでクリーンアップ済み",
     original: "オリジナル",

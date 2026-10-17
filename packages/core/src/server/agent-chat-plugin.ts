@@ -227,6 +227,7 @@ import { normalizeShellArgs, serializeCliArgs } from "../scripts/parse-args.js";
 import type { ResolvedKeyReference } from "../secrets/substitution.js";
 import { getSetting, putSetting } from "../settings/store.js";
 import { type RefusedTurnRetryContext } from "../shared/agent-chat-run-not-started.js";
+import { AGENT_CHAT_THREAD_ABSENCE_HEADER } from "../shared/agent-chat.js";
 import {
   ANALYTICS_CLIENT_PLATFORM_BODY_FIELD,
   normalizeAnalyticsClientPlatform,
@@ -7256,6 +7257,16 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             scopesMatch(thread.scope, requestedScope) ||
             (!thread.scope && scopesMatch(incomingScope, requestedScope));
 
+          const threadNotFound = () => {
+            if (
+              getHeader(event, AGENT_CHAT_THREAD_ABSENCE_HEADER) === "typed"
+            ) {
+              return { absent: true };
+            }
+            setResponseStatus(event, 404);
+            return { error: "Thread not found" };
+          };
+
           // ── Specific thread: GET/PUT/DELETE /threads/:id ──
           if (threadId) {
             if (method === "GET") {
@@ -7266,8 +7277,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 { orgId },
               );
               if (!thread || !threadMatchesRequestedScope(thread)) {
-                setResponseStatus(event, 404);
-                return { error: "Thread not found" };
+                return threadNotFound();
               }
               return thread;
             }
@@ -7308,8 +7318,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   !thread ||
                   !threadMatchesRequestedScope(thread, incomingScope)
                 ) {
-                  setResponseStatus(event, 404);
-                  return { error: "Thread not found" };
+                  return threadNotFound();
                 }
                 const bodyScopeMatchesRequestedScope =
                   !requestedScope ||

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 
+import { AGENT_CHAT_THREAD_ABSENCE_HEADER } from "../shared/agent-chat.js";
 import { agentNativePath } from "./api-path.js";
 import { getBrowserTabId } from "./browser-tab-id.js";
 
@@ -1983,21 +1984,36 @@ export function useChatThreads(
           { preserveUserTitle },
         );
         const payload = { ...threadDataPayload, title };
-        const putThread = () =>
-          fetch(
+        const putThread = async () => {
+          const response = await fetch(
             withChatThreadScope(
               `${apiUrl}/threads/${encodeURIComponent(id)}`,
               historyScope,
             ),
             {
               method: "PUT",
-              headers: { "Content-Type": "application/json" },
+              headers: {
+                "Content-Type": "application/json",
+                [AGENT_CHAT_THREAD_ABSENCE_HEADER]: "typed",
+              },
               body: JSON.stringify(payload),
               signal: context?.signal,
             },
           );
-        let response = await putThread();
-        if (response.status === 404) {
+          let body: unknown = null;
+          if (response.ok) {
+            // coercion-ok: a save response without a readable body carries no scope, and the local scope stays as it was.
+            body = await response.json().catch(() => null);
+          }
+          const absent =
+            response.status === 404 ||
+            (body !== null &&
+              typeof body === "object" &&
+              (body as { absent?: unknown }).absent === true);
+          return { response, body, absent };
+        };
+        let saved = await putThread();
+        if (saved.absent) {
           const created = await fetch(
             withChatThreadScope(`${apiUrl}/threads`, historyScope),
             {
@@ -2012,12 +2028,12 @@ export function useChatThreads(
             },
           );
           if (!created.ok && created.status !== 409) return false;
-          response = await putThread();
+          saved = await putThread();
         }
         for (
           let retry = 0;
-          !response.ok &&
-          shouldRetryThreadSave(response.status) &&
+          !saved.response.ok &&
+          shouldRetryThreadSave(saved.response.status) &&
           retry < MAX_THREAD_SAVE_RETRIES;
           retry++
         ) {
@@ -2025,13 +2041,10 @@ export function useChatThreads(
             setTimeout(resolve, Math.min(250, 50 * (retry + 1))),
           );
           if (context?.signal?.aborted) return false;
-          response = await putThread();
+          saved = await putThread();
         }
-        if (!response.ok) return false;
-        const reportedScope = savedThreadScope(
-          // coercion-ok: a save response without a readable body carries no scope, and the local scope stays as it was.
-          await response.json().catch(() => null),
-        );
+        if (!saved.response.ok || saved.absent) return false;
+        const reportedScope = savedThreadScope(saved.body);
         // A response that was in flight across a detach describes the thread
         // as it was before it, so it must not put the old scope back.
         const scopeChangedDuringSave =

@@ -728,8 +728,7 @@ test.describe("URL-backed live auto-layout probe", () => {
     await expect.poll(() => canvasHasFocus(page)).toBe(true);
   });
 
-  // fixme: intermittent: Passed in its worker run and in a solo re-run, failed once in the full confirmation run (2 of 3).
-  test.fixme("keeps Tab focus when a sibling preview reports safe", async ({
+  test("keeps Tab focus when a sibling preview reports safe", async ({
     app,
     page,
   }) => {
@@ -835,13 +834,20 @@ test.describe("URL-backed live auto-layout probe", () => {
     await expect(
       first.getByRole("button", { name: "Keep focus in app" }),
     ).toBeFocused();
+    // Tab enters the preview of whichever Screen holds canvas focus, so the
+    // sibling can sit on either side of it in tab order.
+    const towardSibling =
+      siblingFrameIndex > firstFrameIndex ? "Tab" : "Shift+Tab";
+    if (towardSibling === "Shift+Tab") {
+      await first.locator("#startup-search").focus();
+    }
     let activeFrameIndex = firstFrameIndex;
     for (
       let step = 0;
       step < 80 && activeFrameIndex !== siblingFrameIndex;
       step += 1
     ) {
-      await page.keyboard.press("Tab");
+      await page.keyboard.press(towardSibling);
       activeFrameIndex = await activePreviewIndex(page);
     }
     expect(
@@ -869,8 +875,7 @@ test.describe("URL-backed live auto-layout probe", () => {
     await expect.poll(() => canvasHasFocus(page)).toBe(true);
   });
 
-  // fixme: fails in CI on current main: expect(locator).toBeVisible() failed
-  test.fixme("a reordered URL-backed layer stays a pending edit until the agent applies it, and the applied order survives reload", async ({
+  test("a reordered URL-backed layer stays a pending edit until the agent applies it, and the applied order survives reload", async ({
     app,
     page,
   }) => {
@@ -1211,8 +1216,7 @@ test.describe("URL-backed live auto-layout probe", () => {
     });
   });
 
-  // fixme: product bug: With Group A + Group B selected ('2 selected'), every inspector field reads Mixed, including padding-top 8px and margin-top 4px that both
-  test.fixme("shows Mixed padding and margin only on the sides where the selected layers differ", async ({
+  test("shows Mixed padding and margin only on the sides where the selected layers differ", async ({
     app,
     page,
   }) => {
@@ -1267,7 +1271,7 @@ test.describe("URL-backed live auto-layout probe", () => {
       );
     await expect
       .poll(() => sideValues(["Top", "Right", "Bottom", "Left"]))
-      .toStrictEqual(["8", "Mixed", "Mixed", "Mixed"]);
+      .toStrictEqual(["8px", "Mixed", "Mixed", "Mixed"]);
     await expect
       .poll(() =>
         sideValues([
@@ -1277,7 +1281,7 @@ test.describe("URL-backed live auto-layout probe", () => {
           "Left margin",
         ]),
       )
-      .toStrictEqual(["4", "Mixed", "Mixed", "Mixed"]);
+      .toStrictEqual(["4px", "Mixed", "Mixed", "Mixed"]);
   });
 
   test("a grouped grid drag is one pending visual edit that undo and redo restore exactly", async ({

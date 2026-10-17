@@ -102,7 +102,8 @@ beforeEach(async () => {
   db = drizzle(client);
   await client.query(`CREATE TABLE recordings (
     id TEXT PRIMARY KEY, status TEXT NOT NULL, duration_ms INTEGER,
-    title TEXT NOT NULL, title_source TEXT, description TEXT
+    title TEXT NOT NULL, title_source TEXT, description TEXT,
+    media_updated_at TEXT NOT NULL DEFAULT 'media-1'
   )`);
   await client.query(`CREATE TABLE recording_transcripts (
     recording_id TEXT PRIMARY KEY,

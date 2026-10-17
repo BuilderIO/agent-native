@@ -13,6 +13,7 @@ import {
   blankScreenHtml,
   canvasPrimitiveInsertionHostNodeId,
   extractCanvasPrimitiveHtml,
+  type LayerSize,
   uniqueLayerId,
 } from "@/pages/design-editor/canvas-primitive-insert";
 import { parsePenPathFromSerializedD } from "@/pages/design-editor/canvas-primitives";
@@ -145,6 +146,46 @@ function resolvePrimitiveCreationHostLayout(args: {
   }
 }
 
+function readLiveHostChildSizes(args: {
+  activeBreakpointWidthState?: number;
+  activeFileId?: string;
+  boardFileId?: string;
+  content: string;
+  fileId: string;
+  overviewScreens?: readonly OverviewScreen[];
+  primitive: CanvasPrimitiveInsert;
+}): Map<string, LayerSize> {
+  const sizes = new Map<string, LayerSize>();
+  const preview = getLivePreviewDocument(args);
+  if (preview.status !== "resolved") return sizes;
+  const host = canvasPrimitiveInsertionHostNodeId(
+    args.content,
+    args.primitive,
+    args.fileId === args.boardFileId,
+  );
+  const liveHost =
+    host?.kind === "frame"
+      ? preview.document.querySelector(
+          `[data-agent-native-node-id="${CSS.escape(host.nodeId)}"]`,
+        )
+      : preview.document.body;
+  for (const child of Array.from(liveHost?.children ?? [])) {
+    const id = child.getAttribute("data-agent-native-node-id");
+    if (!id) continue;
+    if ("offsetWidth" in child) {
+      const element = child as HTMLElement;
+      sizes.set(id, {
+        width: element.offsetWidth,
+        height: element.offsetHeight,
+      });
+    } else {
+      const rect = child.getBoundingClientRect();
+      sizes.set(id, { width: rect.width, height: rect.height });
+    }
+  }
+  return sizes;
+}
+
 export function runCreatePrimitive(
   {
     activeBreakpointWidthState,
@@ -272,6 +313,18 @@ export function runCreatePrimitive(
       isBoardTarget: targetFile.id === boardFileId,
       boardBackground: canvasBackground,
       positioning: hostLayout === "flow" ? "flow" : "absolute",
+      liveLayerSizes:
+        insertionPrimitive.kind === "frame" && hostLayout === "freeform"
+          ? readLiveHostChildSizes({
+              activeBreakpointWidthState,
+              activeFileId: activeFile?.id,
+              boardFileId,
+              content: insertionBaseContent,
+              fileId: targetFile.id,
+              overviewScreens,
+              primitive: insertionPrimitive,
+            })
+          : undefined,
     },
   );
   if (!insertedContent) {

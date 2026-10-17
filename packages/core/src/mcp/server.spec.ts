@@ -309,6 +309,7 @@ vi.mock("./credential-membership.js", async (importOriginal) => {
 });
 
 const { handleMcpRequest } = await import("./server.js");
+const { handleMcpFetchRequest } = await import("./framework-fetch-handler.js");
 
 interface MakeEventOpts {
   method?: string;
@@ -9252,6 +9253,117 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     }
   });
 
+  it("returns a read-only tools/call result whole and tells a text-only host when a mutating result was cut", async () => {
+    const payload = { rows: "x".repeat(5000) };
+    const fullLength = JSON.stringify(payload).length;
+    const incomplete = `[Truncated: showing the first 2000 of ${fullLength} characters. This result is incomplete.`;
+    const truncationConfig = {
+      ...config,
+      actions: {
+        "paged-rows": defineAction({
+          description: "List rows.",
+          schema: z.object({
+            cursor: z.string().optional(),
+            limit: z.number().optional(),
+          }),
+          readOnly: true,
+          run: async () => payload,
+        }),
+        "replace-rows": defineAction({
+          description: "Replace rows.",
+          schema: z.object({
+            fields: z.array(z.string()).optional(),
+            cursor: z.string().optional(),
+          }),
+          run: async () => payload,
+        }),
+      },
+    };
+    const callText = async (name: string, id: number) => {
+      const out = await callWeb(
+        {
+          jsonrpc: "2.0",
+          id,
+          method: "tools/call",
+          params: { name, arguments: {} },
+        },
+        {
+          headers: await mcpAppsFullCatalogHeaders(),
+          config: truncationConfig,
+        },
+      );
+      return out.result.content[0].text as string;
+    };
+
+    const paged = await callText("paged-rows", 301);
+    expect(paged).toBe(JSON.stringify(payload));
+    const mutating = await callText("replace-rows", 303);
+    expect(mutating).toContain(`${incomplete}]`);
+    expect(mutating).not.toContain("structuredContent");
+    expect(mutating).not.toContain("get the rest");
+  });
+
+  it("names paging inputs when an MCP App tool's text is cut, but not for a GET action that opts out of read-only", async () => {
+    const rows = "x".repeat(5000);
+    const incomplete = `[Truncated: showing the first 2000 of ${rows.length} characters. This result is incomplete.`;
+    const appResource = (name: string) => ({
+      resource: {
+        uri: `ui://mail/${name}`,
+        title: name,
+        description: "Rows inline.",
+        html: "<!doctype html><html><body>Rows</body></html>",
+      },
+    });
+    const pagedSchema = z.object({ cursor: z.string().optional() });
+    const appConfig = {
+      ...config,
+      actions: {
+        "app-rows": defineAction({
+          description: "List rows.",
+          schema: pagedSchema,
+          readOnly: true,
+          mcpApp: appResource("app-rows"),
+          run: async () => rows,
+        }),
+        "app-get-rows": defineAction({
+          description: "Fetch rows.",
+          schema: pagedSchema,
+          http: { method: "GET" },
+          readOnly: false,
+          mcpApp: appResource("app-get-rows"),
+          run: async () => rows,
+        }),
+      },
+    };
+    const callApp = async (name: string, id: number) => {
+      const out = await callWeb(
+        {
+          jsonrpc: "2.0",
+          id,
+          method: "tools/call",
+          params: { name, arguments: {} },
+        },
+        {
+          headers: {
+            ...(await mcpAppsFullCatalogHeaders()),
+            "x-agent-native-mcp-inline-apps": "1",
+          },
+          config: appConfig,
+        },
+      );
+      return out.result;
+    };
+
+    const readOnly = await callApp("app-rows", 311);
+    expect(readOnly.structuredContent).toBeDefined();
+    expect(readOnly.content[0].text).toContain(
+      `${incomplete} This tool pages with cursor.]`,
+    );
+    const getOnly = await callApp("app-get-rows", 312);
+    expect(getOnly.structuredContent).toBeDefined();
+    expect(getOnly.content[0].text).toContain(`${incomplete}]`);
+  });
+
   it("falls through (undefined) for sub-routes so management routes handle them", async () => {
     const event = makeWebEvent({ method: "POST", path: "/connect" });
     const res = await handleMcpRequest(event, config as any);
@@ -9291,6 +9403,46 @@ describe("handleMcpRequest — Node request objects use the v2 web handler", () 
     expect(event._handled).toBeUndefined();
     expect((res as Response).status).toBe(200);
     expect(event.node.res.headersSent).toBe(false);
+  });
+
+  it("returns the same protocol envelope through H3 and the Fetch adapter", async () => {
+    const rpc = {
+      jsonrpc: "2.0",
+      id: 77,
+      method: "tools/list",
+      params: {},
+    };
+    const event = makeWebEvent({ method: "POST", body: rpc });
+    const h3Response = (await handleMcpRequest(
+      event,
+      config as any,
+    )) as Response;
+    const fetchRequest = new Request("https://mail.agent-native.com/mcp", {
+      method: "POST",
+      headers: {
+        accept: "application/json, text/event-stream",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(rpc),
+    });
+    const fetchResponse = await handleMcpFetchRequest(
+      fetchRequest,
+      config as any,
+      {
+        requestMeta: {
+          origin: "https://mail.agent-native.com",
+          transport: "http",
+          fullSurface: true,
+        },
+        parsedBody: rpc,
+      },
+    );
+
+    expect(fetchResponse.status).toBe(h3Response.status);
+    expect(fetchResponse.headers.get("content-type")).toBe(
+      h3Response.headers.get("content-type"),
+    );
+    expect(await fetchResponse.text()).toBe(await h3Response.text());
   });
 });
 

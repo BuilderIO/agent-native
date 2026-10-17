@@ -23,6 +23,17 @@ const DELEGATION = {
   message: "Count last week's signups",
 };
 
+// These specs pin resume assembly; Context X-Ray merges adjacent same-role
+// messages and has its own specs, and whether its table exists depends on what
+// else the worker's shared database already ran.
+vi.mock("./engine/context-directives-transform.js", () => ({
+  applyContextXrayTransformForIteration: async ({
+    messages,
+  }: {
+    messages: unknown[];
+  }) => messages,
+}));
+
 vi.mock("./run-manager.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./run-manager.js")>()),
   tryClaimRunSlot: claimRunSlot,
