@@ -302,7 +302,10 @@ function pageOf(request: Request): Page | null {
   }
 }
 
-export async function classifySave(response: Response): Promise<{
+/** A save's answer as the tab got it, or as a SaveGate fetched it to hold. */
+type SaveAnswer = Pick<Response, "ok" | "status" | "text">;
+
+export async function classifySave(response: SaveAnswer): Promise<{
   outcome: SaveOutcome;
   code?: string;
   bodyState: "absent" | "invalid" | "valid";
@@ -401,6 +404,7 @@ export class TabSet {
     { tab: Page; document: number }
   >();
   private readonly stranded = new WeakSet<Request>();
+  private readonly heldAnswers = new WeakMap<Request, SaveAnswer>();
 
   private constructor(readonly context: BrowserContext) {}
 
@@ -542,6 +546,15 @@ export class TabSet {
     return this.stranded.has(request);
   }
 
+  /**
+   * Keep the answer a SaveGate fetched for a save it holds. The gate won't
+   * pass on a stranded save's answer, so the set records it as late instead.
+   */
+  holdAnswer(request: Request, answer: SaveAnswer): void {
+    if (this.stranded.has(request)) this.recordAnswer(request, answer);
+    else this.heldAnswers.set(request, answer);
+  }
+
   /** Settle as stranded every save a tab's departing document had in flight. */
   private leaveDocument(tab: Page) {
     const document = this.documents.get(tab) ?? 0;
@@ -551,6 +564,8 @@ export class TabSet {
       if (sender?.tab !== tab || sender.document !== document) continue;
       this.stranded.add(request);
       this.settleAborted(request, "stranded");
+      const answer = this.heldAnswers.get(request);
+      if (answer) this.recordAnswer(request, answer);
     }
   }
 
@@ -638,6 +653,11 @@ export class TabSet {
       return;
     }
     if (pathname !== SAVE_PATH || request.method() !== "POST") return;
+    this.recordAnswer(request, response);
+  }
+
+  private recordAnswer(request: Request, answer: SaveAnswer) {
+    const record = this.recordOf(request);
     // A save settled as stranded already counted once, as aborted. Its answer
     // is still the server's word on it, so a History diversion stays noise.
     const late = !this.inFlight.delete(request);
@@ -646,11 +666,11 @@ export class TabSet {
       record.saveDurationsMs.push(Date.now() - sentAt);
     const lineage = this.lineageByRequest.get(request);
     const lineageResponse = lineage
-      ? this.saveLineage.beginResponse(lineage.entry, response.status())
+      ? this.saveLineage.beginResponse(lineage.entry, answer.status())
       : undefined;
     if (lineage) this.activeSaveLineage.delete(lineage.entry);
     this.pending.push(
-      classifySave(response).then(({ outcome, code, bodyState, body }) => {
+      classifySave(answer).then(({ outcome, code, bodyState, body }) => {
         if (lineage && lineageResponse)
           this.saveLineage.finishResponse(
             lineage.entry,
@@ -676,7 +696,7 @@ export class TabSet {
 }
 
 type Held = { release: () => Promise<void> };
-type HeldSave = Held & { cutOff: () => Promise<void> };
+type HeldSave = Held & { request: Request; cutOff: () => Promise<void> };
 
 /**
  * Controls when one tab's saves reach the server and when their answers
@@ -724,12 +744,12 @@ export class SaveGate {
   }
 
   get queued(): number {
-    return this.queue.length;
+    return this.held().length;
   }
 
   async waitForHeld(count = 1): Promise<void> {
     await expect
-      .poll(() => this.queue.length, {
+      .poll(() => this.held().length, {
         message: `a save should be held at the gate`,
         timeout: 30_000,
       })
@@ -738,7 +758,7 @@ export class SaveGate {
 
   /** Let every held save through, in the order the tab sent them. */
   async release(): Promise<void> {
-    const held = this.queue;
+    const held = this.held();
     this.queue = [];
     for (const item of held) await item.release();
   }
@@ -748,9 +768,17 @@ export class SaveGate {
    * request fail, whether or not the server applied it.
    */
   async cutOff(): Promise<void> {
-    const held = this.queue;
+    const held = this.held();
     this.queue = [];
     for (const item of held) await item.cutOff();
+  }
+
+  /** The held saves, without any whose page has since gone away. */
+  private held(): HeldSave[] {
+    this.queue = this.queue.filter(
+      (item) => !this.tabs.isStranded(item.request),
+    );
+    return this.queue;
   }
 
   private async handle(route: Route) {
@@ -762,13 +790,13 @@ export class SaveGate {
     if (this.mode === "arrival") {
       this.heldCount++;
       this.queue.push({
+        request,
         release: () => this.send(request, () => route.continue()),
         cutOff: () => this.send(request, () => route.abort("aborted")),
       });
       return;
     }
     if (this.mode === "answer") {
-      this.heldCount++;
       let response: Awaited<ReturnType<Route["fetch"]>>;
       try {
         response = await route.fetch();
@@ -776,8 +804,11 @@ export class SaveGate {
         if (this.page.isClosed()) return;
         throw error;
       }
+      this.tabs.holdAnswer(request, response);
       if (this.tabs.isStranded(request)) return;
+      this.heldCount++;
       this.queue.push({
+        request,
         release: () => this.send(request, () => route.fulfill({ response })),
         cutOff: () => this.send(request, () => route.abort("aborted")),
       });
