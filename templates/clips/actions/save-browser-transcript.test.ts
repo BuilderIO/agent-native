@@ -155,6 +155,7 @@ describe("save-browser-transcript", () => {
     const values = insertValues();
     mocks.insert.mockReturnValue({ values });
     mocks.rows = [
+      [recordingRow()],
       [],
       [{ status: "ready", title: "Clip", description: "x", durationMs: 1200 }],
     ];
@@ -181,6 +182,7 @@ describe("save-browser-transcript", () => {
   it("does not report transcript save success before finalization is accepted", async () => {
     mocks.insert.mockReturnValue({ values: insertValues() });
     mocks.rows = [
+      [recordingRow()],
       [],
       [{ status: "ready", title: "Clip", description: "x", durationMs: 1200 }],
     ];
