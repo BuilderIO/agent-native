@@ -652,6 +652,35 @@ describe("text takes its colour from what it lands on", () => {
     );
   });
 
+  it("uses the flow host color instead of the click point's child surface", () => {
+    const content = `<!doctype html><html><head><title>S</title></head><body>
+      <div data-agent-native-node-id="host" data-an-primitive="frame" style="position:absolute;left:100px;top:100px;width:300px;height:200px;background:#111111">
+        <div style="position:absolute;left:20px;top:20px;width:100px;height:80px;background:#ffffff"></div>
+      </div>
+    </body></html>`;
+    const html =
+      appendCanvasPrimitiveToHtml(
+        content,
+        {
+          kind: "text",
+          nodeId: "t",
+          geometry: { x: 130, y: 130, width: 120, height: 24 },
+          text: "append to the host",
+        },
+        { positioning: "flow" },
+      ) ?? "";
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const text = doc.querySelector<HTMLElement>(
+      '[data-agent-native-node-id="t"]',
+    );
+
+    expect(styleOf(html, "t")).toMatch(/color:\s*#ffffff/i);
+    expect(text?.parentElement?.getAttribute("data-agent-native-node-id")).toBe(
+      "host",
+    );
+    expect(text?.style.position).toBe("relative");
+  });
+
   it("uses class-based dark surfaces when live computed paint is unavailable", () => {
     const content =
       "<!doctype html><html><head><title>S</title></head>" +

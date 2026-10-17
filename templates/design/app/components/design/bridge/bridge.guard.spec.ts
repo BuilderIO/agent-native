@@ -18868,6 +18868,75 @@ it(
 );
 
 it(
+  "modifier-click cycles through each layer in a three-level nested stack",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 600, height: 500 },
+      });
+      page.on("pageerror", (error) => pageErrors.push(error.message));
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+        <div id="outer" data-agent-native-node-id="outer" style="position:absolute;left:100px;top:100px;width:300px;height:240px;background:#ddd">
+          <div id="middle" data-agent-native-node-id="middle" style="position:absolute;left:20px;top:20px;width:240px;height:180px;background:#aaa">
+            <span id="inner" data-agent-native-node-id="inner" data-an-primitive="text" style="position:absolute;left:20px;top:20px;width:180px;height:100px;background:#555;color:white">Layer text</span>
+          </div>
+        </div>
+      </body></html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+      await page.evaluate(() => {
+        (window as any).__elementSelectPayloads = [];
+        window.addEventListener("message", (event: MessageEvent) => {
+          if (event.data?.type === "element-select") {
+            (window as any).__elementSelectPayloads.push(event.data.payload);
+          }
+        });
+      });
+
+      await selectElementDirect(page, "#outer");
+      await page.evaluate(() => {
+        (window as any).__elementSelectPayloads = [];
+      });
+      const innerBox = await page.locator("#inner").boundingBox();
+      if (!innerBox) throw new Error("Nested text layer was not rendered");
+      const point = {
+        x: innerBox.x + innerBox.width / 2,
+        y: innerBox.y + innerBox.height / 2,
+      };
+      const selectedSources: string[] = [];
+      for (let index = 0; index < 3; index += 1) {
+        await page.keyboard.down(PLATFORM_PRIMARY_KEY);
+        try {
+          await page.mouse.click(point.x, point.y);
+        } finally {
+          await page.keyboard.up(PLATFORM_PRIMARY_KEY);
+        }
+        await page.waitForFunction(
+          (expectedLength) =>
+            (window as any).__elementSelectPayloads.length >= expectedLength,
+          index + 1,
+        );
+        selectedSources.push(
+          await page.evaluate(
+            () =>
+              (window as any).__elementSelectPayloads.at(-1)?.sourceId ?? "",
+          ),
+        );
+      }
+
+      expect(selectedSources).toEqual(["inner", "middle", "outer"]);
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
   "editor chrome bridge posts an ordered selectable layer stack for contextmenu points",
   { timeout: 30_000 },
   async () => {

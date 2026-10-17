@@ -11862,10 +11862,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!currentEl) return null;
       var stack = collectLayerHitCandidates(clientX, clientY);
       var currentIdx = stack.elements.indexOf(currentEl);
-      var topmostEl = stack.elements[0] || null;
-      if (currentIdx === -1 || currentIdx > 0 && topmostEl && (currentEl.contains(topmostEl) || topmostEl.contains(currentEl))) {
-        return null;
-      }
+      if (currentIdx === -1) return null;
       var keys = stack.layerCandidates.map(function(candidate) {
         return candidate.key;
       });

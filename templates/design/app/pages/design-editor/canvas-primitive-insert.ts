@@ -860,23 +860,28 @@ export function appendCanvasPrimitiveToHtml(
               { color: options.boardBackground ?? null },
             ])
           : null;
-      const boxUnderText = topmostBoxContaining(hostOrBody, left, top);
+      const usesFlowPositioning = options?.positioning === "flow";
+      const boxUnderText = usesFlowPositioning
+        ? hostOrBody
+        : topmostBoxContaining(hostOrBody, left, top);
       const measuredIsLight = boxUnderText
         ? destinationBackgroundLightness(boxUnderText)
         : options?.isBoardTarget === true && hostOrBody === doc.body
           ? null
           : destinationBackgroundLightness(hostOrBody);
       const surfaceIsLight = measuredIsLight ?? boardSurfaceIsLight;
-      const paintedSurface = paintedSurfaceAtPoint(
-        doc.body,
-        left,
-        top,
-        options?.liveDocument,
-        options?.isBoardTarget !== true,
-        options?.isBoardTarget === true
-          ? (options.boardBackground ?? null)
-          : defaultCanvasFrameFill(),
-      );
+      const paintedSurface = usesFlowPositioning
+        ? null
+        : paintedSurfaceAtPoint(
+            doc.body,
+            left,
+            top,
+            options?.liveDocument,
+            options?.isBoardTarget !== true,
+            options?.isBoardTarget === true
+              ? (options.boardBackground ?? null)
+              : defaultCanvasFrameFill(),
+          );
       const autoTextNeedsLightFill =
         surfaceIsLight === null
           ? options?.isBoardTarget === true

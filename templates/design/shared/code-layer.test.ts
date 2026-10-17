@@ -3532,6 +3532,24 @@ describe("autoLayout", () => {
     ).toBe("center");
   });
 
+  it("does not add a base alignment that overrides a responsive utility", () => {
+    const patch = applyVisualEdit(
+      `<div data-agent-native-node-id="box" class="md:items-center"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+      },
+    );
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain('class="md:items-center"');
+    expect(patch.content).not.toContain("align-items: flex-start");
+    expect(
+      buildCodeLayerProjection(patch.content).nodes[0]?.layout.alignItems,
+    ).toBeUndefined();
+  });
+
   it("preserves an alignment supplied by a matching stylesheet rule", () => {
     const patch = applyVisualEdit(
       `<style>.stack { align-items: center; }</style><div data-agent-native-node-id="box" class="stack"><span>A</span></div>`,

@@ -10295,6 +10295,7 @@ function applyAutoLayout(
         isCrossAxisAlignmentProperty(declaration.prop),
       ) ||
       node.layout.alignItems !== undefined ||
+      hasCrossAxisAlignmentUtilityClass(element) ||
       stylesheetMaySetAlignItems(html, element, build.elements);
     if (!hasAuthoredCrossAxisAlignment) {
       setOrReplace("align-items", "flex-start");
@@ -10413,6 +10414,13 @@ function applyAutoLayout(
 function isCrossAxisAlignmentProperty(property: string): boolean {
   const key = cssPropertyKey(property);
   return key === "align-items" || key === "place-items";
+}
+
+function hasCrossAxisAlignmentUtilityClass(element: ParsedElement): boolean {
+  return classList(element).some((className) => {
+    const utility = className.split(":").at(-1)?.replace(/^!/, "");
+    return utility?.startsWith("items-") || utility?.startsWith("place-items-");
+  });
 }
 
 function stylesheetMaySetAlignItems(
