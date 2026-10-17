@@ -1501,11 +1501,13 @@ describe("runEvalSuite runner creation", () => {
     expect(JSON.stringify(suite.report)).not.toContain(adapterEngine);
   });
 
-  it("does not expose returned production adapter errors after usage is reported", async () => {
+  it("does not score or expose returned production adapter failure output", async () => {
+    const sentinel = "adapter-failure-sentinel";
+    const analyze = vi.fn((run: { text: string }) => run.text);
     const evalCase = defineEval({
       name: "returned-production-adapter-error",
       input: { prompt: "find active users" },
-      scorers: [contains("active users")],
+      scorers: [{ name: "sentinel", analyze, generateScore: () => 1 }],
     });
     const productionChatPath = testProductionChatPath();
     productionChatPath.run = async (args) => {
@@ -1514,9 +1516,12 @@ describe("runEvalSuite runner creation", () => {
         ...result,
         output: {
           ...result.output,
+          text: sentinel,
+          toolCalls: [sentinel],
+          untrustedFailureDetails: sentinel,
           ok: false,
           error: "token=sk-test-example; customer=example.customer@example.com",
-        },
+        } as never,
       };
     };
 
@@ -1539,9 +1544,12 @@ describe("runEvalSuite runner creation", () => {
           status: "failed",
           error: "Production chat eval failed.",
           usage: { inputTokens: 4, outputTokens: 2, usageReported: true },
+          scores: [],
         },
       ],
     });
+    expect(analyze).not.toHaveBeenCalled();
+    expect(JSON.stringify(suite.report)).not.toContain(sentinel);
     expect(JSON.stringify(suite.report)).not.toContain("sk-test-example");
     expect(JSON.stringify(suite.report)).not.toContain(
       "example.customer@example.com",

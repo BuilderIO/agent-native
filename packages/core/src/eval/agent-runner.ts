@@ -494,8 +494,7 @@ async function runProductionChatPath(args: {
     const usage =
       outputUsage?.usageReported === true ? outputUsage : partialUsage;
     if (!usage) {
-      return failedProductionPathOutput(
-        output,
+      return malformedProductionPathOutput(
         output.ok
           ? "Production chat eval adapter did not return or report usage."
           : "Production agent run failed before usage was captured.",
@@ -505,12 +504,7 @@ async function runProductionChatPath(args: {
     const error =
       receiptError ?? (output.ok ? undefined : "Production chat eval failed.");
     if (error) {
-      return failedProductionPathOutput(
-        output,
-        error,
-        Date.now() - started,
-        usage,
-      );
+      return malformedProductionPathOutput(error, Date.now() - started, usage);
     }
     return {
       ...output,
@@ -774,25 +768,6 @@ function filterActionsForEval(
   );
   if (allowed.has(TOOL_SEARCH_ACTION_NAME)) attachToolSearch(filtered);
   return filtered;
-}
-
-function failedProductionPathOutput(
-  output: AgentRunOutput,
-  error: string,
-  durationMs: number,
-  usage?: AgentLoopUsage,
-): AgentRunOutput {
-  // Provider errors can contain request and customer details. Keep this
-  // report-facing failure bounded to the known safe message.
-  const safeOutput = { ...output };
-  delete safeOutput.usage;
-  return {
-    ...safeOutput,
-    ok: false,
-    error,
-    durationMs,
-    ...(usage ? { usage } : {}),
-  };
 }
 
 function malformedProductionPathOutput(
