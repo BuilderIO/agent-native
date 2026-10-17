@@ -3,11 +3,11 @@ import { describe, expect, it, vi } from "vitest";
 
 import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-chrome.generated";
 
-function hydratedEditorChromeBridgeScript(): string {
+function hydratedEditorChromeBridgeScript(textEditingEnabled = false): string {
   return (
     editorChromeBridgeScript
       .replace("__READ_ONLY__", "false")
-      .replace("__TEXT_EDITING_ENABLED__", "false")
+      .replace("__TEXT_EDITING_ENABLED__", String(textEditingEnabled))
       .replace("__EDITOR_CHROME_SCALE_X__", "1")
       .replace("__EDITOR_CHROME_SCALE_Y__", "1")
       .replace("__DESIGN_CANVAS_SCREEN_ID__", JSON.stringify("live-screen"))
@@ -578,7 +578,9 @@ describe("container-first click selection", () => {
     try {
       const page = await browser.newPage();
       await page.setContent(DRILL_SCOPE_FIXTURE);
-      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(true),
+      });
       await page.evaluate(() => {
         (window as any).__selectionIds = [];
         window.addEventListener("message", (event: MessageEvent) => {

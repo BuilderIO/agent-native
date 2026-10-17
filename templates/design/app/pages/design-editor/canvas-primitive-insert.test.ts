@@ -845,6 +845,12 @@ describe("text takes its colour from what it lands on", () => {
     ).toMatch(/color:\s*#000000/i);
   });
 
+  it("preserves inherited text color when translucent paint has no known base", () => {
+    expect(
+      textColorOnBoard(["rgba(255, 255, 255, 0.4)"], "transparent"),
+    ).toMatch(/color:\s*currentcolor/i);
+  });
+
   it("uses the dark-board fallback when a surface has a background image", () => {
     expect(
       textColorOnBoard(["linear-gradient(90deg, #ffffff, #111111)"], "#111111"),
@@ -883,6 +889,14 @@ describe("text takes its colour from what it lands on", () => {
     ).toMatch(/color:\s*#000000/i);
   });
 
+  it("samples an SVG line stroke without treating its default fill as paint", () => {
+    expect(
+      textColorOnSvgPaint(
+        '<line data-svg-paint="" stroke="#ffffff" stroke-width="12" x1="0" y1="0" x2="100" y2="100"/>',
+      ),
+    ).toMatch(/color:\s*#000000/i);
+  });
+
   it("uses the board fallback for an unsupported SVG paint server", () => {
     expect(
       textColorOnSvgPaint(
@@ -906,6 +920,40 @@ describe("text takes its colour from what it lands on", () => {
         '<image data-underlay="" width="100" height="100"/>',
       ),
     ).toMatch(/color:\s*#000000/i);
+  });
+
+  it("skips a zero-opacity hit and its descendants before sampling below", () => {
+    const content = `<!doctype html><html><body>
+      <div class="light-board" style="background:#ffffff;width:100px;height:100px"></div>
+      <div class="transparent" style="position:absolute;left:0;top:0;width:100px;height:100px;background:#111111;opacity:0">
+        <div class="hidden-child" style="background:#000000;width:100px;height:100px"></div>
+      </div>
+    </body></html>`;
+    const liveDocument = new DOMParser().parseFromString(content, "text/html");
+    const board = liveDocument.querySelector<HTMLElement>(".light-board")!;
+    const transparent =
+      liveDocument.querySelector<HTMLElement>(".transparent")!;
+    const child = liveDocument.querySelector<HTMLElement>(".hidden-child")!;
+    Object.defineProperty(liveDocument, "elementsFromPoint", {
+      value: () => [child, transparent, board],
+    });
+
+    const html = appendCanvasPrimitiveToHtml(
+      content,
+      {
+        kind: "text",
+        nodeId: "t",
+        geometry: { x: 10, y: 10, width: 120, height: 24 },
+        text: "on the visible board",
+      },
+      {
+        isBoardTarget: true,
+        boardBackground: "#111111",
+        liveDocument,
+      },
+    );
+
+    expect(styleOf(html ?? "", "t")).toMatch(/color:\s*#000000/i);
   });
 
   it("keeps inherited text color when a surface is translucent", () => {

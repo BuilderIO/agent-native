@@ -400,10 +400,16 @@ function paintedSurfaceAtPoint(
       reason: "background-image" | "translucent" | "unmeasured";
     }
   | null {
+  const isZeroOpacity = (style: CSSStyleDeclaration): boolean => {
+    const opacity = style.opacity?.trim();
+    return Boolean(opacity && Number.parseFloat(opacity) === 0);
+  };
   const hasUnknownPaint = (
     style: CSSStyleDeclaration,
     includeBackgroundImage = true,
   ): "background-image" | "translucent" | null => {
+    const opacity = style.opacity?.trim();
+    if (opacity && Number.parseFloat(opacity) === 0) return null;
     const backgroundImage = style.backgroundImage?.trim().toLowerCase();
     if (
       includeBackgroundImage &&
@@ -419,7 +425,6 @@ function paintedSurfaceAtPoint(
     ) {
       return "background-image";
     }
-    const opacity = style.opacity?.trim();
     if (!opacity || opacity === "1") return null;
     const parsedOpacity = Number.parseFloat(opacity);
     return !Number.isFinite(parsedOpacity) || parsedOpacity !== 1
@@ -500,10 +505,10 @@ function paintedSurfaceAtPoint(
       const parsed = parseCssColorExtended(color);
       return parsed ? { ...parsed, a: parsed.a * opacity } : "unmeasured";
     };
-    const fill = paintFor(
-      readProperty("fill", "black"),
-      opacityFor("fill-opacity"),
-    );
+    const fill =
+      tagName === "line"
+        ? null
+        : paintFor(readProperty("fill", "black"), opacityFor("fill-opacity"));
     const stroke = paintFor(
       readProperty("stroke", "none"),
       opacityFor("stroke-opacity"),
@@ -534,7 +539,7 @@ function paintedSurfaceAtPoint(
     colorsFromFrontToBack: ReadonlyArray<string | null>,
   ):
     | { kind: "known"; color: Rgb }
-    | { kind: "unknown"; reason: "unmeasured" }
+    | { kind: "unknown"; reason: "translucent" | "unmeasured" }
     | null => {
     const fallback = fallbackBackground
       ? parseCssColorExtended(fallbackBackground)
@@ -560,9 +565,28 @@ function paintedSurfaceAtPoint(
         background = compositeOver(foreground, background);
       }
     }
-    return background ? { kind: "known", color: background } : null;
+    return background
+      ? { kind: "known", color: background }
+      : { kind: "unknown", reason: "translucent" };
   };
   const liveView = liveDocument?.defaultView;
+  const hasZeroOpacityAncestor = (element: Element): boolean => {
+    for (
+      let ancestor: Element | null = element;
+      ancestor;
+      ancestor = ancestor.parentElement
+    ) {
+      const inlineStyle = (ancestor as HTMLElement).style;
+      const computedStyle = liveView?.getComputedStyle(ancestor);
+      if (
+        isZeroOpacity(inlineStyle) ||
+        (computedStyle && isZeroOpacity(computedStyle))
+      ) {
+        return true;
+      }
+    }
+    return false;
+  };
   if (sampleElement) {
     if (!liveDocument || !liveView) {
       return { kind: "unknown", reason: "unmeasured" };
@@ -587,6 +611,7 @@ function paintedSurfaceAtPoint(
       element;
       element = element.parentElement
     ) {
+      if (hasZeroOpacityAncestor(element)) continue;
       const includesBackgroundImage =
         includeDocumentBackground ||
         (element !== liveDocument.body &&
@@ -622,6 +647,7 @@ function paintedSurfaceAtPoint(
     const unseenAncestors: Element[] = [];
     const seenAncestors = new Set<Element>();
     for (const hit of hits) {
+      if (hasZeroOpacityAncestor(hit)) continue;
       const includesBackgroundImage =
         includeDocumentBackground ||
         (hit !== liveDocument.body && hit !== liveDocument.documentElement);
@@ -676,6 +702,7 @@ function paintedSurfaceAtPoint(
     }
     if (!opaqueForeground) {
       for (const element of unseenAncestors) {
+        if (hasZeroOpacityAncestor(element)) continue;
         const includesBackgroundImage =
           includeDocumentBackground ||
           (element !== liveDocument.body &&
@@ -705,6 +732,7 @@ function paintedSurfaceAtPoint(
 
   const candidates: Array<{ color: string | null }> = [];
   for (const element of Array.from(root.querySelectorAll<HTMLElement>("*"))) {
+    if (hasZeroOpacityAncestor(element)) continue;
     const rect = absoluteRect(element);
     if (
       !rect ||

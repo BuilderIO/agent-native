@@ -161,6 +161,58 @@ describe("canvas deep selection modifiers", () => {
     }
   });
 
+  it("continues same-point modifier cycling from a nested child through its ancestors", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(DRILLED_SELECTION_FIXTURE);
+      await page.evaluate(() => {
+        (window as any).__bridgeMessages = [];
+        window.addEventListener("message", (event: MessageEvent) => {
+          if (event.source === window)
+            (window as any).__bridgeMessages.push(event.data);
+        });
+      });
+      await page.addStyleTag({
+        content:
+          "body{position:relative;z-index:2147483647;width:100vw;height:100vh}",
+      });
+      await page.addScriptTag({ content: hydratedBridge(true, true) });
+      await page.waitForFunction(() =>
+        ((window as any).__bridgeMessages ?? []).some(
+          (message: BridgeMessage) =>
+            message.type === "agent-native:editor-chrome-ready",
+        ),
+      );
+      await page.evaluate(() => {
+        const selector = '[data-agent-native-node-id="outer"]';
+        window.postMessage(
+          { type: "select-element", selector, selectorCandidates: [selector] },
+          "*",
+        );
+      });
+      await page.waitForFunction(() =>
+        ((window as any).__bridgeMessages ?? []).some(
+          (message: BridgeMessage) =>
+            message.type === "element-select" &&
+            !Array.isArray(message.payload) &&
+            message.payload?.sourceId === "outer",
+        ),
+      );
+
+      for (const expected of ["leaf", "inner", "middle", "outer"]) {
+        const elementSelectCount = await messageCount(page, "element-select");
+        await page.keyboard.down("Meta");
+        await page.mouse.click(130, 120);
+        await page.keyboard.up("Meta");
+        await waitForMessageAfter(page, "element-select", elementSelectCount);
+        expect(await lastSelectedSourceId(page)).toBe(expected);
+      }
+    } finally {
+      await browser.close();
+    }
+  });
+
   it("cycles through overlapping siblings after the topmost selection", async () => {
     const browser = await chromium.launch({ headless: true });
     try {
