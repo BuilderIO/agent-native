@@ -4,12 +4,13 @@ import { getQuery } from "h3";
 
 import { readBody } from "../server/h3-helpers.js";
 import type { PatchOp } from "./json-to-yjs.js";
+import { COLLAB_MAX_PAYLOAD_BYTES } from "./limits.js";
 import * as manager from "./ydoc-manager.js";
 
-const DEFAULT_MAX_BYTES = 2 * 1024 * 1024;
-
 function getMaxPayloadBytes(event: H3Event): number {
-  return (event.context as any)?._collabMaxPayloadBytes ?? DEFAULT_MAX_BYTES;
+  return (
+    (event.context as any)?._collabMaxPayloadBytes ?? COLLAB_MAX_PAYLOAD_BYTES
+  );
 }
 
 function enforcePayloadLimit(event: H3Event, body: unknown): boolean {

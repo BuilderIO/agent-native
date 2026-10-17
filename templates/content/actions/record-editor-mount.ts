@@ -23,7 +23,9 @@ export default defineAction({
       .describe("Tab-local visit ID; excluded from count dimensions"),
     outcome: z
       .enum(EDITOR_MOUNT_OUTCOMES)
-      .describe("Creation class: initial, navigation, mode_switch, or remount"),
+      .describe(
+        "Creation class: initial, navigation, mode_switch, remount, or recovery",
+      ),
     mode: z
       .enum(EDITOR_MOUNT_MODES)
       .describe("Editor mode: editing, suggesting, or readonly"),

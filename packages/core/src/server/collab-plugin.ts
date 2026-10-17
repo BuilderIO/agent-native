@@ -7,6 +7,7 @@ import {
 
 import { postAwareness, getActiveUsers } from "../collab/awareness.js";
 import { getCollabEmitter } from "../collab/emitter.js";
+import { COLLAB_MAX_PAYLOAD_BYTES } from "../collab/limits.js";
 import { LiveCopyError, type LiveCopyBinding } from "../collab/live-copy.js";
 import {
   getCollabState,
@@ -31,8 +32,6 @@ import { recordChange } from "./poll.js";
 import { runWithRequestContext } from "./request-context.js";
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
-
-const DEFAULT_MAX_PAYLOAD_BYTES = 2 * 1024 * 1024;
 
 type CollabAwarenessScope = {
   owner?: string;
@@ -301,7 +300,7 @@ export function createCollabPlugin(
     contentColumn = "content",
     idColumn = "id",
     autoSeed = true,
-    maxPayloadBytes = DEFAULT_MAX_PAYLOAD_BYTES,
+    maxPayloadBytes = COLLAB_MAX_PAYLOAD_BYTES,
   } = options;
   const resolveSourceIdFromCollabDocumentId =
     options.resolveSourceIdFromCollabDocumentId ?? ((docId: string) => docId);

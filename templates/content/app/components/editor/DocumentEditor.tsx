@@ -78,7 +78,7 @@ import type {
 import { Navigate, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 import type { Awareness } from "y-protocols/awareness";
-import type { Doc as YDoc } from "yjs";
+import type { Doc as YDoc, Transaction as YTransaction } from "yjs";
 
 import {
   contentBlockRegistry,
@@ -1085,6 +1085,11 @@ const OWN_CONTENT_SAVE_LINEAGE_LIMIT = 32;
 // How long collaborators typing stays quiet before one editor saves it.
 const REMOTE_SAVE_SETTLE_MS = 1500;
 
+// Each rebuild attempt reads the server's whole copy, so it waits for a pause
+// in typing.
+const REBUILD_AFTER_EDIT_MS = 1000;
+const REBUILD_RETRY_MS = 5000;
+
 export function recordOwnContentSave(
   lineage: OwnContentSaveLineage,
   revision: string,
@@ -1911,12 +1916,16 @@ export function visualEditorInstanceKey(args: {
   canEdit: boolean;
   collabEditorEnabled: boolean;
   hasYDoc: boolean;
+  /** An editor binds its doc once, so a new doc needs a new editor. */
+  ydocId?: string | null;
   localFileSyncRevision?: number;
 }) {
   const mode = args.isLocalFileDocument
     ? `local-file:${args.localFileSyncRevision ?? 0}`
     : args.collabEditorEnabled && args.hasYDoc
-      ? "live-ready"
+      ? args.ydocId
+        ? `live-ready:${args.ydocId}`
+        : "live-ready"
       : args.canEdit
         ? "live-pending"
         : `snapshot:${args.documentUpdatedAt}`;
@@ -3562,6 +3571,7 @@ function PageEditorSessionBody({
     flushUpdates: flushCollabUpdates,
     durableUpdatesFailed: collabDurableUpdatesFailed,
     updatesRefused: collabUpdatesRefused,
+    rebuild: rebuildCollabDoc,
     initialization: collabInitialization,
     activeUsers,
     agentActive,
@@ -3591,6 +3601,82 @@ function PageEditorSessionBody({
       toast.error(t("editor.pageSaveBeforeNavigationFailed"));
     }
   }, [bodyUpdatesRefused, t]);
+  const [recoveredYdoc, setRecoveredYdoc] = useState<YDoc | null>(null);
+  // A refused update holds back every later one, so the body saves again
+  // only from a doc rebuilt from the server's copy with what the editor shows.
+  useEffect(() => {
+    if (!bodyUpdatesRefused || !ydoc) return;
+    let stopped = false;
+    let running = false;
+    let changed = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const schedule = (delay: number) => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => void attempt(), delay);
+    };
+    const attempt = async () => {
+      timer = undefined;
+      if (stopped) return;
+      if (running) {
+        changed = true;
+        return;
+      }
+      const controller = editorPersistenceControllerRef.current;
+      // The editor that holds the body may not have mounted yet.
+      if (!controller) {
+        schedule(REBUILD_RETRY_MS);
+        return;
+      }
+      running = true;
+      changed = false;
+      try {
+        const result = await rebuildCollabDoc(
+          (doc) => controller.writeBodyTo(doc),
+          {
+            beforeReplace: (next) => {
+              controller.freeze();
+              setRecoveredYdoc(next);
+            },
+          },
+        );
+        if (result.status === "failed") throw result.error;
+        if (stopped) return;
+        if (result.status === "unavailable") {
+          schedule(REBUILD_RETRY_MS);
+        } else if (result.status === "too_large" && changed) {
+          schedule(REBUILD_AFTER_EDIT_MS);
+        }
+      } catch (error) {
+        if (stopped) return;
+        console.error("[content] Could not rebuild the page body", error);
+        schedule(REBUILD_RETRY_MS);
+      } finally {
+        running = false;
+      }
+    };
+    // Each edit may have taken back enough of what made it too large, and so
+    // may a collaborator's deletion.
+    const handleUpdate = (
+      _update: Uint8Array,
+      origin: unknown,
+      _doc: YDoc,
+      transaction: YTransaction,
+    ) => {
+      if (origin !== "remote" || transaction.deleteSet.clients.size > 0) {
+        schedule(REBUILD_AFTER_EDIT_MS);
+      }
+    };
+    ydoc.on("update", handleUpdate);
+    void attempt();
+    return () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+      ydoc.off("update", handleUpdate);
+    };
+  }, [bodyUpdatesRefused, rebuildCollabDoc, ydoc]);
+  const handleChangeTooLargeToSave = useCallback(() => {
+    toast.error(t("editor.pageSaveBeforeNavigationFailed"));
+  }, [t]);
   collabAwarenessRef.current = awareness;
   collabClientIdRef.current = ydoc?.clientID ?? null;
   const bodyHydrationPending = documentBodyHydrationIsPending(document);
@@ -9607,6 +9693,7 @@ function PageEditorSessionBody({
                                 canEdit,
                                 collabEditorEnabled,
                                 hasYDoc: Boolean(ydoc),
+                                ydocId: ydoc?.guid ?? null,
                                 localFileSyncRevision,
                               })}:${isSuggesting ? "suggesting" : "canonical"}`}
                               active={mcpDirectoryWidgetReadOnly}
@@ -9621,6 +9708,14 @@ function PageEditorSessionBody({
                                     : canEdit
                                       ? "editing"
                                       : "readonly"
+                                }
+                                editorMountRecovery={
+                                  ydoc !== null && ydoc === recoveredYdoc
+                                }
+                                onChangeTooLargeToSave={
+                                  bodyWritesThroughLiveCopy
+                                    ? handleChangeTooLargeToSave
+                                    : undefined
                                 }
                                 onEscape={handleEditorEscape}
                                 onImportFiles={

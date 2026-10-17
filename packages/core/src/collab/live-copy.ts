@@ -6,6 +6,7 @@ import {
   type DbExec,
 } from "../db/client.js";
 import { BoundedTaskError, type BoundedTaskRunner } from "./bounded-tasks.js";
+import { COLLAB_MAX_STATE_BYTES } from "./limits.js";
 import {
   LIVE_COPY_TASK,
   type LiveCopyApplyInput,
@@ -32,7 +33,6 @@ import {
 // binding's bounded runner (see live-copy-tasks.ts).
 
 export const LIVE_COPY_DEFAULT_FIELD = "default";
-const DEFAULT_MAX_STATE_BYTES = 4 * 1024 * 1024;
 const DEFAULT_MAX_WAITING_WRITES = 16;
 
 export type LiveCopyErrorCode =
@@ -180,7 +180,7 @@ export function defineLiveCopy(options: LiveCopyOptions): LiveCopyBinding {
   if (!options.runner || typeof options.runner.run !== "function") {
     throw new TypeError("defineLiveCopy needs a bounded task runner");
   }
-  const maxStateBytes = options.maxStateBytes ?? DEFAULT_MAX_STATE_BYTES;
+  const maxStateBytes = options.maxStateBytes ?? COLLAB_MAX_STATE_BYTES;
   if (!Number.isFinite(maxStateBytes) || maxStateBytes <= 0) {
     throw new RangeError("defineLiveCopy maxStateBytes must be positive");
   }

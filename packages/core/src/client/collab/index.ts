@@ -11,6 +11,11 @@ export {
   type CollabInitializationState,
   type CollaborativeDocSyncResult,
   type CollabUpdateAck,
+  type CollabRebuildOptions,
+  type CollabRebuildResult,
+  collabUpdateFits,
+  COLLAB_MAX_STATE_BYTES,
+  COLLAB_MAX_UPDATE_BYTES,
 } from "../../collab/client.js";
 export { AGENT_CLIENT_ID } from "../../collab/agent-identity.js";
 export {
