@@ -32,6 +32,10 @@ function contextPayload() {
         method: "GET",
         urlTemplate: `${window.location.origin}/api/agent-frame.jpg?id=rec-1&agent_access=token&atMs={timestampMs}`,
       },
+      frames: {
+        method: "GET",
+        urlTemplate: `${window.location.origin}/api/agent-frames.jpg?id=rec-1&agent_access=token&startMs={startMs}&endMs={endMs}&fps={fps}`,
+      },
     },
     transcript: { status: "ready", language: "en", segmentCount: 2 },
     recommendedFrames: [{ atMs: 0, timestamp: "0:00", reason: "opening" }],
@@ -78,6 +82,7 @@ describe("Clip WebMCP tools", () => {
       CLIPS_WEBMCP_TOOL_NAMES.context,
       CLIPS_WEBMCP_TOOL_NAMES.transcript,
       CLIPS_WEBMCP_TOOL_NAMES.frame,
+      CLIPS_WEBMCP_TOOL_NAMES.frames,
     ]);
     expect(registrations[1]?.tool).toMatchObject({
       description: expect.stringMatching(/timestamped transcript/i),
@@ -97,6 +102,9 @@ describe("Clip WebMCP tools", () => {
       `${window.location.origin}/api/agent-transcript.json?id=rec-1&agent_access=token`,
     );
     expect(contextResult.recommendedFrames).toHaveLength(1);
+    expect(contextResult.apis.frames.urlTemplate).toContain(
+      "/api/agent-frames.jpg?id=rec-1&agent_access=token",
+    );
     expect(fetchMock).toHaveBeenCalledWith(
       contextUrl,
       expect.objectContaining({
@@ -395,6 +403,108 @@ describe("Clip WebMCP tools", () => {
     );
     expect(result.instructions).toContain("If failureKind=expired");
     expect(result.instructions).not.toContain("or HTTP 410");
+  });
+
+  it("returns a frame sheet URL that keeps the scoped access", async () => {
+    const registrations: Array<{ tool: any }> = [];
+    const modelContext = {
+      registerTool: vi.fn(async (tool) => registrations.push({ tool })),
+      getTools: vi.fn(async () => []),
+      executeTool: vi.fn(async () => ""),
+    };
+    const registration = createAgentNativeWebMcpRegistration({
+      document: documentWithModelContext(modelContext),
+      actions: createClipAgentWebMcpActions({
+        recordingId: "rec-1",
+        agentContextUrl: contextUrl,
+        recordingStatus: "ready",
+      }),
+    });
+    await registration.start();
+    const framesTool = registrations.find(
+      ({ tool }) => tool.name === CLIPS_WEBMCP_TOOL_NAMES.frames,
+    )?.tool;
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(contextPayload()));
+    const result = JSON.parse(
+      await framesTool.execute(
+        { startMs: 1000, endMs: 2000, fps: 30 },
+        { signal: new AbortController().signal },
+      ),
+    );
+    expect(result).toMatchObject({
+      type: "image",
+      startMs: 1000,
+      endMs: 2000,
+      fps: 30,
+      mimeType: "image/jpeg",
+      imageUrl: `${window.location.origin}/api/agent-frames.jpg?id=rec-1&agent_access=token&startMs=1000&endMs=2000&fps=30`,
+    });
+    expect(result.instructions).toContain("left to right, then top to bottom");
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(contextPayload()));
+    const openEnded = JSON.parse(
+      await framesTool.execute(
+        { startMs: 500 },
+        { signal: new AbortController().signal },
+      ),
+    );
+    expect(openEnded.imageUrl).toBe(
+      `${window.location.origin}/api/agent-frames.jpg?id=rec-1&agent_access=token&startMs=500`,
+    );
+
+    await expect(
+      framesTool.execute(
+        { startMs: 2000, endMs: 1000 },
+        { signal: new AbortController().signal },
+      ),
+    ).rejects.toThrow(/endMs must be greater than startMs/);
+
+    // The stored duration (5 s) can understate the file, so the server
+    // decides where a range past it ends up.
+    fetchMock.mockResolvedValueOnce(jsonResponse(contextPayload()));
+    const pastEnd = JSON.parse(
+      await framesTool.execute(
+        { startMs: 6000, endMs: 9000, fps: 10 },
+        { signal: new AbortController().signal },
+      ),
+    );
+    expect(pastEnd.imageUrl).toBe(
+      `${window.location.origin}/api/agent-frames.jpg?id=rec-1&agent_access=token&startMs=6000&endMs=9000&fps=10`,
+    );
+    expect(pastEnd.instructions).toContain("X-Clips-Frame-Sheet-Times");
+  });
+
+  it("explains that a screenshot has no frame sheet", async () => {
+    const registrations: Array<{ tool: any }> = [];
+    const modelContext = {
+      registerTool: vi.fn(async (tool) => registrations.push({ tool })),
+      getTools: vi.fn(async () => []),
+      executeTool: vi.fn(async () => ""),
+    };
+    const registration = createAgentNativeWebMcpRegistration({
+      document: documentWithModelContext(modelContext),
+      actions: createClipAgentWebMcpActions({
+        recordingId: "rec-1",
+        agentContextUrl: contextUrl,
+        recordingStatus: "ready",
+      }),
+    });
+    await registration.start();
+    const framesTool = registrations.find(
+      ({ tool }) => tool.name === CLIPS_WEBMCP_TOOL_NAMES.frames,
+    )?.tool;
+
+    const { frames: _frames, ...screenshotApis } = contextPayload().apis;
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ ...contextPayload(), apis: screenshotApis }),
+    );
+    await expect(
+      framesTool.execute(
+        { startMs: 0 },
+        { signal: new AbortController().signal },
+      ),
+    ).rejects.toThrow(/only available for videos/);
   });
 
   it("does not advertise frame extraction before a clip is ready", async () => {
