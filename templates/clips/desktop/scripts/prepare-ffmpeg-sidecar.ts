@@ -19,13 +19,10 @@
  * a build. Compiling a pinned source tag with a known configure line avoids
  * both problems and produces a far smaller binary than a full build.
  *
- * What it builds: LGPL only. No `--enable-gpl`, so no libx264 — every filter
- * the audio pass needs (volume, afftdn, loudnorm, pan, aformat, volumedetect)
- * is core FFmpeg, and AAC comes from the native encoder. The separate
- * large-file compression path does ask for libx264; without it that path
- * fails its presets and falls through to `/usr/bin/avconvert`, exactly as it
- * does today when ffmpeg is absent altogether. So this strictly improves on
- * the current state and adds no GPL obligation to the app.
+ * What it builds: LGPL only. No `--enable-gpl`; H.264 encoding uses Apple's
+ * VideoToolbox encoder rather than libx264. The audio and Rewind paths also
+ * enable their required `amix` and `apad` filters. This keeps the bundled
+ * binary redistributable without adding a GPL obligation to the app.
  *
  * Escape hatch: set `CLIPS_FFMPEG_SIDECAR=/path/to/ffmpeg` to stage an
  * existing binary instead of compiling (CI cache, a vendored build, a local
@@ -81,7 +78,7 @@ const CONFIGURE_ARGS = [
   "--enable-encoder=aac,aac_at,h264_videotoolbox,hevc_videotoolbox,pcm_s16le",
   "--enable-parser=h264,hevc,aac,opus,vp8,vp9,mpegaudio",
   // The audio pass, plus the video filters the compression path uses.
-  "--enable-filter=aformat,anull,aresample,volume,volumedetect,loudnorm,afftdn,pan,aselect,atrim,format,scale,fps,null,copy,trim",
+  "--enable-filter=aformat,anull,aresample,volume,volumedetect,loudnorm,afftdn,pan,aselect,atrim,format,scale,fps,null,copy,trim,amix,apad",
   "--enable-protocol=file,pipe",
   "--enable-bsf=extract_extradata",
 ];
@@ -99,8 +96,10 @@ const REQUIRED_FILTERS = [
   "pan",
   "aformat",
   "scale",
+  "amix",
+  "apad",
 ];
-const REQUIRED_ENCODERS = ["aac"];
+const REQUIRED_ENCODERS = ["aac", "h264_videotoolbox"];
 const REQUIRED_MUXERS = ["mp4"];
 
 function log(message) {
@@ -326,12 +325,6 @@ function main() {
   const triple = targetTriple();
   const destination = path.join(BIN_DIR, `ffmpeg-${triple}`);
 
-  if (fs.existsSync(destination)) {
-    verifyBinary(destination, triple);
-    log(`already staged at ${path.relative(SRC_TAURI, destination)}`);
-    return;
-  }
-
   const supplied = process.env.CLIPS_FFMPEG_SIDECAR?.trim();
   const source = supplied ? supplied : buildFromSource(triple);
   if (supplied) log(`staging supplied binary ${supplied}`);
@@ -340,8 +333,10 @@ function main() {
   verifyBinary(source, triple);
 
   fs.mkdirSync(BIN_DIR, { recursive: true });
-  fs.copyFileSync(source, destination);
-  fs.chmodSync(destination, 0o755);
+  if (path.resolve(source) !== path.resolve(destination)) {
+    fs.copyFileSync(source, destination);
+    fs.chmodSync(destination, 0o755);
+  }
   // Ad-hoc sign so the bundled binary is not killed by Gatekeeper on first
   // run. The app's own signing step re-signs the whole bundle afterwards.
   try {

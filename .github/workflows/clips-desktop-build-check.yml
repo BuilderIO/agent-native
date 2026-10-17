@@ -88,7 +88,7 @@ jobs:
         working-directory: ${{ env.TAURI_APP_PATH }}
         env:
           CLIPS_FFMPEG_TARGET_TRIPLE: aarch64-apple-darwin
-        run: node scripts/prepare-ffmpeg-sidecar.mjs
+        run: node scripts/prepare-ffmpeg-sidecar.ts
 
       - name: Link Apple compiler runtime for Rust
         if: runner.os == 'macOS'

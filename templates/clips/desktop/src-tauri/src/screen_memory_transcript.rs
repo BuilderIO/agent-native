@@ -21,12 +21,6 @@ pub const MAX_ROW_TEXT_BYTES: usize = 8 * 1024;
 pub const MAX_TOTAL_TEXT_BYTES: usize = 1024 * 1024;
 const SAMPLE_RATE: usize = 16_000;
 const BYTES_PER_SAMPLE: usize = std::mem::size_of::<f32>();
-const FFMPEG_CANDIDATE_PATHS: &[&str] = &[
-    "ffmpeg",
-    "/opt/homebrew/bin/ffmpeg",
-    "/usr/local/bin/ffmpeg",
-    "/opt/local/bin/ffmpeg",
-];
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -174,7 +168,7 @@ fn decode_audio(
     audio_stream_index: usize,
     duration_ms: u64,
 ) -> Result<Vec<f32>, String> {
-    let ffmpeg = resolve_ffmpeg_path()
+    let ffmpeg = crate::native_screen::resolve_ffmpeg_path()
         .ok_or_else(|| "ffmpeg is required for local segment transcription".to_owned())?;
     let max_samples = ((duration_ms as usize)
         .saturating_mul(SAMPLE_RATE)
@@ -297,30 +291,6 @@ fn bounded_text(text: &str, max_bytes: usize) -> String {
         end -= 1;
     }
     text[..end].to_owned()
-}
-
-fn resolve_ffmpeg_path() -> Option<String> {
-    if let Ok(path) = std::env::var("CLIPS_FFMPEG_PATH") {
-        let trimmed = path.trim();
-        if !trimmed.is_empty() && command_available(trimmed) {
-            return Some(trimmed.to_owned());
-        }
-    }
-    FFMPEG_CANDIDATE_PATHS
-        .iter()
-        .copied()
-        .find(|candidate| command_available(candidate))
-        .map(str::to_owned)
-}
-
-fn command_available(command: &str) -> bool {
-    Command::new(command)
-        .arg("-version")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map(|status| status.success())
-        .unwrap_or(false)
 }
 
 #[cfg(test)]
