@@ -202,6 +202,7 @@ export default defineAction({
           propertyId: property.definition.id,
           name: property.definition.name,
           position: property.definition.position,
+          primary: isPrimaryBlocksField(property.definition.options),
           markdown,
           identity,
         };
