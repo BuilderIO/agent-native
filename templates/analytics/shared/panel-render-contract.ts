@@ -38,6 +38,7 @@ const PANEL_TOP_LEVEL_KEY_SET = {
   source: true,
   chartType: true,
   width: true,
+  height: true,
   columns: true,
   config: true,
   tab: true,
@@ -274,7 +275,7 @@ const CONFIG_VALUE_SHAPES: Record<string, ConfigValueShape> = {
   events: {
     valid: (value) => Array.isArray(value) && value.every(isValidPanelEvent),
     expected:
-      'an array of { date: "YYYY-MM-DD", label: non-empty string, time?: "HH:MM", timeZone?: IANA zone (with time), color?: string }',
+      'an array of { date: "YYYY-MM-DD", label: non-empty string, time?: "HH:MM", timeZone?: IANA zone (with time), color?: 3, 4, 6, or 8 digit hex color }',
     problem: (value) => {
       if (!Array.isArray(value)) return null;
       for (let index = 0; index < value.length; index += 1) {

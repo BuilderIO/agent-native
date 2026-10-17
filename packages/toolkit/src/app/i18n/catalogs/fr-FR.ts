@@ -220,6 +220,11 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.keySummary": "Représentations vectorielles",
   "onboarding.capability.embeddings.why":
     "Les représentations vectorielles améliorent la recherche sémantique. La recherche par mots-clés fonctionne toujours sans elles.",
+  "onboarding.capability.webSearch.label": "Recherche sur le Web",
+  "onboarding.capability.webSearch.keySummary":
+    "Recherche Web gérée par Builder",
+  "onboarding.capability.webSearch.why":
+    "Recherche dans les sources publiques actuelles du Web. La recherche gérée par Builder utilise les crédits IA inclus ; aucune clé de recherche distincte n'est nécessaire.",
   "onboarding.capability.systemOne.why":
     "Jev est un modèle de décision facultatif qui aide à choisir les outils et compétences pertinents avant la première requête du modèle de l’agent.",
   "onboarding.capability.assetsImageGeneration.label": "Génération d’images",
@@ -2822,6 +2827,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.search.appDefaultModel": "Modèle par défaut de l'app",
   "settingsShell.search.backgroundAgents": "Agents en arrière-plan",
   "settingsShell.search.browserAutomation": "Automatisation du navigateur",
+  "settingsShell.search.webSearch": "Recherche sur le Web",
   "settingsShell.search.connectedAgents": "Agents connectés",
   "settingsShell.search.database": "Base de données",
   "settingsShell.search.defaultModel": "Modèle par défaut",
@@ -2963,6 +2969,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.whyBackground": "Modifie le code depuis la production.",
   "settingsInfra.whyBrowser":
     "Permet à l'agent d'utiliser un navigateur en production.",
+  "settingsInfra.whyWebSearch":
+    "Trouve des informations publiques récentes et la documentation officielle.",
   "settingsInfra.provider": "Fournisseur",
   "settingsInfra.keyOrg": "Utilise la clé {{provider}} de l'organisation.",
   "settingsInfra.manageKey": "Gérer la clé",

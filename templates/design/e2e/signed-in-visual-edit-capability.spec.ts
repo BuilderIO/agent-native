@@ -38,8 +38,7 @@ async function closeServer(server: Server | null | undefined): Promise<void> {
   });
 }
 
-// fixme: fails in CI on current main: {"error":"Browser visual-edit requests cannot include bridge credentials. Register the bridge through a trusted CLI or
-test.fixme("signing in after opening a scoped Visual Edit link keeps the editor role", async ({
+test("signing in after opening a scoped Visual Edit link keeps the editor role", async ({
   browser,
 }) => {
   const ownerContext = await browser.newContext({
@@ -92,10 +91,8 @@ test.fixme("signing in after opening a scoped Visual Edit link keeps the editor 
           navigate: false,
           publicReadOnly: true,
         },
-        headers: {
-          "Content-Type": "application/json",
-          "X-Agent-Native-Frontend": "1",
-        },
+        // Registers like the trusted CLI; frontend callers cannot send bridge credentials.
+        headers: { "Content-Type": "application/json" },
       },
     );
     expect(openResponse.status(), await openResponse.text()).toBe(200);
@@ -111,6 +108,27 @@ test.fixme("signing in after opening a scoped Visual Edit link keeps the editor 
     }
     designId = opened.designId;
     expect(opened.publicReadOnly).toBe(true);
+
+    // The scoped link is handed only to the Design page, which sends no bridge credentials.
+    const linkResponse = await ownerContext.request.post(
+      `${BASE_URL}/_agent-native/actions/open-visual-edit`,
+      {
+        data: {
+          designId,
+          devServerUrl,
+          paths: ["/"],
+          navigate: false,
+          publicReadOnly: true,
+        },
+        headers: {
+          "Content-Type": "application/json",
+          "X-Agent-Native-Frontend": "1",
+        },
+      },
+    );
+    expect(linkResponse.status(), await linkResponse.text()).toBe(200);
+    Object.assign(opened, await linkResponse.json());
+    expect(opened.designId).toBe(designId);
     expect(opened.embedStartUrl).toMatch(/^\/_agent-native\/embed\/start\?/);
 
     {

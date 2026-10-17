@@ -249,8 +249,12 @@ async function applyPending(
 ): Promise<void> {
   const state = ledgerStateFor(exec);
   if (!state.present) {
-    await retryOnDdlRace(() => exec.execute(LEDGER_DDL));
+    const preparing = (state.preparing ??= prepareLedger(exec).finally(() => {
+      if (state.preparing === preparing) state.preparing = undefined;
+    }));
+    await preparing;
     state.present = true;
+    state.snapshot = undefined;
   }
   const recorded = (await readLedgerSnapshot(exec)).get(store.id);
   if (recorded && store.migrations.every((m) => recorded.has(m.name))) return;
@@ -283,12 +287,89 @@ async function applyPending(
       );
     }
     await recordMigration(exec, store, migration, "step");
+    // Hosted apps without release migrations still replay boot lists against
+    // their old table; without this row they would run this entry again.
+    if (migration.legacy?.ranAtBoot) {
+      await recordLegacyMigrationEntries(exec, migration.legacy.table, [
+        { version: migration.legacy.version, name: migration.legacy.name },
+      ]);
+    }
     applied.add(migration.name);
     ran++;
   }
   state.snapshot = undefined;
   if (ran > 0) {
     console.log(`[db] Applied ${ran} migration(s) to store "${store.id}"`);
+  }
+}
+
+/**
+ * A deployed server with no hosted database refuses every database open, and
+ * its sign-in page explains the fix; rejecting here would keep the auth and org
+ * plugins from mounting that page, as `runMigrations` never did. Every later
+ * query raises the same refusal, so nothing downstream reads as migrated.
+ */
+// By name rather than `instanceof`: this module must not import the class from
+// `client.js`, which nearly every spec mocks, and the runner wraps the error.
+function databaseRefusal(err: unknown): Error | undefined {
+  for (let cause = err; cause; cause = (cause as Error).cause) {
+    if ((cause as Error).name === "HostedRuntimeLocalDatabaseError") {
+      return cause as Error;
+    }
+  }
+  return undefined;
+}
+
+async function tolerateRefusedDatabase(
+  storeId: string,
+  apply: () => Promise<void>,
+): Promise<void> {
+  try {
+    await apply();
+  } catch (err) {
+    const refusal = databaseRefusal(err);
+    if (!refusal || isReleaseStep()) throw err;
+    console.error(`[db] Skipping store "${storeId}". ${refusal.message}`);
+  }
+}
+
+/**
+ * Records entries in a `runMigrations` list's own bookkeeping as that runner
+ * would after applying them: each by name when named, and the highest version
+ * only when it advances `MAX(version)`, the one value that gates unnamed ones.
+ */
+async function recordLegacyMigrationEntries(
+  exec: DbExec,
+  table: string,
+  entries: ReadonlyArray<{ version: number; name?: string }>,
+): Promise<void> {
+  if (entries.length === 0) return;
+  await retryOnDdlRace(() =>
+    exec.execute(
+      `CREATE TABLE IF NOT EXISTS ${table} (version BIGINT PRIMARY KEY)`,
+    ),
+  );
+  await retryOnDdlRace(() =>
+    exec.execute(
+      `CREATE TABLE IF NOT EXISTS ${table}_named (name TEXT PRIMARY KEY, version BIGINT, applied_at TIMESTAMP NOT NULL DEFAULT now())`,
+    ),
+  );
+  const named = entries.filter((entry) => entry.name);
+  if (named.length > 0) {
+    await exec.execute({
+      sql: `INSERT INTO ${table}_named (name, version) VALUES ${named
+        .map(() => "(?, ?)")
+        .join(", ")} ON CONFLICT DO NOTHING`,
+      args: named.flatMap((entry) => [entry.name, entry.version]),
+    });
+  }
+  const version = Math.max(...entries.map((entry) => entry.version));
+  const { rows } = await exec.execute(`SELECT MAX(version) AS v FROM ${table}`);
+  if (version > Number(rows[0]?.v ?? 0)) {
+    await exec.execute({
+      sql: `INSERT INTO ${table} (version) VALUES (?) ON CONFLICT DO NOTHING`,
+      args: [version],
+    });
   }
 }
 
@@ -429,6 +510,115 @@ export function orderStoresForRelease<T extends StoreDefinition>(
 interface LedgerState {
   snapshot?: Promise<Map<string, Set<string>>>;
   present: boolean;
+  preparing?: Promise<void>;
+}
+
+/**
+ * The framework schema as of the last `pnpm gen:schema-snapshot`: every
+ * statement a fresh release produced, the framework tables it created, and
+ * the schema migrations it recorded. Data migrations are not covered; they
+ * run after the snapshot like any migration added since.
+ */
+export interface SchemaSnapshot {
+  readonly statements: readonly string[];
+  readonly tables: readonly string[];
+  readonly migrations: ReadonlyArray<
+    readonly [storeId: string, name: string, checksum: string | null]
+  >;
+  /** Covered entries of lists that ran at boot, as their old tables record them. */
+  readonly bootLists: ReadonlyArray<
+    readonly [table: string, version: number, name: string | null]
+  >;
+}
+
+let snapshotOverride: SchemaSnapshot | null | undefined;
+
+/** Tests and the snapshot generator run the step-by-step path with `null`. */
+export function __setSchemaSnapshotForTests(
+  snapshot: SchemaSnapshot | null | undefined,
+): void {
+  snapshotOverride = snapshot;
+}
+
+async function loadSchemaSnapshot(): Promise<SchemaSnapshot | null> {
+  if (snapshotOverride !== undefined) return snapshotOverride;
+  // Loaded only when a database is actually fresh, never on a cold start.
+  return (await import("./schema-snapshot.generated.js")).SCHEMA_SNAPSHOT;
+}
+
+/**
+ * Creates the ledger. On a database with no ledger and none of the framework
+ * tables (a first release, or a first `pnpm dev`), installs the schema
+ * snapshot instead of replaying every migration since the first release, and
+ * records the migrations it covers with `source = 'snapshot'`.
+ */
+async function prepareLedger(exec: DbExec): Promise<void> {
+  const snapshot = await loadSchemaSnapshot();
+  if (snapshot && exec.transaction && (await isFreshDatabase(exec, snapshot))) {
+    await exec.transaction(async (tx) => {
+      for (const statement of snapshot.statements) {
+        await tx.execute(statement);
+      }
+      await tx.execute(LEDGER_DDL);
+      const now = Date.now();
+      for (let i = 0; i < snapshot.migrations.length; i += 100) {
+        const chunk = snapshot.migrations.slice(i, i + 100);
+        await tx.execute({
+          sql: `INSERT INTO ${STORE_MIGRATIONS_TABLE} (store_id, name, applied_at, checksum, kind, source) VALUES ${chunk
+            .map(() => "(?, ?, ?, ?, 'schema', 'snapshot')")
+            .join(", ")} ON CONFLICT (store_id, name) DO NOTHING`,
+          args: chunk.flatMap(([storeId, name, checksum]) => [
+            storeId,
+            name,
+            now,
+            checksum,
+          ]),
+        });
+      }
+      // Hosted apps without release migrations replay boot lists against their
+      // old tables, so they must record what the snapshot installed.
+      const bootLists = new Map<
+        string,
+        Array<{ version: number; name?: string }>
+      >();
+      for (const [table, version, name] of snapshot.bootLists) {
+        const entries = bootLists.get(table) ?? [];
+        entries.push({ version, name: name ?? undefined });
+        bootLists.set(table, entries);
+      }
+      for (const [table, entries] of bootLists) {
+        await recordLegacyMigrationEntries(tx, table, entries);
+      }
+    });
+    console.log(
+      `[db] Installed schema snapshot (${snapshot.migrations.length} migration(s))`,
+    );
+    return;
+  }
+  await retryOnDdlRace(() => exec.execute(LEDGER_DDL));
+}
+
+/**
+ * Fresh means no ledger and none of the snapshot's tables. Other apps' tables
+ * may share the database; a database any older core touched has framework
+ * tables, so it upgrades step by step and its baselines converge it.
+ */
+async function isFreshDatabase(
+  exec: DbExec,
+  snapshot: SchemaSnapshot,
+): Promise<boolean> {
+  const { rows } = await exec.execute({
+    sql: `SELECT to_regclass('${STORE_MIGRATIONS_TABLE}') IS NOT NULL AS ledger,
+      (SELECT count(*) FROM pg_tables WHERE schemaname = 'public' AND tablename IN (${snapshot.tables
+        .map(() => "?")
+        .join(", ")}))::int AS framework_tables`,
+    args: [...snapshot.tables],
+  });
+  const ledger = rows[0]?.ledger;
+  return (
+    (ledger === false || ledger === "f") &&
+    Number(rows[0]?.framework_tables) === 0
+  );
 }
 
 /**
@@ -644,18 +834,20 @@ export function defineStore(definition: StoreDefinition): Store {
       syncWithDatabaseGeneration();
       const mode = readiness();
       if (mode === "apply") {
-        const exec = getDbExec();
-        const memo = isReleaseStep() ? appliedAtRelease : applied;
-        const existing = memo.get(exec);
-        if (existing) return existing;
-        const tracked = retainRequestDbPoolScope(
-          applyWithLedger(store, exec).catch((err) => {
-            if (memo.get(exec) === tracked) memo.delete(exec);
-            throw err;
-          }),
-        );
-        memo.set(exec, tracked);
-        return tracked;
+        return tolerateRefusedDatabase(id, () => {
+          const exec = getDbExec();
+          const memo = isReleaseStep() ? appliedAtRelease : applied;
+          const existing = memo.get(exec);
+          if (existing) return existing;
+          const tracked = retainRequestDbPoolScope(
+            applyWithLedger(store, exec).catch((err) => {
+              if (memo.get(exec) === tracked) memo.delete(exec);
+              throw err;
+            }),
+          );
+          memo.set(exec, tracked);
+          return tracked;
+        });
       }
       const existing = pending.get(mode);
       if (existing) return existing;

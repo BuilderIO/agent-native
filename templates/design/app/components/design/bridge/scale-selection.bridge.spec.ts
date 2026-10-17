@@ -19,12 +19,20 @@ function hydratedEditorChromeBridgeScript(): string {
 
 const SELECTOR = '[data-agent-native-node-id="box"]';
 
-async function scale(factor: number, anchorX: number, anchorY: number) {
+const BOX_STYLE =
+  "position:absolute;left:300px;top:200px;width:200px;height:120px;border:2px solid #333;border-radius:10px;background:#ccc";
+
+async function scale(
+  factor: number,
+  anchorX: number,
+  anchorY: number,
+  boxStyle = BOX_STYLE,
+) {
   const browser = await chromium.launch({ headless: true });
   try {
     const page = await browser.newPage();
     await page.setContent(`<!doctype html><html><body style="margin:0">
-      <div data-agent-native-node-id="box" style="position:absolute;left:300px;top:200px;width:200px;height:120px;border:2px solid #333;border-radius:10px;background:#ccc"></div>
+      <div data-agent-native-node-id="box" style="${boxStyle}"></div>
     </body></html>`);
     const batches: unknown[] = [];
     await page.exposeFunction("__pushBatch", (changes: unknown) =>
@@ -86,5 +94,32 @@ describe("inspector Scale section", () => {
       width: "300px",
       height: "180px",
     });
+  });
+
+  it("scales an authored 1.5px border, not the 1px Chrome lays it out at", async () => {
+    const batches = await scale(
+      2,
+      0,
+      0,
+      "position:absolute;left:0;top:0;width:100px;height:60px;border:1.5px solid #333",
+    );
+    expect(batches[0][0].styles["border-width"]).toBe("3px 3px 3px 3px");
+  });
+
+  it("writes no border or outline width on a layer that has neither", async () => {
+    const batches = await scale(
+      2,
+      0,
+      0,
+      "position:absolute;left:0;top:0;width:100px;height:60px;background:#ccc",
+    );
+    expect(Object.keys(batches[0][0].styles).sort()).toEqual([
+      "fontSize",
+      "height",
+      "left",
+      "position",
+      "top",
+      "width",
+    ]);
   });
 }, 60_000);

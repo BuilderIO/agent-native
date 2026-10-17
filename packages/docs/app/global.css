@@ -325,6 +325,186 @@ a:hover {
   text-decoration: none;
 }
 
+a.campaign-inline-link {
+  text-decoration: underline;
+  text-underline-offset: 0.25rem;
+}
+
+.campaign-page {
+  --b-font-sans: var(--font-sans);
+  --b-font-mono: var(--font-mono);
+  font-family: var(--font-sans);
+}
+
+.campaign-articles-page {
+  --docs-accent: var(--b-text-link);
+}
+
+.campaign-articles-page a.campaign-inline-link,
+.campaign-articles-page nav a,
+.campaign-articles-page a .campaign-card-title {
+  color: var(--b-text-link);
+}
+
+.campaign-page .campaign-section {
+  padding-block: var(--spacing-12);
+  padding-inline: var(--spacing-8);
+}
+
+.campaign-page .campaign-body {
+  font-family: var(--font-sans);
+  font-size: var(--b-t-paragraph-2);
+  line-height: 1.4;
+  color: var(--fg-secondary);
+}
+
+.campaign-page
+  section
+  h2:not(:where(.campaign-article-content .docs-content h2)) {
+  font-family: var(--font-sans);
+  font-size: var(--b-t-heading-4);
+  font-weight: 500;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+}
+
+.campaign-page .campaign-card-title {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--b-t-heading-6);
+  font-weight: 500;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+}
+
+.campaign-page .campaign-label {
+  font-family: var(--font-mono);
+  font-size: var(--b-t-label-2);
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--b-text-secondary);
+}
+
+.campaign-page .campaign-frequency-tag {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: var(--spacing-2);
+  padding: var(--spacing-1) var(--spacing-2);
+  border: 1px solid var(--docs-border);
+  border-radius: var(--b-radius-md);
+  font-family: var(--font-mono);
+  font-size: var(--b-t-label-2);
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  color: var(--b-text-secondary);
+}
+
+.campaign-page .campaign-frequency-tag > svg {
+  flex-shrink: 0;
+}
+
+.campaign-page .docs-content {
+  font-family: var(--font-sans);
+}
+
+.campaign-page .campaign-stack-list {
+  margin-block: var(--spacing-6) 0;
+}
+
+.campaign-page .campaign-stack-list > li + li {
+  margin-block-start: 8px;
+}
+
+.campaign-page .campaign-stack-section > p {
+  margin-block-start: 24px;
+}
+
+.campaign-page .campaign-recipe-content > * + * {
+  margin-block-start: 12px;
+}
+
+.campaign-page .campaign-recipe-steps,
+.campaign-page .campaign-recipe-result,
+.campaign-page .campaign-recipe-tip {
+  color: var(--fg);
+}
+
+.campaign-page .code-block {
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+}
+
+.campaign-page .code-block pre {
+  box-sizing: border-box;
+  max-width: 100%;
+  margin: 0;
+  padding: 12px 56px 12px 16px;
+  font-family: var(--font-mono);
+  font-size: var(--b-t-paragraph-2);
+  line-height: 1.4;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow-x: hidden;
+}
+
+.campaign-page .code-block pre code {
+  padding: 0;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  white-space: inherit;
+  overflow-wrap: anywhere;
+}
+
+.campaign-page .code-block > button {
+  opacity: 1;
+}
+
+.campaign-page .campaign-faq > div > div:first-child {
+  padding-block: var(--spacing-12);
+  padding-inline: var(--spacing-8);
+}
+
+.campaign-page .campaign-faq > div > div:first-child > p {
+  font-size: var(--b-t-label-1);
+  letter-spacing: 0.08em;
+  color: var(--b-text-eyebrow);
+}
+
+.campaign-page .campaign-faq [role="region"] .text-lg {
+  font-size: var(--b-t-paragraph-2);
+  line-height: 1.4;
+}
+
+.grid.gap-px[class~="bg-[var(--docs-border)]"] {
+  --card-grid-border: var(--docs-border);
+}
+
+.grid.gap-px[class~="bg-[var(--b-border-subtle)]"] {
+  --card-grid-border: var(--b-border-subtle);
+}
+
+.grid.gap-px:is(
+    [class~="bg-[var(--docs-border)]"],
+    [class~="bg-[var(--b-border-subtle)]"]
+  ) {
+  background-color: var(--b-bg-page);
+}
+
+.grid.gap-px:is(
+    [class~="bg-[var(--docs-border)]"],
+    [class~="bg-[var(--b-border-subtle)]"]
+  )
+  > * {
+  box-shadow: 0 0 0 1px var(--card-grid-border);
+}
+
 code:where(:not(.builder-brand-tokens *)) {
   font-family: var(--font-mono);
   font-size: 0.875em;
@@ -525,6 +705,12 @@ hr {
   color: var(--docs-accent);
   font-family: var(--font-mono);
   font-size: 13px;
+}
+
+.campaign-page .campaign-article-content .docs-content table :is(th, td) {
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: var(--b-t-paragraph-2);
 }
 
 .docs-kbd {

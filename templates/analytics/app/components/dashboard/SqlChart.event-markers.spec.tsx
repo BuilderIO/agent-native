@@ -54,6 +54,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => mocks.t,
+  useFormatters: () => ({ formatNumber: String }),
 }));
 
 vi.mock("sonner", () => ({ toast: { error: mocks.toastError } }));
@@ -94,6 +95,10 @@ import {
   type DataNoteActions,
 } from "./dashboard-annotations-context";
 import { layoutDataNoteLabels } from "./data-note-bands";
+import {
+  useEventMarkerAxisPadding,
+  useEventMarkerGroups,
+} from "./event-markers";
 import { SqlChart } from "./SqlChart";
 
 const CHART_SIZE = { width: 640, height: 320 };
@@ -125,6 +130,21 @@ function panel(chartType: SqlPanel["chartType"]): SqlPanel {
     width: 1,
     config: { xKey: "day", yKeys: ["people"], events: EVENTS },
   };
+}
+
+function EventMarkerAxisPaddingProbe({
+  rows,
+}: {
+  rows: Record<string, unknown>[];
+}) {
+  const groups = useEventMarkerGroups(EVENTS, rows, "day");
+  const padding = useEventMarkerAxisPadding(groups, rows, "day");
+  return (
+    <output
+      data-left-padding={padding.left}
+      data-right-padding={padding.right}
+    />
+  );
 }
 
 describe("SqlChart key-date markers", () => {
@@ -228,6 +248,29 @@ describe("SqlChart key-date markers", () => {
       }
     },
   );
+
+  it("pads numeric first and last x-axis values resolved as string marker values", async () => {
+    const rows = [12, 13, 14].map((day) => ({
+      day: Date.UTC(2026, 9, day),
+    }));
+    await act(async () => {
+      root.render(<EventMarkerAxisPaddingProbe rows={rows} />);
+    });
+    const output = container.querySelector("output");
+    expect(output?.getAttribute("data-left-padding")).toBe("11");
+    expect(output?.getAttribute("data-right-padding")).toBe("11");
+  });
+
+  it("renders event markers against numeric x-axis values", async () => {
+    mocks.rows = [12, 13, 14].map((day, index) => ({
+      day: Date.UTC(2026, 9, day),
+      people: 100 + index * 10,
+    }));
+    await act(async () => {
+      root.render(<SqlChart panel={panel("line")} />);
+    });
+    expect(container.querySelectorAll("[data-event-marker]")).toHaveLength(2);
+  });
 
   const cardRows = (card: Element | null) =>
     [...(card?.querySelectorAll("li") ?? [])].map((row) => row.textContent);

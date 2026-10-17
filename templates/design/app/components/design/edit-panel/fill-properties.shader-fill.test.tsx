@@ -267,9 +267,9 @@ describe("FillProperties with a shader fill", () => {
     );
 
     expect(onRemoveShaderFill).not.toHaveBeenCalled();
-    expect(onStyleChange.mock.calls[0]?.slice(0, 2)).toEqual([
-      "backgroundColor",
-      "transparent",
+    expect(onStyleChange.mock.calls.map((call) => call.slice(0, 2))).toEqual([
+      ["background", ""],
+      ["backgroundColor", ""],
     ]);
   });
 

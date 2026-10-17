@@ -1621,7 +1621,7 @@ describe("selectionFillColorValues", () => {
     expect(result.status, result.message).toBe("applied");
     const rewritten = result.updates[0]?.content ?? "";
     expect(rewritten).toMatch(
-      /<circle[^>]*fill="#f97316"[^>]*style="[^"]*fill: #3b82f6/,
+      /<circle(?![^>]*fill="#f97316")[^>]*style="[^"]*fill: #3b82f6/,
     );
     expect(rewritten).toContain('stroke="#111827"');
     expect(rewritten).not.toMatch(/<svg[^>]*style="[^"]*fill: #3b82f6/);

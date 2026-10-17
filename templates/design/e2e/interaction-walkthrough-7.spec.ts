@@ -367,8 +367,7 @@ test.describe("card and container interactions", () => {
   });
 
   // oracle: none — only the toolbar tool selection changed in this test; its own claim is unmeasured against Figma.
-  // fixme: product bug, intermittent: drawing the rectangle on the board sometimes saves two extra board nodes (an-…, rectangle-…) besides the drawn one
-  test.fixme("step 3 [overview, outside the screen -> crosses into the screen]: a rectangle drawn on the board and dragged into the screen lands at the drop point, and one undo puts it back on the board", async ({
+  test("step 3 [overview, outside the screen -> crosses into the screen]: a rectangle drawn on the board and dragged into the screen lands at the drop point, and one undo puts it back on the board", async ({
     app,
     page,
   }) => {
@@ -451,8 +450,7 @@ test.describe("card and container interactions", () => {
     expect(styleOf(boardFile(undone).get(rectId))).toEqual(drawnStyle);
   });
 
-  // fixme: product bug: Adding auto layout stretches the button from 116px to 340px wide (the new column wrapper keeps the default align-items: stretch)
-  test.fixme("steps 4-5 [in-screen]: Shift+A twice builds nested auto-layout frames — Description, then Content wrapping Description", async ({
+  test("steps 4-5 [in-screen]: Shift+A twice builds nested auto-layout frames — Description, then Content wrapping Description", async ({
     app,
     page,
   }) => {
@@ -550,8 +548,7 @@ test.describe("card and container interactions", () => {
     ).toEqual(layout);
   });
 
-  // fixme: product bug: The frame is saved at the drawn bounds with the right defaults but as an empty sibling after Content (parent page), so its opaque white
-  test.fixme("drawing a frame around Content with the Frame tool wraps Content in a new frame at the drawn bounds without moving it", async ({
+  test("drawing a frame around Content with the Frame tool wraps Content in a new frame at the drawn bounds without moving it", async ({
     app,
     page,
   }) => {
@@ -591,8 +588,7 @@ test.describe("card and container interactions", () => {
     expectOnlyChanged(before, after, [frameId, "content"]);
   });
 
-  // fixme: fails on current main after the merge: Error: expect(received).toBe(expected) // Object.is equality
-  test.fixme("Create component from the selected layer's context menu marks it as a component and changes nothing else", async ({
+  test("Create component from the selected layer's context menu marks it as a component and changes nothing else", async ({
     app,
     page,
   }) => {

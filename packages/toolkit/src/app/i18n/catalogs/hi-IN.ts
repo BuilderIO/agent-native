@@ -205,6 +205,10 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.keySummary": "एंबेडिंग",
   "onboarding.capability.embeddings.why":
     "एंबेडिंग अर्थपूर्ण खोज को बेहतर बनाती हैं। इनके बिना भी कीवर्ड खोज काम करती है।",
+  "onboarding.capability.webSearch.label": "वेब खोज",
+  "onboarding.capability.webSearch.keySummary": "Builder द्वारा प्रबंधित वेब खोज",
+  "onboarding.capability.webSearch.why":
+    "वेब पर मौजूदा सार्वजनिक स्रोत खोजें। Builder द्वारा प्रबंधित खोज शामिल Builder AI क्रेडिट का उपयोग करती है, इसलिए अलग खोज API कुंजी की ज़रूरत नहीं है।",
   "onboarding.capability.systemOne.why":
     "Jev एक वैकल्पिक निर्णय मॉडल है, जो एजेंट के पहले मॉडल अनुरोध से पहले प्रासंगिक टूल और स्किल चुनने में मदद करता है।",
   "onboarding.capability.assetsImageGeneration.label": "इमेज जनरेशन",
@@ -2589,6 +2593,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.search.appDefaultModel": "ऐप का डिफ़ॉल्ट मॉडल",
   "settingsShell.search.backgroundAgents": "बैकग्राउंड एजेंट",
   "settingsShell.search.browserAutomation": "ब्राउज़र ऑटोमेशन",
+  "settingsShell.search.webSearch": "वेब खोज",
   "settingsShell.search.connectedAgents": "कनेक्ट किए गए एजेंट",
   "settingsShell.search.database": "डेटाबेस",
   "settingsShell.search.defaultModel": "डिफ़ॉल्ट मॉडल",
@@ -2721,6 +2726,8 @@ const messages: ToolkitAgentChatTranslation = {
     "बनाई गई स्लाइड और डिज़ाइन को ब्रांड के अनुरूप रखता है।",
   "settingsInfra.whyBackground": "प्रोडक्शन से कोड में बदलाव करता है।",
   "settingsInfra.whyBrowser": "एजेंट को प्रोडक्शन में ब्राउज़र इस्तेमाल करने देता है।",
+  "settingsInfra.whyWebSearch":
+    "नई सार्वजनिक जानकारी और आधिकारिक दस्तावेज़ ढूँढता है।",
   "settingsInfra.provider": "प्रदाता",
   "settingsInfra.keyOrg": "संगठन की {{provider}} कुंजी इस्तेमाल करता है।",
   "settingsInfra.manageKey": "कुंजी प्रबंधित करें",

@@ -207,6 +207,7 @@ import type { TextContrastContext } from "./edit-panel/text-contrast";
 import {
   mergeRotationValue,
   normalizeRotationDegrees,
+  sharedRotationValue,
 } from "./edit-panel/transform-helpers";
 import {
   displayFontFamilyName,
@@ -496,6 +497,7 @@ interface EditPanelProps {
   componentInstanceHasLocalOverrides?: boolean;
   onResetComponentInstanceOverrides?: (nodeId: string) => void;
   onRestoreComponent?: (nodeId: string) => void;
+  onGoToMainComponent?: () => void;
   componentSwapPickerRequest?: number;
   sourceCapabilities?: string[];
   onCreateComponent?: (name: string) => void;
@@ -2109,6 +2111,7 @@ function GroupFillProperties({
       documentColorPalette={documentColors}
       hideAddFill={disabled}
       cancelOpacityGestureOnHistoryUndo={!disabled}
+      allowDesignHistoryHotkeys={!disabled}
       onAddFill={onAddFill}
       uploadScopeKey={uploadScopeKey}
     />
@@ -2244,6 +2247,7 @@ export const EditPanel = memo(function EditPanel({
   componentInstanceHasLocalOverrides = false,
   onResetComponentInstanceOverrides,
   onRestoreComponent,
+  onGoToMainComponent,
   componentSwapPickerRequest,
   sourceCapabilities = [],
   onCreateComponent,
@@ -2356,6 +2360,13 @@ export const EditPanel = memo(function EditPanel({
       effectiveSelectedElements,
     ],
   );
+  const sharedSelectionRotation = useMemo(
+    () =>
+      effectiveSelectedElements.length > 1
+        ? sharedRotationValue(effectiveSelectedElements)
+        : undefined,
+    [effectiveSelectedElements],
+  );
   const inspectorElement = useMemo(() => {
     const element =
       effectiveSelectedElements.length > 1
@@ -2413,6 +2424,8 @@ export const EditPanel = memo(function EditPanel({
     inspectorElement?.sourceLayerIdentity?.screenId ?? fileId;
   const glslShaderContext: GlslShaderPanelContext | undefined = useMemo(() => {
     if (!designId || !shaderFileId || selectedCount > 1) return undefined;
+    // A screen deleted while selected is gone; reading it would 404.
+    if (!files?.some((file) => file.id === shaderFileId)) return undefined;
     const nodeId = inspectorElement?.sourceId;
     if (!nodeId) return undefined;
     const base = {
@@ -2481,6 +2494,7 @@ export const EditPanel = memo(function EditPanel({
       const screenFileId = selectedScreenGeometry?.id;
       const nodeId = selectedScreenElement?.sourceId;
       if (!designId || !screenFileId || !nodeId) return undefined;
+      if (!files?.some((file) => file.id === screenFileId)) return undefined;
       return {
         designId,
         fileId: screenFileId,
@@ -2491,6 +2505,7 @@ export const EditPanel = memo(function EditPanel({
       };
     }, [
       designId,
+      files,
       selectedScreenGeometry?.id,
       selectedScreenElement?.sourceId,
       selectedScreenElement?.selector,
@@ -2951,6 +2966,7 @@ export const EditPanel = memo(function EditPanel({
                         ? () => onRestoreComponent(componentNodeId)
                         : undefined
                     }
+                    onGoToMainComponent={onGoToMainComponent}
                     onComponentPropApplied={onComponentPropApplied}
                     sourceCapabilities={sourceCapabilities}
                   />
@@ -3263,6 +3279,7 @@ export const EditPanel = memo(function EditPanel({
                       element={
                         stateResolvedInspectorElement ?? inspectorElement
                       }
+                      sharedRotation={sharedSelectionRotation}
                       onStyleChange={onStyleChange}
                       onStylesChange={onStylesChange}
                       onAlignSelection={onAlignSelection}
