@@ -125,6 +125,8 @@ explaining it.
 
 Do not use `app-db` as a dashboard source. For first-party events collected through `/track`, use `source: "first-party"` or the `query-agent-native-analytics` action rather than raw internal `db-query`.
 
+There is no dbt Semantic Layer panel source. For a Semantic Layer metric, answer in chat with `query-dbt-semantic-metric`; build a warehouse panel only on a table the owner names.
+
 AI-generated first-party panels are dashboard-time-bound by default. Set
 `config.timeScope` to `"dashboard"` and include the matching dashboard time
 filter in the SQL. The allowed values are:
@@ -270,6 +272,8 @@ the hidden data notes are kept. In Edit mode, people do the same from the dashbo
 header's Annotations menu, which also adds and edits key dates and sets.
 
 - Each event is `{ date: "YYYY-MM-DD", label, time?: "HH:MM", timeZone?, color? }`;
+  `color` accepts SVG-safe hex values: `#RGB`, `#RGBA`, `#RRGGBB`, or
+  `#RRGGBBAA`. Numeric x-axis timestamps use Unix epoch milliseconds.
   multiple are allowed. `date` is the calendar date in the event's own zone.
   Give `time` when the moment matters (a launch hour); `timeZone` is an IANA
   zone and needs a `time`. Without a zone, the time is UTC.
@@ -434,11 +438,14 @@ to Analytics.
 
 Use an existing Dispatch Sigma connection when it is granted to Analytics; the
 import flow discovers accessible connections without copying their Vault
-values. If direct setup is needed, an organization owner or admin can enter
-Sigma client credentials in the Analytics dialog. Analytics saves those values
-under Analytics-specific encrypted organization secrets and links them to an
-Analytics-only connection. Credential values must never pass through agent chat,
-action arguments, logs, source, or screenshots.
+values. Any workspace member can connect a personal Sigma account with OAuth
+from the importer and choose the account's documented API region. OAuth tokens
+and the connection stay scoped to that user. If direct setup is needed, an
+organization owner or admin can still enter Sigma client credentials in the
+Analytics dialog. Analytics saves those values under Analytics-specific
+encrypted organization secrets and links them to an Analytics-only connection.
+Credential values must never pass through agent chat, action arguments, logs,
+source, or screenshots.
 
 If Sigma adds verifiable source mapping in the future, the planned import will
 create a private snapshot in the user's personal `Sigma` folder. Other source
@@ -839,6 +846,7 @@ Hosted agent runs have a **~40s budget**. Many sequential `update-dashboard` cal
   not proof the chart renders: only `verified: true` is (with
   `noRenderAffected: true` no chart changed). On `verified: false`, follow
   `nextStep` and call `inspect-dashboard-panel` for the changed panels.
+- After any timeout, read the dashboard back with `get-sql-dashboard` before reporting success or retrying.
 
 ```bash
 # Add or edit several panels in ONE atomic call (never one call per panel)

@@ -66,6 +66,12 @@ export default {
     sigmaChooseConnectionPlaceholder: "कनेक्शन चुनें",
     sigmaChooseConnectionDescription: "वर्कबुक देखने के लिए Sigma वर्कस्पेस चुनें।",
     sigmaNoConnection: "Sigma कनेक्ट नहीं है",
+    sigmaApiRegion: "Sigma API क्षेत्र",
+    sigmaOAuthConnect: "व्यक्तिगत Sigma खाता कनेक्ट करें",
+    sigmaOAuthAddAnother: "दूसरा Sigma खाता कनेक्ट करें",
+    sigmaOAuthCancel: "रद्द करें",
+    sigmaOAuthDescription:
+      "जिन वर्कबुक तक आपकी पहुँच है, उन्हें देखने के लिए अपने खाते से Sigma में साइन इन करें।",
     sigmaClientId: "क्लाइंट ID",
     sigmaClientSecret: "क्लाइंट सीक्रेट",
     sigmaBaseUrl: "API बेस URL (वैकल्पिक)",
@@ -77,8 +83,7 @@ export default {
     sigmaCredentialStageFailed:
       "अस्थायी Sigma क्रेडेंशियल सेव नहीं हो सके। Vault का ऐक्सेस जाँचें और फिर कोशिश करें।",
     sigmaCredentialsRequired: "पहले Sigma क्लाइंट ID और क्लाइंट सीक्रेट सेव करें।",
-    sigmaBaseUrlInvalid:
-      "sigmacomputing.com डोमेन पर HTTPS Sigma API URL इस्तेमाल करें।",
+    sigmaBaseUrlInvalid: "समर्थित आधिकारिक Sigma API क्षेत्र का URL चुनें।",
     sigmaPersistenceUnavailable:
       "Analytics अभी Sigma कनेक्शन को सुरक्षित रूप से सेव नहीं कर सकता। फिर कोशिश करें।",
     sigmaPolicyInvalid:
@@ -92,7 +97,7 @@ export default {
     sigmaDirectCredentialsUnavailable:
       "Analytics में सेव किए गए Sigma क्रेडेंशियल पढ़े नहीं जा सके। संगठन एडमिन Dispatch में फिर से कनेक्ट कर सकता है या Analytics में क्रेडेंशियल दोबारा दर्ज कर सकता है।",
     sigmaNoConnectionDescription:
-      "Analytics-only कनेक्शन बनाने के लिए यहाँ क्रेडेंशियल दर्ज करें। Dispatch में Analytics के लिए अधिकृत Sigma कनेक्शन यहाँ अपने-आप दिखते हैं; केवल संगठन के एडमिन सीधे क्रेडेंशियल सेव कर सकते हैं।",
+      "अपना व्यक्तिगत Sigma खाता कनेक्ट करें या संगठन के एडमिन द्वारा सेव किए गए क्रेडेंशियल इस्तेमाल करें। Analytics के लिए अधिकृत Dispatch कनेक्शन भी यहाँ दिखते हैं।",
     sigmaOpenDispatch: "Dispatch में कनेक्ट करें",
     sigmaOpenVault: "Vault खोलें",
     sigmaWorkbooksLoadFailed: "Sigma वर्कबुक लोड नहीं हो सकीं",
@@ -2104,6 +2109,8 @@ export default {
     dbtDisabled: "बंद है",
     dbtAdminOnly: "इस कनेक्शन को केवल संगठन के एडमिन बदल सकते हैं।",
     dbtReadFailed: "dbt कनेक्शन लोड नहीं हो सका।",
+    dbtSeveralConnections:
+      "Analytics को कई dbt कनेक्शन की अनुमति है, इसलिए यह पैनल उनमें से किसी एक को संपादित नहीं कर सकता। सेटिंग्स → इंटीग्रेशन में अतिरिक्त कनेक्शन हटाकर केवल एक रखें।",
     dbtSave: "कनेक्शन सहेजें",
     dbtChecking: "जाँच हो रही है",
     dbtSaveFailed: "dbt कनेक्शन सहेजा नहीं जा सका।",

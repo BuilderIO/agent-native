@@ -70,7 +70,7 @@ function deferred<T>() {
 }
 
 async function waitFor(predicate: () => boolean) {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
+  for (let attempt = 0; attempt < 500; attempt += 1) {
     if (predicate()) return;
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
@@ -179,7 +179,10 @@ describe("useMeetingTranscription quit coordination", () => {
       );
     });
 
-    expect(transcription.stop).toHaveBeenCalledWith("whisper");
+    expect(transcription.stop).toHaveBeenCalledWith(
+      "whisper",
+      expect.any(Number),
+    );
 
     expect(tauri.invoke).not.toHaveBeenCalledWith("quit_teardown_done");
 
@@ -369,7 +372,14 @@ describe("useMeetingTranscription quit coordination", () => {
       await Promise.resolve();
     });
 
-    expect(transcription.stop).not.toHaveBeenCalled();
+    expect(transcription.stop).toHaveBeenCalledWith(
+      "whisper",
+      expect.any(Number),
+    );
+    expect(transcription.stop).toHaveBeenCalledWith(
+      "macos-native",
+      expect.any(Number),
+    );
     expect(
       callClipsAction.mock.calls.some(
         ([name]) => name === "stop-meeting-recording",
@@ -379,10 +389,17 @@ describe("useMeetingTranscription quit coordination", () => {
 
     await act(async () => {
       engineStart.resolve("whisper");
-      await waitFor(() => transcription.stop.mock.calls.length === 1);
+      await waitFor(() => transcription.stop.mock.calls.length === 2);
     });
 
-    expect(transcription.stop).toHaveBeenCalledWith("whisper");
+    expect(transcription.stop).toHaveBeenCalledWith(
+      "whisper",
+      expect.any(Number),
+    );
+    expect(transcription.stop).toHaveBeenCalledWith(
+      "macos-native",
+      expect.any(Number),
+    );
     expect(
       callClipsAction.mock.calls.some(
         ([name]) => name === "stop-meeting-recording",
@@ -455,6 +472,14 @@ describe("useMeetingTranscription quit coordination", () => {
       quitListener!({ payload: undefined });
       await Promise.resolve();
     });
+    expect(transcription.stop).toHaveBeenCalledWith(
+      "whisper",
+      expect.any(Number),
+    );
+    expect(transcription.stop).toHaveBeenCalledWith(
+      "macos-native",
+      expect.any(Number),
+    );
     startRecording.reject(new Error("Recording could not start."));
 
     expect(

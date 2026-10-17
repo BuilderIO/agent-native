@@ -70,6 +70,12 @@ export default {
     sigmaChooseConnectionDescription:
       "Wähle den Sigma-Arbeitsbereich aus, dessen Arbeitsmappen du anzeigen möchtest.",
     sigmaNoConnection: "Sigma ist nicht verbunden",
+    sigmaApiRegion: "Sigma-API-Region",
+    sigmaOAuthConnect: "Persönliches Sigma-Konto verbinden",
+    sigmaOAuthAddAnother: "Weiteres Sigma-Konto verbinden",
+    sigmaOAuthCancel: "Abbrechen",
+    sigmaOAuthDescription:
+      "Melde dich mit deinem Konto bei Sigma an, um auf deine Arbeitsmappen zuzugreifen.",
     sigmaClientId: "Client-ID",
     sigmaClientSecret: "Client-Secret",
     sigmaBaseUrl: "API-Basis-URL (optional)",
@@ -83,7 +89,7 @@ export default {
     sigmaCredentialsRequired:
       "Speichere zuerst die Sigma-Client-ID und das Client-Secret.",
     sigmaBaseUrlInvalid:
-      "Verwende eine HTTPS-URL der Sigma-API unter einer sigmacomputing.com-Domain.",
+      "Wähle eine unterstützte offizielle Sigma-API-Region-URL aus.",
     sigmaPersistenceUnavailable:
       "Analytics kann die Sigma-Verbindung derzeit nicht sicher speichern. Versuche es erneut.",
     sigmaPolicyInvalid:
@@ -98,7 +104,7 @@ export default {
     sigmaDirectCredentialsUnavailable:
       "Die gespeicherten Analytics-Sigma-Zugangsdaten konnten nicht gelesen werden. Ein Organisationsadmin kann Sigma in Dispatch erneut verbinden oder die Zugangsdaten in Analytics neu eingeben.",
     sigmaNoConnectionDescription:
-      "Gib hier Zugangsdaten ein, um eine nur für Analytics verfügbare Verbindung zu erstellen. In Dispatch für Analytics freigegebene Sigma-Verbindungen erscheinen hier automatisch; nur Organisationsadmins können Zugangsdaten direkt speichern.",
+      "Verbinde dein persönliches Sigma-Konto oder nutze Zugangsdaten, die ein Organisationsadmin gespeichert hat. Auch für Analytics freigegebene Dispatch-Verbindungen erscheinen hier.",
     sigmaOpenDispatch: "In Dispatch verbinden",
     sigmaOpenVault: "Vault öffnen",
     sigmaWorkbooksLoadFailed:
@@ -2215,6 +2221,8 @@ export default {
     dbtAdminOnly:
       "Nur Organisationsadministratoren können diese Verbindung ändern.",
     dbtReadFailed: "Die dbt-Verbindung konnte nicht geladen werden.",
+    dbtSeveralConnections:
+      "Mehrere dbt-Verbindungen sind für Analytics freigegeben, daher kann dieses Panel keine davon bearbeiten. Entfernen Sie die zusätzlichen Verbindungen unter Einstellungen → Integrationen, um eine zu behalten.",
     dbtSave: "Verbindung speichern",
     dbtChecking: "Wird geprüft",
     dbtSaveFailed: "Die dbt-Verbindung konnte nicht gespeichert werden.",
