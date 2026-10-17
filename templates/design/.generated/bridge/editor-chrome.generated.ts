@@ -6817,6 +6817,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     var lastShieldPointerDownAt = 0;
     var lastShieldPointerDownPoint = null;
     var lastShieldPointerDownTarget = null;
+    var lastShieldPointerDownModifiers = null;
     var hoveredSpacingHandleKey = "";
     var spacingHoverClearTimer = null;
     var lastSpacingPointerPoint = null;
@@ -20911,14 +20912,26 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (e.type === "pointerdown" && e.pointerType === "mouse" && e.button === 0) {
         var now = Date.now();
         var hitSelectionTarget = selectionTargetForHit(hit, true);
-        var sameClickPoint = lastShieldPointerDownTarget === hitSelectionTarget && lastShieldPointerDownPoint && now - lastShieldPointerDownAt < 500 && Math.hypot(
-          e.clientX - lastShieldPointerDownPoint.x,
-          e.clientY - lastShieldPointerDownPoint.y
-        ) <= 4;
+        var pointerDownModifiers = {
+          altKey: Boolean(e.altKey),
+          ctrlKey: Boolean(e.ctrlKey),
+          metaKey: Boolean(e.metaKey),
+          shiftKey: Boolean(e.shiftKey)
+        };
+        var sameModifiers = Boolean(
+          lastShieldPointerDownModifiers && lastShieldPointerDownModifiers.altKey === pointerDownModifiers.altKey && lastShieldPointerDownModifiers.ctrlKey === pointerDownModifiers.ctrlKey && lastShieldPointerDownModifiers.metaKey === pointerDownModifiers.metaKey && lastShieldPointerDownModifiers.shiftKey === pointerDownModifiers.shiftKey
+        );
+        var sameClickPoint = Boolean(
+          sameModifiers && lastShieldPointerDownTarget === hitSelectionTarget && lastShieldPointerDownPoint && now - lastShieldPointerDownAt < 500 && Math.hypot(
+            e.clientX - lastShieldPointerDownPoint.x,
+            e.clientY - lastShieldPointerDownPoint.y
+          ) <= 4
+        );
         shieldPointerClickCount = sameClickPoint ? shieldPointerClickCount + 1 : 1;
         lastShieldPointerDownAt = now;
         lastShieldPointerDownPoint = { x: e.clientX, y: e.clientY };
         lastShieldPointerDownTarget = hitSelectionTarget;
+        lastShieldPointerDownModifiers = pointerDownModifiers;
       }
       var hitTarget = selectionTargetForHit(hit);
       var startsOnContainerBackground = isContainerBackgroundHit(hitTarget, hit);
@@ -21028,6 +21041,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           lastShieldPointerDownAt = 0;
           lastShieldPointerDownPoint = null;
           lastShieldPointerDownTarget = null;
+          lastShieldPointerDownModifiers = null;
           return;
         }
         if (!readOnly && !e.altKey) {

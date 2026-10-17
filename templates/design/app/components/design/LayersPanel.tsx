@@ -291,6 +291,7 @@ let activeIconToggleDrag: {
   kind: "hidden" | "locked";
   value: boolean;
   row: HTMLElement;
+  appliedIds: Set<string>;
   clear: () => void;
 } | null = null;
 
@@ -310,6 +311,7 @@ function clearIconToggleDrag(row?: HTMLElement | null): void {
 function beginIconToggleDrag(
   kind: "hidden" | "locked",
   value: boolean,
+  nodeId: string,
   button: HTMLButtonElement,
 ): void {
   const row = button.closest<HTMLElement>('[role="treeitem"]');
@@ -318,7 +320,13 @@ function beginIconToggleDrag(
   clearIconToggleDrag();
   row.draggable = false;
   const clear = () => clearIconToggleDrag(row);
-  activeIconToggleDrag = { kind, value, row, clear };
+  activeIconToggleDrag = {
+    kind,
+    value,
+    row,
+    appliedIds: new Set([nodeId]),
+    clear,
+  };
   window.addEventListener("mouseup", clear, true);
   window.addEventListener("pointerup", clear, true);
   window.addEventListener("pointercancel", clear, true);
@@ -1902,21 +1910,17 @@ const LayerRow = memo(function LayerRow({
     });
   };
 
-  const handleRowMouseEnter = (event: MouseEvent<HTMLDivElement>) => {
-    onHoverLayer?.(node.id);
+  const applyIconToggleDrag = (row: HTMLElement, clientX: number) => {
     const toggleDrag = activeIconToggleDrag;
-    if (!toggleDrag) return;
-    const toggleButton = event.currentTarget.querySelector<HTMLButtonElement>(
+    if (!toggleDrag || toggleDrag.appliedIds.has(node.id)) return;
+    const toggleButton = row.querySelector<HTMLButtonElement>(
       `[data-layer-toggle="${toggleDrag.kind}"]`,
     );
     if (!toggleButton) return;
     const bounds = toggleButton.getBoundingClientRect();
-    if (
-      bounds.width <= 0 ||
-      event.clientX < bounds.left ||
-      event.clientX > bounds.right
-    )
+    if (bounds.width <= 0 || clientX < bounds.left || clientX > bounds.right)
       return;
+    toggleDrag.appliedIds.add(node.id);
     if (toggleDrag?.kind === "locked" && node.locked !== toggleDrag.value) {
       onToggleLocked?.(node.id, toggleDrag.value);
     } else if (
@@ -1925,6 +1929,15 @@ const LayerRow = memo(function LayerRow({
     ) {
       onToggleHidden?.(node.id, toggleDrag.value);
     }
+  };
+
+  const handleRowMouseEnter = (event: MouseEvent<HTMLDivElement>) => {
+    onHoverLayer?.(node.id);
+    applyIconToggleDrag(event.currentTarget, event.clientX);
+  };
+
+  const handleRowMouseMove = (event: MouseEvent<HTMLDivElement>) => {
+    applyIconToggleDrag(event.currentTarget, event.clientX);
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
@@ -2184,6 +2197,7 @@ const LayerRow = memo(function LayerRow({
             clearSpringLoadTimer();
           }}
           onMouseEnter={handleRowMouseEnter}
+          onMouseMove={handleRowMouseMove}
           onMouseLeave={() => onLeaveLayer?.(node.id)}
         >
           {activeDrop === "before" ? (
@@ -2386,6 +2400,7 @@ const LayerRow = memo(function LayerRow({
                           beginIconToggleDrag(
                             "locked",
                             nextLocked,
+                            node.id,
                             event.currentTarget,
                           );
                         }}
@@ -2431,6 +2446,7 @@ const LayerRow = memo(function LayerRow({
                           beginIconToggleDrag(
                             "hidden",
                             nextHidden,
+                            node.id,
                             event.currentTarget,
                           );
                         }}

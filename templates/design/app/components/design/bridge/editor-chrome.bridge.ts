@@ -8094,6 +8094,12 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
   var lastShieldPointerDownAt = 0;
   var lastShieldPointerDownPoint: { x: number; y: number } | null = null;
   var lastShieldPointerDownTarget: Element | null = null;
+  var lastShieldPointerDownModifiers: {
+    altKey: boolean;
+    ctrlKey: boolean;
+    metaKey: boolean;
+    shiftKey: boolean;
+  } | null = null;
   var hoveredSpacingHandleKey = "";
   var spacingHoverClearTimer: ReturnType<typeof setTimeout> | null = null;
   var lastSpacingPointerPoint: { x: number; y: number } | null = null;
@@ -26830,20 +26836,39 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     ) {
       var now = Date.now();
       var hitSelectionTarget = selectionTargetForHit(hit, true);
-      var sameClickPoint =
+      var pointerDownModifiers = {
+        altKey: Boolean(e.altKey),
+        ctrlKey: Boolean(e.ctrlKey),
+        metaKey: Boolean(e.metaKey),
+        shiftKey: Boolean(e.shiftKey),
+      };
+      var sameModifiers = Boolean(
+        lastShieldPointerDownModifiers &&
+        lastShieldPointerDownModifiers.altKey === pointerDownModifiers.altKey &&
+        lastShieldPointerDownModifiers.ctrlKey ===
+          pointerDownModifiers.ctrlKey &&
+        lastShieldPointerDownModifiers.metaKey ===
+          pointerDownModifiers.metaKey &&
+        lastShieldPointerDownModifiers.shiftKey ===
+          pointerDownModifiers.shiftKey,
+      );
+      var sameClickPoint = Boolean(
+        sameModifiers &&
         lastShieldPointerDownTarget === hitSelectionTarget &&
         lastShieldPointerDownPoint &&
         now - lastShieldPointerDownAt < 500 &&
         Math.hypot(
           e.clientX - lastShieldPointerDownPoint.x,
           e.clientY - lastShieldPointerDownPoint.y,
-        ) <= 4;
+        ) <= 4,
+      );
       shieldPointerClickCount = sameClickPoint
         ? shieldPointerClickCount + 1
         : 1;
       lastShieldPointerDownAt = now;
       lastShieldPointerDownPoint = { x: e.clientX, y: e.clientY };
       lastShieldPointerDownTarget = hitSelectionTarget;
+      lastShieldPointerDownModifiers = pointerDownModifiers;
     }
     var hitTarget = selectionTargetForHit(hit);
     var startsOnContainerBackground = isContainerBackgroundHit(hitTarget, hit);
@@ -26995,6 +27020,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         lastShieldPointerDownAt = 0;
         lastShieldPointerDownPoint = null;
         lastShieldPointerDownTarget = null;
+        lastShieldPointerDownModifiers = null;
         return;
       }
       if (!readOnly && !e.altKey) {

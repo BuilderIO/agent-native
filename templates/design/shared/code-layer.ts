@@ -4344,14 +4344,38 @@ function isSupportedStaticSelector(selector: string): boolean {
   ) {
     return false;
   }
-  const base = extracted.selector.trim();
-  return (
-    base.length > 0 &&
-    !/[\s>+~,]/.test(base) &&
-    /^(?:\*|[A-Za-z][A-Za-z0-9:-]*)?(?:[.#][A-Za-z_][A-Za-z0-9_-]*)*$/.test(
-      base,
-    )
-  );
+  let base = extracted.selector.trim();
+  const nthOfType = base.match(/:nth-of-type\(\d+\)$/);
+  if (nthOfType?.index !== undefined) {
+    base = base.slice(0, nthOfType.index);
+  }
+  if (!base) return true;
+
+  if (base.startsWith("*")) {
+    base = base.slice(1);
+  } else {
+    const tag = base.match(/^[A-Za-z][A-Za-z0-9-]*/);
+    if (tag?.[0]) base = base.slice(tag[0].length);
+  }
+
+  while (base) {
+    const identifier = base.match(/^[.#][A-Za-z_][A-Za-z0-9_-]*/);
+    if (identifier?.[0]) {
+      base = base.slice(identifier[0].length);
+      continue;
+    }
+
+    const attribute = base.match(
+      /^\[([A-Za-z_][A-Za-z0-9_:.-]*)=(?:"(?:\\"|[^"])*"|'(?:\\'|[^'])*')\]/,
+    );
+    if (attribute?.[0]) {
+      base = base.slice(attribute[0].length);
+      continue;
+    }
+
+    return false;
+  }
+  return true;
 }
 
 function simpleSelectorMatchesElement(
@@ -10082,8 +10106,42 @@ function stylesheetMaySetAlignItems(
     if (!tag || raw.startsWith("</")) continue;
 
     const inTemplate =
-      tag === "style" && isOffsetInsideTemplateInterior(html, match.index);
-    if (tag === "link") continue;
+      (tag === "style" || tag === "link") &&
+      isOffsetInsideTemplateInterior(html, match.index);
+    if (tag === "link") {
+      if (inTemplate) continue;
+      const attributes = parseAttributes(raw, match.index);
+      const rel = attributes.find((attribute) => attribute.lowerName === "rel");
+      const href = attributes.find(
+        (attribute) => attribute.lowerName === "href",
+      );
+      const media = attributes.find(
+        (attribute) => attribute.lowerName === "media",
+      );
+      const relValue =
+        rel && typeof rel.value === "string"
+          ? decodeBasicHtmlEntities(rel.value).toLowerCase()
+          : "";
+      const mediaValue = media
+        ? typeof media.value === "string"
+          ? decodeBasicHtmlEntities(media.value)
+          : ""
+        : null;
+      const hrefValue =
+        typeof href?.value === "string"
+          ? decodeBasicHtmlEntities(href.value).trim()
+          : "";
+      if (
+        relValue.split(/\s+/).includes("stylesheet") &&
+        hrefValue !== "" &&
+        !isGoogleFontsStylesheet(hrefValue) &&
+        !attributes.some((attribute) => attribute.lowerName === "disabled") &&
+        (mediaValue === null || mediaQueryListMayMatchScreen(mediaValue))
+      ) {
+        return true;
+      }
+      continue;
+    }
 
     if (tag === "style") {
       const close = findClosingTag(html, "style", match.index + raw.length);
@@ -10137,6 +10195,18 @@ function stylesheetMaySetAlignItems(
     }
   }
   return false;
+}
+
+function isGoogleFontsStylesheet(href: string): boolean {
+  try {
+    const url = new URL(href, "https://design.invalid");
+    return (
+      url.hostname.toLowerCase() === "fonts.googleapis.com" &&
+      (url.pathname === "/css" || url.pathname === "/css2")
+    );
+  } catch {
+    return false;
+  }
 }
 
 function stylesheetRuleMayApplyOnScreen(rule: Rule): boolean {
@@ -10241,6 +10311,9 @@ function stylesheetSelectorMayMatchElement(
   if (quote || bracketDepth !== 0 || parenDepth !== 0) return true;
   if (current.trim()) pushPart();
   if (relation !== null || parts.length === 0) return true;
+  if (parts.some((part) => !isSupportedStaticSelector(part.selector))) {
+    return true;
+  }
 
   const matchesAt = (element: ParsedElement, index: number): boolean => {
     const part = parts[index];

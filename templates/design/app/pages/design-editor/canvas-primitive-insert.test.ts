@@ -105,8 +105,8 @@ describe("appendCanvasPrimitiveToHtml on a URL-backed live screen", () => {
     expect(textAt("background:#0b0f19")).toContain("color: #ffffff");
   });
 
-  it("leaves drawn text inheriting currentColor on a light screen", () => {
-    expect(textAt("background:#ffffff")).toContain("color: currentcolor");
+  it("chooses the higher-contrast text color instead of a luminance cutoff", () => {
+    expect(textAt("background:#777777")).toContain("color: #000000");
   });
 
   it("makes click-created text intrinsic instead of shrinking to the screen remainder", () => {
@@ -497,6 +497,37 @@ describe("text takes its colour from what it lands on", () => {
       "i",
     ).exec(html)?.[1] ?? "";
 
+  const textColorOnBoard = (
+    paints: string[],
+    boardBackground: string,
+  ): string => {
+    const content = `<!doctype html><html><body>${paints
+      .map(
+        (background, index) =>
+          `<div data-surface="${index}" style="background:${background}"></div>`,
+      )
+      .join("")}</body></html>`;
+    const liveDocument = new DOMParser().parseFromString(content, "text/html");
+    const surfaces = Array.from(
+      liveDocument.querySelectorAll<HTMLElement>("[data-surface]"),
+    );
+    Object.defineProperty(liveDocument, "elementsFromPoint", {
+      value: () => surfaces,
+    });
+
+    const html = appendCanvasPrimitiveToHtml(
+      content,
+      {
+        kind: "text",
+        nodeId: "t",
+        geometry: { x: 10, y: 10, width: 120, height: 24 },
+        text: "on the board",
+      },
+      { isBoardTarget: true, boardBackground, liveDocument },
+    );
+    return styleOf(html ?? "", "t");
+  };
+
   it("is not white when dropped into a white frame on the board", () => {
     const withFrame =
       appendCanvasPrimitiveToHtml(
@@ -555,7 +586,22 @@ describe("text takes its colour from what it lands on", () => {
     expect(styleOf(html, "t")).toMatch(/color:\s*#ffffff/i);
   });
 
-  it("inherits instead of going white on a light canvas", () => {
+  it("composites a translucent surface over the surface below it", () => {
+    expect(textColorOnBoard(["rgba(255, 255, 255, 0.4)"], "#111111")).toMatch(
+      /color:\s*#ffffff/i,
+    );
+  });
+
+  it("composites multiple translucent surfaces before choosing text color", () => {
+    expect(
+      textColorOnBoard(
+        ["rgba(255, 255, 255, 0.3)", "rgba(255, 255, 255, 0.3)"],
+        "#111111",
+      ),
+    ).toMatch(/color:\s*#000000/i);
+  });
+
+  it("uses the higher-contrast text color on a light canvas", () => {
     const html =
       appendCanvasPrimitiveToHtml(
         blankScreenHtml("S"),
@@ -567,8 +613,7 @@ describe("text takes its colour from what it lands on", () => {
         },
         { isBoardTarget: true, boardBackground: "rgb(235, 235, 235)" },
       ) ?? "";
-    expect(styleOf(html, "t")).not.toMatch(/color:\s*#fff/i);
-    expect(styleOf(html, "t")).toMatch(/color:\s*currentColor/i);
+    expect(styleOf(html, "t")).toMatch(/color:\s*#000000/i);
   });
 
   it("uses class fills and rendered stacking order for overlapping surfaces", () => {

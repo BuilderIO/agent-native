@@ -199,6 +199,64 @@ describe("container-first click selection", () => {
     }
   });
 
+  it.each(["Meta", "Control"] as const)(
+    "does not count a %s click as the first half of a plain double-click",
+    async (modifier) => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const page = await browser.newPage();
+        await page.setContent(DEEP_SELECTION_FIXTURE);
+        await page.addScriptTag({
+          content: hydratedEditorChromeBridgeScript(),
+        });
+        await page.evaluate(() => {
+          (window as any).__selectionIds = [];
+          window.addEventListener("message", (event: MessageEvent) => {
+            if (event.data?.type === "element-select") {
+              (window as any).__selectionIds.push(
+                event.data.payload?.sourceId ?? "",
+              );
+            }
+          });
+        });
+
+        await page.evaluate(() => {
+          const selector = '[data-agent-native-node-id="grandchild"]';
+          window.postMessage(
+            {
+              type: "select-element",
+              selector,
+              selectorCandidates: [selector],
+            },
+            "*",
+          );
+        });
+        await page.waitForFunction(() =>
+          (window as any).__selectionIds.includes("grandchild"),
+        );
+
+        await page.keyboard.down(modifier);
+        await page.mouse.click(100, 100);
+        await page.keyboard.up(modifier);
+        await page.mouse.click(100, 100);
+        await page.waitForFunction(
+          () => (window as any).__selectionIds.length >= 3,
+        );
+
+        const selectedIds = await page.evaluate(
+          () => (window as any).__selectionIds as string[],
+        );
+        expect(selectedIds).toEqual([
+          "grandchild",
+          "middle-frame",
+          "middle-frame",
+        ]);
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
   it("keeps a host-selected nested leaf's sibling directly reachable", async () => {
     const browser = await chromium.launch({ headless: true });
     try {

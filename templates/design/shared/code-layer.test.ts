@@ -3643,7 +3643,7 @@ describe("autoLayout", () => {
     expect(patch.content).toContain("align-items: flex-start");
   });
 
-  it("does not infer alignment from a linked stylesheet it cannot inspect", () => {
+  it("preserves alignment when a linked stylesheet cannot be inspected", () => {
     const patch = applyVisualEdit(
       `<link rel="stylesheet" href="/styles.css"><div data-agent-native-node-id="box" class="stack"><span>A</span></div>`,
       {
@@ -3654,8 +3654,43 @@ describe("autoLayout", () => {
     );
 
     expect(patch.result.status).toBe("applied");
+    expect(patch.content).not.toContain("align-items: flex-start");
+  });
+
+  it("defaults to start alignment when the only linked stylesheet loads fonts", () => {
+    const patch = applyVisualEdit(
+      `<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&amp;display=swap"><div data-agent-native-node-id="box"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+      },
+    );
+
+    expect(patch.result.status).toBe("applied");
     expect(patch.content).toContain("align-items: flex-start");
   });
+
+  it.each([
+    ["a root pseudo-class", ":root .stack"],
+    ["a functional pseudo-class", ":is(.other, .stack)"],
+    ["an unsupported attribute operator", '[class~="stack"]'],
+  ])(
+    "preserves alignment when a stylesheet selector uses unsupported %s syntax",
+    (_description, selector) => {
+      const patch = applyVisualEdit(
+        `<style>${selector} { align-items: center; }</style><div data-agent-native-node-id="box" class="stack"><span>A</span></div>`,
+        {
+          kind: "autoLayout",
+          targetId: "box",
+          enabled: true,
+        },
+      );
+
+      expect(patch.result.status).toBe("applied");
+      expect(patch.content).not.toContain("align-items: flex-start");
+    },
+  );
 
   it("keeps direct Frame children as containing blocks when enabling auto-layout", () => {
     const html =

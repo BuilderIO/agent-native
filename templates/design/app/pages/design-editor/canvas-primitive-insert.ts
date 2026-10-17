@@ -1,4 +1,5 @@
 import { isBoardFile } from "@shared/board-file";
+import { parseCssColorExtended } from "@shared/color-utils";
 import { normalizedDesignFileType } from "@shared/design-files";
 import {
   isClosedPathData,
@@ -14,6 +15,7 @@ import {
   VECTOR_END_ENDPOINT_PROPERTY,
   VECTOR_START_ENDPOINT_PROPERTY,
 } from "@shared/vector-endpoints";
+import { compositeOver, contrastRatio, type Rgb } from "@shared/wcag-contrast";
 
 import {
   canvasPrimitiveVisual,
@@ -342,29 +344,45 @@ function paintedSurfaceAtPoint(
   y: number,
   liveDocument?: Document | null,
   includeDocumentBackground = false,
-): boolean | null {
+  fallbackBackground: string | null = null,
+): Rgb | null {
+  const compositePaintStack = (
+    colorsFromFrontToBack: ReadonlyArray<string | null>,
+  ): Rgb | null => {
+    const fallback = fallbackBackground
+      ? parseCssColorExtended(fallbackBackground)
+      : null;
+    let background = fallback?.a === 1 ? fallback : null;
+    for (let index = colorsFromFrontToBack.length - 1; index >= 0; index -= 1) {
+      const paint = colorsFromFrontToBack[index];
+      const foreground = paint ? parseCssColorExtended(paint) : null;
+      if (!foreground || foreground.a <= 0) continue;
+      if (foreground.a >= 1) {
+        background = foreground;
+      } else if (background) {
+        background = compositeOver(foreground, background);
+      }
+    }
+    return background;
+  };
   const liveView = liveDocument?.defaultView;
   if (
     liveDocument &&
     liveView &&
     typeof liveDocument.elementsFromPoint === "function"
   ) {
-    for (const hit of liveDocument.elementsFromPoint(
-      x - liveView.scrollX,
-      y - liveView.scrollY,
-    )) {
-      if (
-        !includeDocumentBackground &&
-        (hit === liveDocument.body || hit === liveDocument.documentElement)
-      ) {
-        continue;
-      }
-      const isLight = resolveDestinationBackgroundLightnessOrNull([
-        { color: liveView.getComputedStyle(hit).backgroundColor },
-      ]);
-      if (isLight !== null) return isLight;
-    }
-    return null;
+    const colors = liveDocument
+      .elementsFromPoint(x - liveView.scrollX, y - liveView.scrollY)
+      .flatMap((hit) => {
+        if (
+          !includeDocumentBackground &&
+          (hit === liveDocument.body || hit === liveDocument.documentElement)
+        ) {
+          return [];
+        }
+        return [liveView.getComputedStyle(hit).backgroundColor];
+      });
+    return compositePaintStack(colors);
   }
 
   const candidates = Array.from(root.querySelectorAll<HTMLElement>("*"))
@@ -386,16 +404,29 @@ function paintedSurfaceAtPoint(
           x <= candidate.rect.x + candidate.rect.w &&
           y <= candidate.rect.y + candidate.rect.h &&
           candidate.color !== null &&
-          resolveDestinationBackgroundLightnessOrNull([
-            { color: candidate.color },
-          ]) !== null
+          parseCssColorExtended(candidate.color) !== null
         );
       },
     );
-  const color = candidates[candidates.length - 1]?.color;
-  return color
-    ? resolveDestinationBackgroundLightnessOrNull([{ color }])
-    : null;
+  const colors = candidates.reverse().map((candidate) => candidate.color);
+  if (includeDocumentBackground) {
+    for (
+      let element: Element | null = root;
+      element;
+      element = element.parentElement
+    ) {
+      const style = (element as HTMLElement).style;
+      colors.push(style.backgroundColor || style.background || null);
+    }
+  }
+  return compositePaintStack(colors);
+}
+
+function textColorWithBestContrast(background: Rgb): string {
+  const whiteContrast = contrastRatio({ r: 255, g: 255, b: 255 }, background);
+  const blackContrast = contrastRatio({ r: 0, g: 0, b: 0 }, background);
+  const whiteHasMoreContrast = whiteContrast > blackContrast;
+  return defaultCanvasTextColor(whiteHasMoreContrast, !whiteHasMoreContrast);
 }
 
 export function canvasPrimitiveInsertionHostNodeId(
@@ -706,26 +737,25 @@ export function appendCanvasPrimitiveToHtml(
           ? null
           : destinationBackgroundLightness(hostOrBody);
       const surfaceIsLight = measuredIsLight ?? boardSurfaceIsLight;
-      const paintedSurfaceIsLight = paintedSurfaceAtPoint(
+      const paintedSurfaceColor = paintedSurfaceAtPoint(
         doc.body,
         left,
         top,
         options?.liveDocument,
         options?.isBoardTarget !== true,
+        options?.isBoardTarget === true
+          ? (options.boardBackground ?? null)
+          : defaultCanvasFrameFill(),
       );
-      const resolvedSurfaceIsLight = paintedSurfaceIsLight ?? surfaceIsLight;
       const autoTextNeedsLightFill =
-        resolvedSurfaceIsLight === null
+        surfaceIsLight === null
           ? options?.isBoardTarget === true
-          : !resolvedSurfaceIsLight;
-      const needsDarkFillForLightSurface =
-        paintedSurfaceIsLight === true && surfaceIsLight !== true;
+          : !surfaceIsLight;
       const resolvedTextColor =
         primitive.fill ??
-        defaultCanvasTextColor(
-          autoTextNeedsLightFill,
-          needsDarkFillForLightSurface,
-        );
+        (paintedSurfaceColor
+          ? textColorWithBestContrast(paintedSurfaceColor)
+          : defaultCanvasTextColor(autoTextNeedsLightFill));
       element.style.color = resolvedTextColor;
       if (primitive.fill === undefined) {
         element.setAttribute(BOARD_TEXT_AUTO_COLOR_MARKER, "");
