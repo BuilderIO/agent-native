@@ -1686,26 +1686,29 @@ describe("runEvalSuite runner creation", () => {
     ).rejects.toThrow("does not invoke the shared production agent loop");
   });
 
-  it("rejects an injected runner after validating the production adapter", async () => {
-    const e = defineEval({
-      name: "must-use-production-chat",
-      input: { prompt: "x" },
-      scorers: [contains("x")],
-    });
+  it.each([true, false])(
+    "rejects an injected runner with a production context (strict mode: %s)",
+    async (requireProductionChatPath) => {
+      const e = defineEval({
+        name: "must-use-production-chat",
+        input: { prompt: "x" },
+        scorers: [contains("x")],
+      });
 
-    await expect(
-      runEvalSuite({
-        evals: [e],
-        runner: fakeRunner({ text: "x" }),
-        productionContext: {
-          ...testProductionContext(),
-          productionChatPath: testProductionChatPath(),
-        },
-        requireProductionChatPath: true,
-        persist: false,
-      }),
-    ).rejects.toThrow("injected runner");
-  });
+      await expect(
+        runEvalSuite({
+          evals: [e],
+          runner: fakeRunner({ text: "x" }),
+          productionContext: {
+            ...testProductionContext(),
+            productionChatPath: testProductionChatPath(),
+          },
+          requireProductionChatPath,
+          persist: false,
+        }),
+      ).rejects.toThrow("injected runner");
+    },
+  );
 
   it("checks for a production adapter before accepting an empty suite", async () => {
     await expect(

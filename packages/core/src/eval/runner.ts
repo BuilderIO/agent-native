@@ -311,16 +311,20 @@ export async function runEvalSuite(
   }
 
   let runner = opts.runner;
+  if (productionContext && runner) {
+    if (opts.requireProductionChatPath) {
+      requireProductionChatPath(productionContext);
+    }
+    throw new Error(
+      "Production-path evals cannot use an injected runner because its chat-path parity cannot be verified.",
+    );
+  }
+
   if (opts.requireProductionChatPath) {
     if (!productionContext) {
       throw new Error("Production-path evals require a production context.");
     }
     requireProductionChatPath(productionContext);
-    if (runner) {
-      throw new Error(
-        "Production-path evals cannot use an injected runner because its chat-path parity cannot be verified.",
-      );
-    }
     if (evals.length === 0) {
       throw new Error("Production-path evals require at least one eval case.");
     }
