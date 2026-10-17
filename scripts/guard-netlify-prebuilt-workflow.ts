@@ -916,10 +916,11 @@ const docsProductionDocument = parsedWorkflows.get(docsProductionPath);
 const docsProductionConcurrency = asRecord(docsProductionDocument?.concurrency);
 if (
   docsProductionConcurrency?.group !== "agent-native-docs-production" ||
-  docsProductionConcurrency["cancel-in-progress"] !== false
+  docsProductionConcurrency["cancel-in-progress"] !== false ||
+  docsProductionConcurrency.queue !== "max"
 ) {
   issues.push(
-    `${docsProductionPath} must keep its path-filtered production queue independent`,
+    `${docsProductionPath} must preserve every pending path-filtered production run in its queue`,
   );
 }
 const docsProductionJobs = asRecord(docsProductionDocument?.jobs);

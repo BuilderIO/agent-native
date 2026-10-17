@@ -175,6 +175,11 @@ describe("release everything workflow", () => {
       contents: "read",
       "pull-requests": "read",
     });
+    assert.deepEqual(docsWorkflow.concurrency, {
+      group: "agent-native-docs-production",
+      "cancel-in-progress": false,
+      queue: "max",
+    });
     assert.match(
       String(verifyStableRelease.if),
       /github\.event_name == 'push'.*contains\(github\.event\.head_commit\.message, '\[stable-release\]'\)/,

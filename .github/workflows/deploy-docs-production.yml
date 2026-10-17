@@ -35,6 +35,7 @@ permissions:
 concurrency:
   group: agent-native-docs-production
   cancel-in-progress: false
+  queue: max
 
 jobs:
   verify-stable-release:
