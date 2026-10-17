@@ -210,6 +210,26 @@ async function mergeStoredAwareness(
   }
 }
 
+/**
+ * A presence state marked as one that cannot flush the doc, which clients
+ * read as neither holding a stored revision nor able to lead; null when the
+ * state is not a JSON object.
+ */
+function cannotFlushState(state: unknown): string | null {
+  if (typeof state !== "string") return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(state);
+    // coercion-ok: null is the unreadable case, which postAwareness refuses with 400.
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return null;
+  }
+  return JSON.stringify({ ...parsed, canFlushDocument: false });
+}
+
 export const postAwareness = defineEventHandler(async (event: H3Event) => {
   const docId = getRouterParam(event, "docId");
   if (!docId) {
@@ -217,9 +237,13 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
     return { error: "docId required" };
   }
   const session = await getSession(event).catch(() => null);
-  const contextScope = (
-    event.context as { _collabAwarenessScope?: AwarenessScope } | undefined
-  )?._collabAwarenessScope;
+  const context = event.context as
+    | {
+        _collabAwarenessScope?: AwarenessScope;
+        _collabAwarenessReadOnly?: boolean;
+      }
+    | undefined;
+  const contextScope = context?._collabAwarenessScope;
 
   const body = await readBody(event);
   const { clientId, state } = body as {
@@ -232,18 +256,28 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
     return { error: "clientId and state required" };
   }
 
+  let storedState = state;
+  if (state !== null && context?._collabAwarenessReadOnly) {
+    const marked = cannotFlushState(state);
+    if (marked === null) {
+      setResponseStatus(event, 400);
+      return { error: "state must be a JSON object" };
+    }
+    storedState = marked;
+  }
+
   const map = getDocAwareness(docId);
 
-  if (state === null) {
+  if (storedState === null) {
     const clearedAt = Date.now();
     map.delete(clientId);
     rememberAwarenessClear(docId, clientId, clearedAt);
     void deleteAwarenessRow(docId, clientId, clearedAt);
   } else {
     forgetAwarenessClear(docId, clientId);
-    const entry = { clientId, state, lastSeen: Date.now() };
+    const entry = { clientId, state: storedState, lastSeen: Date.now() };
     map.set(clientId, entry);
-    void upsertAwarenessRow(docId, clientId, state, entry.lastSeen);
+    void upsertAwarenessRow(docId, clientId, storedState, entry.lastSeen);
   }
 
   await mergeStoredAwareness(docId, map);

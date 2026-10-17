@@ -947,6 +947,26 @@ export function useCollabReconcile({
           editor.setEditable(editable, !quietSeedEditability);
         return;
       }
+      // Another client's seed can win with a different body. A doc that joins
+      // on evidence leaves that body unapplied, as it leaves any live doc it
+      // opens onto, so its join decides between it and the stored body.
+      const takeSeededDoc = () => {
+        const serialized = getMarkdown(editor);
+        lastEmittedRef.current = serialized;
+        pushEmittedRing(recentEmittedRef.current, serialized);
+        const seededValueHeld =
+          serialized === reconcileCallbacksRef.current.normalizeValue(value);
+        unheldSeedValueRef.current = seededValueHeld ? null : value;
+        if (seededValueHeld || !seedJoinInputsRef.current.joinsOnPeerEvidence) {
+          lastAppliedValueRef.current = value;
+          lastAppliedSerializedRef.current = serialized;
+          if (contentUpdatedAt)
+            lastAppliedUpdatedAtRef.current = contentUpdatedAt;
+        }
+        if (contentRevision && seededValueHeld)
+          publishHeldRevision(contentRevision);
+        markSeeded();
+      };
       if (requestInitialSeed) {
         editor.setEditable(false, !quietSeedEditability);
         const initialNodes = fragment.toArray().map((node) => ({
@@ -963,21 +983,7 @@ export function useCollabReconcile({
               } finally {
                 isSettingContentRef.current = false;
               }
-              const serialized = getMarkdown(editor);
-              lastEmittedRef.current = serialized;
-              pushEmittedRing(recentEmittedRef.current, serialized);
-              lastAppliedValueRef.current = value;
-              lastAppliedSerializedRef.current = serialized;
-              // Another client's seed can win with a different body.
-              const seededValueHeld =
-                serialized ===
-                reconcileCallbacksRef.current.normalizeValue(value);
-              unheldSeedValueRef.current = seededValueHeld ? null : value;
-              if (contentRevision && seededValueHeld)
-                publishHeldRevision(contentRevision);
-              if (contentUpdatedAt)
-                lastAppliedUpdatedAtRef.current = contentUpdatedAt;
-              markSeeded();
+              takeSeededDoc();
               setInitialSeedFailed(false);
               editor.setEditable(editable, !quietSeedEditability);
             })
@@ -1011,18 +1017,7 @@ export function useCollabReconcile({
       } finally {
         isSettingContentRef.current = false;
       }
-      const serialized = getMarkdown(editor);
-      lastEmittedRef.current = serialized;
-      pushEmittedRing(recentEmittedRef.current, serialized);
-      lastAppliedValueRef.current = value;
-      lastAppliedSerializedRef.current = serialized;
-      const seededValueHeld =
-        serialized === reconcileCallbacksRef.current.normalizeValue(value);
-      unheldSeedValueRef.current = seededValueHeld ? null : value;
-      if (contentRevision && seededValueHeld)
-        publishHeldRevision(contentRevision);
-      if (contentUpdatedAt) lastAppliedUpdatedAtRef.current = contentUpdatedAt;
-      markSeeded();
+      takeSeededDoc();
     }, 0);
     return () => {
       cancelled = true;

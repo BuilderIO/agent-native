@@ -1092,6 +1092,59 @@ describe("useCollaborativeDoc connection registry", () => {
     },
   );
 
+  it("keeps a collaborator discovery learned when an older poll's presence answer arrives after it", async () => {
+    const { mock: fallback } = makeFetchMock();
+    const peer = { user: { name: "Peer" }, reconciledRevision: "body:1:abc" };
+    const answers: Array<
+      (states: Array<{ clientId: number; state: string }>) => void
+    > = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).includes("/awareness") && init?.method === "POST") {
+          return new Promise<Response>((resolve) => {
+            answers.push((states) => resolve(Response.json({ states })));
+          });
+        }
+        return fallback(input);
+      }),
+    );
+    let result: UseCollaborativeDocResult | undefined;
+    mount(
+      <Probe
+        docId="doc-discover-ordered"
+        onResult={(next) => (result = next)}
+        user={{ name: "Local", email: "local@example.com", color: "c" }}
+      />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2500);
+    });
+    // The poll's presence request waits; discovery's goes out after it.
+    expect(answers).toHaveLength(1);
+    let discovery: Awaited<ReturnType<typeof result.discoverPeers>> | null =
+      null;
+    const discovering = result!.discoverPeers().then((next) => {
+      discovery = next;
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(answers).toHaveLength(2);
+
+    await act(async () => {
+      answers[1]!([{ clientId: 77, state: JSON.stringify(peer) }]);
+      await discovering;
+    });
+    expect(discovery).toEqual({ status: "ready" });
+    await act(async () => {
+      answers[0]!([]);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(result!.awareness!.getStates().get(77)).toEqual(peer);
+  });
+
   it("reports discovery unavailable without a document", async () => {
     let result: UseCollaborativeDocResult | undefined;
     mount(<Probe docId={null} onResult={(next) => (result = next)} />);

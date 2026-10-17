@@ -288,6 +288,10 @@ class CollabDocConnection {
   private updateAbortController: AbortController | null = null;
   private updateHandlerAttached = false;
 
+  /** Presence exchanges sent, and the latest whose answer was applied. */
+  private awarenessExchangesSent = 0;
+  private awarenessExchangeApplied = 0;
+
   private syncActive = false;
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
   private consecutiveErrors = 0;
@@ -764,6 +768,7 @@ class CollabDocConnection {
   }: { signal?: AbortSignal; strict?: boolean } = {}): Promise<boolean> {
     const localState = this.awareness.getLocalState();
     if (!localState || this.disposed) return false;
+    const exchange = ++this.awarenessExchangesSent;
     const response = await fetch(`${this.baseUrl}/${this.docId}/awareness`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -804,6 +809,11 @@ class CollabDocConnection {
       }
       remoteStates.push({ clientId, state });
     }
+    // The poll and discoverPeers exchange separately, and an answer replaces
+    // the collaborators this client knows, so an answer older than one already
+    // applied would remove collaborators the newer one reported.
+    if (exchange < this.awarenessExchangeApplied) return true;
+    this.awarenessExchangeApplied = exchange;
     const changes = reconcileRemoteAwarenessStates(
       this.awareness.getStates() as Map<number, unknown>,
       this.ydoc.clientID,

@@ -159,6 +159,43 @@ describe("postAwareness handler", () => {
     expect(res.states).toEqual([{ clientId: 99, state: "other-state" }]);
   });
 
+  it("stores a reader's state as one that cannot flush the doc", async () => {
+    const map = getDocAwareness("post-doc");
+    const claim = {
+      user: { name: "Reader" },
+      canFlushDocument: true,
+      reconciledRevision: "body:9:z",
+    };
+    mockReadBody.mockResolvedValue({
+      clientId: 5,
+      state: JSON.stringify(claim),
+    });
+    const ev = {
+      ...event({ docId: "post-doc" }),
+      context: { _collabAwarenessReadOnly: true },
+    };
+    await postAwareness(ev);
+
+    expect(JSON.parse(map.get(5)!.state)).toEqual({
+      ...claim,
+      canFlushDocument: false,
+    });
+  });
+
+  it("refuses a reader's state that is not a JSON object", async () => {
+    const map = getDocAwareness("post-doc");
+    mockReadBody.mockResolvedValue({ clientId: 5, state: "{broken" });
+    const ev = {
+      ...event({ docId: "post-doc" }),
+      context: { _collabAwarenessReadOnly: true },
+    };
+    const res = await postAwareness(ev);
+
+    expect(ev._status).toBe(400);
+    expect(res).toEqual({ error: "state must be a JSON object" });
+    expect(map.has(5)).toBe(false);
+  });
+
   it("clears the sender's state when state is null", async () => {
     const map = getDocAwareness("post-doc");
     map.set(5, { clientId: 5, state: "old-state", lastSeen: Date.now() });

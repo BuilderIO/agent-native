@@ -1706,17 +1706,26 @@ describe("useCollabReconcile: what finishes a join", () => {
 });
 
 describe("useCollabReconcile: seeding an empty live doc", () => {
-  function mountOpener(seededBody: string) {
+  function mountOpener(
+    seededBody: string,
+    discovered: Promise<{ status: DiscoveryStatus }> = new Promise(() => {}),
+  ) {
     const ydoc = new Y.Doc();
     const awareness = new Awareness(ydoc);
     awareness.setLocalState(peer("Opener"));
-    const discover = vi.fn(() => new Promise<never>(() => {}));
+    const discover = vi.fn(() => discovered);
+    const saves = vi.fn();
     let editor: Editor | null = null;
+    let result: ReturnType<typeof useCollabReconcile> | null = null;
     function Opener() {
       editor = useEditor({
         extensions: createRichMarkdownExtensions({ dialect: "gfm", ydoc }),
+        onUpdate: ({ editor: updated, transaction }) => {
+          if (!result || result.shouldIgnoreUpdate(transaction)) return;
+          saves(getEditorMarkdown(updated));
+        },
       });
-      useCollabReconcile({
+      result = useCollabReconcile({
         editor,
         ydoc,
         awareness,
@@ -1739,6 +1748,9 @@ describe("useCollabReconcile: seeding an empty live doc", () => {
     return {
       awareness,
       discover,
+      saves,
+      editor: () => editor!,
+      result: () => result!,
       markdown: () => getEditorMarkdown(editor!),
       dispose: () => {
         act(() => root.unmount());
@@ -1762,13 +1774,31 @@ describe("useCollabReconcile: seeding an empty live doc", () => {
     }
   });
 
-  it("reports no revision when another client's seed won with a different body", async () => {
+  it("joins, reporting no revision, when another client's seed won with a different body", async () => {
     vi.useFakeTimers();
     const opener = mountOpener(ORIGINAL);
     try {
       await act(async () => vi.advanceTimersByTimeAsync(1_000));
       expect(opener.markdown()).toBe(ORIGINAL);
       expect(heldRevision(opener.awareness)).toBeUndefined();
+      expect(opener.discover).toHaveBeenCalled();
+      expect(opener.result().isJoinPending()).toBe(true);
+      expect(opener.editor().isEditable).toBe(false);
+      expect(opener.saves).not.toHaveBeenCalled();
+    } finally {
+      opener.dispose();
+    }
+  });
+
+  it("applies its own body over another client's seed that no collaborator holds", async () => {
+    vi.useFakeTimers();
+    const opener = mountOpener(ORIGINAL, Promise.resolve({ status: "ready" }));
+    try {
+      await act(async () => vi.advanceTimersByTimeAsync(6_000));
+      expect(opener.markdown()).toBe(AGENT_EDIT.value);
+      expect(opener.result().isJoinPending()).toBe(false);
+      expect(opener.editor().isEditable).toBe(true);
+      expect(heldRevision(opener.awareness)).toBe(AGENT_EDIT.revision);
     } finally {
       opener.dispose();
     }
