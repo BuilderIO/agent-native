@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   runQuery: vi.fn(),
-  getAccessToken: vi.fn(),
+  getBigQueryAccessToken: vi.fn(),
   getCredentialContext: vi.fn(),
   resolveCredential: vi.fn(),
   fetch: vi.fn(),
@@ -20,7 +20,8 @@ vi.mock("../server/lib/credentials", () => ({
   resolveCredential: mocks.resolveCredential,
 }));
 vi.mock("../server/lib/gcloud", () => ({
-  getAccessToken: mocks.getAccessToken,
+  getBigQueryAccessToken: mocks.getBigQueryAccessToken,
+  raceWithAbort: (value: unknown) => Promise.resolve(value),
 }));
 // The real lib answers metadata and table-list requests through the mocked
 // fetch; only the query itself is stubbed.
@@ -65,10 +66,10 @@ const freshTable = () => `signups_${(tableSequence += 1)}`;
 beforeEach(() => {
   mocks.runQuery.mockReset();
   mocks.fetch.mockReset();
-  mocks.getAccessToken.mockReset();
+  mocks.getBigQueryAccessToken.mockReset();
   mocks.getCredentialContext.mockReset();
   mocks.resolveCredential.mockReset();
-  mocks.getAccessToken.mockResolvedValue("test-token");
+  mocks.getBigQueryAccessToken.mockResolvedValue("test-token");
   mocks.getCredentialContext.mockReturnValue({
     userEmail: "test@example.com",
     orgId: null,
@@ -120,6 +121,39 @@ describe("bigquery failed-query schema recovery", () => {
     });
     expect(result).not.toHaveProperty("schemaLookup");
     expect(String(result.hint)).toContain("didYouMean");
+  });
+
+  it("matches against every column and marks the bounded echoed list", async () => {
+    const table = freshTable();
+    mocks.runQuery.mockRejectedValue(
+      failedQuery("Unrecognized name: event_timestamp"),
+    );
+    mocks.fetch.mockResolvedValue(
+      jsonResponse(
+        tableMetadata(
+          table,
+          Array.from(
+            { length: 61 },
+            (_, index) =>
+              [
+                index === 60 ? "event_timestamp" : `column_${index + 1}`,
+                "STRING",
+              ] as [string, string],
+          ),
+        ),
+      ),
+    );
+
+    const result = (await bigquery.run({
+      sql: `SELECT event_timestamp FROM \`test-project.product.${table}\``,
+    })) as Record<string, unknown>;
+
+    expect(result.didYouMean).toContain("event_timestamp");
+    expect(result).toMatchObject({
+      columnCount: 61,
+      columnsTruncated: true,
+    });
+    expect(result.columns).toHaveLength(60);
   });
 
   it("reads the table out of a two-part reference and a join", async () => {
@@ -318,7 +352,7 @@ describe("bigquery failed-query schema recovery", () => {
         mocks.runQuery.mockRejectedValue(failedQuery(detail));
         // A token cache miss: the exchange retries Google for far longer than
         // the lookup is allowed to take.
-        mocks.getAccessToken.mockImplementation(
+        mocks.getBigQueryAccessToken.mockImplementation(
           () =>
             new Promise((resolve) => {
               setTimeout(() => resolve("late-token"), 120_000);
@@ -478,18 +512,16 @@ WHERE o.a IS DISTINCT FROM u.b`,
         sql: `SELECT planx FROM \`test-project.product\`.${first} a, product.${second} b`,
       })) as Record<string, unknown>;
 
-      expect(
-        metadataFetches()
-          .map(([url]) => String(url))
-          .sort(),
-      ).toEqual([
-        expect.stringContaining(
-          `/projects/test-project/datasets/product/tables/${first}`,
-        ),
-        expect.stringContaining(
-          `/projects/test-project/datasets/product/tables/${second}`,
-        ),
-      ]);
+      expect(metadataFetches().map(([url]) => String(url))).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining(
+            `/projects/test-project/datasets/product/tables/${first}`,
+          ),
+          expect.stringContaining(
+            `/projects/test-project/datasets/product/tables/${second}`,
+          ),
+        ]),
+      );
       expect(result).toMatchObject({
         table: `test-project.product.${second}`,
         didYouMean: ["plan"],

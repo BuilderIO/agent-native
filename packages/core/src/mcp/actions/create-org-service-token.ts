@@ -31,10 +31,12 @@ import {
   type ServicePrincipalPolicy,
   type ServicePrincipalPolicyInput,
 } from "../../org/service-principal-policy.js";
-import { getAppProductionUrl } from "../../server/app-url.js";
 import { CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE } from "../../server/credential-membership-unavailable.js";
 import { getRequestContext } from "../../server/request-context.js";
-import { mintOrgServiceToken } from "../connect-route.js";
+import {
+  mintOrgServiceToken,
+  OrgServiceTokenAppUrlError,
+} from "../connect-route.js";
 import {
   MAX_SERVICE_TOKEN_TTL_DAYS,
   revokeOrgServiceToken,
@@ -127,16 +129,6 @@ export default defineAction({
       policyInput.allowedActions = normalizeAllowedActions(args.allowedActions);
     }
 
-    const appUrl = (
-      getRequestContext()?.requestOrigin || getAppProductionUrl()
-    ).replace(/\/+$/, "");
-    if (!appUrl && !process.env.A2A_SECRET?.trim()) {
-      throw new ServiceTokenError(
-        "Could not determine the app URL needed to mint a token. Set APP_URL on the deployment.",
-        500,
-      );
-    }
-
     let minted: Awaited<ReturnType<typeof mintOrgServiceToken>>;
     try {
       minted = await mintOrgServiceToken({
@@ -144,9 +136,12 @@ export default defineAction({
         orgId: caller.orgId,
         createdBy: caller.email,
         ttlDays: args.ttlDays,
-        appUrl,
+        appUrl: getRequestContext()?.requestOrigin?.replace(/\/+$/, ""),
       });
     } catch (error) {
+      if (error instanceof OrgServiceTokenAppUrlError) {
+        throw new ServiceTokenError(error.message, 500);
+      }
       if (!(error instanceof McpCredentialIssuanceError)) throw error;
       throw error.reason === "not-member"
         ? new ServiceTokenError(SERVICE_TOKEN_MANAGE_FORBIDDEN_MESSAGE, 403)

@@ -77,9 +77,13 @@ async function insertUsage(values: {
   );
 }
 
+const { __resetStoreLedgerSnapshotForTests } =
+  await import("../db/store-registry.js");
+
 beforeEach(async () => {
   __resetSchemaSnapshotForTests();
   pglite = await createTestPglite();
+  __resetStoreLedgerSnapshotForTests();
   await pglite.exec(`CREATE TABLE token_usage (
     id BIGINT PRIMARY KEY,
     owner_email TEXT NOT NULL,

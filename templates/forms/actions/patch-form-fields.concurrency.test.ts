@@ -19,6 +19,10 @@ vi.mock("@agent-native/core", () => ({
   defineAction: (options: unknown) => options,
 }));
 
+vi.mock("../server/lib/app-roles.js", () => ({
+  requireFormsPermission: () => undefined,
+}));
+
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: (...args: unknown[]) => mockAssertAccess(...args),
 }));

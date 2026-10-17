@@ -3,6 +3,7 @@ import type { AgentEvent } from "@agent-native/agentkit/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { BACKGROUND_FUNCTION_WALL_HEADROOM_MS } from "../../app-config/run-lifecycle-invariants.js";
+import { resetAgentEngineReadinessForTests } from "../agent-engine-readiness.js";
 import { createAgentNativeAgentKitTransport } from "./agentkit-agent-native.js";
 import { createAgentKitProtocolAdapter } from "./agentkit-protocol.js";
 import {
@@ -167,6 +168,9 @@ function createFakeServer(runs: readonly ServerRun[], chaos: Chaos) {
       const method = String(init?.method ?? "GET").toUpperCase();
       const t = clock();
       requests.push(`${method} ${url.pathname}${url.search}`);
+      if (url.pathname.endsWith("/_agent-native/agent-engine/status")) {
+        return Response.json({ configured: true, chatEligible: true });
+      }
       if (method === "POST" && url.pathname === API) {
         postedTurnIds.push(
           String((JSON.parse(String(init?.body)) as Wire).turnId),
@@ -351,6 +355,7 @@ async function startTurn(
   server: ReturnType<typeof createFakeServer>,
   adapter: { onRunOutcome?: (report: RunOutcomeReport) => void } = {},
 ) {
+  resetAgentEngineReadinessForTests();
   const transport = createAgentKitProtocolAdapter(
     createAgentNativeChatRuntime({ apiUrl: API, fetch: server.fetch }),
     adapter,
@@ -712,6 +717,9 @@ describe("a message sent while the server still owns the thread", () => {
       async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = new URL(String(input), "http://localhost");
         const method = String(init?.method ?? "GET").toUpperCase();
+        if (url.pathname.endsWith("/_agent-native/agent-engine/status")) {
+          return Response.json({ configured: true, chatEligible: true });
+        }
         if (method === "POST" && url.pathname === API) {
           const body = JSON.parse(String(init?.body)) as Wire;
           posts.push(String(body.message));
@@ -915,6 +923,9 @@ describe("following a run the browser cannot read", () => {
           atMs: Date.now() - startedAt,
         });
         signals.push({ path: url.pathname, signal: init?.signal });
+        if (url.pathname.endsWith("/_agent-native/agent-engine/status")) {
+          return Response.json({ configured: true, chatEligible: true });
+        }
         if (method === "POST" && url.pathname === API) {
           turnId = String((JSON.parse(String(init?.body)) as Wire).turnId);
           return new Response(
@@ -944,6 +955,7 @@ describe("following a run the browser cannot read", () => {
     });
 
   async function follow(server: ReturnType<typeof scriptedServer>) {
+    resetAgentEngineReadinessForTests();
     const transport = createAgentKitProtocolAdapter(
       createAgentNativeChatRuntime({ apiUrl: API, fetch: server.fetch }),
     );

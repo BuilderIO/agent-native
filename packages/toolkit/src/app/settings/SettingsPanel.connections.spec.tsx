@@ -54,6 +54,8 @@ describe("ConnectionsSettingsContent", () => {
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
     vi.useRealTimers();
+    delete (window as Window & { __AGENT_NATIVE_CONFIG__?: unknown })
+      .__AGENT_NATIVE_CONFIG__;
     document.body.innerHTML = "";
   });
 
@@ -364,7 +366,7 @@ describe("ConnectionsSettingsContent", () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     Object.defineProperty(window, "__AGENT_NATIVE_CONFIG__", {
       configurable: true,
-      value: { workspaceRuntime: true },
+      value: { workspaceRuntime: true, workspaceAppPath: "/" },
     });
     vi.stubGlobal(
       "fetch",
@@ -396,8 +398,6 @@ describe("ConnectionsSettingsContent", () => {
     expect(container.querySelector('a[href="/dispatch/apps"]')).not.toBe(null);
 
     act(() => root.unmount());
-    delete (window as Window & { __AGENT_NATIVE_CONFIG__?: unknown })
-      .__AGENT_NATIVE_CONFIG__;
   });
 
   it("stops waiting after the ChatGPT subscription popup is cancelled", async () => {

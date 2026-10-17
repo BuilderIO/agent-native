@@ -1,5 +1,6 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { agentNativePath } from "@agent-native/core/client/api-path";
+import { injectedAgentNativeAppId } from "@agent-native/core/client/app-config";
 import { getCallbackOrigin } from "@agent-native/core/client/frame";
 import { scheduleAfterPaint } from "@agent-native/core/client/hooks";
 import { usePollLoop } from "@agent-native/core/client/hooks";
@@ -248,6 +249,7 @@ export type BuilderConnectErrorKind = "status-read" | "connection" | "launch";
 export interface BuilderConnectFlow {
   configured: boolean;
   provisionAccount?: boolean;
+  statusCheckEnabled: boolean;
   statusResolved: boolean;
   statusReadSettledCount: number;
   envManaged: boolean;
@@ -297,6 +299,7 @@ const BUILDER_AGENT_NATIVE_FLOW_PARAM = "agentNativeFlow";
 const BUILDER_AGENT_NATIVE_CONNECT_SOURCE_PARAM = "agentNativeConnectSource";
 const BUILDER_AGENT_NATIVE_APP_PARAM = "agentNativeApp";
 const BUILDER_AGENT_NATIVE_TEMPLATE_PARAM = "agentNativeTemplate";
+declare const __AGENT_NATIVE_TEMPLATE__: string | undefined;
 const BUILDER_SIGNUP_SOURCE = "agent-native";
 const STATUS_CONNECT_URL_TTL_MS = 9 * 60 * 1000;
 
@@ -354,18 +357,16 @@ function inferBuilderConnectTrackingIdentity(options: {
   const app =
     normalizeTrackingSlug(options.app) ??
     normalizeTrackingSlug(env.VITE_AGENT_NATIVE_APP) ??
-    (typeof window !== "undefined"
-      ? normalizeTrackingSlug(window.location.hostname.split(".")[0])
-      : null);
+    normalizeTrackingSlug(injectedAgentNativeAppId());
   const template =
     normalizeTrackingSlug(options.template) ??
     normalizeTrackingSlug(env.VITE_AGENT_NATIVE_TEMPLATE) ??
     normalizeTrackingSlug(env.VITE_APP_TEMPLATE) ??
-    (app?.startsWith("agent-native-")
-      ? normalizeTrackingSlug(app.slice("agent-native-".length))
-      : app && app !== "localhost"
-        ? app
-        : null);
+    normalizeTrackingSlug(
+      typeof __AGENT_NATIVE_TEMPLATE__ === "string"
+        ? __AGENT_NATIVE_TEMPLATE__
+        : undefined,
+    );
 
   return { app, template };
 }
@@ -722,9 +723,15 @@ export async function requestBuilderAccountActivation({
   signal?: AbortSignal;
 }): Promise<BuilderAccountActivationResult> {
   const origin = getCallbackOrigin() || window.location.origin;
+  const { app, template } = inferBuilderConnectTrackingIdentity({});
   const url = withBuilderConnectTrackingParams(
     new URL(agentNativePath("/_agent-native/builder/provision"), origin).href,
-    { source, flow },
+    {
+      source,
+      flow,
+      app: app ?? undefined,
+      template: template ?? undefined,
+    },
   );
   let response: Response;
   try {
@@ -1214,6 +1221,11 @@ export function useBuilderConnectFlow(
       const scopeForStart = startOptions?.scope ?? null;
       const provisionAccountForStart =
         startOptions?.provisionAccount ?? provisionAccount;
+      const restoreExistingAccount = () => {
+        if (!provisionAccountForStart && accountExists) {
+          setAccountExists(true);
+        }
+      };
       const targetGrantAtStart = scopeForStart
         ? connectionsRef.current.grants?.[scopeForStart]
         : undefined;
@@ -1243,7 +1255,7 @@ export function useBuilderConnectFlow(
       };
       setConnecting(true);
       setError(null);
-      if (provisionAccountForStart) setAccountExists(false);
+      setAccountExists(false);
 
       const origin = getCallbackOrigin() || window.location.origin;
       const cachedFreshUrl = isFreshSignedConnectUrl(
@@ -1398,6 +1410,7 @@ export function useBuilderConnectFlow(
               reason: result.code,
               source: clickTrackingSource,
               flow: trackedFlow,
+              connect_url_kind: "provision",
             });
           }
           if (statusReadFailed) return;
@@ -1443,6 +1456,7 @@ export function useBuilderConnectFlow(
         if (!openDesktopConnectUrl) {
           connectStartedAtRef.current = null;
           setConnecting(false);
+          restoreExistingAccount();
           setError(t("agentChat.settingsShell.builder.setupStartFailed"));
           return;
         }
@@ -1457,6 +1471,7 @@ export function useBuilderConnectFlow(
             markStatusUnavailable();
             connectStartedAtRef.current = null;
             setConnecting(false);
+            restoreExistingAccount();
             return;
           }
           markStatusAvailable();
@@ -1527,6 +1542,7 @@ export function useBuilderConnectFlow(
           if (!embeddedWindow) {
             connectStartedAtRef.current = null;
             setConnecting(false);
+            restoreExistingAccount();
             setError(
               "Couldn't open Builder. Allow popups and try again.",
               "launch",
@@ -1582,6 +1598,7 @@ export function useBuilderConnectFlow(
             if (!mountedRef.current || openedByHost) return;
             connectStartedAtRef.current = null;
             setConnecting(false);
+            if (!s) restoreExistingAccount();
             setError(
               t("agentChat.settingsShell.builder.setupHostFailed"),
               "launch",
@@ -1671,6 +1688,7 @@ export function useBuilderConnectFlow(
               }
               connectStartedAtRef.current = null;
               setConnecting(false);
+              if (!s) restoreExistingAccount();
               setError(
                 "Couldn't navigate the Builder popup. Allow popups and try again.",
                 "launch",
@@ -1684,6 +1702,7 @@ export function useBuilderConnectFlow(
             if (!navigateBuilderConnectPopup(opened, trackedFreshUrl)) {
               connectStartedAtRef.current = null;
               setConnecting(false);
+              if (!s) restoreExistingAccount();
               setError(
                 "Couldn't navigate the Builder popup. Allow popups and try again.",
                 "launch",
@@ -1708,6 +1727,7 @@ export function useBuilderConnectFlow(
       statusConnectUrl,
       trackingFlow,
       trackingSource,
+      accountExists,
     ],
   );
 
@@ -1812,7 +1832,7 @@ export function useBuilderConnectFlow(
         if (s) {
           setError(
             "Didn't hear back from Builder in 5 minutes. Allow popups and try again.",
-            "launch",
+            "connection",
           );
         }
       }
@@ -2074,6 +2094,7 @@ export function useBuilderConnectFlow(
     configured,
     provisionAccount,
     codeChangeConfigured,
+    statusCheckEnabled: enabled,
     statusResolved,
     statusReadSettledCount,
     envManaged,

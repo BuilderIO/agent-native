@@ -126,6 +126,8 @@ Before completing this area, identify the feature's primary actions:
 
 Reusable actions are part of the app contract, not just implementation detail. When an action is useful outside one screen, update agent instructions in the same change so app agents know when to call it, which arguments matter, and what output to preserve. If the capability is workflow-heavy, cross-app, provider-backed, or has a non-obvious sequence of actions, add or update a skill instead of burying the behavior in one long `AGENTS.md` paragraph.
 
+- For chat prompt dispatch, put the readiness gate at the shared dispatch boundary and cover submits, retries, edits/forks, queue drains, continuations, and imperative sends. Dispatch only after readiness is authoritatively configured; return a typed setup-required error and preserve the draft when readiness is missing or unavailable. Composer checks and setup cards are UX, not enforcement, and no new `...ChecksEnabled={false}` bypass is allowed.
+
 Instruction examples may name secret keys like `SLACK_WEBHOOK`, but must use
 placeholders such as `${keys.SLACK_WEBHOOK}` or `<SLACK_WEBHOOK>`. Do not paste
 real keys, internal data, or customer data into instructions as examples.

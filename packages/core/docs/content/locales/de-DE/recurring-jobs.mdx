@@ -9,7 +9,7 @@ Ein **wiederkehrender Job** ist eine Eingabeaufforderung, die nach einem Cron-Ze
 
 <Callout tone="info">
 
-**Recurring Jobs** ist der ältere Name für Automatisierungen vom Typ **Scheduled**. **Automations** ist der Oberbegriff für **Scheduled** und **Event**. `jobs/`-Dateien und `manage-jobs` bleiben für ältere schedule-only Integrationen erhalten. Verwenden Sie `manage-automations` und **Automations** unter `/agent#jobs` für neue persönliche oder Organisationsarbeit, einschließlich Modell und MCP-Zulassungslisten.
+**Recurring Jobs** ist der ältere Name für Automatisierungen vom Typ **Scheduled**. **Automations** ist der Oberbegriff für **Scheduled** und **Event**. `jobs/`-Dateien und `manage-jobs` bleiben für ältere schedule-only Integrationen erhalten. Verwenden Sie `manage-automations` und **Settings › Automations** für neue persönliche oder Organisationsarbeit, einschließlich Modell und MCP-Zulassungslisten.
 
 </Callout>
 
@@ -104,6 +104,10 @@ Standard-Cron mit 5 Feldern (Minute, Stunde, Tag des Monats, Monat, Wochentag):
 Das Framework umfasst Cron-Dienstprogramme (`isValidCron()` und `describeCron()`) zum Validieren und Rendern von Cron-Strings, die intern von der Ressourcen- und Scheduler-Ebene verwendet werden.
 
 ## Job erstellen {#creating}
+
+### Über die Automations-Oberfläche
+
+Öffnen Sie **Settings › Automations** und erstellen Sie dann eine **Scheduled**-Automatisierung. Alte `/agent#jobs`-Links leiten dorthin weiter.
 
 ### Auf der Registerkarte „Agent-Ressourcen“
 
@@ -230,8 +234,8 @@ Auf Netlify, Vercel und Cloudflare leert derselbe Tick außerdem die Warteschlan
 
 ## Debuggen eines Jobs {#debugging}
 
-- Öffnen Sie `jobs/<name>.md` im Agent-Ressourcen – die Vorderseite zeigt `lastRun`, `lastStatus`, `lastError`, `nextRun`.
-- **Testen Sie es ohne zu warten:** Öffnen Sie die Automatisierung unter **Automations** und wählen Sie **Run now**. Das führt die Automatisierung sofort mit ihren echten Nebeneffekten aus und wartet nicht auf einen Scheduler-Tick, funktioniert also auch lokal und auf Hosts ohne Auslöser.
+- Öffnen Sie die Details der Automatisierung in **Settings › Automations** oder `jobs/<name>.md` im Agent-Ressourcen – die Vorderseite zeigt `lastRun`, `lastStatus`, `lastError`, `nextRun`.
+- **Testen Sie es ohne zu warten:** Klicken Sie in **Settings › Automations** auf **Run now** oder bitten Sie den Agenten, den Job auszuführen (`manage-automations` mit `action=run-now`). Die Eingabeaufforderung des Jobs läuft sofort mit ihren echten Nebenwirkungen, und `nextRun` ändert sich nicht. Die Ausnahme ist ein Job, den das Framework pausiert hat: Ein erfolgreicher Lauf schaltet ihn wieder ein und berechnet `nextRun` neu. Run now wartet nicht auf einen Scheduler-Tick und funktioniert daher auch auf localhost ohne `AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS` und auf Hosts ohne Scheduler-Auslöser.
 - **Pause:** umdrehen `enabled: false`. Die Datei bleibt bestehen und wird einfach nicht mehr ausgeführt.
 
 ## Agent-Tool {#agent-tool}

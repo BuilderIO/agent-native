@@ -96,6 +96,70 @@ describe("public docs redirects", () => {
   });
 });
 
+type NetlifyRedirect = { from: string; to: string; status: number };
+
+function readNetlifyRedirects(): NetlifyRedirect[] {
+  const toml = readFileSync(
+    new URL("../netlify.toml", import.meta.url),
+    "utf8",
+  );
+  return toml
+    .split("[[redirects]]")
+    .slice(1)
+    .map((block) => {
+      const field = (name: string) =>
+        block.match(new RegExp(`^${name}\\s*=\\s*"?([^"\\n]*)"?`, "m"))?.[1];
+      const from = field("from");
+      const to = field("to");
+      const status = Number(field("status"));
+      if (!from || !to || !Number.isInteger(status)) {
+        throw new Error(`Unparseable netlify.toml redirect: ${block.trim()}`);
+      }
+      return { from, to, status };
+    });
+}
+
+// Netlify applies the first matching rule: `:name` matches one path segment
+// and a trailing `*` matches the rest.
+function resolveNetlifyRedirect(
+  rules: NetlifyRedirect[],
+  pathname: string,
+): { to: string; status: number } | undefined {
+  for (const rule of rules) {
+    const params: Record<string, string> = {};
+    const fromSegments = rule.from.split("/");
+    const pathSegments = pathname.split("/");
+    let matched = true;
+    for (let index = 0; index < fromSegments.length; index++) {
+      const pattern = fromSegments[index];
+      if (pattern === "*") {
+        params.splat = pathSegments.slice(index).join("/");
+        break;
+      }
+      const segment = pathSegments[index];
+      if (segment === undefined) {
+        matched = false;
+        break;
+      }
+      if (pattern.startsWith(":")) params[pattern.slice(1)] = segment;
+      else if (pattern !== segment) {
+        matched = false;
+        break;
+      }
+      if (
+        index === fromSegments.length - 1 &&
+        pathSegments.length !== fromSegments.length
+      ) {
+        matched = false;
+      }
+    }
+    if (!matched) continue;
+    const to = rule.to.replace(/:(\w+)/g, (_, name: string) => params[name]);
+    return { to, status: rule.status };
+  }
+  return undefined;
+}
+
 describe("netlify redirect rules", () => {
   it("never appends a slash directly after a splat", () => {
     const toml = readFileSync(
@@ -104,5 +168,45 @@ describe("netlify redirect rules", () => {
     );
 
     expect(toml).not.toMatch(/to\s*=\s*"[^"]*:splat\/"/);
+  });
+
+  it("sends Brain app and template URLs to the Brain docs", () => {
+    const rules = readNetlifyRedirects();
+
+    for (const pathname of [
+      "/apps/brain",
+      "/apps/brain/",
+      "/templates/brain",
+      "/templates/brain/",
+    ]) {
+      expect(resolveNetlifyRedirect(rules, pathname)).toEqual({
+        to: "/docs/template-brain/",
+        status: 301,
+      });
+    }
+    for (const pathname of ["/es-es/apps/brain/", "/es-es/templates/brain"]) {
+      expect(resolveNetlifyRedirect(rules, pathname)).toEqual({
+        to: "/es-es/docs/template-brain/",
+        status: 301,
+      });
+    }
+  });
+
+  it("sends /home to the homepage and keeps other template paths on /apps/", () => {
+    const rules = readNetlifyRedirects();
+
+    expect(resolveNetlifyRedirect(rules, "/home")).toEqual({
+      to: "/",
+      status: 301,
+    });
+    expect(resolveNetlifyRedirect(rules, "/home/")).toEqual({
+      to: "/",
+      status: 301,
+    });
+    expect(resolveNetlifyRedirect(rules, "/templates/mail")).toEqual({
+      to: "/apps/mail",
+      status: 301,
+    });
+    expect(resolveNetlifyRedirect(rules, "/apps/mail/")).toBeUndefined();
   });
 });

@@ -12,6 +12,18 @@ import {
   type TestInfo,
 } from "@playwright/test";
 
+import {
+  appendFixtureInput,
+  captureFixtureInput,
+  type FixtureInputSnapshot,
+} from "./editor-input-lineage";
+import {
+  SaveLineageCapture,
+  type SaveLineageCheckpointName,
+  type SaveLineageEvent,
+  type UpdateDocumentRequestLineage,
+} from "./save-lineage";
+
 export const ACTION_HEADERS = {
   "X-Agent-Native-Frontend": "1",
   "X-Agent-Native-Client-Compatibility": "content-spaces-v1",
@@ -69,6 +81,8 @@ export async function getDocument(page: Page, id: string) {
     title?: string;
     content?: string;
     revision?: string;
+    bodyRevision?: number;
+    contentHash?: string;
   };
 }
 
@@ -241,6 +255,10 @@ export interface TabRecord {
   saveOutcomes: Partial<Record<SaveOutcome, number>>;
   /** Refusal codes, and the reason the server gave for a History diversion. */
   saveCodes: Record<string, number>;
+  saveLineage: SaveLineageEvent[];
+  saveLineageDropped: number;
+  inputLineage: FixtureInputSnapshot[];
+  inputLineageTruncated: boolean;
   realtimeRefusals: number;
   realtimeStreams: number;
   collabPollTimes: number[];
@@ -257,6 +275,10 @@ function emptyTab(label: string): TabRecord {
     saveRequests: 0,
     saveOutcomes: {},
     saveCodes: {},
+    saveLineage: [],
+    saveLineageDropped: 0,
+    inputLineage: [],
+    inputLineageTruncated: false,
     realtimeRefusals: 0,
     realtimeStreams: 0,
     collabPollTimes: [],
@@ -274,34 +296,59 @@ function pageOf(request: Request): Page | null {
   }
 }
 
-async function classifySave(
-  response: Response,
-): Promise<{ outcome: SaveOutcome; code?: string }> {
+export async function classifySave(response: Response): Promise<{
+  outcome: SaveOutcome;
+  code?: string;
+  bodyState: "absent" | "invalid" | "valid";
+  body: Record<string, any>;
+}> {
   let body: Record<string, any> = {};
+  let bodyState: "absent" | "invalid" | "valid" = "invalid";
   try {
-    body = (await response.json()) as Record<string, any>;
+    const text = await response.text();
+    if (text.length === 0) {
+      bodyState = "absent";
+    } else {
+      try {
+        const parsed: unknown = JSON.parse(text);
+        body = parsed as Record<string, any>;
+        if (
+          parsed !== null &&
+          typeof parsed === "object" &&
+          !Array.isArray(parsed)
+        ) {
+          bodyState = "valid";
+        }
+      } catch {
+        bodyState = "invalid";
+      }
+    }
   } catch {
-    // coercion-ok: an unreadable body is classified by its status alone.
-    body = {};
+    // coercion-ok: unreadable response bodies keep the original status-based
+    // outcome; the lineage records the body as invalid instead of absent.
+    bodyState = "invalid";
   }
   if (!response.ok()) {
     const code = String(
       body.errorCode ?? body.code ?? body.error ?? `HTTP ${response.status()}`,
     ).slice(0, 80);
-    return { outcome: "refused", code };
+    return { outcome: "refused", code, bodyState, body };
   }
-  if (body.conflict === true) return { outcome: "conflict" };
-  if (body.superseded === true) return { outcome: "superseded" };
+  if (body.conflict === true) return { outcome: "conflict", bodyState, body };
+  if (body.superseded === true)
+    return { outcome: "superseded", bodyState, body };
   if (body.preservationRequired === true)
     return {
       outcome: "preserved-to-history",
       code: `preservation:${String(body.reason ?? "unknown")}`,
+      bodyState,
+      body,
     };
   if (body.bodyIntentOutcome?.status === "displaced-preserved")
-    return { outcome: "merged-displaced" };
+    return { outcome: "merged-displaced", bodyState, body };
   if (body.browserSaveAttempt?.result === "replayed")
-    return { outcome: "replayed" };
-  return { outcome: "written" };
+    return { outcome: "replayed", bodyState, body };
+  return { outcome: "written", bodyState, body };
 }
 
 export function isCollabPollQuery(params: URLSearchParams): boolean {
@@ -329,6 +376,12 @@ export class TabSet {
   readonly detached = emptyTab("detached");
   private readonly pending: Promise<void>[] = [];
   private readonly sentAt = new WeakMap<Request, number>();
+  private readonly saveLineage = new SaveLineageCapture();
+  private readonly lineageByRequest = new WeakMap<
+    Request,
+    { record: TabRecord; entry: UpdateDocumentRequestLineage }
+  >();
+  private readonly activeSaveLineage = new Set<UpdateDocumentRequestLineage>();
   private savesInFlight = 0;
 
   private constructor(readonly context: BrowserContext) {}
@@ -420,6 +473,25 @@ export class TabSet {
     await Promise.all(this.pending);
   }
 
+  captureReadback(
+    checkpoint: SaveLineageCheckpointName,
+    documentId: string,
+    document: Awaited<ReturnType<typeof getDocument>>,
+  ): void {
+    this.saveLineage.captureReadback(this.detached, {
+      checkpoint,
+      documentId,
+      content: document.content,
+      contentHash: document.contentHash,
+      bodyRevision: document.bodyRevision,
+      revision: document.revision,
+      savesInFlight: this.savesInFlight,
+      pendingRequestOrders: [...this.activeSaveLineage]
+        .map((entry) => entry.order)
+        .sort((left, right) => left - right),
+    });
+  }
+
   /**
    * Wait until no tab has a save on the wire. Reloading or closing a tab cuts
    * off its save in flight, which is a race of its own; without this wait the
@@ -439,6 +511,15 @@ export class TabSet {
     const record = this.tabs.get(page);
     if (!record) return;
     if (kind === "editor-mount") record.editorMounts++;
+    if (kind === "fixture-input") {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(detail);
+      } catch {
+        return;
+      }
+      appendFixtureInput(record, parsed);
+    }
     if (kind === "recovery") record.recovery.push(detail);
     if (kind === "toast" && detail.startsWith("error:"))
       record.errorToasts.push(detail.slice("error:".length));
@@ -452,6 +533,11 @@ export class TabSet {
       record.saveRequests++;
       this.savesInFlight++;
       this.sentAt.set(request, Date.now());
+      const entry = this.saveLineage.captureRequest(record, request.postData());
+      if (entry) {
+        this.lineageByRequest.set(request, { record, entry });
+        this.activeSaveLineage.add(entry);
+      }
     }
     // The shared transport sends both `since` and `cursor`, except its first
     // poll (`since=0` alone); the collaboration poll sends only one of them,
@@ -475,8 +561,20 @@ export class TabSet {
     this.savesInFlight--;
     const sentAt = this.sentAt.get(request);
     if (sentAt !== undefined) record.saveDurationsMs.push(Date.now() - sentAt);
+    const lineage = this.lineageByRequest.get(request);
+    const lineageResponse = lineage
+      ? this.saveLineage.beginResponse(lineage.entry, response.status())
+      : undefined;
+    if (lineage) this.activeSaveLineage.delete(lineage.entry);
     this.pending.push(
-      classifySave(response).then(({ outcome, code }) => {
+      classifySave(response).then(({ outcome, code, bodyState, body }) => {
+        if (lineage && lineageResponse)
+          this.saveLineage.finishResponse(
+            lineage.entry,
+            lineageResponse,
+            bodyState,
+            bodyState === "valid" ? body : undefined,
+          );
         record.saveOutcomes[outcome] = (record.saveOutcomes[outcome] ?? 0) + 1;
         if (code) record.saveCodes[code] = (record.saveCodes[code] ?? 0) + 1;
       }),
@@ -493,6 +591,11 @@ export class TabSet {
     const page = pageOf(request);
     const record = (page && this.tabs.get(page)) || this.detached;
     record.saveOutcomes.aborted = (record.saveOutcomes.aborted ?? 0) + 1;
+    const lineage = this.lineageByRequest.get(request);
+    if (lineage) {
+      this.activeSaveLineage.delete(lineage.entry);
+      this.saveLineage.failRequest(lineage.entry);
+    }
   }
 }
 
@@ -666,6 +769,23 @@ export async function typeAtParagraphEnd(
   text: string,
   delayMs = 40,
 ): Promise<void> {
+  const capture = async (phase: FixtureInputSnapshot["phase"]) => {
+    const snapshot = await page.evaluate(captureFixtureInput, {
+      phase,
+      text,
+      editor: EDITOR,
+    });
+    if (!snapshot) return;
+    await page.evaluate((detail) => {
+      const report = (
+        globalThis as typeof globalThis & {
+          __convergenceReport?: (kind: string, detail: string) => void;
+        }
+      ).__convergenceReport;
+      report?.("fixture-input", detail);
+    }, JSON.stringify(snapshot));
+  };
+  await capture("before-caret");
   await page.locator(`${EDITOR} > p`, { hasText: anchor }).first().click();
   // "End" stops at a wrapped visual line; place the caret at the true end.
   await page.evaluate(
@@ -698,6 +818,7 @@ export async function typeAtParagraphEnd(
     { needle: anchor, editor: EDITOR },
   );
   await page.keyboard.type(text, { delay: delayMs });
+  await capture("after-input");
 }
 
 /** Select `text` in the editor and delete it with the keyboard, as a person would. */
@@ -967,12 +1088,15 @@ export async function observeIntegrity(
   const settle = async (at: IntegrityObservation["at"], pages: Page[]) => {
     const deadline = Date.now() + CONVERGENCE_DEADLINE_MS;
     let round: IntegrityObservation[] = [];
+    let lastDocument: Awaited<ReturnType<typeof getDocument>> | undefined;
     do {
+      lastDocument = await getDocument(reader, id);
+      tabs.captureReadback(at, id, lastDocument);
       round = [
         judge(
           at,
           "sql",
-          (await getDocument(reader, id)).content ?? "",
+          lastDocument.content ?? "",
           markers.all,
           markers.removed,
         ),
@@ -1000,6 +1124,7 @@ export async function observeIntegrity(
   await settle("deadline", open);
 
   await tabs.quiet();
+  tabs.captureReadback("before-refresh", id, await getDocument(reader, id));
   for (const page of open) {
     await page.reload({ waitUntil: "domcontentloaded" });
     await expectEditorReady(page);
@@ -1007,6 +1132,7 @@ export async function observeIntegrity(
   await settle("refresh", open);
 
   await tabs.quiet();
+  tabs.captureReadback("before-close", id, await getDocument(reader, id));
   for (const page of open) await page.close();
   const alone = await tabs.open("alone", id);
   await settle("reopened-alone", [alone]);

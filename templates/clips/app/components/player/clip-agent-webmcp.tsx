@@ -102,11 +102,23 @@ async function fetchAgentJson(
     throw new Error("Clip agent response was not valid JSON");
   }
   if (!response.ok) {
+    const failureKind =
+      isRecord(payload) && typeof payload.failureKind === "string"
+        ? ` (${payload.failureKind})`
+        : "";
     const detail =
       isRecord(payload) && typeof payload.error === "string"
         ? payload.error
         : `HTTP ${response.status}`;
-    throw new Error(`Clip agent request failed: ${detail}`);
+    const nextStep =
+      isRecord(payload) && typeof payload.nextStep === "string"
+        ? `Next step: ${payload.nextStep}`
+        : null;
+    throw new Error(
+      [`Clip agent request failed${failureKind}: ${detail}`, nextStep]
+        .filter(Boolean)
+        .join(" "),
+    );
   }
   return requiredRecord(payload, "Clip agent response");
 }
@@ -567,7 +579,7 @@ export function createClipAgentWebMcpActions({
           stringValue(optionalRecord(apis.frame)?.responseType) ?? "image/jpeg",
         sourceUrl: imageUrl,
         instructions:
-          "Fetch imageUrl as an image to SEE the recorded screen. The URL uses the same scoped access as this clip page.",
+          "Fetch the exact imageUrl as an image to SEE the recorded screen. Keep its id and any agent_access query parameter. For any non-2xx response, inspect the JSON failureKind, error, and nextStep. If failureKind=access on a context or transcript request, explain that the link does not grant access; for a private clip, ask the owner to open the Clips Share menu, choose Share with agents, and send the link. If a frame request has failureKind=media while the transcript works, explain that the stored recording media could not be retrieved and another link will not fix it. If a frame request has failureKind=processing, follow nextStep; this does not prove the clip is missing or the link is inaccessible. If failureKind=unsupported, follow nextStep and do not retry frame extraction. If failureKind=expired, ask the owner to extend or remove the clip's expiry in the Clips Share menu, save it, then create and send a new Share with agents link.",
       };
     },
   });

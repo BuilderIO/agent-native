@@ -1,6 +1,5 @@
 import {
-  fetchAgentEngineConfiguredState,
-  type AgentEngineConfiguredState,
+  requireAgentEngineConfiguredForDispatch,
   useAgentEngineConfigured,
 } from "@agent-native/core/client/agent-chat";
 import { emailToColor, emailToName } from "@agent-native/core/client/collab";
@@ -8,6 +7,7 @@ import {
   useActionQuery,
   useActionMutation,
   useAvatarUrl,
+  useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useLab } from "@agent-native/core/client/labs";
@@ -31,9 +31,7 @@ import {
 import { BuilderSetupCard } from "@agent-native/toolkit/app/chat/chat/run-recovery";
 import {
   PromptComposer,
-  sameComposerDraft,
   snapshotComposerContextItems,
-  type ComposerDraftSnapshot,
   type PromptComposerSubmitOptions,
   type TiptapComposerHandle,
 } from "@agent-native/toolkit/app/chat/composer/index";
@@ -113,6 +111,10 @@ import {
   type DesignFilter,
 } from "@/lib/design-filter";
 import {
+  designPromptReferenceTypes,
+  trackDesignPromptSubmitted,
+} from "@/lib/design-funnel-tracking";
+import {
   clearPendingGeneration,
   writePendingGeneration,
 } from "@/lib/pending-generation";
@@ -188,9 +190,20 @@ type HomeSuggestionsResult =
   | { status: "ready"; suggestions: HomeSuggestion[] }
   | {
       status: "unavailable";
-      reason: "missing_credentials";
+      reason:
+        | "missing_credentials"
+        | "timeout"
+        | "agent_engine_settings_unavailable";
       suggestions: [];
     };
+
+const HOME_SUGGESTIONS_UI_TIMEOUT_MS = 12_000;
+
+function isReadyHomeSuggestions(
+  result: HomeSuggestionsResult | undefined,
+): result is Extract<HomeSuggestionsResult, { status: "ready" }> {
+  return result?.status === "ready" && result.suggestions.length === 3;
+}
 
 export default function Index() {
   const t = useT();
@@ -347,90 +360,183 @@ export default function Index() {
     refetch: refetchDesignSystems,
   } = useDesignSystems(systemsEnabled);
   const agentEngine = useAgentEngineConfigured();
-  const [preflightAgentEngineState, setPreflightAgentEngineState] =
-    useState<AgentEngineConfiguredState | null>(null);
-  const preflightRequestIdRef = useRef(0);
-  const effectiveAgentEngineState =
-    preflightAgentEngineState ?? agentEngine.state;
-  const agentEngineConfigured =
-    effectiveAgentEngineState === "configured" && !agentEngine.missing;
-  const agentEngineMissing =
-    effectiveAgentEngineState === "missing" || agentEngine.missing;
-  const canChatRef = useRef(agentEngineConfigured);
-  canChatRef.current = agentEngineConfigured;
-  useEffect(() => {
-    if (agentEngine.state === "configured" || agentEngine.state === "missing") {
-      preflightRequestIdRef.current += 1;
-      setPreflightAgentEngineState(null);
-    }
-  }, [agentEngine.state]);
-  // The draft a send held back for missing AI setup is sent once, as soon as
-  // setup is ready, however it was connected (card, sign-in popup, or
-  // activation) and only while it is still the draft that was submitted.
-  const heldDraftAfterSetupRef = useRef<ComposerDraftSnapshot | null>(null);
-  const ensureAgentEngineConfigured = useCallback(
-    async (draft?: ComposerDraftSnapshot) => {
-      const requestId = ++preflightRequestIdRef.current;
-      let nextState: AgentEngineConfiguredState;
-      try {
-        nextState = await fetchAgentEngineConfiguredState(true, {
-          fresh: true,
-        });
-      } catch {
-        nextState = agentEngine.state === "missing" ? "missing" : "unavailable";
-      }
-      if (requestId !== preflightRequestIdRef.current) {
-        return canChatRef.current;
-      }
-      setPreflightAgentEngineState(nextState);
-      canChatRef.current = nextState === "configured";
-      if (nextState === "missing" && draft)
-        heldDraftAfterSetupRef.current = draft;
-      return canChatRef.current;
-    },
-    [agentEngine.state, agentEngineConfigured],
-  );
-  useEffect(() => {
-    const held = heldDraftAfterSetupRef.current;
-    if (!agentEngineConfigured || !held) return;
-    heldDraftAfterSetupRef.current = null;
-    const composer = composerRef.current;
-    const live = composer?.getDraftSnapshot?.();
-    // A draft edited while connecting was never submitted; leave it to send.
-    if (live && sameComposerDraft(held, live)) void composer?.submit?.();
-  }, [agentEngineConfigured]);
+  const agentEngineConfigured = agentEngine.canChat;
+  const agentEngineMissing = agentEngine.missing;
   const [setupCardBouncePulse, setSetupCardBouncePulse] = useState(0);
   const bounceSetupCard = () => {
     if (agentEngineMissing) setSetupCardBouncePulse((pulse) => pulse + 1);
   };
   const retryAgentEngineStatus = useCallback(() => {
-    preflightRequestIdRef.current += 1;
-    setPreflightAgentEngineState(null);
     window.dispatchEvent(new Event("agent-engine:configured-changed"));
   }, []);
   const quickActionsEnabled = agentEngineConfigured;
+  const { session: suggestionSession } = useSession();
+  const homeSuggestionsIdentity = [
+    suggestionSession?.authUserId ??
+      suggestionSession?.userId ??
+      suggestionSession?.email ??
+      "anonymous",
+    suggestionSession?.orgId ?? "",
+  ];
+  const homeSuggestionsIdentityScope = JSON.stringify(homeSuggestionsIdentity);
+  const homeSuggestionsProfile = useActionQuery<{
+    onboardingRole?: string | null;
+  }>(
+    "get-user-profile",
+    {},
+    {
+      enabled: quickActionsEnabled,
+      queryKeyScope: [homeSuggestionsIdentityScope],
+      staleTime: 0,
+    },
+  );
+  const homeSuggestionsProfileReady =
+    quickActionsEnabled &&
+    (homeSuggestionsProfile.data !== undefined ||
+      homeSuggestionsProfile.isError);
+  const homeSuggestionsCacheScope = JSON.stringify([
+    ...homeSuggestionsIdentity,
+    homeSuggestionsProfile.data?.onboardingRole ?? null,
+  ]);
+  const fallbackHomeSuggestions = useMemo(
+    () =>
+      [
+        t("chat.suggestionLandingPage"),
+        t("chat.suggestionBrandMatch"),
+        t("chat.suggestionMobile"),
+      ].map((prompt, index) => ({
+        id: `design-home-generic-${index}`,
+        label: prompt,
+        prompt,
+      })),
+    [t],
+  );
+  const [homeSuggestionsSnapshotState, setHomeSuggestionsSnapshotState] =
+    useState<{
+      scope: string;
+      suggestions: HomeSuggestion[];
+    } | null>(null);
+  const homeSuggestionsSnapshot =
+    homeSuggestionsProfileReady &&
+    homeSuggestionsSnapshotState?.scope === homeSuggestionsIdentityScope
+      ? homeSuggestionsSnapshotState.suggestions
+      : null;
   const homeSuggestionsQuery = useActionQuery<HomeSuggestionsResult>(
     "generate-home-suggestions",
     {},
     {
-      enabled: quickActionsEnabled,
+      enabled: homeSuggestionsProfileReady && homeSuggestionsSnapshot === null,
+      queryKeyScope: [homeSuggestionsCacheScope],
       retry: false,
-      staleTime: 5 * 60 * 1000,
+      staleTime: (query) =>
+        isReadyHomeSuggestions(query.state.data) ? Number.POSITIVE_INFINITY : 0,
+      gcTime: Number.POSITIVE_INFINITY,
+      refetchOnMount: (query) => !isReadyHomeSuggestions(query.state.data),
+      refetchOnWindowFocus: (query) =>
+        !isReadyHomeSuggestions(query.state.data),
+      refetchOnReconnect: (query) => !isReadyHomeSuggestions(query.state.data),
     },
   );
-  const homeSuggestions =
+  const readyHomeSuggestions =
+    homeSuggestionsProfileReady &&
     homeSuggestionsQuery.data?.status === "ready" &&
-    homeSuggestionsQuery.data.suggestions.length
+    homeSuggestionsQuery.data.suggestions.length === 3
       ? homeSuggestionsQuery.data.suggestions
-      : [
-          t("chat.suggestionLandingPage"),
-          t("chat.suggestionBrandMatch"),
-          t("chat.suggestionMobile"),
-        ].map((prompt, index) => ({
-          id: `design-home-generic-${index}`,
-          label: prompt,
-          prompt,
-        }));
+      : null;
+  const homeSuggestionsQueryUnavailable =
+    !homeSuggestionsQuery.isFetching &&
+    quickActionsEnabled &&
+    (homeSuggestionsQuery.isError ||
+      homeSuggestionsQuery.data?.status === "unavailable" ||
+      (homeSuggestionsQuery.data?.status === "ready" &&
+        homeSuggestionsQuery.data.suggestions.length !== 3));
+  const [homeSuggestionsTimeout, setHomeSuggestionsTimeout] = useState({
+    scope: homeSuggestionsIdentityScope,
+    timedOut: false,
+  });
+  if (homeSuggestionsTimeout.scope !== homeSuggestionsIdentityScope) {
+    setHomeSuggestionsTimeout({
+      scope: homeSuggestionsIdentityScope,
+      timedOut: false,
+    });
+  }
+  const homeSuggestionsTimedOut =
+    quickActionsEnabled &&
+    homeSuggestionsTimeout.scope === homeSuggestionsIdentityScope &&
+    homeSuggestionsTimeout.timedOut;
+  useEffect(() => {
+    if (
+      !quickActionsEnabled ||
+      homeSuggestionsSnapshot !== null ||
+      readyHomeSuggestions !== null ||
+      homeSuggestionsQueryUnavailable
+    ) {
+      setHomeSuggestionsTimeout({
+        scope: homeSuggestionsIdentityScope,
+        timedOut: false,
+      });
+      return;
+    }
+    const timer = window.setTimeout(
+      () =>
+        setHomeSuggestionsTimeout({
+          scope: homeSuggestionsIdentityScope,
+          timedOut: true,
+        }),
+      HOME_SUGGESTIONS_UI_TIMEOUT_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [
+    quickActionsEnabled,
+    homeSuggestionsSnapshot,
+    readyHomeSuggestions,
+    homeSuggestionsQueryUnavailable,
+    homeSuggestionsIdentityScope,
+  ]);
+  const homeSuggestionsUnavailable =
+    homeSuggestionsQueryUnavailable || homeSuggestionsTimedOut;
+  useEffect(() => {
+    if (homeSuggestionsSnapshot !== null) return;
+    const result = homeSuggestionsQuery.data;
+    if (
+      quickActionsEnabled &&
+      homeSuggestionsProfileReady &&
+      result?.status === "ready" &&
+      result.suggestions.length === 3
+    ) {
+      setHomeSuggestionsSnapshotState({
+        scope: homeSuggestionsIdentityScope,
+        suggestions: result.suggestions,
+      });
+    } else if (
+      quickActionsEnabled &&
+      homeSuggestionsProfileReady &&
+      homeSuggestionsQueryUnavailable
+    ) {
+      setHomeSuggestionsSnapshotState({
+        scope: homeSuggestionsIdentityScope,
+        suggestions: fallbackHomeSuggestions,
+      });
+    }
+  }, [
+    homeSuggestionsQuery.data,
+    homeSuggestionsSnapshot,
+    homeSuggestionsCacheScope,
+    homeSuggestionsIdentityScope,
+    quickActionsEnabled,
+    homeSuggestionsProfileReady,
+    homeSuggestionsQueryUnavailable,
+    fallbackHomeSuggestions,
+  ]);
+  const homeSuggestions =
+    homeSuggestionsSnapshot ??
+    readyHomeSuggestions ??
+    (homeSuggestionsUnavailable ? fallbackHomeSuggestions : []);
+  const homeSuggestionsLoading =
+    homeSuggestionsSnapshot === null &&
+    readyHomeSuggestions === null &&
+    !homeSuggestionsTimedOut &&
+    (homeSuggestionsQuery.isFetching || !homeSuggestionsUnavailable);
   const designSystemOptions = useMemo(
     () => designSystemPickerOptions(designSystems),
     [designSystems],
@@ -681,7 +787,8 @@ export default function Index() {
   const createDesign = useCallback(
     (
       title: string,
-      designSystemId?: string | null,
+      designSystemId: string | null | undefined,
+      creationMethod: "prompt" | "blank",
     ): { id: string; title: string; ready: Promise<void> } => {
       const id = nanoid();
       const projectType: ProjectType = "prototype";
@@ -729,6 +836,7 @@ export default function Index() {
           title: finalTitle,
           projectType,
           ...(designSystemId !== undefined ? { designSystemId } : {}),
+          creationMethod,
         } as any)
         .then(() => {
           void queryClient.invalidateQueries({
@@ -782,9 +890,11 @@ export default function Index() {
       prompt: string,
       files: UploadedFile[],
       options: PromptComposerSubmitOptions,
-      pendingOptions?: { skipQuestions?: boolean },
+      pendingOptions?: { skipQuestions?: boolean; fromSkip?: boolean },
     ) => {
-      if (!canChatRef.current) return;
+      const promptSource = quickStartRef.current
+        ? "suggestion_chip"
+        : "composer";
       await creativeContextPersistRef.current?.catch(() => {});
       const trimmedPrompt = prompt.trim();
       const templateCopyDesignSystemId =
@@ -797,6 +907,25 @@ export default function Index() {
         newDesignMode === "app"
           ? await resolveAppDesignSystemId()
           : templateCopyDesignSystemId;
+      const reportPromptSubmitted = (outputId: string) => {
+        if (pendingOptions?.fromSkip) return;
+        try {
+          trackDesignPromptSubmitted({
+            outputId,
+            source: promptSource,
+            prompt,
+            referenceTypes: designPromptReferenceTypes({
+              contextItems: options.contextItems,
+              files,
+              templateSelected: Boolean(selectedTemplate),
+              designSystemId,
+            }),
+            startMode: selectedTemplate ? "template" : newDesignMode,
+          });
+        } catch {
+          // coercion-ok: analytics must never block opening the new design.
+        }
+      };
 
       if (selectedTemplate && newDesignMode === "design") {
         setNewDesignHandoffPending(true);
@@ -871,6 +1000,7 @@ export default function Index() {
               queryKey: ["action", "list-designs"],
             })
             .catch(() => {});
+          reportPromptSubmitted(result.id);
           void navigate(`/design/${result.id}`);
           return;
         } catch (error) {
@@ -886,7 +1016,11 @@ export default function Index() {
 
       const derivedTitle = derivePromptTitle(prompt);
 
-      const { id, title, ready } = createDesign(derivedTitle, designSystemId);
+      const { id, title, ready } = createDesign(
+        derivedTitle,
+        designSystemId,
+        "prompt",
+      );
       handleGenerateDesignTitle(id, prompt, title);
 
       if (fullAppBuildingEnabled && newDesignMode === "app") {
@@ -959,6 +1093,7 @@ export default function Index() {
         }
       }
 
+      reportPromptSubmitted(id);
       trace("persist", "new-design-handoff", { id, designSystemId });
       setNewDesignHandoffPending(true);
       void navigate(`/design/${id}`);
@@ -993,6 +1128,7 @@ export default function Index() {
       const { id, ready } = createDesign(
         t("home.untitledDesign"),
         designSystemId,
+        "blank",
       );
       await ready;
       void navigate(`/design/${id}`);
@@ -1013,17 +1149,31 @@ export default function Index() {
 
   const handleSkipToEditor = useCallback(async () => {
     if (selectedTemplate && newDesignMode === "design") {
-      await handleSubmitPrompt("", [], {
-        contextItems: await homeContext.prepareSubmission(
-          snapshotComposerContextItems(homeContext.contextItems),
-        ),
-      });
+      try {
+        await requireAgentEngineConfiguredForDispatch();
+      } catch {
+        if (agentEngine.missing) {
+          setSetupCardBouncePulse((pulse) => pulse + 1);
+        }
+        return false;
+      }
+      await handleSubmitPrompt(
+        "",
+        [],
+        {
+          contextItems: await homeContext.prepareSubmission(
+            snapshotComposerContextItems(homeContext.contextItems),
+          ),
+        },
+        { fromSkip: true },
+      );
       return false;
     }
     await startBlankDesign();
     return false;
   }, [
     handleSubmitPrompt,
+    agentEngine.missing,
     homeContext.contextItems,
     newDesignMode,
     selectedTemplate,
@@ -1218,19 +1368,6 @@ export default function Index() {
               bouncePulse={setupCardBouncePulse}
               onConnected={retryAgentEngineStatus}
             />
-          ) : effectiveAgentEngineState === "unavailable" ? (
-            <div className="mb-2 flex items-center justify-center gap-3 text-sm text-muted-foreground">
-              <span role="status">
-                {t("agentChat.setup.providerStatusUnavailable")}
-              </span>
-              <button
-                type="button"
-                className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                onClick={retryAgentEngineStatus}
-              >
-                {t("agentChat.common.retry")}
-              </button>
-            </div>
           ) : null
         }
         composer={
@@ -1250,9 +1387,10 @@ export default function Index() {
               onOpenChange={() => {}}
               composerComponent={PromptComposer}
               composerRef={composerRef}
-              onBeforeSubmit={ensureAgentEngineConfigured}
               showModelSelector={agentEngineConfigured}
               modelStatusChecksEnabled={agentEngineConfigured}
+              requireAgentEngine
+              showMissingApiKeySetup={false}
               title={t("home.newDesignLower")}
               draftScope="design:new:0"
               placeholder={
@@ -1263,6 +1401,7 @@ export default function Index() {
                   : t("home.describeBuild")
               }
               onSkip={handleSkipToEditor}
+              showInlineSkip={!selectedTemplate}
               skipLabel={
                 selectedTemplate
                   ? t("templatesPage.useTemplate")
@@ -1309,8 +1448,15 @@ export default function Index() {
           </div>
         }
         quickActions={
-          quickActionsEnabled ? (
+          quickActionsEnabled &&
+          (homeSuggestionsLoading ||
+            homeSuggestionsUnavailable ||
+            readyHomeSuggestions !== null ||
+            homeSuggestionsSnapshot !== null) ? (
             <AgentSuggestionBar
+              loading={homeSuggestionsLoading}
+              announceUpdates
+              layout="single-line"
               suggestions={homeSuggestions.map((suggestion, index) => ({
                 ...suggestion,
                 id: suggestion.id ?? `design-home-${index}`,
@@ -1551,6 +1697,7 @@ export default function Index() {
                         <div className="design-library-card-preview">
                           <DesignThumbnail
                             html={design.previewHtml ?? null}
+                            designId={design.id}
                             className="h-full w-full"
                           />
                         </div>

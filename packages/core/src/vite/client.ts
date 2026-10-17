@@ -71,6 +71,7 @@ import {
   normalizeMcpIntegrationsConfig,
   type McpIntegrationsConfigInput,
 } from "../shared/mcp-integration-config.js";
+import { getMissingCoreOptionalPeers } from "../shared/optional-peer-ssr.js";
 import { isMissingPeer } from "../shared/optional-peer.js";
 import {
   normalizeAgentNativeRouteWarmupConfig,
@@ -94,6 +95,7 @@ import {
 } from "./agent-native-config-loader.js";
 import { agentsBundlePlugin } from "./agents-bundle-plugin.js";
 import { migrationDiagnosticPlugin } from "./migration-diagnostic-plugin.js";
+import { motionSourceProvenancePlugin } from "./motion-source-provenance-plugin.js";
 import { resolveAgentNativePackageVersions } from "./package-versions.js";
 import {
   createSentrySourceMapUploadPlugin,
@@ -1796,6 +1798,8 @@ export interface NitroOptions {
   [key: string]: unknown;
 }
 
+type AgentNativeUserConfig = UserConfig & { nitro: NitroOptions };
+
 export interface ClientConfigOptions {
   port?: number;
   allowedHosts?: NonNullable<NonNullable<UserConfig["server"]>["allowedHosts"]>;
@@ -2787,6 +2791,45 @@ function ssrStubPlugin(packages: string[]): Plugin | null {
         "export default stub;" +
         namedExports.map((name) => `export const ${name} = stub;`).join("")
       );
+    },
+  };
+}
+
+function toolkitTablerIconSsrStubPlugin(cwd: string): Plugin | null {
+  const toolkitRoot = findToolkitPackageRoot(cwd);
+  if (!toolkitRoot) return null;
+
+  const catalogPaths = new Set(
+    [
+      path.join(toolkitRoot, "src/icons/catalog.ts"),
+      path.join(toolkitRoot, "dist/icons/catalog.js"),
+    ]
+      .filter((catalogPath) => fs.existsSync(catalogPath))
+      .map((catalogPath) => fs.realpathSync(catalogPath)),
+  );
+  const stubId = "\0agent-native-toolkit-tabler-chunk-loaders-ssr";
+  return {
+    name: "agent-native-toolkit-tabler-chunk-loaders-ssr",
+    enforce: "pre",
+    resolveId(id, importer, options) {
+      if (!options?.ssr || id !== "./tabler-chunk-loaders.js" || !importer) {
+        return null;
+      }
+      const importerPath = path.resolve(importer.split("?")[0]);
+      if (
+        !fs.existsSync(importerPath) ||
+        !catalogPaths.has(fs.realpathSync(importerPath))
+      ) {
+        return null;
+      }
+      return stubId;
+    },
+    load(id) {
+      if (id !== stubId) return null;
+      return [
+        'const unavailable = () => { throw new Error("Tabler icons are available only in the browser"); };',
+        "export default unavailable;",
+      ].join("\n");
     },
   };
 }
@@ -4589,6 +4632,7 @@ function createAgentNativePlugins(
 
   return [
     migrationDiagnosticPlugin(),
+    motionSourceProvenancePlugin(),
     persistent5xxRecovery(),
     presetMarkerPlugin,
     ssrStubPlugin([
@@ -4597,6 +4641,7 @@ function createAgentNativePlugins(
       ...(options.ssrStubs ?? []),
     ]),
     enterpriseAuthAdapterStubPlugin(enterpriseAuthAdaptersEnabled),
+    toolkitTablerIconSsrStubPlugin(cwd),
     clientOptionalPeerStubPlugin(cwd),
     ...userPlugins,
     externalStoreShimPlugin(),
@@ -4701,8 +4746,13 @@ function createAgentNativeConfig(
   mode = process.env.NODE_ENV === "production" ? "production" : "development",
   projectConfig?: AgentNativeConfigInput,
   workspaceConfig?: AgentNativeConfigInput,
-): UserConfig {
+  isSsrBuild = false,
+): AgentNativeUserConfig {
   const cwd = process.cwd();
+  const optionalSsrExternals = isBuildCommand(command)
+    ? getMissingCoreOptionalPeers(cwd)
+    : [];
+  const optionalBuildExternals = isSsrBuild ? optionalSsrExternals : [];
   const usesAgentKit = hasDep("@agent-native/agentkit", cwd);
   const configContext = createAgentNativeConfigContext(command, mode);
   const projectConfigInput = projectConfig ?? options.agentNativeConfig;
@@ -4832,8 +4882,11 @@ function createAgentNativeConfig(
   const forcePollingWatch = process.env.CHOKIDAR_USEPOLLING === "1";
   const pollingWatchInterval = Number(process.env.CHOKIDAR_INTERVAL ?? 1000);
   const userWatch = userConfig.server?.watch ?? {};
-  const { rollupOptions: _buildRollupOptionsAlias, ...userBuild } =
-    userConfig.build ?? {};
+  const {
+    rollupOptions: _buildRollupOptionsAlias,
+    rolldownOptions: _buildRolldownOptions,
+    ...userBuild
+  } = userConfig.build ?? {};
   const { rollupOptions: _depsRollupOptionsAlias, ...userOptimizeDeps } =
     userConfig.optimizeDeps ?? {};
 
@@ -4977,6 +5030,12 @@ function createAgentNativeConfig(
     },
     build: {
       ...userBuild,
+      rolldownOptions: {
+        external: optionalBuildExternals,
+        experimental: {
+          lazyBarrel: _buildRolldownOptions?.experimental?.lazyBarrel ?? true,
+        },
+      },
       outDir: options.outDir ?? userConfig.build?.outDir ?? "dist/spa",
       cssMinify: userConfig.build?.cssMinify ?? "esbuild",
       cssTarget: userConfig.build?.cssTarget ?? ["es2020", "safari18"],
@@ -4992,6 +5051,7 @@ function createAgentNativeConfig(
           noExternal:
             /^(?!(?:react|react-dom|react-router|@tanstack\/react-query)(?:\/|$))(?!node:)/,
           external: [
+            ...optionalSsrExternals,
             "yjs",
             "@agent-native/core",
             "react",
@@ -5116,6 +5176,7 @@ function createAgentNativeConfigPlugin(
         env.mode,
         projectConfig,
         workspaceConfig,
+        env.isSsrBuild === true,
       );
     },
   };

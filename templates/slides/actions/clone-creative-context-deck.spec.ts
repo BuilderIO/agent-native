@@ -6,7 +6,10 @@ const mocks = vi.hoisted(() => ({
   readPrivateBlob: vi.fn(),
   resolveReference: vi.fn(),
   insertValues: vi.fn(),
+  track: vi.fn(),
 }));
+
+vi.mock("@agent-native/core/tracking", () => ({ track: mocks.track }));
 
 vi.mock("@agent-native/core/private-blob", () => ({
   readPrivateBlob: mocks.readPrivateBlob,
@@ -84,6 +87,16 @@ describe("clone-creative-context-deck", () => {
       clonedExactVersion: "version-1",
     });
     expect(result).not.toHaveProperty("cloneHandle");
+    const created = mocks.track.mock.calls.filter(
+      ([name]) => name === "deck_created",
+    );
+    expect(created).toHaveLength(1);
+    expect(created[0]?.[1]).toMatchObject({
+      output_id: "cloned-deck",
+      creation_method: "duplicate",
+      purpose: "direct",
+      slide_count: 1,
+    });
   });
 
   it("rejects a payload whose governed resource identity was forged", async () => {

@@ -22,10 +22,13 @@ import {
   markWrappedLines,
   materializeClipPathShapes,
   materializeCompositeBorders,
+  materializeRadialGradients,
   patchBulletIndentsInPptxBlob,
   pinRenderedFontFamilies,
   pptxExportScale,
   replaceInlineSvgsWithImages,
+  simplifyBoxShadows,
+  solidifyGradientText,
   widenInPlace,
 } from "./export-pptx-client";
 import { WRAP_MARK } from "./pptx-google-slides";
@@ -359,6 +362,26 @@ describe("exportDeckAsPptx", () => {
     expect(sw).toBe(1929);
     expect(sh).toBe(1921);
     expect(Number.parseFloat(exported?.style.left ?? "")).toBeCloseTo(0, 3);
+  });
+});
+
+describe("slide-number tokens in the export clone", () => {
+  it("drops the counter attributes so dom-to-pptx cannot read the ::before rule's unresolved counter() text", async () => {
+    setSlideMarkup('Slide <span data-slide-number="pad"></span>');
+    const source = document.querySelector<HTMLElement>(
+      '[data-slide-canvas="slide-1"]',
+    )!;
+    source.setAttribute("data-slide-index", "3");
+    source.setAttribute("data-slide-count", "8");
+
+    await exportDeckAsPptx("Numbered", [{ id: "slide-1" }], "16:9");
+
+    const [targets] = mocks.exportToPptx.mock.calls[0];
+    const [target] = targets as HTMLElement[];
+    expect(target.textContent).toContain("Slide 03");
+    expect(target.hasAttribute("data-slide-count")).toBe(false);
+    expect(target.hasAttribute("data-slide-index")).toBe(false);
+    expect(source.getAttribute("data-slide-count")).toBe("8");
   });
 });
 
@@ -1192,5 +1215,282 @@ describe("materializeCompositeBorders", () => {
     const [bar] = barsOf(root);
     expect(bar.style.height).toBe("2px");
     expect(bar.style.backgroundColor).toBe("rgb(0, 255, 0)");
+  });
+});
+
+describe("materializeRadialGradients", () => {
+  afterEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  function boxWith(style: string) {
+    const root = document.createElement("div");
+    root.innerHTML = `<div style="width:360px;height:160px;${style}">Glow</div>`;
+    document.body.appendChild(root);
+    return { root, box: root.firstElementChild as HTMLElement };
+  }
+
+  function exportedSvg(box: HTMLElement) {
+    const match = /^url\("(data:image\/svg\+xml[^"]*)"\)$/.exec(
+      box.style.backgroundImage,
+    );
+    return match
+      ? decodeURIComponent(match[1].split(",").slice(1).join(","))
+      : "";
+  }
+
+  it("hands dom-to-pptx a bitmap-able image for a radial background, which it otherwise drops", () => {
+    const { root, box } = boxWith(
+      "background: radial-gradient(circle at 20% 20%, #E8743B, #26211D 70%);",
+    );
+
+    materializeRadialGradients(root);
+
+    const svg = exportedSvg(box);
+    expect(svg).toContain("<radialGradient");
+    expect(svg).toContain('width="360"');
+    expect(svg).toContain('height="160"');
+    expect(box.style.backgroundImage).toMatch(/^url\("[^()"]*"\)$/);
+    expect(box.style.backgroundSize).toBe("cover");
+    expect(box.textContent).toBe("Glow");
+  });
+
+  it("reaches the export root itself, where a slide's own background lives", () => {
+    const { root } = boxWith("");
+    root.setAttribute(
+      "style",
+      "width:960px;height:540px;background: radial-gradient(circle at 30% 20%, #4A3426, #14110F 70%);",
+    );
+
+    materializeRadialGradients(root);
+
+    expect(root.style.backgroundImage).toMatch(/^url\("data:image\/svg\+xml/);
+  });
+
+  it("leaves linear gradients to dom-to-pptx", () => {
+    const { root, box } = boxWith(
+      "background: linear-gradient(90deg, #E8743B, #4A90E2);",
+    );
+
+    materializeRadialGradients(root);
+
+    expect(box.style.backgroundImage).toMatch(/^linear-gradient/);
+  });
+
+  it("keeps a radial it cannot place and says so, rather than silently dropping the fill", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const { root, box } = boxWith(
+      "background: radial-gradient(farthest-side at 10px 20px, #000000, #ffffff);",
+    );
+
+    materializeRadialGradients(root);
+
+    expect(box.style.backgroundImage).toMatch(/^radial-gradient/);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("radial-gradient"),
+    );
+  });
+});
+
+describe("materializeRadialGradients inputs a bitmap cannot express", () => {
+  afterEach(() => {
+    document.body.innerHTML = "";
+    vi.restoreAllMocks();
+  });
+
+  function boxWith(style: string) {
+    const root = document.createElement("div");
+    root.innerHTML = `<div style="width:360px;height:160px;${style}">Glow</div>`;
+    document.body.appendChild(root);
+    return { root, box: root.firstElementChild as HTMLElement };
+  }
+
+  it("keeps a tiled dot grid as it was instead of stretching it into one bitmap", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const { root, box } = boxWith(
+      "background-image: radial-gradient(circle, rgba(255, 255, 255, 0.1) 1px, rgba(0, 0, 0, 0) 1px); background-size: 24px 24px;",
+    );
+
+    materializeRadialGradients(root);
+
+    expect(box.style.backgroundImage).toMatch(/^radial-gradient/);
+    expect(box.style.backgroundSize).toBe("24px 24px");
+    expect(warn).toHaveBeenCalled();
+  });
+
+  it("leaves a background-clip:text radial for solidifyGradientText to colour", () => {
+    const { root, box } = boxWith(
+      "background-image: radial-gradient(circle, rgba(232, 116, 59, 0.9), rgba(74, 144, 226, 0.9)); -webkit-background-clip: text; background-clip: text; color: transparent;",
+    );
+
+    materializeRadialGradients(root);
+    solidifyGradientText(root);
+
+    expect(box.style.backgroundImage).toMatch(/^radial-gradient/);
+    expect(box.style.color).toBe("rgba(232, 116, 59, 0.9)");
+  });
+});
+
+describe("gradientPaint stops", () => {
+  it("refuses length-positioned stops, which an SVG stop-color would paint black", () => {
+    expect(
+      gradientPaint(
+        "radial-gradient(circle, rgba(255, 255, 255, 0.1) 1px, rgba(0, 0, 0, 0) 1px)",
+        200,
+        100,
+        "g",
+      ),
+    ).toBeUndefined();
+    expect(
+      gradientPaint(
+        "linear-gradient(90deg, #E8743B 10px, #4A90E2)",
+        200,
+        100,
+        "g",
+      ),
+    ).toBeUndefined();
+  });
+
+  it("refuses a colour function it cannot hand to SVG", () => {
+    expect(
+      gradientPaint(
+        "radial-gradient(circle, oklch(0.7 0.1 40), #000000)",
+        200,
+        100,
+        "g",
+      ),
+    ).toBeUndefined();
+  });
+
+  it("fades to transparent through the neighbouring colour, not through black", () => {
+    const gradient = gradientPaint(
+      "radial-gradient(circle, rgba(232, 116, 59, 0.5), rgba(0, 0, 0, 0) 70%)",
+      200,
+      100,
+      "g",
+    );
+
+    const [first, last] = Array.from(gradient?.children ?? []);
+    expect(first?.getAttribute("stop-color")).toBe("#e8743b");
+    expect(last?.getAttribute("stop-color")).toBe("#e8743b");
+    expect(last?.getAttribute("stop-opacity")).toBe("0");
+  });
+
+  it("takes the colour of the following stop for a leading transparent stop", () => {
+    const gradient = gradientPaint(
+      "linear-gradient(90deg, transparent, #4A90E2)",
+      200,
+      100,
+      "g",
+    );
+
+    const [first] = Array.from(gradient?.children ?? []);
+    expect(first?.getAttribute("stop-color")).toBe("#4A90E2");
+    expect(first?.getAttribute("stop-opacity")).toBe("0");
+  });
+});
+
+describe("gradientPaint radials", () => {
+  it("sizes the CSS default ellipse to the farthest corner, with the box's own aspect", () => {
+    const gradient = gradientPaint(
+      "radial-gradient(rgb(1, 2, 3), rgb(4, 5, 6))",
+      200,
+      100,
+      "g",
+    );
+
+    expect(gradient?.tagName).toBe("radialGradient");
+    expect(gradient?.getAttribute("gradientTransform")).toBe(
+      `translate(100 50) scale(${Math.round(Math.SQRT2 * 100 * 1000) / 1000} ${Math.round(Math.SQRT2 * 50 * 1000) / 1000})`,
+    );
+    expect(gradient?.getAttribute("r")).toBe("1");
+  });
+
+  it("splits an rgba stop into colour and opacity, since an SVG stop-color alone paints it opaque", () => {
+    const gradient = gradientPaint(
+      "radial-gradient(circle, rgba(232, 116, 59, 0.55), rgba(232, 116, 59, 0) 70%)",
+      200,
+      100,
+      "g",
+    );
+
+    const [first, last] = Array.from(gradient?.children ?? []);
+    expect(first?.getAttribute("stop-color")).toBe("#e8743b");
+    expect(first?.getAttribute("stop-opacity")).toBe("0.55");
+    expect(last?.getAttribute("stop-opacity")).toBe("0");
+    expect(last?.getAttribute("offset")).toBe("70%");
+  });
+
+  it("keeps a circle circular", () => {
+    const gradient = gradientPaint(
+      "radial-gradient(circle, rgb(1, 2, 3), rgb(4, 5, 6))",
+      200,
+      100,
+      "g",
+    );
+
+    expect(gradient?.getAttribute("gradientTransform")).toBeNull();
+    expect(Number(gradient?.getAttribute("r"))).toBeCloseTo(
+      Math.hypot(100, 50),
+      2,
+    );
+  });
+});
+
+describe("solidifyGradientText", () => {
+  afterEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  it("paints background-clip text in its first visible gradient colour, since dom-to-pptx keeps the transparent alpha", () => {
+    document.body.innerHTML =
+      '<div><h1 style="background: linear-gradient(90deg, rgba(0, 0, 0, 0), #E8743B, #4A90E2); -webkit-background-clip: text; background-clip: text; color: transparent;">Gradient</h1></div>';
+    const root = document.querySelector<HTMLElement>("div")!;
+
+    solidifyGradientText(root);
+
+    const heading = root.querySelector<HTMLElement>("h1")!;
+    expect(heading.style.color).toBe("#E8743B");
+  });
+
+  it("leaves ordinary text and solid backgrounds alone", () => {
+    document.body.innerHTML =
+      '<div><h1 style="color: rgb(1, 2, 3); background: linear-gradient(90deg, #E8743B, #4A90E2);">Plain</h1></div>';
+    const root = document.querySelector<HTMLElement>("div")!;
+
+    solidifyGradientText(root);
+
+    expect(root.querySelector<HTMLElement>("h1")!.style.color).toBe(
+      "rgb(1, 2, 3)",
+    );
+  });
+});
+
+describe("simplifyBoxShadows", () => {
+  afterEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  function shadowOf(value: string) {
+    document.body.innerHTML = `<div><p style="box-shadow: ${value};">x</p></div>`;
+    const root = document.querySelector<HTMLElement>("div")!;
+    simplifyBoxShadows(root);
+    return root.querySelector<HTMLElement>("p")!.style.boxShadow;
+  }
+
+  it("drops an inset shadow, which dom-to-pptx would draw as an outer glow", () => {
+    expect(shadowOf("inset 0 0 20px rgba(255, 255, 255, 0.4)")).toBe("none");
+  });
+
+  it("keeps the first drop shadow of a stack, skipping a spread-only ring that dom-to-pptx misreads as a blur", () => {
+    expect(
+      shadowOf("0 0 0 4px #E8743B, 0 12px 24px rgba(232, 116, 59, 0.5)"),
+    ).toBe("0 12px 24px rgba(232, 116, 59, 0.5)");
+  });
+
+  it("leaves a single drop shadow exactly as authored", () => {
+    expect(shadowOf("6px 8px 16px rgba(0, 0, 0, 0.6)")).toBe(
+      "6px 8px 16px rgba(0, 0, 0, 0.6)",
+    );
   });
 });

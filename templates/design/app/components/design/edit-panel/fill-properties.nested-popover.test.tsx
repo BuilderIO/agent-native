@@ -129,17 +129,25 @@ function StatefulSolidFill({
   );
 }
 
-function findButtonByText(
+/** The paint rows of the existing layers, in layer order. */
+function layerRows(root: HTMLElement): HTMLElement[] {
+  return Array.from(
+    root.querySelectorAll<HTMLElement>(
+      '[data-inspector-layout="drag-paint-row"]',
+    ),
+  );
+}
+
+/** The trigger of the layer at `index`, if its Fill field reads `text`. */
+function layerFieldTrigger(
   root: HTMLElement,
+  index: number,
   text: string,
 ): HTMLButtonElement | null {
-  return (
-    Array.from(root.querySelectorAll("button")).find(
-      (btn) =>
-        btn.textContent?.includes(text) ||
-        btn.getAttribute("aria-label")?.includes(text),
-    ) ?? null
+  const trigger = layerRows(root)[index]?.querySelector<HTMLButtonElement>(
+    'button[aria-haspopup="dialog"]',
   );
+  return trigger?.textContent?.includes(text) ? trigger : null;
 }
 
 function gradientStopsBar(): HTMLElement | null {
@@ -286,7 +294,7 @@ describe("FillProperties — existing layer fill popover", () => {
 
     act(() => {
       document
-        .querySelector<HTMLButtonElement>('[aria-label="Linear"]')!
+        .querySelector<HTMLButtonElement>('[aria-label="Gradient"]')!
         .click();
     });
 
@@ -333,7 +341,7 @@ describe("FillProperties — existing layer fill popover", () => {
     });
     act(() => {
       document
-        .querySelector<HTMLButtonElement>('[aria-label="Linear"]')!
+        .querySelector<HTMLButtonElement>('[aria-label="Gradient"]')!
         .click();
     });
 
@@ -353,7 +361,7 @@ describe("FillProperties — existing layer fill popover", () => {
     expect(images[1]).toBe(siblingGradient);
     expect(parseGradientLayer(images[2])?.stops[0].color).toBe("#ff0000");
     expect(gradientStopsBar()).not.toBeNull();
-    expect(findButtonByText(container, "Radial gradient 2")).not.toBeNull();
+    expect(layerFieldTrigger(container, 1, "Radial")).not.toBeNull();
   });
 
   it("converts a top gradient to a solid layer without changing its paint order", () => {
@@ -375,7 +383,7 @@ describe("FillProperties — existing layer fill popover", () => {
       );
     });
 
-    act(() => findButtonByText(container, "Linear gradient 1")!.click());
+    act(() => layerFieldTrigger(container, 0, "Linear")!.click());
     expect(gradientStopsBar()).not.toBeNull();
     act(() => {
       document
@@ -392,8 +400,8 @@ describe("FillProperties — existing layer fill popover", () => {
       ["linear-gradient(#ff0000 0 0)", RADIAL_LAYER].join(", "),
       undefined,
     );
-    expect(findButtonByText(container, "#ff0000")).not.toBeNull();
-    expect(findButtonByText(container, "Radial gradient 2")).not.toBeNull();
+    expect(layerFieldTrigger(container, 0, "FF0000")).not.toBeNull();
+    expect(layerFieldTrigger(container, 1, "Radial")).not.toBeNull();
   });
 
   it("keeps an existing gradient layer when switching it to Image before an image is chosen", () => {
@@ -409,7 +417,7 @@ describe("FillProperties — existing layer fill popover", () => {
       );
     });
 
-    act(() => findButtonByText(container, "Linear gradient 1")!.click());
+    act(() => layerFieldTrigger(container, 0, "Linear")!.click());
     for (const unsupported of ["Video", "Noise", "Pattern", "Shader"]) {
       expect(
         document.querySelector(`[aria-label="${unsupported}"]`),
@@ -431,7 +439,7 @@ describe("FillProperties — existing layer fill popover", () => {
 
     expect(onStyleChange).not.toHaveBeenCalled();
     expect(onStylesChange).not.toHaveBeenCalled();
-    expect(findButtonByText(container, "Linear gradient 1")).not.toBeNull();
+    expect(layerFieldTrigger(container, 0, "Linear")).not.toBeNull();
   });
 
   it("preserves a gradient's first-stop opacity and stops when switching back in the open picker", () => {
@@ -452,14 +460,14 @@ describe("FillProperties — existing layer fill popover", () => {
       );
     });
 
-    act(() => findButtonByText(container, "Linear gradient 1")!.click());
+    act(() => layerFieldTrigger(container, 0, "Linear")!.click());
     act(() => {
       document
         .querySelector<HTMLButtonElement>('[aria-label="Solid"]')!
         .click();
     });
 
-    const solidTrigger = findButtonByText(container, "#cc3366");
+    const solidTrigger = layerFieldTrigger(container, 0, "CC3366");
     expect(solidTrigger?.textContent).toContain("20%");
     expect(onStyleChange).toHaveBeenLastCalledWith(
       "backgroundImage",
@@ -469,7 +477,7 @@ describe("FillProperties — existing layer fill popover", () => {
 
     act(() => {
       document
-        .querySelector<HTMLButtonElement>('[aria-label="Linear"]')!
+        .querySelector<HTMLButtonElement>('[aria-label="Gradient"]')!
         .click();
     });
 
@@ -481,7 +489,7 @@ describe("FillProperties — existing layer fill popover", () => {
     );
   });
 
-  it("edits the selected stop alpha without averaging away an asymmetric sibling", () => {
+  it("edits one stop's opacity in its own row without averaging away an asymmetric sibling", () => {
     const onStyleChange = vi.fn();
     const onStylesChange = vi.fn();
     act(() => {
@@ -498,48 +506,47 @@ describe("FillProperties — existing layer fill popover", () => {
       );
     });
 
-    act(() => findButtonByText(container, "Linear gradient 1")!.click());
-    const opacity = document.querySelector<HTMLElement>(
-      '[role="slider"][aria-label="Opacity"]',
-    )!;
-    expect(opacity.getAttribute("aria-valuenow")).toBe("100");
-    act(() => {
-      opacity.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "Home", bubbles: true }),
-      );
-    });
-    act(() => {
-      opacity.dispatchEvent(
-        new KeyboardEvent("keydown", {
-          key: "ArrowUp",
-          shiftKey: true,
-          bubbles: true,
-        }),
-      );
-    });
-    act(() => {
-      opacity.dispatchEvent(
-        new KeyboardEvent("keydown", {
-          key: "ArrowUp",
-          shiftKey: true,
-          bubbles: true,
-        }),
-      );
-    });
-    const lastTwentyCall =
-      onStyleChange.mock.calls[onStyleChange.mock.calls.length - 1];
-    const atTwenty = parseGradientLayer(lastTwentyCall?.[1] as string);
-    expect(atTwenty?.stops.map((stop) => stop.opacity)).toEqual([20, 0]);
+    act(() => layerFieldTrigger(container, 0, "Linear")!.click());
+    const [firstStop, secondStop] = Array.from(
+      document.querySelectorAll<HTMLInputElement>(
+        'input[aria-label="editPanel.colorPicker.stopOpacity"]',
+      ),
+    );
+    expect(firstStop?.value).toBe("100");
+    expect(secondStop?.value).toBe("0");
 
-    act(() => {
-      opacity.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "End", bubbles: true }),
+    const typeAndCommit = (input: HTMLInputElement, text: string) => {
+      act(() => {
+        input.focus();
+        Object.getOwnPropertyDescriptor(
+          HTMLInputElement.prototype,
+          "value",
+        )!.set!.call(input, text);
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      act(() => {
+        input.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Enter",
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      });
+    };
+    const lastStopOpacities = () => {
+      const call =
+        onStyleChange.mock.calls[onStyleChange.mock.calls.length - 1];
+      return parseGradientLayer(call?.[1] as string)?.stops.map(
+        (stop) => stop.opacity,
       );
-    });
-    const lastRestoredCall =
-      onStyleChange.mock.calls[onStyleChange.mock.calls.length - 1];
-    const restored = parseGradientLayer(lastRestoredCall?.[1] as string);
-    expect(restored?.stops.map((stop) => stop.opacity)).toEqual([100, 0]);
+    };
+
+    typeAndCommit(firstStop!, "20");
+    expect(lastStopOpacities()).toEqual([20, 0]);
+
+    typeAndCommit(firstStop!, "100");
+    expect(lastStopOpacities()).toEqual([100, 0]);
   });
 
   it("keeps ordinary uniform two-stop gradients classified as gradients", () => {
@@ -556,8 +563,8 @@ describe("FillProperties — existing layer fill popover", () => {
       );
     });
 
-    expect(findButtonByText(container, "Linear gradient 1")).not.toBeNull();
-    expect(findButtonByText(container, "Solid 1")).toBeNull();
+    expect(layerFieldTrigger(container, 0, "Linear")).not.toBeNull();
+    expect(layerFieldTrigger(container, 0, "FF0000")).toBeNull();
   });
 
   it("removes only the chosen fill for None and closes its picker", () => {
@@ -579,7 +586,7 @@ describe("FillProperties — existing layer fill popover", () => {
       );
     });
 
-    act(() => findButtonByText(container, "Linear gradient 1")!.click());
+    act(() => layerFieldTrigger(container, 0, "Linear")!.click());
     expect(gradientStopsBar()).not.toBeNull();
     act(() => {
       document.querySelector<HTMLButtonElement>('[aria-label="None"]')!.click();
@@ -597,7 +604,7 @@ describe("FillProperties — existing layer fill popover", () => {
       },
       undefined,
     );
-    expect(findButtonByText(container, "Radial gradient 1")).not.toBeNull();
+    expect(layerFieldTrigger(container, 0, "Radial")).not.toBeNull();
   });
 
   it("closes the converted layer picker when that layer is removed", () => {
@@ -622,7 +629,7 @@ describe("FillProperties — existing layer fill popover", () => {
     });
     act(() => {
       document
-        .querySelector<HTMLButtonElement>('[aria-label="Linear"]')!
+        .querySelector<HTMLButtonElement>('[aria-label="Gradient"]')!
         .click();
     });
     expect(gradientStopsBar()).not.toBeNull();
@@ -634,17 +641,13 @@ describe("FillProperties — existing layer fill popover", () => {
     );
     expect(convertedLayers).toHaveLength(2);
     expect(convertedLayers[0]).toBe(GRADIENT_LAYER);
-    expect(findButtonByText(container, "Linear gradient 1")).not.toBeNull();
-    expect(findButtonByText(container, "Linear gradient 2")).not.toBeNull();
+    expect(layerFieldTrigger(container, 0, "Linear")).not.toBeNull();
+    expect(layerFieldTrigger(container, 1, "Linear")).not.toBeNull();
     expect(
       container.querySelectorAll('[aria-label="editPanel.labels.removeLayer"]'),
     ).toHaveLength(2);
 
-    const convertedGradientRow = Array.from(
-      container.querySelectorAll<HTMLElement>(
-        '[data-inspector-action-rail="fixed"]',
-      ),
-    ).find((row) => findButtonByText(row, "Linear gradient 2") !== null);
+    const convertedGradientRow = layerRows(container)[1];
     if (!convertedGradientRow) {
       throw new Error("Converted gradient row did not render");
     }
@@ -660,8 +663,8 @@ describe("FillProperties — existing layer fill popover", () => {
     });
 
     expect(gradientStopsBar()).toBeNull();
-    expect(findButtonByText(container, "Linear gradient 1")).not.toBeNull();
-    expect(findButtonByText(container, "Linear gradient 2")).toBeNull();
+    expect(layerFieldTrigger(container, 0, "Linear")).not.toBeNull();
+    expect(layerFieldTrigger(container, 1, "Linear")).toBeNull();
     expect(
       onStylesChange.mock.calls[onStylesChange.mock.calls.length - 1]?.[0]
         .backgroundImage,
@@ -679,7 +682,7 @@ describe("FillProperties — existing layer fill popover", () => {
       );
     });
 
-    const trigger = findButtonByText(container, "Linear gradient 1");
+    const trigger = layerFieldTrigger(container, 0, "Linear");
     expect(trigger).not.toBeNull();
 
     act(() => {
@@ -701,7 +704,7 @@ describe("FillProperties — existing layer fill popover", () => {
     });
 
     act(() => {
-      findButtonByText(container, "Linear gradient 1")!.click();
+      layerFieldTrigger(container, 0, "Linear")!.click();
     });
     expect(gradientStopsBar()).not.toBeNull();
 
@@ -730,7 +733,17 @@ describe("FillProperties — existing layer fill popover", () => {
     expect(gradientStopsBar()).not.toBeNull();
   });
 
-  it("keeps the picker open and applies the change when switching gradient kind", () => {
+  it("keeps the picker open and applies the change when switching gradient kind", async () => {
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    Element.prototype.scrollIntoView = () => {};
+    Element.prototype.hasPointerCapture = () => false;
     const onStyleChange = vi.fn();
 
     act(() => {
@@ -744,17 +757,46 @@ describe("FillProperties — existing layer fill popover", () => {
     });
 
     act(() => {
-      findButtonByText(container, "Linear gradient 1")!.click();
+      layerFieldTrigger(container, 0, "Linear")!.click();
     });
     expect(gradientStopsBar()).not.toBeNull();
 
-    const radialTab = document.querySelector<HTMLButtonElement>(
-      '[aria-label="Radial"]',
+    // One Type select holds the four gradient kinds; there are no per-kind icons.
+    expect(document.querySelector('[aria-label="Radial"]')).toBeNull();
+    const typeSelect = document.querySelector<HTMLElement>(
+      '[aria-label="Type"]',
     );
-    expect(radialTab).not.toBeNull();
+    expect(typeSelect).not.toBeNull();
 
-    act(() => {
-      radialTab!.click();
+    await act(async () => {
+      typeSelect!.focus();
+      typeSelect!.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "ArrowDown",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    const kinds = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="option"]'),
+    );
+    expect(kinds.map((option) => option.textContent)).toEqual([
+      "Linear",
+      "Radial",
+      "Angular",
+      "Diamond",
+    ]);
+    await act(async () => {
+      const radial = kinds.find((option) => option.textContent === "Radial")!;
+      radial.focus();
+      radial.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
     });
 
     expect(onStyleChange).toHaveBeenCalledWith(
@@ -777,7 +819,7 @@ describe("FillProperties — existing layer fill popover", () => {
     });
 
     act(() => {
-      findButtonByText(container, "Linear gradient 1")!.click();
+      layerFieldTrigger(container, 0, "Linear")!.click();
     });
     expect(gradientStopsBar()).not.toBeNull();
 
@@ -808,13 +850,13 @@ describe("FillProperties — existing layer fill popover", () => {
     });
 
     act(() => {
-      findButtonByText(container, "Linear gradient 1")!.click();
+      layerFieldTrigger(container, 0, "Linear")!.click();
     });
     expect(gradientStopsBar()).not.toBeNull();
 
     expect(document.querySelector('[aria-label="Solid"]')).not.toBeNull();
     expect(document.querySelector('[aria-label="None"]')).not.toBeNull();
-    expect(document.querySelector('[aria-label="Radial"]')).not.toBeNull();
+    expect(document.querySelector('[aria-label="Gradient"]')).not.toBeNull();
     expect(document.querySelector('[aria-label="Image"]')).not.toBeNull();
   });
 
@@ -830,7 +872,7 @@ describe("FillProperties — existing layer fill popover", () => {
     });
 
     act(() => {
-      findButtonByText(container, "Linear gradient 1")!.click();
+      layerFieldTrigger(container, 0, "Linear")!.click();
     });
     expect(gradientStopsBar()).not.toBeNull();
 
@@ -838,11 +880,7 @@ describe("FillProperties — existing layer fill popover", () => {
       '[aria-label="editPanel.labels.removeLayer"]',
     );
     expect(removeButtons.length).toBe(2);
-    const activeGradientRow = Array.from(
-      container.querySelectorAll<HTMLElement>(
-        '[data-inspector-action-rail="fixed"]',
-      ),
-    ).find((row) => findButtonByText(row, "Linear gradient 1") !== null);
+    const activeGradientRow = layerRows(container)[0];
     if (!activeGradientRow) {
       throw new Error("Active gradient row did not render");
     }
@@ -867,7 +905,7 @@ describe("FillProperties — existing layer fill popover", () => {
       );
     });
 
-    const survivorTrigger = findButtonByText(container, "Radial gradient 1");
+    const survivorTrigger = layerFieldTrigger(container, 0, "Radial");
     expect(survivorTrigger).not.toBeNull();
     expect(gradientStopsBar()).toBeNull();
 
@@ -910,7 +948,7 @@ describe("FillProperties — existing layer fill popover", () => {
     });
     act(() => {
       document
-        .querySelector<HTMLButtonElement>('button[aria-label="Linear"]')!
+        .querySelector<HTMLButtonElement>('button[aria-label="Gradient"]')!
         .click();
     });
 
@@ -925,7 +963,7 @@ describe("FillProperties — existing layer fill popover", () => {
     root = createRoot(container);
     renderText();
 
-    const layerTrigger = findButtonByText(container, "Linear gradient 1");
+    const layerTrigger = layerFieldTrigger(container, 0, "Linear");
     expect(layerTrigger).not.toBeNull();
     act(() => layerTrigger!.click());
     expect(gradientStopsBar()).not.toBeNull();
@@ -973,7 +1011,7 @@ describe("FillProperties — existing layer fill popover", () => {
     });
     act(() => {
       document
-        .querySelector<HTMLButtonElement>('button[aria-label="Linear"]')!
+        .querySelector<HTMLButtonElement>('button[aria-label="Gradient"]')!
         .click();
     });
 
@@ -982,13 +1020,13 @@ describe("FillProperties — existing layer fill popover", () => {
 
     renderBox();
     expect(gradientStopsBar()).not.toBeNull();
-    expect(findButtonByText(container, "Linear gradient 1")).not.toBeNull();
+    expect(layerFieldTrigger(container, 0, "Linear")).not.toBeNull();
 
     act(() => root.unmount());
     root = createRoot(container);
     renderBox();
 
-    const layerTrigger = findButtonByText(container, "Linear gradient 1");
+    const layerTrigger = layerFieldTrigger(container, 0, "Linear");
     expect(layerTrigger).not.toBeNull();
     act(() => layerTrigger!.click());
     expect(gradientStopsBar()).not.toBeNull();

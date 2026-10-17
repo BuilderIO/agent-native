@@ -9,10 +9,14 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { nanoid, stringifySpaceIds } from "../server/lib/recordings.js";
 import { encryptSharePassword } from "../server/lib/share-password.js";
-import { EXPECTED_CHAPTERS_REQUIRED } from "../shared/stored-chapters.js";
 import {
-  ChapterSchema,
+  EXPECTED_CHAPTERS_REQUIRED,
+  EXPECTED_MEDIA_VERSION_REQUIRED,
+} from "../shared/stored-chapters.js";
+import {
+  ChapterInputSchema,
   StoredChapterSchema,
+  nextUpdatedAt,
   parseList,
   saveChapters,
 } from "./lib/save-chapters.js";
@@ -23,7 +27,7 @@ const cliBoolean = z
 
 export default defineAction({
   description:
-    "Partially update a recording's metadata and flags. All fields are optional — only the ones you pass get updated. Tags replace the existing tag set when provided.",
+    "Partially update a recording's metadata and flags. All fields are optional — only the ones you pass get updated. Tags replace the existing tag set when provided. chaptersJson requires expectedChapters and expectedMediaUpdatedAt from get-recording-player-data.",
   schema: z.object({
     id: z.string().describe("Recording ID"),
     title: z.string().optional(),
@@ -50,6 +54,12 @@ export default defineAction({
       .describe(
         "Required with chaptersJson: the chapters this edit started from. If the stored chapters differ, nothing is written and the call fails with errorCode chapters_changed.",
       ),
+    expectedMediaUpdatedAt: z
+      .string()
+      .optional()
+      .describe(
+        "Required with chaptersJson: mediaUpdatedAt from the get-recording-player-data response used to create these times.",
+      ),
   }),
   run: async (args) => {
     await assertAccess("recording", args.id, "editor");
@@ -61,6 +71,7 @@ export default defineAction({
       .from(schema.recordings)
       .where(eq(schema.recordings.id, args.id));
     if (!existing) throw new Error(`Recording not found: ${args.id}`);
+    let revision = existing.updatedAt;
 
     // Chapters first: a refused chapter save writes nothing else either. If
     // a later write fails, a retry finds the chapters already saved.
@@ -71,12 +82,18 @@ export default defineAction({
           { errorCode: EXPECTED_CHAPTERS_REQUIRED, statusCode: 400 },
         );
       }
-      await saveChapters({
+      if (args.expectedMediaUpdatedAt === undefined) {
+        fail(
+          "chaptersJson needs expectedMediaUpdatedAt from get-recording-player-data so it cannot replace chapters based on an older media timeline.",
+          { errorCode: EXPECTED_MEDIA_VERSION_REQUIRED, statusCode: 400 },
+        );
+      }
+      const saved = await saveChapters({
         recordingId: args.id,
         chapters: parseList(
           args.chaptersJson,
           "chaptersJson",
-          ChapterSchema,
+          ChapterInputSchema,
           "invalid_chapters",
         ),
         expectedChapters: parseList(
@@ -87,11 +104,13 @@ export default defineAction({
         ),
         expectedVersion: null,
         expectedCuts: null,
+        expectedMediaUpdatedAt: args.expectedMediaUpdatedAt,
       });
+      revision = saved.updatedAt;
     }
 
     const patch: Record<string, unknown> = {
-      updatedAt: new Date().toISOString(),
+      updatedAt: nextUpdatedAt(revision),
     };
 
     if (typeof args.title === "string") {

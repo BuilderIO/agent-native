@@ -6,9 +6,10 @@ import {
   ensureColumnExists,
   ensureIndexExists,
 } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
+import { assertA2APersistablePayload } from "./persistence-safety.js";
 import type { Task, Message, TaskState, Artifact } from "./types.js";
 
-let _initPromise: Promise<void> | undefined;
 export const MAX_A2A_IDEMPOTENCY_KEY_CHARS = 128;
 const A2A_IDEMPOTENCY_INDEX = "idx_a2a_tasks_owner_scope_idempotency";
 const A2A_ORG_IDEMPOTENCY_INDEX = "idx_a2a_tasks_org_scope_idempotency";
@@ -22,84 +23,91 @@ export interface A2ATaskListCursor {
   id: string;
 }
 
-export async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const createSql = `
-        CREATE TABLE IF NOT EXISTS a2a_tasks (
-          id TEXT PRIMARY KEY,
-          context_id TEXT,
-          status_state TEXT NOT NULL DEFAULT 'submitted',
-          status_message TEXT,
-          status_timestamp TEXT NOT NULL,
-          history TEXT NOT NULL DEFAULT '[]',
-          artifacts TEXT NOT NULL DEFAULT '[]',
-          metadata TEXT,
-          owner_email TEXT,
-          owner_scope TEXT NOT NULL DEFAULT '',
-          idempotency_key TEXT,
-          created_at BIGINT NOT NULL,
-          updated_at BIGINT NOT NULL
-        )
-      `;
-      const createIdempotencyIndexSql =
-        `CREATE UNIQUE INDEX IF NOT EXISTS ${A2A_IDEMPOTENCY_INDEX} ` +
-        `ON a2a_tasks(owner_email, owner_scope, idempotency_key)`;
-      const createOrgIdempotencyIndexSql =
-        `CREATE UNIQUE INDEX IF NOT EXISTS ${A2A_ORG_IDEMPOTENCY_INDEX} ` +
-        "ON a2a_tasks(owner_scope, idempotency_key) " +
-        "WHERE owner_email IS NULL AND idempotency_key IS NOT NULL";
-      const createRecoveryIndexSql =
-        `CREATE INDEX IF NOT EXISTS ${A2A_RECOVERY_INDEX} ` +
-        "ON a2a_tasks(created_at) " +
-        "WHERE status_state IN ('submitted', 'working', 'processing')";
-      const createApprovalsSql = `
-        CREATE TABLE IF NOT EXISTS a2a_approvals (
-          id TEXT PRIMARY KEY,
-          task_id TEXT NOT NULL UNIQUE,
-          owner_email TEXT NOT NULL,
-          org_id TEXT,
-          tool_name TEXT NOT NULL,
-          tool_input TEXT NOT NULL,
-          approval_key TEXT NOT NULL,
-          call_id TEXT NOT NULL,
-          status TEXT NOT NULL DEFAULT 'pending',
-          result TEXT,
-          expires_at BIGINT NOT NULL,
-          created_at BIGINT NOT NULL,
-          updated_at BIGINT NOT NULL
-        )
-      `;
+export const a2aTasksStore = defineStore({
+  id: "a2a_tasks",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createSql = `
+          CREATE TABLE IF NOT EXISTS a2a_tasks (
+            id TEXT PRIMARY KEY,
+            context_id TEXT,
+            status_state TEXT NOT NULL DEFAULT 'submitted',
+            status_message TEXT,
+            status_timestamp TEXT NOT NULL,
+            history TEXT NOT NULL DEFAULT '[]',
+            artifacts TEXT NOT NULL DEFAULT '[]',
+            metadata TEXT,
+            owner_email TEXT,
+            owner_scope TEXT NOT NULL DEFAULT '',
+            idempotency_key TEXT,
+            created_at BIGINT NOT NULL,
+            updated_at BIGINT NOT NULL
+          )
+        `;
+        const createIdempotencyIndexSql =
+          `CREATE UNIQUE INDEX IF NOT EXISTS ${A2A_IDEMPOTENCY_INDEX} ` +
+          `ON a2a_tasks(owner_email, owner_scope, idempotency_key)`;
+        const createOrgIdempotencyIndexSql =
+          `CREATE UNIQUE INDEX IF NOT EXISTS ${A2A_ORG_IDEMPOTENCY_INDEX} ` +
+          "ON a2a_tasks(owner_scope, idempotency_key) " +
+          "WHERE owner_email IS NULL AND idempotency_key IS NOT NULL";
+        const createRecoveryIndexSql =
+          `CREATE INDEX IF NOT EXISTS ${A2A_RECOVERY_INDEX} ` +
+          "ON a2a_tasks(created_at) " +
+          "WHERE status_state IN ('submitted', 'working', 'processing')";
+        const createApprovalsSql = `
+          CREATE TABLE IF NOT EXISTS a2a_approvals (
+            id TEXT PRIMARY KEY,
+            task_id TEXT NOT NULL UNIQUE,
+            owner_email TEXT NOT NULL,
+            org_id TEXT,
+            tool_name TEXT NOT NULL,
+            tool_input TEXT NOT NULL,
+            approval_key TEXT NOT NULL,
+            call_id TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            result TEXT,
+            expires_at BIGINT NOT NULL,
+            created_at BIGINT NOT NULL,
+            updated_at BIGINT NOT NULL
+          )
+        `;
 
-      await ensureTableExists("a2a_tasks", createSql);
-      await ensureColumnExists(
-        "a2a_tasks",
-        "owner_email",
-        `ALTER TABLE a2a_tasks ADD COLUMN IF NOT EXISTS owner_email TEXT`,
-      );
-      await ensureColumnExists(
-        "a2a_tasks",
-        "owner_scope",
-        `ALTER TABLE a2a_tasks ADD COLUMN IF NOT EXISTS owner_scope TEXT NOT NULL DEFAULT ''`,
-      );
-      await ensureColumnExists(
-        "a2a_tasks",
-        "idempotency_key",
-        `ALTER TABLE a2a_tasks ADD COLUMN IF NOT EXISTS idempotency_key TEXT`,
-      );
-      await ensureIndexExists(A2A_IDEMPOTENCY_INDEX, createIdempotencyIndexSql);
-      await ensureIndexExists(
-        A2A_ORG_IDEMPOTENCY_INDEX,
-        createOrgIdempotencyIndexSql,
-      );
-      await ensureIndexExists(A2A_RECOVERY_INDEX, createRecoveryIndexSql);
-      await ensureTableExists("a2a_approvals", createApprovalsSql);
-    })().catch((err) => {
-      _initPromise = undefined;
-      throw err;
-    });
-  }
-  return _initPromise;
+        await ensureTableExists("a2a_tasks", createSql);
+        await ensureColumnExists(
+          "a2a_tasks",
+          "owner_email",
+          `ALTER TABLE a2a_tasks ADD COLUMN IF NOT EXISTS owner_email TEXT`,
+        );
+        await ensureColumnExists(
+          "a2a_tasks",
+          "owner_scope",
+          `ALTER TABLE a2a_tasks ADD COLUMN IF NOT EXISTS owner_scope TEXT NOT NULL DEFAULT ''`,
+        );
+        await ensureColumnExists(
+          "a2a_tasks",
+          "idempotency_key",
+          `ALTER TABLE a2a_tasks ADD COLUMN IF NOT EXISTS idempotency_key TEXT`,
+        );
+        await ensureIndexExists(
+          A2A_IDEMPOTENCY_INDEX,
+          createIdempotencyIndexSql,
+        );
+        await ensureIndexExists(
+          A2A_ORG_IDEMPOTENCY_INDEX,
+          createOrgIdempotencyIndexSql,
+        );
+        await ensureIndexExists(A2A_RECOVERY_INDEX, createRecoveryIndexSql);
+        await ensureTableExists("a2a_approvals", createApprovalsSql);
+      },
+    },
+  ],
+});
+
+export function ensureTable(): Promise<void> {
+  return a2aTasksStore.ready();
 }
 
 export interface A2AApprovalRecord {
@@ -158,6 +166,7 @@ export async function createA2AApproval(input: {
   callId: string;
   ttlMs?: number;
 }): Promise<A2AApprovalRecord> {
+  assertA2APersistablePayload(input.toolInput, "A2A approval input");
   await ensureTable();
   const client = getDbExec();
   const id = crypto.randomUUID();
@@ -258,12 +267,21 @@ export async function settleA2AApproval(
   status: "completed" | "failed",
   resultText: string,
 ): Promise<void> {
+  let settledStatus = status;
+  let settledText = resultText;
+  try {
+    assertA2APersistablePayload(resultText, "A2A approval result");
+  } catch {
+    settledStatus = "failed";
+    settledText =
+      "The approved action result could not be safely stored. Verify its outcome before retrying.";
+  }
   await ensureTable();
   const client = getDbExec();
   const now = Date.now();
   const message: Message = {
     role: "agent",
-    parts: [{ type: "text", text: resultText }],
+    parts: [{ type: "text", text: settledText }],
   };
   await withDbTransaction(client, async (tx) => {
     const { rows } = await tx.execute({
@@ -281,11 +299,12 @@ export async function settleA2AApproval(
     }
     const history = JSON.parse(String((taskRows[0] as any).history));
     history.push(message);
+    assertA2APersistablePayload(history, "A2A task history");
     const timestamp = new Date(now).toISOString();
     const taskUpdate = await tx.execute({
       sql: `UPDATE a2a_tasks SET status_state = ?, status_message = ?, status_timestamp = ?, history = ?, updated_at = ? WHERE id = ? AND status_state = 'working'`,
       args: [
-        status,
+        settledStatus,
         JSON.stringify(message),
         timestamp,
         JSON.stringify(history),
@@ -298,7 +317,7 @@ export async function settleA2AApproval(
     }
     const approvalUpdate = await tx.execute({
       sql: `UPDATE a2a_approvals SET status = ?, result = ?, updated_at = ? WHERE id = ? AND status = 'processing'`,
-      args: [status, resultText, now, id],
+      args: [settledStatus, settledText, now, id],
     });
     if (getAffectedRowCount(approvalUpdate) === 0) {
       throw new Error("Approval settlement lost its state claim");
@@ -310,6 +329,7 @@ export async function pauseProcessingA2ATask(
   id: string,
   message: Message,
 ): Promise<Task | null> {
+  assertA2APersistablePayload(message, "A2A task status message");
   await ensureTable();
   const client = getDbExec();
   const { rows } = await client.execute({
@@ -319,6 +339,7 @@ export async function pauseProcessingA2ATask(
   if (!rows[0]) return null;
   const task = taskFromRow(rows[0]);
   task.history?.push(message);
+  assertA2APersistablePayload(task.history, "A2A task history");
   const now = Date.now();
   const timestamp = new Date(now).toISOString();
   const result = await client.execute({
@@ -378,6 +399,8 @@ export async function createTask(
   ownerEmail?: string | null,
   ownerScope?: string | null,
 ): Promise<Task> {
+  assertA2APersistablePayload(message, "A2A task message");
+  assertA2APersistablePayload(metadata, "A2A task metadata");
   await ensureTable();
   const client = getDbExec();
   const id = crypto.randomUUID();
@@ -422,6 +445,8 @@ export async function createOrReuseTask(
   ownerScope: string | null,
   idempotencyKey: string | undefined,
 ): Promise<{ task: Task; reused: boolean }> {
+  assertA2APersistablePayload(message, "A2A task message");
+  assertA2APersistablePayload(metadata, "A2A task metadata");
   const normalizedOwner = ownerEmail?.trim().toLowerCase() || null;
   const normalizedScope =
     ownerScope?.trim().toLowerCase() ||
@@ -644,6 +669,7 @@ export async function failStuckA2ATask(
   reason: string,
   createdAtCutoff?: number,
 ): Promise<boolean> {
+  assertA2APersistablePayload(reason, "A2A task failure status");
   await ensureTable();
   const client = getDbExec();
   const now = Date.now();
@@ -686,6 +712,7 @@ export async function failStuckQueuedA2ATask(
   createdAtCutoff: number,
   reason: string,
 ): Promise<boolean> {
+  assertA2APersistablePayload(reason, "A2A task failure status");
   await ensureTable();
   const client = getDbExec();
   const now = Date.now();
@@ -733,6 +760,8 @@ export async function updateTask(
   },
   accessScope?: A2ATaskAccessScope,
 ): Promise<Task | null> {
+  assertA2APersistablePayload(update.message, "A2A task message");
+  assertA2APersistablePayload(update.artifacts, "A2A task artifacts");
   await ensureTable();
   const client = getDbExec();
   const predicate = taskAccessPredicate(accessScope);
@@ -761,6 +790,9 @@ export async function updateTask(
   if (update.artifacts) {
     task.artifacts = [...(task.artifacts ?? []), ...update.artifacts];
   }
+  assertA2APersistablePayload(task.status.message, "A2A task status message");
+  assertA2APersistablePayload(task.history, "A2A task history");
+  assertA2APersistablePayload(task.artifacts, "A2A task artifacts");
 
   const result = await client.execute({
     sql: `UPDATE a2a_tasks SET status_state = ?, status_message = ?, status_timestamp = ?, history = ?, artifacts = ?, updated_at = ? WHERE id = ?${predicate.sql}`,
@@ -798,6 +830,8 @@ export async function settleProcessingA2ATask(
     artifacts?: Artifact[];
   },
 ): Promise<Task | null> {
+  assertA2APersistablePayload(update.message, "A2A task result message");
+  assertA2APersistablePayload(update.artifacts, "A2A task result artifacts");
   await ensureTable();
   const client = getDbExec();
 
@@ -820,6 +854,9 @@ export async function settleProcessingA2ATask(
   if (update.artifacts) {
     task.artifacts = [...(task.artifacts ?? []), ...update.artifacts];
   }
+  assertA2APersistablePayload(task.status.message, "A2A task status message");
+  assertA2APersistablePayload(task.history, "A2A task history");
+  assertA2APersistablePayload(task.artifacts, "A2A task artifacts");
 
   const result = await client.execute({
     sql: `UPDATE a2a_tasks
@@ -850,6 +887,7 @@ export async function updateTaskStatusMessage(
   id: string,
   message: Message,
 ): Promise<void> {
+  assertA2APersistablePayload(message, "A2A task status message");
   await ensureTable();
   const client = getDbExec();
   const now = Date.now();

@@ -9,26 +9,36 @@ import {
   requireRequestCredentialContext,
   type CredentialContext,
 } from "./credentials-context";
-import { getAccessToken } from "./gcloud";
+import { getBigQueryAccessToken, raceWithAbort } from "./gcloud";
 import { assertReadOnlySql } from "./read-only-sql";
 
-async function getProjectContext(): Promise<{
+async function getProjectContext(signal?: AbortSignal): Promise<{
   projectId: string;
   cacheScope: string;
   ctx: CredentialContext;
 }> {
   const ctx = requireRequestCredentialContext("BIGQUERY_PROJECT_ID");
-  const projectId = await resolveCredential("BIGQUERY_PROJECT_ID", ctx);
+  const projectId = await raceWithAbort(
+    resolveCredential("BIGQUERY_PROJECT_ID", ctx),
+    signal,
+  );
+  throwIfAborted(signal);
   if (!projectId) throw new Error("BIGQUERY_PROJECT_ID not configured");
   return {
     projectId,
-    cacheScope: credentialCacheScope("BIGQUERY_PROJECT_ID", ctx),
+    cacheScope: cacheScopeForContext(ctx),
     ctx,
   };
 }
 
-export async function getBigQueryProjectId(): Promise<string> {
-  const { projectId } = await getProjectContext();
+function cacheScopeForContext(ctx: CredentialContext): string {
+  return credentialCacheScope("BIGQUERY_PROJECT_ID", ctx);
+}
+
+export async function getBigQueryProjectId(
+  signal?: AbortSignal,
+): Promise<string> {
+  const { projectId } = await getProjectContext(signal);
   return projectId;
 }
 
@@ -57,6 +67,148 @@ export interface BigQueryTableMetadata {
   schema?: { fields?: BigQueryTableField[] };
 }
 
+export type BigQueryBackendReason =
+  | "access_denied"
+  | "invalid_query"
+  | "not_found"
+  | "quota_exceeded"
+  | "rate_limited"
+  | "backend_error"
+  | "timeout"
+  | "other";
+
+const BIGQUERY_BACKEND_REASONS: Readonly<
+  Record<string, BigQueryBackendReason>
+> = {
+  accessDenied: "access_denied",
+  invalidQuery: "invalid_query",
+  notFound: "not_found",
+  quotaExceeded: "quota_exceeded",
+  rateLimitExceeded: "rate_limited",
+  jobRateLimitExceeded: "rate_limited",
+  backendError: "backend_error",
+  internalError: "backend_error",
+  jobTimeout: "timeout",
+};
+
+function safeBigQueryReason(reason: unknown): BigQueryBackendReason {
+  return typeof reason === "string"
+    ? (BIGQUERY_BACKEND_REASONS[reason] ?? "other")
+    : "other";
+}
+
+function bigQueryReasonFromResponse(body: string): BigQueryBackendReason {
+  try {
+    const parsed = JSON.parse(body) as {
+      error?: {
+        errors?: Array<{ reason?: unknown }>;
+        details?: Array<{ reason?: unknown }>;
+      };
+    };
+    const reason =
+      parsed.error?.errors?.find((entry) => entry.reason)?.reason ??
+      parsed.error?.details?.find((entry) => entry.reason)?.reason;
+    return safeBigQueryReason(reason);
+  } catch {
+    return "other";
+  }
+}
+
+export class BigQueryBackendError extends Error {
+  readonly operation: "submit" | "poll" | "job";
+  readonly backendStatus: number | null;
+  readonly backendReason: BigQueryBackendReason;
+  readonly providerDetail!: string | null;
+
+  constructor(
+    operation: "submit" | "poll" | "job",
+    backendStatus: number | null,
+    backendReason: BigQueryBackendReason,
+    providerDetail: string | null = null,
+  ) {
+    const operationLabel = operation === "submit" ? "API" : operation;
+    super(
+      `BigQuery ${operationLabel} error${backendStatus === null ? "" : ` ${backendStatus}`}: ${backendReason}`,
+    );
+    this.name = "BigQueryBackendError";
+    this.operation = operation;
+    this.backendStatus = backendStatus;
+    this.backendReason = backendReason;
+    Object.defineProperty(this, "providerDetail", {
+      value: providerDetail,
+      enumerable: false,
+    });
+  }
+}
+
+function bigQueryProviderDetailFromResponse(body: string): string | null {
+  try {
+    const parsed = JSON.parse(body) as {
+      error?: {
+        message?: unknown;
+        errors?: Array<{ message?: unknown }>;
+      };
+    };
+    const detail =
+      parsed.error?.message ??
+      parsed.error?.errors?.find((entry) => typeof entry.message === "string")
+        ?.message;
+    return typeof detail === "string" ? detail.trim().slice(0, 4_000) : null;
+  } catch {
+    // coercion-ok: provider detail is optional; backend status and reason remain typed.
+    return null;
+  }
+}
+
+export class BigQueryQueryTimeoutError extends Error {
+  readonly backendStatus = null;
+  readonly backendReason = "timeout" as const;
+
+  constructor() {
+    super("BigQuery query timed out");
+    this.name = "BigQueryQueryTimeoutError";
+  }
+}
+
+export class BigQueryMaximumBytesBilledError extends Error {
+  readonly backendStatus: number | null;
+  readonly backendReason = "quota_exceeded" as const;
+
+  constructor(backendStatus: number | null = null) {
+    super("BigQuery query exceeded its configured billed-byte limit");
+    this.name = "BigQueryMaximumBytesBilledError";
+    this.backendStatus = backendStatus;
+  }
+}
+
+function isMaximumBytesBilledError(status: number, responseText: string) {
+  if (status !== 400) return false;
+  if (hasMaximumBytesBilledMessage([responseText])) return true;
+  try {
+    const response = JSON.parse(responseText) as {
+      error?: {
+        message?: unknown;
+        errors?: Array<{ message?: unknown }>;
+      };
+    };
+    return hasMaximumBytesBilledMessage([
+      response.error?.message,
+      ...(response.error?.errors ?? []).map((error) => error.message),
+    ]);
+  } catch {
+    // coercion-ok: Invalid bodies without the exact cap marker stay generic errors thrown by the caller.
+    return false;
+  }
+}
+
+function hasMaximumBytesBilledMessage(messages: readonly unknown[]) {
+  return messages.some(
+    (message) =>
+      typeof message === "string" &&
+      /query exceeded limit for bytes billed/i.test(message),
+  );
+}
+
 export interface BigQueryTableSummary {
   projectId?: string;
   datasetId?: string;
@@ -70,7 +222,7 @@ export async function bigQueryGet<T>(
   url: string,
   signal?: AbortSignal,
 ): Promise<T> {
-  const token = await getAccessToken();
+  const token = await getBigQueryAccessToken({ signal });
   const res = await fetch(url, {
     headers: {
       Authorization: `Bearer ${token}`,
@@ -129,10 +281,25 @@ export async function listBigQueryTables(
   limit: number,
   signal?: AbortSignal,
 ): Promise<BigQueryTableSummary[]> {
+  return (await listBigQueryTablesPage(projectId, datasetId, limit, { signal }))
+    .tables;
+}
+
+export async function listBigQueryTablesPage(
+  projectId: string,
+  datasetId: string,
+  limit: number,
+  { pageToken, signal }: { pageToken?: string; signal?: AbortSignal } = {},
+): Promise<{
+  tables: BigQueryTableSummary[];
+  nextPageToken?: string;
+  totalItems?: number;
+}> {
   const url = new URL(
     `https://bigquery.googleapis.com/bigquery/v2/projects/${encodeURIComponent(projectId)}/datasets/${encodeURIComponent(datasetId)}/tables`,
   );
   url.searchParams.set("maxResults", String(Math.min(limit, 1000)));
+  if (pageToken) url.searchParams.set("pageToken", pageToken);
   const result = await bigQueryGet<{
     tables?: Array<{
       tableReference?: {
@@ -144,15 +311,23 @@ export async function listBigQueryTables(
       friendlyName?: string;
       labels?: Record<string, string>;
     }>;
+    nextPageToken?: string;
+    totalItems?: number;
   }>(url.toString(), signal);
-  return (result.tables ?? []).map((table) => ({
-    projectId: table.tableReference?.projectId,
-    datasetId: table.tableReference?.datasetId,
-    tableId: table.tableReference?.tableId,
-    type: table.type,
-    friendlyName: table.friendlyName,
-    labels: table.labels,
-  }));
+  return {
+    tables: (result.tables ?? []).map((table) => ({
+      projectId: table.tableReference?.projectId,
+      datasetId: table.tableReference?.datasetId,
+      tableId: table.tableReference?.tableId,
+      type: table.type,
+      friendlyName: table.friendlyName,
+      labels: table.labels,
+    })),
+    ...(result.nextPageToken ? { nextPageToken: result.nextPageToken } : {}),
+    ...(typeof result.totalItems === "number"
+      ? { totalItems: result.totalItems }
+      : {}),
+  };
 }
 
 const TABLE_METADATA_TTL_MS = 10 * 60_000;
@@ -171,7 +346,7 @@ export async function getBigQueryTableMetadata(
   signal?: AbortSignal,
   { fresh = false }: { fresh?: boolean } = {},
 ): Promise<BigQueryTableMetadata> {
-  const key = `${credentialCacheScope("BIGQUERY_PROJECT_ID")}\n${ref.projectId}.${ref.datasetId}.${ref.tableId}`;
+  const key = `${cacheScopeForContext(requireRequestCredentialContext("BIGQUERY_PROJECT_ID"))}\n${ref.projectId}.${ref.datasetId}.${ref.tableId}`;
   const hit = tableMetadataCache.get(key);
   if (!fresh && hit && hit.expiresAt > Date.now()) return hit.metadata;
   const metadata = await bigQueryGet<BigQueryTableMetadata>(
@@ -190,16 +365,16 @@ export async function getBigQueryTableMetadata(
   return metadata;
 }
 
-async function getProjectInfo(): Promise<{
+async function getProjectInfo(signal?: AbortSignal): Promise<{
   projectId: string;
   cacheScope: string;
   appEventsTable: BigQueryTableRef;
 }> {
-  const { projectId, cacheScope, ctx } = await getProjectContext();
+  const { projectId, cacheScope, ctx } = await getProjectContext(signal);
   return {
     projectId,
     cacheScope,
-    appEventsTable: await getAppEventsTable(projectId, ctx),
+    appEventsTable: await getAppEventsTable(projectId, ctx, signal),
   };
 }
 
@@ -244,10 +419,18 @@ function parseBigQueryTableRef(
 export async function getAppEventsTable(
   fallbackProjectId: string,
   ctx: CredentialContext,
+  signal?: AbortSignal,
 ): Promise<BigQueryTableRef> {
   const configured =
-    (await resolveCredential("ANALYTICS_BIGQUERY_EVENTS_TABLE", ctx)) ||
-    (await resolveCredential("BIGQUERY_APP_EVENTS_TABLE", ctx));
+    (await raceWithAbort(
+      resolveCredential("ANALYTICS_BIGQUERY_EVENTS_TABLE", ctx),
+      signal,
+    )) ||
+    (await raceWithAbort(
+      resolveCredential("BIGQUERY_APP_EVENTS_TABLE", ctx),
+      signal,
+    ));
+  throwIfAborted(signal);
   return parseBigQueryTableRef(configured, fallbackProjectId);
 }
 
@@ -255,12 +438,15 @@ async function resolveTablePlaceholder(
   sql: string,
   projectId?: string,
   appEventsTable?: BigQueryTableRef,
+  signal?: AbortSignal,
 ): Promise<string> {
+  throwIfAborted(signal);
   if (!projectId || !appEventsTable) {
-    const info = await getProjectInfo();
+    const info = await getProjectInfo(signal);
     projectId ??= info.projectId;
     appEventsTable ??= info.appEventsTable;
   }
+  throwIfAborted(signal);
   const quotedAppEventsTable = `\`${appEventsTable.fullyQualified}\``;
   return sql
     .replace(/`?@app_events`?/gi, quotedAppEventsTable)
@@ -463,15 +649,31 @@ async function beginCacheQuery(
   };
 }
 
+function toIsoTimestamp(value: unknown): string | undefined {
+  if (typeof value !== "string" && !(value instanceof Date)) return undefined;
+  const time = value instanceof Date ? value.getTime() : Date.parse(value);
+  return Number.isFinite(time) ? new Date(time).toISOString() : undefined;
+}
+
 async function getL2(key: string): Promise<QueryResult | null> {
   const db = getDbExec();
   const { rows } = await db.execute({
-    sql: "SELECT result FROM bigquery_cache WHERE key = $1 AND expires_at > $2",
+    sql: "SELECT result, created_at FROM bigquery_cache WHERE key = $1 AND expires_at > $2",
     args: [key, new Date().toISOString()],
   });
   if (!rows.length) return null;
-  const raw = (rows[0] as { result: string }).result;
-  return JSON.parse(raw) as QueryResult;
+  const entry = rows[0] as { result: string; created_at?: unknown };
+  const result = JSON.parse(entry.result) as QueryResult;
+  // Rows cached before fetchedAt was persisted fall back to the row's
+  // created_at, when the app cached the result; an unreadable one stays absent
+  // rather than becoming "now".
+  const fetchedAt =
+    toIsoTimestamp(result.fetchedAt) ?? toIsoTimestamp(entry.created_at);
+  if (fetchedAt === undefined) {
+    const { fetchedAt: _unreadable, ...rest } = result;
+    return rest;
+  }
+  return { ...result, fetchedAt };
 }
 
 async function finishCacheQuery(
@@ -612,11 +814,20 @@ export interface QueryResult {
   bytesProcessed: number;
   cached?: boolean;
   truncated?: boolean;
+  /**
+   * When the app first received this result from BigQuery; preserved across
+   * app-cache hits. Not when the warehouse computed it: a provider cache hit
+   * can return an older BigQuery result.
+   */
+  fetchedAt?: string;
+  /** BigQuery getQueryResults `cacheHit` for the original request; absent means unknown. */
+  providerCacheHit?: boolean;
 }
 
 export interface RunQueryOptions {
   signal?: AbortSignal;
   forceRefresh?: boolean;
+  maxBytesBilled?: number;
 }
 
 interface BigQueryField {
@@ -632,6 +843,9 @@ interface BigQueryGetQueryResultsResponse {
   totalRows?: string;
   jobComplete?: boolean;
   totalBytesProcessed?: string;
+  cacheHit?: boolean;
+  errorResult?: { message?: string; reason?: string };
+  errors?: Array<{ message?: string; reason?: string }>;
 }
 
 function createAbortError(): Error {
@@ -768,6 +982,14 @@ function rowsToObjects(
 
 export interface DryRunQueryOptions {
   signal?: AbortSignal;
+  wrapPreparationErrors?: boolean;
+}
+
+export class BigQueryDryRunPreparationError extends Error {
+  constructor() {
+    super("BigQuery dry-run request preparation failed");
+    this.name = "BigQueryDryRunPreparationError";
+  }
 }
 
 export interface DryRunQueryResult {
@@ -830,14 +1052,31 @@ export async function dryRunQuerySchema(
   if (options.signal?.aborted) {
     throw new Error("BigQuery validation was cancelled before it started");
   }
-  const { projectId, appEventsTable } = await getProjectInfo();
-  const resolvedSql = await resolveTablePlaceholder(
-    sql,
-    projectId,
-    appEventsTable,
-  );
-
-  const token = await getAccessToken();
+  let projectId: string;
+  let appEventsTable: BigQueryTableRef;
+  let resolvedSql: string;
+  let token: string;
+  try {
+    ({ projectId, appEventsTable } = await getProjectInfo(options.signal));
+    resolvedSql = await resolveTablePlaceholder(
+      sql,
+      projectId,
+      appEventsTable,
+      options.signal,
+    );
+    token = await getBigQueryAccessToken({ signal: options.signal });
+  } catch (error) {
+    if (
+      options.signal?.aborted ||
+      (error instanceof Error && error.name === "AbortError")
+    ) {
+      throw error;
+    }
+    if (options.wrapPreparationErrors) {
+      throw new BigQueryDryRunPreparationError();
+    }
+    throw error;
+  }
   const url = `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/jobs`;
 
   const controller = new AbortController();
@@ -898,13 +1137,25 @@ export async function runQuery(
   options: RunQueryOptions = {},
 ): Promise<QueryResult> {
   assertReadOnlySql(sql, "bigquery");
+  const maxBytesBilled = options.maxBytesBilled ?? 750_000_000_000;
+  if (
+    !Number.isSafeInteger(maxBytesBilled) ||
+    maxBytesBilled < 1 ||
+    maxBytesBilled > 750_000_000_000
+  ) {
+    throw new Error(
+      "BigQuery maximum bytes billed is outside the allowed range",
+    );
+  }
   const { signal } = options;
   throwIfAborted(signal);
-  const { projectId, cacheScope, appEventsTable } = await getProjectInfo();
+  const { projectId, cacheScope, appEventsTable } =
+    await getProjectInfo(signal);
   const resolvedSql = await resolveTablePlaceholder(
     sql,
     projectId,
     appEventsTable,
+    signal,
   );
   const cacheableSql = addUtcDateCacheKey(resolvedSql);
 
@@ -963,41 +1214,77 @@ export async function runQuery(
   let token: string | null = null;
   let cancelJob = false;
   try {
-    token = await getAccessToken();
+    token = await getBigQueryAccessToken({ signal });
     throwIfAborted(signal);
     jobId = `agent_native_${randomUUID().replace(/-/g, "")}`;
     jobCreatedAfter = Date.now();
     const url = `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/jobs`;
+    const submissionTimeoutController = new AbortController();
+    const submissionTimeoutAbortSignal = submissionTimeoutController.signal;
+    const submissionTimeoutError = new BigQueryQueryTimeoutError();
+    const submissionTimeout = setTimeout(() => {
+      submissionTimeoutController.abort(submissionTimeoutError);
+    }, JOB_SUBMISSION_TIMEOUT_MS);
 
-    // Keep submission alive long enough to read the job location for cancellation.
-    const res = await fetch(url, {
-      method: "POST",
-      signal: AbortSignal.timeout(JOB_SUBMISSION_TIMEOUT_MS),
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        jobReference: { projectId, jobId },
-        configuration: {
-          query: {
-            query: cacheableSql,
-            useLegacySql: false,
-            maximumBytesBilled: "750000000000", // 750GB cap
-            ...(forceRefresh ? { useQueryCache: false } : {}),
-          },
-        },
-      }),
-    });
-
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`BigQuery API error ${res.status}: ${text}`);
-    }
-
-    const insertedJob = (await res.json()) as {
+    let insertedJob: {
       jobReference?: { jobId?: string; location?: string };
     };
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        signal: signal
+          ? AbortSignal.any([signal, submissionTimeoutAbortSignal])
+          : submissionTimeoutAbortSignal,
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          jobReference: { projectId, jobId },
+          configuration: {
+            query: {
+              query: cacheableSql,
+              useLegacySql: false,
+              maximumBytesBilled: String(maxBytesBilled),
+              ...(forceRefresh ? { useQueryCache: false } : {}),
+            },
+          },
+        }),
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        if (isMaximumBytesBilledError(res.status, text)) {
+          jobId = null;
+          throw new BigQueryMaximumBytesBilledError(res.status);
+        }
+        throw new BigQueryBackendError(
+          "submit",
+          res.status,
+          bigQueryReasonFromResponse(text),
+          bigQueryProviderDetailFromResponse(text),
+        );
+      }
+
+      insertedJob = (await res.json()) as {
+        jobReference?: { jobId?: string; location?: string };
+      };
+      if (submissionTimeoutController.signal.aborted) {
+        throw submissionTimeoutError;
+      }
+    } catch (error) {
+      if (
+        submissionTimeoutController.signal.aborted &&
+        submissionTimeoutController.signal.reason === submissionTimeoutError &&
+        (error === submissionTimeoutError ||
+          (error instanceof Error && error.name === "AbortError"))
+      ) {
+        throw submissionTimeoutError;
+      }
+      throw error;
+    } finally {
+      clearTimeout(submissionTimeout);
+    }
     if (
       insertedJob.jobReference?.jobId &&
       insertedJob.jobReference.jobId !== jobId
@@ -1024,10 +1311,44 @@ export async function runQuery(
       });
       if (!pollRes.ok) {
         const text = await pollRes.text();
-        throw new Error(`BigQuery poll error ${pollRes.status}: ${text}`);
+        if (isMaximumBytesBilledError(pollRes.status, text)) {
+          jobId = null;
+          throw new BigQueryMaximumBytesBilledError(pollRes.status);
+        }
+        throw new BigQueryBackendError(
+          "poll",
+          pollRes.status,
+          bigQueryReasonFromResponse(text),
+          bigQueryProviderDetailFromResponse(text),
+        );
       }
       data = (await pollRes.json()) as BigQueryGetQueryResultsResponse;
       attempts++;
+      if (
+        data.jobComplete &&
+        hasMaximumBytesBilledMessage(
+          data.errors?.map((error) => error.message) ?? [],
+        )
+      ) {
+        jobId = null;
+        throw new BigQueryMaximumBytesBilledError();
+      }
+      // getQueryResults errors may be warnings; successful results include schema or totalRows.
+      const failedJob =
+        data.errorResult ??
+        (data.errors?.length &&
+        data.schema === undefined &&
+        data.totalRows === undefined
+          ? data.errors[0]
+          : undefined);
+      if (data.jobComplete && failedJob) {
+        throw new BigQueryBackendError(
+          "job",
+          null,
+          safeBigQueryReason(failedJob.reason),
+          failedJob.message ?? null,
+        );
+      }
       if (!data.jobComplete && attempts < 60) {
         await waitForPollInterval(signal);
       }
@@ -1035,9 +1356,10 @@ export async function runQuery(
 
     if (!data.jobComplete) {
       cancelJob = true;
-      throw new Error("BigQuery query timed out after 60 seconds");
+      throw new BigQueryQueryTimeoutError();
     }
 
+    const fetchedAt = new Date().toISOString();
     const fields = data.schema?.fields ?? [];
     const schema = fields.map((f) => ({
       name: f.name,
@@ -1057,6 +1379,10 @@ export async function runQuery(
       totalRows,
       schema,
       bytesProcessed,
+      fetchedAt,
+      ...(typeof data.cacheHit === "boolean"
+        ? { providerCacheHit: data.cacheHit }
+        : {}),
       ...(totalRows > rows.length ? { truncated: true } : {}),
     };
 
@@ -1071,7 +1397,8 @@ export async function runQuery(
       else await releaseCacheQuery(cacheKey, cacheFence);
     }
 
-    return result;
+    // The cached copy stays unflagged: every read of it sets `cached: true`.
+    return { ...result, cached: false };
   } catch (error) {
     if (jobId) cancelJob = true;
     if (cancelJob && jobId && token) {

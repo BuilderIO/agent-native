@@ -1,3 +1,9 @@
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
+import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
+
 export const CHATGPT_DIRECTORY_TOOL_NAMES = [
   "list-designs",
   "list-design-templates",
@@ -10,6 +16,23 @@ export const CHATGPT_DIRECTORY_TOOL_NAMES = [
   "present-design-variants",
   "edit-design",
 ];
+
+const DESIGN_WIDGET_WRITE_ACTIONS = [
+  "update-design",
+  "update-file",
+  "create-file",
+  "share-resource",
+  "unshare-resource",
+  "set-resource-visibility",
+];
+
+function designWidgetTarget(designId: string, targetPath?: string) {
+  return {
+    targetPath: targetPath ?? `/design/${encodeURIComponent(designId)}`,
+    resourceIds: { designId, resourceType: "design" },
+    writeActions: DESIGN_WIDGET_WRITE_ACTIONS,
+  };
+}
 
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -26,19 +49,57 @@ function id(...values: unknown[]): string | null {
   );
 }
 
+function generatedScreenId(designId: string, result: unknown): string | null {
+  const urlPath = record(result).urlPath;
+  if (typeof urlPath !== "string") return null;
+  const queryStart = urlPath.indexOf("?");
+  const pathname = queryStart < 0 ? urlPath : urlPath.slice(0, queryStart);
+  if (pathname !== `/design/${encodeURIComponent(designId)}`) return null;
+  const query = queryStart < 0 ? "" : urlPath.slice(queryStart + 1);
+  return id(new URLSearchParams(query.split("#", 1)[0]).get("screen"));
+}
+
+type WidgetWriteAuthorizationInput = {
+  toolName: string;
+  args: Record<string, unknown>;
+  result: unknown;
+  target: { targetPath: string; resourceIds: Record<string, string> };
+  identity: { userEmail?: string; orgId?: string | null };
+};
+
 export const CHATGPT_DIRECTORY_PROFILE = {
   connectorCatalog: CHATGPT_DIRECTORY_TOOL_NAMES,
   widgets: true,
   widgetDomain: "https://design.agent-native.com",
+  authorizeWidgetWrite: async ({
+    target,
+    identity,
+  }: WidgetWriteAuthorizationInput) => {
+    const designId = target.resourceIds.designId;
+    const identityEmail = identity.userEmail?.trim().toLowerCase();
+    const requestEmail = getRequestUserEmail()?.trim().toLowerCase();
+    const requestOrgId = getRequestOrgId() ?? undefined;
+    if (!designId?.trim() || !identityEmail || requestEmail !== identityEmail) {
+      return false;
+    }
+    if (
+      identity.orgId !== undefined &&
+      (identity.orgId ?? undefined) !== requestOrgId
+    ) {
+      return false;
+    }
+    try {
+      await assertAccess("design", designId, "editor");
+      return true;
+    } catch (error) {
+      if (error instanceof ForbiddenError) return false;
+      throw error;
+    }
+  },
   widgetTargets: {
     "create-design": (_args: Record<string, unknown>, result: unknown) => {
       const designId = id(record(result).id, record(result).designId);
-      return designId
-        ? {
-            targetPath: `/design/${encodeURIComponent(designId)}`,
-            resourceIds: { designId },
-          }
-        : null;
+      return designId ? designWidgetTarget(designId) : null;
     },
     "create-design-from-template": (
       args: Record<string, unknown>,
@@ -49,20 +110,20 @@ export const CHATGPT_DIRECTORY_PROFILE = {
         record(result).designId,
         args.targetDesignId,
       );
-      return designId
-        ? {
-            targetPath: `/design/${encodeURIComponent(designId)}`,
-            resourceIds: { designId },
-          }
-        : null;
+      return designId ? designWidgetTarget(designId) : null;
     },
     "generate-design": (args: Record<string, unknown>, result: unknown) => {
       const designId = id(args.designId, record(result).designId);
+      const screenId = designId ? generatedScreenId(designId, result) : null;
       return designId
-        ? {
-            targetPath: `/design/${encodeURIComponent(designId)}`,
-            resourceIds: { designId },
-          }
+        ? designWidgetTarget(
+            designId,
+            `/design/${encodeURIComponent(designId)}${
+              screenId
+                ? `?editorView=overview&screen=${encodeURIComponent(screenId)}`
+                : ""
+            }`,
+          )
         : null;
     },
     "present-design-variants": (
@@ -70,18 +131,67 @@ export const CHATGPT_DIRECTORY_PROFILE = {
       result: unknown,
     ) => {
       const designId = id(args.designId, record(result).designId);
-      return designId
-        ? {
-            targetPath: `/design/${encodeURIComponent(designId)}`,
-            resourceIds: { designId },
-          }
-        : null;
+      return designId ? designWidgetTarget(designId) : null;
     },
   },
   widgetReadActionArguments: {
     "get-design-snapshot": { designId: "designId" },
     "get-design": { id: "designId" },
+    "list-resource-shares": {
+      resourceType: "resourceType",
+      resourceId: "designId",
+    },
   },
+  widgetWriteActionArguments: {
+    "create-file": {
+      designId: "designId",
+      filename: { type: "actionSchema" as const },
+      content: { type: "actionSchema" as const },
+      fileType: { type: "actionSchema" as const },
+    },
+    "update-design": {
+      id: "designId",
+      title: { type: "actionSchema" as const },
+      dataOperations: { type: "actionSchema" as const },
+      operationSource: { type: "actionSchema" as const },
+      operationRevision: { type: "actionSchema" as const },
+    },
+    "update-file": {
+      id: {
+        type: "actionSchemaResourceBound" as const,
+        resourceKey: "designId",
+      },
+      content: { type: "actionSchema" as const },
+      syncCollab: { type: "actionSchema" as const },
+      identityOnly: { type: "actionSchema" as const },
+      expectedVersionHash: { type: "actionSchema" as const },
+      operationSource: { type: "actionSchema" as const },
+      operationRevision: { type: "actionSchema" as const },
+    },
+    "share-resource": {
+      resourceType: "resourceType",
+      resourceId: "designId",
+      principalType: { type: "actionSchema" as const },
+      principalId: { type: "actionSchema" as const },
+      role: { type: "actionSchema" as const },
+      notify: { type: "actionSchema" as const },
+      resourceUrl: { type: "actionSchema" as const },
+      message: { type: "actionSchema" as const },
+    },
+    "unshare-resource": {
+      resourceType: "resourceType",
+      resourceId: "designId",
+      principalType: { type: "actionSchema" as const },
+      principalId: { type: "actionSchema" as const },
+    },
+    "set-resource-visibility": {
+      resourceType: "resourceType",
+      resourceId: "designId",
+      visibility: { type: "actionSchema" as const },
+    },
+  },
+  widgetReadOnlyActions: ["list-resource-shares"],
+  widgetReadAuthenticatedActions: ["list-resource-shares"],
   widgetReadPublicActions: ["get-design"],
   keyToolNames: [
     "list-designs",

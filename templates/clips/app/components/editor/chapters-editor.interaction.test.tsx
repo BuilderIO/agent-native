@@ -36,11 +36,23 @@ let container: HTMLDivElement;
 let root: Root;
 const queryClient = new QueryClient();
 
-function render(chapters: Chapter[]) {
+function render(
+  chapters: Chapter[],
+  revision = {
+    mediaUpdatedAt: "media-1",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  },
+) {
   act(() => {
     root.render(
       <QueryClientProvider client={queryClient}>
-        <ChaptersEditor recordingId="rec_1" chapters={chapters} currentMs={0} />
+        <ChaptersEditor
+          recordingId="rec_1"
+          chapters={chapters}
+          mediaUpdatedAt={revision.mediaUpdatedAt}
+          updatedAt={revision.updatedAt}
+          currentMs={0}
+        />
       </QueryClientProvider>,
     );
   });
@@ -102,7 +114,12 @@ function deferred<T>() {
 const refusal = (chapters: Chapter[]) =>
   Object.assign(new Error("changed"), {
     errorCode: "chapters_changed",
-    details: { chapters, cuts: [] },
+    details: {
+      chapters,
+      cuts: [],
+      mediaUpdatedAt: "media-1",
+      updatedAt: "2026-10-16T00:00:00.000Z",
+    },
   });
 
 beforeEach(() => {
@@ -112,6 +129,8 @@ beforeEach(() => {
   mocks.toastError.mockReset();
   mocks.save.mockImplementation(async (vars: any) => ({
     id: "rec_1",
+    mediaUpdatedAt: "media-1",
+    updatedAt: "2026-10-16T00:00:00.000Z",
     chapters: vars.chapters.map((c: Chapter) => ({
       ...c,
       title: c.title.trim(),
@@ -152,7 +171,11 @@ describe("ChaptersEditor saves", () => {
     await settle();
     expect(mocks.save).toHaveBeenCalledTimes(1);
     await act(async () => {
-      first.resolve({ chapters: [{ ...intro, title: "Opening" }] });
+      first.resolve({
+        chapters: [{ ...intro, title: "Opening" }],
+        mediaUpdatedAt: "media-1",
+        updatedAt: "2026-10-16T00:00:00.000Z",
+      });
     });
     await settle(0);
     expect(mocks.save).toHaveBeenCalledTimes(2);
@@ -168,6 +191,16 @@ describe("ChaptersEditor saves", () => {
     expect(titles()).toEqual(["Opening"]);
     await settle();
     expect(mocks.save.mock.calls[0][0].expectedChapters).toEqual([intro]);
+  });
+
+  it("ignores page data older than a confirmed save", async () => {
+    render([intro]);
+    type(0, "Opening");
+    await settle();
+
+    render([intro]);
+
+    expect(titles()).toEqual(["Opening"]);
   });
 
   it("shows the latest list on a refusal and drops the save queued behind it", async () => {
@@ -505,7 +538,11 @@ describe("ChaptersEditor saves", () => {
     type(0, "ABC");
     await settle();
     await act(async () => {
-      first.resolve({ chapters: [{ ...intro, title: "A" }] });
+      first.resolve({
+        chapters: [{ ...intro, title: "A" }],
+        mediaUpdatedAt: "media-1",
+        updatedAt: "2026-10-16T00:00:00.000Z",
+      });
     });
     await settle(0);
     expect(mocks.save).toHaveBeenCalledTimes(2);

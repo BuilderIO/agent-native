@@ -309,7 +309,7 @@ describe("generateSkillsPromptBlock scope filtering", () => {
     expect(block).not.toContain("dev-one");
     expect(block).toContain("[skill-runtime-one]");
     expect(block).toContain('docs-search --slug "<slug>"');
-    expect(block).toContain("reuse it for subsequent steps");
+    expect(block).toContain("once per conversation and reuse it");
     expect(block).not.toContain('bash(command="cat <skill-dir>/SKILL.md")');
   });
 

@@ -1,6 +1,8 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "block.renderUnavailable": "이 블록은 일시적으로 사용할 수 없습니다.",
+  "block.loading": "블록을 불러오는 중입니다.",
   "composer.contextUrlLabel": "URL",
   "composer.contextInvalidUrl": "유효한 HTTP 또는 HTTPS URL을 입력하세요.",
   "composer.contextAttach": "첨부",
@@ -38,6 +40,12 @@ const messages: ToolkitAgentChatTranslation = {
   "agent.queued": "대기 중",
   "agent.completed": "작업을 완료했습니다",
   "agent.failed": "주의가 필요합니다",
+  "agent.failureReason.failed": "완료하지 못했습니다",
+  "agent.failureReason.setup": "먼저 설정이 필요합니다",
+  "agent.failureReason.auth": "액세스가 거부되었습니다",
+  "agent.failureReason.timeout": "응답이 너무 늦었습니다",
+  "agent.failureReason.budget": "시간이 부족했습니다",
+  "agent.failureReason.response": "사용할 수 있는 결과가 없습니다",
   "agent.closed": "종료했습니다",
   "approval.alwaysAllow": "항상 허용",
   "approval.alwaysAllowHint":
@@ -83,6 +91,8 @@ const messages: ToolkitAgentChatTranslation = {
   "observability.promoteMustContain": "답변에 포함할 내용…",
   "observability.promoteMustContainOptional": "답변에서 확인할 선택적 텍스트…",
   "observability.promoteMustContainLabel": "승격된 평가 답변에서 확인할 텍스트",
+  "observability.promoteReviewedPromptLabel":
+    "수동으로 검토한 프롬프트(프로덕션에서 자동 복사되지 않음)",
   "observability.promoteNeedsContains":
     "이 실행에는 성공한 도구 호출이 없습니다. 승격하기 전에 답변에 포함할 텍스트를 입력하세요.",
   "observability.viewDetails": "세부 정보 보기",
@@ -124,7 +134,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.skipForNow": "지금 건너뛰기",
   "onboarding.saveRoleError": "역할을 저장하지 못했습니다.",
   "onboarding.builderCreateAccount": "Builder.io 사용",
-  "onboarding.builderSignInWithAccount": "Builder.io 사용",
+  "onboarding.builderSignInWithAccount": "Builder.io 계정으로 로그인",
   "onboarding.builderActivateDescription":
     "한 번의 클릭으로 Builder.io 계정을 생성하거나 재사용하고 무료 크레딧을 활성화합니다.",
   "onboarding.builderActiveCredits": "활성 Builder.io 무료 크레딧에 포함",
@@ -143,8 +153,17 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderAccountExistsTitle": "이미 Builder.io 계정이 있습니다",
   "onboarding.builderAccountExistsDescription":
     "계정을 사용하려면 로그인하세요.",
+  "onboarding.builderActivationChecking":
+    "새 계정 생성이 가능한지 확인하는 중입니다.",
+  "onboarding.builderActivationUnavailable":
+    "Builder.io에 연결하려면 계정을 만들거나 로그인하세요.",
+  "onboarding.builderActivationUnavailableInMode":
+    "Builder.io에 연결하려면 계정을 만들거나 로그인하세요.",
+  "onboarding.builderActivationCheckFailed":
+    "이 앱에서 새 계정을 만들 수 있는지 확인하지 못했습니다.",
+
   "onboarding.builderActivationDescription":
-    "한 번의 클릭으로 Builder.io 계정을 만들거나 연결해 무료 크레딧을 받으세요.",
+    "새 계정을 만들어 무료 크레딧을 활성화하거나 기존 계정으로 계속하세요.",
   "onboarding.builderOrgActivationDescription":
     "한 번의 클릭으로 Builder.io 계정을 만들어 조직에서 사용할 수 있도록 합니다.",
   "onboarding.builderCreateAndActivate": "생성 및 활성화",
@@ -152,11 +171,13 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderTerms": "서비스 약관",
   "onboarding.builderPrivacy": "개인정보 처리방침",
   "onboarding.builderConsentAnd": "및",
-  "onboarding.builderExistingAccount": "Builder.io 사용",
+  "onboarding.builderExistingAccount": "Builder.io 계정이 있어요",
+  "onboarding.builderConnect": "Builder.io 연결",
   "onboarding.builderActivating": "Builder.io 무료 크레딧 활성화 중",
   "onboarding.builderConnecting": "Builder.io 무료 크레딧 설정 중",
   "onboarding.builderProvisioningDescription":
     "Builder.io 계정을 만들고 무료 크레딧을 활성화하고 있습니다.",
+  "onboarding.builderCancelPending": "연결 상태를 확인하는 중…",
   "onboarding.builderConnectionDescription":
     "새 창에서 한 번의 클릭으로 연결을 완료하세요.",
   "onboarding.builderReadyWithCodeChanges":
@@ -186,6 +207,10 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.keySummary": "임베딩",
   "onboarding.capability.embeddings.why":
     "임베딩은 의미 검색을 개선합니다. 임베딩 없이도 키워드 검색은 작동합니다.",
+  "onboarding.capability.webSearch.label": "웹 검색",
+  "onboarding.capability.webSearch.keySummary": "Builder 관리 웹 검색",
+  "onboarding.capability.webSearch.why":
+    "웹의 최신 공개 자료를 검색합니다. Builder 관리 검색은 포함된 Builder AI 크레딧을 사용하므로 별도의 검색 API 키가 필요하지 않습니다.",
   "onboarding.capability.systemOne.why":
     "Jev는 에이전트의 첫 모델 요청 전에 관련 도구와 스킬을 선택하도록 돕는 선택형 의사결정 모델입니다.",
   "onboarding.capability.assetsImageGeneration.label": "이미지 생성",
@@ -498,7 +523,19 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "스킬 파일 업로드",
   "composer.upload": "업로드",
   "composer.uploadFailed": "선택한 파일을 업로드할 수 없습니다.",
+  "composer.fileTooLarge": "이 파일은 {{size}}MB 업로드 제한보다 큽니다.",
+  "composer.sessionExpired":
+    "세션이 만료되었습니다. 다시 로그인한 후 메시지를 보내세요.",
   "composer.unsupportedFileType": "지원되지 않는 파일 형식입니다.",
+  "composer.uploadUnavailable":
+    "지금은 파일을 업로드할 수 없습니다. 잠시 후 다시 시도하세요.",
+  "composer.uploadOffline":
+    "업로드가 서버에 연결되지 못했습니다. 연결 상태를 확인한 후 다시 시도하세요.",
+  "composer.submissionNotReady":
+    "채팅을 아직 보낼 준비가 되지 않았습니다. 잠시 기다린 후 다시 보내세요.",
+  "composer.submissionScopeChanged":
+    "메시지가 전송되기 전에 이 채팅이 변경되었습니다. 다시 보내세요.",
+  "composer.attachmentNotSaved": "이 채팅에 저장되지 않음",
   "composer.useAttachedContext": "첨부된 컨텍스트를 사용하세요.",
   "mentions.commands": "명령",
   "mentions.learnMore": "자세히 알아보기",
@@ -634,6 +671,10 @@ const messages: ToolkitAgentChatTranslation = {
     "모델 제공업체가 이 요청을 잘못된 형식으로 거부하여 재시도하지 않았습니다. 다시 시도하거나 문제가 계속되면 새 채팅을 시작하세요.",
   "errorMessages.requestTooLarge":
     "이 요청은 서버 크기 제한을 초과했습니다(HTTP 413). 새 채팅을 시작하거나 큰 첨부 파일 또는 참조를 제거한 뒤 다시 시도하세요.",
+  "errorMessages.capabilityUnavailable":
+    "지금은 메시지를 보낼 수 없습니다. 잠시 후 다시 시도해 주세요.",
+  "errorMessages.capabilityUnsupported":
+    "이 앱은 저장된 프롬프트를 아직 안전하게 다시 시도할 수 없습니다. 앱을 업데이트한 뒤 다시 시도하세요.",
   "errorMessages.runInterrupted": "에이전트가 완료하기 전에 중지되었습니다.",
   "errorMessages.runFailed": "에이전트 실행이 실패했습니다.",
   "errorMessages.runUnverified":
@@ -642,6 +683,8 @@ const messages: ToolkitAgentChatTranslation = {
     "로그아웃되어 이 채팅에서 에이전트를 추적할 수 없습니다. 다시 로그인한 후 새로고침하세요.",
   "errorMessages.malformedRequestAttachment":
     "모델이 첨부 파일을 거부하여 이 메시지는 전송되지 않았습니다. 첨부를 제거하고 다시 시도하세요. PDF, 일반 텍스트 파일, JPEG·PNG·GIF·WebP 이미지는 직접 읽을 수 있지만 다른 형식은 업로드한 뒤 링크해야 합니다.",
+  "errorMessages.invalidAttachment":
+    "모델 제공업체가 첨부 파일의 형식 또는 크기 때문에 거부했습니다. 이미지는 더 작은 PNG, JPEG, GIF 또는 WebP로 내보내세요. 문서는 지원되는 파일 형식을 사용하거나 관련 텍스트를 붙여 넣은 다음 다시 첨부하세요.",
   "errorMessages.noProviderConnected":
     "연결된 LLM 제공업체가 없습니다. 설정 > 에이전트 > AI 제공업체를 열고 Builder.io(무료 플랜 제공)를 사용하거나 제공업체 키를 추가하세요.",
   "errorMessages.openBuilderSpaceSettings": "Builder 스페이스 설정 열기",
@@ -1134,6 +1177,15 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.copyFailed": "복사 실패",
   "recovery.continueUnavailable":
     "이 실행은 더 이상 계속할 수 없습니다. 계속하려면 메시지를 보내세요.",
+  "errorMessages.invalidAttachmentNamed":
+    "모델 제공업체가 지원되지 않는 형식 또는 크기 때문에 {{name}}을(를) 거부했습니다. 이미지는 더 작은 PNG, JPEG, GIF 또는 WebP로 내보내세요. 문서는 지원되는 형식을 사용하거나 관련 텍스트를 붙여 넣은 뒤 다시 시도하세요.",
+  "recovery.resendVerificationEmail": "인증 이메일 다시 보내기",
+  "recovery.sendingVerificationEmail": "보내는 중...",
+  "recovery.verificationEmailRequested":
+    "인증 이메일을 요청했습니다. 받은편지함과 스팸 폴더를 확인하세요.",
+  "recovery.verificationEmailFailed":
+    "인증 이메일을 요청하지 못했습니다. 다시 시도하세요.",
+  "recovery.retryWithoutAttachment": "첨부 파일 없이 다시 시도",
   "recovery.retryAttachmentUnavailable":
     "이 요청에는 다시 시도할 수 없는 파일이 포함되어 있습니다. 메시지 입력란에 파일을 다시 첨부한 다음 다시 시도하세요.",
   "recovery.deferredSubmissionFailed":
@@ -1177,6 +1229,8 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.emptyMore":
     "그 외 {{count}}개는 '새로 만들기' 아래에 있거나 사용자 지정 키를 추가하세요",
   "secrets.emptyTitle": "아직 키가 없습니다.",
+  "secrets.figmaTokenMustBeToken":
+    "Figma 파일 URL이 아닌 Figma 액세스 토큰을 붙여넣으세요.",
   "secrets.fromEnvironment": "배포 환경에서 제공됩니다.",
   "secrets.managedInVault":
     "워크스페이스 Vault에서 관리됩니다. 이 워크스페이스의 모든 앱이 이 값을 사용합니다.",
@@ -1205,6 +1259,12 @@ const messages: ToolkitAgentChatTranslation = {
   "selection.attached_other":
     "선택한 내용의 {{formattedCount}}자가 첨부되었습니다",
   "selection.clear": "선택 컨텍스트 지우기",
+  "setup.addKeyInSettings": "설정에서 키 추가",
+  "setup.addKeyInSettingsDescription": "개인 계정 또는 조직 계정에 추가합니다.",
+  "setup.setEnvironmentVariable": "환경 변수 설정",
+  "setup.setEnvironmentVariableDescription":
+    "이 앱의 모든 사용자가 하나의 제공자 키를 사용합니다.",
+
   "setup.addOwnKeys": "직접 키 추가",
   "setup.builderCredits":
     "Builder.io는 무료 크레딧을 제공하며, 직접 API 키를 사용할 수도 있습니다.",
@@ -2542,6 +2602,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.search.appDefaultModel": "앱 기본 모델",
   "settingsShell.search.backgroundAgents": "백그라운드 에이전트",
   "settingsShell.search.browserAutomation": "브라우저 자동화",
+  "settingsShell.search.webSearch": "웹 검색",
   "settingsShell.search.connectedAgents": "연결된 에이전트",
   "settingsShell.search.database": "데이터베이스",
   "settingsShell.search.defaultModel": "기본 모델",
@@ -2676,6 +2737,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.whyBackground": "프로덕션에서 코드를 변경합니다.",
   "settingsInfra.whyBrowser":
     "에이전트가 프로덕션에서 브라우저를 사용할 수 있게 합니다.",
+  "settingsInfra.whyWebSearch": "최신 공개 정보와 공식 문서를 찾습니다.",
   "settingsInfra.provider": "제공업체",
   "settingsInfra.keyOrg": "조직의 {{provider}} 키를 사용합니다.",
   "settingsInfra.manageKey": "키 관리",
@@ -3004,6 +3066,16 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsSubAgents.connectTitle": "{{name}} 연결",
   "settingsSubAgents.close": "닫기",
   "observability.insights.rawTrace": "원시 트레이스 (모든 스팬과 입력/출력)",
+  "reportProblem.menuItem": "문제 신고",
+  "reportProblem.title_other":
+    "최근 {{count}}초 동안 앱이 한 작업을 첨부할까요?",
+  "reportProblem.noEvents": "아직 기록된 내용이 없습니다.",
+  "reportProblem.send": "에이전트에게 보내기",
+  "reportProblem.copy": "문제 보고서 복사",
+  "reportProblem.attaching": "첨부하는 중…",
+  "reportProblem.notAttached": "보고서가 첨부되지 않았습니다.",
+  "reportProblem.agentMessage":
+    "앱에 문제가 생겼습니다. 첨부된 문제 보고서를 바탕으로 무슨 일이 있었는지 설명해 주세요.",
 };
 
 export default messages;

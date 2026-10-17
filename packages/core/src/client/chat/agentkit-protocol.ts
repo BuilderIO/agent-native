@@ -17,6 +17,7 @@ import type {
   AgentObjectReference,
   AgentParticipant,
   AgentRunStatus,
+  AgentRequestAttachment,
   AgentTask,
   AgentTaskGroup,
   AgentToolCall,
@@ -42,6 +43,7 @@ import {
   resumeOptionId,
 } from "@agent-native/agentkit/protocol";
 
+import { approvalKeyForHistory } from "../../agent/approval-key.js";
 import {
   AUTO_CONTINUE_OF_RUN_METADATA_KEY,
   AUTO_CONTINUE_PROMPT,
@@ -50,6 +52,9 @@ import {
   CONTINUE_UNAVAILABLE_CODE,
   type AutoContinueRefusalCode,
 } from "../../agent/auto-continue.js";
+import type { AgentChatAttachment } from "../../agent/types.js";
+import { isPersistableAttachmentUrl } from "../../shared/attachments.js";
+import { parseBase64DataUrl } from "../../shared/data-url.js";
 import {
   emitChatFirstOpenApp,
   emitChatFirstOpenBrowser,
@@ -59,6 +64,7 @@ import {
   runOutcomeForCode,
   type RunAuthorityRead,
   type RunOutcomeReport,
+  type ServerRunState,
   type RunTerminalSource,
   type StreamClosedDecision,
   type TerminalDrain,
@@ -162,6 +168,8 @@ interface ProtocolRun {
   quietAuthorityReads?: number;
   subscribeFailures?: number;
   initialAuthorityRead?: RunAuthorityRead;
+  restoredPendingConnectionRequestId?: string | null;
+  restoredRunStatus?: ServerRunState["status"];
   terminalDrain?: TerminalDrain;
   readingTerminalDrain?: boolean;
   successorWaitStartedAtMs?: number;
@@ -173,6 +181,8 @@ interface ProtocolRun {
   pipeClosedBeforeTerminal?: boolean;
   /** Restored after a reload: its first "stream" is a placeholder, not a pipe. */
   restoredWithoutStream?: boolean;
+  /** A restored decline must verify its request against the replayed stream. */
+  requiresRestoredConnectionRequestReplay?: boolean;
   /**
    * The runtime run's own interruption, held until the server says whether a
    * newer run already carries the turn (the stale-run reaper starts one).
@@ -211,6 +221,19 @@ const DEFAULT_MAX_RETAINED_RUNS = 100;
 const DEFAULT_RETAINED_RUN_TTL_MS = 30 * 60 * 1_000;
 const MAX_DURABLE_RESUME_ATTEMPTS = 3;
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
+const RESTORED_CONNECTION_REQUEST_REPLAY_TIMEOUT_MS = 5_000;
+const RESTORED_CONNECTION_REQUEST_UNVERIFIED_MESSAGE =
+  "Could not verify whether the restored connection request is still pending.";
+
+function restoredConnectionRequestUnverifiedError() {
+  return Object.assign(
+    new Error(RESTORED_CONNECTION_REQUEST_UNVERIFIED_MESSAGE),
+    {
+      code: "connection_request_unverified" as const,
+      retryable: true as const,
+    },
+  );
+}
 
 const DISCOVERABLE_CAPABILITIES = [
   "actions",
@@ -240,6 +263,105 @@ const DISCOVERABLE_CAPABILITIES = [
 ] as const satisfies readonly AgentCapabilityId[];
 
 export const AGENT_NATIVE_PROTOCOL_METADATA_KEY = "x-agent-native";
+
+function attachmentMediaType(part: FilePart): string | undefined {
+  const dataUrlMediaType = part.url
+    ? parseBase64DataUrl(part.url)?.mediaType
+    : undefined;
+  const declaredMediaType = part.mediaType
+    ?.split(";", 1)[0]
+    ?.trim()
+    .toLowerCase();
+  return (
+    dataUrlMediaType ??
+    (declaredMediaType && declaredMediaType !== "image"
+      ? declaredMediaType
+      : undefined)
+  );
+}
+
+function runtimeAttachmentFromFilePart(part: FilePart) {
+  const mediaType = attachmentMediaType(part);
+  const isImage =
+    mediaType?.startsWith("image/") === true ||
+    (!mediaType &&
+      part.mediaType?.split(";", 1)[0]?.trim().toLowerCase() === "image");
+  return {
+    type: isImage ? "image" : "file",
+    name: part.name,
+    ...(part.fileId ? { id: part.fileId } : {}),
+    ...(mediaType ? { mediaType, contentType: mediaType } : {}),
+    ...(part.url ? { url: part.url } : {}),
+  };
+}
+
+function runtimeRequestAttachments(args: {
+  message?: AgentMessage;
+  requestAttachments?: AgentRequestAttachment[];
+}): AgentChatAttachment[] {
+  const attachments: AgentChatAttachment[] =
+    args.message?.parts.flatMap((part) =>
+      part.type === "file" ? [runtimeAttachmentFromFilePart(part)] : [],
+    ) ?? [];
+  for (const requestAttachment of args.requestAttachments ?? []) {
+    const originalUrl = requestAttachment.referenceUrl;
+    const originalIndex = originalUrl
+      ? attachments.findIndex((attachment) => attachment.url === originalUrl)
+      : -1;
+    if (typeof requestAttachment.data === "string") {
+      const imageUrl = requestAttachment.url ?? originalUrl;
+      const keepsOriginalReference =
+        originalUrl !== undefined &&
+        imageUrl !== undefined &&
+        originalUrl !== imageUrl;
+      if (keepsOriginalReference) {
+        const original = originalIndex >= 0 ? attachments[originalIndex] : null;
+        const reference = {
+          type: "file",
+          name: original?.name || requestAttachment.name,
+          contentType: original?.contentType || requestAttachment.contentType,
+          url: originalUrl,
+          referenceOnly: true,
+        };
+        if (originalIndex >= 0) attachments.splice(originalIndex, 1, reference);
+        else attachments.push(reference);
+      }
+      const image = {
+        type: "image",
+        name: requestAttachment.name,
+        contentType: requestAttachment.contentType,
+        data: requestAttachment.data,
+        ...(imageUrl ? { url: imageUrl } : {}),
+      };
+      if (originalIndex >= 0 && !keepsOriginalReference) {
+        attachments.splice(originalIndex, 1, image);
+      } else {
+        attachments.push(image);
+      }
+      continue;
+    }
+
+    if (originalIndex >= 0 && originalUrl) {
+      const original = attachments[originalIndex]!;
+      attachments.splice(originalIndex, 1, {
+        type: "file",
+        name: original.name || requestAttachment.name,
+        contentType: original.contentType,
+        url: originalUrl,
+        referenceOnly: true,
+      });
+    }
+    if (typeof requestAttachment.url === "string") {
+      attachments.push({
+        type: "image",
+        name: requestAttachment.name,
+        contentType: requestAttachment.contentType,
+        url: requestAttachment.url,
+      });
+    }
+  }
+  return attachments;
+}
 
 /**
  * Structured Agent-Native references carried through the protocol's metadata
@@ -785,6 +907,16 @@ function runtimePartToProtocolPart(
           name: part.toolName,
           input: part.input,
           inputText: part.inputText,
+          ...(part.approval?.approvalKey
+            ? {
+                approvalKey: part.approval.askId
+                  ? approvalKeyForHistory(part.approval.approvalKey)
+                  : part.approval.approvalKey,
+              }
+            : {}),
+          ...(part.approval?.askId
+            ? { approvalAskId: part.approval.askId }
+            : {}),
         },
       } satisfies DataPart;
     case "tool-result":
@@ -797,6 +929,10 @@ function runtimePartToProtocolPart(
           result: part.result,
           resultText: part.resultText,
           isError: part.isError,
+          ...(typeof part.approvalPause === "boolean"
+            ? { approvalPause: part.approvalPause }
+            : {}),
+          ...(part.approvalAskId ? { approvalAskId: part.approvalAskId } : {}),
         },
       } satisfies DataPart;
     case "data":
@@ -828,6 +964,7 @@ function runtimeMessageToProtocolMessage(
       runtimePartToProtocolPart(part, textFormat),
     ),
     createdAt: message.createdAt,
+    status: message.status,
     metadata: message.metadata,
   };
 }
@@ -868,6 +1005,18 @@ function protocolPartToRuntimePart(
           ...(typeof data.inputText === "string"
             ? { inputText: data.inputText }
             : {}),
+          ...(typeof data.approvalKey === "string" &&
+          data.approvalKey.length > 0
+            ? {
+                approval: {
+                  approvalKey: data.approvalKey,
+                  ...(typeof data.approvalAskId === "string" &&
+                  data.approvalAskId.length > 0
+                    ? { askId: data.approvalAskId }
+                    : {}),
+                },
+              }
+            : {}),
         };
       }
       if (part.mediaType === AGENT_TOOL_RESULT_HISTORY_MEDIA_TYPE) {
@@ -886,6 +1035,13 @@ function protocolPartToRuntimePart(
             ? { resultText: data.resultText }
             : {}),
           ...(data.isError === true ? { isError: true } : {}),
+          ...(typeof data.approvalPause === "boolean"
+            ? { approvalPause: data.approvalPause }
+            : {}),
+          ...(typeof data.approvalAskId === "string" &&
+          data.approvalAskId.length > 0
+            ? { approvalAskId: data.approvalAskId }
+            : {}),
         };
       }
       return {
@@ -911,6 +1067,7 @@ function protocolMessageToRuntimeMessage(
     role: message.role,
     content: message.parts.map(protocolPartToRuntimePart),
     createdAt: message.createdAt,
+    status: message.status,
     metadata: message.metadata,
   };
 }
@@ -1252,6 +1409,7 @@ export function createAgentKitProtocolAdapter(
     sessionId: string;
     runId?: string;
     turnId?: string;
+    includePendingConnectionRequest?: boolean;
   }): Promise<RunAuthorityRead> {
     if (!runAuthority) {
       throw new Error("The runtime does not provide run authority.");
@@ -1668,10 +1826,34 @@ export function createAgentKitProtocolAdapter(
     return session;
   }
 
-  async function restoreRunFromRuntime(input: {
-    threadId: string;
-    runId: string;
-  }): Promise<ProtocolRun> {
+  async function restoreRunFromRuntime(
+    input: {
+      threadId: string;
+      runId: string;
+    },
+    restoreOptions: { includePendingConnectionRequest?: boolean } = {},
+  ): Promise<ProtocolRun> {
+    const readPendingConnectionRequestState = async (
+      sessionId: string,
+      runId: string,
+    ): Promise<ServerRunState> => {
+      if (!runAuthority) {
+        throw restoredConnectionRequestUnverifiedError();
+      }
+      const read = await readAuthoritativeRunState({
+        sessionId,
+        runId,
+        includePendingConnectionRequest: true,
+      });
+      if (
+        read.kind !== "read" ||
+        !("pendingConnectionRequestId" in read.state) ||
+        read.state.pendingConnectionRequestId === undefined
+      ) {
+        throw restoredConnectionRequestUnverifiedError();
+      }
+      return read.state;
+    };
     if (
       capabilities.resumableRuns !== true ||
       (!runtime.resume && !runtime.subscribe)
@@ -1682,7 +1864,22 @@ export function createAgentKitProtocolAdapter(
       input.threadId,
       input.runId,
     );
-    if (initialResolution.owner) return initialResolution.owner;
+    if (initialResolution.owner) {
+      if (restoreOptions.includePendingConnectionRequest && runAuthority) {
+        const state = await readPendingConnectionRequestState(
+          initialResolution.owner.session.id,
+          initialResolution.owner.turn.runId ?? input.runId,
+        );
+        initialResolution.owner.restoredPendingConnectionRequestId =
+          state.pendingConnectionRequestId;
+        initialResolution.owner.restoredRunStatus = state.status;
+        initialResolution.owner.initialAuthorityRead = { kind: "read", state };
+      }
+      if (restoreOptions.includePendingConnectionRequest) {
+        initialResolution.owner.requiresRestoredConnectionRequestReplay = true;
+      }
+      return initialResolution.owner;
+    }
     const session = await getSession(input.threadId);
     const resolution = await resolveRuntimeRunOwner(
       input.threadId,
@@ -1690,9 +1887,44 @@ export function createAgentKitProtocolAdapter(
       session.id,
       initialResolution.read,
     );
-    if (resolution.owner) return resolution.owner;
-    const state =
-      resolution.read?.kind === "read" ? resolution.read.state : undefined;
+    if (resolution.owner) {
+      if (restoreOptions.includePendingConnectionRequest && runAuthority) {
+        const state = await readPendingConnectionRequestState(
+          resolution.owner.session.id,
+          resolution.owner.turn.runId ?? input.runId,
+        );
+        resolution.owner.restoredPendingConnectionRequestId =
+          state.pendingConnectionRequestId;
+        resolution.owner.restoredRunStatus = state.status;
+        resolution.owner.initialAuthorityRead = { kind: "read", state };
+      }
+      if (restoreOptions.includePendingConnectionRequest) {
+        resolution.owner.requiresRestoredConnectionRequestReplay = true;
+      }
+      return resolution.owner;
+    }
+    const restoreRead =
+      restoreOptions.includePendingConnectionRequest && runAuthority
+        ? await readAuthoritativeRunState({
+            sessionId: session.id,
+            runId:
+              resolution.read?.kind === "read" &&
+              resolution.read.state.status !== "missing"
+                ? resolution.read.state.runId
+                : input.runId,
+            includePendingConnectionRequest: true,
+          })
+        : resolution.read;
+    if (
+      restoreOptions.includePendingConnectionRequest &&
+      runAuthority &&
+      (restoreRead?.kind !== "read" ||
+        !("pendingConnectionRequestId" in restoreRead.state) ||
+        restoreRead.state.pendingConnectionRequestId === undefined)
+    ) {
+      throw restoredConnectionRequestUnverifiedError();
+    }
+    const state = restoreRead?.kind === "read" ? restoreRead.state : undefined;
     const resumeInput = {
       sessionId: session.id,
       runId: input.runId,
@@ -1764,10 +1996,17 @@ export function createAgentKitProtocolAdapter(
       terminal: false,
       waitingForContinuation: false,
       ...(runAuthority ? { restoredWithoutStream: true } : {}),
+      ...(restoreOptions.includePendingConnectionRequest
+        ? { requiresRestoredConnectionRequestReplay: true }
+        : {}),
       listeners: new Set(),
     };
     indexRun(run, turn.runId ?? input.runId);
-    if (resolution.read) run.initialAuthorityRead = resolution.read;
+    if (restoreRead) run.initialAuthorityRead = restoreRead;
+    if (state && "pendingConnectionRequestId" in state) {
+      run.restoredPendingConnectionRequestId = state.pendingConnectionRequestId;
+      run.restoredRunStatus = state.status;
+    }
     append(run, {
       type: "run.started",
       agentId: runtime.id,
@@ -2275,13 +2514,16 @@ export function createAgentKitProtocolAdapter(
         );
         if (invocation) run.actions.set(event.toolCall.id, invocation);
         const messageId = runtimeToolMessageId(run, event.toolCall.metadata);
-        const toolCall = runtimeToolToProtocolTool(
-          event.toolCall,
-          "running",
-          undefined,
-          undefined,
-          messageId,
-        );
+        const toolCall = {
+          ...runtimeToolToProtocolTool(
+            event.toolCall,
+            "running",
+            undefined,
+            undefined,
+            messageId,
+          ),
+          runId: run.runId,
+        };
         if (messageId) {
           run.pendingToolMessageAssociations.delete(toolCall.id);
         } else {
@@ -2338,17 +2580,31 @@ export function createAgentKitProtocolAdapter(
           : undefined;
         const invocation = run.actions.get(event.toolCallId);
         const previousTool = run.activeTools.get(event.toolCallId);
-        const metadata = mergeProtocolMetadata(
-          previousTool?.metadata,
-          invocation?.metadata,
-          event.metadata,
-          base.metadata,
-          {
-            ...(event.completedSideEffect ? { completedSideEffect: true } : {}),
-            ...(event.chatUI ? { chatUI: event.chatUI } : {}),
-            ...(event.mcpApp ? { mcpApp: event.mcpApp } : {}),
-          },
-        );
+        const metadata =
+          mergeProtocolMetadata(
+            previousTool?.metadata,
+            invocation?.metadata,
+            event.metadata,
+            base.metadata,
+            {
+              ...(event.completedSideEffect
+                ? { completedSideEffect: true }
+                : {}),
+              ...(event.chatUI ? { chatUI: event.chatUI } : {}),
+              ...(event.mcpApp ? { mcpApp: event.mcpApp } : {}),
+            },
+          ) ?? {};
+        if (event.approvalPause === true) {
+          metadata.approvalPause = true;
+          if (event.approvalAskId) {
+            metadata.approvalAskId = event.approvalAskId;
+          }
+        } else {
+          delete metadata.approvalPause;
+          delete metadata.approvalAskId;
+        }
+        const protocolMetadata =
+          Object.keys(metadata).length > 0 ? metadata : undefined;
         const actionResult = invocation
           ? actionResultFromTool({
               invocation,
@@ -2356,7 +2612,7 @@ export function createAgentKitProtocolAdapter(
               result: event.result,
               resultText: event.resultText,
               error,
-              metadata,
+              metadata: protocolMetadata,
             })
           : undefined;
         if (invocation) run.actions.delete(event.toolCallId);
@@ -2375,8 +2631,9 @@ export function createAgentKitProtocolAdapter(
           status,
           output: event.result !== undefined ? event.result : event.resultText,
           error,
+          runId: run.runId,
           ...(messageId ? { messageId } : {}),
-          ...(metadata ? { metadata } : {}),
+          ...(protocolMetadata ? { metadata: protocolMetadata } : {}),
         };
         if (messageId) {
           run.pendingToolMessageAssociations.delete(event.toolCallId);
@@ -2457,6 +2714,10 @@ export function createAgentKitProtocolAdapter(
                 ...(event.toolCallId ? { toolCallId: event.toolCallId } : {}),
                 ...(event.toolName ? { toolName: event.toolName } : {}),
                 ...(event.input === undefined ? {} : { input: event.input }),
+                ...(event.allowPersistentApproval === false
+                  ? { allowPersistentApproval: false }
+                  : {}),
+                ...(event.askId ? { approvalAskId: event.askId } : {}),
               },
             } satisfies AgentApprovalRequest,
           },
@@ -2977,6 +3238,28 @@ export function createAgentKitProtocolAdapter(
     });
   }
 
+  async function waitForRestoredConnectionRequest(
+    run: ProtocolRun,
+    requestId: string,
+  ): Promise<void> {
+    const isPending = () =>
+      run.pendingConnectionRequestId === requestId &&
+      run.events.some(
+        (event) =>
+          event.type === "connection.requested" &&
+          event.request.id === requestId,
+      );
+    const deadline = Date.now() + RESTORED_CONNECTION_REQUEST_REPLAY_TIMEOUT_MS;
+    while (!isPending() && !run.terminal && !readers.signal.aborted) {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) break;
+      await notifyWhenChanged(run, readers.signal, remaining);
+    }
+    if (!isPending() && !run.terminal) {
+      throw restoredConnectionRequestUnverifiedError();
+    }
+  }
+
   async function resumeRuntimeTurn(
     run: ProtocolRun,
     cause?: unknown,
@@ -3474,19 +3757,10 @@ export function createAgentKitProtocolAdapter(
       const createRun = async (): Promise<string> => {
         const session = await getSession(input.threadId, turnMetadata);
         const messages = input.messages.map(protocolMessageToRuntimeMessage);
-        const attachments =
-          latestUserMessage?.parts.flatMap((part) =>
-            part.type === "file"
-              ? [
-                  {
-                    name: part.name,
-                    ...(part.fileId ? { id: part.fileId } : {}),
-                    ...(part.mediaType ? { mediaType: part.mediaType } : {}),
-                    ...(part.url ? { url: part.url } : {}),
-                  },
-                ]
-              : [],
-          ) ?? [];
+        const attachments = runtimeRequestAttachments({
+          message: latestUserMessage,
+          requestAttachments: input.requestAttachments,
+        });
         const turn = await session.startTurn({
           prompt: latestUserPrompt(input.messages),
           messages,
@@ -3866,11 +4140,24 @@ export function createAgentKitProtocolAdapter(
           activeMessageCompleted: run.activeMessageCompleted,
           pendingWidgets: new Map(run.pendingWidgets),
           actions: new Map(run.actions),
-          activeTools: new Map(run.activeTools),
-          pendingToolMessageAssociations: new Map(
-            run.pendingToolMessageAssociations,
+          activeTools: new Map(
+            [...run.activeTools].map(([id, tool]) => [
+              id,
+              { ...tool, runId: nextRunId },
+            ]),
           ),
-          activeActivities: new Map(run.activeActivities),
+          pendingToolMessageAssociations: new Map(
+            [...run.pendingToolMessageAssociations].map(([id, tool]) => [
+              id,
+              { ...tool, runId: nextRunId },
+            ]),
+          ),
+          activeActivities: new Map(
+            [...run.activeActivities].map(([id, activity]) => [
+              id,
+              { ...activity, runId: nextRunId },
+            ]),
+          ),
           terminalAppendDepth: 0,
           pumpPromise: null,
           continuationPromise: null,
@@ -3951,10 +4238,18 @@ export function createAgentKitProtocolAdapter(
           { code: CONTINUE_UNAVAILABLE_CODE, retryable: false },
         );
       }
+      const attachments = (input.attachments ?? [])
+        .filter(
+          (part) =>
+            !part.omitted &&
+            (part.fileId !== undefined || isPersistableAttachmentUrl(part.url)),
+        )
+        .map(runtimeAttachmentFromFilePart);
       const turn = await session.continueTurn({
         turnId: state.turnId,
         prompt: AUTO_CONTINUE_PROMPT,
         metadata: { [CONTINUE_OF_RUN_METADATA_KEY]: state.runId },
+        ...(attachments.length ? { attachments } : {}),
         abortSignal: readers.signal,
       });
       const runId = await openStartedRun(
@@ -3971,12 +4266,48 @@ export function createAgentKitProtocolAdapter(
   if (runtime.capabilities.rich?.connectionRequests) {
     transport.resolveConnectionRequest = async (input) => {
       pruneRetainedRuns();
-      const run = findRun(input.threadId, input.runId);
+      let run = findRun(input.threadId, input.runId);
+      let restoredThisCall = false;
       if (!run) {
-        throw new Error(`Unknown AgentKit run: ${input.runId}`);
+        if (runs.has(input.runId)) {
+          throw new Error(`Unknown AgentKit run: ${input.runId}`);
+        }
+        run = await restoreRunFromRuntime(input, {
+          includePendingConnectionRequest: input.response.status === "declined",
+        });
+        restoredThisCall = true;
+      }
+      if (
+        input.response.status === "declined" &&
+        run.requiresRestoredConnectionRequestReplay
+      ) {
+        if (
+          run.restoredPendingConnectionRequestId !== undefined &&
+          run.restoredPendingConnectionRequestId !== input.requestId
+        ) {
+          if (
+            typeof run.restoredPendingConnectionRequestId === "string" ||
+            (run.restoredPendingConnectionRequestId === null &&
+              run.restoredRunStatus !== undefined &&
+              run.restoredRunStatus !== "running")
+          ) {
+            return;
+          }
+          throw restoredConnectionRequestUnverifiedError();
+        }
+        await waitForRestoredConnectionRequest(run, input.requestId);
+        run.requiresRestoredConnectionRequestReplay = false;
+      } else if (restoredThisCall && run.pumpPromise) {
+        await run.pumpPromise;
       }
       touchRun(run);
+      if (input.response.status === "declined" && run.terminal) return;
       if (run.pendingConnectionRequestId !== input.requestId) {
+        const staleDecline =
+          input.response.status === "declined" &&
+          run.initialAuthorityRead?.kind === "read" &&
+          run.initialAuthorityRead.state.status !== "running";
+        if (staleDecline) return;
         throw new Error(
           `Connection response ${input.requestId} does not match pending request ${run.pendingConnectionRequestId ?? "<none>"}.`,
         );

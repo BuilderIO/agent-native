@@ -34,9 +34,10 @@ async function postAction(
   page: Page,
   name: string,
   input: Record<string, unknown>,
+  baseUrl = e2eBaseUrl(page),
 ): Promise<any> {
   const res = await page.request.post(
-    `${e2eBaseUrl(page)}/_agent-native/actions/${name}`,
+    `${baseUrl}/_agent-native/actions/${name}`,
     {
       data: input,
       headers: { "Content-Type": "application/json" },
@@ -91,8 +92,9 @@ export async function enableLab(
   page: Page,
   key: string,
 ): Promise<() => Promise<void>> {
+  const baseUrl = e2eBaseUrl(page);
   const response = await page.request.get(
-    `${e2eBaseUrl(page)}/_agent-native/actions/get-lab-states`,
+    `${baseUrl}/_agent-native/actions/get-lab-states`,
   );
   if (!response.ok()) {
     throw new Error(
@@ -104,14 +106,21 @@ export async function enableLab(
   if (typeof previousEnabled !== "boolean") {
     throw new Error(`get-lab-states did not return a state for ${key}`);
   }
-  const enabled = await postAction(page, "set-lab", { key, enabled: true });
+  const enabled = await postAction(
+    page,
+    "set-lab",
+    { key, enabled: true },
+    baseUrl,
+  );
   expect(enabled.enabled).toBe(true);
   return async () => {
     // set-lab has no unset operation; inherited states restore their effective value.
-    const restored = await postAction(page, "set-lab", {
-      key,
-      enabled: previousEnabled,
-    });
+    const restored = await postAction(
+      page,
+      "set-lab",
+      { key, enabled: previousEnabled },
+      baseUrl,
+    );
     expect(restored.enabled).toBe(previousEnabled);
   };
 }
@@ -132,9 +141,11 @@ export async function enableFeatureFlag(
 
 const DESIGN_PREVIEW_IFRAME_SELECTOR = "iframe[data-design-preview-iframe]";
 const DESIGN_SCREEN_IFRAME_SELECTOR = `${DESIGN_PREVIEW_IFRAME_SELECTOR}[data-screen-iframe-id]`;
-const E2E_BASE_URL = process.env.E2E_BASE_URL;
+const BOARD_SURFACE_IFRAME_SELECTOR = `[data-board-surface-layer] ${DESIGN_PREVIEW_IFRAME_SELECTOR}`;
+const E2E_BASE_URL =
+  process.env.E2E_BASE_URL ??
+  `http://127.0.0.1:${process.env.E2E_PORT ?? "9333"}`;
 const E2E_BASE_PATH = (() => {
-  if (!E2E_BASE_URL) return "";
   try {
     return new URL(E2E_BASE_URL).pathname.replace(/\/$/, "");
   } catch {
@@ -144,14 +155,128 @@ const E2E_BASE_PATH = (() => {
 
 export function appPath(path: string): string {
   const route = new URL(path, "http://agent-native.local");
-  if (E2E_BASE_URL && E2E_BASE_PATH) {
-    const url = new URL(E2E_BASE_URL);
-    url.pathname = `${E2E_BASE_PATH}${route.pathname}`;
-    url.search = route.search;
-    url.hash = route.hash;
-    return url.toString();
+  const url = new URL(E2E_BASE_URL);
+  url.pathname = `${E2E_BASE_PATH}${route.pathname}`;
+  url.search = route.search;
+  url.hash = route.hash;
+  return url.toString();
+}
+
+export async function panTargetIntoUnobscuredCanvas(
+  page: Page,
+  target: Locator,
+  targetName: string,
+) {
+  const edgeInset = 24;
+  const maxPanStep = 200;
+
+  for (let step = 0; step < 16; step += 1) {
+    const box = await target.boundingBox();
+    expect(box, `${targetName} should have rendered bounds`).not.toBeNull();
+    const geometry = await page.evaluate(
+      ({ target, inset, panStep }) => {
+        const surface = document.querySelector<HTMLElement>(
+          "[data-multi-screen-canvas-surface]",
+        );
+        if (!surface) return null;
+        const bounds = (selector: string) => {
+          const element = document.querySelector<HTMLElement>(selector);
+          if (!element || getComputedStyle(element).display === "none") {
+            return null;
+          }
+          const rect = element.getBoundingClientRect();
+          return rect.width && rect.height
+            ? {
+                left: rect.left,
+                top: rect.top,
+                right: rect.right,
+                bottom: rect.bottom,
+              }
+            : null;
+        };
+        const surfaceRect = surface.getBoundingClientRect();
+        const leftShell = bounds('[data-design-chrome-region="left-shell"]');
+        const rightPanel = bounds('[data-design-chrome-region="right-panel"]');
+        const topBar = bounds('[data-design-chrome-region="top-bar"]');
+        const visible = {
+          left: Math.max(0, surfaceRect.left, leftShell?.right ?? 0) + inset,
+          top: Math.max(0, surfaceRect.top, topBar?.bottom ?? 0) + inset,
+          right:
+            Math.min(
+              innerWidth,
+              surfaceRect.right,
+              rightPanel?.left ?? innerWidth,
+            ) - inset,
+          bottom: Math.min(innerHeight, surfaceRect.bottom) - inset,
+        };
+        const inside =
+          target.x >= visible.left &&
+          target.x + target.width <= visible.right &&
+          target.y >= visible.top &&
+          target.y + target.height <= visible.bottom;
+        const delta = {
+          x:
+            target.x + target.width > visible.right
+              ? panStep
+              : target.x < visible.left
+                ? -panStep
+                : 0,
+          y:
+            target.y + target.height > visible.bottom
+              ? panStep
+              : target.y < visible.top
+                ? -panStep
+                : 0,
+        };
+        const wheelPoint = [
+          { x: visible.left + 16, y: visible.top + 64 },
+          { x: visible.left + 32, y: visible.top + 112 },
+          { x: visible.left + 64, y: visible.top + 64 },
+          { x: visible.left + 16, y: (visible.top + visible.bottom) / 2 },
+          { x: (visible.left + visible.right) / 2, y: visible.top + 64 },
+        ].find((point) => {
+          const hit = document.elementFromPoint(point.x, point.y);
+          return Boolean(
+            hit && surface.contains(hit) && !hit.closest("iframe"),
+          );
+        });
+        return { visible, inside, delta, wheelPoint: wheelPoint ?? null };
+      },
+      { target: box!, inset: edgeInset, panStep: maxPanStep },
+    );
+    expect(
+      geometry,
+      "the overview canvas surface should be mounted",
+    ).not.toBeNull();
+    expect(
+      geometry!.visible.right - geometry!.visible.left,
+    ).toBeGreaterThanOrEqual(box!.width);
+    expect(
+      geometry!.visible.bottom - geometry!.visible.top,
+    ).toBeGreaterThanOrEqual(box!.height);
+    if (geometry!.inside) return;
+    expect(
+      Math.abs(geometry!.delta.x) + Math.abs(geometry!.delta.y),
+      `${targetName} should be reachable by panning inside the canvas`,
+    ).toBeGreaterThan(0);
+    expect(
+      geometry!.wheelPoint,
+      "a clear point on the overview canvas should be available for panning",
+    ).not.toBeNull();
+
+    await page.mouse.move(geometry!.wheelPoint!.x, geometry!.wheelPoint!.y);
+    await page.mouse.wheel(geometry!.delta.x, geometry!.delta.y);
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
   }
-  return `${route.pathname}${route.search}${route.hash}`;
+
+  throw new Error(
+    `${targetName} did not move inside the unobscured canvas after 16 wheel pans`,
+  );
 }
 
 function activeScreenTargetFromUrl(page: Page): string | undefined {
@@ -298,27 +423,60 @@ export async function expandAllLayers(page: Page): Promise<void> {
   }
 }
 
+/**
+ * The Frame group's main button. It arms whichever of Frame and Screen was used
+ * last, so it is found by its group, not by a label.
+ */
 export function frameToolButton(page: Page): Locator {
   return page
     .locator(
-      '[data-design-bottom-toolbar] button[aria-label="Frame"],' +
-        ' [data-design-bottom-toolbar] button[aria-label="Screen"]',
+      '[data-design-bottom-toolbar] [data-design-toolbar-group="frame"] button',
     )
     .first();
+}
+
+/** Toolbar tools that sit in a group's menu, and the group each one is in. */
+const MENU_TOOL_GROUP = {
+  Move: "Move",
+  Hand: "Move",
+  Scale: "Move",
+  Frame: "Frame",
+  Screen: "Frame",
+  Rectangle: "Shapes",
+  Line: "Shapes",
+  Arrow: "Shapes",
+  Ellipse: "Shapes",
+  Polygon: "Shapes",
+  Star: "Shapes",
+} as const;
+export type ToolbarTool = keyof typeof MENU_TOOL_GROUP | "Text";
+
+/**
+ * Arm a tool the way a user does: Text is a button of its own; every other tool
+ * is an item in its group's menu, opened from the chevron. A group's main button
+ * only arms the tool used last, so it cannot be relied on to reach a particular
+ * one.
+ */
+export async function selectTool(page: Page, tool: ToolbarTool): Promise<void> {
+  const toolbar = page.locator("[data-design-bottom-toolbar]");
+  if (tool === "Text") {
+    await toolbar.getByRole("button", { name: "Text", exact: true }).click();
+    return;
+  }
+  await toolbar
+    .getByRole("button", {
+      name: `${MENU_TOOL_GROUP[tool]} options`,
+      exact: true,
+    })
+    .click();
+  await page.getByRole("menuitem", { name: new RegExp(`^${tool}\\b`) }).click();
 }
 
 export async function pickFrameMode(
   page: Page,
   mode: "Frame" | "Screen",
 ): Promise<void> {
-  await page
-    .locator(
-      '[data-design-bottom-toolbar] button[aria-label="Frame options"],' +
-        ' [data-design-bottom-toolbar] button[aria-label="Screen options"]',
-    )
-    .first()
-    .click();
-  await page.getByRole("menuitem").filter({ hasText: mode }).first().click();
+  await selectTool(page, mode);
 }
 
 export async function resetPersistedCanvasState(page: Page): Promise<void> {
@@ -333,6 +491,14 @@ export async function resetPersistedCanvasState(page: Page): Promise<void> {
       );
     }
   }
+}
+
+export async function openAppMenuSubmenu(
+  page: Page,
+  submenu: "File" | "Edit" | "View" | "Preferences" | "Help",
+): Promise<void> {
+  await page.getByRole("button", { name: "More", exact: true }).click();
+  await page.getByRole("menuitem", { name: submenu, exact: true }).hover();
 }
 
 export async function gotoEditor(page: Page, designId: string): Promise<void> {
@@ -412,8 +578,20 @@ export async function enterDirectMode(
     await expect(allScreens).toHaveAttribute("aria-current", "page");
   }
   await waitForDesignBridgeReady(page);
+  // The board surface iframe carries no data-screen-iframe-id, so a `screen=`
+  // URL that targets the board never matches a Screen iframe.
+  const targetsBoard =
+    !_options?.screenId &&
+    (await page.locator(screenFrameSelector(screenId)).count()) === 0 &&
+    (await page.locator(BOARD_SURFACE_IFRAME_SELECTOR).count()) > 0;
+  const frameSelector = targetsBoard
+    ? BOARD_SURFACE_IFRAME_SELECTOR
+    : screenFrameSelector(screenId);
   await expect(
-    designFrame(page, screenId)
+    (targetsBoard
+      ? page.locator(BOARD_SURFACE_IFRAME_SELECTOR).contentFrame()
+      : designFrame(page, screenId)
+    )
       .locator('[data-agent-native-edit-overlay="shield"]')
       .first(),
   ).toBeAttached({ timeout: 15_000 });
@@ -458,7 +636,7 @@ export async function enterDirectMode(
             "*",
           );
         }),
-      screenFrameSelector(screenId),
+      frameSelector,
     );
   }
 }
@@ -484,27 +662,27 @@ export async function enterInteractView(
     .locator(DESIGN_PREVIEW_IFRAME_SELECTOR)
     .first();
   await expect(previewIframe).toBeVisible();
-  const previewIframeHandle = await previewIframe.elementHandle();
-  if (!previewIframeHandle) throw new Error("screen preview iframe is missing");
+  // The frame's "Focus screen" button only selects the Screen and fits the
+  // camera to it; Interact is entered from the top bar for that focused Screen.
   await fullView.evaluate((element) => {
     (element as HTMLButtonElement).click();
   });
+  await expect(previewIframe).toBeVisible();
+  await page
+    .locator('[data-design-top-bar] [data-design-mode="interact"]')
+    .click();
   await expect(screenShell).toHaveAttribute(
     "data-screen-interact-mode",
     "true",
   );
   await expect(
-    page.getByRole("button", { name: "Exit responsive preview" }),
+    page.locator("[data-design-top-bar] [data-design-interact-route]"),
   ).toBeVisible();
-  expect(
-    await previewIframeHandle.evaluate((before) =>
-      Boolean(
-        before
-          .closest("[data-screen-shell]")
-          ?.querySelector("iframe[data-design-preview-iframe]") === before,
-      ),
-    ),
-  ).toBe(true);
+  // Interact loads the page afresh with only its own bridges, so the preview
+  // is a new iframe; the screen still has exactly one.
+  await expect(screenShell.locator(DESIGN_PREVIEW_IFRAME_SELECTOR)).toHaveCount(
+    1,
+  );
   await expect
     .poll(
       async () =>
@@ -569,12 +747,14 @@ export async function selectByText(
   options?: {
     screenId?: string;
     clearPreviousSelection?: boolean;
+    deep?: boolean;
+    additive?: boolean;
   },
 ): Promise<any> {
   const screenId = options?.screenId ?? activeScreenTargetFromUrl(page);
   await enterDirectMode(page, {
     screenId,
-    waitForBridgeReady: options?.clearPreviousSelection,
+    waitForBridgeReady: true,
   });
   await installBridge(page);
   if (options?.clearPreviousSelection) {
@@ -605,27 +785,119 @@ export async function selectByText(
     );
   }
   await page.evaluate(() => ((window as any).__bridge = []));
-
   const modifier = process.platform === "darwin" ? "Meta" : "Control";
-  await page.keyboard.down(modifier);
+  const modifiers: Array<"Shift" | "Meta" | "Control"> = options?.additive
+    ? ["Shift"]
+    : options?.deep === false
+      ? []
+      : [modifier];
+  await target.click({
+    force: true,
+    ...(modifiers.length > 0 ? { modifiers } : {}),
+  });
+  let selectionHandle;
   try {
-    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-  } finally {
-    await page.keyboard.up(modifier);
+    selectionHandle = await page.waitForFunction(
+      ({ tagName, sourceId }) =>
+        [...((window as any).__bridge ?? [])].reverse().find((message: any) => {
+          if (message.type !== "element-select") return false;
+          const payload = message.payload ?? message;
+          return (
+            payload.tagName === tagName &&
+            (!sourceId || payload.sourceId === sourceId)
+          );
+        }) ?? null,
+      expected,
+      { timeout: 15_000 },
+    );
+  } catch (error) {
+    const diagnostic = await page.evaluate(
+      ({ screenTarget, x, y }) => {
+        const messages = (window as any).__bridge ?? [];
+        const iframe = screenTarget
+          ? document.querySelector(
+              `[data-screen-iframe-id="${CSS.escape(screenTarget)}"]`,
+            )
+          : null;
+        const frameRect = iframe?.getBoundingClientRect();
+        const hit = document.elementFromPoint(x, y);
+        return {
+          url: location.href,
+          clickHit: hit
+            ? {
+                tagName: hit.tagName.toLowerCase(),
+                id: hit.id,
+                className: String((hit as HTMLElement).className ?? "").slice(
+                  0,
+                  160,
+                ),
+                role: hit.getAttribute("role"),
+                label: hit.getAttribute("aria-label"),
+              }
+            : null,
+          messageTypes: messages.slice(-30).map((message: any) => message.type),
+          selections: messages
+            .filter((message: any) => message.type === "element-select")
+            .slice(-5)
+            .map((message: any) => message.payload ?? message),
+          iframe: iframe
+            ? {
+                src: (iframe as HTMLIFrameElement).src,
+                pointerEvents: getComputedStyle(iframe).pointerEvents,
+                clientWidth: (iframe as HTMLIFrameElement).clientWidth,
+                clientHeight: (iframe as HTMLIFrameElement).clientHeight,
+                rect: frameRect
+                  ? {
+                      x: frameRect.x,
+                      y: frameRect.y,
+                      width: frameRect.width,
+                      height: frameRect.height,
+                    }
+                  : null,
+              }
+            : null,
+        };
+      },
+      {
+        screenTarget: screenId,
+        x: box.x + box.width / 2,
+        y: box.y + box.height / 2,
+      },
+    );
+    const targetState = await target.evaluate((node) => {
+      const rect = node.getBoundingClientRect();
+      const hit = document.elementFromPoint(
+        rect.left + rect.width / 2,
+        rect.top + rect.height / 2,
+      );
+      return {
+        rect: {
+          x: rect.x,
+          y: rect.y,
+          width: rect.width,
+          height: rect.height,
+        },
+        hitTagName: hit?.tagName.toLowerCase() ?? null,
+        hitClassName: String(
+          (hit as HTMLElement | null)?.className ?? "",
+        ).slice(0, 160),
+        hitNodeId: hit?.getAttribute("data-agent-native-node-id") ?? null,
+        hitOverlay: hit?.getAttribute("data-agent-native-edit-overlay") ?? null,
+        isTopWindow: window.parent === window.top,
+        parentOrigin: (() => {
+          try {
+            return window.parent.location.origin;
+          } catch {
+            return "cross-origin";
+          }
+        })(),
+        pointerEvents: getComputedStyle(node).pointerEvents,
+      };
+    });
+    throw new Error(
+      `selection bridge did not report ${expected.tagName} source ${expected.sourceId ?? "<pending>"}; ${JSON.stringify({ ...diagnostic, targetState })}; ${String(error)}`,
+    );
   }
-  const selectionHandle = await page.waitForFunction(
-    ({ tagName, sourceId }) =>
-      [...((window as any).__bridge ?? [])].reverse().find((message: any) => {
-        if (message.type !== "element-select") return false;
-        const payload = message.payload ?? message;
-        return (
-          payload.tagName === tagName &&
-          (!sourceId || payload.sourceId === sourceId)
-        );
-      }) ?? null,
-    expected,
-    { timeout: 15_000 },
-  );
   const selection = await selectionHandle.jsonValue();
   const payload = selection?.payload ?? selection;
   expect(payload?.tagName).toBe(expected.tagName);

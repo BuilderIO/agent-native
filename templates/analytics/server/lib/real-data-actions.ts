@@ -1,4 +1,11 @@
-export const REAL_DATA_REQUIRED_MARKER = "REAL_DATA_REQUIRED";
+import {
+  appendAgentChatContextToMessage,
+  splitAgentChatContextFromMessage,
+} from "@agent-native/core/shared";
+
+import { REAL_DATA_REQUIRED_MARKER } from "../../shared/real-data-marker.js";
+
+export { REAL_DATA_REQUIRED_MARKER };
 
 const INJECTED_CONTEXT_BLOCKS = [
   "current-screen",
@@ -32,7 +39,10 @@ export const DASHBOARD_CONSTRUCTION_ACTIONS = new Set([
 ]);
 
 export const CATALOG_DISCOVERY_ACTIONS = new Set([
+  "find-data",
+  "list-data-dictionary",
   "search-analytics-query-catalog",
+  "search-bigquery-schema",
   "search-dashboard-references",
 ]);
 
@@ -436,8 +446,40 @@ function hasRunCodeCorpusWorkflowAttempt(content: string | undefined): boolean {
   );
 }
 
+// The composer sends every context item in one block as a `## title` section,
+// so a request staged there shares the block with the page's own items. A
+// context that does not open with a section is one item an app sent whole, and
+// headings inside it (analysis instructions) are not item boundaries.
+function requestContextItems(context: string): string[] {
+  const items = context.startsWith("## ")
+    ? context.split(/\n\n(?=## )/)
+    : [context];
+  return items.filter((item) => item.includes(REAL_DATA_REQUIRED_MARKER));
+}
+
+// The app's context is the one block appendAgentChatContextToMessage writes,
+// which escapes context markup in the user's words. The splitter also lifts out
+// legacy unmarked `<context>` blocks, which here only a user typed, so a split
+// that did not find the writer's block leaves the whole text as the request.
+function splitAppChatContext(text: string): {
+  message: string;
+  context: string;
+} {
+  const split = splitAgentChatContextFromMessage(text);
+  const block = appendAgentChatContextToMessage("", split.context).trimStart();
+  return split.context && text.includes(block)
+    ? split
+    : { message: text, context: "" };
+}
+
 export function stripInjectedAnalyticsGuardContext(text: string): string {
-  let requestText = text;
+  // Chat context rides along on every message (on a dashboard page it names
+  // the open dashboard and says the user can edit it), so it says nothing about
+  // what this message asks. The New dashboard, panel editor, and analysis
+  // re-run dialogs are the exception: they send the request itself as context,
+  // marked REAL_DATA_REQUIRED.
+  const { message, context } = splitAppChatContext(text);
+  let requestText = [message, ...requestContextItems(context)].join("\n\n");
   for (const tag of INJECTED_CONTEXT_BLOCKS) {
     requestText = requestText.replace(
       new RegExp(`\\n*<${tag}>[\\s\\S]*?<\\/${tag}>`, "gi"),

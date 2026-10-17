@@ -1,6 +1,6 @@
 import { AgentChatSurface } from "@agent-native/toolkit/app/chat";
 import { IconClipboard } from "@tabler/icons-react";
-import type { ReactElement } from "react";
+import { memo, type ReactElement } from "react";
 import { Link } from "react-router";
 
 import { CodeWorkbenchLoader } from "@/components/design/code-workbench/CodeWorkbenchLoader";
@@ -13,16 +13,17 @@ import {
   DesignWorkspaceRail,
   INITIAL_GENERATION_DISABLED_LEFT_PANELS,
 } from "@/components/design/editor/DesignWorkspaceRail";
+import { LeftPanelHeader } from "@/components/design/editor/LeftPanelHeader";
 import { ReadOnlyEditorPanel } from "@/components/design/editor/ReadOnlyEditorPanel";
 import { FirstRunStart } from "@/components/design/FirstRunStart";
 import { LayersPanel } from "@/components/design/LayersPanel";
+import { ReviewCommentsPanel } from "@/components/design/ReviewCommentsPanel";
 import { TokensPanel } from "@/components/design/TokensPanel";
 import { DesignComposerContextProvider } from "@/components/editor/DesignComposerContextProvider";
 import { FigmaLinkComposerBubble } from "@/components/editor/FigmaLinkComposerBubble";
 import { DESIGN_CHAT_STORAGE_KEY } from "@/lib/agent-chat";
 import { cn } from "@/lib/utils";
 
-import type { EditorActiveScreenAndGeometry } from "../domains/use-editor-active-screen-and-geometry";
 import type { EditorCanvasAndScreens } from "../domains/use-editor-canvas-and-screens";
 import type { EditorClipboard } from "../domains/use-editor-clipboard";
 import type { EditorContentAndComponents } from "../domains/use-editor-content-and-components";
@@ -44,12 +45,15 @@ import {
   SHOW_DESIGN_CODE_LEFT_PANEL,
 } from "../types";
 
+// The editor re-renders on every selection while the chat stays mounted, so
+// its props must stay referentially stable for this memo to hold.
+const MemoAgentChatSurface = memo(AgentChatSurface);
+
 export function renderLeftSidebar({
   editorCore,
   editorHistory,
   editorGenerationAndAccess,
   editorFilesAndSaving,
-  editorActiveScreenAndGeometry,
   editorCanvasAndScreens,
   editorLiveEditsAndPresence,
   editorContentAndComponents,
@@ -67,7 +71,6 @@ export function renderLeftSidebar({
   projectMenu,
   projectTitleControl,
   minimalUiToggle,
-  topBarVisible,
   leftContentWidth,
   leftSidebarVisible,
 }: {
@@ -75,7 +78,6 @@ export function renderLeftSidebar({
   editorHistory: EditorHistory;
   editorGenerationAndAccess: EditorGenerationAndAccess;
   editorFilesAndSaving: EditorFilesAndSaving;
-  editorActiveScreenAndGeometry: EditorActiveScreenAndGeometry;
   editorCanvasAndScreens: EditorCanvasAndScreens;
   editorLiveEditsAndPresence: EditorLiveEditsAndPresence;
   editorContentAndComponents: EditorContentAndComponents;
@@ -92,13 +94,13 @@ export function renderLeftSidebar({
   canApplyPendingVisualEditsWithAgent: boolean;
   projectMenu: ReactElement;
   projectTitleControl: ReactElement;
-  minimalUiToggle: ReactElement;
-  topBarVisible: boolean;
+  minimalUiToggle: ReactElement | null;
   leftContentWidth: number;
   leftSidebarVisible: boolean;
 }) {
   const {
     searchParams,
+    hostOwnsChrome,
     hostEmbeddedEditor,
     activeFileId,
     viewMode,
@@ -114,18 +116,18 @@ export function renderLeftSidebar({
   } = editorCore;
   const {
     activeLeftPanel,
-    motionDockOpen,
-    setMotionDockOpenAnimated,
     setActiveLeftPanel,
+    collapseLeftPanel,
     leftSidebarContentRef,
     layerPanelExpandedIds,
     setExpandedLayerIds,
     codeWorkbenchOpenedRef,
     startSidebarResize,
+    motionDockOpen,
+    setMotionDockOpenAnimated,
   } = editorHistory;
   const { canEditDesign, browserTabId } = editorGenerationAndAccess;
   const { handleTokensApplied } = editorFilesAndSaving;
-  const { activeFile } = editorActiveScreenAndGeometry;
   const { handleLayerLeave } = editorCanvasAndScreens;
   const {
     initialGenerationChromeLimited,
@@ -134,7 +136,7 @@ export function renderLeftSidebar({
     selectedCanvasSelector,
   } = editorLiveEditsAndPresence;
   const { hoveredCodeLayerNode } = editorContentAndComponents;
-  const { setActiveCodeFile } = editorToolsAndVectors;
+  const { setActiveCodeFile, reviewCommentsPanelProps } = editorToolsAndVectors;
   const { designExtensionContext } = editorSelectionAndStyles;
   const { showPastedImagesNotice } = editorClipboard;
   const { handleDeleteInlineFile } = editorEditCommands;
@@ -181,16 +183,23 @@ export function renderLeftSidebar({
           className="absolute inset-y-0 left-0 z-[70] flex min-h-0 bg-[var(--design-editor-panel-bg)]"
         >
           <DesignWorkspaceRail
+            showAccountMenu={!hostEmbeddedEditor && isSignedIn}
             activePanel={activeLeftPanel}
+            motionOpen={motionDockOpen}
+            onMotionToggle={
+              !hostOwnsChrome &&
+              SHOW_DESIGN_SECONDARY_LEFT_PANELS &&
+              !initialGenerationChromeLimited &&
+              activeFileId
+                ? () => setMotionDockOpenAnimated(!motionDockOpen)
+                : undefined
+            }
             disabledPanels={
               initialGenerationChromeLimited
                 ? INITIAL_GENERATION_DISABLED_LEFT_PANELS
                 : undefined
             }
-            motionOpen={motionDockOpen}
-            motionDisabled={!activeFile || initialGenerationChromeLimited}
             projectMenu={hostEmbeddedEditor ? null : projectMenu}
-            onMotionToggle={() => setMotionDockOpenAnimated(!motionDockOpen)}
             onPanelChange={(panel) => {
               if (panel === null && initialGenerationChromeLimited) return;
               setActiveLeftPanel(panel);
@@ -212,27 +221,20 @@ export function renderLeftSidebar({
                 activeLeftPanel === "file" ? "flex" : "hidden",
               )}
             >
-              <div
-                data-design-chrome-region="left-header"
-                className={cn(
-                  "flex shrink-0 items-center gap-[var(--design-baseline-half)] px-[var(--design-baseline-unit)]",
-                  topBarVisible ? "h-12" : "h-[var(--design-section-height)]",
-                  hostEmbeddedEditor && "border-b border-border",
-                )}
-              >
-                {projectTitleControl}
-                {minimalUiToggle}
-              </div>
-              {hostEmbeddedEditor ? null : (
-                <div className="-mt-1.5 flex shrink-0 items-center border-b border-border px-[var(--design-baseline-unit)] pb-1.5">
-                  <Link
-                    to="/home"
-                    className="-mx-1 rounded px-1 text-[11px] leading-4 text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-                  >
-                    {t("designEditor.fileMenu.designs")}
-                  </Link>
+              <LeftPanelHeader>
+                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  {projectTitleControl}
+                  {hostEmbeddedEditor ? null : (
+                    <Link
+                      to="/home"
+                      className="-mx-1 self-start rounded px-1 text-xs leading-4 text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                    >
+                      {t("designEditor.fileMenu.allDesigns")}
+                    </Link>
+                  )}
                 </div>
-              )}
+                {minimalUiToggle}
+              </LeftPanelHeader>
               <div className="min-h-0 flex-1">
                 <LayersPanel
                   ref={layersPanelRef}
@@ -278,14 +280,14 @@ export function renderLeftSidebar({
               {hostEmbeddedEditor ? (
                 <div ref={attachHostChatSlot} className="min-h-0 flex-1" />
               ) : canApplyPendingVisualEditsWithAgent ? (
-                <AgentChatSurface
+                <MemoAgentChatSurface
                   composerContextProvider={
                     isSignedIn ? DesignComposerContextProvider : undefined
                   }
                   mode="panel"
                   className="min-h-0 min-w-0 flex-1 border-0 bg-transparent shadow-none"
                   chatOnly={true}
-                  onCollapse={() => setActiveLeftPanel(null)}
+                  onCollapse={collapseLeftPanel}
                   storageKey={DESIGN_CHAT_STORAGE_KEY}
                   emptyStateText={t("chat.emptyState")}
                   suggestions={designAgentSuggestions}
@@ -312,14 +314,12 @@ export function renderLeftSidebar({
                     ) : null
                   }
                   composerSlot={
-                    <>
-                      {detectedFigmaComposerLink ? (
-                        <FigmaLinkComposerBubble
-                          link={detectedFigmaComposerLink}
-                          designId={id}
-                        />
-                      ) : null}
-                    </>
+                    detectedFigmaComposerLink ? (
+                      <FigmaLinkComposerBubble
+                        link={detectedFigmaComposerLink}
+                        designId={id}
+                      />
+                    ) : null
                   }
                 />
               ) : isVisualEditSurface &&
@@ -354,11 +354,7 @@ export function renderLeftSidebar({
                   activeLeftPanel === "assets" ? "flex" : "hidden",
                 )}
               >
-                <div className="flex h-[var(--design-section-height)] shrink-0 items-center border-b border-border/60 px-[var(--design-baseline-unit)]">
-                  <h3 className="min-w-0 flex-1 truncate text-xs font-semibold text-foreground">
-                    {t("designEditor.leftRail.assets")}
-                  </h3>
-                </div>
+                <LeftPanelHeader title={t("designEditor.leftRail.assets")} />
                 {canEditDesign ? (
                   <AssetLibraryPanel
                     context={designExtensionContext}
@@ -374,6 +370,39 @@ export function renderLeftSidebar({
                 )}
               </div>
             ) : null}
+            <div
+              className={cn(
+                "min-h-0 flex-1 flex-col overflow-hidden",
+                activeLeftPanel === "tokens" ? "flex" : "hidden",
+              )}
+            >
+              {id && canEditDesign && !shellMode ? (
+                <div className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
+                  <TokensPanel
+                    designId={id}
+                    onTokensApplied={handleTokensApplied}
+                  />
+                </div>
+              ) : (
+                <ReadOnlyEditorPanel
+                  title={"Tokens require editor access" /* i18n-ignore */}
+                  description={
+                    "Ask an owner for edit access before importing, creating, or applying tokens." /* i18n-ignore */
+                  }
+                />
+              )}
+            </div>
+            <div
+              className={cn(
+                "min-h-0 flex-1 flex-col overflow-hidden",
+                activeLeftPanel === "threads" ? "flex" : "hidden",
+              )}
+            >
+              {/* Mounted only while open: the panel fetches every thread. */}
+              {activeLeftPanel === "threads" && reviewCommentsPanelProps ? (
+                <ReviewCommentsPanel {...reviewCommentsPanelProps} />
+              ) : null}
+            </div>
             <div
               className={cn(
                 "min-h-0 flex-1 flex-col overflow-hidden",
@@ -414,6 +443,9 @@ export function renderLeftSidebar({
                   {canEditDesign && !shellMode ? (
                     <DesignExtensionsPanel
                       context={designExtensionContext}
+                      motionLabEnabled={
+                        editorLiveEditsAndPresence.motionLabEnabled
+                      }
                       hideAssetLibrary
                       title={t("designEditor.leftRail.tools")}
                     />
@@ -422,28 +454,6 @@ export function renderLeftSidebar({
                       title={"Tools require editor access" /* i18n-ignore */}
                       description={
                         "Ask an owner for editor access before running tools for this design." /* i18n-ignore */
-                      }
-                    />
-                  )}
-                </div>
-                <div
-                  className={cn(
-                    "min-h-0 flex-1 flex-col overflow-hidden",
-                    activeLeftPanel === "tokens" ? "flex" : "hidden",
-                  )}
-                >
-                  {id && canEditDesign && !shellMode ? (
-                    <div className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
-                      <TokensPanel
-                        designId={id}
-                        onTokensApplied={handleTokensApplied}
-                      />
-                    </div>
-                  ) : (
-                    <ReadOnlyEditorPanel
-                      title={"Tokens require editor access" /* i18n-ignore */}
-                      description={
-                        "Ask an owner for edit access before importing, creating, or applying tokens." /* i18n-ignore */
                       }
                     />
                   )}
@@ -458,6 +468,7 @@ export function renderLeftSidebar({
                     {id && !shellMode && codeWorkbenchOpenedRef.current ? (
                       <CodeWorkbenchLoader
                         designId={id}
+                        active={activeLeftPanel === "code"}
                         activeFileId={routeCodeFileId}
                         activeFilename={routeCodeFilename}
                         selectedNodeId={selectedElementLayerId}

@@ -17,7 +17,7 @@ Use local docs only (no web research): `pnpm action docs-search --query "<topic>
 - Use `import-loom-recording` for Loom or direct MP4/WebM URLs. Loom/public transcripts import in the background; request a transcript afterward for direct video. Transactional email claims two-Clip summary work and ends in one sentence.
 - `view-screen` may return a transcript preview truncated mid-sentence without an ending marker. When `previewTruncated`, read `get-recording-player-data` before judging completeness or quoting.
 - Clips are unlisted-by-link, not searchable. Only inspect recordings the user owns, viewed, or identified by URL/id. Never use `list-recordings` / `search-recordings` to find another person's clip, answer a date question, or recover a failed lookup; report the failure.
-- Sharing actions control access; passwords/expiry only tighten it. Screen Memory is local-only, disabled by default, and never hosted or shareable.
+- Sharing actions control access; passwords/expiry only tighten it. Screen Memory is local-only and disabled by default; raw segments are never uploaded or shared. The one exception is an owner's explicit request: a chosen window of Rewind history is uploaded as an owner-only recording attached to one Clip, that Clip follows its normal share rules, and sharing the Clip shares its earlier screen time with it.
 - Never fabricate. Read via actions, verify writes by read-back, and refresh after writes. Use `view-screen` when recording, transcript segment, meeting, or share context is unclear.
 
 ## Application state
@@ -32,9 +32,11 @@ Use `tool-search` for the full surface, including screen-memory.
 | Action | Purpose |
 | --- | --- |
 | `view-screen` / `navigate` | Read context or open a surface |
+| `get-video-storage-status` | Check storage and any hosted clips available in the current rollout before asking to connect Builder |
 | `list-recordings` / `search-recordings` / `get-recording-player-data` | Find authorized clips; read transcript, chapters, diagnostics |
-| `create-recording` / `finalize-recording` / `import-loom-recording` | Create, upload, or import a recording |
-| `request-transcript` / `cleanup-transcript` / `regenerate-title` / `regenerate-summary` / `regenerate-chapters` | Transcription and metadata |
+| `create-recording-agent-link` | Make a temporary scoped link for an authorized private clip |
+| `create-recording-upload` / `import-loom-recording` | Upload a local video file, or import one from a URL |
+| `request-transcript` / `import-transcript` / `cleanup-transcript` / `regenerate-title` / `regenerate-summary` / `regenerate-chapters` | Transcription, imported VTT/SRT/timestamped transcripts, and metadata |
 | `trim-recording` / `split-recording` / `remove-silences` / `remove-filler-words` | Edit video |
 | `share-resource` / `set-resource-visibility` / `build-embed-url` | Share or embed |
 | `list-meetings` / `search-meetings` / `list-dictations` | Meetings and dictation |

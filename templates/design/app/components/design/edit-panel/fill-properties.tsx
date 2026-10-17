@@ -1,10 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  parseCssColor,
-  rgbaToCss,
-  rgbaToHex,
-  withColorOpacity,
-} from "@shared/color-utils";
+import { parseCssColor, withCssColorOpacity } from "@shared/color-utils";
 import {
   gradientStopWithFillOpacity,
   readGradientFillOpacity,
@@ -24,11 +19,35 @@ import {
   ScrubInput,
   imageFillToBackgroundStyles,
   type DesignPaintType,
+  type ImageFillValue,
 } from "../inspector";
-import type { GlslShaderPanelContext } from "../inspector/GlslShaderPanel";
+import {
+  FillFieldFace,
+  FillFieldSwatch,
+} from "../inspector/color-picker-fill-field";
+import {
+  findToken,
+  parseVarReference,
+  resolveVarColor,
+  tokenVarCss,
+} from "../inspector/color-picker-tokens";
+import {
+  fillFieldEditText,
+  fillPaintName,
+  GRADIENT_NAMES,
+  readFillField,
+  showsChevron,
+  showsOpacity,
+} from "../inspector/fill-field-reading";
+import {
+  findFillShader,
+  type GlslShaderPanelContext,
+} from "../inspector/GlslShaderPanel";
+import type { SubtreeColorStylesRead } from "../multi-screen/read-portable-style-snapshot";
 import type { ElementInfo } from "../types";
-import { selectionColorValues } from "./document-colors";
-import { isTextElement, isVectorShapeElement } from "./element-classification";
+import { useDesignColorTokenSource } from "./design-color-tokens";
+import { paletteColorValue, selectionColorValues } from "./document-colors";
+import { isTextElement } from "./element-classification";
 import { elementStableKey } from "./element-identity";
 import { commitStylePatch, FieldTrailer } from "./field-primitives";
 import {
@@ -36,11 +55,12 @@ import {
   addFillLayerPatch,
   buildSolidFillLayer,
   buildGradientLayer,
-  gradientLabel,
+  fillLayerIndex,
   isLayerHiddenBySize,
   joinCssLayers,
   parseGradientLayer,
   parseSolidFillLayer,
+  parseTokenSolidFillLayer,
   reorderFillLayerArrays,
   removeBaseFillPatch,
   removeFillLayerAtIndex,
@@ -62,14 +82,16 @@ import {
   cssColorOrFallback,
   swatchStyle,
 } from "./position-helpers";
-import { isMixedValue } from "./selection-helpers";
+import { isMixedValue, isVectorShapeSelection } from "./selection-helpers";
 import type { CapturedStyleTarget } from "./style-change-types";
 import type {
   BreakpointOverrideFieldContext,
   MotionKeyframeFieldContext,
+  StyleChangeMeta,
   StyleChangeHandler,
   StylesChangeHandler,
 } from "./style-change-types";
+import { buildTextContrast, type TextContrastContext } from "./text-contrast";
 
 const TEXT_GRADIENT_PAINT_TYPES: DesignPaintType[] = [
   "linear",
@@ -91,6 +113,7 @@ const EXISTING_LAYER_PAINT_TYPES: DesignPaintType[] = [
   "angular",
   "diamond",
   "image",
+  "shader",
 ];
 
 let layerKeyCounter = 0;
@@ -161,26 +184,41 @@ export function FillProperties({
   onStylesChange,
   documentColorPalette = [],
   glslShaderContext,
+  onRemoveShaderFill,
   motionKeyframeContext,
   breakpointOverrideContext,
   hideAddFill = false,
   cancelOpacityGestureOnHistoryUndo = false,
   onAddFill,
   capturedStyleTargets,
+  readSubtreeColorStyles,
+  uploadScopeKey,
+  contrastContext,
 }: {
   element: ElementInfo;
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
   documentColorPalette?: string[];
   glslShaderContext?: GlslShaderPanelContext;
+  /**
+   * Takes the element's shader off, with the fallback color it was painted
+   * over. The fill row's remove button calls it instead of clearing the color
+   * when the fill is a shader: clearing the color leaves the shader running.
+   */
+  onRemoveShaderFill?: () => void;
+  /** Where the selected text layer is, so the picker can measure its contrast. */
+  contrastContext?: TextContrastContext;
   motionKeyframeContext?: MotionKeyframeFieldContext;
   breakpointOverrideContext?: BreakpointOverrideFieldContext;
   hideAddFill?: boolean;
   cancelOpacityGestureOnHistoryUndo?: boolean;
   onAddFill?: () => "base" | "layer" | null;
   capturedStyleTargets?: CapturedStyleTarget[];
+  readSubtreeColorStyles?: (element: ElementInfo) => SubtreeColorStylesRead;
+  uploadScopeKey?: string;
 }) {
   const t = useT();
+  const tokenSource = useDesignColorTokenSource();
   const commitImageFillPatch = (
     patch: Record<string, string>,
     meta?: Parameters<StyleChangeHandler>[2],
@@ -196,7 +234,23 @@ export function FillProperties({
     backgroundImage: authoredStyleValue(element, "backgroundImage") ?? "",
   };
   const isTextFillElement = shouldUseTextFill(element, styles);
-  const isVectorFillElement = isVectorShapeElement(element);
+  const textContrast = useMemo(
+    () =>
+      isTextFillElement && contrastContext
+        ? buildTextContrast({ context: contrastContext, styles, t })
+        : undefined,
+    // `styles` is rebuilt each render; the size and weight are what it reads.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [isTextFillElement, contrastContext, styles.fontSize, styles.fontWeight, t],
+  );
+  const isVectorFillElement = isVectorShapeSelection(element);
+  const fillShader = useMemo(
+    () =>
+      isVectorFillElement || isTextFillElement
+        ? null
+        : findFillShader(glslShaderContext),
+    [glslShaderContext, isTextFillElement, isVectorFillElement],
+  );
   const fillProperty = isTextFillElement
     ? "color"
     : isVectorFillElement
@@ -240,7 +294,10 @@ export function FillProperties({
   const renderedFillValue = isTextFillElement
     ? styles.color || ""
     : isVectorFillElement
-      ? element.inlineStyles?.["--an-vector-fill-gradient"] || styles.fill || ""
+      ? element.inlineStyles?.["--an-vector-fill-gradient"] ||
+        styles["--an-vector-fill-gradient"] ||
+        styles.fill ||
+        ""
       : styles.backgroundColor || "";
   const authoredFillValue = isVectorFillElement
     ? (element.inlineStyles?.["--an-vector-fill-gradient"] ??
@@ -269,11 +326,12 @@ export function FillProperties({
   );
   const fillIsMixed =
     isMixedValue(fillValue) ||
-    isMixedValue(styles.backgroundImage) ||
-    isMixedValue(styles.backgroundSize) ||
-    isMixedValue(styles.backgroundRepeat) ||
-    isMixedValue(styles.backgroundPosition) ||
-    (isTextFillElement && isMixedValue(styles.backgroundClip));
+    (!isVectorFillElement &&
+      (isMixedValue(styles.backgroundImage) ||
+        isMixedValue(styles.backgroundSize) ||
+        isMixedValue(styles.backgroundRepeat) ||
+        isMixedValue(styles.backgroundPosition) ||
+        (isTextFillElement && isMixedValue(styles.backgroundClip))));
   const hasBackgroundLayer =
     !isVectorFillElement && backgroundLayers.length > 0;
   const authoredFill = authoredFillValue?.trim().toLowerCase();
@@ -288,6 +346,32 @@ export function FillProperties({
     ? hasAuthoredFill
     : isTextFillElement || colorHasVisibleAlpha(fillValue) || hasAuthoredFill;
   const hasVisibleFill = hasBaseFill || hasBackgroundLayer;
+  // A shader is the element's whole fill, not one layer among several: it
+  // covers the others. So a layer offers Shader only when it is the one fill
+  // there is, and picking it takes that layer's place.
+  const layerShaderContext = useMemo(
+    () =>
+      glslShaderContext &&
+      !isTextFillElement &&
+      !isVectorFillElement &&
+      !hasBaseFill &&
+      backgroundLayers.length === 1
+        ? {
+            ...glslShaderContext,
+            replacesBackgroundLayers: true,
+            onFillShaderApplied: () =>
+              setOpenFillPickerKey(`${fillStashKey}:base`),
+          }
+        : undefined,
+    [
+      glslShaderContext,
+      isTextFillElement,
+      isVectorFillElement,
+      hasBaseFill,
+      backgroundLayers.length,
+      fillStashKey,
+    ],
+  );
   const pendingConversion = pendingConvertedLayerRef.current;
   if (
     pendingConversion?.elementKey === fillStashKey &&
@@ -317,6 +401,81 @@ export function FillProperties({
     };
   }
   const layerKeys = layerKeysRef.current.keys;
+  const imageFillUploadScopeKey = JSON.stringify([
+    uploadScopeKey ?? null,
+    fillStashKey,
+    fillProperty,
+    (capturedStyleTargets ?? []).map((target) => [
+      target.fileId,
+      target.layerId,
+      elementStableKey(target.elementInfo),
+    ]),
+  ]);
+  const imageFillUploadTargetKey = (layerKey: string) =>
+    JSON.stringify([imageFillUploadScopeKey, layerKey]);
+  const imageFillUploadTargetKeyForSelection = (selectedFillId: string) => {
+    const layerIndex = fillLayerIndex(selectedFillId);
+    const layerKey =
+      layerIndex === null
+        ? "base"
+        : (layerKeysRef.current.keys[layerIndex] ?? `index:${layerIndex}`);
+    return imageFillUploadTargetKey(layerKey);
+  };
+  const imageFillUploadContext = {
+    scopeKey: imageFillUploadScopeKey,
+    layerKeys: [...layerKeys],
+    backgroundLayers,
+    backgroundSizeLayers,
+    backgroundRepeatLayers,
+    backgroundPositionLayers,
+    onStyleChange,
+    onStylesChange,
+    capturedStyleTargets,
+  };
+  const latestImageFillUploadContextRef = useRef(imageFillUploadContext);
+  latestImageFillUploadContextRef.current = imageFillUploadContext;
+  const createImageFillUploadChange = (
+    layerKey: string,
+    capturedLayerIndex: number,
+  ) => {
+    const capturedContext = imageFillUploadContext;
+    return (value: ImageFillValue, meta?: StyleChangeMeta) => {
+      const latestContext = latestImageFillUploadContextRef.current;
+      const latestLayerIndex = latestContext.layerKeys.indexOf(layerKey);
+      if (
+        latestContext.scopeKey === capturedContext.scopeKey &&
+        latestLayerIndex < 0
+      ) {
+        return;
+      }
+      const useLatestContext =
+        latestContext.scopeKey === capturedContext.scopeKey &&
+        latestLayerIndex >= 0;
+      const context = useLatestContext ? latestContext : capturedContext;
+      const layerIndex = useLatestContext
+        ? latestLayerIndex
+        : capturedLayerIndex;
+      const patch = setImageFillLayerPatch(
+        {
+          backgroundImage: context.backgroundLayers,
+          backgroundSize: context.backgroundSizeLayers,
+          backgroundRepeat: context.backgroundRepeatLayers,
+          backgroundPosition: context.backgroundPositionLayers,
+        },
+        layerIndex,
+        imageFillToBackgroundStyles(value),
+      );
+      const commitMeta = context.capturedStyleTargets
+        ? { ...meta, capturedStyleTargets: context.capturedStyleTargets }
+        : meta;
+      commitStylePatch(
+        patch,
+        context.onStyleChange,
+        context.onStylesChange,
+        commitMeta,
+      );
+    };
+  };
 
   const handleFillVisibilityToggle = () => {
     onStyleChange(
@@ -355,15 +514,33 @@ export function FillProperties({
     reorderFillLayers,
   );
 
+  // The picker keeps the swatches it opened with, so the subtree is read once
+  // per opening instead of on every selection update while it is open.
+  const subtreeColorsAtOpenRef = useRef<{
+    pickerKey: string | null;
+    read?: SubtreeColorStylesRead;
+  }>({ pickerKey: null });
+  if (subtreeColorsAtOpenRef.current.pickerKey !== openFillPickerKey) {
+    subtreeColorsAtOpenRef.current = {
+      pickerKey: openFillPickerKey,
+      read:
+        openFillPickerKey === `${fillStashKey}:base` &&
+        element.styleSnapshotReadOnDemand
+          ? readSubtreeColorStyles?.(element)
+          : undefined,
+    };
+  }
+  const subtreeColorsAtOpen = subtreeColorsAtOpenRef.current.read;
   const selectionHexes = useMemo(
     () =>
-      selectionColorValues(element)
-        .map((c) => {
-          const parsed = parseCssColor(c.value);
-          return parsed ? rgbaToHex(parsed) : null;
-        })
+      selectionColorValues(
+        element,
+        [],
+        subtreeColorsAtOpen ? () => subtreeColorsAtOpen : undefined,
+      )
+        .map((c) => paletteColorValue(c.value))
         .filter((h): h is string => Boolean(h)),
-    [element],
+    [element, subtreeColorsAtOpen],
   );
   const seenHex = new Set<string>();
   const documentColors = [...selectionHexes, ...documentColorPalette].filter(
@@ -418,6 +595,14 @@ export function FillProperties({
       return;
     }
     if (fillIsMixed) {
+      if (isVectorFillElement) {
+        commitStylePatch(
+          { fill: DEFAULT_SHAPE_FILL },
+          onStyleChange,
+          onStylesChange,
+        );
+        return;
+      }
       const replacement: Record<string, string> = isTextFillElement
         ? {
             color: "#000000", // guard:allow-raw-color — a concrete fallback for mixed text paint.
@@ -505,7 +690,7 @@ export function FillProperties({
       {fillIsMixed ? (
         <p className="px-1.5 py-2 !text-[11px] text-muted-foreground">
           {
-            "Click + to replace mixed content" /* i18n-ignore figma mixed fill hint */
+            "Click + to replace mixed content" /* i18n-ignore mixed-content helper text */
           }
         </p>
       ) : hasVisibleFill ? (
@@ -580,6 +765,9 @@ export function FillProperties({
                       ? undefined
                       : commitImageFillPatch
                   }
+                  imageFillUploadTargetKeyForSelection={
+                    imageFillUploadTargetKeyForSelection
+                  }
                   supportedPaintTypes={
                     isVectorFillElement
                       ? ["solid", "linear", "radial"]
@@ -588,6 +776,9 @@ export function FillProperties({
                         : undefined
                   }
                   documentColors={documentColors}
+                  contrast={textContrast}
+                  bindTokens={!isVectorFillElement}
+                  boundToken={parseVarReference(authoredFillValue ?? "")?.name}
                   pickerKey={[
                     element.sourceId ??
                       element.id ??
@@ -599,6 +790,10 @@ export function FillProperties({
                     isVectorFillElement || isTextFillElement
                       ? undefined
                       : glslShaderContext
+                  }
+                  fillShader={fillShader}
+                  authoredValue={
+                    authoredFillValue ? storedPaint.stops[0]!.color : undefined
                   }
                 />
               </InspectorGridCell>
@@ -622,13 +817,17 @@ export function FillProperties({
               <InspectorGridCell span={4} className="flex justify-center">
                 <SectionIconButton
                   label={t("editPanel.labels.removeLayer")}
-                  onClick={() =>
+                  onClick={() => {
+                    if (fillShader && onRemoveShaderFill) {
+                      onRemoveShaderFill();
+                      return;
+                    }
                     commitStylePatch(
                       removeBaseFillPatch(fillProperty),
                       onStyleChange,
                       onStylesChange,
-                    )
-                  }
+                    );
+                  }}
                 >
                   <IconMinus className="size-3.5" />
                 </SectionIconButton>
@@ -648,7 +847,17 @@ export function FillProperties({
           ) : null}
           {!isVectorFillElement
             ? backgroundLayers.map((layer, index) => {
-                const solidFillColor = parseSolidFillLayer(layer);
+                // A solid layer bound to a token reads as that token: the
+                // swatch and field show the color it resolves to.
+                const tokenLayerCss = parseTokenSolidFillLayer(layer);
+                const solidFillColor =
+                  parseSolidFillLayer(layer) ?? tokenLayerCss;
+                const layerTokenResolution = tokenLayerCss
+                  ? resolveVarColor(tokenLayerCss, tokenSource?.tokens)
+                  : null;
+                const layerTokenVar = tokenLayerCss
+                  ? parseVarReference(tokenLayerCss)?.name
+                  : undefined;
                 const gradient = solidFillColor
                   ? null
                   : parseGradientLayer(layer);
@@ -658,18 +867,48 @@ export function FillProperties({
                 const opacity = gradient
                   ? (gradient.opacity ?? 100)
                   : solidFillColor
-                    ? Math.round((parseCssColor(solidFillColor)?.a ?? 1) * 100)
+                    ? Math.round(
+                        (parseCssColor(
+                          layerTokenResolution?.kind === "color"
+                            ? layerTokenResolution.css
+                            : solidFillColor,
+                        )?.a ?? 1) * 100,
+                      )
                     : 100;
-                const solidFillHex = solidFillColor
-                  ? rgbaToHex(parseCssColor(solidFillColor)!)
-                  : null;
-                const label = solidFillHex
-                  ? solidFillHex
-                  : gradient
-                    ? `${gradientLabel(gradient.type)} ${index + 1}`
-                    : `${"Image" /* i18n-ignore design inspector paint row */} ${
-                        index + 1
-                      }`;
+                // The field reads a fill in its own notation: a wide color as
+                // written, a gradient or image by its name.
+                const layerReading = layerTokenVar
+                  ? readFillField({
+                      paint: "solid",
+                      value:
+                        layerTokenResolution?.kind === "color"
+                          ? layerTokenResolution.css
+                          : "",
+                      token: {
+                        name:
+                          findToken(tokenSource?.tokens, layerTokenVar)?.name ??
+                          layerTokenVar,
+                        unresolved: layerTokenResolution?.kind !== "color",
+                      },
+                    })
+                  : solidFillColor
+                    ? readFillField({ paint: "solid", value: solidFillColor })
+                    : readFillField({
+                        paint: gradient ? "gradient" : "image",
+                        value: layer,
+                        paintName: fillPaintName(
+                          gradient ? gradient.type : "image",
+                          GRADIENT_NAMES,
+                        ),
+                      });
+                const layerOpacity = hidden ? 0 : opacity;
+                const label =
+                  fillFieldEditText(layerReading) ??
+                  (layerReading.kind === "paint"
+                    ? layerReading.text
+                    : layerReading.kind === "token"
+                      ? layerReading.name
+                      : "");
                 const replaceLayer = (
                   nextLayer: string,
                   meta?: Parameters<StyleChangeHandler>[2],
@@ -678,7 +917,9 @@ export function FillProperties({
                   nextLayers[index] = nextLayer;
                   commitBackgroundImageChange(joinCssLayers(nextLayers), meta);
                 };
-                const removeLayer = () => {
+                // A text layer has no solid layer to bind: its token becomes the
+                // text color, as Solid does for a text fill.
+                const removeLayer = (replacementColor?: string) => {
                   const patch: Record<string, string> = removeFillLayerAtIndex(
                     {
                       backgroundImage: backgroundLayers,
@@ -696,7 +937,9 @@ export function FillProperties({
                       Boolean(parseGradientLayer(remainingLayer)),
                     );
                     patch.backgroundClip = hasGradient ? "text" : "border-box";
-                    if (
+                    if (replacementColor) {
+                      patch.color = replacementColor;
+                    } else if (
                       !hasGradient &&
                       remainingLayers.length === 0 &&
                       gradient &&
@@ -778,7 +1021,7 @@ export function FillProperties({
                     draggable
                     {...fillDrag.getRowProps(index)}
                   >
-                    <InspectorGridCell span={3}>
+                    <InspectorGridCell span={1}>
                       <RowDragHandle
                         label={t("editPanel.labels.reorderLayer")}
                         dropIndicator={
@@ -810,6 +1053,7 @@ export function FillProperties({
                           touched or the fill type was switched. */}
                       <DesignColorPicker
                         key={`${layerKey}:${openFillPickerKey === pickerKey}`}
+                        uploadTargetKey={imageFillUploadTargetKey(layerKey)}
                         open={openFillPickerKey === pickerKey}
                         onOpenChange={(open) => {
                           setFillPickerOpen(pickerKey, open);
@@ -826,23 +1070,54 @@ export function FillProperties({
                         trigger={
                           <button
                             type="button"
-                            className="flex h-6 w-full min-w-0 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 pl-8 text-left !text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
+                            title={
+                              layerReading.kind === "wide"
+                                ? (solidFillColor ?? undefined)
+                                : undefined
+                            }
+                            className="flex h-6 w-full min-w-0 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left !text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
                           >
-                            <span
-                              className="size-4 shrink-0 rounded-sm border border-[var(--design-editor-control-border)]"
-                              style={swatchStyle(layer)}
+                            <FillFieldFace
+                              reading={layerReading}
+                              swatch={
+                                <FillFieldSwatch
+                                  style={swatchStyle(
+                                    layerTokenResolution?.kind === "color"
+                                      ? layerTokenResolution.css
+                                      : layer,
+                                  )}
+                                  unresolved={
+                                    layerTokenVar !== undefined &&
+                                    layerTokenResolution?.kind !== "color"
+                                  }
+                                />
+                              }
+                              // A gradient's opacity is the field beside the
+                              // row, which leaves no room for the chevron.
+                              chevron={!gradient && showsChevron(layerReading)}
+                              opacity={
+                                gradient ||
+                                !showsOpacity(layerReading, layerOpacity)
+                                  ? null
+                                  : layerOpacity
+                              }
+                              mixedLabel=""
                             />
-                            <span className="min-w-0 flex-1 truncate font-medium text-foreground">
-                              {label}
-                            </span>
-                            {!gradient && (
-                              <span className="shrink-0 tabular-nums text-muted-foreground">
-                                {hidden ? 0 : opacity}%
-                              </span>
-                            )}
                           </button>
                         }
                         className="min-w-0 flex-1"
+                        tokens={tokenSource?.tokens}
+                        onRequestTokens={tokenSource?.request}
+                        boundToken={layerTokenVar}
+                        onPickToken={
+                          tokenSource
+                            ? (token) => {
+                                const css = tokenVarCss(token.cssVar);
+                                if (isTextFillElement) removeLayer(css);
+                                else replaceLayer(buildSolidFillLayer(css));
+                              }
+                            : undefined
+                        }
                         value={solidFillColor ?? layer}
                         onPaintTypeChange={(type) => {
                           if (type === "solid") {
@@ -858,16 +1133,14 @@ export function FillProperties({
                               : null;
                             const solidColor = solidFillColor
                               ? solidFillColor
-                              : firstStopColor
-                                ? rgbaToCss(
-                                    withColorOpacity(
-                                      firstStopColor,
-                                      ((firstStop?.opacity ??
-                                        firstStopColor.a * 100) *
-                                        (gradient?.opacity ?? 100)) /
-                                        100,
-                                    ),
-                                  )
+                              : firstStopColor && firstStop
+                                ? (withCssColorOpacity(
+                                    firstStop.color,
+                                    ((firstStop.opacity ??
+                                      firstStopColor.a * 100) *
+                                      (gradient?.opacity ?? 100)) /
+                                      100,
+                                  ) ?? firstStop.color)
                                 : cssColorOrFallback(
                                     undefined,
                                     "#000000", // guard:allow-raw-color — a missing paint restores the concrete canvas fallback.
@@ -936,20 +1209,7 @@ export function FillProperties({
                         onImageFillChange={
                           isTextFillElement
                             ? undefined
-                            : (value) =>
-                                commitImageFillPatch(
-                                  setImageFillLayerPatch(
-                                    {
-                                      backgroundImage: backgroundLayers,
-                                      backgroundSize: backgroundSizeLayers,
-                                      backgroundRepeat: backgroundRepeatLayers,
-                                      backgroundPosition:
-                                        backgroundPositionLayers,
-                                    },
-                                    index,
-                                    imageFillToBackgroundStyles(value),
-                                  ),
-                                )
+                            : createImageFillUploadChange(layerKey, index)
                         }
                         paintType={
                           solidFillColor ? "solid" : (gradient?.type ?? "image")
@@ -959,6 +1219,7 @@ export function FillProperties({
                             ? TEXT_GRADIENT_PAINT_TYPES
                             : EXISTING_LAYER_PAINT_TYPES
                         }
+                        glslShaderContext={layerShaderContext}
                         backgroundImage={layer}
                         backgroundSize={backgroundSizeLayers[index]}
                         backgroundRepeat={backgroundRepeatLayers[index]}
@@ -1036,7 +1297,7 @@ export function FillProperties({
                     <InspectorGridCell span={4} className="flex justify-center">
                       <SectionIconButton
                         label={t("editPanel.labels.removeLayer")}
-                        onClick={removeLayer}
+                        onClick={() => removeLayer()}
                       >
                         <IconMinus className="size-3.5" />
                       </SectionIconButton>

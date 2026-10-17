@@ -6,7 +6,7 @@ const source = readDesignEditorSource();
 
 describe("empty design", () => {
   it("shares composer context with signed-in editor chats, not capability-only sessions", () => {
-    const surfaceStart = source.indexOf("<AgentChatSurface");
+    const surfaceStart = source.indexOf("<MemoAgentChatSurface");
     const surfaceEnd = source.indexOf('mode="panel"', surfaceStart);
     expect(surfaceStart).toBeGreaterThan(-1);
     expect(surfaceEnd).toBeGreaterThan(surfaceStart);

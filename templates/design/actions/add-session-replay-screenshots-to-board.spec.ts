@@ -7,11 +7,13 @@ const mocks = vi.hoisted(() => ({
   deleteVisualEditSnapshotBlobs: vi.fn(),
   deletePrivateBlob: vi.fn(),
   generatedId: 0,
-  getActivePrivateBlobProviderForRequest: vi.fn(),
   getDb: vi.fn(),
+  getProvider: vi.fn(),
+  isPrivateBlobConfiguredForRequest: vi.fn(),
   getRequestUserEmail: vi.fn(),
   migrateBoardObjectsToFile: vi.fn(),
   putPrivateBlob: vi.fn(),
+  queueVisualEditSnapshotBlobCleanup: vi.fn(),
   queueVisualEditSnapshotBlobCleanupInTransaction: vi.fn(),
   readLiveSourceFile: vi.fn(),
   resolveAttachment: vi.fn(),
@@ -21,6 +23,34 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (action: unknown) => action,
+  ActionContractError: class ActionContractError extends Error {
+    readonly actionContractError = true;
+    readonly errorCode: string;
+    readonly statusCode: number;
+    readonly details?: Record<string, unknown>;
+
+    constructor(
+      message: string,
+      options: {
+        errorCode: string;
+        statusCode?: number;
+        details?: Record<string, unknown>;
+      },
+    ) {
+      super(message);
+      this.errorCode = options.errorCode;
+      this.statusCode = options.statusCode ?? 409;
+      this.details = options.details;
+    }
+  },
+  isActionContractError: (error: unknown) =>
+    Boolean(
+      error &&
+      typeof error === "object" &&
+      (error as { actionContractError?: unknown }).actionContractError ===
+        true &&
+      typeof (error as { errorCode?: unknown }).errorCode === "string",
+    ),
   fail: (message: string) => {
     throw new Error(message);
   },
@@ -29,8 +59,8 @@ vi.mock("@agent-native/core/action", () => ({
 vi.mock("@agent-native/core/private-blob", () => ({
   ATTACHMENT_REF_MAX_CHARS: 1_024,
   deletePrivateBlob: mocks.deletePrivateBlob,
-  getActivePrivateBlobProviderForRequest:
-    mocks.getActivePrivateBlobProviderForRequest,
+  getActivePrivateBlobProviderForRequest: mocks.getProvider,
+  isPrivateBlobConfiguredForRequest: mocks.isPrivateBlobConfiguredForRequest,
   putPrivateBlob: mocks.putPrivateBlob,
   resolveAttachment: mocks.resolveAttachment,
 }));
@@ -70,6 +100,9 @@ vi.mock("../server/db/index.js", () => ({
       id: "screenshots.id",
     },
     designs: { id: "designs.id" },
+    designVisualEditSnapshotBlobCleanup: {
+      blobHandle: "cleanup.blobHandle",
+    },
     designFiles: {
       id: "designFiles.id",
       designId: "designFiles.designId",
@@ -84,6 +117,7 @@ vi.mock("../server/db/index.js", () => ({
 
 vi.mock("../server/lib/visual-edit-snapshot-blobs.js", () => ({
   deleteVisualEditSnapshotBlobs: mocks.deleteVisualEditSnapshotBlobs,
+  queueVisualEditSnapshotBlobCleanup: mocks.queueVisualEditSnapshotBlobCleanup,
   queueVisualEditSnapshotBlobCleanupInTransaction:
     mocks.queueVisualEditSnapshotBlobCleanupInTransaction,
 }));
@@ -126,9 +160,8 @@ describe("add-session-replay-screenshots-to-board cleanup", () => {
     vi.clearAllMocks();
     mocks.generatedId = 0;
     mocks.getRequestUserEmail.mockReturnValue("designer@example.test");
-    mocks.getActivePrivateBlobProviderForRequest.mockResolvedValue({
-      id: "private-provider",
-    });
+    mocks.getProvider.mockResolvedValue({ id: "private-provider" });
+    mocks.isPrivateBlobConfiguredForRequest.mockResolvedValue(true);
     mocks.resolveAttachment.mockResolvedValue({
       status: "ok",
       file: { data: new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]) },
@@ -197,6 +230,427 @@ describe("add-session-replay-screenshots-to-board cleanup", () => {
     );
     expect(mocks.deletePrivateBlob).toHaveBeenCalledTimes(1);
     expect(mocks.deletePrivateBlob).toHaveBeenCalledWith(blobHandle);
+  });
+
+  it("reports when fallback blob deletion succeeds after queue failure", async () => {
+    mocks.deletePrivateBlob
+      .mockResolvedValueOnce({ deleted: false })
+      .mockResolvedValueOnce({ deleted: true });
+    mocks.deleteVisualEditSnapshotBlobs.mockRejectedValueOnce(
+      new Error("cleanup queue insert failed"),
+    );
+
+    await expect(
+      action.run(
+        {
+          screenshots: [
+            {
+              attachmentRef: "attachment-ref",
+              replayId: "replay-id",
+              capturedAt: "2026-10-07T12:00:00.000Z",
+              app: "clips",
+              route: "/library",
+              offsetMs: 13_000,
+              viewportWidth: 430,
+              viewportHeight: 932,
+              eventCount: 12,
+            },
+          ],
+        } as never,
+        {
+          caller: "frontend",
+          actionName: "add-session-replay-screenshots-to-board",
+        } as never,
+      ),
+    ).rejects.toThrow("board setup failed");
+
+    expect(mocks.queueVisualEditSnapshotBlobCleanup).not.toHaveBeenCalled();
+  });
+
+  it("durably queues blobs that remain after the cleanup fallback", async () => {
+    mocks.deletePrivateBlob
+      .mockResolvedValueOnce({ deleted: false })
+      .mockResolvedValueOnce({ deleted: false });
+    mocks.deleteVisualEditSnapshotBlobs.mockRejectedValueOnce(
+      new Error("cleanup queue insert failed"),
+    );
+
+    const error = await action
+      .run(
+        {
+          screenshots: [
+            {
+              attachmentRef: "attachment-ref",
+              replayId: "replay-id",
+              capturedAt: "2026-10-07T12:00:00.000Z",
+              app: "clips",
+              route: "/library",
+              offsetMs: 13_000,
+              viewportWidth: 430,
+              viewportHeight: 932,
+              eventCount: 12,
+            },
+          ],
+        } as never,
+        {
+          caller: "frontend",
+          actionName: "add-session-replay-screenshots-to-board",
+        } as never,
+      )
+      .catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({
+      actionContractError: true,
+      message: "board setup failed",
+      details: { cleanupPending: true },
+    });
+    expect(mocks.queueVisualEditSnapshotBlobCleanup).toHaveBeenCalledWith([
+      JSON.stringify({
+        id: "blob-id",
+        provider: "private-provider",
+        opaque: true,
+        encrypted: true,
+      }),
+    ]);
+  });
+
+  it("reports untracked blobs when durable cleanup queue insertion fails", async () => {
+    mocks.deletePrivateBlob
+      .mockResolvedValueOnce({ deleted: false })
+      .mockResolvedValueOnce({ deleted: false });
+    mocks.deleteVisualEditSnapshotBlobs.mockRejectedValueOnce(
+      new Error("cleanup queue insert failed"),
+    );
+    mocks.queueVisualEditSnapshotBlobCleanup.mockRejectedValueOnce(
+      new Error("durable retry queue unavailable"),
+    );
+
+    const error = await action
+      .run(
+        {
+          screenshots: [
+            {
+              attachmentRef: "attachment-ref",
+              replayId: "replay-id",
+              capturedAt: "2026-10-07T12:00:00.000Z",
+              app: "clips",
+              route: "/library",
+              offsetMs: 13_000,
+              viewportWidth: 430,
+              viewportHeight: 932,
+              eventCount: 12,
+            },
+          ],
+        } as never,
+        {
+          caller: "frontend",
+          actionName: "add-session-replay-screenshots-to-board",
+        } as never,
+      )
+      .catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({
+      actionContractError: true,
+      message: "board setup failed",
+      details: { cleanupFailed: true },
+    });
+    expect(error).not.toMatchObject({
+      details: { cleanupPending: true },
+    });
+    expect(mocks.queueVisualEditSnapshotBlobCleanup).toHaveBeenCalledWith([
+      JSON.stringify({
+        id: "blob-id",
+        provider: "private-provider",
+        opaque: true,
+        encrypted: true,
+      }),
+    ]);
+  });
+
+  it("reports unknown cleanup state when the queue cannot be read after insert failure", async () => {
+    mocks.deletePrivateBlob
+      .mockResolvedValueOnce({ deleted: false })
+      .mockResolvedValueOnce({ deleted: false });
+    mocks.deleteVisualEditSnapshotBlobs.mockRejectedValueOnce(
+      new Error("cleanup queue insert failed"),
+    );
+    mocks.queueVisualEditSnapshotBlobCleanup.mockRejectedValueOnce(
+      new Error("durable retry queue unavailable"),
+    );
+    mocks.getDb.mockReturnValue({
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn().mockRejectedValue(new Error("queue read failed")),
+          })),
+        })),
+      })),
+    });
+
+    const error = await action
+      .run(
+        {
+          screenshots: [
+            {
+              attachmentRef: "attachment-ref",
+              replayId: "replay-id",
+              capturedAt: "2026-10-07T12:00:00.000Z",
+              app: "clips",
+              route: "/library",
+              offsetMs: 13_000,
+              viewportWidth: 430,
+              viewportHeight: 932,
+              eventCount: 12,
+            },
+          ],
+        } as never,
+        {
+          caller: "frontend",
+          actionName: "add-session-replay-screenshots-to-board",
+        } as never,
+      )
+      .catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({
+      actionContractError: true,
+      message: "board setup failed",
+      details: { cleanupUnknown: true },
+    });
+    expect(error).not.toMatchObject({
+      details: { cleanupFailed: true },
+    });
+  });
+
+  it("reports private blob cleanup that remains pending after an action failure", async () => {
+    mocks.deletePrivateBlob.mockResolvedValueOnce({ deleted: false });
+    mocks.deleteVisualEditSnapshotBlobs.mockResolvedValueOnce(true);
+
+    await expect(
+      action.run(
+        {
+          screenshots: [
+            {
+              attachmentRef: "attachment-ref",
+              replayId: "replay-id",
+              capturedAt: "2026-10-07T12:00:00.000Z",
+              app: "clips",
+              route: "/library",
+              offsetMs: 13_000,
+              viewportWidth: 430,
+              viewportHeight: 932,
+              eventCount: 12,
+            },
+          ],
+        } as never,
+        {
+          caller: "frontend",
+          actionName: "add-session-replay-screenshots-to-board",
+        } as never,
+      ),
+    ).rejects.toMatchObject({
+      actionContractError: true,
+      message: "board setup failed",
+      details: { cleanupPending: true },
+    });
+  });
+
+  it("accepts encrypted private upload fallback handles without a registered provider", async () => {
+    const fallbackHandle = {
+      id: "public-upload:v1:encrypted-descriptor",
+      provider: "public-upload:builder-storage",
+      opaque: true,
+      encrypted: true,
+    };
+    mocks.getProvider.mockResolvedValue(null);
+    mocks.putPrivateBlob.mockResolvedValue(fallbackHandle);
+
+    await expect(
+      action.run(
+        {
+          screenshots: [
+            {
+              attachmentRef: "attachment-ref",
+              replayId: "replay-id",
+              capturedAt: "2026-10-07T12:00:00.000Z",
+              app: "clips",
+              route: "/library",
+              offsetMs: 13_000,
+              viewportWidth: 430,
+              viewportHeight: 932,
+              eventCount: 12,
+            },
+          ],
+          allowEncryptedPublicUploadFallback: true,
+        } as never,
+        {
+          caller: "frontend",
+          actionName: "add-session-replay-screenshots-to-board",
+        } as never,
+      ),
+    ).rejects.toThrow("board setup failed");
+
+    expect(mocks.getProvider).toHaveBeenCalledOnce();
+    expect(mocks.putPrivateBlob).toHaveBeenCalledWith(
+      expect.objectContaining({ ownerEmail: "designer@example.test" }),
+    );
+    expect(mocks.createDesign).toHaveBeenCalledOnce();
+    expect(mocks.deletePrivateBlob).toHaveBeenCalledWith(fallbackHandle);
+  });
+
+  it("lays replay screenshots out in compact rows while preserving their viewport ratios", async () => {
+    const file = {
+      id: "board-file-123",
+      designId: "design-id",
+      filename: "index.html",
+      fileType: "html",
+      content: "<html><body></body></html>",
+      createdAt: null,
+      updatedAt: null,
+    };
+    const insertValues = vi.fn().mockResolvedValue(undefined);
+    mocks.assertAccess.mockResolvedValue({
+      role: "editor",
+      resource: {
+        id: "design-id",
+        ownerEmail: "designer@example.test",
+        visibility: "private",
+        orgId: null,
+      },
+    });
+    mocks.migrateBoardObjectsToFile.mockResolvedValue({
+      boardFileId: file.id,
+    });
+    mocks.getDb.mockReturnValue({
+      select: vi.fn(() => selectChain([file])),
+      insert: vi.fn(() => ({ values: insertValues })),
+    });
+    mocks.readLiveSourceFile.mockResolvedValue({
+      content: file.content,
+      versionHash: "version-before",
+    });
+    mocks.writeInlineSourceFile.mockResolvedValue({
+      versionHash: "version-after",
+    });
+
+    const result = await action.run(
+      {
+        designId: "design-id",
+        cohortTotal: 50,
+        selectedReplayCount: 1,
+        screenshots: [
+          {
+            attachmentRef: "desktop-ref",
+            replayId: "replay-id",
+            capturedAt: "2026-10-07T12:00:00.000Z",
+            app: "clips",
+            route: "/library",
+            offsetMs: 1_000,
+            viewportWidth: 1536,
+            viewportHeight: 864,
+            eventCount: 12,
+          },
+          {
+            attachmentRef: "mobile-ref",
+            replayId: "replay-id",
+            capturedAt: "2026-10-07T12:00:00.000Z",
+            app: "clips",
+            route: "/record",
+            offsetMs: 2_000,
+            viewportWidth: 390,
+            viewportHeight: 844,
+            eventCount: 12,
+          },
+        ],
+      } as never,
+      {
+        caller: "frontend",
+        actionName: "add-session-replay-screenshots-to-board",
+      } as never,
+    );
+
+    expect(result.summary.screenshotCount).toBe(2);
+    expect(insertValues).toHaveBeenCalledOnce();
+    const boardContent = mocks.writeInlineSourceFile.mock.calls[0]?.[0]
+      ?.content as string;
+    expect(boardContent).toContain(
+      'data-session-replay-viewport-width="1536" data-session-replay-viewport-height="864"',
+    );
+    expect(boardContent).toContain('width="360" height="203" loading="lazy"');
+    expect(boardContent).toContain(
+      'data-session-replay-viewport-width="390" data-session-replay-viewport-height="844"',
+    );
+    expect(boardContent).toContain(
+      "left:420px;top:144px;width:296px;height:640px",
+    );
+  });
+
+  it("fails before resolving screenshots when private storage is unavailable", async () => {
+    mocks.getProvider.mockResolvedValue(null);
+    mocks.isPrivateBlobConfiguredForRequest.mockResolvedValue(false);
+
+    await expect(
+      action.run(
+        {
+          screenshots: [
+            {
+              attachmentRef: "attachment-ref",
+              replayId: "replay-id",
+              capturedAt: "2026-10-07T12:00:00.000Z",
+              app: "clips",
+              route: "/library",
+              offsetMs: 13_000,
+              viewportWidth: 430,
+              viewportHeight: 932,
+              eventCount: 12,
+            },
+          ],
+        } as never,
+        {
+          caller: "frontend",
+          actionName: "add-session-replay-screenshots-to-board",
+        } as never,
+      ),
+    ).rejects.toThrow(
+      "Replay screenshots require a configured private blob provider.",
+    );
+
+    expect(mocks.resolveAttachment).not.toHaveBeenCalled();
+    expect(mocks.putPrivateBlob).not.toHaveBeenCalled();
+  });
+
+  it("does not use the configured encrypted fallback without explicit opt-in", async () => {
+    mocks.getProvider.mockResolvedValue(null);
+    mocks.isPrivateBlobConfiguredForRequest.mockResolvedValue(true);
+
+    await expect(
+      action.run(
+        {
+          screenshots: [
+            {
+              attachmentRef: "attachment-ref",
+              replayId: "replay-id",
+              capturedAt: "2026-10-07T12:00:00.000Z",
+              app: "clips",
+              route: "/library",
+              offsetMs: 13_000,
+              viewportWidth: 430,
+              viewportHeight: 932,
+              eventCount: 12,
+            },
+          ],
+        } as never,
+        {
+          caller: "frontend",
+          actionName: "add-session-replay-screenshots-to-board",
+        } as never,
+      ),
+    ).rejects.toThrow(
+      "Replay screenshots require a configured private blob provider.",
+    );
+
+    expect(mocks.resolveAttachment).not.toHaveBeenCalled();
+    expect(mocks.putPrivateBlob).not.toHaveBeenCalled();
+    expect(mocks.isPrivateBlobConfiguredForRequest).not.toHaveBeenCalled();
   });
 
   it("queues persisted screenshot blobs atomically before draining on an existing Design rollback", async () => {
@@ -306,6 +760,108 @@ describe("add-session-replay-screenshots-to-board cleanup", () => {
     );
     expect(metadataRows).toHaveLength(0);
     expect(mocks.deletePrivateBlob).not.toHaveBeenCalled();
+  });
+
+  it("reports pending blob cleanup when a newly created Design rolls back", async () => {
+    const events: string[] = [];
+    const metadataRows: Array<Record<string, unknown>> = [];
+    const boardFile = {
+      id: "board-file",
+      designId: "generated-1",
+      filename: "index.html",
+      fileType: "html",
+      content: "<html><body></body></html>",
+      createdAt: null,
+      updatedAt: null,
+    };
+    const tx = {
+      select: vi.fn(() => selectChain(metadataRows)),
+      delete: vi.fn(
+        () =>
+          ({
+            where: vi.fn(async () => {
+              metadataRows.length = 0;
+            }),
+          }) as never,
+      ),
+    };
+    mocks.withDesignSourceMutationTransaction.mockImplementation(
+      async (_designId, callback) => {
+        const result = await callback(tx as never);
+        events.push("transaction-commit");
+        return result;
+      },
+    );
+    mocks.queueVisualEditSnapshotBlobCleanupInTransaction.mockImplementation(
+      async () => {
+        events.push("queue-handles");
+      },
+    );
+    mocks.deleteVisualEditSnapshotBlobs.mockImplementation(async () => {
+      events.push("drain-queue");
+      return true;
+    });
+    mocks.migrateBoardObjectsToFile.mockResolvedValue({
+      boardFileId: "board-file",
+    });
+    mocks.readLiveSourceFile.mockResolvedValue({
+      content: "<html><body></body></html>",
+      versionHash: "before",
+    });
+    mocks.writeInlineSourceFile.mockResolvedValue({ versionHash: "after" });
+    mocks.getDb.mockReturnValue({
+      select: vi.fn(() => selectChain([boardFile])),
+      insert: vi.fn(
+        () =>
+          ({
+            values: vi.fn(async (rows: Array<Record<string, unknown>>) => {
+              metadataRows.push(...rows);
+              throw new Error("metadata insert failed after persistence");
+            }),
+          }) as never,
+      ),
+    });
+
+    const error = await action
+      .run(
+        {
+          screenshots: [
+            {
+              attachmentRef: "attachment-ref",
+              replayId: "replay-id",
+              capturedAt: "2026-10-07T12:00:00.000Z",
+              app: "clips",
+              route: "/library",
+              offsetMs: 13_000,
+              viewportWidth: 430,
+              viewportHeight: 932,
+              eventCount: 12,
+            },
+          ],
+        } as never,
+        {
+          caller: "frontend",
+          actionName: "add-session-replay-screenshots-to-board",
+        } as never,
+      )
+      .catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({
+      actionContractError: true,
+      message: "metadata insert failed after persistence",
+      details: { cleanupPending: true },
+    });
+    expect(events.indexOf("queue-handles")).toBeLessThan(
+      events.indexOf("transaction-commit"),
+    );
+    expect(events.indexOf("transaction-commit")).toBeLessThan(
+      events.indexOf("drain-queue"),
+    );
+    expect(mocks.deleteVisualEditSnapshotBlobs).toHaveBeenCalledOnce();
+    expect(mocks.deleteDesign).toHaveBeenCalledWith(
+      { id: "generated-1" },
+      expect.anything(),
+    );
   });
 
   it("queues the blob when a failed metadata insert left no persisted row", async () => {
@@ -521,5 +1077,72 @@ describe("add-session-replay-screenshots-to-board cleanup", () => {
     );
     expect(mocks.deleteVisualEditSnapshotBlobs).toHaveBeenCalledOnce();
     expect(mocks.deletePrivateBlob).not.toHaveBeenCalled();
+  });
+
+  it("reports failed metadata cleanup and an uncertain board after rollback failures", async () => {
+    const boardFile = {
+      id: "board-file",
+      designId: "existing-design",
+      filename: "index.html",
+      fileType: "html",
+      content: "<html><body></body></html>",
+      createdAt: null,
+      updatedAt: null,
+    };
+    mocks.migrateBoardObjectsToFile.mockResolvedValue({
+      boardFileId: "board-file",
+    });
+    mocks.readLiveSourceFile.mockResolvedValue({
+      content: "<html><body></body></html>",
+      versionHash: "before",
+    });
+    mocks.writeInlineSourceFile
+      .mockResolvedValueOnce({ versionHash: "after" })
+      .mockRejectedValueOnce(new Error("board rollback failed"));
+    mocks.withDesignSourceMutationTransaction.mockRejectedValue(
+      new Error("metadata rollback failed"),
+    );
+    mocks.getDb.mockReturnValue({
+      select: vi.fn(() => selectChain([boardFile])),
+      insert: vi.fn(
+        () =>
+          ({
+            values: vi.fn(async () => {
+              throw new Error("metadata insert failed");
+            }),
+          }) as never,
+      ),
+    });
+
+    await expect(
+      action.run(
+        {
+          designId: "existing-design",
+          screenshots: [
+            {
+              attachmentRef: "attachment-ref",
+              replayId: "replay-id",
+              capturedAt: "2026-10-07T12:00:00.000Z",
+              app: "clips",
+              route: "/library",
+              offsetMs: 13_000,
+              viewportWidth: 430,
+              viewportHeight: 932,
+              eventCount: 12,
+            },
+          ],
+        } as never,
+        {
+          caller: "frontend",
+          actionName: "add-session-replay-screenshots-to-board",
+        } as never,
+      ),
+    ).rejects.toMatchObject({
+      actionContractError: true,
+      message: "metadata insert failed",
+      details: { cleanupUnknown: true, saveOutcomeUnknown: true },
+    });
+    expect(mocks.withDesignSourceMutationTransaction).toHaveBeenCalledTimes(2);
+    expect(mocks.writeInlineSourceFile).toHaveBeenCalledTimes(2);
   });
 });

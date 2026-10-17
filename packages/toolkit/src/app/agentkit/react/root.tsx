@@ -156,6 +156,7 @@ export function AgentKitRoot({
   const now = clientOptions?.now;
   const reconnectAttempts = clientOptions?.reconnect?.attempts;
   const reconnectDelay = clientOptions?.reconnect?.delayMs;
+  const aiSetupReadiness = clientOptions?.aiSetupReadiness;
   const onError = clientOptions?.onError;
   const onIntegrityReport = clientOptions?.onIntegrityReport;
   const upload = clientOptions?.upload;
@@ -170,6 +171,7 @@ export function AgentKitRoot({
         ? undefined
         : createAgentKitClient({
             transport: resolvedTransport as AgentTransport,
+            aiSetupReadiness,
             transportOwnership,
             createId,
             now,
@@ -185,6 +187,7 @@ export function AgentKitRoot({
     [
       controller,
       createId,
+      aiSetupReadiness,
       now,
       onError,
       onIntegrityReport,

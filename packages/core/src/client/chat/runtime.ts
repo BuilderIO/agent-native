@@ -6,13 +6,23 @@ import {
   AUTO_CONTINUE_OF_RUN_METADATA_KEY,
   CONTINUE_OF_RUN_METADATA_KEY,
 } from "../../agent/auto-continue.js";
-import type { AgentChatStructuredMessage } from "../../agent/types.js";
+import type {
+  AgentChatStructuredContentPart,
+  AgentChatStructuredMessage,
+} from "../../agent/types.js";
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
+import { RUN_NOT_STARTED_METADATA_KEY } from "../../shared/agent-chat-run-not-started.js";
 import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
+import {
+  agentEngineStatusUrlForChatApi,
+  requireAgentEngineConfiguredForDispatch,
+} from "../agent-engine-readiness.js";
+import { getOrCreateAnalyticsSessionId } from "../analytics-session.js";
 import { agentChatStreamingUrl, agentNativePath } from "../api-path.js";
 import { CHAT_REQUEST_TOO_LARGE_MESSAGE } from "../error-format.js";
 import {
   appendMissingFinalResponseWarning,
+  findApprovalToolCallIndex,
   type ContentPart,
   type SSEEvent,
 } from "../sse-event-processor.js";
@@ -80,6 +90,12 @@ export interface AgentChatRuntimeToolCallPart extends AgentChatRuntimeContentPar
   readonly toolName: string;
   readonly input?: unknown;
   readonly inputText?: string;
+  readonly approval?: {
+    readonly approvalKey: string;
+    readonly askId?: string;
+  };
+  /** Keeps the exact approved invocation available within the continuation budget. */
+  readonly approvedReplay?: true;
 }
 
 export interface AgentChatRuntimeToolResultPart extends AgentChatRuntimeContentPartBase<"tool-result"> {
@@ -88,6 +104,8 @@ export interface AgentChatRuntimeToolResultPart extends AgentChatRuntimeContentP
   readonly result?: unknown;
   readonly resultText?: string;
   readonly isError?: boolean;
+  readonly approvalPause?: boolean;
+  readonly approvalAskId?: string;
   readonly mcpApp?: AgentMcpAppPayload;
   readonly chatUI?: ActionChatUIConfig;
 }
@@ -123,13 +141,16 @@ export interface AgentChatRuntimeMessage<
   readonly role: AgentChatRuntimeRole;
   readonly content: readonly TContentPart[];
   readonly createdAt?: string;
+  readonly status?: "streaming" | "complete" | "error";
   readonly metadata?: AgentChatRuntimeMetadata;
 }
 
 export interface AgentChatRuntimeAttachment {
   readonly id?: string;
+  readonly type?: string;
   readonly name: string;
   readonly mediaType?: string;
+  readonly contentType?: string;
   readonly data?: string;
   readonly url?: string;
   readonly text?: string;
@@ -324,6 +345,8 @@ export interface AgentChatRuntimeContinueInput {
   readonly prompt?: string;
   readonly approval?: AgentChatRuntimeApprovalResponse;
   readonly connection?: AgentChatRuntimeConnectionResponse;
+  /** Durable references to the continued turn's attachments; never bytes. */
+  readonly attachments?: readonly AgentChatRuntimeAttachment[];
   readonly metadata?: AgentChatRuntimeMetadata;
   readonly abortSignal?: AbortSignal;
 }
@@ -410,6 +433,8 @@ export interface AgentChatRuntimeToolDoneEvent extends AgentChatRuntimeEventBase
   readonly resultText?: string;
   readonly error?: string;
   readonly completedSideEffect?: boolean;
+  readonly approvalPause?: boolean;
+  readonly approvalAskId?: string;
   readonly mcpApp?: AgentMcpAppPayload;
   readonly chatUI?: ActionChatUIConfig;
 }
@@ -421,6 +446,8 @@ export interface AgentChatRuntimeApprovalRequestEvent extends AgentChatRuntimeEv
   readonly message: string;
   readonly input?: unknown;
   readonly allowPersistentApproval?: false;
+  /** The server's approval row, when the agent-native store created one. */
+  readonly askId?: string;
 }
 
 export interface AgentChatRuntimeApprovalResolvedEvent extends AgentChatRuntimeEventBase<"approval-resolved"> {
@@ -752,6 +779,11 @@ export interface AgentChatRuntimeSubscribeInput {
   readonly abortSignal?: AbortSignal;
 }
 
+export interface AgentChatRuntimeReadRunStateInput extends AgentChatRuntimeSubscribeInput {
+  /** Include the durable request id when checking whether a restored request is pending. */
+  readonly includePendingConnectionRequest?: boolean;
+}
+
 export interface AgentChatRuntimeResumeInput extends AgentChatRuntimeSubscribeInput {
   readonly prompt?: string;
 }
@@ -814,7 +846,9 @@ export interface AgentChatRuntime<
    * that provides it owns run outcome: a closed `subscribe` stream is then only
    * a connection fact. Rejects when the record cannot be read.
    */
-  readRunState?(input: AgentChatRuntimeSubscribeInput): Promise<ServerRunState>;
+  readRunState?(
+    input: AgentChatRuntimeReadRunStateInput,
+  ): Promise<ServerRunState>;
   cancel?(
     input: AgentChatRuntimeCancelInput,
   ): Promise<AgentChatRuntimeCancelResult>;
@@ -852,6 +886,12 @@ export interface CreateHttpAgentChatRuntimeOptions<
     turn: AgentChatRuntimeTurnInput;
     turnId: AgentChatRuntimeTurnId;
   }) => unknown;
+  /** Called at the final client boundary before a new turn reaches the endpoint. */
+  readonly beforeStartTurn?: (input: {
+    session: AgentChatRuntimeSessionSummary;
+    turn: AgentChatRuntimeTurnInput;
+    turnId: AgentChatRuntimeTurnId;
+  }) => AgentChatRuntimeAwaitable<void>;
   readonly mapEvent?: (
     event: unknown,
     context: {
@@ -1410,6 +1450,7 @@ export function createHttpAgentChatRuntime<
       previousTurns.set(turnId, turn);
       let response: Response;
       try {
+        await options.beforeStartTurn?.({ session: summary, turn, turnId });
         const endpoint =
           typeof options.endpoint === "function"
             ? options.endpoint({ session: summary, turn })
@@ -1658,13 +1699,136 @@ export function createHttpAgentChatRuntime<
   return runtime;
 }
 
-function runtimeMessageText(message: AgentChatRuntimeMessage): string {
+/**
+ * Earlier user attachments replay as a compact name, type, and safe durable URL.
+ * Inline bytes and signed query strings never become chat history.
+ */
+function historyAttachmentStub(
+  message: AgentChatRuntimeMessage,
+  part: AgentChatRuntimeMessage["content"][number],
+  currentAttachmentUrls: ReadonlySet<string> = new Set<string>(),
+): string | undefined {
+  if (message.role !== "user") return undefined;
+  if (part.type !== "file" && part.type !== "image") return undefined;
+  const url = durableHistoryAttachmentUrl(part.url);
+  if (url && currentAttachmentUrls.has(url)) return undefined;
+  const kind = part.type === "image" ? "image" : "file";
+  const rawName = part.type === "image" ? part.alt : part.filename;
+  const name = rawName
+    ?.replace(/[\u0000-\u001f\u007f\[\]]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 200);
+  const mediaType = part.mediaType
+    ?.replace(/[\u0000-\u001f\u007f\[\]]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 100);
+  return `[attached: ${name || kind} ${mediaType || "unknown"} ${url || "no durable URL available"}]`;
+}
+
+function durableHistoryAttachmentUrl(
+  value: string | undefined,
+): string | undefined {
+  if (!value || !URL.canParse(value)) return undefined;
+  const url = new URL(value);
+  if (url.protocol !== "https:" || url.username || url.password) {
+    return undefined;
+  }
+  url.search = "";
+  url.hash = "";
+  const sanitized = url.toString();
+  return sanitized.length <= 2_048 ? sanitized : undefined;
+}
+
+function historyImageReference(
+  message: AgentChatRuntimeMessage,
+  part: AgentChatRuntimeMessage["content"][number],
+  currentAttachmentUrls: ReadonlySet<string> = new Set<string>(),
+):
+  | Extract<AgentChatStructuredContentPart, { type: "image-reference" }>
+  | undefined {
+  if (message.role !== "user" || part.type !== "image" || !part.url) {
+    return undefined;
+  }
+  const url = durableHistoryAttachmentUrl(part.url);
+  if (url && currentAttachmentUrls.has(url)) return undefined;
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(part.url);
+  } catch (error) {
+    if (error instanceof TypeError) return undefined;
+    throw error;
+  }
+  if (parsedUrl.search || parsedUrl.hash) return undefined;
+  if (!url) return undefined;
+
+  const name = part.alt
+    ?.replace(/[\u0000-\u001f\u007f\[\]]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 200);
+  const mediaType = part.mediaType
+    ?.replace(/[\u0000-\u001f\u007f\[\]]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 100);
+  return {
+    type: "image-reference",
+    url,
+    ...(name ? { name } : {}),
+    ...(mediaType ? { mediaType } : {}),
+  };
+}
+
+/** Reasoning is the model's scratch work and is never replayed as history. */
+function runtimeMessageText(
+  message: AgentChatRuntimeMessage,
+  currentAttachmentUrls: ReadonlySet<string> = new Set<string>(),
+): string {
   return message.content
     .map((part) =>
-      part.type === "text" || part.type === "reasoning" ? part.text : "",
+      part.type === "text"
+        ? part.text
+        : (historyAttachmentStub(message, part, currentAttachmentUrls) ?? ""),
     )
     .filter(Boolean)
     .join("\n");
+}
+
+function isUserAsk(
+  message: AgentChatRuntimeMessage,
+  currentAttachmentUrls: ReadonlySet<string> = new Set<string>(),
+): boolean {
+  return (
+    message.role === "user" &&
+    message.content.some(
+      (part) =>
+        (part.type === "text" && part.text.trim()) ||
+        historyAttachmentStub(message, part, currentAttachmentUrls) !==
+          undefined,
+    )
+  );
+}
+
+function hasHistoryAttachment(
+  message: AgentChatRuntimeMessage,
+  currentAttachmentUrls: ReadonlySet<string> = new Set<string>(),
+): boolean {
+  return message.content.some(
+    (part) =>
+      historyAttachmentStub(message, part, currentAttachmentUrls) !== undefined,
+  );
+}
+
+function currentTurnAttachmentUrls(
+  attachments: readonly AgentChatRuntimeAttachment[] | undefined,
+): Set<string> {
+  return new Set(
+    (attachments ?? [])
+      .map((attachment) => durableHistoryAttachmentUrl(attachment.url))
+      .filter((url): url is string => url !== undefined),
+  );
 }
 
 function isSyntheticToolHistoryOmissionMessage(
@@ -1677,23 +1841,105 @@ function isSyntheticToolHistoryOmissionMessage(
   );
 }
 
+function isUnstartedNativeHistoryMessage(
+  message: AgentChatRuntimeMessage,
+): boolean {
+  if (message.role === "user" && message.status === "error") return true;
+  if (message.role !== "user" && message.role !== "assistant") return false;
+  const custom = asRecord(asRecord(message.metadata)?.custom);
+  return custom?.[RUN_NOT_STARTED_METADATA_KEY] === true;
+}
+
+function nativeHistorySourceMessages(
+  messages: readonly AgentChatRuntimeMessage[] | undefined,
+  currentPrompt: string,
+): AgentChatRuntimeMessage[] {
+  const source = messages ?? [];
+  let currentPromptMessageIndex: number | undefined;
+  for (let index = source.length - 1; index >= 0; index--) {
+    const message = source[index]!;
+    if (isSyntheticToolHistoryOmissionMessage(message)) continue;
+    if (message.role !== "user") continue;
+    if (!currentPrompt.trim()) {
+      currentPromptMessageIndex = index;
+    } else {
+      const match = runtimeMessageTextMatches(message, currentPrompt);
+      if (match.matches || !match.complete) currentPromptMessageIndex = index;
+    }
+    break;
+  }
+  return source.filter(
+    (message, index) =>
+      index === currentPromptMessageIndex ||
+      !isUnstartedNativeHistoryMessage(message),
+  );
+}
+
+function equivalentRuntimeContent(left: unknown, right: unknown): boolean {
+  let remaining = 4096;
+  const leftAncestors = new WeakSet<object>();
+  const rightAncestors = new WeakSet<object>();
+  const compare = (a: unknown, b: unknown, depth: number): boolean => {
+    if (--remaining < 0 || depth > 64) return false;
+    if (Object.is(a, b)) return true;
+    if (!a || !b || typeof a !== "object" || typeof b !== "object")
+      return false;
+    const prototype = Object.getPrototypeOf(a);
+    if (
+      prototype !== Object.getPrototypeOf(b) ||
+      (prototype !== Object.prototype &&
+        prototype !== Array.prototype &&
+        prototype !== null) ||
+      leftAncestors.has(a) ||
+      rightAncestors.has(b)
+    )
+      return false;
+    if (Array.isArray(a) !== Array.isArray(b)) return false;
+    if (Array.isArray(a) && (!Array.isArray(b) || a.length !== b.length))
+      return false;
+    const keys = Object.keys(a);
+    if (keys.length > remaining || keys.length !== Object.keys(b).length)
+      return false;
+    leftAncestors.add(a);
+    rightAncestors.add(b);
+    try {
+      return keys.every((key) => {
+        const leftValue = Object.getOwnPropertyDescriptor(a, key);
+        const rightValue = Object.getOwnPropertyDescriptor(b, key);
+        return Boolean(
+          leftValue &&
+          rightValue &&
+          rightValue.enumerable &&
+          "value" in leftValue &&
+          "value" in rightValue &&
+          compare(leftValue.value, rightValue.value, depth + 1),
+        );
+      });
+    } finally {
+      leftAncestors.delete(a);
+      rightAncestors.delete(b);
+    }
+  };
+  return compare(left, right, 0);
+}
+
 function priorNativeHistoryMessages(
   messages: readonly AgentChatRuntimeMessage[] | undefined,
   currentPrompt: string,
 ) {
-  const source = messages ?? [];
+  const source = nativeHistorySourceMessages(messages, currentPrompt);
   let currentPromptMessageIndex: number | undefined;
-  if (currentPrompt.trim()) {
-    for (let index = source.length - 1; index >= 0; index--) {
-      const message = source[index]!;
-      if (isSyntheticToolHistoryOmissionMessage(message)) continue;
-      if (message.role !== "user" && message.role !== "assistant") continue;
-      if (message.role === "user") {
-        const match = runtimeMessageTextMatches(message, currentPrompt);
-        if (match.matches || !match.complete) currentPromptMessageIndex = index;
-      }
-      break;
+  for (let index = source.length - 1; index >= 0; index--) {
+    const message = source[index]!;
+    if (isSyntheticToolHistoryOmissionMessage(message)) continue;
+    if (message.role !== "user") continue;
+    if (!currentPrompt.trim()) {
+      currentPromptMessageIndex = index;
+    } else {
+      const match = runtimeMessageTextMatches(message, currentPrompt);
+      if (match.matches || !match.complete) currentPromptMessageIndex = index;
     }
+    break;
   }
   return source.filter(
     (message, index) =>
@@ -1705,6 +1951,7 @@ function priorNativeHistoryMessages(
 function nativeHistoryFromMessages(
   messages: readonly AgentChatRuntimeMessage[] | undefined,
   currentPrompt: string,
+  currentAttachmentUrls: ReadonlySet<string>,
 ) {
   return priorNativeHistoryMessages(messages, currentPrompt)
     .filter(
@@ -1712,9 +1959,43 @@ function nativeHistoryFromMessages(
     )
     .map((message) => ({
       role: message.role as "user" | "assistant",
-      content: runtimeMessageText(message),
+      content: runtimeMessageText(message, currentAttachmentUrls),
     }))
     .filter((message) => message.content.trim());
+}
+
+const MAX_LOADED_SKILL_SLUGS = 16;
+
+function runtimeToolResultText(part: AgentChatRuntimeToolResultPart): string {
+  if (typeof part.resultText === "string") return part.resultText;
+  return typeof part.result === "string" ? part.result : "";
+}
+
+// Scans the whole thread because structured history is capped and drops older
+// skill reads; the server rebuilds those pages from these slugs.
+export function loadedSkillSlugsFromMessages(
+  messages: readonly AgentChatRuntimeMessage[] | undefined,
+): string[] {
+  const slugByCallId = new Map<string, string>();
+  const loaded: string[] = [];
+  for (const message of messages ?? []) {
+    for (const part of message.content) {
+      if (part.type === "tool-call" && part.toolName === "docs-search") {
+        const slug = (part.input as { slug?: unknown } | undefined)?.slug;
+        if (typeof slug === "string" && slug.startsWith("skill-")) {
+          slugByCallId.set(part.toolCallId, slug);
+        }
+      } else if (part.type === "tool-result" && !part.isError) {
+        const slug = slugByCallId.get(part.toolCallId);
+        if (slug && runtimeToolResultText(part).startsWith("# Skill:")) {
+          const index = loaded.indexOf(slug);
+          if (index >= 0) loaded.splice(index, 1);
+          loaded.push(slug);
+        }
+      }
+    }
+  }
+  return loaded.slice(-MAX_LOADED_SKILL_SLUGS);
 }
 
 const MAX_TOOL_HISTORY_VALUE_BYTES = 64 * 1024;
@@ -1725,10 +2006,18 @@ const MAX_ADDED_TOOL_HISTORY_BYTES = 256 * 1024;
 const MAX_TOOL_HISTORY_RESULT_SUMMARY_BYTES = 4 * 1024;
 const MAX_STRUCTURED_HISTORY_TOOL_SOURCE_PARTS = MAX_TOOL_HISTORY_CALLS * 2;
 const MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS = MAX_TOOL_HISTORY_CALLS * 2;
+const MAX_STRUCTURED_HISTORY_IMAGE_REFERENCES = 6;
+const MAX_STRUCTURED_HISTORY_SOURCE_MESSAGES = 1024;
+const MAX_STRUCTURED_HISTORY_PINNED_PROMPT_PARTS =
+  MAX_STRUCTURED_HISTORY_SOURCE_MESSAGES;
 const MAX_STRUCTURED_HISTORY_SOURCE_PARTS =
   MAX_STRUCTURED_HISTORY_TOOL_SOURCE_PARTS +
-  MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS;
-const MAX_STRUCTURED_HISTORY_SOURCE_MESSAGES = 1024;
+  MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS +
+  MAX_STRUCTURED_HISTORY_IMAGE_REFERENCES +
+  MAX_STRUCTURED_HISTORY_PINNED_PROMPT_PARTS;
+const MAX_PINNED_PRIOR_USER_PROMPT_CHARS = 16 * 1024;
+/** Above every other candidate, so the byte budget drops pinned asks last. */
+const PINNED_USER_PROMPT_TEXT_PRIORITY = 4;
 const MAX_STRUCTURED_HISTORY_SOURCE_SCAN_STEPS =
   MAX_STRUCTURED_HISTORY_SOURCE_PARTS * 4;
 const TOOL_INPUT_OMISSION_TEXT =
@@ -1777,6 +2066,7 @@ interface StructuredTextHistoryCandidate {
   position: number;
   role: "user" | "assistant";
   parts: StructuredTextPart[];
+  priority: number;
 }
 
 type StructuredHistoryCandidate =
@@ -1853,6 +2143,73 @@ function structuredToolHistoryCandidateByteCost(
       0,
     )
   );
+}
+
+function approvedToolHistoryParts(
+  history: AgentChatStructuredMessage[],
+  askId: string,
+): {
+  call?: Extract<AgentChatStructuredContentPart, { type: "tool-call" }>;
+  result?: Extract<AgentChatStructuredContentPart, { type: "tool-result" }>;
+} {
+  let call:
+    | Extract<AgentChatStructuredContentPart, { type: "tool-call" }>
+    | undefined;
+  let result:
+    | Extract<AgentChatStructuredContentPart, { type: "tool-result" }>
+    | undefined;
+  for (const message of history) {
+    for (const part of message.content) {
+      if (
+        message.role === "assistant" &&
+        part.type === "tool-call" &&
+        part.approvalAskId === askId
+      ) {
+        call = part;
+      } else if (
+        message.role === "user" &&
+        part.type === "tool-result" &&
+        part.approvalPause === true &&
+        part.approvalAskId === askId
+      ) {
+        result = part;
+      }
+    }
+  }
+  return { call, result };
+}
+
+function approvedToolHistoryError(
+  code:
+    | "approved_tool_call_history_ambiguous"
+    | "approved_tool_call_history_missing"
+    | "approved_tool_call_input_unavailable"
+    | "http_413",
+  status: 413 | 422,
+): Error {
+  return Object.assign(
+    new Error(
+      status === 413 ? CHAT_REQUEST_TOO_LARGE_MESSAGE : "The agent run failed.",
+    ),
+    { code, status, retryable: false },
+  );
+}
+
+function assertApprovedToolHistory(
+  history: AgentChatStructuredMessage[],
+  askIds: readonly string[],
+  status: 413 | 422,
+): void {
+  for (const askId of askIds) {
+    const { call, result } = approvedToolHistoryParts(history, askId);
+    if (!call || !result) {
+      if (status === 413) throw approvedToolHistoryError("http_413", 413);
+      throw approvedToolHistoryError("approved_tool_call_history_missing", 422);
+    }
+    if (!Object.prototype.hasOwnProperty.call(call, "input")) {
+      throw approvedToolHistoryError("http_413", 413);
+    }
+  }
 }
 
 function structuredTextHistoryCandidateByteCost(
@@ -2145,11 +2502,9 @@ function boundedJsonStringify(
 
 function toolInputForStructuredHistory(
   input: unknown,
+  maxBytes = MAX_TOOL_HISTORY_VALUE_BYTES,
 ): { input: unknown } | { omissionText: string } {
-  const serialization = boundedJsonStringify(
-    input,
-    MAX_TOOL_HISTORY_VALUE_BYTES,
-  );
+  const serialization = boundedJsonStringify(input, maxBytes);
   if (serialization.status === "too-large") {
     return { omissionText: TOOL_INPUT_SIZE_OMISSION_TEXT };
   }
@@ -2311,10 +2666,14 @@ function boundStructuredToolHistory(
     })),
   );
   candidates.sort((left, right) => {
-    const leftPriority =
-      left.kind === "tool" && left.candidate.priority ? 1 : 0;
-    const rightPriority =
-      right.kind === "tool" && right.candidate.priority ? 1 : 0;
+    const candidatePriority = (candidate: StructuredHistoryCandidate) =>
+      candidate.kind === "tool"
+        ? candidate.candidate.priority
+          ? 3
+          : 0
+        : candidate.candidate.priority;
+    const leftPriority = candidatePriority(left);
+    const rightPriority = candidatePriority(right);
     return leftPriority - rightPriority || left.position - right.position;
   });
 
@@ -2369,12 +2728,15 @@ function boundStructuredToolHistory(
   );
 }
 
-type StructuredHistorySourcePart = AgentChatRuntimeMessage["content"][number];
+type StructuredHistorySourcePart =
+  | AgentChatRuntimeMessage["content"][number]
+  | Extract<AgentChatStructuredContentPart, { type: "image-reference" }>;
 
 interface StructuredHistorySourceMessage {
   message: AgentChatRuntimeMessage;
   parts: StructuredHistorySourcePart[];
   priority: boolean;
+  textPriority: number;
 }
 
 interface StructuredHistorySourceBoundary {
@@ -2387,6 +2749,7 @@ interface BoundedStructuredHistorySources {
   messages: StructuredHistorySourceMessage[];
   omitted: boolean;
   toolHistoryOmitted: boolean;
+  hasAttachmentHistory: boolean;
   toolBoundary?: StructuredHistorySourceBoundary;
   currentPromptMessageIndex?: number;
 }
@@ -2403,7 +2766,7 @@ function runtimeMessageTextMatches(
       return { matches: true, complete: false };
     }
     scannedParts++;
-    if (part.type !== "text" && part.type !== "reasoning") continue;
+    if (part.type !== "text") continue;
     if (!part.text) continue;
     if (hasText) {
       if (expected[offset] !== "\n") return { matches: false, complete: true };
@@ -2422,45 +2785,177 @@ function boundedStructuredHistorySources(
   messages: readonly AgentChatRuntimeMessage[] | undefined,
   currentPrompt: string,
   supplementalMessages: readonly AgentChatRuntimeMessage[],
+  currentAttachmentUrls: ReadonlySet<string>,
 ): BoundedStructuredHistorySources {
   const historyMessages = messages ?? [];
   let currentPromptMessageIndex: number | undefined;
   let currentPromptScanLimited = false;
   let omitted = false;
   let toolHistoryOmitted = false;
-  if (currentPrompt.trim()) {
-    let visitedMessages = 0;
-    for (let index = historyMessages.length - 1; index >= 0; index--) {
-      if (visitedMessages >= MAX_STRUCTURED_HISTORY_SOURCE_MESSAGES) {
-        currentPromptScanLimited = true;
+  let visitedMessages = 0;
+  for (let index = historyMessages.length - 1; index >= 0; index--) {
+    const message = historyMessages[index]!;
+    if (message.role === "assistant") continue;
+    if (visitedMessages >= MAX_STRUCTURED_HISTORY_SOURCE_MESSAGES) {
+      currentPromptScanLimited = true;
+      omitted = true;
+      toolHistoryOmitted = true;
+      break;
+    }
+    visitedMessages++;
+    if (message.role !== "user") continue;
+    if (!currentPrompt.trim()) {
+      currentPromptMessageIndex = index;
+    } else {
+      const match = runtimeMessageTextMatches(message, currentPrompt);
+      if (match.matches) currentPromptMessageIndex = index;
+      if (!match.complete) {
         omitted = true;
         toolHistoryOmitted = true;
-        break;
+        currentPromptMessageIndex = index;
       }
-      visitedMessages++;
-      const message = historyMessages[index]!;
-      if (isSyntheticToolHistoryOmissionMessage(message)) continue;
-      if (message.role !== "user" && message.role !== "assistant") continue;
-      if (message.role === "user") {
-        const match = runtimeMessageTextMatches(message, currentPrompt);
-        if (match.matches) currentPromptMessageIndex = index;
-        if (!match.complete) {
-          omitted = true;
-          toolHistoryOmitted = true;
-          currentPromptMessageIndex = index;
-        }
-      }
+    }
+    break;
+  }
+
+  let firstUserPromptMessageIndex: number | undefined;
+  const attachmentPromptMessageIndices: number[] = [];
+  const firstPromptScanEnd = Math.min(
+    historyMessages.length,
+    MAX_STRUCTURED_HISTORY_SOURCE_MESSAGES,
+  );
+  for (let index = 0; index < firstPromptScanEnd; index++) {
+    if (index === currentPromptMessageIndex) continue;
+    const message = historyMessages[index]!;
+    if (
+      currentPromptScanLimited &&
+      currentPrompt.trim() &&
+      message.role === "user" &&
+      runtimeMessageTextMatches(message, currentPrompt).matches
+    ) {
+      continue;
+    }
+    if (isUserAsk(message, currentAttachmentUrls)) {
+      firstUserPromptMessageIndex = index;
       break;
     }
   }
+  const historyWindowStart = Math.max(
+    0,
+    historyMessages.length - MAX_STRUCTURED_HISTORY_SOURCE_MESSAGES,
+  );
+  for (
+    let index = historyWindowStart;
+    index < historyMessages.length;
+    index++
+  ) {
+    if (index === currentPromptMessageIndex) continue;
+    if (hasHistoryAttachment(historyMessages[index]!, currentAttachmentUrls)) {
+      attachmentPromptMessageIndices.push(index);
+    }
+  }
+
+  let previousUserPromptMessageIndex: number | undefined;
+  const previousPromptScanStart = Math.max(
+    0,
+    historyMessages.length - MAX_STRUCTURED_HISTORY_SOURCE_MESSAGES,
+  );
+  for (
+    let index = historyMessages.length - 1;
+    index >= previousPromptScanStart;
+    index--
+  ) {
+    if (index === currentPromptMessageIndex) continue;
+    if (isUserAsk(historyMessages[index]!, currentAttachmentUrls)) {
+      previousUserPromptMessageIndex = index;
+      break;
+    }
+  }
+  // The first ask, latest prior ask, and attachment turns stay in the window
+  // however long the agentic tail after them grows.
+  const pinnedUserPromptMessageIndices = new Set(
+    [
+      firstUserPromptMessageIndex,
+      previousUserPromptMessageIndex,
+      ...attachmentPromptMessageIndices,
+    ].filter((index): index is number => index !== undefined),
+  );
+  const nonAttachmentPinnedPromptCount = [
+    firstUserPromptMessageIndex,
+    previousUserPromptMessageIndex,
+  ].filter(
+    (index, position, indexes) =>
+      index !== undefined &&
+      !attachmentPromptMessageIndices.includes(index) &&
+      indexes.indexOf(index) === position,
+  ).length;
+  const regularTextPartLimit = Math.max(
+    0,
+    MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS - nonAttachmentPinnedPromptCount,
+  );
+  const selectedTextPartLimit =
+    regularTextPartLimit + pinnedUserPromptMessageIndices.size;
 
   const selectedReversed: StructuredHistorySourceMessage[] = [];
+  const pinnedPromptsAdded = new Set<number>();
+  const selectedImageParts = new Set<
+    AgentChatRuntimeMessage["content"][number]
+  >();
   let selectedToolPartCount = 0;
   let selectedTextPartCount = 0;
+  let selectedRegularTextPartCount = 0;
+  let selectedImagePartCount = 0;
+  const selectedImageUrls = new Set<string>();
   let scannedPartCount = 0;
   let visitedMessageCount = 0;
   let toolBoundary: StructuredHistorySourceBoundary | undefined;
   let stop = false;
+  const addPinnedPromptText = (
+    parts: StructuredHistorySourcePart[],
+    messageIndex: number,
+  ): void => {
+    pinnedPromptsAdded.add(messageIndex);
+    const message = historyMessages[messageIndex]!;
+    let text = runtimeMessageText(message, currentAttachmentUrls);
+    if (
+      messageIndex === previousUserPromptMessageIndex &&
+      messageIndex !== firstUserPromptMessageIndex &&
+      !hasHistoryAttachment(message, currentAttachmentUrls) &&
+      text.length > MAX_PINNED_PRIOR_USER_PROMPT_CHARS
+    ) {
+      omitted = true;
+      text = `${text.slice(0, MAX_PINNED_PRIOR_USER_PROMPT_CHARS)}\n[Earlier user message truncated in history.]`;
+    }
+    if (!text.trim()) return;
+    if (selectedTextPartCount >= selectedTextPartLimit) {
+      omitted = true;
+      return;
+    }
+    selectedTextPartCount++;
+    parts.push({ type: "text", text });
+  };
+  const addImageReference = (
+    parts: StructuredHistorySourcePart[],
+    message: AgentChatRuntimeMessage,
+    part: AgentChatRuntimeMessage["content"][number],
+  ): void => {
+    const reference = historyImageReference(
+      message,
+      part,
+      currentAttachmentUrls,
+    );
+    if (!reference || selectedImageParts.has(part)) return;
+    // History is walked newest-first, so the first reference to a URL keeps the newest metadata.
+    if (selectedImageUrls.has(reference.url)) return;
+    if (selectedImagePartCount >= MAX_STRUCTURED_HISTORY_IMAGE_REFERENCES) {
+      omitted = true;
+      return;
+    }
+    selectedImageParts.add(part);
+    selectedImageUrls.add(reference.url);
+    selectedImagePartCount++;
+    parts.push(reference);
+  };
   const visitMessage = (
     message: AgentChatRuntimeMessage,
     list: StructuredHistorySourceBoundary["list"],
@@ -2479,12 +2974,16 @@ function boundedStructuredHistorySources(
     }
     visitedMessageCount++;
     if (message.role !== "user" && message.role !== "assistant") return;
+    const isPinnedUserPrompt =
+      list === "messages" && pinnedUserPromptMessageIndices.has(messageIndex);
     const partsReversed: StructuredHistorySourcePart[] = [];
     for (
       let partIndex = message.content.length - 1;
       partIndex >= 0;
       partIndex--
     ) {
+      const part = message.content[partIndex]!;
+      if (part.type === "reasoning") continue;
       if (scannedPartCount >= MAX_STRUCTURED_HISTORY_SOURCE_SCAN_STEPS) {
         omitted = true;
         toolHistoryOmitted = true;
@@ -2493,15 +2992,32 @@ function boundedStructuredHistorySources(
         break;
       }
       scannedPartCount++;
-      const part = message.content[partIndex]!;
+      const attachmentStub = historyAttachmentStub(
+        message,
+        part,
+        currentAttachmentUrls,
+      );
+      const imageReference = historyImageReference(
+        message,
+        part,
+        currentAttachmentUrls,
+      );
+      if (imageReference) addImageReference(partsReversed, message, part);
       const isToolPart =
         (part.type === "tool-call" && message.role === "assistant") ||
         part.type === "tool-result";
-      const isTextPart = part.type === "text" || part.type === "reasoning";
+      const isTextPart = part.type === "text" || attachmentStub !== undefined;
       if (!isToolPart && !isTextPart) continue;
+      if (isPinnedUserPrompt && isTextPart) {
+        if (!pinnedPromptsAdded.has(messageIndex)) {
+          addPinnedPromptText(partsReversed, messageIndex);
+        }
+        addImageReference(partsReversed, message, part);
+        continue;
+      }
       if (
         selectedToolPartCount >= MAX_STRUCTURED_HISTORY_TOOL_SOURCE_PARTS &&
-        selectedTextPartCount >= MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS
+        selectedTextPartCount >= selectedTextPartLimit
       ) {
         omitted = true;
         toolHistoryOmitted = true;
@@ -2518,19 +3034,29 @@ function boundedStructuredHistorySources(
         }
         selectedToolPartCount++;
       } else {
-        if (selectedTextPartCount >= MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS) {
+        if (selectedRegularTextPartCount >= regularTextPartLimit) {
           omitted = true;
           continue;
         }
         selectedTextPartCount++;
+        selectedRegularTextPartCount++;
       }
-      partsReversed.push(part);
+      partsReversed.push(
+        attachmentStub === undefined
+          ? part
+          : { type: "text", text: attachmentStub },
+      );
     }
     if (partsReversed.length) {
       selectedReversed.push({
         message,
         parts: partsReversed.reverse(),
         priority: list === "supplemental",
+        textPriority: isPinnedUserPrompt
+          ? PINNED_USER_PROMPT_TEXT_PRIORITY
+          : list === "supplemental"
+            ? 1
+            : 0,
       });
     }
   };
@@ -2542,16 +3068,43 @@ function boundedStructuredHistorySources(
   ) {
     visitMessage(supplementalMessages[index]!, "supplemental", index);
   }
-  if (currentPromptScanLimited) stop = true;
   for (let index = historyMessages.length - 1; index >= 0 && !stop; index--) {
     if (index === currentPromptMessageIndex) continue;
     visitMessage(historyMessages[index]!, "messages", index);
+  }
+  // The newest-first scan stops long before the first turns of a long agentic
+  // thread; the pinned asks it never reached are replayed anyway.
+  for (const index of [...pinnedUserPromptMessageIndices].sort(
+    (left, right) => right - left,
+  )) {
+    if (pinnedPromptsAdded.has(index)) continue;
+    const parts: StructuredHistorySourcePart[] = [];
+    addPinnedPromptText(parts, index);
+    const message = historyMessages[index]!;
+    for (const part of message.content) {
+      if (scannedPartCount >= MAX_STRUCTURED_HISTORY_SOURCE_SCAN_STEPS) {
+        omitted = true;
+        toolHistoryOmitted = true;
+        break;
+      }
+      scannedPartCount++;
+      addImageReference(parts, message, part);
+    }
+    if (parts.length) {
+      selectedReversed.push({
+        message: historyMessages[index]!,
+        parts,
+        priority: false,
+        textPriority: PINNED_USER_PROMPT_TEXT_PRIORITY,
+      });
+    }
   }
 
   return {
     messages: selectedReversed.reverse(),
     omitted,
     toolHistoryOmitted,
+    hasAttachmentHistory: attachmentPromptMessageIndices.length > 0,
     ...(toolBoundary ? { toolBoundary } : {}),
     ...(currentPromptMessageIndex !== undefined
       ? { currentPromptMessageIndex }
@@ -2716,34 +3269,100 @@ function boundaryToolResultPartsToOmit(
   return partsToOmit;
 }
 
+function assertUnambiguousKeyOnlyApprovedHistory(
+  sources: readonly StructuredHistorySourceMessage[],
+  approvedToolCalls: readonly string[],
+  approvedToolCallAskIds: readonly string[],
+): void {
+  if (!approvedToolCalls.length || approvedToolCallAskIds.length > 0) return;
+  const approvedKeys = new Set(approvedToolCalls);
+  const callCountsByKey = new Map<
+    string,
+    { history: Map<string, number>; supplemental: Set<string> }
+  >();
+  for (const { message, parts, priority } of sources) {
+    if (message.role !== "assistant") continue;
+    for (const part of parts) {
+      if (
+        part.type !== "tool-call" ||
+        !part.approval ||
+        !approvedKeys.has(part.approval.approvalKey)
+      ) {
+        continue;
+      }
+      let calls = callCountsByKey.get(part.approval.approvalKey);
+      if (!calls) {
+        calls = { history: new Map(), supplemental: new Set() };
+        callCountsByKey.set(part.approval.approvalKey, calls);
+      }
+      if (priority) {
+        calls.supplemental.add(part.toolCallId);
+      } else {
+        calls.history.set(
+          part.toolCallId,
+          (calls.history.get(part.toolCallId) ?? 0) + 1,
+        );
+      }
+    }
+  }
+  for (const calls of callCountsByKey.values()) {
+    const historyCallCount = [...calls.history.values()].reduce(
+      (count, occurrences) => count + occurrences,
+      0,
+    );
+    const supplementalCallCount = [...calls.supplemental].filter(
+      (toolCallId) => !calls.history.has(toolCallId),
+    ).length;
+    if (historyCallCount + supplementalCallCount > 1) {
+      throw approvedToolHistoryError(
+        "approved_tool_call_history_ambiguous",
+        422,
+      );
+    }
+  }
+}
+
 function nativeStructuredHistoryFromMessages(
   messages: readonly AgentChatRuntimeMessage[] | undefined,
   currentPrompt: string,
+  currentAttachmentUrls: ReadonlySet<string>,
   supplementalMessages: readonly AgentChatRuntimeMessage[] = [],
   supplementalHistoryOmitted = false,
   supplementalToolHistoryOmitted = false,
+  approvedToolCalls: readonly string[] = [],
+  approvedToolCallAskIds: readonly string[] = [],
 ): AgentChatStructuredMessage[] | undefined {
   const structuredHistory: AgentChatStructuredMessage[] = [];
+  const historyMessages = nativeHistorySourceMessages(messages, currentPrompt);
+  const approvedToolCallSet = new Set(approvedToolCalls);
+  const approvedToolCallAskIdSet = new Set(approvedToolCallAskIds);
   const callCandidates: StructuredToolHistoryCandidate[] = [];
   const resultReferences: StructuredToolHistoryResultReference[] = [];
+  const approvalAskIdByToolCallId = new Map<string, string>();
   const toolHistoryParts = new Set<StructuredToolHistoryPart>();
   const textHistoryParts = new Set<StructuredToolHistoryPart>();
   const textCandidates: StructuredTextHistoryCandidate[] = [];
   let toolHistoryPosition = 0;
   let hasToolHistory = false;
   const sources = boundedStructuredHistorySources(
-    messages,
+    historyMessages,
     currentPrompt,
     supplementalMessages,
+    currentAttachmentUrls,
+  );
+  assertUnambiguousKeyOnlyApprovedHistory(
+    sources.messages,
+    approvedToolCalls,
+    approvedToolCallAskIds,
   );
   const boundaryResultsToOmit = boundaryToolResultPartsToOmit(
-    messages,
+    historyMessages,
     supplementalMessages,
     sources,
     supplementalToolHistoryOmitted,
   );
 
-  for (const { message, parts, priority } of sources.messages) {
+  for (const { message, parts, priority, textPriority } of sources.messages) {
     if (message.role !== "user" && message.role !== "assistant") continue;
     const role = message.role;
     let content: AgentChatStructuredMessage["content"] = [];
@@ -2755,6 +3374,7 @@ function nativeStructuredHistoryFromMessages(
         position: toolHistoryPosition++,
         role,
         parts: pendingTextParts,
+        priority: textPriority,
       });
       pendingTextParts = [];
     };
@@ -2770,7 +3390,7 @@ function nativeStructuredHistoryFromMessages(
     };
 
     for (const part of parts) {
-      if (part.type === "text" || part.type === "reasoning") {
+      if (part.type === "text") {
         if (
           jsonStringByteLengthWithinLimit(
             part.text,
@@ -2787,6 +3407,10 @@ function nativeStructuredHistoryFromMessages(
           textHistoryParts.add(textPart);
           pendingTextParts.push(textPart);
         }
+      } else if (part.type === "image-reference" && message.role === "user") {
+        flushTextCandidate();
+        flushResults();
+        content.push(part);
       } else if (part.type === "tool-call" && message.role === "assistant") {
         hasToolHistory = true;
         flushTextCandidate();
@@ -2811,10 +3435,28 @@ function nativeStructuredHistoryFromMessages(
               addToolInputText(part.inputText);
             }
           }
+          const approvedReplay =
+            part.approvedReplay === true ||
+            (part.approval !== undefined &&
+              approvedToolCallSet.has(part.approval.approvalKey) &&
+              (approvedToolCallAskIdSet.size === 0 ||
+                (part.approval.askId !== undefined &&
+                  approvedToolCallAskIdSet.has(part.approval.askId))));
+          if (approvedReplay && part.input === undefined) {
+            throw approvedToolHistoryError(
+              "approved_tool_call_input_unavailable",
+              422,
+            );
+          }
           const input =
             part.input === undefined
               ? undefined
-              : toolInputForStructuredHistory(part.input);
+              : toolInputForStructuredHistory(
+                  part.input,
+                  approvedReplay
+                    ? MAX_ADDED_TOOL_HISTORY_BYTES
+                    : MAX_TOOL_HISTORY_VALUE_BYTES,
+                );
           if (input && "omissionText" in input) {
             addToolInputText(input.omissionText);
           }
@@ -2823,7 +3465,19 @@ function nativeStructuredHistoryFromMessages(
             id: part.toolCallId,
             name: part.toolName,
             ...(input && "input" in input ? { input: input.input } : {}),
+            ...(part.approval?.askId
+              ? { approvalAskId: part.approval.askId }
+              : {}),
+            // The ask ID selects this call server-side; its key repeats large inputs.
+            ...(part.approval?.approvalKey && !part.approval.askId
+              ? { approvalKey: part.approval.approvalKey }
+              : {}),
           };
+          if (part.approval?.askId) {
+            approvalAskIdByToolCallId.set(part.toolCallId, part.approval.askId);
+          } else {
+            approvalAskIdByToolCallId.delete(part.toolCallId);
+          }
           content.push(callPart);
           candidateAssistantParts.push(callPart);
           toolHistoryParts.add(callPart);
@@ -2860,6 +3514,15 @@ function nativeStructuredHistoryFromMessages(
                 part.resultText,
               ),
               ...(part.isError ? { isError: true } : {}),
+              ...(part.approvalPause === true ? { approvalPause: true } : {}),
+              ...((part.approvalAskId ??
+              approvalAskIdByToolCallId.get(part.toolCallId))
+                ? {
+                    approvalAskId:
+                      part.approvalAskId ??
+                      approvalAskIdByToolCallId.get(part.toolCallId),
+                  }
+                : {}),
             };
         results.push(resultPart);
         toolHistoryParts.add(resultPart);
@@ -2880,12 +3543,15 @@ function nativeStructuredHistoryFromMessages(
     !hasToolHistory &&
     supplementalMessages.length === 0 &&
     !sources.omitted &&
+    !sources.hasAttachmentHistory &&
     !supplementalHistoryOmitted &&
     !supplementalToolHistoryOmitted
   ) {
+    assertApprovedToolHistory([], approvedToolCallAskIds, 422);
     return undefined;
   }
-  return boundStructuredToolHistory(
+  assertApprovedToolHistory(structuredHistory, approvedToolCallAskIds, 422);
+  const boundedHistory = boundStructuredToolHistory(
     structuredHistory,
     callCandidates,
     resultReferences,
@@ -2896,6 +3562,8 @@ function nativeStructuredHistoryFromMessages(
       supplementalHistoryOmitted ||
       supplementalToolHistoryOmitted,
   );
+  assertApprovedToolHistory(boundedHistory, approvedToolCallAskIds, 413);
+  return boundedHistory;
 }
 
 type AgentNativeMessageContentState =
@@ -2912,6 +3580,7 @@ interface AgentNativeMessageProjectionState {
     content: AgentNativeMessageContentState[];
     started: boolean;
     approvalPending: boolean;
+    pendingApprovalToolCallId?: string;
     connectionPending: boolean;
   };
 }
@@ -2922,11 +3591,46 @@ interface BoundedPendingApprovalRuntimeMessages {
   toolHistoryOmitted: boolean;
 }
 
+function isPendingApprovedToolCall(
+  part: Extract<ContentPart, { type: "tool-call" }>,
+  approvedToolCallSet: ReadonlySet<string>,
+  approvedToolCallAskIdSet: ReadonlySet<string>,
+): boolean {
+  return (
+    part.approval !== undefined &&
+    approvedToolCallSet.has(part.approval.approvalKey) &&
+    (approvedToolCallAskIdSet.size === 0 ||
+      (part.approval.askId !== undefined &&
+        approvedToolCallAskIdSet.has(part.approval.askId))) &&
+    (part.result === undefined || part.approvalPause === true)
+  );
+}
+
 function pendingApprovalRuntimeMessages(
   state: AgentNativeMessageProjectionState,
+  approvedToolCalls: readonly string[],
+  approvedToolCallAskIds: readonly string[],
 ): BoundedPendingApprovalRuntimeMessages {
   const messagesReversed: Omit<AgentChatRuntimeMessage, "id">[] = [];
+  const approvedToolCallSet = new Set(approvedToolCalls);
+  const approvedToolCallAskIdSet = new Set(approvedToolCallAskIds);
+  const approvedCallCount = state.message.content.filter(
+    (part) =>
+      part.type === "tool-call" &&
+      isPendingApprovedToolCall(
+        part,
+        approvedToolCallSet,
+        approvedToolCallAskIdSet,
+      ),
+  ).length;
+  const reservedApprovalCallCount = Math.min(
+    approvedCallCount,
+    MAX_TOOL_HISTORY_CALLS,
+  );
+  const unapprovedToolPartLimit =
+    MAX_STRUCTURED_HISTORY_TOOL_SOURCE_PARTS - reservedApprovalCallCount * 2;
   let selectedToolPartCount = 0;
+  let selectedApprovalCallCount = 0;
   let selectedTextPartCount = 0;
   let scannedPartCount = 0;
   let omitted = false;
@@ -2951,21 +3655,51 @@ function pendingApprovalRuntimeMessages(
       });
       continue;
     }
-    if (part.type !== "tool-call" || part.result === undefined) continue;
-    if (selectedToolPartCount + 2 > MAX_STRUCTURED_HISTORY_TOOL_SOURCE_PARTS) {
-      omitted = true;
-      toolHistoryOmitted = true;
+    if (part.type !== "tool-call") continue;
+    const awaitingApproval =
+      part.toolCallId === state.message.pendingApprovalToolCallId;
+    const isApprovedPendingCall = isPendingApprovedToolCall(
+      part,
+      approvedToolCallSet,
+      approvedToolCallAskIdSet,
+    );
+    if (
+      part.result === undefined &&
+      !isApprovedPendingCall &&
+      !awaitingApproval
+    ) {
       continue;
     }
-    selectedToolPartCount += 2;
+    if (isApprovedPendingCall) {
+      if (selectedApprovalCallCount >= MAX_TOOL_HISTORY_CALLS) {
+        omitted = true;
+        toolHistoryOmitted = true;
+        continue;
+      }
+      selectedApprovalCallCount++;
+    } else {
+      if (selectedToolPartCount + 2 > unapprovedToolPartLimit) {
+        omitted = true;
+        toolHistoryOmitted = true;
+        continue;
+      }
+      selectedToolPartCount += 2;
+    }
     messagesReversed.push({
       role: "user",
       content: [
         {
           type: "tool-result",
           toolCallId: part.toolCallId,
-          result: part.result,
+          ...(part.approval?.askId
+            ? { approvalAskId: part.approval.askId }
+            : {}),
+          result:
+            awaitingApproval || (isApprovedPendingCall && !part.result?.trim())
+              ? "Awaiting human approval. This action did NOT execute."
+              : part.result,
           ...(part.isError ? { isError: true } : {}),
+          ...(isApprovedPendingCall ? { approvalPause: true } : {}),
         },
       ],
     });
@@ -2977,6 +3711,8 @@ function pendingApprovalRuntimeMessages(
           toolCallId: part.toolCallId,
           toolName: part.toolName,
           input: part.args,
+          approval: part.approval,
+          ...(isApprovedPendingCall ? { approvedReplay: true } : {}),
         },
       ],
     });
@@ -3005,6 +3741,56 @@ function agentNativeAgentReference(
   agent: string,
 ): AgentChatRuntimeObjectReference {
   return { id: agent, kind: "agent", label: agent };
+}
+
+// The renderer swaps this label for its localized working label. An app name or
+// a raw A2A state in an activity label prints beside the participant chip that
+// already names the app.
+const AGENT_CALL_ACTIVITY_LABEL = "processing";
+
+const AGENT_CALL_FAILURE_REASON_PREFIX = "agentChat.agent.failureReason.";
+
+const AGENT_CALL_FAILURE_REASON_FALLBACK = "failed";
+
+// Terminal codes are protocol vocabulary and arrive from remote peers, so this
+// is a Map: a plain object would answer `constructor` with a function. A code
+// missing here, or no code at all, resolves to the generic reason. Setup is
+// claimed only by credential codes: `permanent_precondition` (and the
+// `a2a_child_` and `a2a_target_blocked_this_turn` codes derived from it) also
+// stops attachment, SSRF, plan-mode, and unverified-user failures that no setup
+// step fixes, so those stay on the generic reason.
+const AGENT_CALL_FAILURE_REASONS = new Map<string, string>([
+  ["credential_missing", "setup"],
+  ["missing_credentials", "setup"],
+  ["invalid_auth", "setup"],
+  ["a2a_auth_rejected", "auth"],
+  ["credential_rejected", "auth"],
+  ["token_request_failed", "auth"],
+  ["http_401", "auth"],
+  ["http_403", "auth"],
+  ["invalid_api_key", "auth"],
+  ["authentication_error", "auth"],
+  ["unauthorized", "auth"],
+  ["timeout_without_task", "timeout"],
+  ["run_budget_exhausted", "budget"],
+  ["empty_agent_response", "response"],
+  ["a2a_response_too_large", "response"],
+]);
+
+// Every key `failureReasonKey` metadata can carry, so hosts can prove their
+// catalogs cover it.
+export const AGENT_CALL_FAILURE_REASON_KEYS: readonly string[] = [
+  ...new Set([
+    AGENT_CALL_FAILURE_REASON_FALLBACK,
+    ...AGENT_CALL_FAILURE_REASONS.values(),
+  ]),
+].map((reason) => `${AGENT_CALL_FAILURE_REASON_PREFIX}${reason}`);
+
+function agentCallFailureReasonKey(terminalCode: string | undefined): string {
+  return `${AGENT_CALL_FAILURE_REASON_PREFIX}${
+    (terminalCode && AGENT_CALL_FAILURE_REASONS.get(terminalCode)) ||
+    AGENT_CALL_FAILURE_REASON_FALLBACK
+  }`;
 }
 
 function agentNativeParticipantStatus(
@@ -3095,6 +3881,7 @@ function mapAgentNativeEvent(
       content: AgentNativeMessageContentState[];
       started: boolean;
       approvalPending: boolean;
+      pendingApprovalToolCallId?: string;
       connectionPending: boolean;
     };
   },
@@ -3233,9 +4020,15 @@ function mapAgentNativeEvent(
           : part.result === undefined && part.toolName === toolName),
     );
     if (toolCall?.type === "tool-call") {
+      if (toolCall.result !== undefined && toolCall.approvalPause === true) {
+        toolCall.approvalResumeCandidate = true;
+      } else {
+        delete toolCall.approvalResumeCandidate;
+      }
       toolCall.args = ev.input ?? {};
       toolCall.argsText = JSON.stringify(toolCall.args);
       if (structuredMeta) toolCall.structuredMeta = structuredMeta;
+      delete toolCall.approvalPauseCandidate;
     } else {
       input.message.content.push({
         type: "tool-call",
@@ -3283,12 +4076,34 @@ function mapAgentNativeEvent(
       (storedToolCall?.type === "tool-call" ? storedToolCall.toolCallId : "");
     const structuredMeta = agentNativeStructuredMeta(ev);
     if (storedToolCall?.type === "tool-call") {
-      storedToolCall.result = agentNativeToolResultText(ev.result);
+      const resultText = agentNativeToolResultText(ev.result);
+      storedToolCall.result = resultText;
+      const legacyApprovalPause =
+        ev.approvalPause === undefined &&
+        storedToolCall.approvalPauseCandidate === true;
+      if (ev.approvalPause === true || legacyApprovalPause) {
+        storedToolCall.approvalPause = true;
+      } else {
+        delete storedToolCall.approvalPause;
+        delete storedToolCall.approval;
+      }
+      delete storedToolCall.approvalPauseCandidate;
+      delete storedToolCall.approvalResumeCandidate;
       storedToolCall.isError = ev.isError === true || Boolean(ev.error);
       storedToolCall.completedSideEffect = ev.completedSideEffect === true;
       if (ev.mcpApp) storedToolCall.mcpApp = ev.mcpApp;
       if (ev.chatUI) storedToolCall.chatUI = ev.chatUI;
       if (structuredMeta) storedToolCall.structuredMeta = structuredMeta;
+    }
+    // The approval gate emits a placeholder tool_done before execution.
+    if (
+      input.message.pendingApprovalToolCallId === toolCallId &&
+      !input.message.approvalPending &&
+      storedToolCall?.type === "tool-call" &&
+      storedToolCall.result !== undefined &&
+      storedToolCall.approvalPause !== true
+    ) {
+      input.message.pendingApprovalToolCallId = undefined;
     }
     const metadata = definedMetadata({ ...base.metadata, ...structuredMeta });
     const events: AgentChatRuntimeKnownEvent[] = [
@@ -3303,6 +4118,8 @@ function mapAgentNativeEvent(
         resultText: ev.result,
         error: ev.error,
         completedSideEffect: ev.completedSideEffect === true,
+        approvalPause: storedToolCall?.approvalPause === true,
+        approvalAskId: storedToolCall?.approval?.askId,
         mcpApp: ev.mcpApp,
         chatUI: ev.chatUI,
       },
@@ -3361,21 +4178,46 @@ function mapAgentNativeEvent(
   }
   if (ev.type === "approval_required") {
     input.message.approvalPending = true;
+    const approvalKey = ev.approvalKey;
+    let approvalToolCallId = ev.toolCallId ?? ev.id;
+    if (typeof approvalKey === "string" && approvalKey.length > 0) {
+      const approvalToolCallIndex = findApprovalToolCallIndex(
+        input.message.content,
+        ev.tool ?? "unknown",
+        approvalToolCallId,
+        ev.input,
+      );
+      const part = input.message.content[approvalToolCallIndex];
+      if (part?.type === "tool-call") {
+        approvalToolCallId ??= part.toolCallId;
+        part.approval = {
+          approvalKey,
+          ...(ev.askId ? { askId: ev.askId } : {}),
+          ...(ev.allowPersistentApproval === false
+            ? { allowPersistentApproval: false }
+            : {}),
+        };
+        part.approvalPauseCandidate = true;
+        delete part.approvalResumeCandidate;
+      }
+    }
+    input.message.pendingApprovalToolCallId = approvalToolCallId;
     return [
       {
         type: "approval-request",
         ...base,
-        approvalId: ev.approvalKey ?? ev.id ?? createRuntimeId("approval"),
+        approvalId:
+          ev.askId ?? ev.approvalKey ?? ev.id ?? createRuntimeId("approval"),
         // `approval_required` carries the model-side call id as `toolCallId`,
-        // not `id`. Without this the request falls back to matching by tool
-        // name, which picks the wrong call when two are pending at once.
-        toolCallId: ev.toolCallId ?? ev.id,
+        // not `id`. When older frames omit both ids, use the unique input match.
+        toolCallId: approvalToolCallId,
         toolName: ev.tool,
         message: ev.label ?? "Approve this tool call?",
         input: ev.input,
         ...(ev.allowPersistentApproval === false
           ? { allowPersistentApproval: false }
           : {}),
+        ...(ev.askId ? { askId: ev.askId } : {}),
       },
     ];
   }
@@ -3437,14 +4279,15 @@ function mapAgentNativeEvent(
           id: `${participantId}:${interactionKind}:${ev.seq ?? "current"}`,
           kind: interactionKind,
           participantId,
-          label: agent,
-          detail: ev.terminalCode,
           scope: "external",
-          object: ev.taskId
-            ? { id: ev.taskId, kind: "task", label: ev.taskId }
-            : undefined,
           source: agentNativeAgentReference(agent),
-          metadata: definedMetadata({ durationMs: ev.durationMs }),
+          metadata: definedMetadata({
+            durationMs: ev.durationMs,
+            failureReasonKey:
+              interactionKind === "failed"
+                ? agentCallFailureReasonKey(ev.terminalCode)
+                : undefined,
+          }),
         },
       },
     ];
@@ -3492,7 +4335,7 @@ function mapAgentNativeEvent(
         activity: {
           id: `${participantId}:progress`,
           kind: "agent",
-          label: ev.state ?? agent,
+          label: AGENT_CALL_ACTIVITY_LABEL,
           detail: ev.detail,
           status: "running",
           participantId,
@@ -3517,7 +4360,6 @@ function mapAgentNativeEvent(
           id: `${participantId}:message:${ev.seq ?? "current"}`,
           kind: "messaged",
           participantId,
-          label: agent,
           detail: ev.text,
           scope: "external",
           source: agentNativeAgentReference(agent),
@@ -3537,7 +4379,7 @@ function mapAgentNativeEvent(
         activity: {
           id: `${participantId}:activity`,
           kind: "agent",
-          label: agent,
+          label: AGENT_CALL_ACTIVITY_LABEL,
           detail: ev.snapshot.activePhase,
           status,
           participantId,
@@ -3829,6 +4671,8 @@ function mapAgentNativeEvent(
 
 const AGENT_NATIVE_APPROVED_TOOL_CALLS_METADATA_KEY =
   "agentNativeApprovedToolCalls";
+const AGENT_NATIVE_APPROVED_TOOL_CALL_ASK_IDS_METADATA_KEY =
+  "agentNativeApprovedToolCallAskIds";
 const AGENT_NATIVE_CONTINUATION_TURN_ID_METADATA_KEY =
   "agentNativeContinuationTurnId";
 const AGENT_NATIVE_INTERNAL_CONTINUATION_METADATA_KEY =
@@ -3875,6 +4719,10 @@ export function createAgentNativeChatRuntime(
   const runtimeId = options.id ?? "agent-native";
   const fetchImpl = options.fetch ?? fetch;
   const streamingUrl = options.streamingUrl?.trim() || agentChatStreamingUrl();
+  const isSameOriginEndpoint = (url: string) => {
+    if (typeof window === "undefined") return false;
+    return new URL(url, window.location.href).origin === window.location.origin;
+  };
   let streamFallbackWarningShown = false;
   const runtimeFetch: FetchLike = streamingUrl
     ? async (input, init) => {
@@ -3922,6 +4770,9 @@ export function createAgentNativeChatRuntime(
 
         const headers = new Headers(init?.headers);
         headers.set("Authorization", `Bearer ${token}`);
+        if (!isSameOriginEndpoint(streamingUrl)) {
+          headers.delete("x-agent-native-session-id");
+        }
         try {
           return await fetchImpl(streamingUrl, {
             ...init,
@@ -3950,9 +4801,44 @@ export function createAgentNativeChatRuntime(
       options.description ?? "Agent-Native's built-in chat transport.",
     endpoint: apiUrl,
     fetch: runtimeFetch,
+    beforeStartTurn: async ({ session, turn, turnId }) => {
+      const metadata = turn.metadata;
+      const isAdmittedContinuation =
+        turn.queuePromotion !== undefined ||
+        metadata?.[AGENT_NATIVE_INTERNAL_CONTINUATION_METADATA_KEY] === true ||
+        metadataString(metadata, AUTO_CONTINUE_OF_RUN_METADATA_KEY) !==
+          undefined ||
+        metadataStringList(
+          metadata,
+          AGENT_NATIVE_APPROVED_TOOL_CALLS_METADATA_KEY,
+        ) !== undefined;
+      if (isAdmittedContinuation) return;
+      const candidateEngine = metadata?.engine ?? options.engine;
+      return requireAgentEngineConfiguredForDispatch({
+        engine:
+          typeof candidateEngine === "string" ? candidateEngine : undefined,
+        source: {
+          statusUrl: agentEngineStatusUrlForChatApi(apiUrl),
+          fetch: fetchImpl,
+          headers: () =>
+            resolveHeaders(options.headers, {
+              sessionId: session.id,
+              turnId,
+            }),
+        },
+      });
+    },
     headers: async (input) => {
       const headers = await resolveHeaders(options.headers, input);
       headers.set("x-agent-native-surface", options.surface ?? "app");
+      if (!isSameOriginEndpoint(apiUrl)) {
+        headers.delete("x-agent-native-session-id");
+      } else if (!headers.has("x-agent-native-session-id")) {
+        const browserSessionId = getOrCreateAnalyticsSessionId();
+        if (browserSessionId) {
+          headers.set("x-agent-native-session-id", browserSessionId);
+        }
+      }
       return headers;
     },
     capabilities: {
@@ -3979,6 +4865,25 @@ export function createAgentNativeChatRuntime(
       const latestUserMessage = [...(turn.messages ?? [])]
         .reverse()
         .find((message) => message.role === "user");
+      const latestUserMessageIndex = latestUserMessage
+        ? (turn.messages?.lastIndexOf(latestUserMessage) ?? -1)
+        : -1;
+      const messagesForHistory =
+        latestUserMessage &&
+        typeof latestUserMessage.id === "string" &&
+        latestUserMessage.id.trim().length > 0 &&
+        latestUserMessageIndex >= 0
+          ? turn.messages!.filter(
+              (message, index) =>
+                message.role !== "user" ||
+                message.id !== latestUserMessage.id ||
+                !equivalentRuntimeContent(
+                  message.content,
+                  latestUserMessage.content,
+                ) ||
+                index === latestUserMessageIndex,
+            )
+          : turn.messages;
       const prompt =
         turn.prompt ??
         latestUserMessage?.content
@@ -3988,6 +4893,10 @@ export function createAgentNativeChatRuntime(
       const approvedToolCalls = metadataStringList(
         turn.metadata,
         AGENT_NATIVE_APPROVED_TOOL_CALLS_METADATA_KEY,
+      );
+      const approvedToolCallAskIds = metadataStringList(
+        turn.metadata,
+        AGENT_NATIVE_APPROVED_TOOL_CALL_ASK_IDS_METADATA_KEY,
       );
       const continuationTurnId = metadataString(
         turn.metadata,
@@ -4012,17 +4921,32 @@ export function createAgentNativeChatRuntime(
         typeof turnEngine === "string" && turnEngine.trim()
           ? turnEngine
           : options.engine;
-      const history = nativeHistoryFromMessages(turn.messages, prompt);
+      const currentAttachmentUrlSet = currentTurnAttachmentUrls(
+        turn.attachments,
+      );
+      const history = nativeHistoryFromMessages(
+        messagesForHistory,
+        prompt,
+        currentAttachmentUrlSet,
+      );
+      const loadedSkillSlugs = loadedSkillSlugsFromMessages(turn.messages);
       const pendingApprovalHistory =
         approvedToolCalls && continuationMessageState
-          ? pendingApprovalRuntimeMessages(continuationMessageState)
+          ? pendingApprovalRuntimeMessages(
+              continuationMessageState,
+              approvedToolCalls,
+              approvedToolCallAskIds ?? [],
+            )
           : { messages: [], omitted: false, toolHistoryOmitted: false };
       const structuredHistory = nativeStructuredHistoryFromMessages(
-        turn.messages,
+        messagesForHistory,
         prompt,
+        currentAttachmentUrlSet,
         pendingApprovalHistory.messages,
         pendingApprovalHistory.omitted,
         pendingApprovalHistory.toolHistoryOmitted,
+        approvedToolCalls,
+        approvedToolCallAskIds,
       );
       return {
         message: prompt,
@@ -4032,6 +4956,7 @@ export function createAgentNativeChatRuntime(
         displayMessage: prompt,
         history,
         ...(structuredHistory?.length ? { structuredHistory } : {}),
+        ...(loadedSkillSlugs.length ? { loadedSkillSlugs } : {}),
         turnId: continuationTurnId ?? turn.queuePromotion?.turnId ?? turnId,
         threadId: session.threadId ?? options.threadId,
         ...(turn.queuePromotion
@@ -4050,6 +4975,7 @@ export function createAgentNativeChatRuntime(
           ? { skipPendingSelectionContext: true }
           : {}),
         ...(approvedToolCalls ? { approvedToolCalls } : {}),
+        ...(approvedToolCallAskIds ? { approvedToolCallAskIds } : {}),
         ...(options.mode ? { mode: options.mode } : {}),
         ...((turn.model ?? options.model)
           ? { model: turn.model ?? options.model }
@@ -4080,6 +5006,7 @@ export function createAgentNativeChatRuntime(
             content: [],
             started: false,
             approvalPending: false,
+            pendingApprovalToolCallId: undefined,
             connectionPending: false,
           },
         };
@@ -4106,8 +5033,21 @@ export function createAgentNativeChatRuntime(
       const {
         [AUTO_CONTINUE_OF_RUN_METADATA_KEY]: _autoContinueOf,
         [CONTINUE_OF_RUN_METADATA_KEY]: _continueOf,
+        [AGENT_NATIVE_APPROVED_TOOL_CALLS_METADATA_KEY]: _approvedToolCalls,
+        [AGENT_NATIVE_APPROVED_TOOL_CALL_ASK_IDS_METADATA_KEY]:
+          _approvedToolCallAskIds,
         ...previousMetadata
       } = previousTurn?.metadata ?? {};
+      const continuationMetadata = { ...continuation.metadata };
+      delete continuationMetadata[
+        AGENT_NATIVE_APPROVED_TOOL_CALLS_METADATA_KEY
+      ];
+      delete continuationMetadata[
+        AGENT_NATIVE_APPROVED_TOOL_CALL_ASK_IDS_METADATA_KEY
+      ];
+      const turnToContinue = continuation.attachments?.length
+        ? { ...previousTurn, attachments: continuation.attachments }
+        : previousTurn;
       const approval = continuation.approval;
       const connection = continuation.connection;
       const messageStateKey = continuation.turnId ?? session.id;
@@ -4123,13 +5063,13 @@ export function createAgentNativeChatRuntime(
         const messageState = messageStates.get(messageStateKey);
         if (messageState) messageState.message.connectionPending = false;
         return startTurn({
-          ...previousTurn,
+          ...turnToContinue,
           prompt:
             continuation.prompt ??
             `The ${connection.id} connection is now available. Continue the requested work.`,
           metadata: {
             ...previousMetadata,
-            ...continuation.metadata,
+            ...continuationMetadata,
             [AGENT_NATIVE_CONTINUATION_TURN_ID_METADATA_KEY]:
               continuation.turnId,
             [AGENT_NATIVE_INTERNAL_CONTINUATION_METADATA_KEY]: true,
@@ -4146,11 +5086,11 @@ export function createAgentNativeChatRuntime(
         const messageState = messageStates.get(messageStateKey);
         if (messageState) messageState.message.approvalPending = false;
         return startTurn({
-          ...previousTurn,
+          ...turnToContinue,
           prompt: continuation.prompt,
           metadata: {
             ...previousMetadata,
-            ...continuation.metadata,
+            ...continuationMetadata,
             [AGENT_NATIVE_CONTINUATION_TURN_ID_METADATA_KEY]:
               continuation.turnId,
             [AGENT_NATIVE_INTERNAL_CONTINUATION_METADATA_KEY]: true,
@@ -4167,16 +5107,55 @@ export function createAgentNativeChatRuntime(
         });
       }
       const messageState = messageStates.get(messageStateKey);
+      const approvalParts = [
+        ...(turnToContinue?.messages ?? []).flatMap(
+          (message) => message.content,
+        ),
+        ...(messageState?.message.content ?? []),
+      ].filter(
+        (part) =>
+          part.type === "tool-call" &&
+          (part.approval?.askId === approval.id ||
+            part.approval?.approvalKey === approval.id),
+      );
+      if (approvalParts.length > 1) {
+        throw approvedToolHistoryError(
+          "approved_tool_call_history_ambiguous",
+          422,
+        );
+      }
+      const approvalPart = approvalParts[0];
+      const approvalKey =
+        approvalPart?.type === "tool-call"
+          ? approvalPart.approval?.approvalKey
+          : undefined;
+      const approvalAskId =
+        approvalPart?.type === "tool-call"
+          ? approvalPart.approval?.askId
+          : undefined;
+      if (!approvalKey) {
+        throw approvedToolHistoryError(
+          "approved_tool_call_history_missing",
+          422,
+        );
+      }
       if (messageState) messageState.message.approvalPending = false;
       return startTurn({
-        ...previousTurn,
+        ...turnToContinue,
         prompt:
           continuation.prompt ??
           "Approved. Go ahead and run the requested action.",
         metadata: {
           ...previousMetadata,
-          ...continuation.metadata,
-          [AGENT_NATIVE_APPROVED_TOOL_CALLS_METADATA_KEY]: [approval.id],
+          ...continuationMetadata,
+          [AGENT_NATIVE_APPROVED_TOOL_CALLS_METADATA_KEY]: [approvalKey],
+          ...(approvalAskId
+            ? {
+                [AGENT_NATIVE_APPROVED_TOOL_CALL_ASK_IDS_METADATA_KEY]: [
+                  approvalAskId,
+                ],
+              }
+            : {}),
           [AGENT_NATIVE_CONTINUATION_TURN_ID_METADATA_KEY]: continuation.turnId,
           [AGENT_NATIVE_INTERNAL_CONTINUATION_METADATA_KEY]: true,
         },
@@ -4194,7 +5173,7 @@ export function createAgentNativeChatRuntime(
   });
 
   const readRunState = async (
-    input: AgentChatRuntimeSubscribeInput,
+    input: AgentChatRuntimeReadRunStateInput,
   ): Promise<ServerRunState> => {
     // Asking again cannot change these answers, so they are not retryable.
     const unreadable = (message: string, status?: number) =>
@@ -4212,6 +5191,9 @@ export function createAgentNativeChatRuntime(
     const query = new URLSearchParams({ threadId });
     if (input.runId) query.set("runId", input.runId);
     if (input.turnId) query.set("turnId", input.turnId);
+    if (input.includePendingConnectionRequest) {
+      query.set("includePendingConnectionRequest", "true");
+    }
     const headers = await resolveHeaders(options.headers, input);
     headers.set("x-agent-native-surface", options.surface ?? "app");
     const response = await runtimeFetch(
@@ -4223,7 +5205,14 @@ export function createAgentNativeChatRuntime(
         signal: input.abortSignal,
       },
     );
-    if (response.status === 404) return { status: "missing" };
+    if (response.status === 404) {
+      return {
+        status: "missing",
+        ...(input.includePendingConnectionRequest
+          ? { pendingConnectionRequestId: null }
+          : {}),
+      };
+    }
     if (!response.ok) throw await readHttpRuntimeError(response);
     let body: unknown;
     try {
@@ -4249,6 +5238,27 @@ export function createAgentNativeChatRuntime(
         response.status,
       );
     }
+    const pendingConnectionRequestId = value?.pendingConnectionRequestId;
+    if (
+      input.includePendingConnectionRequest &&
+      (!value || !Object.hasOwn(value, "pendingConnectionRequestId"))
+    ) {
+      throw unreadable(
+        "Agent chat run state is unreadable (pending connection request was not returned).",
+        response.status,
+      );
+    }
+    if (
+      pendingConnectionRequestId !== undefined &&
+      pendingConnectionRequestId !== null &&
+      (typeof pendingConnectionRequestId !== "string" ||
+        !pendingConnectionRequestId.trim())
+    ) {
+      throw unreadable(
+        "Agent chat run state is unreadable (pending connection request ID is invalid).",
+        response.status,
+      );
+    }
     return {
       status,
       runId,
@@ -4264,6 +5274,9 @@ export function createAgentNativeChatRuntime(
         : {}),
       terminalReason:
         typeof value?.terminalReason === "string" ? value.terminalReason : null,
+      ...(pendingConnectionRequestId === undefined
+        ? {}
+        : { pendingConnectionRequestId }),
     };
   };
 

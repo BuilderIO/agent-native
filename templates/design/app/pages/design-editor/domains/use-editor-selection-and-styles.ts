@@ -10,7 +10,10 @@ import {
 } from "@shared/code-layer";
 import { linkedComponentRootForNode } from "@shared/component-links";
 import type { InteractionState } from "@shared/interaction-states";
-import { utilityStem } from "@shared/responsive-classes";
+import {
+  breakpointUpperBoundPx,
+  utilityStem,
+} from "@shared/responsive-classes";
 import {
   isRunningAppSourceType,
   normalizeDesignSourceType,
@@ -134,6 +137,7 @@ export function useEditorSelectionAndStyles({
     selectedElement,
     setSelectedElement,
     selectedElementRef,
+    activeFileIdRef,
     liveRoutePathsByScreenIdRef,
     pendingStructureRedoReplayTimerRef,
     cancelPendingStructureVerification,
@@ -166,7 +170,6 @@ export function useEditorSelectionAndStyles({
     setShaderFillPreview,
     activeBreakpointWidthState,
     activeBreakpointWidthStateRef,
-    focusDesignInspectorForSelection,
     undoManagerRef,
     linkedComponentMutationQueueRef,
     contentUndoStackRef,
@@ -202,15 +205,29 @@ export function useEditorSelectionAndStyles({
     designBreakpoints,
     handleBreakpointBarSelect,
     activeScreenBaseWidthPx,
-    activeBreakpointUpperBoundPx,
     overviewCanvasZoom,
     activeCanvasSourceType,
   } = editorActiveScreenAndGeometry;
+  const activeBreakpointUpperBoundAtEvent = useCallback(() => {
+    const activeWidthPx = activeBreakpointWidthStateRef.current;
+    return activeWidthPx == null
+      ? null
+      : breakpointUpperBoundPx(
+          designBreakpoints.map((breakpoint) => breakpoint.widthPx),
+          activeWidthPx,
+          activeScreenBaseWidthPx,
+        );
+  }, [
+    activeBreakpointWidthStateRef,
+    activeScreenBaseWidthPx,
+    designBreakpoints,
+  ]);
   const {
     localhostConnectionRootPathByIdRef,
     setHoveredElementScreenId,
     recordPendingHistoryEntry,
     ydoc,
+    currentYDocRef,
     isSynced,
     setCollabContent,
     setCollabContentFileId,
@@ -493,7 +510,6 @@ export function useEditorSelectionAndStyles({
             applyFileContentUpdate,
             clearPendingOverviewLayerSelectionTimer,
             createdOverviewLayerSelection,
-            focusDesignInspectorForSelection,
             getCodeLayerProjectionForScreen,
             getScreenContent,
             handleBreakpointBarSelect,
@@ -538,7 +554,6 @@ export function useEditorSelectionAndStyles({
       clearPendingOverviewLayerSelectionTimer,
       createdOverviewLayerSelection,
       recordSelectionHistoryAroundChange,
-      focusDesignInspectorForSelection,
       getCodeLayerProjectionForScreen,
       getScreenContent,
       handleBreakpointBarSelect,
@@ -571,13 +586,11 @@ export function useEditorSelectionAndStyles({
       if (viewModeRef.current === "overview") {
         setOverviewSelectedScreenIds([]);
       }
-      focusDesignInspectorForSelection();
     },
     [
       activeCodeLayerProjection,
       activeFile?.id,
       activeFileId,
-      focusDesignInspectorForSelection,
       handleScreenElementSelect,
     ],
   );
@@ -605,12 +618,10 @@ export function useEditorSelectionAndStyles({
         setOverviewSelectedScreenIds([]);
       }
       setMode("edit");
-      focusDesignInspectorForSelection();
     },
     [
       clearPendingOverviewLayerSelectionTimer,
       createdOverviewLayerSelection,
-      focusDesignInspectorForSelection,
       getCodeLayerProjectionForScreen,
     ],
   );
@@ -729,7 +740,6 @@ export function useEditorSelectionAndStyles({
           boardFileId,
           canvasContainerRef,
           canvasContextMenuRef,
-          focusDesignInspectorForSelection,
           getCodeLayerProjectionForScreen,
           handleScreenElementSelect,
           overviewCanvasZoom,
@@ -743,7 +753,6 @@ export function useEditorSelectionAndStyles({
       activeFile?.id,
       activeFileId,
       boardFileId,
-      focusDesignInspectorForSelection,
       getCodeLayerProjectionForScreen,
       handleScreenElementSelect,
       overviewCanvasZoom,
@@ -760,14 +769,8 @@ export function useEditorSelectionAndStyles({
         persistPendingNodeId: false,
         breakpointWidthPx: candidate.breakpointWidthPx,
       });
-      focusDesignInspectorForSelection();
     },
-    [
-      activeFile?.id,
-      activeFileId,
-      focusDesignInspectorForSelection,
-      handleScreenElementSelect,
-    ],
+    [activeFile?.id, activeFileId, handleScreenElementSelect],
   );
 
   const handleRepromptDraftConsumed = useCallback((nonce: number) => {
@@ -840,6 +843,7 @@ export function useEditorSelectionAndStyles({
         preserveSelection?: boolean;
         routePath?: string;
         pendingUndoGestureId?: string;
+        requirePersistedSourceAcceptance?: boolean;
       } = {},
     ) => {
       const routePath =
@@ -849,11 +853,13 @@ export function useEditorSelectionAndStyles({
           : undefined);
       runCommitVisualStyles(
         {
-          activeBreakpointUpperBoundPx,
+          activeBreakpointUpperBoundPx: activeBreakpointUpperBoundAtEvent(),
           activeBreakpointWidthStateRef,
           activeCanvasSourceType,
           activeCodeLayerProjection,
           activeFile,
+          activeFileIdRef,
+          currentYDocRef,
           activeProjectionContent,
           applyLinkedComponentEdit,
           canApplyContentEdit,
@@ -901,8 +907,7 @@ export function useEditorSelectionAndStyles({
     },
     [
       activeFile,
-      activeBreakpointWidthState,
-      activeBreakpointUpperBoundPx,
+      activeBreakpointUpperBoundAtEvent,
       activeCanvasSourceType,
       activeCodeLayerProjection,
       activeProjectionContent,
@@ -943,7 +948,7 @@ export function useEditorSelectionAndStyles({
       return runCommitStylesToSelectedLayers(
         {
           activeCanvasSourceType,
-          activeBreakpointUpperBoundPx,
+          activeBreakpointUpperBoundPx: activeBreakpointUpperBoundAtEvent(),
           activeBreakpointWidthStateRef,
           activeContent,
           activeFile,
@@ -982,7 +987,7 @@ export function useEditorSelectionAndStyles({
     },
     [
       activeCanvasSourceType,
-      activeBreakpointUpperBoundPx,
+      activeBreakpointUpperBoundAtEvent,
       activeContent,
       activeFile?.id,
       applyFileContentUpdate,
@@ -1012,7 +1017,7 @@ export function useEditorSelectionAndStyles({
       return runCommitRelativeStyleDeltaToSelectedLayers(
         {
           activeCanvasSourceType,
-          activeBreakpointUpperBoundPx,
+          activeBreakpointUpperBoundPx: activeBreakpointUpperBoundAtEvent(),
           activeBreakpointWidthStateRef,
           activeContent,
           activeFile,
@@ -1049,7 +1054,7 @@ export function useEditorSelectionAndStyles({
     },
     [
       activeCanvasSourceType,
-      activeBreakpointUpperBoundPx,
+      activeBreakpointUpperBoundAtEvent,
       activeContent,
       activeFile?.id,
       applyFileContentUpdate,
@@ -1225,7 +1230,7 @@ export function useEditorSelectionAndStyles({
         nodeId,
         state,
         Object.fromEntries(entries),
-        activeBreakpointUpperBoundPx,
+        activeBreakpointUpperBoundAtEvent(),
       );
       if (nextContent === baseContent) return true;
       applyFileContentUpdate(activeFile.id, nextContent, {
@@ -1241,7 +1246,7 @@ export function useEditorSelectionAndStyles({
     [
       activeCodeLayerProjection,
       activeCanvasSourceType,
-      activeBreakpointUpperBoundPx,
+      activeBreakpointUpperBoundAtEvent,
       activeFile?.id,
       applyFileContentUpdate,
       canEditActiveVisualScreen,

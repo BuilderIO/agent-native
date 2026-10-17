@@ -371,6 +371,12 @@ const electronAPI = {
     setPickerOpen: (open: boolean): void => {
       ipcRenderer.send(IPC.QUICK_PROMPT_SET_PICKER_OPEN, open);
     },
+    setSetupRequired: (required: boolean): void => {
+      ipcRenderer.send(IPC.QUICK_PROMPT_SET_SETUP_REQUIRED, required);
+    },
+    openProviderSettings: (): void => {
+      ipcRenderer.send(IPC.QUICK_PROMPT_OPEN_PROVIDER_SETTINGS);
+    },
     onHidden: (cb: () => void): (() => void) => {
       const handler = () => cb();
       ipcRenderer.on(IPC.QUICK_PROMPT_HIDDEN, handler);

@@ -69,6 +69,8 @@ const FAILURE_MESSAGE = {
 export interface ChaptersEditorProps {
   recordingId: string;
   chapters: Chapter[];
+  mediaUpdatedAt: string;
+  updatedAt: string;
   currentMs: number;
   onSeek?: (ms: number) => void;
   className?: string;
@@ -77,6 +79,8 @@ export interface ChaptersEditorProps {
 export function ChaptersEditor({
   recordingId,
   chapters,
+  mediaUpdatedAt,
+  updatedAt,
   currentMs,
   onSeek,
   className,
@@ -89,6 +93,8 @@ export function ChaptersEditor({
   // only ever taken from the server; if it is out of date, the server
   // refuses the save and hands back the current list.
   const storedRef = useRef<Chapter[]>(chapters);
+  const mediaUpdatedAtRef = useRef(mediaUpdatedAt);
+  const confirmedUpdatedAtRef = useRef(updatedAt);
   // The shown list, updated in the same step as storedRef: edits build on
   // this, never on `local`, which lags a render behind. Otherwise a
   // keystroke just after a refusal edits the refused list and is checked
@@ -117,12 +123,15 @@ export function ChaptersEditor({
   useEffect(() => {
     // Page data fetched while an edit is unsaved can predate it.
     if (unsentRef.current || sendingRef.current) return;
+    if (updatedAt < confirmedUpdatedAtRef.current) return;
+    confirmedUpdatedAtRef.current = updatedAt;
+    mediaUpdatedAtRef.current = mediaUpdatedAt;
     if (sameChapters(chapters, storedRef.current)) return;
     // A later change can match a lost save's list; it isn't this editor's.
     unconfirmedRef.current = [];
     storedRef.current = chapters;
     showStored();
-  }, [chapters]);
+  }, [chapters, mediaUpdatedAt, updatedAt]);
 
   const send = async (): Promise<void> => {
     const next = unsentRef.current;
@@ -136,12 +145,28 @@ export function ChaptersEditor({
           recordingId,
           chapters: next,
           expectedChapters: storedRef.current,
-        })) as { chapters?: unknown };
+          expectedMediaUpdatedAt: mediaUpdatedAtRef.current,
+        })) as {
+          chapters?: unknown;
+          mediaUpdatedAt?: unknown;
+          updatedAt?: unknown;
+        };
         if (!Array.isArray(result?.chapters)) {
           throw new Error("set-chapters returned no chapters");
         }
+        if (
+          typeof result.mediaUpdatedAt !== "string" ||
+          typeof result.updatedAt !== "string"
+        ) {
+          throw new Error("set-chapters returned no chapter revision");
+        }
         storedRef.current = result.chapters as Chapter[];
+        mediaUpdatedAtRef.current = result.mediaUpdatedAt;
+        confirmedUpdatedAtRef.current = result.updatedAt;
         unconfirmedRef.current = [];
+        void queryClient.invalidateQueries({
+          queryKey: ["action", "get-recording-player-data", { recordingId }],
+        });
         failure = null;
         break;
       } catch (err) {
@@ -153,6 +178,8 @@ export function ChaptersEditor({
 
     if (failure) {
       const latest = failure?.details?.chapters;
+      const latestMediaUpdatedAt = failure?.details?.mediaUpdatedAt;
+      const latestUpdatedAt = failure?.details?.updatedAt;
       const changed =
         failure?.errorCode === CHAPTERS_CHANGED && Array.isArray(latest);
       if (
@@ -160,6 +187,12 @@ export function ChaptersEditor({
         unconfirmedRef.current.some((sent) => sameChapters(sent, latest))
       ) {
         storedRef.current = latest;
+        if (typeof latestMediaUpdatedAt === "string") {
+          mediaUpdatedAtRef.current = latestMediaUpdatedAt;
+        }
+        if (typeof latestUpdatedAt === "string") {
+          confirmedUpdatedAtRef.current = latestUpdatedAt;
+        }
         unconfirmedRef.current = [];
         unsentRef.current ??= next;
         return send();
@@ -173,6 +206,12 @@ export function ChaptersEditor({
         unconfirmedRef.current = [];
         // Newer edits were made on the list that was refused; drop them.
         storedRef.current = latest;
+        if (typeof latestMediaUpdatedAt === "string") {
+          mediaUpdatedAtRef.current = latestMediaUpdatedAt;
+        }
+        if (typeof latestUpdatedAt === "string") {
+          confirmedUpdatedAtRef.current = latestUpdatedAt;
+        }
         unsentRef.current = null;
         if (debounceRef.current) clearTimeout(debounceRef.current);
         debounceRef.current = null;

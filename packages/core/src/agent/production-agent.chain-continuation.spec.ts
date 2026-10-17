@@ -4,12 +4,14 @@ import {
   MAX_BACKGROUND_RUN_CONTINUATIONS,
   MAX_TURN_WALL_CLOCK_MS,
 } from "../app-config/run-lifecycle-invariants.js";
+import { SelfDispatchHttpError } from "../server/self-dispatch.js";
 import {
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
 } from "./durable-background.js";
 import {
   chainServerDrivenContinuation,
+  DurableAttachmentReferenceRequiredError,
   isLoopProtectionDispatchError,
   MAX_NESTED_SELF_DISPATCH_DEPTH,
   AGENT_CHAT_PRIOR_CONTINUATION_REASON_FIELD,
@@ -207,7 +209,45 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
   it("PRE-INSERTS the successor row before the dispatch fires, then marks the chunk terminal", async () => {
     const h = makeHarness();
     const run = timeoutBoundaryRun();
-    await runChain(h, { run });
+    await runChain(h, {
+      run,
+      requestBody: {
+        message: "a very large user message",
+        history: [{ role: "user", content: "x".repeat(1000) }],
+        threadId: "thread-1",
+        attachments: [
+          {
+            type: "image",
+            name: "screen.png",
+            data: "data:image/png;base64,INLINE_CONTINUATION_IMAGE_BYTES",
+            url: "https://files.example.test/screen-resized.png",
+            referenceUrl: "https://files.example.test/screen-original.png",
+          },
+        ],
+        requestAttachments: [
+          {
+            type: "image",
+            name: "reference.png",
+            data: "data:image/png;base64,INLINE_PROTOCOL_IMAGE_BYTES",
+            url: "https://files.example.test/reference-resized.png",
+            referenceUrl: "https://files.example.test/reference-original.png",
+          },
+        ],
+        structuredHistory: [
+          {
+            role: "user",
+            parts: [
+              {
+                type: "image",
+                data: "data:image/png;base64,aGlzdG9yeS1pbWFnZS1maXh0dXJl",
+                url: "https://files.example.test/history.png",
+              },
+            ],
+          },
+        ],
+        [AGENT_CHAT_BACKGROUND_RUN_FIELD]: { runId: "run-chunk0" },
+      },
+    });
 
     expect(h.callOrder).toEqual(["insertRun", "dispatch", "markTerminal"]);
 
@@ -222,6 +262,21 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
     const payload = JSON.parse(insertOptions.dispatchPayload);
     expect(payload.internalContinuation).toBe(true);
     expect(payload.message).toBe("a very large user message");
+    expect(insertOptions.dispatchPayload).not.toContain("INLINE_");
+    expect(payload.attachments[0]).toEqual({
+      type: "image",
+      name: "screen.png",
+      url: "https://files.example.test/screen-resized.png",
+      referenceUrl: "https://files.example.test/screen-original.png",
+    });
+    expect(payload.attachments[0].data).toBeUndefined();
+    expect(payload.requestAttachments[0]).toEqual({
+      type: "image",
+      name: "reference.png",
+      url: "https://files.example.test/reference-resized.png",
+      referenceUrl: "https://files.example.test/reference-original.png",
+    });
+    expect(payload.structuredHistory[0].parts[0].data).toBeUndefined();
     expect(payload[AGENT_CHAT_BACKGROUND_RUN_FIELD]).toBeUndefined();
     expect(payload[AGENT_CHAT_PRIOR_CONTINUATION_REASON_FIELD]).toBe(
       "run_timeout",
@@ -279,6 +334,36 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
     });
     expect(dispatch.body.message).toBeUndefined();
     expect(dispatch.body.history).toBeUndefined();
+  });
+
+  it("does not resend consumed approval selectors with a chained continuation", async () => {
+    const h = makeHarness();
+    const run = makeRun([
+      {
+        type: "tool_done",
+        tool: "send-email",
+        id: "call-send-email",
+        input: {},
+        result: "sent",
+        completedSideEffect: true,
+      },
+      { type: "auto_continue", reason: "run_timeout" },
+    ]);
+
+    await runChain(h, {
+      run,
+      requestBody: {
+        message: "Approved. Continue.",
+        approvedToolCalls: ["send-email:{}"],
+        approvedToolCallAskIds: ["ask-send-email"],
+      },
+    });
+
+    const insertOptions = (h.deps.insertRun as any).mock.calls[0][3];
+    const payload = JSON.parse(insertOptions.dispatchPayload);
+    expect(payload.approvedToolCalls).toBeUndefined();
+    expect(payload.approvedToolCallAskIds).toBeUndefined();
+    expect(payload.internalContinuation).toBe(true);
   });
 
   it("carries the no-progress streak to the successor so the breaker survives the chunk boundary", async () => {
@@ -472,6 +557,38 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
     },
   );
 
+  it("does not fall back to inline dispatch when a background image lacks a durable reference", async () => {
+    const h = makeHarness();
+    await runChain(h, {
+      requestBody: {
+        message: "continue the image design",
+        attachments: [
+          {
+            type: "image",
+            name: "reference.png",
+            data: "data:image/png;base64,INLINE_IMAGE_BYTES",
+          },
+        ],
+      },
+    });
+
+    expect(h.deps.insertRun).not.toHaveBeenCalled();
+    expect(h.deps.fireInternalDispatch).not.toHaveBeenCalled();
+    expect(h.deps.updateRunStatusIfRunning).toHaveBeenCalledWith(
+      "run-chunk0",
+      "errored",
+    );
+    expect(h.deps.setRunTerminalReason).toHaveBeenCalledWith(
+      "run-chunk0",
+      new DurableAttachmentReferenceRequiredError().code,
+    );
+    expect(h.deps.setRunError).toHaveBeenCalledWith(
+      "run-chunk0",
+      new DurableAttachmentReferenceRequiredError().code,
+      expect.stringContaining("Configure file storage"),
+    );
+  });
+
   it("refuses to chain when the SQL per-turn run budget is exhausted (cross-chain loop killer)", async () => {
     const h = makeHarness({
       countRunsForTurn: vi.fn(
@@ -543,6 +660,27 @@ describe("resolveContinuationDispatchBudget — retry budget matrix", () => {
       dispatchResponseTimeoutMs: 10_000,
       backoffCapMs: Infinity,
     });
+  });
+
+  it("keeps every overload wait inside its host's remaining wall time", () => {
+    expect(
+      resolveContinuationDispatchBudget({
+        chainViaDurableBackground: true,
+        workerProvenInBackgroundFunction: false,
+      }).overloadWaitBudgetMs,
+    ).toBe(10_000);
+    expect(
+      resolveContinuationDispatchBudget({
+        chainViaDurableBackground: false,
+        workerProvenInBackgroundFunction: true,
+      }).overloadWaitBudgetMs,
+    ).toBe(30_000);
+    expect(
+      resolveContinuationDispatchBudget({
+        chainViaDurableBackground: false,
+        workerProvenInBackgroundFunction: false,
+      }).overloadWaitBudgetMs,
+    ).toBe(10_000);
   });
 });
 
@@ -625,6 +763,46 @@ describe("chainServerDrivenContinuation — worker proven in background function
       "truncated",
     );
     expect(h.deps.setRunTerminalReason).toHaveBeenCalledWith(
+      "run-chunk0",
+      "background_continuation_dispatch_deferred",
+    );
+  });
+});
+
+describe("chainServerDrivenContinuation — self-dispatch 429 backoff", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("rides out a burst of 429s on the process-run endpoint instead of deferring to the sweep", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const throttled = () =>
+      new SelfDispatchHttpError(
+        `Self-dispatch to ${AGENT_CHAT_PROCESS_RUN_PATH} returned HTTP 429 Too Many Requests`,
+        429,
+      );
+    const dispatchMock = vi
+      .fn()
+      .mockRejectedValueOnce(throttled())
+      .mockRejectedValueOnce(throttled())
+      .mockRejectedValueOnce(throttled())
+      .mockRejectedValueOnce(throttled())
+      .mockRejectedValueOnce(throttled())
+      .mockResolvedValueOnce(undefined);
+    const h = makeHarness({ fireInternalDispatch: dispatchMock as any });
+
+    await runChain(h, {
+      chainViaDurableBackground: false,
+      workerProvenInBackgroundFunction: true,
+    });
+
+    expect(dispatchMock).toHaveBeenCalledTimes(6);
+    expect(
+      (h.deps.sleep as any).mock.calls.map((c: unknown[]) => c[0]),
+    ).toEqual([500, 1_000, 2_000, 4_000, 8_000]);
+    expect(h.deps.markBackgroundContinuationChunkTerminal).toHaveBeenCalled();
+    expect(h.deps.setRunTerminalReason).not.toHaveBeenCalledWith(
       "run-chunk0",
       "background_continuation_dispatch_deferred",
     );

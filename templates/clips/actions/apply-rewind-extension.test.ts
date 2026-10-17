@@ -7,9 +7,15 @@ const { mockDb, schema, stored, written } = vi.hoisted(() => {
       ownerEmail: "recordings.ownerEmail",
       chaptersJson: "recordings.chaptersJson",
       editsJson: "recordings.editsJson",
+      mediaUpdatedAt: "recordings.mediaUpdatedAt",
+      videoUrl: "recordings.videoUrl",
+      updatedAt: "recordings.updatedAt",
       trashedAt: "recordings.trashedAt",
     },
-    recordingTranscripts: { recordingId: "recordingTranscripts.recordingId" },
+    recordingTranscripts: {
+      recordingId: "recordingTranscripts.recordingId",
+      segmentsJson: "recordingTranscripts.segmentsJson",
+    },
     recordingComments: {
       recordingId: "recordingComments.recordingId",
       videoTimestampMs: "recordingComments.videoTimestampMs",
@@ -22,9 +28,24 @@ const { mockDb, schema, stored, written } = vi.hoisted(() => {
   const stored = {
     chaptersJson: "[]",
     editsJson: "{}",
+    mediaUpdatedAt: "media-1",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    videoUrl: "https://storage.example.com/rec_1.mp4",
+    transcriptSegmentsJson: null as string | null,
+    changeTranscriptBeforeWrite: null as string | null,
+    recordingWrittenInTransaction: false,
+    request: {
+      requestId: "req_1",
+      status: "ready",
+      preRollRecordingId: "pre_1",
+    } as Record<string, unknown> | null,
     preRollTrashed: false,
     // Racing saves, one landing just before each guarded update in turn.
-    changedBeforeWrite: [] as { chaptersJson?: string; editsJson?: string }[],
+    changedBeforeWrite: [] as {
+      chaptersJson?: string;
+      editsJson?: string;
+      mediaUpdatedAt?: string;
+    }[],
   };
   const written: { table: unknown; patch: Record<string, unknown> }[] = [];
 
@@ -35,6 +56,9 @@ const { mockDb, schema, stored, written } = vi.hoisted(() => {
     trashedAt: id === "pre_1" && stored.preRollTrashed ? "earlier" : null,
     chaptersJson: stored.chaptersJson,
     editsJson: stored.editsJson,
+    mediaUpdatedAt: stored.mediaUpdatedAt,
+    videoUrl: stored.videoUrl,
+    updatedAt: stored.updatedAt,
   });
   const matches = (where: any) =>
     (where.and ?? [where]).every((c: any) =>
@@ -44,7 +68,13 @@ const { mockDb, schema, stored, written } = vi.hoisted(() => {
           ? c.value === stored.chaptersJson
           : c.column === "recordings.editsJson"
             ? c.value === stored.editsJson
-            : true,
+            : c.column === "recordings.mediaUpdatedAt"
+              ? c.value === stored.mediaUpdatedAt
+              : c.column === "recordings.videoUrl"
+                ? c.value === stored.videoUrl
+                : c.column === "recordings.updatedAt"
+                  ? c.value === stored.updatedAt
+                  : true,
     );
   const update = (table: unknown) => ({
     set: (patch: Record<string, unknown>) => {
@@ -54,6 +84,23 @@ const { mockDb, schema, stored, written } = vi.hoisted(() => {
           if (!matches(where)) return [];
           stored.chaptersJson = patch.chaptersJson as string;
           stored.editsJson = patch.editsJson as string;
+          stored.mediaUpdatedAt = patch.mediaUpdatedAt as string;
+          stored.videoUrl = patch.videoUrl as string;
+          stored.updatedAt = patch.updatedAt as string;
+          stored.recordingWrittenInTransaction = true;
+        }
+        if (table === schema.recordingTranscripts && "segmentsJson" in patch) {
+          if (stored.changeTranscriptBeforeWrite) {
+            stored.transcriptSegmentsJson = stored.changeTranscriptBeforeWrite;
+            stored.changeTranscriptBeforeWrite = null;
+          }
+          const transcriptMatches = (where.and ?? [where]).every(
+            (c: any) =>
+              c.column !== "recordingTranscripts.segmentsJson" ||
+              c.value === stored.transcriptSegmentsJson,
+          );
+          if (!transcriptMatches) return [];
+          stored.transcriptSegmentsJson = patch.segmentsJson as string;
         }
         if (table === schema.recordings && "trashedAt" in patch) {
           if (!matches(where)) return [];
@@ -82,6 +129,9 @@ const { mockDb, schema, stored, written } = vi.hoisted(() => {
               {
                 chaptersJson: stored.chaptersJson,
                 editsJson: stored.editsJson,
+                mediaUpdatedAt: stored.mediaUpdatedAt,
+                videoUrl: stored.videoUrl,
+                updatedAt: stored.updatedAt,
               },
             ];
           }
@@ -96,13 +146,42 @@ const { mockDb, schema, stored, written } = vi.hoisted(() => {
     // Rolls back this transaction's writes on a throw, as Postgres does.
     // Its recording update missed by then, so only the claim is undone.
     transaction: async (run: (tx: unknown) => Promise<unknown>) => {
-      const before = { trashed: stored.preRollTrashed, written: [...written] };
+      const before = {
+        trashed: stored.preRollTrashed,
+        chaptersJson: stored.chaptersJson,
+        editsJson: stored.editsJson,
+        mediaUpdatedAt: stored.mediaUpdatedAt,
+        videoUrl: stored.videoUrl,
+        updatedAt: stored.updatedAt,
+        written: [...written],
+      };
+      stored.recordingWrittenInTransaction = false;
       try {
-        return await run({ update });
+        return await run({
+          update,
+          select: (fields?: unknown) => ({
+            from: (table: unknown) => ({
+              where: async () =>
+                table === schema.recordingTranscripts &&
+                stored.transcriptSegmentsJson !== null
+                  ? [{ segmentsJson: stored.transcriptSegmentsJson }]
+                  : [],
+            }),
+          }),
+        });
       } catch (err) {
         stored.preRollTrashed = before.trashed;
+        if (stored.recordingWrittenInTransaction) {
+          stored.chaptersJson = before.chaptersJson;
+          stored.editsJson = before.editsJson;
+          stored.mediaUpdatedAt = before.mediaUpdatedAt;
+          stored.videoUrl = before.videoUrl;
+          stored.updatedAt = before.updatedAt;
+        }
         written.splice(0, written.length, ...before.written);
         throw err;
+      } finally {
+        stored.recordingWrittenInTransaction = false;
       }
     },
   };
@@ -116,12 +195,23 @@ vi.mock("@agent-native/core/action", () => ({
   },
 }));
 vi.mock("@agent-native/core/application-state", () => ({
-  readAppState: vi.fn(async () => ({
-    requestId: "req_1",
-    status: "ready",
-    preRollRecordingId: "pre_1",
-  })),
-  writeAppState: vi.fn(),
+  readAppState: vi.fn(async () => stored.request),
+  writeAppState: vi.fn(async (key: string, value: Record<string, unknown>) => {
+    if (key !== "refresh-signal") stored.request = value;
+  }),
+  compareAndSetAppState: vi.fn(
+    async (
+      _key: string,
+      expected: Record<string, unknown> | null,
+      next: Record<string, unknown> | null,
+    ) => {
+      if (JSON.stringify(stored.request) !== JSON.stringify(expected)) {
+        return false;
+      }
+      stored.request = next;
+      return true;
+    },
+  ),
 }));
 vi.mock("drizzle-orm", () => ({
   eq: (column: string, value: unknown) => ({ column, value }),
@@ -154,6 +244,7 @@ const args = {
   videoUrl: "https://storage.example.com/rec_1.mp4",
   durationMs: 90_000,
   addedMs: 30_000,
+  expectedMediaUpdatedAt: "media-1",
 };
 
 const intro = { startMs: 0, title: "Intro" };
@@ -162,6 +253,16 @@ const demo = { startMs: 48_000, title: "Demo" };
 beforeEach(() => {
   stored.chaptersJson = JSON.stringify([intro]);
   stored.editsJson = "{}";
+  stored.mediaUpdatedAt = "media-1";
+  stored.updatedAt = "2026-01-01T00:00:00.000Z";
+  stored.videoUrl = "https://storage.example.com/rec_1.mp4";
+  stored.transcriptSegmentsJson = null;
+  stored.changeTranscriptBeforeWrite = null;
+  stored.request = {
+    requestId: "req_1",
+    status: "ready",
+    preRollRecordingId: "pre_1",
+  };
   stored.preRollTrashed = false;
   mockDispatch.mockReset();
   stored.changedBeforeWrite = [];
@@ -204,6 +305,34 @@ describe("apply-rewind-extension", () => {
     expect(JSON.parse(stored.editsJson).trims).toMatchObject([
       { startMs: 31_000, endMs: 32_000 },
     ]);
+  });
+
+  it("re-reads and shifts a transcript that changes during the transaction", async () => {
+    const before = [{ startMs: 1_000, endMs: 1_200, text: "old" }];
+    const concurrent = [{ startMs: 2_000, endMs: 2_300, text: "new" }];
+    stored.transcriptSegmentsJson = JSON.stringify(before);
+    stored.changeTranscriptBeforeWrite = JSON.stringify(concurrent);
+
+    await action.run(args);
+
+    expect(JSON.parse(stored.transcriptSegmentsJson!)).toEqual([
+      { ...concurrent[0], startMs: 32_000, endMs: 32_300 },
+    ]);
+    expect(JSON.parse(stored.chaptersJson)).toEqual([
+      { startMs: 30_000, title: "Intro" },
+    ]);
+  });
+
+  it("refuses a Rewind upload if redaction replaces the source during apply", async () => {
+    stored.changedBeforeWrite = [{ mediaUpdatedAt: "media-redacted" }];
+
+    await expect(action.run(args)).rejects.toMatchObject({
+      errorCode: "recording_media_changed",
+    });
+
+    expect(stored.mediaUpdatedAt).toBe("media-redacted");
+    expect(stored.preRollTrashed).toBe(false);
+    expect(JSON.parse(stored.chaptersJson)).toEqual([intro]);
   });
 
   it("writes nothing when the chapters keep changing", async () => {

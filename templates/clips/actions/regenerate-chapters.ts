@@ -19,7 +19,7 @@ import { readIncludeFullVideoInAi } from "./lib/clips-ai-prefs.js";
 
 export default defineAction({
   description:
-    "Ask the agent to generate chapters for this recording based on its transcript (and the full video when Include full video is enabled). The agent identifies topic transitions and calls set-chapters, guarded by the chapters as they were when asked.",
+    "Ask the agent to generate chapters for this recording based on its transcript (and the full video when Include full video is enabled). The agent identifies topic transitions and calls set-chapters, guarded by the chapters and media version as they were when asked.",
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
     openInChat: z
@@ -50,14 +50,15 @@ export default defineAction({
     // The new chapters replace these, and only these: an edit made while the
     // agent works makes set-chapters refuse rather than overwrite it.
     const expectedVersion = chaptersVersionOf(rec.chaptersJson);
+    const expectedMediaUpdatedAt = rec.mediaUpdatedAt;
     const baseMessage =
       `Generate chapters for recording ${args.recordingId} (duration ${rec.durationMs}ms). ` +
       `Read the transcript segments in this request's context, identify topic transitions, ` +
       `and call \`set-chapters --recordingId=${args.recordingId} --chapters='[{ "startMs": 0, "title": "Intro" }, ...]'\`. ` +
       `Aim for 3–8 chapters. Each chapter title should be 3–6 words and capture the essence of that section. ` +
-      `Also pass --expectedVersion=${expectedVersion}. ` +
+      `Also pass --expectedVersion=${expectedVersion} and --expectedMediaUpdatedAt=${expectedMediaUpdatedAt}. ` +
       `If set-chapters fails with errorCode ${CHAPTERS_CHANGED}, someone edited the chapters meanwhile: do not retry; mark this request failed, saying the new chapters were not saved because the chapters changed. On ${CHAPTERS_UNREADABLE}, the stored chapters can't be read and would be lost: do not retry; mark this request failed, saying so. On ${CHAPTERS_BUSY}, call it again with the same arguments. ` +
-      `Never call set-chapters for this request without expectedVersion.`;
+      `Never call set-chapters for this request without expectedVersion and expectedMediaUpdatedAt.`;
 
     const requestedAt = new Date().toISOString();
     const request = {
@@ -69,6 +70,7 @@ export default defineAction({
       segmentsJson: transcript?.segmentsJson ?? "[]",
       transcriptText: transcript?.fullText ?? "",
       expectedVersion,
+      expectedMediaUpdatedAt,
       includeFullVideoInAi,
       openInChat: args.openInChat === true,
       message: withAiRequestStatusInstructions({

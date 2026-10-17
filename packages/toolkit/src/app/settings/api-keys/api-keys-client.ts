@@ -1,6 +1,8 @@
 import { agentNativePath } from "@agent-native/core/client/api-path";
 
-const SECRETS_ENDPOINT = agentNativePath("/_agent-native/secrets");
+function secretsEndpoint(): string {
+  return agentNativePath("/_agent-native/secrets");
+}
 
 export interface SaveApiKeyValueInput {
   name: string;
@@ -41,12 +43,12 @@ export async function saveApiKeyValue({
   shared,
 }: SaveApiKeyValueInput): Promise<void> {
   const res = registered
-    ? await fetch(`${SECRETS_ENDPOINT}/${encodeURIComponent(name)}`, {
+    ? await fetch(`${secretsEndpoint()}/${encodeURIComponent(name)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ value }),
       })
-    : await fetch(`${SECRETS_ENDPOINT}/adhoc`, {
+    : await fetch(`${secretsEndpoint()}/adhoc`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -68,7 +70,7 @@ export type SavedApiKeyTest = { ok: true } | { ok: false; error: string };
 /** Run a registered key's validator against its saved value. */
 export async function testSavedApiKey(name: string): Promise<SavedApiKeyTest> {
   const res = await fetch(
-    `${SECRETS_ENDPOINT}/${encodeURIComponent(name)}/test`,
+    `${secretsEndpoint()}/${encodeURIComponent(name)}/test`,
     { method: "POST" },
   );
   const body = (await res

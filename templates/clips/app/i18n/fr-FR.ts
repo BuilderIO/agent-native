@@ -2,6 +2,90 @@ const messages = {
   meetingAsk: {
     resizeOrDismissAnswers: "Redimensionner ou fermer les réponses",
   },
+  lookbackContext: {
+    includeLast: "Inclure les derniers",
+    whatIsThis: "Qu'est-ce que c'est ?",
+    off: "Désactivé",
+    none: "Aucun",
+    noneExplanation:
+      "« Aucun » signifie que les nouveaux Clips n’incluront pas le temps d’écran précédent. Rewind continue d’enregistrer votre écran tant qu’il est activé. Choisissez Désactiver ci-dessous pour l’arrêter.",
+    custom: "Personnalisé…",
+    customLabel: "Durée personnalisée",
+    customAmount: "Durée",
+    customUnit: "Unité",
+    unitSeconds: "secondes",
+    unitMinutes: "minutes",
+    customSave: "Utiliser la durée",
+    customErrorEmpty: "Saisissez une durée.",
+    customErrorInvalid: "Saisissez un nombre entier de secondes ou de minutes.",
+    customErrorTooLong: "Limitez-la à 5 min maximum.",
+    turnOnRewind: "Activer Rewind",
+    turnOffRewind: "Désactiver",
+    turnOffRewindFailed:
+      "Impossible de désactiver Rewind. Arrêtez l'enregistrement et réessayez.",
+    turnOnRewindFailed: "Impossible d’activer Rewind. Réessayez.",
+    turnOnRewindPermissionFailed:
+      "Autorisez l’enregistrement de l’écran pour Clips dans Réglages Système > Confidentialité et sécurité > Enregistrement de l’écran et de l’audio système, puis redémarrez Clips et réessayez.",
+    turnOnRewindUnsupported:
+      "La capture d’écran de Rewind est disponible uniquement sur macOS.",
+    turnOnRewindNoSpace:
+      "L’espace disque disponible ne suffit pas pour démarrer Rewind. Libérez de l’espace et réessayez.",
+    turnOnRewindStopClip: "Arrêtez le Clip en cours avant d’activer Rewind.",
+    turnOnRewindStorageFailed:
+      "Impossible d’accéder au stockage de Rewind. Vérifiez l’espace disque et les autorisations du dossier, puis réessayez.",
+    rewindConsentTitle: "Activer Rewind ?",
+    rewindConsentBody:
+      "Lorsque Rewind est activé, Clips enregistre continuellement votre écran et conserve l’historique récent sur cet appareil jusqu’à atteindre votre limite de durée ou de stockage. Choisissez « Écran + audio » pour enregistrer aussi le micro et le son du système. Les agents connectés peuvent accéder directement aux images de l’écran, sans validation par Clips ; leur utilisation ultérieure dépend de l’agent. Clips ajoute automatiquement la durée d’écran précédent choisie à chaque nouveau Clip, selon ses paramètres de partage. Par défaut, les demandes de partage d’une période choisie sous forme de Clip sont vérifiées avant envoi. Désactivez la vérification avant envoi dans les réglages Rewind pour envoyer automatiquement ces demandes. Un Clip peut inclure l’audio capturé du micro et du système. Désactiver Rewind arrête les nouveaux enregistrements, mais conserve l’historique enregistré. Tant que Rewind est désactivé, l’historique peut dépasser vos limites de durée ou de stockage jusqu’à la reprise de l’enregistrement. Choisissez « Tout supprimer » pour l’effacer maintenant.",
+    rewindConsentCancel: "Pas maintenant",
+    rewindConsentConfirm: "Activer Rewind",
+    rewindConsentBusy: "Activation de Rewind…",
+    rewindOffTitle: "Activer Rewind",
+    rewindOffBody:
+      "Pour inclure l’écran précédent, activez d’abord Rewind. Lorsque Rewind est activé, il conserve l’historique récent de l’écran sur cet appareil dans les limites de durée et de stockage choisies. Lorsqu’il est désactivé, l’historique peut dépasser ces limites jusqu’à la reprise de l’enregistrement. Pour l’effacer maintenant, ouvrez Settings > Rewind > Storage > On this device, puis choisissez Delete all. Les demandes de Clip sont vérifiées avant envoi par défaut, sauf si vous désactivez la vérification avant envoi dans les réglages Rewind.",
+    requestFailed:
+      "Impossible d'inclure le temps d'écran antérieur. L'enregistrement continue sans lui.",
+    localOnlyUnavailable:
+      "Le temps d'écran antérieur n'est pas enregistré pour les enregistrements locaux uniquement.",
+    saving: "Enregistrement de {{window}} avant…",
+    ready: "Avec {{window}} avant",
+    failed: "Impossible d'enregistrer le temps d'écran antérieur",
+    unreadable: "Impossible de vérifier le temps d'écran antérieur",
+    edit: "Modifier",
+    editTitle: "Temps d'écran antérieur",
+    editSave: "Enregistrer",
+    editFailed: "Impossible d'enregistrer la fenêtre. Réessayez.",
+    previewPreparing: "Préparation de l'aperçu…",
+    previewFailed: "Impossible de préparer l'aperçu.",
+    previewLabel: "Aperçu du temps d'écran antérieur",
+    retry: "Réessayer",
+    playSelection: "Lire la sélection",
+    removeFailed:
+      "Impossible de supprimer le temps d'écran antérieur de l'enregistrement abandonné.",
+    removeFailedAction:
+      "Impossible de supprimer le temps d'écran antérieur. Réessayez.",
+    removeAction: "Retirer le temps d'écran antérieur",
+    removeConfirmTitle: "Retirer le temps d'écran antérieur ?",
+    removeConfirmBody:
+      "Les séquences vidéo sont déplacées vers la corbeille et le clip ne les inclut plus.",
+    removeConfirm: "Retirer",
+    removed: "Temps d'écran antérieur retiré",
+    scrubberFromBefore: "Depuis {{offset}} avant",
+    scrubberFromStart: "Depuis le début de l'enregistrement",
+    scrubberToBefore: "Jusqu'à {{offset}} avant",
+    scrubberToStart: "Jusqu'au début de l'enregistrement",
+    scrubberLength: "Durée",
+    scrubberStartHandle: "Début de la fenêtre",
+    scrubberEndHandle: "Fin de la fenêtre",
+    tab: "Contexte",
+    label: "Écran avant l'enregistrement",
+    window: "{{start}}–{{end}} avant l'enregistrement",
+    savingEarlierTime: "Enregistrement du temps d'écran antérieur…",
+    loadFailed: "Impossible de charger le temps d'écran antérieur.",
+    empty: "Aucun temps d'écran antérieur n'est joint à ce clip.",
+    larger: "Agrandir",
+    editHint: "Modifiez la fenêtre dans Clips Desktop.",
+    waitingOtherDevice: "En attente de l'appareil qui a enregistré ce clip",
+  },
   agentChat: {
     setup: {
       connectBuilder: "Utiliser Builder.io",
@@ -150,9 +234,12 @@ const messages = {
     expandSidebar: "Développer la barre latérale",
     collapseSidebar: "Réduire la barre latérale",
     agentEmptyState: "Comment puis-je vous aider avec vos enregistrements ?",
-    agentSuggestionSummary: "Résume mon dernier enregistrement",
-    agentSuggestionPricing: "Trouve où j’ai mentionné les prix",
-    agentSuggestionFiller: "Supprime les mots de remplissage de ce clip",
+    agentSuggestionSummary: "Résume un enregistrement",
+    agentSuggestionPricing: "Trouve les prix mentionnés",
+    agentSuggestionFiller: "Supprime les mots parasites",
+    agentScreenshotSuggestionSummary: "Résume les captures",
+    agentScreenshotSuggestionText: "Trouve le texte dans les captures",
+    agentScreenshotSuggestionCompare: "Compare les captures",
     createFolderError: "Échec de la création",
     folderCreated: "Dossier créé",
     folderNamePlaceholder: "Nom du dossier",
@@ -248,6 +335,10 @@ const messages = {
     transcriptionCompleted: "Transcription terminée",
     transcriptNotReady: "La transcription n'est pas encore prête",
     tryAfterTranscription: "Réessayez une fois la transcription terminée.",
+    silenceTranscriptUnavailableTitle:
+      "Cette transcription ne permet pas de supprimer les silences",
+    silenceTranscriptUnavailableDescription:
+      "Essayez de générer une nouvelle transcription, puis de supprimer à nouveau les silences.",
     titleGenerationQueued: "Génération du titre…",
     descriptionQueued: "Génération de la description…",
     chapterQueued: "Génération des chapitres…",
@@ -319,6 +410,8 @@ const messages = {
     silenceWorking: "Suppression des silences…",
     silenceCompleted: "Suppression des silences terminée",
     silenceFailed: "Échec de la suppression des silences",
+    silenceEditsUnreadable:
+      "Impossible de lire les modifications enregistrées ; les silences n'ont pas été supprimés.",
     generatePrSummary: "Générer un résumé des relations publiques",
     generateSop: "Générer SOP",
     generateSopTooltip:
@@ -350,7 +443,7 @@ const messages = {
   sharePage: {
     agentReadableContext: "Contexte de clip lisible par l'agent",
     agentInstructions:
-      "Récupérez agentContextUrl pour la transcription et le cadre JPEG URLs. Récupérez le cadre URLs pour VOIR l'écran, pas seulement lire la transcription.",
+      "Ouvrez d'abord agentContextUrl. Lisez la transcription complète avec apis.transcript et récupérez recommendedFrames[].url (ou apis.frame.urlTemplate avec atMs) comme images. Conservez exactement id et agent_access. En cas d'erreur, consultez failureKind, error et nextStep dans la réponse JSON. Si failureKind=access, expliquez que le lien ne donne pas accès ; pour un clip privé, demandez au propriétaire de choisir {{shareWithAgents}} dans le menu de partage Clips et d'envoyer le lien généré. Si failureKind=media alors que la transcription fonctionne, expliquez que les médias stockés n'ont pas pu être récupérés et qu'un autre lien ne résoudra pas le problème. Si failureKind=processing, suivez nextStep ; cela ne signifie pas que le clip manque ni que le lien est invalide. Si failureKind=expired, demandez au propriétaire de prolonger ou supprimer l'expiration du clip dans le menu de partage, d'enregistrer, puis de choisir {{shareWithAgents}} et d'envoyer le nouveau lien.",
     untitledClip: "Extrait sans titre",
     incorrectPassword: "Mot de passe incorrect",
     passwordProtected: "Ce clip est protégé par mot de passe",
@@ -562,6 +655,35 @@ const messages = {
     nativeSpeechPrimary:
       "La reconnaissance vocale native reste la source principale de transcription.",
   },
+  transcriptImport: {
+    addFile: "Ajouter un fichier de transcription",
+    imported: "Importée",
+    replaceTitle: "Remplacer la transcription ?",
+    replaceDescription: "{{fileName}} remplacera la transcription actuelle.",
+    replace: "Remplacer",
+    regenerateOverImportTitle: "Remplacer la transcription importée ?",
+    regenerateOverImportDescription:
+      "Une nouvelle transcription tirée de l'audio de l'enregistrement remplacera celle importée depuis un fichier.",
+    added: "Transcription ajoutée",
+    replaced: "Transcription remplacée",
+    failed: "Impossible d’ajouter la transcription",
+    invalidFile: "Impossible de lire {{fileName}}",
+    errorEmpty: "Le fichier ne contient aucun texte de transcription.",
+    errorTooLarge: "Le fichier est trop volumineux pour être importé.",
+    errorNotUtf8:
+      "Le fichier n'est pas du texte UTF-8. Enregistrez-le en UTF-8 et réessayez.",
+    errorMissingTiming:
+      "Ligne {{line}} : une ligne de minutage de sous-titre était attendue, par exemple 00:00:01.000 --> 00:00:04.000.",
+    errorBadTiming:
+      "Ligne {{line}} : le minutage du sous-titre n’a pas pu être lu.",
+    errorBadRange:
+      "Ligne {{line}} : le sous-titre se termine avant de commencer.",
+    errorMissingTimestamp:
+      "Ligne {{line}} : une heure de début était attendue, par exemple 0:21 ou [0:21].",
+    errorOutOfOrder:
+      "Ligne {{line}} : cette heure est antérieure à la précédente.",
+    errorPastEnd: "Ligne {{line}} : cette heure dépasse la fin de la vidéo.",
+  },
   thumbnailPicker: {
     failedCapture: "Échec de la capture de l'image",
     failedGif: "Échec de la génération de GIF : essayez une portée plus courte",
@@ -614,7 +736,7 @@ const messages = {
     openInCodex: "Ouvrir dans Codex",
     copyAgentPrompt: "Copier le prompt pour agent",
     agentPrompt:
-      "Récupère cette URL de contexte Clips pour agent : {{agentContextUrl}}. Utilise transcript.segments pour le contexte parlé, récupère recommendedFrames ou les URLs de l'API d'images pour voir l'écran, et consulte browserDiagnostics s'il est présent pour les journaux de console expurgés et les métadonnées de requêtes fetch/XHR.",
+      "Lisez cette URL de contexte Clips pour agent : {{agentContextUrl}}. Lisez la transcription complète avec apis.transcript et récupérez recommendedFrames[].url (ou apis.frame.urlTemplate avec atMs) comme images. Conservez exactement id et agent_access. En cas d'erreur, consultez failureKind, error et nextStep dans la réponse JSON. Si failureKind=access, expliquez que le lien ne donne pas accès ; pour un clip privé, demandez au propriétaire de choisir {{shareWithAgents}} dans le menu de partage Clips et d'envoyer le lien généré. Si failureKind=media alors que la transcription fonctionne, expliquez que les médias stockés n'ont pas pu être récupérés et qu'un autre lien ne résoudra pas le problème. Si failureKind=processing, suivez nextStep ; cela ne signifie pas que le clip manque ni que le lien est invalide. Si failureKind=expired, demandez au propriétaire de prolonger ou supprimer l'expiration du clip dans le menu de partage, d'enregistrer, puis de choisir {{shareWithAgents}} et d'envoyer le nouveau lien. Utilisez aussi browserDiagnostics si disponible pour signaler un problème.",
     agentTokenDescription:
       "Lien temporaire en lecture seule pour les agents, car ce clip n’est pas public. Expire dans 2 heures.",
     agentPublicDescription:
@@ -773,6 +895,8 @@ const messages = {
     switchToNightly: "Passer aux versions Nightly",
     switchToStable: "Passer aux versions stables",
     retry: "Réessayer",
+    mountError:
+      "Clips n’a pas pu trouver son chemin dans cet espace de travail. Demandez à l’administrateur de vérifier la configuration du chemin de l’application.",
     heroDescription:
       "Un enregistreur de barre de menus pour l’écran, la caméra et écran + caméra. Démarrage en un clic, bulle caméra déplaçable et lien de partage instantané à l’arrêt.",
     versionReleased: "Version {{version}} — publiée {{date}}",
@@ -835,6 +959,9 @@ const messages = {
     labWisprFlow: "Dictée vocale",
     labWisprFlowDescription:
       "Afficher ou masquer la dictée vocale dans Clips Desktop.",
+    labLookbackContext: "Inclure le temps d'écran antérieur",
+    labLookbackContextDescription:
+      "Joindre jusqu'à cinq minutes de temps d'écran antérieur à un enregistrement comme contexte passif.",
     uploadWorkspaceTitle: "Espace actif",
     uploadWorkspaceDescription:
       "Choisissez l’espace utilisé par Clips pour les nouveaux enregistrements, y compris ceux importés depuis le bureau.",
@@ -1372,6 +1499,8 @@ const messages = {
     burningRedactionsPercent:
       "Application des masquages à la vidéo… {{percent}} %",
     editFailed: "Impossible d'enregistrer cette modification",
+    refreshFailed:
+      "Impossible de charger les dernières modifications. Réessayez avant de modifier le clip.",
     autoSaveHint:
       "Les modifications sont enregistrées automatiquement sur ce clip",
     savingChanges: "Enregistrement des modifications…",
@@ -1498,6 +1627,9 @@ const messages = {
     disconnected: "Microphone déconnecté.",
   },
   storageSetup: {
+    builderStorageOffer:
+      "L’offre gratuite de Builder.io inclut le stockage vidéo, avec une configuration en un clic.",
+    customKeys: "Clés personnalisées",
     builderConnectPopupError:
       "Impossible d’ouvrir Builder.io. Si cette application est intégrée à une conversation, ouvrez-la dans un onglet de navigateur ; sinon, réessayez.",
     builderConnectError:
@@ -1511,13 +1643,14 @@ const messages = {
     builderGrantAskAdmin:
       "Demandez à un propriétaire ou à un administrateur de connecter Builder.io avec l’autorisation d’envoyer des clips.",
     statusUnavailable: "Impossible de vérifier si le stockage vidéo est prêt.",
+    hostedStorageUnavailable:
+      "L’hébergement Clips est temporairement indisponible. Votre quota de clips gratuits reste inchangé ; réessayez l’envoi plus tard.",
     checkingBuilderConnection: "Vérification de la connexion à Builder…",
     builderTimeout:
       "Impossible de confirmer que le stockage Builder.io est prêt. Réessayez.",
     builderConnected: "Builder.io connecté",
     waitingForBuilder: "En attente de Builder...",
-    description:
-      "Stockez les vidéos enregistrées avec Builder.io ou un stockage compatible S3. Builder.io inclut un hébergement gratuit et des crédits d'IA.",
+    description: "Choisissez où stocker vos vidéos enregistrées.",
     createBuilderAccount: "Utiliser Builder.io",
     signInWithBuilderAccount: "Se connecter avec un compte Builder.io",
     free: "Gratuit",
@@ -1828,6 +1961,19 @@ const messages = {
     validWebUrl: "Saisissez une adresse http:// ou https:// valide.",
   },
   recordRoute: {
+    freeClipsLeft_one: "Il vous reste {{count}} clip gratuit",
+    freeClipsLeft_other: "Il vous reste {{count}} clips gratuits",
+    freeClipsLeft_many: "Il vous reste {{count}} clips gratuits",
+    hostedClipsExhaustedTitle:
+      "Connectez Builder.io gratuitement pour continuer à enregistrer",
+    hostedClipsExhaustedDescription:
+      "Vous avez utilisé tous vos clips hébergés gratuits. Connectez le stockage Builder.io pour continuer à enregistrer des clips dans votre bibliothèque.",
+    clipExceedsSizeLimit:
+      "Ce clip dépasse la limite actuelle de taille d’envoi.",
+    clipExceedsMaxDuration:
+      "Ce clip dépasse la durée d’enregistrement maximale actuelle.",
+    maxClipDurationReached:
+      "La durée maximale du clip est atteinte. Enregistrement en cours.",
     pageTitle: "New recording — Clips (Localisé)",
     uploadFailed: "Upload failed (Localisé)",
     uploadFailedAtChunk:
@@ -1850,6 +1996,8 @@ const messages = {
     noLocalRecordingData:
       "No local recording data is available to download. (Localisé)",
     recordingDownloadStarted: "Recording download started (Localisé)",
+    partialLocalCopyDownloadStarted:
+      "La copie locale est peut-être incomplète. Les données d’enregistrement disponibles sont en cours de téléchargement.",
     backToLibrary: "Back to library (Localisé)",
     clipsRecorder: "Clips recorder (Localisé)",
     preparingSources: "Preparing sources… (Localisé)",
@@ -2018,6 +2166,10 @@ const messages = {
     cleanupWithAi: "Cleanup with AI (Localisé)",
     cleanupComplete: "Dictée nettoyée",
     cleanupFailed: "Impossible de nettoyer la dictée",
+    undoCleanup: "Annuler",
+    restoreOriginal: "Restaurer l’original",
+    cleanupRestored: "Dictée d’origine restaurée",
+    cleanupRestoreFailed: "Impossible de restaurer la dictée d’origine",
     startFirst: "Transformez vos idées en texte",
     recordOnDesktop: "Enregistrer sur le bureau",
     emptyDesktopDescription:
@@ -2065,6 +2217,10 @@ const messages = {
     vocabularyRemoveFailed: "Impossible de supprimer le terme",
   },
   clipsFinalRaw: {
+    hostedStorageFull:
+      "Le stockage hébergé de Clips est plein. Connectez le stockage Builder.io pour continuer à enregistrer des clips.",
+    hostedRecordingTakenDown:
+      "Cet enregistrement a été supprimé du stockage hébergé de Clips.",
     splitAtPlayhead: "Couper à la tête de lecture (S)",
     selectedCount: "{{count}} sélectionnés",
     selectAll: "Tout sélectionner",
@@ -2096,6 +2252,7 @@ const messages = {
     viewsCount: "{{count}} vues",
     recordingMenu: "Menu de l’enregistrement",
     moveToFolder: "Déplacer vers un dossier",
+    moveHere: "Déplacer ici",
     unarchive: "Désarchiver",
     shareNamedMeeting: "Partager « {{title}} »",
     shareMeeting: "Partager la réunion",
@@ -2224,22 +2381,6 @@ const messages = {
     guideStartDescription:
       "Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins. (Localisé)",
   },
-  rewindExtension: {
-    title: "Ajouter ce qui s’est passé avant",
-    description:
-      "Choisissez un intervalle du Rewind local et ajoutez-le au début de ce clip. Rien n’est ajouté automatiquement.",
-    progressLabel: "Progression du traitement de l’historique Rewind",
-    privateFirstTitle: "Rendre d’abord ce clip privé",
-    privateFirstDescription:
-      "L’historique Rewind local peut contenir du contexte antérieur au début de l’enregistrement. Le clip deviendra privé. Si quelqu’un dispose encore d’un accès direct, Clips s’arrêtera pour vous laisser le retirer dans Partager.",
-    makePrivateContinue: "Rendre privé et continuer",
-    add30Seconds: "Ajouter les 30 secondes précédentes",
-    add5Minutes: "Ajouter les 5 minutes précédentes",
-    add5MinutesDescription:
-      "Utile pour retrouver le début d’une explication plus longue.",
-    privateReady:
-      "Ce clip est privé. Vous pouvez maintenant ajouter l’historique Rewind local.",
-  },
   browserDiagnostics: {
     debug: "Débogage",
     title: "Diagnostics du navigateur",
@@ -2262,9 +2403,15 @@ const messages = {
     issues: "Problèmes",
     consoleSource: "Console",
     networkSource: "Réseau",
+    appSource: "Activité de l’app",
+    appEvent: "Événement",
+    appData: "Données",
+    appFailureSummary: "{{count}} échecs de l’app",
+    appUnavailable: "Impossible de charger l’activité de l’app.",
     consoleCount: "Console {{count}}",
     networkCount: "Réseau {{count}}",
     afterRecording: "Après l’enregistrement",
+    beforeRecording: "Avant l’enregistrement",
     seekToTime: "Aller à {{time}}",
     occurrences: "Occurrences",
     message: "Message",
@@ -2276,6 +2423,7 @@ const messages = {
     noIssuesTitle: "Aucun problème de navigateur détecté",
     noConsoleTitle: "Aucun événement de console",
     noNetworkTitle: "Aucune requête réseau",
+    noAppTitle: "Aucune activité de l’app",
     capturedDescription:
       "Les diagnostics ont été capturés pour cet enregistrement.",
   },

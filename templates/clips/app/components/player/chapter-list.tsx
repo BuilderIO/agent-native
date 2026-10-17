@@ -242,6 +242,8 @@ const FAILURE_MESSAGE = {
 interface ChapterListProps {
   recordingId: string;
   chapters: Chapter[];
+  mediaUpdatedAt: string;
+  updatedAt: string;
   /** The recording's editsJson, so times match the trimmed player. */
   editsJson: string | null | undefined;
   /** The recording's length, to refuse a typed time past the end. */
@@ -344,6 +346,8 @@ function ChapterListView({
 function EditableChapterList({
   recordingId,
   chapters,
+  mediaUpdatedAt,
+  updatedAt,
   editsJson,
   durationMs,
   onSeek,
@@ -360,16 +364,23 @@ function EditableChapterList({
   const [editingFrom, setEditingFrom] = useState<{
     chapters: Chapter[];
     cuts: CutRange[];
+    mediaUpdatedAt: string;
     /** The text first shown; null after a conflict, when any Save writes. */
     draft: string | null;
   } | null>(null);
   const [pending, setPending] = useState<Chapter[] | null>(null);
+  const confirmedUpdatedAtRef = useRef(updatedAt);
   // A save that failed, offered again on the next open together with the
   // list it is checked against: the one it was written against, or, when
   // the server refused it as stale, the list the server has now.
   const [failedSave, setFailedSave] = useState<{
     draft: string;
-    from: { chapters: Chapter[]; cuts: CutRange[]; draft: string | null };
+    from: {
+      chapters: Chapter[];
+      cuts: CutRange[];
+      mediaUpdatedAt: string;
+      draft: string | null;
+    };
     failure: "changed" | "unreadable" | "failed";
   } | null>(null);
   const mutation = useActionMutation("set-chapters");
@@ -377,7 +388,18 @@ function EditableChapterList({
   const editButtonRef = useRef<HTMLButtonElement>(null);
   const returnFocus = useRef(false);
 
-  useEffect(() => setPending(null), [chapters]);
+  useEffect(() => {
+    if (updatedAt < confirmedUpdatedAtRef.current) return;
+    const newer = updatedAt > confirmedUpdatedAtRef.current;
+    confirmedUpdatedAtRef.current = updatedAt;
+    if (newer) {
+      setPending(null);
+      return;
+    }
+    setPending((current) =>
+      current && !sameChapters(current, chapters) ? current : null,
+    );
+  }, [chapters, updatedAt]);
 
   useEffect(() => {
     if (mode === "view" && returnFocus.current) {
@@ -401,7 +423,14 @@ function EditableChapterList({
       )
       .join("\n");
     setDraft(failedSave?.draft ?? fresh);
-    setEditingFrom(failedSave?.from ?? { chapters: shown, cuts, draft: fresh });
+    setEditingFrom(
+      failedSave?.from ?? {
+        chapters: shown,
+        cuts,
+        mediaUpdatedAt,
+        draft: fresh,
+      },
+    );
     setError(failedSave ? t(FAILURE_MESSAGE[failedSave.failure]) : null);
     setFailedSave(null);
     setMode("edit");
@@ -437,7 +466,12 @@ function EditableChapterList({
   };
 
   const save = () => {
-    const from = editingFrom ?? { chapters: shown, cuts, draft: null };
+    const from = editingFrom ?? {
+      chapters: shown,
+      cuts,
+      mediaUpdatedAt,
+      draft: null,
+    };
     if (from.draft !== null && draft === from.draft) {
       leaveEditing();
       return;
@@ -453,10 +487,14 @@ function EditableChapterList({
       setError(describe(parsed.error));
       return;
     }
-    if (!sameChapters(from.chapters, shown) || !sameCuts(from.cuts, cuts)) {
+    if (
+      !sameChapters(from.chapters, shown) ||
+      !sameCuts(from.cuts, cuts) ||
+      from.mediaUpdatedAt !== mediaUpdatedAt
+    ) {
       // Keep the draft; from now on it is compared with the latest list, so
       // a second Save, after checking, replaces it.
-      setEditingFrom({ chapters: shown, cuts, draft: null });
+      setEditingFrom({ chapters: shown, cuts, mediaUpdatedAt, draft: null });
       setError(t("chapterList.changedWhileEditing"));
       return;
     }
@@ -474,12 +512,30 @@ function EditableChapterList({
         chapters: next,
         expectedChapters: from.chapters,
         expectedCuts: from.cuts,
+        expectedMediaUpdatedAt: from.mediaUpdatedAt,
       },
       {
+        onSuccess: (result: any) => {
+          if (
+            Array.isArray(result?.chapters) &&
+            typeof result.updatedAt === "string"
+          ) {
+            confirmedUpdatedAtRef.current = result.updatedAt;
+            setPending(result.chapters as Chapter[]);
+          }
+          void queryClient.invalidateQueries({
+            queryKey: ["action", "get-recording-player-data", { recordingId }],
+          });
+        },
         onError: (err) => {
           const refusal = err as {
             errorCode?: unknown;
-            details?: { chapters?: unknown; cuts?: unknown };
+            details?: {
+              chapters?: unknown;
+              cuts?: unknown;
+              updatedAt?: unknown;
+              mediaUpdatedAt?: unknown;
+            };
           } | null;
           const failure = chapterSaveFailure(err);
           const changed = failure === "changed";
@@ -490,6 +546,14 @@ function EditableChapterList({
               ? {
                   chapters: refusal.details.chapters as Chapter[],
                   cuts: refusal.details.cuts as CutRange[],
+                  updatedAt:
+                    typeof refusal.details.updatedAt === "string"
+                      ? refusal.details.updatedAt
+                      : updatedAt,
+                  mediaUpdatedAt:
+                    typeof refusal.details.mediaUpdatedAt === "string"
+                      ? refusal.details.mediaUpdatedAt
+                      : mediaUpdatedAt,
                 }
               : null;
           // Show the server's list until the page's data catches up; the
@@ -497,9 +561,17 @@ function EditableChapterList({
           setPending(server?.chapters ?? null);
           setFailedSave({
             draft: draftBeforeSave,
-            from: server ? { ...server, draft: null } : from,
+            from: server
+              ? {
+                  chapters: server.chapters,
+                  cuts: server.cuts,
+                  mediaUpdatedAt: server.mediaUpdatedAt,
+                  draft: null,
+                }
+              : from,
             failure,
           });
+          if (server) confirmedUpdatedAtRef.current = server.updatedAt;
           // A save whose reply was lost may still have been stored.
           void queryClient.invalidateQueries({
             queryKey: ["action", "get-recording-player-data", { recordingId }],

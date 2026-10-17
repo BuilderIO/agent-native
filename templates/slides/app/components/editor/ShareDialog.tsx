@@ -1,4 +1,3 @@
-import { trackEvent } from "@agent-native/core/client/analytics";
 import { appBasePath, appPath } from "@agent-native/core/client/api-path";
 import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
@@ -90,11 +89,6 @@ export default function ShareDialog({
       if (typeof payload.shareToken !== "string" || !payload.shareToken) {
         throw new Error(t("share.createFailed"));
       }
-      trackEvent("share_link_created", {
-        output_id: deck.id,
-        output_type: "deck",
-        share_type: "presentation_link",
-      });
       setShareLink({ deckId: deck.id, token: payload.shareToken });
       setDialogOpen(true);
     } catch (error) {

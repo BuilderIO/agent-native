@@ -2,6 +2,9 @@ import { AgentKitRunSlotBusyError } from "@agent-native/agentkit/client";
 import type {
   AgentAnnotation,
   AgentAnnotationSnapshot,
+  AgentCapabilitiesDiscovery,
+  AgentCapabilityDescriptor,
+  AgentCapabilityId,
   AgentError,
   AgentEvent,
   AgentMessage,
@@ -9,24 +12,50 @@ import type {
   AgentObjectReference,
   AgentRunSnapshot,
   AgentQueuedMessage,
+  AgentRequestContext,
+  DiscoverCapabilitiesInput,
   AgentToolCall,
   AgentThreadSnapshot,
   AgentWidgetSnapshot,
   TextPart,
 } from "@agent-native/agentkit/protocol";
 import {
+  AGENT_NATIVE_SUBMISSION_DEADLINES_CAPABILITY_ID,
+  createCapabilityUnavailableError,
+  createCapabilityUnsupportedError,
+  agentEventSequenceEnd,
   isAgentKitProtocolVersion,
+  negotiateAgentKitProtocolVersion,
+  parseAgentQueuedMessage,
   parseAgentRunOptions,
   parseAgentThreadSnapshot,
+  persistableFilePart,
 } from "@agent-native/agentkit/protocol";
 
-import { projectRootAssistantMessages } from "../../agent/thread-message-projection.js";
+import {
+  failedRunIdsWithError,
+  isRenderedRunNotStartedNotice,
+  projectRootAssistantMessages,
+} from "../../agent/thread-message-projection.js";
 import {
   RUN_NOT_STARTED_METADATA_KEY,
   retryContextFromRequest,
 } from "../../shared/agent-chat-run-not-started.js";
+import {
+  assertNoInlineImageBytes,
+  stripInlineBytes,
+} from "../../shared/inline-bytes.js";
+import { toolInputFingerprint } from "../../shared/tool-inputs.js";
+import {
+  agentEngineStatusUrlForChatApi,
+  requireAgentEngineConfiguredForDispatch,
+} from "../agent-engine-readiness.js";
 import { agentNativePath } from "../api-path.js";
-import { CHAT_REQUEST_TOO_LARGE_MESSAGE } from "../error-format.js";
+import {
+  CHAT_CAPABILITY_UNAVAILABLE_MESSAGE,
+  CHAT_CAPABILITY_UNSUPPORTED_MESSAGE,
+  CHAT_REQUEST_TOO_LARGE_MESSAGE,
+} from "../error-format.js";
 import { dispatchAgentChatRunning } from "../use-agent-chat-running-threads.js";
 import {
   appendChatThreadScopeParams,
@@ -86,6 +115,7 @@ interface SnapshotAnnotationConflict {
 
 const RUN_SLOT_POLL_INTERVAL_MS = 150;
 const RUN_SLOT_STABLE_POLLS = 2;
+const MAX_READINESS_SOURCES = 128;
 const MAX_THREAD_SNAPSHOT_REQUEST_BYTES = 4 * 1024 * 1024;
 const MAX_THREAD_SNAPSHOT_RETRIES = 2;
 const MAX_THREAD_SNAPSHOT_ANNOTATION_REPLACEMENT_BYTES = 64 * 1024;
@@ -273,6 +303,9 @@ function messagePart(
         : typeof part.mimeType === "string"
           ? { mediaType: part.mimeType }
           : {}),
+      ...(part.omitted === "inline-bytes"
+        ? { omitted: "inline-bytes" as const }
+        : {}),
     };
   }
   return {
@@ -396,24 +429,6 @@ function storedMessages(
       },
     ];
   });
-}
-
-/**
- * The server answers a turn it refused before any run started with a durable
- * notice and a failed run. The run renders as the recovery card, so showing the
- * notice too would print the same failure twice.
- */
-function isRenderedRunNotStartedNotice(
-  message: AgentMessage,
-  failedRunIds: ReadonlySet<string>,
-): boolean {
-  const metadata = asRecord(message.metadata);
-  return (
-    message.role === "assistant" &&
-    asRecord(metadata?.custom)?.[RUN_NOT_STARTED_METADATA_KEY] === true &&
-    typeof metadata?.runId === "string" &&
-    failedRunIds.has(metadata.runId)
-  );
 }
 
 function sameUserPrompt(left: AgentMessage, right: AgentMessage): boolean {
@@ -756,6 +771,7 @@ function reconcileDurableMessages(
   }
   const durableById = new Map(durable.map((message) => [message.id, message]));
   const assistantIdsByRun = new Map<string, Set<string>>();
+  const completedAssistantIdsByRun = new Map<string, Set<string>>();
   for (const event of events ?? []) {
     if (
       (event.type !== "message.created" &&
@@ -767,6 +783,12 @@ function reconcileDurableMessages(
     const ids = assistantIdsByRun.get(event.runId) ?? new Set<string>();
     ids.add(event.message.id);
     assistantIdsByRun.set(event.runId, ids);
+    if (event.type === "message.completed") {
+      const completedIds =
+        completedAssistantIdsByRun.get(event.runId) ?? new Set<string>();
+      completedIds.add(event.message.id);
+      completedAssistantIdsByRun.set(event.runId, completedIds);
+    }
   }
   for (const value of runs ?? []) {
     const run = asRecord(value);
@@ -820,6 +842,39 @@ function reconcileDurableMessages(
       submittedRunByTurn.has(turnId) ? null : submittedRunId(stored)!,
     );
   }
+  // A completed successor owns its turn, so discard a different completed
+  // answer from the submitted run while leaving partial output and other turns.
+  const supersededCompletedAssistantIds = new Set<string>();
+  for (const reply of durable) {
+    const metadata = asRecord(reply.metadata);
+    const custom = asRecord(metadata?.custom);
+    const turnId = custom?.turnId;
+    const submitted =
+      typeof turnId === "string" ? submittedRunByTurn.get(turnId) : undefined;
+    const replyRunId = metadata?.runId;
+    const replyText = textOf(reply.parts);
+    if (
+      reply.role !== "assistant" ||
+      reply.status !== "complete" ||
+      custom?.continued === true ||
+      typeof submitted !== "string" ||
+      typeof replyRunId !== "string" ||
+      replyRunId === submitted ||
+      durableRunIds(reply).includes(submitted) ||
+      durableByRun.has(submitted) ||
+      !replyText
+    ) {
+      continue;
+    }
+    for (const id of completedAssistantIdsByRun.get(submitted) ?? []) {
+      const snapshot = messages.find(
+        (message) => message.role === "assistant" && message.id === id,
+      );
+      if (snapshot && textOf(snapshot.parts) !== replyText) {
+        supersededCompletedAssistantIds.add(id);
+      }
+    }
+  }
   const shownByInterruptedRun = (reply: AgentMessage) => {
     const turnId = asRecord(asRecord(reply.metadata)?.custom)?.turnId;
     const submitted =
@@ -853,13 +908,87 @@ function reconcileDurableMessages(
     rootAssistantProjection.representedRootMessageIds;
   const snapshotRunIdsByMessageId =
     rootAssistantProjection.snapshotRunIdsByMessageId;
+  const supersededSnapshotMessageIds =
+    rootAssistantProjection.supersededSnapshotMessageIds;
+  const snapshotRunId = (message: AgentMessage) => {
+    const metadataRunId = asRecord(message.metadata)?.runId;
+    return (
+      runByAssistantId.get(message.id) ??
+      snapshotRunIdsByMessageId.get(message.id) ??
+      (typeof metadataRunId === "string" ? metadataRunId : undefined)
+    );
+  };
+  const snapshotAssistantsByRun = new Map<string, AgentMessage[]>();
+  for (const message of messages) {
+    if (message.role !== "assistant") continue;
+    const runId = snapshotRunId(message);
+    if (!runId) continue;
+    const candidates = snapshotAssistantsByRun.get(runId) ?? [];
+    candidates.push(message);
+    snapshotAssistantsByRun.set(runId, candidates);
+  }
+  for (const [runId, candidates] of snapshotAssistantsByRun) {
+    const durableReply = durableByRun.get(runId);
+    const snapshotReply = candidates[0];
+    const eventMessageIds = assistantIdsByRun.get(runId);
+    const terminalRun = runs?.some(
+      (run) =>
+        run.id === runId &&
+        ["completed", "failed", "cancelled"].includes(run.status),
+    );
+    const durableMetadata = asRecord(durableReply?.metadata);
+    const snapshotText = snapshotReply ? textOf(snapshotReply.parts) : "";
+    const durableText =
+      durableReply?.role === "assistant" ? textOf(durableReply.parts) : "";
+    // A single event-associated message ID is the only safe identity when text diverges.
+    if (
+      durableReply?.role === "assistant" &&
+      durableReply.status === "complete" &&
+      durableMetadata?.runId === runId &&
+      durableRunIds(durableReply).length === 1 &&
+      asRecord(durableMetadata.custom)?.continued !== true &&
+      submittedUsersByRun.get(runId)?.role === "user" &&
+      terminalRun &&
+      candidates.length === 1 &&
+      snapshotReply &&
+      snapshotReply.id !== durableReply.id &&
+      eventMessageIds?.size === 1 &&
+      eventMessageIds.has(snapshotReply.id) &&
+      snapshotReply.parts.length > 0 &&
+      snapshotReply.parts.every((part) => part.type === "text") &&
+      durableReply.parts.length > 0 &&
+      durableReply.parts.every((part) => part.type === "text") &&
+      snapshotText.length > 0 &&
+      durableText.length > 0 &&
+      snapshotText !== durableText &&
+      !representedDurableAssistantIds.has(durableReply.id)
+    ) {
+      supersededSnapshotMessageIds.add(snapshotReply.id);
+    }
+  }
   const rootMessageIdsBySnapshotMessageId = new Map(
     [...rootAssistantProjection.snapshotMessageIdsByRootMessageId].map(
       ([rootId, snapshotId]) => [snapshotId, rootId],
     ),
   );
+  const snapshotUserIds = new Set(
+    messages.flatMap((message) =>
+      message.role === "user" ? [message.id] : [],
+    ),
+  );
+  const representedDurableUserIds = new Set(
+    [...submittedUsersByAgentKitMessageId].flatMap(([snapshotId, stored]) =>
+      stored && snapshotId !== stored.id && snapshotUserIds.has(snapshotId)
+        ? [stored.id]
+        : [],
+    ),
+  );
   const deduplicatedMessages = messages.filter(
-    (message) => !representedDurableAssistantIds.has(message.id),
+    (message) =>
+      !(message.role === "user" && representedDurableUserIds.has(message.id)) &&
+      !representedDurableAssistantIds.has(message.id) &&
+      !supersededSnapshotMessageIds.has(message.id) &&
+      !supersededCompletedAssistantIds.has(message.id),
   );
 
   const representedSubmittedUserIds = new Set<string>();
@@ -1016,15 +1145,6 @@ function reconcileDurableMessages(
     durableIndexById,
     durableIdBySnapshotId,
   );
-  const snapshotRunId = (message: AgentMessage) => {
-    const metadataRunId = asRecord(message.metadata)?.runId;
-    return (
-      runByAssistantId.get(message.id) ??
-      snapshotRunIdsByMessageId.get(message.id) ??
-      (typeof metadataRunId === "string" ? metadataRunId : undefined)
-    );
-  };
-
   const reconciledMessages = projectedMessages.map((message) => {
     if (message.role === "user") {
       const stored = storedUserBySnapshotId.get(message.id);
@@ -1066,6 +1186,19 @@ function reconcileDurableMessages(
       }
     }
     const runId = snapshotRunId(message);
+    const sameRunRoot = runId ? durableByRun.get(runId) : undefined;
+    if (
+      sameRunRoot &&
+      rootAssistantProjection.snapshotMessageIdsByRootMessageId.has(
+        sameRunRoot.id,
+      ) &&
+      rootAssistantProjection.snapshotMessageIdsByRootMessageId.get(
+        sameRunRoot.id,
+      ) !== message.id &&
+      !durableById.has(message.id)
+    ) {
+      return message;
+    }
     const matched =
       durableById.get(message.id) ??
       (runId ? durableByRun.get(runId) : undefined);
@@ -1216,12 +1349,23 @@ function storedQueue(
               part?.type === "file",
           )
       : undefined;
+    const requestAttachments =
+      queued.requestAttachments === undefined
+        ? undefined
+        : parseAgentQueuedMessage({
+            id: queued.id,
+            threadId,
+            text: queued.text,
+            createdAt: timestamp(queued.createdAt, fallbackCreatedAt),
+            requestAttachments: queued.requestAttachments,
+          }).requestAttachments;
     return {
       id: queued.id,
       threadId,
       text: queued.text,
       createdAt: timestamp(queued.createdAt, fallbackCreatedAt),
       ...(attachments?.length ? { attachments } : {}),
+      ...(requestAttachments?.length ? { requestAttachments } : {}),
       ...(asRecord(queued.metadata)
         ? { metadata: asRecord(queued.metadata)! }
         : {}),
@@ -1352,36 +1496,172 @@ function assistantMessageIdsByRun(
 }
 
 function persistedFileUrl(url?: string): string | undefined {
-  return url && !/^\s*data:/i.test(url) ? url : undefined;
+  if (
+    !url ||
+    /[\u0000-\u0020\u007f]/.test(url) ||
+    /[?#]/.test(url) ||
+    !URL.canParse(url)
+  ) {
+    return undefined;
+  }
+  const parsed = new URL(url);
+  if (
+    parsed.protocol !== "https:" ||
+    !parsed.hostname ||
+    parsed.username ||
+    parsed.password ||
+    parsed.search ||
+    parsed.hash
+  ) {
+    return undefined;
+  }
+  return parsed.href;
 }
 
+function persistedRetryRequestAttachments(value: unknown): Array<{
+  type: "image";
+  name: string;
+  contentType?: string;
+  url: string;
+  referenceUrl?: string;
+}> {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((candidate) => {
+    const attachment = asRecord(candidate);
+    if (
+      attachment?.type !== "image" ||
+      typeof attachment.name !== "string" ||
+      !attachment.name.trim()
+    ) {
+      return [];
+    }
+    const primaryUrl = persistedFileUrl(
+      typeof attachment.url === "string" ? attachment.url : undefined,
+    );
+    const referenceUrl = persistedFileUrl(
+      typeof attachment.referenceUrl === "string"
+        ? attachment.referenceUrl
+        : undefined,
+    );
+    const url = primaryUrl ?? referenceUrl;
+    if (!url) return [];
+    const contentType =
+      typeof attachment.contentType === "string" &&
+      /^image\/[a-z0-9.+-]+$/i.test(attachment.contentType)
+        ? attachment.contentType
+        : undefined;
+    return [
+      {
+        type: "image",
+        name: attachment.name,
+        ...(contentType ? { contentType } : {}),
+        url,
+        ...(referenceUrl && referenceUrl !== url ? { referenceUrl } : {}),
+      },
+    ];
+  });
+}
+
+const MAX_PERSISTED_EVENT_OMISSION_RANGE = 256;
+const MAX_PERSISTED_EVENT_PREFIX_RANGES = 4_096;
+
 function persistedHistoryEvents(events: AgentEvent[] = []): AgentEvent[] {
-  const sequenceByRun = new Map<string, number>();
-  return events.flatMap((event): AgentEvent[] => {
+  const persisted: AgentEvent[] = [];
+  const seenRuns = new Set<string>();
+  let generatedPrefixRanges = 0;
+  const lastOmissionByRun = new Map<
+    string,
+    { index: number; firstSequence: number; lastSequence: number }
+  >();
+  for (const event of events) {
+    if (!seenRuns.has(event.runId)) {
+      seenRuns.add(event.runId);
+      const prefixRangeCount = Math.ceil(
+        Math.max(0, event.sequence - 1) / MAX_PERSISTED_EVENT_OMISSION_RANGE,
+      );
+      if (
+        generatedPrefixRanges + prefixRangeCount >
+        MAX_PERSISTED_EVENT_PREFIX_RANGES
+      ) {
+        throw new RangeError(
+          "Agent chat retained history prefix exceeds the supported omission range count.",
+        );
+      }
+      generatedPrefixRanges += prefixRangeCount;
+      for (
+        let firstSequence = 1;
+        firstSequence < event.sequence;
+        firstSequence += MAX_PERSISTED_EVENT_OMISSION_RANGE
+      ) {
+        const lastSequence = Math.min(
+          event.sequence - 1,
+          firstSequence + MAX_PERSISTED_EVENT_OMISSION_RANGE - 1,
+        );
+        const index = persisted.length;
+        persisted.push({
+          id: `persisted-history-prefix:${event.runId}:${firstSequence}`,
+          threadId: event.threadId,
+          runId: event.runId,
+          sequence: firstSequence,
+          occurredAt: event.occurredAt,
+          type: "x-agent-native.persisted-event-omission-range",
+          payload: {
+            lastSequence,
+            sourceType: "runtime_history_prefix",
+          },
+        } as AgentEvent);
+        lastOmissionByRun.set(event.runId, {
+          index,
+          firstSequence,
+          lastSequence,
+        });
+      }
+    }
     const base = () => {
-      const sequence = (sequenceByRun.get(event.runId) ?? 0) + 1;
-      sequenceByRun.set(event.runId, sequence);
       return {
         id: event.id,
         threadId: event.threadId,
         runId: event.runId,
-        sequence,
+        sequence: event.sequence,
         occurredAt: event.occurredAt,
       };
     };
     if (event.type === "run.started") {
-      return [{ ...base(), type: event.type }];
+      persisted.push({ ...base(), type: event.type });
+      lastOmissionByRun.delete(event.runId);
+      continue;
     }
     if (event.type === "run.completed" || event.type === "run.cancelled") {
-      return [{ ...base(), type: event.type }];
+      persisted.push({ ...base(), type: event.type });
+      lastOmissionByRun.delete(event.runId);
+      continue;
     }
     if (event.type === "run.failed") {
-      return [
-        { ...base(), type: event.type, error: persistedError(event.error) },
-      ];
+      persisted.push({
+        ...base(),
+        type: event.type,
+        error: persistedError(event.error),
+      });
+      lastOmissionByRun.delete(event.runId);
+      continue;
     }
     if (event.type === "run.status") {
-      return [{ ...base(), type: event.type, status: event.status }];
+      persisted.push({ ...base(), type: event.type, status: event.status });
+      lastOmissionByRun.delete(event.runId);
+      continue;
+    }
+    if (
+      event.type === "x-agent-native.persisted-event-omission" ||
+      event.type === "x-agent-native.persisted-event-omission-range"
+    ) {
+      const index = persisted.length;
+      persisted.push(event);
+      lastOmissionByRun.set(event.runId, {
+        index,
+        firstSequence: event.sequence,
+        lastSequence: agentEventSequenceEnd(event),
+      });
+      continue;
     }
     if (
       event.type === "activity.started" ||
@@ -1389,47 +1669,80 @@ function persistedHistoryEvents(events: AgentEvent[] = []): AgentEvent[] {
       event.type === "activity.completed"
     ) {
       const activity = event.activity;
-      return [
-        {
-          ...base(),
-          type: event.type,
-          activity: {
-            id: activity.id,
-            kind: activity.kind,
-            label: activity.label,
-            status: activity.status,
-            ...(activity.runId ? { runId: activity.runId } : {}),
-            ...(activity.agentId ? { agentId: activity.agentId } : {}),
-            ...(activity.startedAt ? { startedAt: activity.startedAt } : {}),
-            ...(activity.completedAt
-              ? { completedAt: activity.completedAt }
-              : {}),
-          },
+      persisted.push({
+        ...base(),
+        type: event.type,
+        activity: {
+          id: activity.id,
+          kind: activity.kind,
+          label: activity.label,
+          status: activity.status,
+          ...(activity.runId ? { runId: activity.runId } : {}),
+          ...(activity.agentId ? { agentId: activity.agentId } : {}),
+          ...(activity.startedAt ? { startedAt: activity.startedAt } : {}),
+          ...(activity.completedAt
+            ? { completedAt: activity.completedAt }
+            : {}),
         },
-      ];
+      });
+      lastOmissionByRun.delete(event.runId);
+      continue;
     }
     if (
       event.type === "message.completed" &&
       event.message.role === "assistant"
     ) {
-      return [
-        {
-          ...base(),
-          type: event.type,
-          message: {
-            id: event.message.id,
-            role: event.message.role,
-            parts: event.message.parts.filter((part) => part.type === "text"),
-            ...(event.message.createdAt
-              ? { createdAt: event.message.createdAt }
-              : {}),
-            ...(event.message.status ? { status: event.message.status } : {}),
-          },
+      persisted.push({
+        ...base(),
+        type: event.type,
+        message: {
+          id: event.message.id,
+          role: event.message.role,
+          parts: event.message.parts.filter((part) => part.type === "text"),
+          ...(event.message.createdAt
+            ? { createdAt: event.message.createdAt }
+            : {}),
+          ...(event.message.status ? { status: event.message.status } : {}),
         },
-      ];
+      });
+      lastOmissionByRun.delete(event.runId);
+      continue;
     }
-    return [];
-  });
+    const previous = lastOmissionByRun.get(event.runId);
+    if (
+      previous &&
+      event.sequence === previous.lastSequence + 1 &&
+      event.sequence - previous.firstSequence + 1 <=
+        MAX_PERSISTED_EVENT_OMISSION_RANGE
+    ) {
+      const omitted = persisted[previous.index];
+      if (omitted) {
+        persisted[previous.index] = {
+          ...omitted,
+          type: "x-agent-native.persisted-event-omission-range",
+          payload: {
+            ...(asRecord("payload" in omitted ? omitted.payload : undefined) ??
+              {}),
+            lastSequence: event.sequence,
+          },
+        } as AgentEvent;
+      }
+      previous.lastSequence = event.sequence;
+      continue;
+    }
+    const index = persisted.length;
+    persisted.push({
+      ...base(),
+      type: "x-agent-native.persisted-event-omission",
+      payload: { sourceType: event.type },
+    });
+    lastOmissionByRun.set(event.runId, {
+      index,
+      firstSequence: event.sequence,
+      lastSequence: event.sequence,
+    });
+  }
+  return persisted;
 }
 
 function persistedMessages(messages: AgentMessage[]): AgentMessage[] {
@@ -1465,15 +1778,16 @@ function persistedMessages(messages: AgentMessage[]): AgentMessage[] {
         ];
       }
       if (part.type === "file") {
-        const url = persistedFileUrl(part.url);
-        if (!url && !part.fileId) return [];
+        const stored = persistableFilePart(part);
+        if (!stored.url && !stored.fileId && !stored.omitted) return [];
         return [
           {
             type: "file",
-            name: part.name,
-            ...(part.mediaType ? { mediaType: part.mediaType } : {}),
-            ...(url ? { url } : {}),
-            ...(part.fileId ? { fileId: part.fileId } : {}),
+            name: stored.name,
+            ...(stored.mediaType ? { mediaType: stored.mediaType } : {}),
+            ...(stored.url ? { url: stored.url } : {}),
+            ...(stored.fileId ? { fileId: stored.fileId } : {}),
+            ...(stored.omitted ? { omitted: stored.omitted } : {}),
           },
         ];
       }
@@ -1485,12 +1799,87 @@ function persistedMessages(messages: AgentMessage[]): AgentMessage[] {
   }));
 }
 
+function queuedMessageFileParts(
+  queued: AgentQueuedMessage,
+): Extract<AgentMessagePart, { type: "file" }>[] {
+  const files = (queued.attachments ?? []).map(persistableFilePart);
+  const seenUrls = new Set(
+    files.flatMap((part) => (part.url ? [part.url] : [])),
+  );
+  for (const attachment of queued.requestAttachments ?? []) {
+    const url =
+      persistedFileUrl(attachment.referenceUrl) ??
+      persistedFileUrl(attachment.url);
+    if (url) {
+      if (!seenUrls.has(url)) {
+        files.push({
+          type: "file",
+          name: attachment.name,
+          ...(attachment.contentType
+            ? { mediaType: attachment.contentType }
+            : {}),
+          url,
+        });
+        seenUrls.add(url);
+      }
+      continue;
+    }
+    if (
+      attachment.data &&
+      !files.some(
+        (part) =>
+          part.name === attachment.name &&
+          part.mediaType === attachment.contentType,
+      )
+    ) {
+      files.push({
+        type: "file",
+        name: attachment.name,
+        ...(attachment.contentType
+          ? { mediaType: attachment.contentType }
+          : {}),
+        omitted: "inline-bytes",
+      });
+    }
+  }
+  return files;
+}
+
+function withQueuedMessageHistory(
+  messages: AgentMessage[],
+  queued: AgentQueuedMessage,
+): AgentMessage[] {
+  const existing = messages.find((message) => message.id === queued.id);
+  const parts = existing ? [...existing.parts] : [];
+  if (!parts.some((part) => part.type === "text")) {
+    parts.unshift({ type: "text", text: queued.text });
+  }
+  for (const file of queuedMessageFileParts(queued)) {
+    const alreadyPresent = parts.some(
+      (part) =>
+        part.type === "file" &&
+        (part.url === file.url ||
+          (part.name === file.name && part.mediaType === file.mediaType)),
+    );
+    if (!alreadyPresent) parts.push(file);
+  }
+  const message: AgentMessage = existing
+    ? { ...existing, role: "user", parts }
+    : {
+        id: queued.id,
+        role: "user",
+        parts,
+        createdAt: queued.createdAt,
+      };
+  return existing
+    ? messages.map((candidate) =>
+        candidate.id === queued.id ? message : candidate,
+      )
+    : [...messages, message];
+}
+
 /**
- * Only the markers a reloaded or second tab needs: a hidden recovery message,
- * which failed run a recovery message already answered, so the same failure is
- * never sent again from another tab or after a reload, and, for a prompt the
- * server refused before a run started, its refusal marker and retry context,
- * so the setup card and Retry still resend the original request.
+ * Keep only fields needed to resume a failed or continued request after reload.
  */
 function persistedMessageMetadata(
   value: unknown,
@@ -1506,15 +1895,59 @@ function persistedMessageMetadata(
         ),
       )
     : {};
+  const retryRequestAttachments = persistedRetryRequestAttachments(
+    custom?.agentNativeRetryRequestAttachments,
+  );
   const keptCustom = {
     ...refusedCustom,
     ...(typeof answeredRunId === "string" && answeredRunId
       ? { agentNativeRecoveryOfRunId: answeredRunId }
       : {}),
+    ...(retryRequestAttachments.length > 0
+      ? {
+          agentNativeRetryRequestAttachments: retryRequestAttachments,
+        }
+      : {}),
   };
+  const selectionValue = (candidate: unknown): string | undefined => {
+    if (
+      typeof candidate !== "string" ||
+      candidate.length === 0 ||
+      candidate.length > 256 ||
+      /[\u0000-\u001f]/.test(candidate) ||
+      /^data:/i.test(candidate.trim())
+    ) {
+      return undefined;
+    }
+    return candidate;
+  };
+  const model = selectionValue(metadata?.model);
+  const engine = selectionValue(metadata?.engine);
+  const effort =
+    typeof metadata?.effort === "string" &&
+    [
+      "auto",
+      "none",
+      "minimal",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+    ].includes(metadata.effort)
+      ? metadata.effort
+      : undefined;
+  const requestMode =
+    metadata?.requestMode === "act" || metadata?.requestMode === "plan"
+      ? metadata.requestMode
+      : undefined;
   const kept = {
     ...(refused ? refusedTurnRetryContext(metadata) : {}),
     ...(metadata?.hideUserMessage === true ? { hideUserMessage: true } : {}),
+    ...(model ? { model } : {}),
+    ...(engine ? { engine } : {}),
+    ...(effort ? { effort } : {}),
+    ...(requestMode ? { requestMode } : {}),
     ...(Object.keys(keptCustom).length > 0 ? { custom: keptCustom } : {}),
   };
   return Object.keys(kept).length > 0 ? { metadata: kept } : {};
@@ -1616,6 +2049,17 @@ function persistedToolCalls(toolCalls: AgentToolCall[] = []): AgentToolCall[] {
     ) {
       return [JSON.parse(serialized) as AgentToolCall];
     }
+    const metadata = asRecord(toolCall.metadata);
+    const agentKitSnapshot = asRecord(metadata?.agentKitSnapshot);
+    const inputFingerprint =
+      toolCall.input === undefined
+        ? agentKitSnapshot?.inputFingerprint
+        : toolInputFingerprint(toolCall.input);
+    const approvalAskId =
+      typeof metadata?.approvalAskId === "string" &&
+      metadata.approvalAskId.length <= 512
+        ? metadata.approvalAskId
+        : undefined;
     return [
       {
         id: toolCall.id,
@@ -1624,9 +2068,17 @@ function persistedToolCalls(toolCalls: AgentToolCall[] = []): AgentToolCall[] {
         ...(toolCall.runId ? { runId: toolCall.runId } : {}),
         ...(toolCall.messageId ? { messageId: toolCall.messageId } : {}),
         metadata: {
+          ...(metadata?.approvalPause === true ? { approvalPause: true } : {}),
+          ...(metadata?.completedSideEffect === true
+            ? { completedSideEffect: true }
+            : {}),
+          ...(approvalAskId ? { approvalAskId } : {}),
           agentKitSnapshot: {
             toolCallResult: "omitted",
             reason: serialized ? "size_limit" : "not_json",
+            ...(typeof inputFingerprint === "string"
+              ? { inputFingerprint }
+              : {}),
           },
         },
       },
@@ -1682,22 +2134,38 @@ function snapshotAnnotationKey(value: unknown): string {
     : JSON.stringify(["value", value]);
 }
 
+function persistedChatJson(
+  value: unknown,
+  label: string,
+  policy: "placeholder" | "reject" = "placeholder",
+): string {
+  const safe = stripInlineBytes(value, policy);
+  assertNoInlineImageBytes(safe, label);
+  return JSON.stringify(safe);
+}
+
 function threadSnapshotBody(input: {
   stored: StoredThread;
   title?: string;
   snapshotMessages: AgentMessage[];
   agentKit: Record<string, unknown>;
 }): string {
-  const repository = { messages: [], agentKit: input.agentKit };
-  return JSON.stringify({
-    threadData: JSON.stringify(repository),
-    title:
-      input.title ??
-      (typeof input.stored.title === "string" ? input.stored.title : ""),
-    preview:
-      typeof input.stored.preview === "string" ? input.stored.preview : "",
-    messageCount: input.snapshotMessages.length,
-  });
+  const threadData = persistedChatJson(
+    { messages: [], agentKit: input.agentKit },
+    "thread snapshot thread_data",
+  );
+  return persistedChatJson(
+    {
+      threadData,
+      title:
+        input.title ??
+        (typeof input.stored.title === "string" ? input.stored.title : ""),
+      preview:
+        typeof input.stored.preview === "string" ? input.stored.preview : "",
+      messageCount: input.snapshotMessages.length,
+    },
+    "thread snapshot request",
+  );
 }
 
 function storedMessageId(value: unknown): string | undefined {
@@ -1863,6 +2331,39 @@ function isRetryableHttpStatus(status: number): boolean {
   return status === 408 || status === 429 || status >= 500;
 }
 
+function throwIfRequestAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) return;
+  const error = new Error("The AgentKit request was aborted.");
+  error.name = "AbortError";
+  throw error;
+}
+
+function waitForSnapshotRetry(
+  attempt: number,
+  signal?: AbortSignal,
+): Promise<void> {
+  throwIfRequestAborted(signal);
+  return new Promise((resolve, reject) => {
+    let timer: ReturnType<typeof setTimeout>;
+    const onAbort = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      const error = new Error("The AgentKit request was aborted.");
+      error.name = "AbortError";
+      reject(error);
+    };
+    timer = setTimeout(
+      () => {
+        signal?.removeEventListener("abort", onAbort);
+        resolve();
+      },
+      100 * 2 ** attempt,
+    );
+    signal?.addEventListener("abort", onAbort, { once: true });
+    if (signal?.aborted) onAbort();
+  });
+}
+
 function snapshotAnnotationConflicts(
   value: unknown,
 ): SnapshotAnnotationConflict[] {
@@ -1921,6 +2422,14 @@ export function createAgentNativeAgentKitTransport(
   const promotionClaimIds = new Map<string, string>();
   const durableAssistantMessageIdsByRun = new Map<string, string | null>();
   const assistantHistoryMessageIdsByRun = new Map<string, string>();
+  const readinessSourcesBySession = new Map<
+    string,
+    {
+      statusUrl: string;
+      fetch: typeof fetch;
+      headers: () => Promise<Headers>;
+    }
+  >();
   let transport: AgentKitProtocolAdapter;
 
   function promotionClaimId(threadId: string, messageId: string): string {
@@ -1941,6 +2450,33 @@ export function createAgentNativeAgentKitTransport(
     promotionClaimIds.delete(JSON.stringify([threadId, messageId]));
   }
 
+  async function assertAiSetupReady(
+    input: { engine?: string; threadId?: string },
+    _context?: AgentRequestContext,
+  ): Promise<void> {
+    const sessionId = input.threadId ?? options.threadId;
+    const sessionKey = sessionId ?? "";
+    let source = readinessSourcesBySession.get(sessionKey);
+    if (!source) {
+      if (readinessSourcesBySession.size >= MAX_READINESS_SOURCES) {
+        const oldestSession = readinessSourcesBySession.keys().next().value;
+        if (oldestSession !== undefined) {
+          readinessSourcesBySession.delete(oldestSession);
+        }
+      }
+      source = {
+        statusUrl: agentEngineStatusUrlForChatApi(apiUrl),
+        fetch: fetcher,
+        headers: () => headers({ sessionId }),
+      };
+      readinessSourcesBySession.set(sessionKey, source);
+    }
+    return requireAgentEngineConfiguredForDispatch({
+      engine: input.engine ?? options.engine,
+      source,
+    });
+  }
+
   async function headers(input: { sessionId?: string } = {}): Promise<Headers> {
     const configured =
       typeof options.headers === "function"
@@ -1949,14 +2485,21 @@ export function createAgentNativeAgentKitTransport(
     return new Headers(configured);
   }
 
-  async function fetchThread(threadId: string): Promise<StoredThread | null> {
+  async function fetchThread(
+    threadId: string,
+    signal?: AbortSignal,
+  ): Promise<StoredThread | null> {
+    throwIfRequestAborted(signal);
+    const requestHeaders = await headers({ sessionId: threadId });
+    throwIfRequestAborted(signal);
     const response = await fetcher(
       scopedThreadEndpoint(
         `${apiUrl}/threads/${encodeURIComponent(threadId)}`,
         options,
       ),
-      { headers: await headers({ sessionId: threadId }) },
+      { headers: requestHeaders, signal },
     );
+    throwIfRequestAborted(signal);
     if (response.status === 404) return null;
     if (!response.ok) throw await responseError(response);
     const value = await response.json();
@@ -1975,16 +2518,7 @@ export function createAgentNativeAgentKitTransport(
     const updatedAt = timestamp(stored.updatedAt, createdAt);
     const repository = storedRepository(stored);
     const agentKit = asRecord(repository.agentKit);
-    const failedRunIds = new Set(
-      (Array.isArray(agentKit?.runs) ? agentKit.runs : []).flatMap((value) => {
-        const run = asRecord(value);
-        return run?.status === "failed" &&
-          asRecord(run.error) &&
-          typeof run.id === "string"
-          ? [run.id]
-          : [];
-      }),
-    );
+    const failedRunIds = failedRunIdsWithError(agentKit?.runs);
     const storedMessageProjection = storedMessages(
       repository.messages,
       now,
@@ -2271,6 +2805,15 @@ export function createAgentNativeAgentKitTransport(
       threadId,
       runId: value.runId,
     });
+    if (
+      localRun?.status === "awaiting_approval" ||
+      localRun?.status === "awaiting_input"
+    ) {
+      // The Core turn can be terminal while the protocol run still owns a
+      // pending approval or input request and its resumable event stream.
+      runStatus = localRun.status;
+      error = undefined;
+    }
     return {
       id: localRun?.id ?? value.runId,
       threadId,
@@ -2438,11 +2981,7 @@ export function createAgentNativeAgentKitTransport(
               )
               .map((run) => run.id)
           : [];
-    const failedRunIds = new Set(
-      runs.flatMap((run) =>
-        run.status === "failed" && run.error ? [run.id] : [],
-      ),
-    );
+    const failedRunIds = failedRunIdsWithError(runs);
     const messages = reconcileDurableMessages(
       thread.messages,
       durableMessages.filter(
@@ -2489,14 +3028,20 @@ export function createAgentNativeAgentKitTransport(
     };
   }
 
-  async function persistThreadSnapshot(input: {
-    threadId: string;
-    snapshot: AgentThreadSnapshot;
-  }): Promise<void> {
-    let stored = await fetchThread(input.threadId);
+  async function persistThreadSnapshot(
+    input: {
+      threadId: string;
+      snapshot: AgentThreadSnapshot;
+    },
+    context?: AgentRequestContext,
+  ): Promise<void> {
+    const signal = context?.signal;
+    throwIfRequestAborted(signal);
+    let stored = await fetchThread(input.threadId, signal);
     let createdByAnotherRequest = false;
     if (!stored) {
       const requestHeaders = await headers({ sessionId: input.threadId });
+      throwIfRequestAborted(signal);
       requestHeaders.set("content-type", "application/json");
       const response = await fetcher(
         scopedThreadEndpoint(`${apiUrl}/threads`, options),
@@ -2507,10 +3052,12 @@ export function createAgentNativeAgentKitTransport(
             id: input.threadId,
             title: input.snapshot.title ?? "",
           }),
+          signal,
         },
       );
+      throwIfRequestAborted(signal);
       if (response.status === 409) {
-        const racedThread = await fetchThread(input.threadId);
+        const racedThread = await fetchThread(input.threadId, signal);
         if (!racedThread) throw await responseError(response);
         stored = racedThread;
         createdByAnotherRequest = true;
@@ -2650,21 +3197,13 @@ export function createAgentNativeAgentKitTransport(
       changedEventRunIds.has(event.runId),
     );
     const eventRunLastSequenceById = new Map<string, number>();
-    for (const run of input.snapshot.runs ?? []) {
-      if (
-        typeof run.id === "string" &&
-        Number.isSafeInteger(run.lastSequence) &&
-        run.lastSequence >= 0
-      ) {
-        eventRunLastSequenceById.set(run.id, run.lastSequence);
-      }
-    }
     for (const event of input.snapshot.events ?? []) {
       const previousSequence = eventRunLastSequenceById.get(event.runId) ?? 0;
-      if (Number.isSafeInteger(event.sequence)) {
+      const sequenceEnd = agentEventSequenceEnd(event);
+      if (Number.isSafeInteger(sequenceEnd)) {
         eventRunLastSequenceById.set(
           event.runId,
-          Math.max(previousSequence, event.sequence),
+          Math.max(previousSequence, sequenceEnd),
         );
       }
     }
@@ -3038,6 +3577,7 @@ export function createAgentNativeAgentKitTransport(
     const persistChunk = async (
       entries: typeof updates,
     ): Promise<SnapshotAnnotationConflict[]> => {
+      throwIfRequestAborted(signal);
       const body = bodyFor(entries);
       if (encoder.encode(body).byteLength > MAX_THREAD_SNAPSHOT_REQUEST_BYTES) {
         if (entries.length > 1) {
@@ -3059,17 +3599,18 @@ export function createAgentNativeAgentKitTransport(
           ) {
             throw error;
           }
-          await new Promise((resolve) =>
-            setTimeout(resolve, 100 * 2 ** attempt),
-          );
+          await waitForSnapshotRetry(attempt, signal);
         };
-        let response: Response;
+        throwIfRequestAborted(signal);
+        let response: Response | undefined = undefined;
         try {
           response = await fetcher(threadUrl, {
             method: "PUT",
             headers: requestHeaders,
             body,
+            signal,
           });
+          throwIfRequestAborted(signal);
         } catch (error) {
           await retryAfterReadFailure(error);
           continue;
@@ -3089,19 +3630,20 @@ export function createAgentNativeAgentKitTransport(
             await retryAfterReadFailure(readError);
             continue;
           }
+          throwIfRequestAborted(signal);
           if (
             asRecord(error)?.retryable !== true ||
             attempt >= MAX_THREAD_SNAPSHOT_RETRIES
           ) {
             throw error;
           }
-          await new Promise((resolve) =>
-            setTimeout(resolve, 100 * 2 ** attempt),
-          );
+          await waitForSnapshotRetry(attempt, signal);
           continue;
         }
         try {
-          return snapshotAnnotationConflicts(await response.json());
+          const result = snapshotAnnotationConflicts(await response.json());
+          throwIfRequestAborted(signal);
+          return result;
         } catch (readError) {
           await retryAfterReadFailure(readError);
         }
@@ -3109,6 +3651,7 @@ export function createAgentNativeAgentKitTransport(
     };
     const annotationConflicts = new Map<string, SnapshotAnnotationConflict>();
     for (const entries of chunks) {
+      throwIfRequestAborted(signal);
       for (const conflict of await persistChunk(entries)) {
         annotationConflicts.set(
           JSON.stringify([
@@ -3143,7 +3686,19 @@ export function createAgentNativeAgentKitTransport(
     queuedMessages: AgentQueuedMessage[];
     message?: AgentQueuedMessage;
     claimedMessage?: AgentQueuedMessage;
+    submissionExpired?: boolean;
   }> {
+    if (mutation.type === "append") {
+      assertNoInlineImageBytes(
+        { type: "file", metadata: mutation.message.metadata },
+        "queuedMessage.metadata",
+      );
+    }
+    const body = persistedChatJson(
+      { mutation },
+      "queued message request",
+      "reject",
+    );
     const requestHeaders = await headers({ sessionId: threadId });
     requestHeaders.set("content-type", "application/json");
     const response = await fetcher(
@@ -3154,7 +3709,7 @@ export function createAgentNativeAgentKitTransport(
       {
         method: "POST",
         headers: requestHeaders,
-        body: JSON.stringify({ mutation }),
+        body,
       },
     );
     if (!response.ok) throw await responseError(response);
@@ -3172,6 +3727,7 @@ export function createAgentNativeAgentKitTransport(
       queuedMessages: storedQueue(value.queuedMessages, threadId, now()),
       ...(message ? { message } : {}),
       ...(claimedMessage ? { claimedMessage } : {}),
+      ...(value.submissionExpired === true ? { submissionExpired: true } : {}),
     };
   }
 
@@ -3332,6 +3888,7 @@ export function createAgentNativeAgentKitTransport(
         id,
         text,
         attachments,
+        requestAttachments,
         metadata,
         options: runOptions,
       }) => {
@@ -3348,6 +3905,7 @@ export function createAgentNativeAgentKitTransport(
           text,
           createdAt: now(),
           attachments,
+          requestAttachments,
           metadata,
           options: runOptions,
         };
@@ -3355,6 +3913,12 @@ export function createAgentNativeAgentKitTransport(
           type: "append",
           message,
         });
+        if (result.submissionExpired) {
+          throw Object.assign(
+            new Error("The prompt expired before it could be queued."),
+            { code: "submission_expired", retryable: false },
+          );
+        }
         if (!result.message) {
           throw new TypeError("Agent chat queue mutation omitted its message.");
         }
@@ -3419,6 +3983,10 @@ export function createAgentNativeAgentKitTransport(
           throw error;
         }
         try {
+          if (claim.submissionExpired) {
+            clearPromotionClaimId(threadId, messageId);
+            return { alreadyRemoved: true as const };
+          }
           if (!claim.claimedMessage) {
             throw new TypeError("Agent chat queue claim response is invalid.");
           }
@@ -3458,6 +4026,7 @@ export function createAgentNativeAgentKitTransport(
                   metadata: queued.metadata,
                 },
               ],
+              requestAttachments: queued.requestAttachments,
               options: queued.options,
               metadata: queued.metadata,
               queuePromotion: {
@@ -3468,9 +4037,35 @@ export function createAgentNativeAgentKitTransport(
             },
             undefined,
           );
+          const latestThread = await snapshot(threadId);
+          if (!latestThread) {
+            throw new Error(`Unknown agent chat thread: ${threadId}`);
+          }
+          await persistThreadSnapshot({
+            threadId,
+            snapshot: {
+              ...latestThread,
+              messages: withQueuedMessageHistory(latestThread.messages, queued),
+            },
+          });
           clearPromotionClaimId(threadId, messageId);
           return run;
         } catch (error) {
+          if (asRecord(error)?.code === "submission_expired") {
+            try {
+              await persistQueueMutation(threadId, {
+                type: "remove",
+                messageId,
+              });
+            } catch (removeError) {
+              throw new AggregateError(
+                [error, removeError],
+                "An expired queued prompt could not be removed.",
+              );
+            }
+            clearPromotionClaimId(threadId, messageId);
+            return { alreadyRemoved: true as const };
+          }
           try {
             await persistQueueMutation(threadId, {
               type: "release",
@@ -3571,6 +4166,19 @@ export function createAgentNativeAgentKitTransport(
             fromMessageId,
           };
         }
+        let safeForkSource: Record<string, unknown> | undefined;
+        if (forkSource) {
+          if (typeof forkSource.threadData !== "string") {
+            throw new TypeError("Fork source thread_data must be JSON text.");
+          }
+          safeForkSource = {
+            ...forkSource,
+            threadData: persistedChatJson(
+              JSON.parse(forkSource.threadData),
+              "fork source thread_data",
+            ),
+          };
+        }
         const requestHeaders = await headers({ sessionId: threadId });
         requestHeaders.set("content-type", "application/json");
         const response = await fetcher(
@@ -3578,11 +4186,14 @@ export function createAgentNativeAgentKitTransport(
           {
             method: "POST",
             headers: requestHeaders,
-            body: JSON.stringify({
-              id: forkId,
-              ...(forkSource ? { source: forkSource } : {}),
-              ...(metadata ? { metadata } : {}),
-            }),
+            body: persistedChatJson(
+              {
+                id: forkId,
+                ...(safeForkSource ? { source: safeForkSource } : {}),
+                ...(metadata ? { metadata } : {}),
+              },
+              "fork request",
+            ),
           },
         );
         if (!response.ok) throw await responseError(response);
@@ -3610,13 +4221,16 @@ export function createAgentNativeAgentKitTransport(
         const response = await fetcher(feedbackUrl, {
           method: "POST",
           headers: requestHeaders,
-          body: JSON.stringify({
-            threadId,
-            ...(runId ? { runId } : {}),
-            ...(messageSeq !== undefined ? { messageSeq } : {}),
-            feedbackType: value === "positive" ? "thumbs_up" : "thumbs_down",
-            value: { messageId, value, reason, metadata },
-          }),
+          body: persistedChatJson(
+            {
+              threadId,
+              ...(runId ? { runId } : {}),
+              ...(messageSeq !== undefined ? { messageSeq } : {}),
+              feedbackType: value === "positive" ? "thumbs_up" : "thumbs_down",
+              value: { messageId, value, reason, metadata },
+            },
+            "feedback request",
+          ),
         });
         if (!response.ok) throw await responseError(response);
         trackRunFeedback({ runId, threadId, positive: value === "positive" });
@@ -3698,9 +4312,121 @@ export function createAgentNativeAgentKitTransport(
   };
   const subscribeToRun =
     protocolTransport.subscribeToRun.bind(protocolTransport);
+  const discoverCapabilities =
+    protocolTransport.discoverCapabilities?.bind(protocolTransport);
+  const serverBackedCapabilities = isAgentNativeChatRuntime(runtime);
+  const capabilitiesUrl = apiUrl.endsWith("/")
+    ? `${apiUrl}capabilities`
+    : `${apiUrl}/capabilities`;
   transport = {
     ...protocolTransport,
+    assertAiSetupReady,
     startRun: (input, context) => startRunTrackingRunningState(input, context),
+    async discoverCapabilities(
+      input: DiscoverCapabilitiesInput,
+      context?: AgentRequestContext,
+    ): Promise<AgentCapabilitiesDiscovery> {
+      const capability = AGENT_NATIVE_SUBMISSION_DEADLINES_CAPABILITY_ID;
+      const discovery: AgentCapabilitiesDiscovery = discoverCapabilities
+        ? await discoverCapabilities(input, context)
+        : (() => {
+            const legacy = protocolTransport.capabilities ?? {};
+            return {
+              protocol: negotiateAgentKitProtocolVersion(input.protocol, {
+                correlationId: context?.correlationId,
+              }),
+              capabilities: Object.entries(legacy).reduce<
+                AgentCapabilityDescriptor[]
+              >((descriptors, [id, state]) => {
+                if (typeof state !== "boolean") return descriptors;
+                const capabilityId = id as AgentCapabilityId;
+                descriptors.push(
+                  state
+                    ? { id: capabilityId, state: "available" }
+                    : {
+                        id: capabilityId,
+                        state: "unsupported",
+                        error: createCapabilityUnsupportedError(capabilityId),
+                      },
+                );
+                return descriptors;
+              }, []),
+              discoveredAt: new Date().toISOString(),
+              legacy,
+            };
+          })();
+      let supported = false;
+      let unavailableError:
+        | ReturnType<typeof createCapabilityUnavailableError>
+        | undefined;
+      if (serverBackedCapabilities) {
+        const createUnavailableError = () =>
+          createCapabilityUnavailableError(capability, {
+            message: CHAT_CAPABILITY_UNAVAILABLE_MESSAGE,
+          });
+        let response: Response | undefined = undefined;
+        try {
+          response = await fetcher(capabilitiesUrl, {
+            method: "GET",
+            headers: { Accept: "application/json" },
+            credentials: "same-origin",
+            cache: "no-store",
+            ...(context?.signal ? { signal: context.signal } : {}),
+          });
+        } catch (error) {
+          if (context?.signal?.aborted) throw error;
+          unavailableError = createUnavailableError();
+        }
+        if (
+          !unavailableError &&
+          response &&
+          !response.ok &&
+          response.status !== 404 &&
+          response.status !== 405
+        ) {
+          unavailableError = createUnavailableError();
+        }
+        if (!unavailableError && response?.ok) {
+          try {
+            const serverCapabilities = asRecord(await response.json());
+            if (!serverCapabilities) {
+              throw new TypeError("Capability response must be an object.");
+            }
+            supported = serverCapabilities?.[capability] === true;
+          } catch (error) {
+            if (context?.signal?.aborted) throw error;
+            unavailableError = createUnavailableError();
+          }
+        }
+      }
+      const descriptor: AgentCapabilityDescriptor = supported
+        ? { id: capability, state: "available" }
+        : unavailableError
+          ? { id: capability, state: "unavailable", error: unavailableError }
+          : {
+              id: capability,
+              state: "unsupported",
+              error: createCapabilityUnsupportedError(capability, {
+                message: CHAT_CAPABILITY_UNSUPPORTED_MESSAGE,
+              }),
+            };
+      const legacy = { ...discovery.legacy };
+      if (unavailableError) {
+        delete legacy[capability];
+      } else {
+        legacy[capability] = supported;
+      }
+      return {
+        ...discovery,
+        capabilities: [
+          ...discovery.capabilities.filter(
+            (candidate) => candidate.id !== capability,
+          ),
+          descriptor,
+        ],
+        legacy,
+      };
+    },
     async *subscribeToRun(input) {
       dispatchAgentChatRunning({
         isRunning: true,

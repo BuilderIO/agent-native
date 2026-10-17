@@ -22,7 +22,7 @@ Auth is powered by **Better Auth** with account-first design. Every new user cre
 | **Development (default)** | Real Better Auth — same flow as production. There is **no auth bypass**. On first run the framework auto-creates a throwaway dev account and signs you in without printing its credentials (disable with `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1`), so you are not stuck at a login wall. `getSession()` returns the signed-in user or `null` — it never falls back to a sentinel identity. |
 | **Production (default)**  | Magic-link-first Better Auth when outbound email is ready, with email/password fallback and social providers (Google, GitHub). Organizations built in. |
 | **`AUTH_MODE=local`**     | **Not** a browser auth bypass, and never returns `local@localhost`. It only affects CLI/agent identity: it lets `pnpm action` / the local agent loop auto-bind to the single real signed-in dev user from the `sessions` table (see `scripts/dev-session.ts`). Browser login is unchanged. |
-| **`AUTH_SKIP_EMAIL_VERIFICATION=1`** | QA/preview escape hatch for password-fallback accounts. Signup skips email verification and does not send the signup verification email. Local dev/test skips verification by default; set `AUTH_SKIP_EMAIL_VERIFICATION=0` only when testing verification itself. It does not change magic-link delivery. Use `+qa` emails for test accounts. |
+| **`AUTH_SKIP_EMAIL_VERIFICATION=1`** | QA/preview escape hatch for password-fallback accounts. Signup skips email verification and does not send the signup verification email. Local dev/test skips verification by default; set `AUTH_SKIP_EMAIL_VERIFICATION=0` only when testing verification itself. It does not change magic-link delivery. Give test accounts a test-identity address, such as `an-e2e-probe-you@example.com` or one containing `+qa-test-bot-` (the rule is `isTestIdentityEmail` in `packages/core/src/shared/qa-test-email.ts`), so they stay out of metrics. Test identities still get sign-in, verification, password-reset, and org-invitation mail, but no share notices or other app email. |
 | **`auth.requireEmailVerification`** | Declares the password-signup verification policy for any environment, production included, via `defineAppConfig({ auth: { requireEmailVerification: false } })` or `AUTH_REQUIRE_EMAIL_VERIFICATION=0`. A declared value outranks `AUTH_SKIP_EMAIL_VERIFICATION` and the per-environment default. `false` accepts an unverified address as a login credential; `true` with no email provider disables password signup instead of stranding accounts on a verification nobody can deliver. |
 | **`AUTH_MAGIC_LINK=0`** | Force the email/password fallback even when outbound email is ready. |
 | **`AUTH_DISABLED=true`** | Skip login/signup entirely — every request runs as `dev@local.test`. For local dev, cloud previews, and internal demos only; not for production with real users. |
@@ -80,7 +80,21 @@ same token, with no fixed expiry. MCP OAuth and connect tokens carry
 the org chosen when they were issued, so `verifyAuth` and the token endpoint
 re-check live org membership on every use. A removed member gets a 401 or
 `invalid_grant`; a failed check answers a retryable 503. Offboarding revokes
-their MCP refresh and connect tokens instead of transferring them. Cross-app A2A
+their MCP refresh and connect tokens instead of transferring them.
+Connect mints MCP OAuth access tokens too, whatever `A2A_SECRET` holds. Resolve
+the audience of every bearer this app mints through `getMcpOAuthIssuer` /
+`resolveMcpOAuthIssuer`, whose resources are the audiences `verifyAuth`
+accepts, never from a URL built from request headers. Org
+service tokens carry a credential version earlier verifiers reject, because
+those admit any MCP OAuth token as a verified user. `verifyAuth` classifies a
+bearer by the credential it claims to be: OAuth access tokens and both connect
+formats are verified and admitted through one path before any A2A rule runs,
+and one that fails verification never reaches the A2A checks. Earlier
+A2A-format connect tokens verify only with the deployment `A2A_SECRET` and take
+their identity from their stored row; never let organization-secret or
+organization-principal rules see them. A refused bearer token gets a typed
+`reason` in the 401 body and, on `/mcp`, an `error_description` in the
+challenge. Cross-app A2A
 tokens are not re-checked, because their `org_id` is the signing app's
 assertion, and the A2A endpoint rejects MCP credentials.
 Keep `ACCESS_TOKEN` and `pnpm exec agent-native connect` for

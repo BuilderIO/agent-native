@@ -28,6 +28,7 @@ import {
 import { useParams, useLocation } from "react-router";
 import { toast } from "sonner";
 
+import type { PreviewThemeStatus } from "@/components/design/design-canvas/preview-theme";
 import { formatShortcutLabel } from "@/components/design/keyboard-shortcuts";
 import type {
   ElementInfo,
@@ -49,6 +50,7 @@ import type {
   PendingStructureVerificationStatus,
   RuntimeLayerSnapshot,
 } from "../command-types";
+import { resolveEditorChrome } from "../editor-chrome";
 import {
   DESIGN_EDITOR_DEBUG_LOGS,
   HOST_CHAT_SLOT_MESSAGE,
@@ -120,12 +122,15 @@ export function useEditorCore() {
   const isLiveCanvasShareLink =
     isVisualEditSurface && searchParams.get("share") === "1";
   const embedChromeRequested = isEmbedChromeRequested();
-  // An MCP App host owns navigation and chat, not the editor: the widget keeps
-  // the canvas, tools, and inspector as floating controls instead of going bare.
   const widgetEmbed = useIsMcpAppWidgetEmbed();
   const readOnlyWidget = useIsMcpDirectoryWidgetReadOnlyEmbed();
-  const hostOwnsChrome =
-    embedded && !shellMode && !embedChromeRequested && !widgetEmbed;
+  const { hostOwnsChrome, minimalUiByDefault, minimalUiLocked } =
+    resolveEditorChrome({
+      shellMode,
+      embedded,
+      embedChromeRequested,
+      widgetEmbed,
+    });
   const [builderHostConfirmed, setBuilderHostConfirmed] = useState(() =>
     isBuilderHostEmbed(),
   );
@@ -420,6 +425,27 @@ export function useEditorCore() {
     },
     [],
   );
+  const [previewThemeStatusByScreenId, setPreviewThemeStatusByScreenId] =
+    useState<Record<string, PreviewThemeStatus>>({});
+  const handlePreviewThemeStatus = useCallback(
+    (screenId: string | undefined, status: PreviewThemeStatus) => {
+      if (!screenId) return;
+      setPreviewThemeStatusByScreenId((current) => {
+        const previous = current[screenId];
+        if (
+          previous?.kind === status.kind &&
+          (status.kind === "unavailable" ||
+            (previous.kind === "ready" &&
+              previous.scheme === status.scheme &&
+              previous.darkStyles === status.darkStyles))
+        ) {
+          return current;
+        }
+        return { ...current, [screenId]: status };
+      });
+    },
+    [],
+  );
   const [
     runtimeStructureVerificationRequest,
     setRuntimeStructureVerificationRequest,
@@ -689,8 +715,6 @@ export function useEditorCore() {
   const [activeFileId, setActiveFileId] = useState<string | null>(null);
   const activeFileIdRef = useRef(activeFileId);
   activeFileIdRef.current = activeFileId;
-  const minimalUiByDefault =
-    widgetEmbed || (embedded && !hostOwnsChrome && !embedChromeRequested);
   const handleScreenRuntimeVerificationSnapshot = useCallback(
     (
       screenId: string,
@@ -787,6 +811,8 @@ export function useEditorCore() {
     setLiveRoutePathsByScreenId,
     liveRoutePathsByScreenIdRef,
     handleLiveRoutePathChange,
+    previewThemeStatusByScreenId,
+    handlePreviewThemeStatus,
     runtimeStructureVerificationRequest,
     setRuntimeStructureVerificationRequest,
     pendingStructureVerificationStatus,
@@ -817,6 +843,7 @@ export function useEditorCore() {
     setActiveFileId,
     activeFileIdRef,
     minimalUiByDefault,
+    minimalUiLocked,
     handleScreenRuntimeVerificationSnapshot,
   };
 }

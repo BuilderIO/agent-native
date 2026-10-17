@@ -9,7 +9,7 @@ Um **trabalho recorrente** é um prompt executado em uma programação cron. É 
 
 <Callout tone="info">
 
-**Recurring Jobs** é o nome antigo para automações **Scheduled**. **Automations** abrange **Scheduled** e **Event**. `jobs/` e `manage-jobs` permanecem para integrações antigas apenas agendadas. Use `manage-automations` e **Automations** em `/agent#jobs` para novos trabalhos pessoais ou da organização, incluindo modelo e listas MCP.
+**Recurring Jobs** é o nome antigo para automações **Scheduled**. **Automations** abrange **Scheduled** e **Event**. `jobs/` e `manage-jobs` permanecem para integrações antigas apenas agendadas. Use `manage-automations` e **Settings › Automations** para novos trabalhos pessoais ou da organização, incluindo modelo e listas MCP.
 
 </Callout>
 
@@ -104,6 +104,10 @@ Cron padrão de 5 campos (minuto, hora, dia do mês, mês, dia da semana):
 A estrutura inclui utilitários cron (`isValidCron()` e `describeCron()`) para validar e renderizar strings cron, usados internamente pelas camadas de recurso e agendador.
 
 ## Criando um trabalho {#creating}
+
+### Na interface Automations
+
+Abra **Settings › Automations** e crie uma automação **Scheduled**. Links antigos para `/agent#jobs` redirecionam para lá.
 
 ### Na guia Espaço de trabalho
 
@@ -237,8 +241,8 @@ disparar agendamentos, a página **Automations** avisa e informa o motivo.
 
 ## Depurando um trabalho {#debugging}
 
-- Abra `jobs/<name>.md` na área de trabalho — o frontmatter mostra `lastRun`, `lastStatus`, `lastError`, `nextRun`.
-- **Teste sem esperar:** abra a automação em **Automations** e escolha **Run now**. Ela executa a automação imediatamente, com seus efeitos colaterais reais, e não espera um tick do agendador, então também funciona localmente e em hosts sem gatilho.
+- Abra os detalhes da automação em **Settings › Automations**, ou abra `jobs/<name>.md` na área de trabalho — o frontmatter mostra `lastRun`, `lastStatus`, `lastError`, `nextRun`.
+- **Teste sem esperar:** clique em **Run now** em **Settings › Automations**, ou peça ao agente para executá-lo (`manage-automations` com `action=run-now`). O prompt do trabalho é executado imediatamente com seus efeitos colaterais reais, e `nextRun` não muda. A exceção é um trabalho que o framework pausou: uma execução bem-sucedida o reativa e recalcula `nextRun`. Run now não espera um tick do agendador, então também funciona em localhost sem `AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS` e em hosts sem gatilho do agendador.
 - **Pause:** vire `enabled: false`. O arquivo permanece no mesmo lugar, apenas para de ser executado.
 
 ## Ferramenta de agente {#agent-tool}

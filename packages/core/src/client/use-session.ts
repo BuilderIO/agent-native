@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from "react";
+import { createContext, useContext, useSyncExternalStore } from "react";
 
 import type { AuthSession, AuthSessionResponse } from "../server/auth.js";
 import { navigateForSession as navigateForSessionOnce } from "../shared/ssr-session-bootstrap.js";
@@ -13,7 +13,26 @@ import {
 import { getFrameOrigin, getFramePostMessageTargetOrigin } from "./frame.js";
 
 export type { AuthSession };
-export { isSessionNavigationPending } from "../shared/ssr-session-bootstrap.js";
+
+interface ClientAuthSession extends AuthSession {
+  identitySsoEnabled?: boolean;
+}
+export {
+  hasSessionHint,
+  isSessionNavigationPending,
+} from "../shared/ssr-session-bootstrap.js";
+
+/**
+ * True while the app tree is mounted hidden ahead of the session read (a hinted
+ * load). Identity-scoped onboarding reads and their events hold until it clears,
+ * so they never record under the anonymous fallback identity. Other effects in
+ * the tree run during the preload; each one must be safe before the session.
+ */
+export const SessionPreloadContext = createContext(false);
+
+export function useSessionPreloading(): boolean {
+  return useContext(SessionPreloadContext);
+}
 
 /**
  * What the session endpoint said that the page acted on: a signed-out body,
@@ -76,7 +95,7 @@ export type SessionStatus =
   | "signing-out";
 
 interface UseSessionResult {
-  session: AuthSession | null;
+  session: ClientAuthSession | null;
   isLoading: boolean;
   status: SessionStatus;
   error: Error | null;
@@ -89,12 +108,17 @@ const SESSION_RETRY_BASE_DELAY_MS = 500;
 const SESSION_RETRY_MAX_DELAY_MS = 5_000;
 const SESSION_INVALIDATION_STORAGE_KEY = "agent-native:session-invalidated";
 const SESSION_STATUS_PATH = "/_agent-native/auth/session";
-let cachedSession: AuthSession | null | undefined;
+let cachedSession: ClientAuthSession | null | undefined;
 let cachedSessionAt = 0;
 let sessionRequest: Promise<SessionRead> | undefined;
 let trackedSessionIdentity: string | null | undefined;
 let trackedSessionAuthUserId: string | undefined;
 let sessionGeneration = 0;
+// The page load's own session read is the only one sent with the cookies a
+// request made before the session was known also carried. A retry or a reset
+// replaces it for the life of the document.
+let firstSessionReadUnsent = true;
+let cachedSessionFromFirstRead = false;
 let sessionInvalidationListenersInstalled = false;
 let staleSessionRecheck: ReturnType<typeof setTimeout> | undefined;
 let signingOut = false;
@@ -109,7 +133,7 @@ let signingOut = false;
  * server gives a new one; a failed re-check never turns into "signed out".
  */
 interface SessionSnapshot {
-  session: AuthSession | null;
+  session: ClientAuthSession | null;
   status: SessionStatus;
   error: Error | null;
 }
@@ -142,7 +166,7 @@ function publish(next: SessionSnapshot): void {
 }
 
 type SessionRead =
-  | { state: "resolved"; session: AuthSession | null }
+  | { state: "resolved"; session: ClientAuthSession | null }
   | { state: "superseded" }
   | { state: "unreadable" };
 
@@ -217,6 +241,8 @@ function notifyParentAuthState(
 
 function resetSessionCache(): void {
   sessionGeneration += 1;
+  firstSessionReadUnsent = false;
+  cachedSessionFromFirstRead = false;
   cachedSession = undefined;
   cachedSessionAt = 0;
   cachedEvidence = undefined;
@@ -225,27 +251,27 @@ function resetSessionCache(): void {
   staleSessionRecheck = undefined;
 }
 
-function notifySessionSubscribers(): void {
+function notifySessionSubscribers(): Promise<void> {
   if (snapshotListeners.size === 0) {
     // Nobody is showing the last answer, so it is not kept as a hint either.
     resolveGeneration += 1;
     activeResolveGeneration = 0;
     if (snapshot.status !== "signing-out") snapshot = LOADING_SNAPSHOT;
-    return;
+    return Promise.resolve();
   }
-  void resolveSession();
+  return resolveSession();
 }
 
-function invalidateSessionCache(): void {
+function invalidateSessionCache(): Promise<void> {
   resetSessionCache();
   invalidateClientStatusRequest(SESSION_STATUS_PATH);
-  notifySessionSubscribers();
+  return notifySessionSubscribers();
 }
 
 function rereadSession(): void {
   resetSessionCache();
   expireClientStatusResult(SESSION_STATUS_PATH);
-  notifySessionSubscribers();
+  void notifySessionSubscribers();
 }
 
 /**
@@ -293,8 +319,8 @@ function installSessionInvalidationListeners(): void {
   window.addEventListener("focus", revalidateStaleSession);
   window.addEventListener("storage", (event) => {
     if (event.key === SESSION_INVALIDATION_STORAGE_KEY) {
-      invalidateSessionCache();
-      setTimeout(invalidateSessionCache, SESSION_CACHE_TTL_MS);
+      void invalidateSessionCache();
+      setTimeout(() => void invalidateSessionCache(), SESSION_CACHE_TTL_MS);
     }
   });
   document.addEventListener("visibilitychange", () => {
@@ -304,10 +330,14 @@ function installSessionInvalidationListeners(): void {
   });
 }
 
-export function notifySessionInvalidated(): void {
-  if (typeof window === "undefined") return;
+/**
+ * Resolves once the session is re-read, so the new identity is in place before
+ * callers refetch anything that is scoped by it.
+ */
+export function notifySessionInvalidated(): Promise<void> {
+  if (typeof window === "undefined") return Promise.resolve();
   installSessionInvalidationListeners();
-  invalidateSessionCache();
+  const reread = invalidateSessionCache();
   try {
     window.localStorage.setItem(
       SESSION_INVALIDATION_STORAGE_KEY,
@@ -316,10 +346,21 @@ export function notifySessionInvalidated(): void {
   } catch (error) {
     console.warn("Unable to broadcast session invalidation", error);
   }
+  return reread;
 }
 
 export function isSigningOut(): boolean {
   return signingOut;
+}
+
+/**
+ * Whether the session this tab holds is the answer to the page load's first
+ * session read. A request the load sent before the session was known belongs
+ * to the account this session names only while this holds: once a retry or an
+ * invalidation answers instead, another tab may have changed the cookies.
+ */
+export function isSessionFromFirstRead(): boolean {
+  return cachedSession !== undefined && cachedSessionFromFirstRead;
 }
 
 const UNAUTHORIZED_RECHECK_MIN_INTERVAL_MS = 5_000;
@@ -351,7 +392,7 @@ export function recheckSessionAfterUnauthorized(): void {
   }
   lastUnauthorizedRecheckAt = now;
   installSessionInvalidationListeners();
-  invalidateSessionCache();
+  void invalidateSessionCache();
 }
 
 export function beginSignOut(): void {
@@ -359,12 +400,12 @@ export function beginSignOut(): void {
   publishSessionIdentity(null);
   snapshot = { session: null, status: "signing-out", error: null };
   for (const listener of snapshotListeners) listener();
-  invalidateSessionCache();
+  void invalidateSessionCache();
 }
 
 export function completeSignOut(): void {
   notifyParentAuthState("unauthenticated");
-  notifySessionInvalidated();
+  void notifySessionInvalidated();
 }
 
 function fetchSharedSession(): Promise<SessionRead> {
@@ -381,6 +422,8 @@ function fetchSharedSession(): Promise<SessionRead> {
   if (sessionRequest) return sessionRequest;
 
   const requestGeneration = sessionGeneration;
+  const firstRead = firstSessionReadUnsent;
+  firstSessionReadUnsent = false;
   let request: Promise<SessionRead>;
   const requestResult = (async (): Promise<SessionRead> => {
     try {
@@ -404,9 +447,10 @@ function fetchSharedSession(): Promise<SessionRead> {
       const session =
         data.error === "Not authenticated"
           ? null
-          : (data as AuthSessionResponse);
+          : (data as AuthSessionResponse & ClientAuthSession);
       cachedSession = session;
       cachedSessionAt = Date.now();
+      cachedSessionFromFirstRead = firstRead;
       cachedEvidence = session
         ? "signed_in"
         : result.state === "unavailable"

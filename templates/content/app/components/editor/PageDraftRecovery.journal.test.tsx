@@ -122,6 +122,7 @@ const page = {
   id: "page",
   title: "Saved",
   content: "Saved body",
+  canEdit: true,
   updatedAt: "v2",
 } as Document;
 

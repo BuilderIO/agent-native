@@ -1,5 +1,197 @@
 # @agent-native/toolkit
 
+## 0.209.2
+
+### Patch Changes
+
+- ce4eca0: Fix chat recovery retry actions, storage setup controls, and Builder account connection flow.
+- Release all public npm packages with a patch version bump.
+- 95aa388: Restyle dropdown, context, and menubar menus to the shared menu design: 28px rows, 10px menu radius, full-width separators, and a 20px check column.
+- 36fc751: First-run onboarding step events carry `optional`, true when the screen offers a skip, so Analytics funnels can tell a skip from drop-off. First-run extensions declare it with `optional: true`.
+- f99e655: Add Report a problem to the bottom of the app sidebar, the agent panel menu, and the command menu. It previews what the recorder captured, stores the full report as a private blob only after the user confirms, and sends the agent a summary of at most 8 KB that includes the report's ref; apps without agent chat copy the summary instead. If storage fails, the dialog says the report was not attached. The new read-only `read-problem-report` action lets the agent, or an MCP client, read slices of the report by event type and time. Only the reporting user, in the same organization, can open it.
+- f99e655: Add `readVisualScrubInputs()`, which returns what each mounted scrub input is showing, so an app can include its inspector values in a recorder report.
+- 95aa388: Keep the share popover's email field and send button at the standard 36px height on every screen size.
+- Updated dependencies
+  - @agent-native/agentkit@0.209.2
+
+## 0.209.1
+
+### Patch Changes
+
+- e90b90a: One-click Builder.io account creation now records `cta_clicked` for its `builder_connect_clicked` click, like the sign-in popup path, and tags its `builder_connect_failed` event with `connect_url_kind: "provision"`. The tracking docs now name `builder_connect_clicked`, the event that counts clicks on both paths.
+- 5b201d1: Keep the outer corners of joined button groups rounded when hidden helper elements (file inputs, dialogs) trail the last button.
+- ce01559: When a run no longer has a tool the conversation used or loaded earlier, calling it returns `Error: Tool no longer available` instead of `Unknown tool`, the run's first request names loaded tools that went away, and a call the user approved stops the run instead of handing the model a "go ahead". Action entries accept an optional `revision`; one-time approvals record it, and "Always allow" takes the revision of the approval the user clicked (`set-tool-approval-policy` accepts `approvalId`), so a changed revision asks the user again. Existing approval rows keep matching entries without a revision. The chat approval card no longer offers "Always allow" for approvals that cannot persist. `resolveAdditionalActions` also receives `threadId`, `requestedTurnId`, and `internalContinuation` for chat.
+- Release all public npm packages with a patch version bump.
+- c139e35: Expire queued chat submissions when their retry window closes, and require peer support before sending deadline-bound retries.
+- c139e35: Fix server expiry preservation during queued prompt recovery and localize the older-server retry message.
+- e5a64ae: Expose a run's resolved thinking effort on its request run context and to `onEngineResolved`. `onEngineResolved` is also called before each model call, so the run context follows a rate-limit fallback to another model and the lower effort an empty-response retry steps down to; an action records the model and effort its call actually used. `runAgentLoop` reports these through `onModelSettings`. Each custom agent profile loop runs in its own copy of the run context, carrying its own model and effort and starting with no tool-search or extension reads, so an action called there records that profile's model and parallel profiles never overwrite each other or the run. Delegated A2A and `ask_app` runs keep the run context on the model and effort each call uses the same way. Export the composer's `MentionChip` so sent messages can draw mentions exactly as the composer does. `InlineMarkdown` protects spans in one pass, so a shorter span is never matched again inside a longer one's label, and a span can name the one occurrence it protects with `at`. The `@` popover can show why host mention items failed to load, with a Retry action, through `mentionItemsError` and `onRetryMentionItems`; Retry is a row above the items, so the arrow keys reach it and Enter or Tab runs it. The composer handle's `setText` and the new `initialReferences` prop take chips for ranges of the text, so a restored draft gets its chips back in place, with a space after a chip that ends it. The `@` that `insertTextAtCursor` places opens a popover that filters as you type, and picking from it keeps the space before the `@`. A chip's plain text is spaced from a word right beside it, so the text always reads each chip as its own `@name`.
+- e6e1f56: Keep explicit sidebar URL intent reliable across remounts and manual closes.
+- 73da788: Give suggestion chips more breathing room above the chat composer.
+- Updated dependencies
+- Updated dependencies [c139e35]
+  - @agent-native/agentkit@0.209.1
+
+## 0.209.0
+
+### Patch Changes
+
+- fadfb1b: Give the share panel one compact design in every app: underline tabs for the built-in and app-owned tabs, a 360px popover, and a single-row invite field with an inline role picker.
+- 7407dca: Keep the Connect AI setup card rendering and its setup links working when a setup analytics call throws.
+- 980bd9f: Realtime voice sessions use reasoning effort values supported by GPT-Live.
+- 7407dca: Dispatch an `agentNative.guidedQuestionsSubmitted` window event (`GUIDED_QUESTIONS_SUBMITTED_EVENT`) once per guided question submit whose `onSubmitMessage` resolves `{ delivered: true }`, so apps can observe answers without owning the flow.
+- Release all public npm packages with a patch version bump.
+- d6a3ea3: Wait for a new chat tab to render a submitted model override before handing it the prompt, so a first prompt sent with a model choice (such as a new Slides deck) is no longer rejected while the model list is still loading.
+- Updated dependencies
+  - @agent-native/agentkit@0.209.0
+
+## 0.208.0
+
+### Patch Changes
+
+- 9cb95d8: The workspace switch menu closes after persistence while session and query refresh continues.
+- afe2ee7: Preserve completed tool history and render legacy Plan blocks through their authoring controls.
+- Release all public npm packages with a patch version bump.
+- 4434457: Stamp dev-rendered JSX with source provenance, add a CSP-safe React Motion Text runtime, and allow accessible slider thumb labels.
+- 0fb4de3: Add an isolated, file-scoped Google Sheets connection for Analytics exports and localize Figma token-validation errors across settings and hydration flows.
+- cde733c: Render registered block failures through the shared error boundary and show a neutral placeholder while a renderer suspends.
+- Updated dependencies [0fb4de3]
+- Updated dependencies [afe2ee7]
+- Updated dependencies
+- Updated dependencies [0fb4de3]
+  - @agent-native/agentkit@0.208.0
+
+## 0.207.1
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 77c15ee: Recover AgentKit run cursors from trusted protocol metadata, compact omitted event ranges, and retry transient first-run status failures.
+- e913bfb: Scrubbing a numeric design control after a typed edit now starts from the committed value instead of the previous one.
+- 1c4a192: Add an explicit cancellation hook for active visual scrub inputs.
+- 4452c7f: Selecting the current workspace now saves it as the active workspace.
+- Updated dependencies
+- Updated dependencies [77c15ee]
+  - @agent-native/agentkit@0.207.1
+
+## 0.207.0
+
+### Minor Changes
+
+- 128f43e: Export a shared `AgentMark` icon for agent identity and use the same mark in the creative context panel.
+- 5debd13: `dbAdminBasePath` is now a deprecated runtime getter. Migrate string consumers to `getDbAdminBasePath()` so workspace paths resolve after mount metadata loads.
+- e818cf9: `McpInstallActions` from `@agent-native/toolkit/app/sharing` renders a share dialog's "Add to Cursor" and "Add to VS Code" rows plus a link to the app's other agent guides. It reads the server name and MCP URL from the app's connect identity and its labels from the shared guides, so a share dialog installs the same entry as Settings → MCP server.
+
+### Patch Changes
+
+- 3d09f9f: Keep active request copying in the chat actions menu with visible feedback, and route subjective UX proposals to human review.
+- dfcc0de: Keep earlier chat images available to later turns, and verify thread access before replaying a completed turn.
+- eae7aa3: Keep joined buttons distinct with theme-aware separators and rounded outer corners.
+- 43d0aa8: Retry transient chat route verification without replacing a restored tab, and only confirm a legacy snapshot fallback after the host save succeeds. Keep the exported chat header prop optional for existing consumers.
+- a9c8414: Show sign-in recovery for invalid or expired verification email links, preserving safe return paths and existing sessions.
+- 19cd58b: Fix chat turns that died or looked broken for recoverable reasons. A turn that yields to a connection request is recorded as awaiting input instead of a truncated run (no synthetic auto-continue, no chained successor), and automations record the yield as a typed connection_required failure and pause. Stale connection cards retire with their run, and a chat that does not own a pending connection resume no longer shows a stuck "Connection failed" banner. A failed peer-app call shows the app name once with a short reason and keeps its participant after the run finishes. Peer-app failures carry typed codes so the caller stops retrying an unfixable peer, and a peer that needs a connection returns a do-not-retry result. An org A2A secret equal to the deploy secret is refused, and the resulting identity demotion is logged.
+- aa34418: Never persist inline image or file bytes in chat storage: thread snapshots, queued messages, run events and dispatch payloads keep a durable URL or an explicit omitted marker instead of `data:` URLs. Chat now reports typed, localized upload and attachment errors (including a "Retry without attachment" action for provider-rejected files), replays earlier attachments and the original ask in long threads, keeps a provider ownership check from failing on one unreachable provider, marks interrupted tool results as unknown-outcome errors, and no longer records experiment assignments when a model was chosen explicitly.
+- 18384b3: Keep joined button controls at the same height.
+- ccddd3a: Preserve image attachments and user-selected output dimensions throughout agent chat and Design generation.
+- 2f52659: Load the sidebar chat body on demand while preserving automatic opens and commands sent before the body is ready.
+- Release all public npm packages with a patch version bump.
+- e818cf9: Device-flow browser approval links use the same configured public origin and base path as MCP identity and OAuth discovery, so an internal proxy host does not leak into the URL the CLI opens.
+
+  The MCP server settings and `/mcp/connect` page add **Add to Cursor**, **Add to VS Code**, and **Add to VS Code Insiders** install links, a VS Code guide, and a Codex guide that uses `codex mcp add` and `codex mcp login`. The app now names its own MCP server through a public `GET /mcp/connect/identity` route: production keeps the bare name (`agent-native-mail`), while beta, preview, and local deployments put the environment first (`beta-agent-native-mail`), so one client can hold both. Because no production name starts with `beta-`, `preview-`, or `local-`, beta `mail` and a production app named `mail-beta` (`agent-native-mail-beta`) never share an entry; `mcp.serverName` cannot start with those prefixes. Settings, the connect page, install links, and `npx @agent-native/core connect` all use that name instead of each deriving one from the hostname. Install links carry only the server name, transport, and MCP URL. Use `buildMcpInstallLink` from `@agent-native/core/shared/mcp-connect-content` and `useMcpConnectIdentity` from `@agent-native/core/client/mcp-connect-identity` to build them elsewhere. When both `VITE_APP_BASE_PATH` and `APP_BASE_PATH` are set, the connect page, the identity route, and the MCP OAuth metadata now resolve the base path the way the MCP server mounts it, with `VITE_APP_BASE_PATH` first, instead of advertising `APP_BASE_PATH`. `connect` and `@agent-native/skills` now escape every control character they write into Codex's `config.toml`, in server names from `--name` and in URLs and header values, so no name or value can break the file. A server name that is not a plain identifier (letters, digits, `-` and `_`, at most 64 characters) now fails the connect page and identity route with an error naming `mcp.serverName`, instead of being published into copyable `claude mcp add` and `codex mcp add` commands. The connect routes resolve that name before minting a token, so a refused name never leaves an issued token behind. A name derived from the app id or hostname is shortened and cleaned to fit instead of refused, and one that had to change ends in `__` and a 53-bit hash of the original, such as `agent-native-acme-notes__<hash>` for `@acme/notes`. No derived name used as is contains `__`, so a cleaned name never matches another app's plain derived name, and two cleaned names match only on a hash collision. A configured `mcp.serverName` is used as given, so it can still match another app's configured or derived name. An app with no `app.id`, template, or slug takes its name from the public URL that OAuth discovery advertises rather than the request's host, so one served behind a proxy under an internal hostname can get a new name; set `mcp.serverName` to keep the old one. `GET /mcp/connect/identity` stays mounted when `mcp.connect` is `false`, so Settings and share dialogs still show the server; its new `connect` field is then `false`, and they show the server URL without install links, client guides, or the connect-page link, since none of those can sign in. The identity's URLs are the public URL MCP OAuth discovery advertises (`APP_URL` or `WORKSPACE_OAUTH_ORIGIN` when set) rather than the request's `Host`, so a link installed behind a proxy signs in against the same resource. Listing and revoking tokens keeps working when the server name is refused. `connect` now stops with an error on an empty `--name` before it starts the browser approval.
+
+- ecfe037: Preserve opaque uploaded file IDs and show an error when retrying without attachments fails.
+- d7da131: Revisits paint the last known action results instead of a skeleton. Action query results are persisted per signed-in user and org in IndexedDB, restored before any action request is issued, then refetched in the background. Entries are dropped on sign-out, session end and org switch, after an hour, when a refetch returns 403 or 404, or when the cache schema version changes. Mutations are never persisted. Set `persistInBrowser: false` on an action definition to keep its reads out of the browser cache.
+- d44b119: `sendToAgentChat({ submit: false, context })` can name its prefill chip with the new `contextLabel` option; without it the chip uses the generic app-context label. A prefill the composer cannot hold alongside its current context is refused with a `context-too-large` result before the draft changes. A replacement prefill is no longer removed by the cleanup of an earlier send that was still in flight.
+- cdc66e3: Expose lightweight sidebar helpers and controlled assistant popovers so public pages can defer the assistant runtime until requested.
+- f8930b5: Keep invalid verification errors visible through sign-in continuations and scope unsent app context to its target chat thread.
+- d7da131: Start a hinted visitor's action reads while the session still resolves, and refresh only the action queries a write or sync event can affect. `useActionQuery` takes `resources` and `useActionMutation` takes `resources`, so a query tagged for a resource refetches only when a change to that resource lands, and a sync event naming its `resourceType` narrows the same way. Queries and writes without resources keep the broad refresh.
+- d4854b8: Let `ShareButton`'s `quickCopy` accept a `className`, so a host can size the joined share and copy-link control. With `basicSharingOnly`, the admin role and the email note are no longer offered.
+- 3451273: The sign-in page now records first and last touch with Core's shared capture instead of its own older copy. Visitors who land on a sign-in page keep the marketing site's forwarded referrer and landing page, ad click ids, and last touch, and a later tagged visit replaces an untagged first one. `captureAttribution()` takes a `landingPath` option for pages that stand in front of the path the visitor asked for.
+- 70bf54c: `ShareButton` accepts `basicSharingOnly` for sessions that can run only the list, share, unshare, and visibility actions, such as a scoped MCP App widget session. It omits the access-request review, the agent-context link, and the people suggestions there instead of showing sections that always fail.
+- Updated dependencies [19cd58b]
+- Updated dependencies [aa34418]
+- Updated dependencies [ccddd3a]
+- Updated dependencies
+- Updated dependencies [ecfe037]
+- Updated dependencies [41700be]
+  - @agent-native/agentkit@0.207.0
+
+## 0.206.0
+
+### Minor Changes
+
+- 58b7507: Refresh Builder and BYOK model catalogs, including Claude Haiku 5.5, current provider IDs, and model picker options.
+
+### Patch Changes
+
+- e88f35c: Prevent new AI chat work from dispatching without an eligible provider, and provide a consistent Connect AI flow.
+
+  `createProductionAgentHandler` now requires the `assertAiSetupReady` callback. Existing callers must provide a readiness assertion before upgrading; refusals can use the existing `onRunNotStarted` callback to retain the user's prompt and retry context.
+
+  AgentKit transports must provide `assertAiSetupReady`, or clients for transports where shared Agent-Native provider setup does not apply must set `aiSetupReadiness: "not-applicable"` explicitly.
+
+- 80e66f8: Persist a sanitized first-prompt title for chat threads without replacing an existing title, hide prompt context from extracted previews, match context tags by exact name, and remove unused browser-installer dependencies from serverless functions.
+- 58b7507: Show custom-agent model choices using the active engine's supported models and label Builder fallbacks clearly.
+- 0889356: Redirect the deprecated Dispatch integrations route into Settings and preserve mounted OAuth return paths.
+- 3f0fe0f: Let an app open the extension iframe's `img-src` and `media-src` to remote origins.
+
+  The sandboxed extension iframe shipped `img-src 'self' data: blob:` and `media-src 'self' data: blob:`, so an extension could not show a product photo, avatar, or CDN asset without proxying the bytes through the app. `extensions.iframeImageSources` and `extensions.iframeMediaSources` (env `AGENT_NATIVE_EXTENSION_IFRAME_IMAGE_SOURCES` / `AGENT_NATIVE_EXTENSION_IFRAME_MEDIA_SOURCES`) now replace those two lists, comma-separated, defaulting to the previous values. Each entry is validated as a single CSP source expression, so a configured value cannot terminate the directive and append a new one. `connect-src` stays `'self'`. A remote image or media origin is an explicit egress permission: the browser requests that URL, so it can carry data out of the sandbox. API calls still go through the permission-gated host bridge.
+
+  The configured lists reach every extension frame: the server render route, and the client-rendered `srcDoc` frames in `ExtensionViewer` and `InlineExtensionFrame`, which read them from the authenticated `/_agent-native/extensions/iframe/display-sources` endpoint. The lists are validated again wherever the policy is built, so a resolved config mutated after validation cannot inject a directive, and a client that cannot load valid lists falls back to the default policy.
+
+- e174642: `ExtensionViewer` and `ExtensionViewerPage` accept optional `headerActions` for the toolbar's trailing controls, so an app can show its notifications bell on extension pages. The default is still the agent toggle.
+- d6f1e18: Downscale large chat images for vision and preserve a URL-backed copy for retries.
+- Release all public npm packages with a patch version bump.
+- 792ba44: Mask run failure messages and diagnostic details in session replays, preserving the default privacy marker with app-specific text selectors.
+- 8f0ffa5: Preserve browser session correlation across signup and same-origin agent chat, resolve onboarding identity before handoff, keep credential and local endpoint outcomes accurate through dismissals and pending saves, and preserve attempts across idle session rotation.
+- d6f1e18: Hydrate readable images and documents from owned storage URLs into model requests and report attachment processing failures to the model.
+  Send resized image payloads through their durable URLs so multiple references stay within the request's inline data limit.
+- d6f1e18: Preserve image MIME types through shared chat attachments, report active engine configuration errors instead of treating them as missing provider credentials, validate queued image sizes before decoding, keep legacy queued messages readable, and avoid misleading storage setup guidance for generic upload failures.
+- be0d784: Add opt-in, privacy-masked session replay for signup and login pages.
+- 68deb1e: Show known-new chat homes immediately while chat history loads.
+- af7acb9: Open the Agent runs popover next to its button instead of the top-left corner of the window.
+- 217260d: Start a signed-in visitor's early session read from the top of `<head>`, before the page's stylesheets and module preloads, instead of from the body after them, where it waited for every stylesheet to load. `AppProviders` reports the read during the server render, so pages that skip the session check still start none.
+
+  Toolkit now requires `@agent-native/core` 0.205.1 or later, the first release that exports `@agent-native/core/shared/ssr-session-bootstrap-slot`, which `AppProviders` imports.
+
+- 6e9fccf: Improve onboarding telemetry attribution and setup completion redirects.
+- Updated dependencies [e88f35c]
+- Updated dependencies [d6f1e18]
+- Updated dependencies [80e66f8]
+- Updated dependencies
+- Updated dependencies [d6f1e18]
+- Updated dependencies [f3d2b81]
+  - @agent-native/agentkit@0.206.0
+
+## 0.205.0
+
+### Patch Changes
+
+- b7e32e4: A chat that still shows a run as running after the server stopped tracking it now reloads the thread and refreshes the app's data, instead of waiting for the user to retry; a status check that cannot reach the server shows its own notice rather than "running" or "done". Threads created without a request org adopt their run's org so Human Review can open them, and a one-time migration backfills existing ones. A classifier that cannot run now emits `$ai_sentiment_failed` with a coarse reason, a failed trace write is counted and logged once per run, a thumbs-down for a run with no persisted trace is saved instead of answering 404, and the thumbs-down popover gains reason chips and Copy details. A run that ends `connection_required` now leaves a note for the thread's next run (named providers, who can connect them) so the agent stops retrying the same unconnected provider, and the card says who can grant it. Pre-model reference retrieval and the per-turn screen, URL and selection blocks report a typed status (`ok`, `empty`, `timed_out`, `failed`) and add a one-line context note only when degraded; traces record the context statuses and the requested reasoning effort. Tool search ranks an exact tool-name query first.
+- ab41d2b: Record actions called by outside agents over MCP, WebMCP, or A2A as the agent acting for the user, not as the user. Rows recorded before this change read the same way, and the Settings audit log names the protocol ("Agent via MCP").
+- de66ff4: Make Clips object storage optional during onboarding, keep local recordings previewable and downloadable, and clarify Builder account setup with a retry action when connection status cannot be read.
+- 947f911: Keep agent chat on a turn the server recovers after a crash: an open chat follows the successor run live, a reload no longer shows the interrupted attempt as a failed run above the answer, and a failed run's card stays in its own turn instead of moving below newer replies.
+- 4fe4088: Clips users can skip first-run setup and start recording without connecting storage.
+- cbc151c: Show names for DeepSeek V4.1 Flash and Z-AI GLM 5.3 Flash in the model picker, and label DeepSeek V4.1 Flash "DeepSeek Flash" instead of "Flash" on the closed picker.
+- 3dc0aeb: Add responsive overlay and triggerless options to the shared agent sidebar and Share button.
+- 9236359: `useCollabReconcile` takes an optional `isEditorClean(liveMarkdown)` from the host. When the host reports the live document holds no unsaved text, a lead client adopts a newer snapshot right after the catch-up sync instead of waiting out the 2.5 s peer settle. Hosts that leave it unset keep the wait.
+- 1b1d976: Distinguish confirmed automation work, explicitly declared no-op skips, and undelivered failures in run history and automation status. Preserve failure causes and recovery codes without pausing legitimate no-op runs.
+- Release all public npm packages with a patch version bump.
+- f325447: Keep agent-panel settings navigation inside apps mounted below a base path.
+- cc79bd1: Re-enable the stuck-run banner's Retry and Cancel buttons when aborting the run fails, instead of leaving them disabled with a spinner.
+- 8418b84: Run the once-a-minute scheduled sweep on Vercel and Cloudflare Workers. Vercel builds now add a cron job that calls the sweep with `CRON_SECRET`, and Cloudflare builds add a Cron Trigger whose `scheduled` handler calls it with a token signed by `A2A_SECRET`, so scheduled automations, queued event automations, and stale-run cleanup no longer stop on those hosts. Vercel Hobby rejects a deployment whose cron runs more than once a day, so Hobby projects must set `AGENT_NATIVE_VERCEL_CRON_SCHEDULE` to a daily expression such as `0 9 * * *` before deploying this version. Both schedulers request the public sweep path, so a custom `runtime.frameworkRoutePrefix` or app base path is honored. A workspace Vercel deploy takes each app's cron from that app's own build, so every app in the workspace must build with this version of `@agent-native/core`; the deploy fails and names any app whose build scheduled no sweep. The Automations page now names a missing trigger secret and no longer claims event automations still run on a host without a scheduler or in a build with recurring jobs turned off.
+
+  On a cold Cloudflare Worker, framework routes no longer return 404 or wait out the readiness timeout: the request telemetry hook no longer throws where `AsyncLocalStorage.enterWith()` is unavailable, and pending plugin initialization is passed to `waitUntil` so it can continue after the response is sent.
+
+- 004f2a9: Continuing a stopped agent run no longer repeats the steps it already finished. A run the server ends after its worker died now saves its finished tool calls to the thread, a new message after an unfinished turn tells the agent what that turn already did, and the run failure card offers Continue, which resumes the stopped run's own turn so a finished send or charge is not run again. AgentKit transports can implement the new optional `continueRun`.
+- 701c672: Keep a typed `@` in the agent composer. It now suggests mentions and the host's Add-menu context sources (such as Design context pickers and Integrations) inline, with focus left in the prompt. Picking a source runs it or opens its picker as a dialog. Only an explicit pick makes a chip: Enter or Tab on a highlighted suggestion, or a click. Otherwise the text stays plain, so a literal like `@builder.io` is sent as written, Enter sends the text even while a search is still running, and typing Space after an exact name no longer converts it. One Escape dismisses the suggestions for that `@`. Sent messages show chips only for real mentions, not for any `@word`.
+- ae5aed6: An MCP App widget document now stays a widget for its whole life: `isMcpAppWidgetEmbed()` keeps its first positive answer and marks `<html data-agent-native-mcp-widget>`, `useIsMcpAppWidgetEmbed()` subscribes to that change, a directory widget capability token identifies a widget without the chat-bridge query flag, and `/_agent-native/embed/start` always adds the flag for directory widget tickets. `AppProviders` emits a first-paint script that sets the marker before the server-rendered skeleton paints, and `AppShellSkeleton` renders blank in a widget so the app's own sidebar never flashes.
+- Updated dependencies [b7e32e4]
+- Updated dependencies [e7416e0]
+- Updated dependencies
+- Updated dependencies [5c5e00e]
+- Updated dependencies [004f2a9]
+  - @agent-native/agentkit@0.205.0
+
 ## 0.204.0
 
 ### Patch Changes
@@ -753,8 +945,8 @@
   election, so a viewer could win it and then apply nothing at all, leaving a session where every editor's work was dropped.
 - c595519: Adds a shared `afterBodyPointerUnlock` helper (`@agent-native/toolkit/ui/pointer-lock`) that defers opening a follow-up Dialog/Sheet/AlertDialog until `document.body.style.pointerEvents` is confirmed unlocked, avoiding the Radix dismissable-layer race where a new modal mounts before a closing one (with a nested Select) finishes unregistering and leaves the page permanently unclickable.
 - 9735e4d: Fix the desktop agent picker readiness, tooltip stacking, and terminal mode control.
-- 15b86eb: `VisualScrubInput` keeps focus on Enter instead of blurring, and selects the
-  committed value the way Figma's inspector fields do. Blurring handed the next
+- 15b86eb: `VisualScrubInput` keeps focus on Enter instead of blurring and selects the
+  committed value so editing can continue in the field. Blurring handed the next
   keystroke to whatever global shortcut owned that key, so typing a value and
   continuing to type could fire a canvas command (a zoom jump, in the report that
   found this) while the user believed they were still editing the field.
@@ -1030,68 +1222,5 @@
 
 - 901769d: Keep the chat history panel layout balanced.
 - 901769d: Remove the translate control slot from the shared sidebar footer actions.
-
-## 0.11.0
-
-### Minor Changes
-
-- 24a5a20: Make extension creation and discovery opt-in, including authenticated REST
-  creation, label SQL-backed extensions as sandboxed custom blocks, and let
-  editors promote them into app code through a server-verified Builder handoff.
-
-## 0.10.12
-
-### Patch Changes
-
-- 279e855: Default MCP connections to personal OAuth, keep personal MCP setup available to organization members, hide unusable organization controls, and honor app preset filters in ejected UIs.
-
-## 0.10.11
-
-### Patch Changes
-
-- 0aada94: Allow the new chat control to fill the available history rail space.
-- 0aada94: Show relative cost per model in the composer's model picker. Each row now
-  carries a quiet `$`/`$$`/`$$$` suffix so a user can tell an entry model from a
-  flagship one before selecting it, rather than discovering the difference in
-  their bill. The tier reuses the token list the picker already sorts by
-  (`MODEL_COST_ORDER`) and reflects each provider's own entry/mid/flagship ladder
-  — it is not a cross-provider price claim. Models outside that list render with
-  no label at all; a guessed tier would read as fact.
-
-## 0.10.10
-
-### Patch Changes
-
-- 16a9d1a: Keep editor block drag previews aligned with the point where the block was grabbed, then clear incidental selection and focus after a successful drop.
-
-## 0.10.9
-
-### Patch Changes
-
-- cbc6936: Show only the connect actions in the composer model picker when no LLM provider is configured, instead of a list of unpickable "needs API key" models, and surface Builder connect failures instead of leaving the "Connect Builder.io" button looking dead when the popup is blocked.
-
-## 0.10.8
-
-### Patch Changes
-
-- 14818b6: Allow the first local edit in a newly synced empty collaborative document to reach the host application's canonical save path.
-
-## 0.10.7
-
-### Patch Changes
-
-- 52cce19: Stop the agent composer from locking into a silently dead state. An
-  engine-readiness check that timed out or failed is now kept distinct from a
-  confirmed "no provider configured": it leaves the composer usable instead of
-  disabling it, and retries on a backoff instead of latching until reload. The
-  2.5s client budget that a single warm-server status probe routinely lost is
-  now a 15s abort ceiling rather than a deadline the probes race. A composer is
-  only ever disabled when the "Connect AI" affordance renders alongside it.
-
-## 0.10.6
-
-### Patch Changes
-
-- 8afb252: Allow newly created empty collaborative editors to persist their first real user edit after the shared document finishes loading.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

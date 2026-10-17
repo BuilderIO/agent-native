@@ -37,7 +37,6 @@ import {
 } from "../ui/popover.js";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.js";
 import { cn } from "../utils.js";
-import { BuilderBMark } from "./BuilderBMark.js";
 import {
   createRealtimeVoiceAudioLevelStore,
   type RealtimeVoiceAudioLevelStore,
@@ -292,9 +291,7 @@ export function RealtimeVoiceModeEntry({
                     >
                       {connectingBuilder ? (
                         <IconLoader2 className="animate-spin" />
-                      ) : (
-                        <BuilderBMark className="size-4" />
-                      )}
+                      ) : null}
                       {copy.connectBuilder}
                     </Button>
                   </BuilderConnectPopover>

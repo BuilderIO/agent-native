@@ -1,12 +1,14 @@
 import { getDbExec } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
 
-let _initPromise: Promise<void> | undefined;
-
-export async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const createSql = `CREATE TABLE IF NOT EXISTS integration_configs (
+export const integrationConfigsStore = defineStore({
+  id: "integration_configs",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createSql = `CREATE TABLE IF NOT EXISTS integration_configs (
   platform TEXT NOT NULL,
   config_key TEXT NOT NULL,
   config_data TEXT NOT NULL,
@@ -14,17 +16,14 @@ export async function ensureTable(): Promise<void> {
   updated_at BIGINT NOT NULL,
   PRIMARY KEY (platform, config_key)
 )`;
-
-      {
         await ensureTableExists("integration_configs", createSql);
-        return;
-      }
-    })().catch((err) => {
-      _initPromise = undefined;
-      throw err;
-    });
-  }
-  return _initPromise;
+      },
+    },
+  ],
+});
+
+export function ensureTable(): Promise<void> {
+  return integrationConfigsStore.ready();
 }
 
 let _configWriteEpoch = 0;

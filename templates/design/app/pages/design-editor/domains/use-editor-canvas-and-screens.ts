@@ -65,7 +65,7 @@ import {
   getFreshActiveFileContent,
   getFreshScreenContent,
 } from "../editor-state";
-import { MAX_DESIGN_UNDO_STACK } from "../history";
+import { insertAtFileOrderIndex, MAX_DESIGN_UNDO_STACK } from "../history";
 import {
   autoHeightScreenIds,
   getAllScreenFrameEntries,
@@ -117,6 +117,7 @@ export function useEditorCanvasAndScreens({
     t,
     id,
     session,
+    widgetEmbed,
     isSignedIn,
     initialSearchParams,
     queryClient,
@@ -200,6 +201,7 @@ export function useEditorCanvasAndScreens({
     liveFrameGeometryRef,
     boardFileId,
     overviewScreens,
+    designSourceType,
     handleScreenRuntimeLayerSnapshot,
   } = editorFilesAndSaving;
   const {
@@ -333,19 +335,27 @@ export function useEditorCanvasAndScreens({
       filename: string;
       fileType: DesignFile["fileType"];
       content: string;
+      createdAt?: string | null;
+      fileOrderIndex?: number;
       result?: Record<string, unknown> | null;
     }) => {
       if (!id) return;
       const now = new Date().toISOString();
+      const createdAt =
+        args.createdAt === undefined ? args.result?.createdAt : args.createdAt;
+      if (
+        createdAt !== undefined &&
+        createdAt !== null &&
+        typeof createdAt !== "string"
+      ) {
+        throw new Error("Invalid file creation timestamp");
+      }
       const optimisticFile: DesignFile = {
         id: args.fileId,
         filename: args.filename,
         fileType: args.fileType,
         content: annotateScreenHtmlForPersist(args.content, args.fileType),
-        createdAt:
-          typeof args.result?.createdAt === "string"
-            ? args.result.createdAt
-            : now,
+        createdAt: createdAt === undefined ? now : createdAt,
         updatedAt:
           typeof args.result?.updatedAt === "string"
             ? args.result.updatedAt
@@ -357,7 +367,11 @@ export function useEditorCanvasAndScreens({
         ? historyFilesRef.current.map((file) =>
             file.id === args.fileId ? optimisticFile : file,
           )
-        : [...historyFilesRef.current, optimisticFile];
+        : insertAtFileOrderIndex(
+            historyFilesRef.current,
+            optimisticFile,
+            args.fileOrderIndex,
+          );
       void queryClient.cancelQueries({
         queryKey: ["action", "get-design", { id }],
         exact: true,
@@ -372,7 +386,11 @@ export function useEditorCanvasAndScreens({
             ? old.files.map((file: DesignFile) =>
                 file.id === args.fileId ? optimisticFile : file,
               )
-            : [...old.files, optimisticFile],
+            : insertAtFileOrderIndex(
+                old.files,
+                optimisticFile,
+                args.fileOrderIndex,
+              ),
         };
       });
     },
@@ -443,12 +461,23 @@ export function useEditorCanvasAndScreens({
       return runDuplicateScreen(
         {
           canEditDesign,
+          widgetEmbed,
           createFileAsync,
           deleteFileAsync: deleteFileMutation.mutateAsync,
           designDataJsonRef,
           duplicateRecoveryRef,
           displayedCanvasFrameGeometryById,
           files,
+          getCurrentScreenContentForDuplicate: (targetScreenId) => {
+            const sourceType = resolveOverviewScreenSourceType(
+              overviewScreens.find((screen) => screen.id === targetScreenId),
+              designSourceType,
+            );
+            if (sourceType !== "inline") {
+              return files.find((file) => file.id === targetScreenId)?.content;
+            }
+            return historySourceReaderRef.current(targetScreenId);
+          },
           focusCreatedScreen,
           id,
           liveFrameGeometryRef,
@@ -469,9 +498,11 @@ export function useEditorCanvasAndScreens({
     },
     [
       canEditDesign,
+      widgetEmbed,
       createFileAsync,
       deleteFileMutation,
       displayedCanvasFrameGeometryById,
+      designSourceType,
       files,
       focusCreatedScreen,
       recordFileCreationHistoryEntry,
@@ -595,6 +626,8 @@ export function useEditorCanvasAndScreens({
       requestSource: TAB_ID,
       user: currentUser,
     });
+  const currentYDocRef = useRef(ydoc);
+  currentYDocRef.current = ydoc;
 
   const overviewPresenceFileId =
     viewMode === "overview"
@@ -649,7 +682,11 @@ export function useEditorCanvasAndScreens({
       )
         continue;
       const pending = pendingLocalFileContentsRef.current.get(file.id);
-      if (pending && pending.identityMigrationSourceContent === undefined)
+      if (
+        pending &&
+        pending.identityMigrationSourceContent === undefined &&
+        !pending.deferCollabReconcile
+      )
         continue;
       if (
         pending?.identityMigrationSourceContent !== undefined &&
@@ -1036,9 +1073,12 @@ export function useEditorCanvasAndScreens({
 
   const activeCollabFileReady =
     viewMode === "single" && activeFileId === prevActiveFileIdRef.current;
-  const pendingActiveFileContent = activeFile?.id
-    ? pendingLocalFileContentsSnapshot.get(activeFile.id)?.content
+  const pendingActiveFile = activeFile?.id
+    ? pendingLocalFileContentsSnapshot.get(activeFile.id)
     : undefined;
+  const pendingActiveFileContent = pendingActiveFile?.deferCollabReconcile
+    ? undefined
+    : pendingActiveFile?.content;
   const activeContentSource =
     pendingActiveFileContent ??
     (activeCollabFileReady &&
@@ -1077,17 +1117,29 @@ export function useEditorCanvasAndScreens({
           freshActiveContent: getFreshActiveFileContent({
             activeContent,
             pendingContent: activeFile?.id
-              ? (latestFileSaveForUnloadRef.current[activeFile.id]?.content ??
-                pendingLocalFileContentsRef.current.get(activeFile.id)?.content)
+              ? (() => {
+                  const latest =
+                    latestFileSaveForUnloadRef.current[activeFile.id];
+                  const local = pendingLocalFileContentsRef.current.get(
+                    activeFile.id,
+                  );
+                  return latest?.deferCollabReconcile ||
+                    local?.deferCollabReconcile
+                    ? null
+                    : (latest?.content ?? local?.content ?? null);
+                })()
               : null,
             latestContent: latestActiveContentRef.current,
             lastLocalContent: lastLocalContentRef.current,
           }),
           fileContentById,
-          pendingContent:
-            latestFileSaveForUnloadRef.current[screenId]?.content ??
-            pendingLocalFileContentsRef.current.get(screenId)?.content ??
-            null,
+          pendingContent: (() => {
+            const latest = latestFileSaveForUnloadRef.current[screenId];
+            const local = pendingLocalFileContentsRef.current.get(screenId);
+            return latest?.deferCollabReconcile || local?.deferCollabReconcile
+              ? null
+              : (latest?.content ?? local?.content ?? null);
+          })(),
         }),
         {
           fileId: screenId,
@@ -1113,9 +1165,22 @@ export function useEditorCanvasAndScreens({
     [getUnprojectedScreenContent, id],
   );
   const getProjectionContentForScreen = useCallback(
-    (screenId: string) =>
-      liveScreenSnapshotsById[screenId]?.html ?? getScreenContent(screenId),
-    [getScreenContent, liveScreenSnapshotsById],
+    (screenId: string) => {
+      const sourceType = resolveOverviewScreenSourceType(
+        overviewScreens.find((screen) => screen.id === screenId),
+        designSourceType,
+      );
+      return sourceType === "inline"
+        ? getScreenContent(screenId)
+        : (liveScreenSnapshotsById[screenId]?.html ??
+            getScreenContent(screenId));
+    },
+    [
+      designSourceType,
+      getScreenContent,
+      liveScreenSnapshotsById,
+      overviewScreens,
+    ],
   );
 
   historySourceReaderRef.current = getProjectionContentForScreen;
@@ -1549,6 +1614,7 @@ export function useEditorCanvasAndScreens({
     handleCreateScreenFrame,
     handleCreateScreenFromPreset,
     ydoc,
+    currentYDocRef,
     awareness,
     isSynced,
     activeUsers,

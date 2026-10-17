@@ -71,6 +71,7 @@ export const PROVIDER_API_IDS = [
   "clay",
   "commonroom",
   "dataforseo",
+  "dbt",
   "ga4",
   "gcloud",
   "github",
@@ -80,6 +81,7 @@ export const PROVIDER_API_IDS = [
   "gong",
   "google_calendar",
   "google_drive",
+  "google_sheets",
   "google_slides",
   "granola",
   "grafana",
@@ -92,6 +94,7 @@ export const PROVIDER_API_IDS = [
   "prometheus",
   "pylon",
   "sentry",
+  "sigma",
   "slack",
   "stripe",
   "twitter",
@@ -327,12 +330,21 @@ export type ProviderApiAuthKind =
   | {
       type: "google-service-account";
       scopes: readonly string[];
+      oauthProvider?: string;
+      workspaceProvider?: string;
     }
   | {
       type: "oauth-bearer";
       oauthProvider: string;
       tokenLabel: string;
       workspaceProvider?: string;
+    }
+  | {
+      type: "oauth-client-credentials";
+      clientIdKey: string;
+      clientSecretKey: string;
+      tokenPath: string;
+      workspaceProvider: string;
     }
   | {
       type: "oauth-bearer-or-api-key-header";
@@ -368,12 +380,16 @@ export interface ProviderApiConfig {
   label: string;
   defaultBaseUrl: string;
   requiresConnectionId?: boolean;
+  requiresWorkspaceConnection?: boolean;
   baseUrlCredentialKey?: string;
+  baseUrlConnectionConfigKey?: string;
+  baseUrlMustMatchAllowedHost?: boolean;
   auth: ProviderApiAuthKind;
   credentialKeys: readonly string[];
   docsUrls: readonly string[];
   specUrls?: readonly string[];
   allowedHostSuffixes?: readonly string[];
+  requireHttps?: boolean;
   defaultHeaders?: Record<string, string>;
   placeholders?: readonly ProviderApiPlaceholder[];
   examples?: readonly ProviderApiExample[];
@@ -562,6 +578,22 @@ const PERMANENT_GOOGLE_OAUTH_REFRESH_ERRORS = new Set([
   "unauthorized_client",
   "invalid_client",
 ]);
+const GOOGLE_SHEETS_DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
+const GOOGLE_SHEETS_LEGACY_ALLOWED_SCOPES = new Set([
+  GOOGLE_SHEETS_DRIVE_SCOPE,
+  "openid",
+  "email",
+  "profile",
+  "https://www.googleapis.com/auth/userinfo.email",
+  "https://www.googleapis.com/auth/userinfo.profile",
+]);
+
+function hasIsolatedGoogleSheetsScopes(scopes: ReadonlySet<string>): boolean {
+  return (
+    scopes.has(GOOGLE_SHEETS_DRIVE_SCOPE) &&
+    [...scopes].every((scope) => GOOGLE_SHEETS_LEGACY_ALLOWED_SCOPES.has(scope))
+  );
+}
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_TIMEOUT_MS = 120_000;
@@ -570,6 +602,8 @@ const MAX_MAX_BYTES = 4 * 1024 * 1024;
 const SAVE_TO_FILE_MAX_BYTES = 20 * 1024 * 1024;
 const FETCH_ALL_PAGES_MAX = 50;
 const HEADER_NAME_RE = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
+// The method-override headers are blocked because approval gates decide on the
+// request's `method`: a GET carrying one could be tunneled to a write.
 const BLOCKED_OUTBOUND_HEADERS = new Set([
   "connection",
   "content-length",
@@ -589,6 +623,9 @@ const BLOCKED_OUTBOUND_HEADERS = new Set([
   "x-forwarded-for",
   "x-forwarded-host",
   "x-forwarded-proto",
+  "x-http-method",
+  "x-http-method-override",
+  "x-method-override",
 ]);
 
 const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
@@ -611,6 +648,55 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
         method: "GET",
         path: "/export?start=20260601T00&end=20260602T00",
       },
+    ],
+  },
+  sigma: {
+    id: "sigma",
+    label: "Sigma REST API",
+    defaultBaseUrl: "https://aws-api.sigmacomputing.com",
+    baseUrlCredentialKey: "SIGMA_BASE_URL",
+    baseUrlMustMatchAllowedHost: true,
+    requiresConnectionId: true,
+    requireHttps: true,
+    auth: {
+      type: "oauth-client-credentials",
+      clientIdKey: "SIGMA_CLIENT_ID",
+      clientSecretKey: "SIGMA_CLIENT_SECRET",
+      tokenPath: "/v2/auth/token",
+      workspaceProvider: "sigma",
+    },
+    credentialKeys: [
+      "SIGMA_CLIENT_ID",
+      "SIGMA_CLIENT_SECRET",
+      "SIGMA_BASE_URL",
+    ],
+    docsUrls: [
+      "https://help.sigmacomputing.com/reference/get-started-sigma-api",
+      "https://help.sigmacomputing.com/reference/post-token",
+      "https://help.sigmacomputing.com/reference/list-workbooks",
+      "https://help.sigmacomputing.com/reference/list-workbook-elements",
+      "https://help.sigmacomputing.com/reference/list-workbook-queries",
+    ],
+    specUrls: [
+      "https://help.sigmacomputing.com/openapi/openapi/sigma-rest-api.json",
+    ],
+    allowedHostSuffixes: ["sigmacomputing.com"],
+    templateUses: ["analytics"],
+    examples: [
+      { label: "List workbooks", method: "GET", path: "/v2/workbooks" },
+      {
+        label: "List workbook elements",
+        method: "GET",
+        path: "/v2/workbooks/{workbookId}/elements",
+      },
+      {
+        label: "List workbook queries",
+        method: "GET",
+        path: "/v2/workbooks/{workbookId}/queries",
+      },
+    ],
+    notes: [
+      "Uses OAuth client-credentials exchange through a Sigma workspace connection. Sigma is optional; use it for reviewed examples, and use dbt as the canonical schema and grain source.",
     ],
   },
   apollo: {
@@ -644,10 +730,12 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
         "https://www.googleapis.com/auth/cloud-platform",
         "https://www.googleapis.com/auth/bigquery",
       ],
+      oauthProvider: "google",
+      workspaceProvider: "bigquery",
     },
     credentialKeys: [
-      "GOOGLE_APPLICATION_CREDENTIALS_JSON",
       "BIGQUERY_PROJECT_ID",
+      "GOOGLE_APPLICATION_CREDENTIALS_JSON",
     ],
     docsUrls: ["https://cloud.google.com/bigquery/docs/reference/rest"],
     specUrls: ["https://bigquery.googleapis.com/$discovery/rest?version=v2"],
@@ -758,6 +846,38 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
           { keyword: "builder.io", location_code: 2840, language_code: "en" },
         ],
       },
+    ],
+  },
+  dbt: {
+    id: "dbt",
+    label: "dbt Semantic Layer",
+    defaultBaseUrl: "https://wg204.semantic-layer.us1.dbt.com/api/graphql",
+    baseUrlConnectionConfigKey: "semanticLayerBaseUrl",
+    baseUrlMustMatchAllowedHost: true,
+    requiresConnectionId: true,
+    requireHttps: true,
+    auth: {
+      type: "bearer",
+      keys: ["DBT_SEMANTIC_LAYER_TOKEN"],
+      workspaceProvider: "dbt",
+    },
+    credentialKeys: ["DBT_SEMANTIC_LAYER_TOKEN"],
+    docsUrls: ["https://docs.getdbt.com/docs/dbt-apis/sl-graphql"],
+    allowedHostSuffixes: ["dbt.com", "getdbt.com"],
+    templateUses: ["analytics"],
+    examples: [
+      {
+        label: "List metric metadata",
+        method: "POST",
+        path: "/api/graphql",
+        body: {
+          query:
+            "query Metrics($environmentId: BigInt!, $search: String) { metricsPaginated(environmentId: $environmentId, search: $search, pageNum: 1, pageSize: 20) { items { name description type dimensions { name description type } queryableGranularities } totalItems totalPages } }",
+        },
+      },
+    ],
+    notes: [
+      "Use the Semantic Layer only for owner-defined dbt metrics. Sigma and Amplitude are examples and cross-checks, not metric definitions.",
     ],
   },
   ga4: {
@@ -979,14 +1099,17 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     label: "Gong",
     defaultBaseUrl: "https://api.gong.io/v2",
     baseUrlCredentialKey: "GONG_API_BASE",
+    baseUrlMustMatchAllowedHost: true,
+    requireHttps: true,
+    allowedHostSuffixes: ["api.gong.io"],
     auth: {
       type: "basic",
       usernameKey: "GONG_ACCESS_KEY",
       passwordKey: "GONG_ACCESS_SECRET",
     },
-    credentialKeys: ["GONG_ACCESS_KEY", "GONG_ACCESS_SECRET", "GONG_API_BASE"],
+    credentialKeys: ["GONG_ACCESS_KEY", "GONG_ACCESS_SECRET"],
     docsUrls: ["https://gong.app.gong.io/settings/api/documentation"],
-    templateUses: ["analytics", "calendar"],
+    templateUses: ["analytics", "brain", "calendar"],
     examples: [
       { label: "List calls", method: "GET", path: "/calls" },
       {
@@ -996,12 +1119,17 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
         body: { filter: { callIds: ["<call-id>"] } },
       },
       {
-        label: "Calls with parties/content",
+        label: "Calls with CRM context and summaries",
         method: "POST",
         path: "/calls/extensive",
         body: {
-          filter: { fromDateTime: "<iso-date-time>" },
+          filter: {
+            fromDateTime: "<start-iso-date-time>",
+            toDateTime: "<end-iso-date-time>",
+          },
           contentSelector: {
+            context: "Extended",
+            contextTiming: ["TimeOfCall"],
             exposedFields: {
               parties: true,
               content: { brief: true, keyPoints: true },
@@ -1011,25 +1139,67 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
       },
     ],
     notes: [
-      "For broad corpus work, call /calls/extensive with provider-api-request and stageAs/saveToFile. Gong returns the next cursor at records.cursor and expects the next cursor in the POST body at cursor, so use pagination { nextCursorPath: 'records.cursor', cursorBodyPath: 'cursor' } for stageAs or fetchAllPages { cursorPath: 'records.cursor', cursorBodyPath: 'cursor' } for saveToFile.",
-      "The public Gong REST API does not expose an arbitrary transcript-text filter. Use configured keyword tracker results from /calls/extensive when they cover the requested term; otherwise batch transcripts with POST /calls/transcript and body { filter: { callIds: [...] } } after narrowing or staging call ids.",
+      "Brain uses provider-api-request with the organization's GONG_ACCESS_KEY and GONG_ACCESS_SECRET for on-demand Gong queries; Gong calls are not indexed Brain Sources, and the caller does not need a personal Gong seat or Gong MCP connection. Other apps may use connected Gong MCP account/deal tools for native Gong search; Analytics may use call-agent for CRM or warehouse joins.",
+      "The Gong REST API has no account, company, customer/prospect, or topic filter. For account-call reports, scan only an explicit bounded date/workspace cohort, match calls by returned CRM context, and report scanned and matched counts. Mark results partial when response or page limits leave records unread.",
+      "For complete /calls/extensive cohorts, use provider-api-request with stageAs and pagination { nextCursorPath: 'records.cursor', cursorBodyPath: 'cursor', maxPages: 200 }, or run-code's providerFetchAll with the same cursor paths. Gong returns the next cursor at records.cursor and expects it in the next POST JSON body at cursor. Report staging's truncated flag or fetchAll's hasMore/stoppedReason and lastCursor; provider response-size truncation is an incomplete result.",
+      "The public Gong REST API does not expose an arbitrary transcript-text filter. Use configured keyword tracker results from /calls/extensive when they cover the requested term; otherwise use the bounded call-id transcript recipe below. Non-Brain apps may use connected Gong MCP search for open-ended questions.",
     ],
     corpusRecipes: [
       {
-        label: "Stage Gong calls with configured keyword tracker hits",
+        label: "Find Gong calls for an account with CRM context",
         useWhen:
-          "Use when the requested term or phrase already exists as a Gong keyword tracker and the answer can use tracker matches instead of arbitrary transcript-text search.",
+          "Use for weekly account-call reports or customer/prospect call counts for a bounded date range.",
         workflow: [
-          "Call /calls/extensive with the narrowest date, workspace, or owner filters available and contentSelector.exposedFields.content.trackers = true.",
-          "Stage the calls pages with provider-api-request stageAs or saveToFile; use the POST-body cursor at records.cursor for complete pagination.",
-          "Use query-staged-dataset or a Data Program to flatten content.trackers, filter by tracker id/name/phrase, and aggregate counts or occurrences.",
-          "Tracker results are provider-indexed evidence for configured trackers, not an arbitrary transcript search. For an unconfigured term, use Gong native Search when connected or the transcript batch recipe below.",
+          "In Brain, use run-code with providerFetchAll to call the Gong REST endpoint; it uses the organization's Gong credentials through provider-api-request and does not require the caller's personal Gong seat or Gong MCP connection.",
+          "Set both fromDateTime and toDateTime to the requested ISO-8601 range (start inclusive, end exclusive). Gong has no server-side account filter, so this returns the full date/workspace cohort.",
+          "Request Extended CRM context at TimeOfCall plus parties, brief, and keyPoints. Set pagination { itemsPath: 'calls', nextCursorPath: 'records.cursor', cursorBodyPath: 'cursor', maxPages: 200 } and continue until the cursor is empty; flatten and reduce the nested CRM fields inside run-code.",
+          "Associate each call with its Account or Opportunity using calls[].context[].objects[] CRM IDs and fields; for a named account, prefer its CRM object ID and otherwise match exact name or website. Treat missing or ambiguous links separately; do not match only on call title or participant names.",
+          "Classify customer versus prospect only when the returned CRM context contains an organization-defined lifecycle/customer-status field at TimeOfCall or an opportunity stage with an explicit stage-to-cohort mapping. Otherwise count the call as unclassified rather than inferring status from Gong content.",
+          "Report the date range, calls scanned, CRM-linked calls, customer/prospect/unclassified/ambiguous counts, and pageCount/itemCount. Include hasMore, stoppedReason, and lastCursor for coverage/resume context; if hasMore is true or stoppedReason is not completed, label counts partial. Compare itemCount with records.totalRecords when present, and treat response-size errors as incomplete rather than as zero calls.",
         ],
         request: {
           method: "POST",
           path: "/calls/extensive",
           body: {
-            filter: { fromDateTime: "<iso-date-time>" },
+            filter: {
+              fromDateTime: "<start-iso-date-time>",
+              toDateTime: "<end-iso-date-time>",
+            },
+            contentSelector: {
+              context: "Extended",
+              contextTiming: ["TimeOfCall"],
+              exposedFields: {
+                parties: true,
+                content: { brief: true, keyPoints: true },
+              },
+            },
+          },
+        },
+        pagination: {
+          itemsPath: "calls",
+          nextCursorPath: "records.cursor",
+          cursorBodyPath: "cursor",
+          maxPages: 200,
+        },
+      },
+      {
+        label: "Stage Gong calls with configured keyword tracker hits",
+        useWhen:
+          "Use when the requested term or phrase already exists as a Gong keyword tracker and the answer can use tracker matches instead of arbitrary transcript-text search.",
+        workflow: [
+          "Call /calls/extensive with an explicit bounded date range and the narrowest workspace or owner filters available, and contentSelector.exposedFields.content.trackers = true.",
+          "Stage the calls pages with provider-api-request stageAs or saveToFile; use the POST-body cursor at records.cursor for complete pagination.",
+          "Use query-staged-dataset or a Data Program to flatten content.trackers, filter by tracker id/name/phrase, and aggregate counts or occurrences.",
+          "Tracker results are provider-indexed evidence for configured trackers, not an arbitrary transcript search. For an unconfigured term, use the transcript batch recipe below; non-Brain apps may also use connected Gong MCP search.",
+        ],
+        request: {
+          method: "POST",
+          path: "/calls/extensive",
+          body: {
+            filter: {
+              fromDateTime: "<start-iso-date-time>",
+              toDateTime: "<end-iso-date-time>",
+            },
             contentSelector: {
               exposedFields: {
                 content: { trackers: true, trackerOccurrences: true },
@@ -1049,10 +1219,10 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
         useWhen:
           "Use when the user asks to search, count, or prove absence across Gong transcript text for a bounded cohort of call ids.",
         workflow: [
-          "Stage or otherwise collect the exact call ids in scope first.",
-          "Start provider-corpus-job with mode=batch-search against /calls/transcript.",
-          "Inject each batch into body path filter.callIds and search responseItemsPath callTranscripts.",
-          "Search transcript.sentence text fields, then report call-id coverage, batches processed, matches, and gaps.",
+          "Stage or otherwise collect the exact call ids in scope first, and confirm that the source cohort was not truncated.",
+          "Use provider-api-request to POST /calls/transcript with body.filter.callIds in batches of at most 20 ids; repeat until every id has been attempted.",
+          "Match response callTranscripts by callId and search transcript.sentence text fields.",
+          "Report ids requested, calls returned, batches processed, matches, missing ids, and any incomplete source or transcript response.",
         ],
         request: {
           method: "POST",
@@ -1084,8 +1254,15 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
           method: "POST",
           path: "/calls/extensive",
           body: {
-            filter: { fromDateTime: "<iso-date-time>" },
-            contentSelector: { exposedFields: { parties: true } },
+            filter: {
+              fromDateTime: "<start-iso-date-time>",
+              toDateTime: "<end-iso-date-time>",
+            },
+            contentSelector: {
+              context: "Extended",
+              contextTiming: ["TimeOfCall"],
+              exposedFields: { parties: true },
+            },
           },
         },
         pagination: {
@@ -1149,6 +1326,37 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     ],
     notes: [
       "Uses the current user's stored Google OAuth account. Pass accountId when the user has multiple Google accounts connected.",
+    ],
+  },
+  google_sheets: {
+    id: "google_sheets",
+    label: "Google Sheets API",
+    defaultBaseUrl: "https://sheets.googleapis.com/v4",
+    requiresWorkspaceConnection: true,
+    auth: {
+      type: "oauth-bearer",
+      oauthProvider: "google_sheets",
+      tokenLabel: "Google OAuth token",
+      workspaceProvider: "google_sheets",
+    },
+    credentialKeys: ["GOOGLE_OAUTH_ACCOUNT"],
+    docsUrls: [
+      "https://developers.google.com/workspace/sheets/api/reference/rest",
+    ],
+    specUrls: ["https://sheets.googleapis.com/$discovery/rest?version=v4"],
+    templateUses: ["analytics"],
+    examples: [
+      { label: "Create a spreadsheet", method: "POST", path: "/spreadsheets" },
+      {
+        label: "Write spreadsheet values",
+        method: "PUT",
+        path: "/spreadsheets/{spreadsheetId}/values/{range}",
+      },
+    ],
+    notes: [
+      "Uses the current user's Google Sheets connection and the non-sensitive drive.file scope, limited to files created by this app or explicitly selected by the user.",
+      "Google Sheets authorization is isolated from scopes previously granted to other Google integrations.",
+      "Pass accountId when the user has multiple Google accounts connected.",
     ],
   },
   google_slides: {
@@ -1612,6 +1820,49 @@ export function getProviderApiConfig(
   return config;
 }
 
+export function isValidProviderApiBaseUrl(
+  provider: ProviderApiId | string,
+  value: string,
+  overrides: readonly ProviderApiConfig[] = [],
+): boolean {
+  return isValidProviderApiBaseUrlForConfig(
+    getProviderApiConfig(provider, overrides),
+    value,
+  );
+}
+
+function isValidProviderApiBaseUrlForConfig(
+  config: ProviderApiConfig,
+  value: string,
+): boolean {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch (error) {
+    if (error instanceof TypeError) return false;
+    throw error;
+  }
+
+  if (
+    (url.protocol !== "https:" && url.protocol !== "http:") ||
+    (config.requireHttps && url.protocol !== "https:")
+  ) {
+    return false;
+  }
+
+  if (!config.baseUrlMustMatchAllowedHost) return true;
+  return (
+    !url.username &&
+    !url.password &&
+    !url.port &&
+    !url.search &&
+    !url.hash &&
+    // Gong request paths are relative to its versioned API base.
+    (config.id !== "gong" || url.pathname.replace(/\/+$/, "") === "/v2") &&
+    isAllowedProviderHost(url.hostname, config)
+  );
+}
+
 export function mergeProviderApiConfigs(
   overrides: readonly ProviderApiConfig[] = [],
 ): ProviderApiConfig[] {
@@ -1858,7 +2109,7 @@ export async function executeProviderApiRequest(
   const auth =
     args.auth === "none"
       ? emptyAuth()
-      : await resolveAuth(config, runtime, ctx, args);
+      : await resolveAuth(config, runtime, ctx, args, endpoint);
   if (endpoint.owner) {
     for (const credential of auth.credentialSources) {
       assertCredentialCanReachEndpoint(
@@ -1951,6 +2202,7 @@ export async function executeProviderApiRequest(
         contentType: resp.contentType,
         status: resp.status,
         ok: resp.ok,
+        truncated: resp.truncated,
       };
     });
 
@@ -2004,6 +2256,11 @@ export async function executeProviderApiRequest(
   );
 
   if (args.saveToFile) {
+    if (response.truncated) {
+      throw new Error(
+        `The response was cut at ${effectiveMaxBytes} bytes (${response.size} available), so saving it would persist an incomplete file. Narrow the request with a server-side filter or fetch it in pages with fetchAllPages.`,
+      );
+    }
     const rawText =
       response.text ??
       (response.json !== undefined ? JSON.stringify(response.json) : "");
@@ -2049,12 +2306,21 @@ export async function executeProviderApiRequest(
     },
     response,
     guidance: [
-      "This was a raw provider API request. Use provider docs/spec URLs to choose endpoints and include method/path/status plus relevant filters in the methodology. Prefer this escape hatch whenever canned actions are too narrow.",
+      "This was a raw provider API request. Use provider docs/spec URLs to choose endpoints and include method/path/status plus relevant filters in the methodology. A data API returns records: when the provider can filter, search, or answer the question itself, make it do that instead of pulling records to filter locally.",
+      response.truncated
+        ? truncatedResponseGuidance(response.size, effectiveMaxBytes)
+        : null,
       providerAccessErrorGuidance(config, response.status),
     ]
       .filter(Boolean)
       .join(" "),
   };
+}
+
+// A truncated body is incomplete, not a smaller answer. Raising maxBytes and
+// paging the whole collection is the wrong recovery, so name the right ones.
+function truncatedResponseGuidance(size: number, maxBytes: number): string {
+  return `This response is incomplete: ${size} bytes came back and only the first ${maxBytes} are included. Do not raise maxBytes or page the whole collection to filter it locally. Add a server-side filter or query parameter, use the provider's own search or semantic tool, or run the scan with stageAs or provider-corpus-job. If none of those can express the question, say so or hand it to the app that owns this source.`;
 }
 
 const PROVIDER_ACCESS_ERROR_STATUSES = new Set([401, 403, 404]);
@@ -2101,7 +2367,14 @@ export async function resolveProviderApiOAuthAccessToken(
               tokenLabel: auth.tokenLabel,
               workspaceProvider: auth.workspaceProvider,
             }
-          : null;
+          : auth.type === "google-service-account" && auth.oauthProvider
+            ? {
+                type: "oauth-bearer" as const,
+                oauthProvider: auth.oauthProvider,
+                tokenLabel: "Google OAuth token",
+                workspaceProvider: auth.workspaceProvider,
+              }
+            : null;
   if (!oauthAuth) {
     throw new Error(
       `Provider API ${args.provider} does not use a direct OAuth bearer token.`,
@@ -2111,6 +2384,11 @@ export async function resolveProviderApiOAuthAccessToken(
     runtime,
     config.credentialKeys[0] ?? config.id,
   );
+  if (args.provider === "bigquery" && ctx.credentialScope === "org") {
+    throw new Error(
+      "Personal BigQuery OAuth is unavailable for org-only credential scope.",
+    );
+  }
   const credential = oauthAuth.workspaceProvider
     ? await resolveOptionalConnectionBoundOAuthBearerToken({
         auth: oauthAuth,
@@ -2930,6 +3208,7 @@ async function executeCustomProviderApiRequest(
         contentType: resp.contentType,
         status: resp.status,
         ok: resp.ok,
+        truncated: resp.truncated,
       };
     });
 
@@ -2982,6 +3261,11 @@ async function executeCustomProviderApiRequest(
   });
 
   if (args.saveToFile) {
+    if (response.truncated) {
+      throw new Error(
+        `The response was cut at ${effectiveMaxBytes} bytes (${response.size} available), so saving it would persist an incomplete file. Narrow the request with a server-side filter or fetch it in pages with fetchAllPages.`,
+      );
+    }
     const rawText =
       response.text ??
       (response.json !== undefined ? JSON.stringify(response.json) : "");
@@ -3030,8 +3314,14 @@ async function executeCustomProviderApiRequest(
       ),
     },
     response,
-    guidance:
+    guidance: [
       "This was a raw provider API request to a custom provider. Use provider docs URLs to choose endpoints.",
+      response.truncated
+        ? truncatedResponseGuidance(response.size, effectiveMaxBytes)
+        : null,
+    ]
+      .filter(Boolean)
+      .join(" "),
   };
 }
 
@@ -3346,6 +3636,9 @@ function describeAuth(auth: ProviderApiAuthKind): string {
   if (auth.type === "api-key-header") return `api-key-header:${auth.header}`;
   if (auth.type === "google-service-account") return "google-service-account";
   if (auth.type === "oauth-bearer") return `oauth-bearer:${auth.oauthProvider}`;
+  if (auth.type === "oauth-client-credentials") {
+    return `oauth-client-credentials:${auth.workspaceProvider}`;
+  }
   if (auth.type === "oauth-bearer-or-api-key-header") {
     return `oauth-bearer:${auth.oauthProvider}-or-api-key-header:${auth.header}:${(auth.fallbackKeys ?? [auth.key]).join(",")}`;
   }
@@ -3383,15 +3676,62 @@ async function resolveBaseUrl(
     args,
   );
   if (oauthEndpoint) return oauthEndpoint;
+  if (config.baseUrlConnectionConfigKey) {
+    const auth = config.auth;
+    const workspaceProvider =
+      "workspaceProvider" in auth ? auth.workspaceProvider : undefined;
+    if (!workspaceProvider) {
+      throw new Error(
+        `${config.label} connection URL configuration requires a workspace provider.`,
+      );
+    }
+    const resolved = await resolveWorkspaceConnectionForApp({
+      appId: runtime.appId,
+      provider: workspaceProvider,
+      connectionId: args.connectionId ?? undefined,
+      requireConnected: true,
+    });
+    if (!resolved.available || !resolved.connection) {
+      throw new Error(
+        `${config.label} requires an available workspace connection.`,
+      );
+    }
+    const configured =
+      resolved.connection.config[config.baseUrlConnectionConfigKey];
+    const value =
+      typeof configured === "string" && configured.trim()
+        ? configured.trim()
+        : config.defaultBaseUrl;
+    let url: URL;
+    try {
+      url = new URL(value);
+    } catch {
+      throw new Error(`${config.label} connection URL is invalid.`);
+    }
+    if (
+      (config.requireHttps && url.protocol !== "https:") ||
+      url.username ||
+      url.password ||
+      url.port ||
+      url.search ||
+      url.hash ||
+      url.pathname !== "/api/graphql" ||
+      (config.baseUrlMustMatchAllowedHost &&
+        !isAllowedProviderHost(url.hostname, config))
+    ) {
+      throw new Error(
+        `${config.label} requests must use the HTTPS /api/graphql endpoint on a registered provider host suffix.`,
+      );
+    }
+    return {
+      url: value.replace(/\/+$/, ""),
+      owner: workspaceConnectionEndpointOwner(resolved.connection),
+    };
+  }
   if (!config.baseUrlCredentialKey) return { url: config.defaultBaseUrl };
   const auth = config.auth;
   const workspaceProvider =
-    auth.type === "oauth-bearer" ||
-    auth.type === "oauth-bearer-or-api-key-header" ||
-    auth.type === "oauth-bearer-or-bearer-key" ||
-    auth.type === "oauth-bearer-or-basic"
-      ? auth.workspaceProvider
-      : undefined;
+    "workspaceProvider" in auth ? auth.workspaceProvider : undefined;
   const configured = await resolveCredentialResult({
     config,
     runtime,
@@ -3400,8 +3740,14 @@ async function resolveBaseUrl(
     args,
     workspaceProvider,
   });
+  const url = (configured?.value || config.defaultBaseUrl).replace(/\/+$/, "");
+  if (!isValidProviderApiBaseUrlForConfig(config, url)) {
+    throw new Error(
+      `${config.label} API base URL is invalid or must use the configured provider host or registered provider host suffix.`,
+    );
+  }
   return {
-    url: (configured?.value || config.defaultBaseUrl).replace(/\/+$/, ""),
+    url,
     ...(configured
       ? {
           owner: {
@@ -3622,8 +3968,25 @@ function isAllowedProviderUrl(
   config: ProviderApiConfig,
 ): boolean {
   if (url.protocol !== "https:" && url.protocol !== "http:") return false;
-  if (url.origin === base.origin) return true;
-  const host = url.hostname.toLowerCase();
+  if (config.requireHttps && url.protocol !== "https:") return false;
+  if (config.id === "gong") return url.origin === base.origin;
+  return (
+    url.origin === base.origin || isAllowedProviderHost(url.hostname, config)
+  );
+}
+
+function isAllowedProviderHost(
+  hostname: string,
+  config: ProviderApiConfig,
+): boolean {
+  const host = hostname.toLowerCase();
+  if (config.id === "gong") {
+    // Gong assigns one tenant or region label before api.gong.io.
+    return (
+      host === "api.gong.io" ||
+      /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.api\.gong\.io$/.test(host)
+    );
+  }
   return (config.allowedHostSuffixes ?? []).some((suffix) => {
     const normalized = suffix.toLowerCase().replace(/^\./, "");
     return host === normalized || host.endsWith(`.${normalized}`);
@@ -3654,6 +4017,7 @@ async function resolveAuth(
   runtime: ProviderApiRuntimeOptions,
   ctx: CredentialContext,
   args: ProviderApiRequestArgs,
+  endpoint: ResolvedProviderEndpoint,
 ): Promise<ResolvedAuth> {
   const auth = config.auth;
   if (auth.type === "none") return emptyAuth();
@@ -3737,7 +4101,116 @@ async function resolveAuth(
       secretValues: [credential.value],
     };
   }
+  if (auth.type === "oauth-client-credentials") {
+    const clientId = await resolveRequiredCredential({
+      provider: config.id,
+      workspaceProvider: auth.workspaceProvider,
+      key: auth.clientIdKey,
+      ctx,
+      runtime,
+      connectionId: args.connectionId,
+    });
+    const clientSecret = await resolveRequiredCredential({
+      provider: config.id,
+      workspaceProvider: auth.workspaceProvider,
+      key: auth.clientSecretKey,
+      ctx,
+      runtime,
+      connectionId: args.connectionId,
+    });
+    if (endpoint.owner) {
+      assertCredentialCanReachEndpoint(endpoint.owner, clientId, clientId.key);
+      assertCredentialCanReachEndpoint(
+        endpoint.owner,
+        clientSecret,
+        clientSecret.key,
+      );
+    }
+    const tokenUrl = buildProviderUrl({
+      config,
+      baseUrl: endpoint.url,
+      rawPath: auth.tokenPath,
+      query: undefined,
+    });
+    if (await isBlockedExtensionUrlWithDns(tokenUrl.href)) {
+      throw new Error(
+        `Blocked private/internal provider URL: ${tokenUrl.href}`,
+      );
+    }
+    const tokenResponse = await fetchWithTimeout(tokenUrl.href, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "client_credentials",
+        client_id: clientId.value,
+        client_secret: clientSecret.value,
+      }),
+      timeoutMs: clampTimeout(args.timeoutMs),
+      signal: args.signal,
+      maxBytes: 16_384,
+      secretValues: [clientId.value, clientSecret.value],
+    });
+    if (!tokenResponse.ok) {
+      throw new Error(
+        `${config.label} client-credentials exchange failed (HTTP ${tokenResponse.status}).`,
+      );
+    }
+    const accessToken = asRecord(tokenResponse.json).access_token;
+    if (typeof accessToken !== "string" || !accessToken.trim()) {
+      throw new Error(`${config.label} did not return an access token.`);
+    }
+    return {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      credentialSources: [
+        omitCredentialValue(clientId),
+        omitCredentialValue(clientSecret),
+      ],
+      secretValues: [clientId.value, clientSecret.value, accessToken],
+    };
+  }
   if (auth.type === "google-service-account") {
+    if (
+      auth.oauthProvider &&
+      auth.workspaceProvider &&
+      !(auth.workspaceProvider === "bigquery" && ctx.credentialScope === "org")
+    ) {
+      let oauthCredential: ProviderApiResolvedCredential | null;
+      try {
+        oauthCredential = await resolveOptionalConnectionBoundOAuthBearerToken({
+          auth: {
+            type: "oauth-bearer",
+            oauthProvider: auth.oauthProvider,
+            tokenLabel: "Google OAuth token",
+            workspaceProvider: auth.workspaceProvider,
+          },
+          runtime,
+          ctx,
+          workspaceProvider: auth.workspaceProvider,
+          connectionId: args.connectionId,
+          accountId: args.accountId,
+        });
+      } catch (error) {
+        if (
+          auth.workspaceProvider !== "bigquery" ||
+          !(error instanceof AgentConnectionRequiredError) ||
+          error.provider !== "bigquery" ||
+          error.reason !== "reauthorize"
+        ) {
+          throw error;
+        }
+        if (args.connectionId?.trim() || args.accountId?.trim()) {
+          throw error;
+        }
+        oauthCredential = null;
+      }
+      if (oauthCredential) {
+        return {
+          headers: { Authorization: `Bearer ${oauthCredential.value}` },
+          credentialSources: [omitCredentialValue(oauthCredential)],
+          secretValues: [oauthCredential.value],
+        };
+      }
+    }
     const token = await getGoogleServiceAccountToken(auth.scopes, runtime, ctx);
     return {
       headers: { Authorization: `Bearer ${token}` },
@@ -3755,7 +4228,8 @@ async function resolveAuth(
     const oauthProvider =
       runtime.oauthProviderOverrides?.[config.id] ?? auth.oauthProvider;
     const credential =
-      auth.workspaceProvider && args.connectionId
+      auth.workspaceProvider &&
+      (args.connectionId || config.requiresWorkspaceConnection)
         ? await resolveConnectionBoundOAuthBearerToken({
             auth: { ...auth, oauthProvider },
             runtime,
@@ -4265,40 +4739,139 @@ async function resolveOAuthBearerToken(options: {
   connectionId?: string | null;
 }): Promise<ProviderApiResolvedCredential> {
   const ownerEmail = options.ownerEmail?.trim() || options.ctx.userEmail;
+  const requestedAccountId = options.accountId?.trim();
   const accounts = await listOAuthAccountsByOwner(
     options.auth.oauthProvider,
     ownerEmail,
   );
-  if (accounts.length === 0) {
-    if (options.auth.workspaceProvider) {
+  const account = requestedAccountId
+    ? accounts.find((entry) => entry.accountId === requestedAccountId)
+    : accounts[0];
+  if (
+    !account &&
+    options.auth.oauthProvider === "google_sheets" &&
+    requestedAccountId &&
+    options.connectionId?.trim()
+  ) {
+    const legacyAccounts = await listOAuthAccountsByOwner("google", ownerEmail);
+    const legacyAccount = legacyAccounts.find(
+      (entry) => entry.accountId === requestedAccountId,
+    );
+    const legacyTokens = legacyAccount?.tokens as OAuthTokens | undefined;
+    const legacyAccessToken =
+      legacyTokens?.access_token ?? legacyTokens?.accessToken;
+    const legacyExpiresAt =
+      legacyTokens?.expiry_date ?? legacyTokens?.expiresAt;
+    const legacyRefreshToken =
+      legacyTokens?.refresh_token ?? legacyTokens?.refreshToken;
+    const legacyScopes = new Set(
+      typeof legacyTokens?.scope === "string"
+        ? legacyTokens.scope.split(/[\s,]+/).filter(Boolean)
+        : [],
+    );
+    if (
+      legacyAccount &&
+      legacyTokens &&
+      typeof legacyAccessToken === "string" &&
+      legacyAccessToken &&
+      hasIsolatedGoogleSheetsScopes(legacyScopes) &&
+      typeof legacyExpiresAt === "number" &&
+      Number.isFinite(legacyExpiresAt) &&
+      (legacyExpiresAt > Date.now() + 60_000 ||
+        (typeof legacyRefreshToken === "string" && legacyRefreshToken))
+    ) {
+      let accessToken = legacyAccessToken;
+      if (legacyExpiresAt <= Date.now() + 60_000) {
+        try {
+          accessToken = await getValidOAuthAccessToken({
+            oauthProvider: "google",
+            accountId: legacyAccount.accountId,
+            ownerEmail,
+            tokens: legacyTokens,
+            preserveTokensOnPermanentFailure: true,
+          });
+        } catch (error) {
+          if (!isPermanentGoogleOAuthRefreshFailure(error)) throw error;
+          return throwWorkspaceConnectionRequired({
+            runtime: options.runtime,
+            provider: options.auth.workspaceProvider ?? "google_sheets",
+            connectionId: options.connectionId,
+            message:
+              "Google Sheets needs to be reconnected because its Google authorization has expired.",
+            reason: "reauthorize",
+          });
+        }
+      }
+      return {
+        key: "GOOGLE_OAUTH_TOKEN",
+        value: accessToken,
+        source: "oauth_token",
+        provider: "google",
+        accountId: legacyAccount.accountId,
+        accountLabel: legacyAccount.displayName,
+      };
+    }
+    return throwWorkspaceConnectionRequired({
+      runtime: options.runtime,
+      provider: options.auth.workspaceProvider ?? "google_sheets",
+      connectionId: options.connectionId,
+      message:
+        "Google Sheets needs to be reconnected because its saved access token is missing, expired, or lacks file-level access.",
+      reason: "reauthorize",
+    });
+  }
+  if (!account) {
+    if (accounts.length === 0) {
+      if (options.auth.workspaceProvider) {
+        return throwWorkspaceConnectionRequired({
+          runtime: options.runtime,
+          provider: options.auth.workspaceProvider,
+          connectionId: options.connectionId,
+          message: `${options.auth.tokenLabel} requires an available workspace connection.`,
+          ...(options.auth.oauthProvider === "google_sheets" &&
+          options.connectionId
+            ? { reason: "reauthorize" as const }
+            : {}),
+        });
+      }
+      throw new Error(
+        `${options.auth.tokenLabel} is not connected for ${ownerEmail}.`,
+      );
+    }
+    throw new Error(
+      `${options.auth.tokenLabel} account ${requestedAccountId} is not available to ${ownerEmail}.`,
+    );
+  }
+  const tokens = account.tokens as OAuthTokens;
+  const preserveSharedGoogleGrant =
+    options.auth.oauthProvider === "google" &&
+    Boolean(options.auth.workspaceProvider);
+  let token: string;
+  try {
+    token = await getValidOAuthAccessToken({
+      oauthProvider: options.auth.oauthProvider,
+      accountId: account.accountId,
+      ownerEmail,
+      tokens,
+      preserveTokensOnPermanentFailure: preserveSharedGoogleGrant,
+      salesforceLoginUrl: options.salesforceLoginUrl,
+    });
+  } catch (error) {
+    if (
+      preserveSharedGoogleGrant &&
+      options.auth.workspaceProvider &&
+      isPermanentGoogleOAuthRefreshFailure(error)
+    ) {
       return throwWorkspaceConnectionRequired({
         runtime: options.runtime,
         provider: options.auth.workspaceProvider,
         connectionId: options.connectionId,
         message: `${options.auth.tokenLabel} requires an available workspace connection.`,
+        reason: "reauthorize",
       });
     }
-    throw new Error(
-      `${options.auth.tokenLabel} is not connected for ${ownerEmail}.`,
-    );
+    throw error;
   }
-  const accountId = options.accountId?.trim();
-  const account = accountId
-    ? accounts.find((entry) => entry.accountId === accountId)
-    : accounts[0];
-  if (!account) {
-    throw new Error(
-      `${options.auth.tokenLabel} account ${accountId} is not available to ${ownerEmail}.`,
-    );
-  }
-  const tokens = account.tokens as OAuthTokens;
-  const token = await getValidOAuthAccessToken({
-    oauthProvider: options.auth.oauthProvider,
-    accountId: account.accountId,
-    ownerEmail,
-    tokens,
-    salesforceLoginUrl: options.salesforceLoginUrl,
-  });
   return {
     key: `${options.auth.oauthProvider.toUpperCase()}_OAUTH_TOKEN`,
     value: token,
@@ -4333,8 +4906,9 @@ async function throwWorkspaceConnectionRequired(options: {
   provider: string;
   connectionId?: string | null;
   message: string;
+  reason?: "connect" | "grant" | "reauthorize";
 }): Promise<never> {
-  let reason: "connect" | "grant" | "reauthorize" = "connect";
+  let reason: "connect" | "grant" | "reauthorize" = options.reason ?? "connect";
   const resolved = await resolveWorkspaceConnectionForApp({
     appId: options.runtime.appId,
     provider: options.provider,
@@ -4342,9 +4916,14 @@ async function throwWorkspaceConnectionRequired(options: {
     includeDisabled: true,
     requireConnected: false,
   });
-  if (resolved.connection && resolved.appAccess?.available === false) {
+  if (
+    !options.reason &&
+    resolved.connection &&
+    resolved.appAccess?.available === false
+  ) {
     reason = "grant";
   } else if (
+    !options.reason &&
     resolved.connection &&
     resolved.connection.status !== "connected"
   ) {
@@ -4377,12 +4956,17 @@ async function resolveOptionalConnectionBoundOAuthBearerToken(options: {
   allowUnbound?: boolean;
 }): Promise<ProviderApiResolvedCredential | null> {
   const requestedConnectionId = options.connectionId?.trim();
+  const requestedAccountId = options.accountId?.trim();
   let resolved: Awaited<ReturnType<typeof resolveWorkspaceConnectionForApp>>;
   try {
     resolved = await resolveWorkspaceConnectionForApp({
       appId: options.runtime.appId,
       provider: options.workspaceProvider,
       connectionId: requestedConnectionId,
+      accountId: requestedAccountId,
+      ...(options.workspaceProvider === "bigquery"
+        ? { connectionOwnerEmail: options.ctx.userEmail }
+        : {}),
       requireConnected: true,
     });
   } catch (error) {
@@ -4390,12 +4974,20 @@ async function resolveOptionalConnectionBoundOAuthBearerToken(options: {
       error instanceof Error &&
       error.message === "Workspace connections require an authenticated user."
     ) {
+      if (requestedConnectionId || requestedAccountId) {
+        return throwWorkspaceConnectionRequired({
+          runtime: options.runtime,
+          provider: options.workspaceProvider,
+          connectionId: requestedConnectionId,
+          message: "Sign in to use the selected workspace connection.",
+        });
+      }
       return null;
     }
     throw error;
   }
   if (!resolved.available || !resolved.connection) {
-    if (requestedConnectionId) {
+    if (requestedConnectionId || requestedAccountId) {
       return throwWorkspaceConnectionRequired({
         runtime: options.runtime,
         provider: options.workspaceProvider,
@@ -4405,6 +4997,19 @@ async function resolveOptionalConnectionBoundOAuthBearerToken(options: {
     }
     return null;
   }
+  if (
+    options.workspaceProvider === "google_sheets" &&
+    !resolved.connection.scopes.includes(GOOGLE_SHEETS_DRIVE_SCOPE)
+  ) {
+    return throwWorkspaceConnectionRequired({
+      runtime: options.runtime,
+      provider: options.workspaceProvider,
+      connectionId: requestedConnectionId,
+      message:
+        "Google Sheets needs to be reconnected to grant file-level access.",
+      reason: "reauthorize",
+    });
+  }
   const connectionAccountId = resolved.connection.accountId?.trim();
   if (!connectionAccountId) {
     if (options.allowUnbound) return null;
@@ -4412,10 +5017,9 @@ async function resolveOptionalConnectionBoundOAuthBearerToken(options: {
       `${options.auth.tokenLabel} workspace connection ${resolved.connection.id} is missing its OAuth account binding.`,
     );
   }
-  const requestedAccountId = options.accountId?.trim();
   if (requestedAccountId && requestedAccountId !== connectionAccountId) {
     throw new Error(
-      `${options.auth.tokenLabel} account ${requestedAccountId} does not match workspace connection ${requestedConnectionId}.`,
+      `${options.auth.tokenLabel} account binding does not match the requested workspace connection.`,
     );
   }
   const credential = await resolveOAuthBearerToken({
@@ -4424,7 +5028,7 @@ async function resolveOptionalConnectionBoundOAuthBearerToken(options: {
     ctx: options.ctx,
     accountId: connectionAccountId,
     ownerEmail: resolved.connection.ownerEmail,
-    connectionId: requestedConnectionId,
+    connectionId: resolved.connection.id,
     salesforceLoginUrl:
       options.auth.oauthProvider === "salesforce" &&
       typeof resolved.connection.config?.salesforceLoginUrl === "string"
@@ -4441,11 +5045,21 @@ async function resolveOptionalConnectionBoundOAuthBearerToken(options: {
   };
 }
 
+function isPermanentGoogleOAuthRefreshFailure(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const oauthError = (error as { oauthError?: unknown }).oauthError;
+  return (
+    typeof oauthError === "string" &&
+    PERMANENT_GOOGLE_OAUTH_REFRESH_ERRORS.has(oauthError)
+  );
+}
+
 async function getValidOAuthAccessToken(options: {
   oauthProvider: string;
   accountId: string;
   ownerEmail: string;
   tokens: OAuthTokens;
+  preserveTokensOnPermanentFailure?: boolean;
   salesforceLoginUrl?: string | null;
 }): Promise<string> {
   const accessToken =
@@ -4469,7 +5083,8 @@ async function getValidOAuthAccessToken(options: {
   if (!refreshToken) return accessToken;
   if (
     options.oauthProvider === "google" ||
-    options.oauthProvider === "google-docs"
+    options.oauthProvider === "google-docs" ||
+    options.oauthProvider === "google_sheets"
   ) {
     return refreshGoogleOAuthToken(options, refreshToken);
   }
@@ -5095,6 +5710,7 @@ async function refreshGoogleOAuthToken(
     accountId: string;
     ownerEmail: string;
     tokens: OAuthTokens;
+    preserveTokensOnPermanentFailure?: boolean;
   },
   refreshToken: string,
 ): Promise<string> {
@@ -5186,10 +5802,16 @@ async function refreshGoogleOAuthToken(
 
   if (!data?.access_token) {
     if (data?.error && PERMANENT_GOOGLE_OAUTH_REFRESH_ERRORS.has(data.error)) {
-      await deleteOAuthTokens(options.oauthProvider, options.accountId);
+      if (!options.preserveTokensOnPermanentFailure) {
+        await deleteOAuthTokens(options.oauthProvider, options.accountId);
+      }
     }
     const detail = data?.error_description ?? data?.error ?? lastStatusText;
-    throw new Error(`Google OAuth refresh failed: ${detail}`);
+    const error = new Error(`Google OAuth refresh failed: ${detail}`);
+    if (data?.error && PERMANENT_GOOGLE_OAUTH_REFRESH_ERRORS.has(data.error)) {
+      Object.assign(error, { oauthError: data.error });
+    }
+    throw error;
   }
   const merged: OAuthTokens = {
     ...options.tokens,
@@ -5770,6 +6392,7 @@ async function fetchAllPages(
     contentType: string | null;
     status: number;
     ok: boolean;
+    truncated: boolean;
   }>,
 ): Promise<{
   items: unknown[];
@@ -5827,6 +6450,12 @@ async function fetchAllPages(
         `fetchAllPages request failed with HTTP ${page.status}${
           preview ? `: ${preview}` : ""
         }`,
+      );
+    }
+
+    if (page.truncated) {
+      throw new Error(
+        `fetchAllPages page ${pageCount} was cut at the response size limit, so its items and next cursor are incomplete. Request smaller pages (a lower limit or fewer fields) or add a server-side filter.`,
       );
     }
 

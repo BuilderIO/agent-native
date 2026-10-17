@@ -1,4 +1,6 @@
 const messages = {
+  "block.renderUnavailable": "This block is temporarily unavailable.",
+  "block.loading": "Loading block.",
   "composer.contextUrlLabel": "URL",
   "composer.contextInvalidUrl": "Enter a valid HTTP or HTTPS URL.",
   "composer.contextAttach": "Attach",
@@ -36,6 +38,12 @@ const messages = {
   "agent.queued": "queued",
   "agent.completed": "finished",
   "agent.failed": "needs attention",
+  "agent.failureReason.failed": "Couldn't finish",
+  "agent.failureReason.setup": "Needs setup first",
+  "agent.failureReason.auth": "Access was rejected",
+  "agent.failureReason.timeout": "Took too long",
+  "agent.failureReason.budget": "Ran out of time",
+  "agent.failureReason.response": "No usable result",
   "agent.closed": "closed",
   "approval.alwaysAllow": "Always allow",
   "approval.alwaysAllowHint": "Approve and always allow this exact command",
@@ -82,6 +90,8 @@ const messages = {
     "Optional text to check for in the reply…",
   "observability.promoteMustContainLabel":
     "Text to check for in the promoted eval reply",
+  "observability.promoteReviewedPromptLabel":
+    "Manually reviewed prompt (never copied from production)",
   "observability.promoteNeedsContains":
     "This run has no successful tool call. Enter text the reply must contain before promoting.",
   "observability.viewDetails": "View details",
@@ -122,7 +132,7 @@ const messages = {
   "onboarding.skipForNow": "Skip for now",
   "onboarding.saveRoleError": "Could not save your role.",
   "onboarding.builderCreateAccount": "Use Builder.io",
-  "onboarding.builderSignInWithAccount": "Use Builder.io",
+  "onboarding.builderSignInWithAccount": "Sign in with a Builder.io account",
   "onboarding.builderActivateDescription":
     "Create or reuse your Builder.io account and activate its free credits in one click.",
   "onboarding.builderActiveCredits":
@@ -143,21 +153,32 @@ const messages = {
   "onboarding.builderAccountExistsTitle":
     "You already have a Builder.io account",
   "onboarding.builderAccountExistsDescription": "Log in to use your account.",
+  "onboarding.builderActivationChecking":
+    "Checking whether new account activation is available.",
+  "onboarding.builderActivationUnavailable":
+    "Create a Builder.io account or sign in to connect.",
+  "onboarding.builderActivationUnavailableInMode":
+    "Create a Builder.io account or sign in to connect.",
+  "onboarding.builderActivationCheckFailed":
+    "Couldn't check whether this app can create new accounts.",
+
   "onboarding.builderActivationDescription":
-    "Create or connect a Builder.io account in one click to get free credits.",
+    "Create a new account to activate free credits, or continue with an existing account.",
   "onboarding.builderOrgActivationDescription":
     "We'll create your Builder.io account in one click so your organization can use it.",
   "onboarding.builderCreateAndActivate": "Create and activate",
+  "onboarding.builderConnect": "Connect Builder.io",
   "onboarding.builderConsentPrefix":
     "By creating a Builder.io account, you agree to our",
   "onboarding.builderTerms": "Terms of Service",
   "onboarding.builderPrivacy": "Privacy Policy",
   "onboarding.builderConsentAnd": "and",
-  "onboarding.builderExistingAccount": "Use Builder.io",
+  "onboarding.builderExistingAccount": "I have a Builder.io account",
   "onboarding.builderActivating": "Activating Builder.io free credits",
   "onboarding.builderConnecting": "Setting up Builder.io credits",
   "onboarding.builderProvisioningDescription":
     "Creating your Builder.io account and activating free credits.",
+  "onboarding.builderCancelPending": "Checking connection status…",
   "onboarding.builderConnectionDescription":
     "Finish the one-click connection in the new window.",
   "onboarding.builderReadyWithCodeChanges":
@@ -187,6 +208,10 @@ const messages = {
   "onboarding.capability.embeddings.keySummary": "Embeddings",
   "onboarding.capability.embeddings.why":
     "Embeddings improve semantic search. Keyword search still works without them.",
+  "onboarding.capability.webSearch.label": "Web search",
+  "onboarding.capability.webSearch.keySummary": "Builder-managed web search",
+  "onboarding.capability.webSearch.why":
+    "Search current public web sources. Builder-managed search uses included Builder AI credits, so no separate search API key is needed.",
   "onboarding.capability.systemOne.why":
     "Jev is an optional decision model that helps choose relevant tools and skills before the agent's first model request.",
   "onboarding.capability.assetsImageGeneration.label": "Image generation",
@@ -501,7 +526,20 @@ const messages = {
   "composer.skill.uploadFile": "Upload skill file",
   "composer.upload": "Upload",
   "composer.uploadFailed": "Could not upload the selected file.",
+  "composer.fileTooLarge":
+    "This file is larger than the {{size}} MB upload limit.",
+  "composer.sessionExpired":
+    "Your session expired. Sign in again, then send your message.",
   "composer.unsupportedFileType": "This file type isn't supported.",
+  "composer.uploadUnavailable":
+    "File uploads are unavailable right now. Try again in a moment.",
+  "composer.uploadOffline":
+    "The upload couldn't reach the server. Check your connection and try again.",
+  "composer.submissionNotReady":
+    "Chat isn't ready to send yet. Wait a moment, then send again.",
+  "composer.submissionScopeChanged":
+    "This chat changed before your message was sent. Send it again.",
+  "composer.attachmentNotSaved": "Not saved with this chat",
   "composer.useAttachedContext": "Use the attached context.",
   "mentions.commands": "Commands",
   "mentions.learnMore": "Learn more",
@@ -640,6 +678,10 @@ const messages = {
     "The model provider rejected this request as malformed, so it was not retried. Retry, or start a new chat if it keeps happening.",
   "errorMessages.requestTooLarge":
     "This request exceeded the server's size limit (HTTP 413). Start a new chat or remove large attachments or references, then retry.",
+  "errorMessages.capabilityUnavailable":
+    "We couldn't send your message right now. Please try again shortly.",
+  "errorMessages.capabilityUnsupported":
+    "This app can't safely retry your saved prompt yet. Update the app, then try again.",
   "errorMessages.runInterrupted": "The agent stopped before finishing.",
   "errorMessages.runFailed": "The agent run failed.",
   "errorMessages.runUnverified":
@@ -648,6 +690,8 @@ const messages = {
     "You're signed out, so this chat can't follow the agent. Sign in again, then reload.",
   "errorMessages.malformedRequestAttachment":
     "The model rejected an attached file, so this message was never sent. Remove the attachment and retry — a PDF, a plain-text file, or a JPEG, PNG, GIF, or WebP image is read directly; other formats have to be uploaded and linked instead.",
+  "errorMessages.invalidAttachment":
+    "The model provider rejected this attachment's format or size. For images, export a smaller PNG, JPEG, GIF, or WebP; for documents, use a supported file format or paste the relevant text, then attach it again.",
   "errorMessages.noProviderConnected":
     "No LLM provider is connected. Open Settings > Agent > AI providers, then use Builder.io (free tier available) or add a provider key.",
   "errorMessages.openBuilderSpaceSettings": "Open Builder space settings",
@@ -1142,6 +1186,15 @@ const messages = {
   "recovery.copyFailed": "Copy failed",
   "recovery.continueUnavailable":
     "This run can't be continued anymore. Send a message to keep going.",
+  "errorMessages.invalidAttachmentNamed":
+    "The model provider rejected {{name}} because its format or size is unsupported. For images, export a smaller PNG, JPEG, GIF, or WebP; for documents, use a supported format or paste the relevant text, then retry.",
+  "recovery.resendVerificationEmail": "Resend verification email",
+  "recovery.sendingVerificationEmail": "Sending...",
+  "recovery.verificationEmailRequested":
+    "Verification email requested. Check your inbox and spam folder.",
+  "recovery.verificationEmailFailed":
+    "Couldn't request the verification email. Please try again.",
+  "recovery.retryWithoutAttachment": "Retry without attachment",
   "recovery.retryAttachmentUnavailable":
     "This request included a file that can’t be retried. Attach it again in the message box, then try again.",
   "recovery.deferredSubmissionFailed":
@@ -1184,6 +1237,8 @@ const messages = {
   "secrets.emptyHint": "Add a key to use your own accounts.",
   "secrets.emptyMore": "and {{count}} more under New, or add any custom key",
   "secrets.emptyTitle": "No keys yet.",
+  "secrets.figmaTokenMustBeToken":
+    "Paste a Figma access token, not a Figma file URL.",
   "secrets.fromEnvironment": "Provided by the deployment environment.",
   "secrets.managedInVault":
     "Managed in the workspace Vault. Every app in this workspace uses this value.",
@@ -1213,6 +1268,12 @@ const messages = {
   "selection.attached_other":
     "{{formattedCount}} characters of selection attached",
   "selection.clear": "Clear selection context",
+  "setup.addKeyInSettings": "Add a key in Settings",
+  "setup.addKeyInSettingsDescription": "For your account or organization.",
+  "setup.setEnvironmentVariable": "Set an environment variable",
+  "setup.setEnvironmentVariableDescription":
+    "One provider key for everyone in this app.",
+
   "setup.addOwnKeys": "Add your own keys",
   "setup.builderCredits":
     "Builder.io includes free credits, or use your own API key.",
@@ -2594,6 +2655,7 @@ const messages = {
   "settingsShell.search.appDefaultModel": "App default model",
   "settingsShell.search.backgroundAgents": "Background agents",
   "settingsShell.search.browserAutomation": "Browser automation",
+  "settingsShell.search.webSearch": "Web search",
   "settingsShell.search.connectedAgents": "Connected agents",
   "settingsShell.search.database": "Database",
   "settingsShell.search.defaultModel": "Default model",
@@ -2727,6 +2789,8 @@ const messages = {
     "Keeps generated slides and designs on brand.",
   "settingsInfra.whyBackground": "Makes code changes from production.",
   "settingsInfra.whyBrowser": "Lets the agent use a browser in production.",
+  "settingsInfra.whyWebSearch":
+    "Finds current public information and official documentation.",
   "settingsInfra.provider": "Provider",
   "settingsInfra.keyOrg": "Uses the organization {{provider}} key.",
   "settingsInfra.manageKey": "Manage key",
@@ -3056,6 +3120,18 @@ const messages = {
   "settingsSubAgents.close": "Close",
   "observability.insights.rawTrace":
     "Raw trace (every span, with inputs and outputs)",
+  "reportProblem.menuItem": "Report a problem",
+  "reportProblem.title_one":
+    "Attach what the app did in the last {{count}} second?",
+  "reportProblem.title_other":
+    "Attach what the app did in the last {{count}} seconds?",
+  "reportProblem.noEvents": "Nothing recorded yet.",
+  "reportProblem.send": "Send to agent",
+  "reportProblem.copy": "Copy problem report",
+  "reportProblem.attaching": "Attaching…",
+  "reportProblem.notAttached": "The report was not attached.",
+  "reportProblem.agentMessage":
+    "Something went wrong in the app. Use the attached problem report to explain what happened.",
 } as const;
 
 export default messages;

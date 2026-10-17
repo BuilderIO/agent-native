@@ -9,11 +9,15 @@ import {
   normalizeAppUrl,
   parseTree,
   planCapture,
+  replayIframeParentIdsAt,
   reasonFromError,
+  replayFrameUrlFromAgentLink,
+  replayAtFromRecordingStart,
   stripBearer,
   TreeFormatError,
   unattemptedFailures,
   unauthenticatedMessage,
+  writeCaptureOutputs,
   type TreeNode,
 } from "./journey-capture-plan";
 
@@ -24,10 +28,11 @@ const example = (
     width: 1440,
     height: 900,
   },
+  ts = "",
 ) => ({
   sessionId: `s-${recordingId}-${offsetMs}`,
   recordingId,
-  ts: "",
+  ts,
   offsetMs,
   viewport,
 });
@@ -150,6 +155,24 @@ describe("planCapture", () => {
     });
     expect(items.map((item) => item.recordingId)).toEqual(["r3"]);
   });
+
+  it("preserves the source event time and derives the replay timestamp", () => {
+    const sourceEventAt = "2026-10-07T16:43:10.198Z";
+    const { items } = planCapture(
+      tree([
+        { key: "step", examples: [example("r1", 47_160, null, sourceEventAt)] },
+      ]),
+      { perNode: 1 },
+    );
+    expect(items[0]?.sourceEventAt).toBe(sourceEventAt);
+    expect(
+      replayAtFromRecordingStart(
+        Date.parse("2026-10-07T16:42:25.038Z"),
+        47_160,
+      ),
+    ).toBe("2026-10-07T16:43:12.198Z");
+    expect(replayAtFromRecordingStart(Number.NaN, 1)).toBeNull();
+  });
 });
 
 describe("groupByRecording", () => {
@@ -195,6 +218,7 @@ describe("manifest", () => {
     const manifest = buildManifest({
       generatedAt: "2026-10-08T00:00:00.000Z",
       appUrl: "https://a.test",
+      captureMode: "browser",
       outDir: "/tmp/frames",
       frames: [
         {
@@ -206,6 +230,9 @@ describe("manifest", () => {
           height: 1,
           localPath: "b-0.png",
           capturedAt: "t",
+          assetStatus: "not_fetched",
+          sourceEventAt: null,
+          replayAt: null,
         },
         {
           nodeKey: "a",
@@ -216,6 +243,9 @@ describe("manifest", () => {
           height: 1,
           localPath: "a-1.png",
           capturedAt: "t",
+          assetStatus: "preflighted",
+          sourceEventAt: null,
+          replayAt: null,
         },
       ],
       failures: [
@@ -225,6 +255,8 @@ describe("manifest", () => {
           recordingId: "r2",
           offsetMs: 5,
           reason: "offset_out_of_range",
+          sourceEventAt: null,
+          replayAt: null,
         },
       ],
       skipped: [{ nodeKey: "d", exampleIndex: 0, reason: "no_recording" }],
@@ -235,6 +267,8 @@ describe("manifest", () => {
     ]);
     expect(manifest.failures).toHaveLength(1);
     expect(manifest.skipped).toHaveLength(1);
+    expect(manifest.captureMode).toBe("browser");
+    expect(manifest.remoteAssets).toBe("browser-preflight-per-frame");
   });
 
   it("fails the run only when no frame was captured", () => {
@@ -244,6 +278,8 @@ describe("manifest", () => {
       recordingId: "r",
       offsetMs: 0,
       reason: "x",
+      sourceEventAt: null,
+      replayAt: null,
     };
     const frame = {
       nodeKey: "a",
@@ -254,10 +290,99 @@ describe("manifest", () => {
       height: 1,
       localPath: "p",
       capturedAt: "t",
+      assetStatus: "not_fetched" as const,
+      sourceEventAt: null,
+      replayAt: null,
     };
     expect(exitCodeFor({ frames: [], failures: [failure] })).toBe(1);
     expect(exitCodeFor({ frames: [frame], failures: [failure] })).toBe(0);
     expect(exitCodeFor({ frames: [], failures: [] })).toBe(0);
+  });
+
+  it("writes the manifest after sidecar failure and marks the capture unsuccessful", async () => {
+    let manifestWriteAttempted = false;
+    const frame = {
+      nodeKey: "signup",
+      exampleIndex: 0,
+      recordingId: "recording",
+      offsetMs: 100,
+      width: 1,
+      height: 1,
+      localPath: "frame.png",
+      capturedAt: "now",
+      assetStatus: "preflighted" as const,
+      sourceEventAt: null,
+      replayAt: null,
+    };
+    const output = await writeCaptureOutputs(
+      async () => {
+        throw new Error("private sidecar path detail");
+      },
+      async (sidecarWriteFailed) => {
+        manifestWriteAttempted = true;
+        return buildManifest({
+          generatedAt: "now",
+          appUrl: "https://analytics.example.test",
+          captureMode: "browser",
+          ...(sidecarWriteFailed
+            ? { promptProvenanceError: "sidecar_write_failed" as const }
+            : { promptProvenancePath: "/private/capture/prompts.json" }),
+          frames: [frame],
+          failures: [],
+          skipped: [],
+          outDir: "/private/capture",
+        });
+      },
+    );
+
+    expect(manifestWriteAttempted).toBe(true);
+    expect(output.sidecarWriteFailed).toBe(true);
+    expect(output.manifest.promptProvenancePath).toBeUndefined();
+    expect(output.manifest.promptProvenanceError).toBe("sidecar_write_failed");
+    expect(output.manifest.frames).toHaveLength(1);
+    expect(exitCodeFor(output.manifest)).toBe(1);
+  });
+});
+
+describe("replayFrameUrlFromAgentLink", () => {
+  it("adds frame mode only to the recording-scoped Analytics link", () => {
+    const url = replayFrameUrlFromAgentLink(
+      "https://analytics.example.test/base/sessions/sr_1?agent_access=scoped",
+      "https://analytics.example.test/base",
+      "sr_1",
+      548_922,
+    );
+    expect(new URL(url).pathname).toBe("/base/sessions/sr_1");
+    expect(new URL(url).searchParams.get("frame")).toBe("1");
+    expect(new URL(url).searchParams.get("agent_access")).toBe("scoped");
+    expect(new URL(url).searchParams.get("capture_through_ms")).toBe("548922");
+  });
+
+  it.each([
+    "https://other.example.test/sessions/sr_1?agent_access=scoped",
+    "https://analytics.example.test/sessions/sr_2?agent_access=scoped",
+    "https://analytics.example.test/sessions/sr_1?agent_access=scoped&token=app",
+    "https://analytics.example.test/sessions/sr_1?agent_access=scoped#fragment",
+  ])("rejects an unscoped or expanded frame URL: %s", (url) => {
+    expect(() =>
+      replayFrameUrlFromAgentLink(
+        url,
+        "https://analytics.example.test",
+        "sr_1",
+        5,
+      ),
+    ).toThrow("replay_link_invalid");
+  });
+
+  it("requires a safe bounded capture offset", () => {
+    expect(() =>
+      replayFrameUrlFromAgentLink(
+        "https://analytics.example.test/sessions/sr_1?agent_access=scoped",
+        "https://analytics.example.test",
+        "sr_1",
+        Number.MAX_SAFE_INTEGER,
+      ),
+    ).toThrow("replay_link_invalid");
   });
 });
 
@@ -347,6 +472,32 @@ describe("reasonFromError", () => {
   });
 });
 
+describe("replay iframe documents", () => {
+  it("only counts child documents attached by the requested replay time", () => {
+    const events = [
+      {
+        type: 3,
+        timestamp: 1_500,
+        data: {
+          isAttachIframe: true,
+          adds: [{ parentId: 42, node: { type: 0 } }],
+        },
+      },
+      {
+        type: 3,
+        timestamp: 2_500,
+        data: {
+          isAttachIframe: true,
+          adds: [{ parentId: 43, node: { type: 0 } }],
+        },
+      },
+    ];
+
+    expect([...replayIframeParentIdsAt(events, 2_000)]).toEqual([42]);
+    expect([...replayIframeParentIdsAt(events, 3_000)]).toEqual([42, 43]);
+  });
+});
+
 describe("unattemptedFailures", () => {
   const item = (nodeKey: string, exampleIndex: number, recordingId = "r") => ({
     nodeKey,
@@ -354,6 +505,7 @@ describe("unattemptedFailures", () => {
     recordingId,
     offsetMs: 100,
     viewport: null,
+    sourceEventAt: null,
   });
 
   it("lists every planned frame that has neither a frame nor a failure", () => {
@@ -368,6 +520,9 @@ describe("unattemptedFailures", () => {
         height: 1,
         localPath: "p",
         capturedAt: "t",
+        assetStatus: "not_fetched" as const,
+        sourceEventAt: null,
+        replayAt: null,
       },
     ];
     const failures = [
@@ -377,6 +532,8 @@ describe("unattemptedFailures", () => {
         recordingId: "r",
         offsetMs: 100,
         reason: "upload_failed: x",
+        sourceEventAt: null,
+        replayAt: null,
       },
     ];
     expect(
@@ -388,6 +545,8 @@ describe("unattemptedFailures", () => {
         recordingId: "r2",
         offsetMs: 100,
         reason: "run_stopped: auth",
+        sourceEventAt: null,
+        replayAt: null,
       },
     ]);
     expect(unattemptedFailures([], [], [], "x")).toEqual([]);

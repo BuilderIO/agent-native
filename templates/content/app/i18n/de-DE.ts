@@ -462,7 +462,6 @@ const editor = {
   pageBodySyncing: "Der Inhalt dieser Seite wird noch synchronisiert",
   pageBodySyncingDescription:
     "Die Bearbeitung ist pausiert, bis der Seiteninhalt fertig synchronisiert ist, damit bestehende Inhalte nicht überschrieben werden.",
-  createCollection: "Sammlung erstellen",
   creatingDatabase: "Inline-Sammlung wird erstellt...",
   databaseCreated: "Sammlung erstellt",
   emptyBlockPlaceholder: "Drücke „/“ für Befehle",
@@ -827,6 +826,7 @@ const editor = {
     notifications: "Benachrichtigungen",
     notionSync: "Begriffssynchronisierung",
     openInNotion: "In Notion öffnen",
+    openInAgentNative: "In Agent-Native öffnen",
     orgCanFindAndView:
       "Jeder in Ihrer Organisation kann sie finden und anzeigen",
     orgLinkCanView:
@@ -1142,6 +1142,8 @@ const exactEnglish = {
       openInClaude: "In Claude öffnen",
       openInClaudeCode: "In Claude Code öffnen",
       openInCodex: "In Codex öffnen",
+      connectContent: "Content verbinden",
+      otherAgents: "Andere Agenten",
       agentCopyAccessNote:
         "Agenten können Content MCP mit deinen bestehenden Berechtigungen nutzen",
       temporaryAgentLink: "Temporärer Agentenlink",
@@ -1454,7 +1456,17 @@ const overrides = {
     addEmoji: "Emoji hinzufügen",
     mentionSomeone: "Jemanden erwähnen",
     mentionPeople: "Personen",
+    mentionPeopleLoadFailed: "Personen konnten nicht geladen werden.",
     mentionAgents: "Agenten",
+    identityPerson: "Person",
+    identityModel: "Modell",
+    identityEffort: "Denkaufwand",
+    identityRan: "Ausgeführt",
+    identityNotRecorded: "Nicht erfasst",
+    identityOpenRun: "Lauf öffnen",
+    identityRoleOwner: "Eigentümer",
+    identityRoleAdmin: "Admin",
+    identityRoleMember: "Mitglied",
     commentTitle: "Kommentar",
     suggestionTitle: "Vorschlag",
     close: "Schließen",
@@ -1485,6 +1497,9 @@ const overrides = {
     aiUndo: "Rückgängig",
     aiDone: "Fertig",
     aiMoreChanges: "+{{count}} weitere",
+    suggestionReplaced: "Ersetzt",
+    suggestionWithdrawn: "Zurückgezogen",
+    suggestedChange: "Vorgeschlagene Änderung",
     aiUndoUnavailable:
       "Entfernter Text lässt sich nicht automatisch wiederherstellen",
     aiUndoFailed: "Änderung konnte nicht rückgängig gemacht werden",
@@ -1529,6 +1544,11 @@ const overrides = {
     resize: "Seitenleiste skalieren",
     expand: "Seitenleiste ausklappen",
     failedCreatePage: "Seite konnte nicht erstellt werden",
+    failedCreatePageDraftDescription:
+      "Ihr Entwurf ist in diesem Browser gespeichert. Sie können die Seite erneut erstellen oder den Entwurf verwerfen.",
+    discardFailedCreatePageQuestion: "Ausstehende Erstellung verwerfen?",
+    discardFailedCreatePageDescription:
+      "Dadurch werden die ausstehende Erstellung und alle ungespeicherten Entwürfe gelöscht. Falls die Seite bereits gespeichert wurde, bleibt sie in deinem Arbeitsbereich erhalten.",
     failedDeletePage: "Seite konnte nicht gelöscht werden",
     failedPermanentDeletePage: "Seite konnte nicht dauerhaft gelöscht werden",
     failedRestorePage: "Seite konnte nicht wiederhergestellt werden",

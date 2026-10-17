@@ -1318,7 +1318,10 @@ export default function CodeAgentsHub({
           layout={chatFirstAppLayout}
           createAppTrigger={
             onChatFirstAppCreated ? (
-              <CreateAppPromptPopover onCreated={onChatFirstAppCreated} />
+              <CreateAppPromptPopover
+                onCreated={onChatFirstAppCreated}
+                onOpenSettings={onOpenSettings}
+              />
             ) : undefined
           }
           onCreateApp={onCreateApp}

@@ -6,9 +6,8 @@ import {
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
 import type { IncomingMessage } from "./types.js";
-
-let initPromise: Promise<void> | undefined;
 
 export type IntegrationControlAction = "approve" | "deny" | "cancel";
 
@@ -29,10 +28,13 @@ export interface IntegrationControl {
   expiresAt: number;
 }
 
-export async function ensureTable(): Promise<void> {
-  if (!initPromise) {
-    initPromise = (async () => {
-      const sql = `CREATE TABLE IF NOT EXISTS integration_controls (
+export const integrationControlsStore = defineStore({
+  id: "integration_controls",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const sql = `CREATE TABLE IF NOT EXISTS integration_controls (
         id TEXT PRIMARY KEY,
         action TEXT NOT NULL,
         owner_email TEXT NOT NULL,
@@ -50,7 +52,6 @@ export async function ensureTable(): Promise<void> {
         created_at BIGINT NOT NULL,
         claimed_at BIGINT
       )`;
-      {
         await ensureTableExists("integration_controls", sql);
         await ensureColumnExists(
           "integration_controls",
@@ -61,17 +62,17 @@ export async function ensureTable(): Promise<void> {
           "idx_integration_controls_expiry",
           "CREATE INDEX IF NOT EXISTS idx_integration_controls_expiry ON integration_controls(status, expires_at)",
         );
-      }
-    })().catch((error) => {
-      initPromise = undefined;
-      throw error;
-    });
-  }
-  return initPromise;
+      },
+    },
+  ],
+});
+
+export function ensureTable(): Promise<void> {
+  return integrationControlsStore.ready();
 }
 
 export function _resetIntegrationControlsStoreForTests(): void {
-  initPromise = undefined;
+  integrationControlsStore.reset();
 }
 
 function rowToControl(row: Record<string, unknown>): IntegrationControl {

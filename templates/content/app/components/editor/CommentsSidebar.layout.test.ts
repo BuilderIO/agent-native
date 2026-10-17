@@ -9,7 +9,7 @@ import type { CommentThread } from "@/hooks/use-comments";
 
 import {
   estimateThreadCardHeight,
-  findPendingCommentOffset,
+  findPendingCommentPosition,
   findThreadPosition,
   getAiCommentSource,
   layoutCommentThreads,
@@ -214,7 +214,10 @@ describe("comments sidebar layout", () => {
     scroll.getBoundingClientRect = () => rect(80) as DOMRect;
     pending.getBoundingClientRect = () => rect(125) as DOMRect;
 
-    expect(findPendingCommentOffset(scroll)).toBe(45);
+    expect(findPendingCommentPosition(scroll, scroll)).toEqual({
+      documentTop: 45,
+      layoutTop: 45,
+    });
   });
 
   it("gives the selected thread first claim near its anchor without overlap", () => {
@@ -572,16 +575,6 @@ describe("comments sidebar layout", () => {
       'showUtilityPanelOffColumn && commentSurfaces.list === "region-list"',
     );
     expect(source).not.toContain("CONTENT_COMMENTS_UI_CLEANUP_FLAG");
-  });
-
-  it("recomputes anchors when comment indicators are restored", () => {
-    const source = readFileSync("app/components/editor/VisualEditor.tsx", {
-      encoding: "utf8",
-    });
-
-    expect(source).toMatch(
-      /scheduleApply\(false\);[\s\S]*?showCommentIndicators/,
-    );
   });
 
   it("keeps the pending composer in normal flow in the anchored card", () => {

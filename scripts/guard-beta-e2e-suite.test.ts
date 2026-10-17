@@ -12,6 +12,8 @@ import path from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { parse } from "yaml";
+
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
@@ -23,6 +25,10 @@ const tsx = path.join(repoRoot, "node_modules", ".bin", "tsx");
 const GUARDED_FILES = [
   ".github/workflows/beta-e2e.yml",
   ".github/workflows/beta-e2e-scheduled.yml",
+  ".github/workflows/signup-e2e-scheduled.yml",
+  ".github/workflows/signup-agent-scheduled.yml",
+  ".github/workflows/beta-e2e-report.yml",
+  "scripts/beta-e2e-digest.ts",
   ".github/actions/beta-e2e-setup/action.yml",
   ".github/workflows/deploy-production-sites-prebuilt.yml",
   "e2e/beta/lib/fleet.ts",
@@ -34,6 +40,29 @@ const GUARDED_FILES = [
 ];
 
 type Files = Record<string, string>;
+type WorkflowStep = {
+  name?: unknown;
+  uses?: unknown;
+  if?: unknown;
+  run?: unknown;
+  env?: Record<string, unknown>;
+  with?: Record<string, unknown>;
+};
+type WorkflowJob = {
+  if?: unknown;
+  permissions?: Record<string, unknown>;
+  strategy?: { matrix?: unknown };
+  env?: Record<string, unknown>;
+  steps?: WorkflowStep[];
+};
+type ParsedWorkflow = {
+  permissions?: Record<string, unknown>;
+  on?: Record<
+    string,
+    { inputs?: Record<string, { required?: unknown; default?: unknown }> }
+  >;
+  jobs?: Record<string, WorkflowJob>;
+};
 
 function runGuard(mutate: (files: Files) => void = () => {}): {
   status: number | null;
@@ -43,7 +72,7 @@ function runGuard(mutate: (files: Files) => void = () => {}): {
   try {
     const files: Files = {};
     for (const file of GUARDED_FILES) {
-      files[file] = readFileSync(path.join(repoRoot, file), "utf8");
+      files[file] = readFileSync(path.join(repoRoot, file), "utf8"); // source-read-ok: checks the live workflow text contract
     }
     mutate(files);
     for (const [file, content] of Object.entries(files)) {
@@ -80,6 +109,135 @@ describe("guard:beta-e2e-suite", () => {
     const { status, output } = runGuard();
     assert.equal(status, 0, output);
     assert.match(output, /guard:beta-e2e-suite passed/);
+  });
+
+  it("keeps unattended scheduled Beta E2E unauthenticated and scoped", () => {
+    rejects(
+      (files) =>
+        edit(
+          files,
+          ".github/workflows/beta-e2e-scheduled.yml",
+          "lane: public",
+          "lane: public+authed",
+        ),
+      /must run only the public lane until Beta databases are isolated/,
+    );
+    rejects(
+      (files) =>
+        edit(
+          files,
+          ".github/workflows/beta-e2e-scheduled.yml",
+          "QA_SLACK_BOT_TOKEN: ${{ secrets.QA_SLACK_BOT_TOKEN }}",
+          "QA_SLACK_BOT_TOKEN: ${{ secrets.QA_SLACK_BOT_TOKEN }}\n      BETA_E2E_EMAIL: ${{ secrets.BETA_E2E_EMAIL }}",
+        ),
+      /must pass only QA_SLACK_BOT_TOKEN from its matching secret/,
+    );
+    rejects(
+      (files) =>
+        edit(
+          files,
+          ".github/workflows/beta-e2e-scheduled.yml",
+          "    secrets:\n      QA_SLACK_BOT_TOKEN: ${{ secrets.QA_SLACK_BOT_TOKEN }}",
+          "    secrets: inherit",
+        ),
+      /must pass only QA_SLACK_BOT_TOKEN from its matching secret/,
+    );
+    rejects(
+      (files) =>
+        edit(
+          files,
+          ".github/workflows/beta-e2e-scheduled.yml",
+          "QA_SLACK_BOT_TOKEN: ${{ secrets.QA_SLACK_BOT_TOKEN }}",
+          "QA_SLACK_BOT_TOKEN: ${{ secrets.SOME_OTHER_TOKEN }}",
+        ),
+      /must pass only QA_SLACK_BOT_TOKEN from its matching secret/,
+    );
+    rejects(
+      (files) =>
+        edit(
+          files,
+          ".github/workflows/beta-e2e-scheduled.yml",
+          "      update_baseline: false",
+          "      update_baseline: true",
+        ),
+      /must preserve the shared full-suite notification baseline/,
+    );
+  });
+
+  it("gates both scheduled signup writers on verified Beta database isolation", () => {
+    rejects(
+      (files) =>
+        edit(
+          files,
+          ".github/workflows/signup-e2e-scheduled.yml",
+          "vars.BETA_DATABASES_ISOLATED == 'true'",
+          "true",
+        ),
+      /must gate scheduled signup writes on BETA_DATABASES_ISOLATED == 'true'/,
+    );
+    rejects(
+      (files) =>
+        edit(
+          files,
+          ".github/workflows/signup-e2e-scheduled.yml",
+          "  workflow_dispatch:",
+          "  dispatch_disabled:",
+        ),
+      /must gate scheduled signup writes on BETA_DATABASES_ISOLATED == 'true' while preserving manual dispatch/,
+    );
+    rejects(
+      (files) =>
+        edit(
+          files,
+          ".github/workflows/signup-e2e-scheduled.yml",
+          "needs.signup-e2e.result == 'failure' || needs.signup-e2e.result == 'cancelled') && (steps.report.outcome",
+          "needs.signup-e2e.result != 'success') && (steps.report.outcome",
+        ),
+      /must not report an intentional skipped signup run as a collection failure/,
+    );
+    rejects(
+      (files) =>
+        edit(
+          files,
+          ".github/workflows/signup-e2e-scheduled.yml",
+          "outcome=inconclusive",
+          "outcome=clean",
+        ),
+      /must preserve the prior report state when signup is skipped or inconclusive/,
+    );
+    rejects(
+      (files) =>
+        edit(
+          files,
+          ".github/workflows/signup-e2e-scheduled.yml",
+          "|| (steps.previous-state.outputs.continuity_unknown == 'true' && needs.signup-e2e.result == 'success'))",
+          "|| steps.previous-state.outputs.continuity_unknown == 'true')",
+        ),
+      /must not attempt Slack delivery for unknown continuity when the signup job was intentionally skipped/,
+    );
+    rejects(
+      (files) =>
+        edit(
+          files,
+          ".github/workflows/signup-agent-scheduled.yml",
+          "  workflow_dispatch:",
+          '  schedule:\n    - cron: "15 17 * * *"\n  workflow_dispatch:',
+        ),
+      /must keep its unattended schedule disabled until Beta database isolation is verified/,
+    );
+  });
+
+  it("reports opted-in production pre-flight failures through the shared Slack reporter", () => {
+    rejects(
+      (files) =>
+        edit(
+          files,
+          ".github/workflows/deploy-production-sites-prebuilt.yml",
+          "uses: ./.github/workflows/beta-e2e-report.yml",
+          "uses: ./.github/workflows/missing-report.yml",
+        ),
+      /must send the opted-in production Beta E2E result, including failed or cancelled runs/,
+    );
   });
 
   it("guards the configured low-cost model constants", () => {
@@ -173,6 +331,212 @@ describe("guard:beta-e2e-suite", () => {
         ),
       /authed after the gate job/,
     );
+  });
+
+  it("keeps saved-thread recovery opt-in and validates its manual request", () => {
+    const workflow = parse(
+      readFileSync(
+        path.join(repoRoot, ".github/workflows/beta-e2e.yml"),
+        "utf8",
+      ),
+    ) as ParsedWorkflow;
+    const dispatchInputs = workflow.on?.workflow_dispatch?.inputs;
+    const callInputs = workflow.on?.workflow_call?.inputs;
+    assert.equal(dispatchInputs?.diagnostic_run?.required, false);
+    assert.equal(dispatchInputs?.diagnostic_run?.default, "");
+    assert.equal(callInputs?.diagnostic_run, undefined);
+
+    const jobs = workflow.jobs ?? {};
+    for (const name of [
+      "public",
+      "fleet",
+      "authed",
+      "advisory",
+      "signup",
+      "report",
+    ]) {
+      assert.match(String(jobs[name]?.if), /inputs\.diagnostic_run == ''/);
+    }
+    assert.match(String(jobs.gate?.if), /inputs\.diagnostic_run != ''/);
+    const gateSteps = jobs.gate?.steps ?? [];
+    const checkoutIndex = gateSteps.findIndex(
+      (step) =>
+        typeof step.uses === "string" && step.uses.includes("actions/checkout"),
+    );
+    const validationIndex = gateSteps.findIndex(
+      (step) => step.name === "Validate read-only recovery request",
+    );
+    const gateSetupIndex = gateSteps.findIndex(
+      (step) => step.uses === "./.github/actions/beta-e2e-setup",
+    );
+    const typecheckIndex = gateSteps.findIndex(
+      (step) => step.name === "Typecheck the suite",
+    );
+    const helperTestIndex = gateSteps.findIndex(
+      (step) => step.name === "Test beta E2E helper contracts",
+    );
+    assert.ok(checkoutIndex >= 0);
+    assert.equal(validationIndex, checkoutIndex + 1);
+    assert.ok(gateSetupIndex > validationIndex);
+    assert.ok(typecheckIndex > gateSetupIndex);
+    assert.ok(helperTestIndex > typecheckIndex);
+    assert.match(
+      String(gateSteps[validationIndex]?.if),
+      /diagnostic_run != ''/,
+    );
+    assert.equal(gateSteps[typecheckIndex]?.if, undefined);
+    assert.equal(gateSteps[helperTestIndex]?.if, undefined);
+
+    assert.match(
+      String(jobs.authed?.if),
+      /needs\.discover\.result == 'success'/,
+    );
+    assert.match(
+      String(jobs.authed?.env?.SHARD_SELECTED),
+      /needs\.discover\.outputs\.apps/,
+    );
+
+    const steps = jobs.authed?.steps ?? [];
+    const browserSetup = steps.find(
+      (step) => step.uses === "./.github/actions/beta-e2e-setup",
+    );
+    const regular = steps.find(
+      (step) => step.name === "Authenticated ${{ matrix.slot }}",
+    );
+    const diagnosticJob = jobs["saved-thread-diagnostics"];
+    const diagnostic = diagnosticJob?.steps?.find(
+      (step) => step.name === "Read saved thread provenance",
+    );
+    const upload = steps.find(
+      (step) =>
+        typeof step.uses === "string" &&
+        step.uses.includes("actions/upload-artifact"),
+    );
+    assert.ok(browserSetup);
+    assert.equal(browserSetup.with?.browser, undefined);
+    assert.equal(regular?.if, "${{ env.SHARD_SELECTED == 'true' }}");
+    assert.match(String(diagnosticJob?.if), /inputs\.diagnostic_run != ''/);
+    assert.equal(upload?.if, "${{ always() && env.SHARD_SELECTED == 'true' }}");
+    assert.equal(jobs.authed?.env?.BETA_E2E_OPENAI_API_KEY, undefined);
+    assert.equal(
+      regular?.env?.BETA_E2E_OPENAI_API_KEY,
+      "${{ secrets.BETA_E2E_OPENAI_API_KEY }}",
+    );
+    assert.equal(diagnostic?.env?.BETA_E2E_OPENAI_API_KEY, undefined);
+    assert.equal(diagnostic?.env?.BETA_E2E_SESSION_TOKEN_CONTENT, undefined);
+    assert.equal(diagnostic?.env?.BETA_E2E_SESSION_TOKEN_DISPATCH, undefined);
+
+    const validationStep = (jobs.gate?.steps ?? []).find(
+      (step) => step.name === "Validate read-only recovery request",
+    );
+    assert.ok(validationStep);
+    const script = String(validationStep.run).match(
+      /node <<'NODE'\n([\s\S]*?)\nNODE\s*$/,
+    )?.[1];
+    assert.ok(
+      script,
+      "manual recovery validation script must remain extractable",
+    );
+
+    const invoke = (
+      inputs: Record<string, unknown>,
+      repository = "BuilderIO/agent-native",
+    ) => {
+      const dir = mkdtempSync(path.join(tmpdir(), "beta-recovery-input-"));
+      try {
+        const eventPath = path.join(dir, "event.json");
+        writeFileSync(
+          eventPath,
+          JSON.stringify({ repository: { full_name: repository }, inputs }),
+        );
+        return spawnSync(process.execPath, ["-e", script], {
+          cwd: repoRoot,
+          encoding: "utf8",
+          env: {
+            GITHUB_EVENT_NAME: "workflow_dispatch",
+            GITHUB_REPOSITORY: "BuilderIO/agent-native",
+            GITHUB_EVENT_PATH: eventPath,
+          },
+        });
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    };
+    const valid = (apps: string) => ({
+      diagnostic_run: "123456789",
+      apps,
+      lane: "authed",
+      grep: String.raw`\[chat-reliability\] refresh mid-run restores the complete answer`,
+    });
+    assert.equal(invoke(valid("content")).status, 0);
+    assert.equal(invoke(valid("content,dispatch")).status, 0);
+    assert.equal(invoke({ ...valid("slides") }).status, 2);
+    assert.equal(invoke({ ...valid("content"), lane: "public" }).status, 2);
+    assert.equal(invoke({ ...valid("content"), grep: "other test" }).status, 2);
+    assert.equal(invoke(valid("content"), "other/repository").status, 2);
+    assert.equal(
+      invoke({ ...valid("content"), diagnostic_run: "123; echo bad" }).status,
+      2,
+    );
+  });
+
+  it("isolates Actions read permission and execution to the optional diagnostic job", () => {
+    const workflow = parse(
+      readFileSync(
+        path.join(repoRoot, ".github/workflows/beta-e2e.yml"),
+        "utf8",
+      ),
+    ) as ParsedWorkflow;
+    const jobs = workflow.jobs ?? {};
+    const normal = jobs.authed;
+    const diagnostic = jobs["saved-thread-diagnostics"];
+    assert.deepEqual(workflow.permissions, { contents: "read" });
+    assert.equal(normal?.permissions, undefined);
+    assert.equal(
+      normal?.if,
+      "${{ always() && !cancelled() && inputs.diagnostic_run == '' && inputs.lane != 'public' && inputs.lane != 'signup' && needs.gate.result == 'success' && needs.discover.result == 'success' }}",
+    );
+    assert.equal(
+      normal?.env?.SHARD_SELECTED,
+      "${{ matrix.app == '' && needs.discover.outputs.apps != 'design' || matrix.app != '' && contains(format(',{0},', needs.discover.outputs.apps), format(',{0},', matrix.app)) }}",
+    );
+    assert.ok(normal?.steps?.length);
+    for (const step of normal.steps) {
+      assert.equal(step.env?.GH_TOKEN, undefined);
+      assert.doesNotMatch(String(step.run), /read-saved-thread/);
+    }
+    assert.equal(
+      jobs.discover?.steps?.find(
+        (step) => step.name === "Build the host matrix",
+      )?.env?.REQUESTED_APPS,
+      "${{ inputs.apps }}",
+    );
+    assert.equal(
+      diagnostic?.if,
+      "${{ always() && !cancelled() && inputs.diagnostic_run != '' && needs.gate.result == 'success' && needs.discover.result == 'success' }}",
+    );
+    assert.deepEqual(diagnostic.permissions, {
+      actions: "read",
+      contents: "read",
+    });
+    assert.equal(diagnostic.env, undefined);
+    assert.equal(
+      diagnostic.strategy?.matrix,
+      "${{ fromJSON(needs.discover.outputs.matrix) }}",
+    );
+    const steps = diagnostic.steps ?? [];
+    assert.equal(steps.length, 3);
+    assert.match(String(steps[0].uses), /^actions\/checkout@/);
+    assert.equal(steps[1].uses, "./.github/actions/beta-e2e-setup");
+    assert.deepEqual(steps[1].with, { browser: "false" });
+    assert.equal(steps[2].name, "Read saved thread provenance");
+    assert.equal(steps[2].run, "pnpm exec tsx e2e/beta/read-saved-thread.ts");
+    assert.deepEqual(steps[2].env, {
+      GH_TOKEN: "${{ github.token }}",
+      BETA_E2E_APPS: "${{ matrix.app }}",
+      BETA_E2E_EMAIL: "${{ secrets.BETA_E2E_EMAIL }}",
+      BETA_E2E_SESSION_TOKENS: "${{ secrets.BETA_E2E_SESSION_TOKENS }}",
+    });
   });
 
   it("requires chat to be sharded per app with unique slots", () => {
@@ -274,6 +638,10 @@ describe("guard:beta-e2e-suite", () => {
       ['select_args+=("--shard=$BETA_E2E_SHARD")', "true"],
       ['grep -q "Error: No tests found"', "true"],
       ['"$BETA_E2E_NARROWED" = "true"', "true"],
+      [
+        'rm -rf "e2e/beta/playwright-report/$BETA_E2E_REPORT_SLOT" "e2e/beta/test-results/$BETA_E2E_REPORT_SLOT"',
+        "true",
+      ],
       ['exit "$selection_status"', "exit 0"],
     ] as const) {
       rejects(
@@ -380,12 +748,55 @@ describe("guard:beta-e2e-suite", () => {
     );
   });
 
-  it("holds the scheduled reporter to the issue, Slack, and permission contract", () => {
+  it("reports only direct beta dispatches and waits for every lane", () => {
     rejects(
       (files) =>
         edit(
           files,
-          ".github/workflows/beta-e2e-scheduled.yml",
+          ".github/workflows/beta-e2e.yml",
+          "github.workflow == 'Beta E2E (browser)'",
+          "github.workflow == 'Deploy production sites'",
+        ),
+      /must report direct manual runs/,
+    );
+    rejects(
+      (files) =>
+        edit(
+          files,
+          ".github/workflows/beta-e2e.yml",
+          "needs: [discover, gate, public, fleet, authed, advisory, signup]",
+          "needs: [discover]",
+        ),
+      /must wait for every lane and pass the aggregate result/,
+    );
+    rejects(
+      (files) =>
+        edit(
+          files,
+          ".github/workflows/beta-e2e.yml",
+          /needs\.\*\.result/g,
+          "needs.gate.result",
+        ),
+      /must wait for every lane and pass the aggregate result/,
+    );
+    rejects(
+      (files) =>
+        edit(
+          files,
+          ".github/workflows/beta-e2e.yml",
+          "always()\n      && github.event_name == 'workflow_dispatch'",
+          "!cancelled()\n      && github.event_name == 'workflow_dispatch'",
+        ),
+      /including canceled lanes/,
+    );
+  });
+
+  it("holds the shared reporter to the artifact, Slack, and permission contract", () => {
+    rejects(
+      (files) =>
+        edit(
+          files,
+          ".github/workflows/beta-e2e-report.yml",
           /QA_SLACK_BOT_TOKEN/g,
           "SOME_OTHER_TOKEN",
         ),
@@ -395,7 +806,7 @@ describe("guard:beta-e2e-suite", () => {
       (files) =>
         edit(
           files,
-          ".github/workflows/beta-e2e-scheduled.yml",
+          ".github/workflows/beta-e2e-report.yml",
           /slackapi\/slack-github-action@[0-9a-f]{40}/,
           "slackapi/slack-github-action@v4",
         ),
@@ -405,8 +816,8 @@ describe("guard:beta-e2e-suite", () => {
       (files) =>
         edit(
           files,
-          ".github/workflows/beta-e2e-scheduled.yml",
-          /(    permissions:\n      actions: read\n      contents: read\n      issues: write\n)/,
+          ".github/workflows/beta-e2e-report.yml",
+          /(    permissions:\n      actions: read\n      contents: read\n)/,
           "$1      pull-requests: write\n",
         ),
       /report job permissions must be exactly/,
@@ -415,7 +826,67 @@ describe("guard:beta-e2e-suite", () => {
       (files) =>
         edit(
           files,
-          ".github/workflows/beta-e2e-scheduled.yml",
+          ".github/workflows/beta-e2e-report.yml",
+          "      actions: read\n      contents: read\n",
+          "      actions: read\n      contents: read\n      issues: write\n",
+        ),
+      /must not use GitHub Issues/,
+    );
+    rejects(
+      (files) =>
+        edit(
+          files,
+          "scripts/beta-e2e-digest.ts",
+          "import { createHash }",
+          "const issueNumber = 3986;\nimport { createHash }",
+        ),
+      /must use artifact-backed state and reports/,
+    );
+    rejects(
+      (files) =>
+        edit(
+          files,
+          ".github/workflows/beta-e2e-report.yml",
+          "      - name: Build the report",
+          "      - name: Create finding issue\n        run: gh issue create\n\n      - name: Build the report",
+        ),
+      /must not use GitHub Issues/,
+    );
+    rejects(
+      (files) =>
+        edit(
+          files,
+          ".github/workflows/beta-e2e-report.yml",
+          "          method: chat.postMessage",
+          "          method: chat.postMessage\n          method: chat.postMessage",
+        ),
+      /must post one batched Slack message/,
+    );
+    rejects(
+      (files) =>
+        edit(
+          files,
+          ".github/workflows/beta-e2e-report.yml",
+          "COLLECT_OUTCOME: ${{ steps.collect.outcome }}",
+          "COLLECT_OUTCOME: skipped",
+        ),
+      /missing "COLLECT_OUTCOME: \$\{\{ steps\.collect\.outcome \}\}"/,
+    );
+    rejects(
+      (files) =>
+        edit(
+          files,
+          ".github/workflows/beta-e2e-report.yml",
+          /actions\/upload-artifact@[0-9a-f]{40}/,
+          "actions/upload-artifact@v7",
+        ),
+      /pin actions\/upload-artifact by full commit SHA/,
+    );
+    rejects(
+      (files) =>
+        edit(
+          files,
+          ".github/workflows/beta-e2e-report.yml",
           /Slack notification not configured/g,
           "Slack skipped",
         ),

@@ -1,3 +1,62 @@
+## 0.167.4
+
+### Patch Changes
+
+- 8b73951: Isolate workspace app chat history and keep short chat-tab titles clear of the close target.
+
+## 0.167.3
+
+### Patch Changes
+
+- 1aafc1d: Keep authenticated Electron app sessions on their configured production lane instead of applying the browser-only employee beta redirect.
+- 40baf42: Preserve browser attribution through Better Auth email signup user creation.
+- 1aafc1d: Avoid treating the desktop broker identity as proof that an app's own session is authenticated.
+
+## 0.167.2
+
+### Patch Changes
+
+- 95d9d70: Bound public-site monitor requests and clarify unified-diff framing in visual recap authoring prompts.
+- 7f22204: Warn on the Agent Automations page when schedule-triggered automations can never fire — recurring jobs disabled at build time, no durable scheduler on the hosting target, or local development — via a new `get-scheduled-trigger-status` action. The build embeds its recurring-jobs decision into the server bundle so the warning reflects whether a scheduled trigger was actually emitted, and a failed status check is reported as unverified rather than healthy.
+- Updated dependencies [95d9d70]
+  - @agent-native/recap-cli@0.5.7
+
+## 0.167.1
+
+### Patch Changes
+
+- ca9ee7e: Merge same-day changelog categories without duplicating headings.
+
+## 0.167.0
+
+### Minor Changes
+
+- 3a7a8f0: support deterministic environment aliases and JSON fragments for public Agent-Native config
+
+## 0.166.1
+
+### Patch Changes
+
+- 8fd035c: Keep authenticated Electron app sessions on their configured production lane instead of applying the browser-only employee beta redirect.
+- Updated dependencies [10de7b9]
+  - @agent-native/recap-cli@0.5.6
+  - @agent-native/toolkit@0.16.9
+
+## 0.166.0
+
+### Minor Changes
+
+- c50b009: Allow request action resolvers to preserve the default tool-loading surface.
+
+## 0.165.5
+
+### Patch Changes
+
+- 8d56ed2: Let the Builder gateway engine run on an OAuth-only connection. The pre-run
+  credential gate required a `BUILDER_PRIVATE_KEY`/`BUILDER_PUBLIC_KEY` pair, so
+  a user connected through Builder OAuth alone had every turn rejected with "No
+  LLM provider is connected" while the connect card reported them connected.
+
 ## 0.165.4
 
 ### Patch Changes
@@ -3559,7 +3618,7 @@ NOTHING`, and keys the action-marker dedupe on each row's own `updated_at`
 
 - 0aada94: Let Design MCP App canvases hand pending visual source edits back to the host coding conversation while preserving the local Design-agent and copy-prompt fallbacks for ordinary browser panes.
 
-  Teach visual-edit users to minimize Design chrome with Figma's `Shift+\` shortcut or the command menu without claiming the host-reserved `Cmd+\` chord.
+  Teach visual-edit users to minimize Design chrome with the `Shift+\` shortcut or the command menu without claiming the host-reserved `Cmd+\` chord.
 
 - 0aada94: Keep client status timeouts isolated to their own endpoint and preserve the last known model readiness when a status probe is temporarily unavailable.
 - 0aada94: Visual edit: never render a source snapshot in place of the running app. A localhost screen now always loads a live document — the proxied `/live-edit` frame for viewers holding the connection's `previewToken`, and the plain dev-server URL for everyone else. Previously a viewer without a token (signed-out session, public link, inline browser with no cookies) got the `/snapshot` HTML as `srcdoc`: a frozen copy that looked exactly like the app but had no live DOM behind it, so selection, the layers panel, and edits all silently addressed stale markup.

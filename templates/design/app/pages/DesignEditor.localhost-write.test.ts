@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { resolveLocalhostSourceWriteContent } from "./design-editor/editor-state";
 import {
+  isLocalhostWriteConsentError,
   localhostConsentRequestDisposition,
   localhostConsentRequestRefetchInterval,
 } from "./design-editor/localhost-consent-request";
@@ -108,5 +109,25 @@ describe("localhostConsentRequestDisposition", () => {
         queryFailed: false,
       }),
     ).toBe(1_000);
+  });
+});
+
+describe("isLocalhostWriteConsentError", () => {
+  it("recognizes missing or expired grants without masking other authorization errors", () => {
+    expect(
+      isLocalhostWriteConsentError(
+        Object.assign(new Error("Grant required"), {
+          name: "WriteConsentRequiredError",
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      isLocalhostWriteConsentError(
+        new Error("The localhost write-consent grant expired."),
+      ),
+    ).toBe(true);
+    expect(
+      isLocalhostWriteConsentError(new Error("Design editor access revoked.")),
+    ).toBe(false);
   });
 });

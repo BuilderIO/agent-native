@@ -20,6 +20,7 @@ import {
   preferredCodeLayerSelector,
 } from "../code-layer-state";
 import { runChangeSelectedZIndex } from "../commands/change-selected-z-index";
+import { copyVisualProperties } from "../commands/copy-properties";
 import { releaseCrossScreenDropAdmission } from "../commands/cross-screen-element-drop";
 import {
   cancelCrossScreenRollbackTimeout,
@@ -38,13 +39,17 @@ import { getDesignDataRecord } from "../design-data-geometry-utils";
 import { type UndoRedoOrderKind } from "../editor-state";
 import {
   type ContentHistoryChange,
+  type FileDeletionRestoreClaim,
   type FileDeletionHistorySnapshot,
 } from "../history";
 import {
   pendingLiveStructureEditsFromEdit,
   pendingLiveStructureEditsFromUndoEntry,
 } from "../pending-edits";
-import { overviewSelectionTargetsElement } from "../selection-state";
+import {
+  overviewNudgeTargetsElement,
+  overviewSelectionTargetsElement,
+} from "../selection-state";
 import { type DesignFile } from "../types";
 import type { EditorActiveScreenAndGeometry } from "./use-editor-active-screen-and-geometry";
 import type { EditorCanvasAndScreens } from "./use-editor-canvas-and-screens";
@@ -609,18 +614,22 @@ export function useEditorEditCommands({
     [canEditDesign, files, id, performDeleteFiles, queryClient, t],
   );
 
-  const handleOverviewNudgeSelection = useCallback(() => {
-    if (
-      overviewSelectionTargetsElement({
+  const handleOverviewNudgeSelection = useCallback(
+    (targetScreenIds: string[]) =>
+      !overviewNudgeTargetsElement({
+        targetScreenIds,
+        explicitScreenIds: explicitOverviewScreenSelectionRef.current,
         selectedElement,
         selectedLayerIds: selectedLayerIdsState,
         fileIds: files.map((file) => file.id),
-      })
-    ) {
-      return false;
-    }
-    return true;
-  }, [files, selectedElement, selectedLayerIdsState]);
+      }),
+    [
+      explicitOverviewScreenSelectionRef,
+      files,
+      selectedElement,
+      selectedLayerIdsState,
+    ],
+  );
 
   const handleDeleteOverviewSelection = useCallback(
     (selectedIds: string[], explicitScreenDeletion = false) => {
@@ -652,21 +661,14 @@ export function useEditorEditCommands({
         explicitlySelectedFiles.length > 0
           ? explicitlySelectedFiles
           : selectedFiles;
-      if (!filesToDelete.length || overviewScreens.length <= 1) return false;
-
-      const maxDeleteCount =
-        filesToDelete.length >= overviewScreens.length
-          ? Math.max(0, overviewScreens.length - 1)
-          : filesToDelete.length;
-      const boundedFilesToDelete = filesToDelete.slice(0, maxDeleteCount);
-      if (!boundedFilesToDelete.length) return false;
+      if (!filesToDelete.length) return false;
 
       const explicitScreenIds = explicitScreenDeletion
-        ? boundedFilesToDelete.map((file) => file.id)
+        ? filesToDelete.map((file) => file.id)
         : explicitlySelectedFiles.map((file) => file.id);
       const selectionRevisionAtStart = selectionRevisionRef.current;
       explicitOverviewScreenSelectionRef.current = [];
-      performDeleteFiles(boundedFilesToDelete, {
+      performDeleteFiles(filesToDelete, {
         recordDeletionHistory: true,
         onMutationSettled: (deletedFiles) => {
           if (selectionRevisionRef.current !== selectionRevisionAtStart) return;
@@ -691,22 +693,7 @@ export function useEditorEditCommands({
 
   const handleCopyProps = useCallback(() => {
     if (!selectedElement) return;
-    copiedStylePropsRef.current = {
-      color: selectedElement.computedStyles.color,
-      backgroundColor: selectedElement.computedStyles.backgroundColor,
-      borderColor: selectedElement.computedStyles.borderColor,
-      borderStyle: selectedElement.computedStyles.borderStyle,
-      borderWidth: selectedElement.computedStyles.borderWidth,
-      borderRadius: selectedElement.computedStyles.borderRadius,
-      boxShadow: selectedElement.computedStyles.boxShadow,
-      opacity: selectedElement.computedStyles.opacity,
-      fontFamily: selectedElement.computedStyles.fontFamily,
-      fontSize: selectedElement.computedStyles.fontSize,
-      fontWeight: selectedElement.computedStyles.fontWeight,
-      lineHeight: selectedElement.computedStyles.lineHeight,
-      letterSpacing: selectedElement.computedStyles.letterSpacing,
-      textAlign: selectedElement.computedStyles.textAlign,
-    };
+    copiedStylePropsRef.current = copyVisualProperties(selectedElement);
     setHasPropsClipboard(true);
   }, [selectedElement]);
 
@@ -978,11 +965,15 @@ export function useEditorEditCommands({
   );
 
   const applyDesignDataHistoryChanges = useCallback(
-    (changes: readonly ContentHistoryChange[], direction: "undo" | "redo") => {
+    (
+      changes: readonly ContentHistoryChange[],
+      direction: "undo" | "redo",
+      restoreClaims?: readonly FileDeletionRestoreClaim[],
+    ) => {
       const operations = changes.flatMap(
         (change) => change.designDataChange?.[direction] ?? [],
       );
-      if (operations.length === 0) return true;
+      if (operations.length === 0) return !restoreClaims?.length;
       if (!id) return false;
       const nextData = applyDesignDataOperations(
         designDataJsonRef.current,
@@ -1017,7 +1008,9 @@ export function useEditorEditCommands({
           ? { ...old, data: JSON.stringify(nextData) }
           : old,
       );
-      return enqueueFrameGeometryDataSave(operations);
+      return enqueueFrameGeometryDataSave(operations, {
+        restoreClaims: direction === "undo" ? restoreClaims : undefined,
+      });
     },
     [enqueueFrameGeometryDataSave, id, queryClient],
   );

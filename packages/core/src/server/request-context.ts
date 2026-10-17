@@ -1,6 +1,7 @@
 import type { AgentActionScope } from "../agent/types.js";
 import type { TrackingEventScope } from "../observability/tracing.js";
 import type { ContextStatus } from "../shared/context-status.js";
+import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import type { SignupAttributionContext } from "./attribution.js";
 
 type AsyncLocalStorageLike<T> = {
@@ -76,6 +77,8 @@ export interface RequestRunContext {
   systemPrompt?: string;
   engine?: import("../agent/engine/types.js").AgentEngine;
   model?: string;
+  /** The run's resolved thinking effort; unset when the model takes none. */
+  reasoningEffort?: ReasoningEffort;
   allowedActionNames?: readonly string[];
   actionScope?: Readonly<AgentActionScope>;
   appAuthorization?: {
@@ -106,13 +109,21 @@ export interface RequestContext {
   userEmail?: string;
   /** Keep data-source credentials within the selected org, not the user. */
   credentialScope?: "org";
+  /** Storage-only org selection; null prevents an active-org fallback. */
+  builderStorageCredentialOrgId?: string | null;
+  /** Provenance set only after a stored org service token is verified. */
+  verifiedServiceIdentity?: { userEmail: string; orgId: string };
   identityAuthenticatedAtMs?: number;
   identitySessionToken?: string;
+  /** Signed MCP credential issue time, used to revoke derived widget grants. */
+  mcpCredentialIssuedAtMs?: number | null;
   authUserId?: string;
   agentRunAnonymous?: boolean;
   userName?: string;
   orgId?: string;
   orgScope?: "personal";
+  /** Explicitly selects deployment-wide agent defaults for shared no-org jobs. */
+  defaultAgentEngineScope?: "deployment";
   /**
    * Narrow authorization capability verified from an embed session. This is
    * deliberately separate from user identity: capability-only sessions must
@@ -149,6 +160,8 @@ export interface RequestContext {
    * radius (a resource that is itself local-only, NODE_ENV, etc.).
    */
   isLoopbackRequest?: boolean;
+  /** True only when this server received the request directly on 127.0.0.1. */
+  isDirectLoopbackRequest?: boolean;
   isIntegrationCaller?: boolean;
   integration?: {
     taskId: string;
@@ -179,6 +192,36 @@ export interface RequestContext {
 }
 
 const EXPLICIT_PERSONAL_ORG_SCOPE_KEY = "__anExplicitPersonalOrgScope";
+const VERIFIED_SERVICE_IDENTITY_EVENT_KEY = "__anVerifiedServiceIdentity";
+
+type RequestContextEvent = { context?: Record<string, unknown> };
+
+export function markVerifiedServiceIdentityForEvent(
+  event: RequestContextEvent,
+  identity: { userEmail: string; orgId: string },
+): void {
+  const context = (event.context ??= {});
+  context[VERIFIED_SERVICE_IDENTITY_EVENT_KEY] = identity;
+}
+
+export function getVerifiedServiceIdentityFromEvent(
+  event: RequestContextEvent,
+): { userEmail: string; orgId: string } | undefined {
+  const identity = event.context?.[VERIFIED_SERVICE_IDENTITY_EVENT_KEY] as
+    | { userEmail?: unknown; orgId?: unknown }
+    | undefined;
+  const userEmail = identity?.userEmail;
+  const orgId = identity?.orgId;
+  if (
+    typeof userEmail !== "string" ||
+    !userEmail.trim() ||
+    typeof orgId !== "string" ||
+    !orgId.trim()
+  ) {
+    return undefined;
+  }
+  return { userEmail: userEmail.trim(), orgId: orgId.trim() };
+}
 
 export function markExplicitPersonalOrgScope(event: {
   context?: Record<string, unknown>;
@@ -361,6 +404,18 @@ export function runWithRequestContext<T>(
       Number.isFinite(context.identityAuthenticatedAtMs)
         ? context.identityAuthenticatedAtMs
         : undefined;
+    const inheritedMcpCredentialIssuedAtMs =
+      inheritedUserEmail === contextUserEmail &&
+      typeof inheritedContext?.mcpCredentialIssuedAtMs === "number" &&
+      Number.isSafeInteger(inheritedContext?.mcpCredentialIssuedAtMs)
+        ? inheritedContext.mcpCredentialIssuedAtMs
+        : undefined;
+    const contextMcpCredentialIssuedAtMs =
+      typeof context.mcpCredentialIssuedAtMs === "number" &&
+      Number.isSafeInteger(context.mcpCredentialIssuedAtMs)
+        ? context.mcpCredentialIssuedAtMs
+        : undefined;
+    const clearMcpCredentialIssuedAt = context.mcpCredentialIssuedAtMs === null;
     const inheritedSessionToken =
       inheritedUserEmail === contextUserEmail &&
       typeof inheritedContext?.identitySessionToken === "string"
@@ -373,17 +428,35 @@ export function runWithRequestContext<T>(
         inheritedAuthTime !== undefined
           ? Math.min(inheritedAuthTime, contextAuthTime ?? inheritedAuthTime)
           : (contextAuthTime ?? Date.now()),
+      ...(clearMcpCredentialIssuedAt
+        ? { mcpCredentialIssuedAtMs: null }
+        : inheritedMcpCredentialIssuedAtMs !== undefined ||
+            contextMcpCredentialIssuedAtMs !== undefined
+          ? {
+              mcpCredentialIssuedAtMs:
+                inheritedUserEmail === contextUserEmail &&
+                inheritedMcpCredentialIssuedAtMs !== undefined
+                  ? Math.min(
+                      inheritedMcpCredentialIssuedAtMs,
+                      contextMcpCredentialIssuedAtMs ??
+                        inheritedMcpCredentialIssuedAtMs,
+                    )
+                  : contextMcpCredentialIssuedAtMs,
+            }
+          : {}),
       ...(context.identitySessionToken === undefined && inheritedSessionToken
         ? { identitySessionToken: inheritedSessionToken }
         : {}),
     };
   } else if (
     context.identityAuthenticatedAtMs !== undefined ||
-    context.identitySessionToken !== undefined
+    context.identitySessionToken !== undefined ||
+    context.mcpCredentialIssuedAtMs !== undefined
   ) {
     const contextWithoutIdentityTime = { ...context };
     delete contextWithoutIdentityTime.identityAuthenticatedAtMs;
     delete contextWithoutIdentityTime.identitySessionToken;
+    delete contextWithoutIdentityTime.mcpCredentialIssuedAtMs;
     context = contextWithoutIdentityTime;
   }
   if (
@@ -474,6 +547,17 @@ export function getRequestOrgId(): string | undefined {
     return store.orgId;
   }
   return processEnv("AGENT_ORG_ID");
+}
+
+export function getRequestBuilderStorageCredentialOrgId():
+  | string
+  | null
+  | undefined {
+  const store = als.getStore();
+  if (store?.builderStorageCredentialOrgId !== undefined) {
+    markAuthContextAccess(store);
+  }
+  return store?.builderStorageCredentialOrgId;
 }
 
 export function getRequestAuthCapability(): string | undefined {

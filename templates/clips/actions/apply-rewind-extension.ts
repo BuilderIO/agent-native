@@ -1,5 +1,6 @@
 import { defineAction, fail } from "@agent-native/core/action";
 import {
+  compareAndSetAppState,
   readAppState,
   writeAppState,
 } from "@agent-native/core/application-state";
@@ -61,6 +62,12 @@ export default defineAction({
     recordingId: z.string(),
     requestId: z.string(),
     preRollRecordingId: z.string(),
+    expectedMediaUpdatedAt: z
+      .string()
+      .min(1)
+      .describe(
+        "mediaUpdatedAt from the Clip state used to prepare this Rewind upload; a changed value refuses to overwrite a later media edit or redaction.",
+      ),
     videoUrl: z.string().min(1),
     durationMs: z.number().int().positive(),
     width: z.number().int().positive().optional(),
@@ -110,11 +117,11 @@ export default defineAction({
     }
     await assertNoDirectRecordingShares(args.recordingId);
     const key = rewindExtensionKey(args.recordingId);
-    const request = (await readAppState(key)) as RewindExtensionRequest | null;
+    let request = (await readAppState(key)) as RewindExtensionRequest | null;
     if (
       !request ||
       request.requestId !== args.requestId ||
-      request.status !== "ready" ||
+      !["ready", "applying", "applied"].includes(request.status) ||
       request.preRollRecordingId !== args.preRollRecordingId
     ) {
       throw new Error("The Rewind pre-roll request is not ready to apply.");
@@ -128,50 +135,121 @@ export default defineAction({
         kind: "thumbnail",
         requireAccepted: true,
       });
-      const applied: RewindExtensionRequest = {
-        ...request,
-        status: "applied",
-        actualDurationMs: args.addedMs,
-        updatedAt: now,
-      };
-      await writeAppState(key, applied);
-      await writeAppState("refresh-signal", { ts: Date.now() });
-      return { recordingId: args.recordingId, request: applied };
+      for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+        const current = (await readAppState(
+          key,
+        )) as RewindExtensionRequest | null;
+        if (
+          !current ||
+          current.requestId !== args.requestId ||
+          current.preRollRecordingId !== args.preRollRecordingId
+        ) {
+          fail("The Rewind pre-roll request is no longer current.", {
+            errorCode: "rewind_request_changed",
+            statusCode: 409,
+          });
+        }
+        if (current.status === "applied") {
+          return { recordingId: args.recordingId, request: current };
+        }
+        if (!["ready", "applying", "failed"].includes(current.status)) {
+          fail("The Rewind pre-roll request is not applying.", {
+            errorCode: "rewind_request_changed",
+            statusCode: 409,
+          });
+        }
+        const applied: RewindExtensionRequest = {
+          ...current,
+          status: "applied",
+          actualDurationMs: args.addedMs,
+          updatedAt: now,
+        };
+        if (await compareAndSetAppState(key, current, applied)) {
+          await writeAppState("refresh-signal", { ts: Date.now() });
+          return { recordingId: args.recordingId, request: applied };
+        }
+      }
+      fail("The Rewind request kept changing. Try again.", {
+        errorCode: "rewind_request_changed",
+        statusCode: 409,
+      });
     };
     // An apply whose shift committed but whose request was never marked
     // applied (the server stopped in between) is finished, not refused, or
     // the request stays ready and every retry fails.
     const wasApplied = (editsJson: string) =>
       parseEdits(editsJson).rewindPreRollId === args.preRollRecordingId;
+    if (request.status === "applied") {
+      if (wasApplied(recording.editsJson)) {
+        return { recordingId: args.recordingId, request };
+      }
+      fail("The Rewind request is applied but its media update is missing.", {
+        errorCode: "rewind_request_changed",
+        statusCode: 409,
+      });
+    }
     if (wasApplied(recording.editsJson)) {
       return markApplied();
+    }
+    if (recording.mediaUpdatedAt !== args.expectedMediaUpdatedAt) {
+      fail(
+        "The Clip media changed before Rewind could be applied. Try again.",
+        {
+          errorCode: "recording_media_changed",
+          statusCode: 409,
+        },
+      );
     }
 
     const expectedDuration = recording.durationMs + args.addedMs;
     if (Math.abs(args.durationMs - expectedDuration) > 2_000) {
       throw new Error("The combined Clip duration does not match its sources.");
     }
+    const storageMode = recording.storageMode === "hosted" ? "hosted" : "own";
     const rewindMediaIsBound = await isS3ObjectUrlBoundToRecording(
       args.videoUrl,
       args.recordingId,
+      { storageMode },
     );
-    if (rewindMediaIsBound === false) {
+    if (
+      rewindMediaIsBound === false ||
+      (storageMode === "hosted" && rewindMediaIsBound !== true)
+    ) {
       throw new Error("The Rewind upload is not bound to its recording.");
     }
 
-    const [transcript] = await db
-      .select()
-      .from(schema.recordingTranscripts)
-      .where(eq(schema.recordingTranscripts.recordingId, args.recordingId));
-    const shiftedTranscript = transcript
-      ? JSON.stringify(
-          parseTranscriptSegments(transcript.segmentsJson).map((segment) => ({
-            ...segment,
-            startMs: segment.startMs + args.addedMs,
-            endMs: segment.endMs + args.addedMs,
-          })),
-        )
-      : null;
+    if (request.status === "ready") {
+      const applying: RewindExtensionRequest = {
+        ...request,
+        status: "applying",
+        updatedAt: new Date().toISOString(),
+      };
+      if (await compareAndSetAppState(key, request, applying)) {
+        request = applying;
+      } else {
+        const latest = (await readAppState(
+          key,
+        )) as RewindExtensionRequest | null;
+        if (
+          !latest ||
+          latest.requestId !== args.requestId ||
+          latest.preRollRecordingId !== args.preRollRecordingId ||
+          !["applying", "applied"].includes(latest.status)
+        ) {
+          fail(
+            "The Rewind pre-roll request changed before it could be applied.",
+            {
+              errorCode: "rewind_request_changed",
+              statusCode: 409,
+            },
+          );
+        }
+        request = latest;
+        if (request.status === "applied") {
+          return { recordingId: args.recordingId, request };
+        }
+      }
+    }
 
     // Chapters and cuts are shifted from the values read here, and a save
     // can land meanwhile (a chapter edit, the editor's autosaved trims). The
@@ -182,6 +260,9 @@ export default defineAction({
     let current = {
       chaptersJson: recording.chaptersJson,
       editsJson: recording.editsJson,
+      mediaUpdatedAt: recording.mediaUpdatedAt,
+      videoUrl: recording.videoUrl,
+      updatedAt: recording.updatedAt,
     };
     for (let attempt = 1; ; attempt++) {
       const edits = parseEdits(current.editsJson);
@@ -228,24 +309,55 @@ export default defineAction({
               ),
               thumbnailUrl: null,
               animatedThumbnailUrl: null,
-              updatedAt: now,
+              mediaUpdatedAt: nextRevision(current.mediaUpdatedAt, now),
+              updatedAt: nextRevision(current.updatedAt, now),
             })
             .where(
               and(
                 eq(schema.recordings.id, args.recordingId),
                 eq(schema.recordings.chaptersJson, current.chaptersJson),
                 eq(schema.recordings.editsJson, current.editsJson),
+                eq(schema.recordings.mediaUpdatedAt, current.mediaUpdatedAt),
+                current.videoUrl === null
+                  ? isNull(schema.recordings.videoUrl)
+                  : eq(schema.recordings.videoUrl, current.videoUrl),
+                eq(schema.recordings.updatedAt, current.updatedAt),
               ),
             )
             .returning({ id: schema.recordings.id });
           if (written.length === 0) throw new RowChanged();
-          if (transcript && shiftedTranscript) {
-            await tx
+          const [transcript] = await tx
+            .select({
+              segmentsJson: schema.recordingTranscripts.segmentsJson,
+            })
+            .from(schema.recordingTranscripts)
+            .where(
+              eq(schema.recordingTranscripts.recordingId, args.recordingId),
+            );
+          if (transcript) {
+            const shiftedTranscript = JSON.stringify(
+              parseTranscriptSegments(transcript.segmentsJson).map(
+                (segment) => ({
+                  ...segment,
+                  startMs: segment.startMs + args.addedMs,
+                  endMs: segment.endMs + args.addedMs,
+                }),
+              ),
+            );
+            const transcriptWritten = await tx
               .update(schema.recordingTranscripts)
               .set({ segmentsJson: shiftedTranscript, updatedAt: now })
               .where(
-                eq(schema.recordingTranscripts.recordingId, args.recordingId),
-              );
+                and(
+                  eq(schema.recordingTranscripts.recordingId, args.recordingId),
+                  eq(
+                    schema.recordingTranscripts.segmentsJson,
+                    transcript.segmentsJson,
+                  ),
+                ),
+              )
+              .returning({ id: schema.recordingTranscripts.recordingId });
+            if (transcriptWritten.length === 0) throw new RowChanged();
           }
           await tx
             .update(schema.recordingComments)
@@ -288,6 +400,9 @@ export default defineAction({
         .select({
           chaptersJson: schema.recordings.chaptersJson,
           editsJson: schema.recordings.editsJson,
+          mediaUpdatedAt: schema.recordings.mediaUpdatedAt,
+          videoUrl: schema.recordings.videoUrl,
+          updatedAt: schema.recordings.updatedAt,
         })
         .from(schema.recordings)
         .where(eq(schema.recordings.id, args.recordingId));
@@ -297,9 +412,35 @@ export default defineAction({
           statusCode: 404,
         });
       }
+      if (latest.mediaUpdatedAt !== args.expectedMediaUpdatedAt) {
+        fail(
+          "The Clip media changed while Rewind was being applied. Try again.",
+          {
+            errorCode: "recording_media_changed",
+            statusCode: 409,
+          },
+        );
+      }
+      if (latest.videoUrl !== recording.videoUrl) {
+        fail(
+          "The Clip media changed while Rewind was being applied. Try again.",
+          {
+            errorCode: "recording_media_changed",
+            statusCode: 409,
+          },
+        );
+      }
       current = latest;
     }
 
     return markApplied();
   },
 });
+
+function nextRevision(previous: string, now: string): string {
+  const previousMs = Date.parse(previous);
+  const nowMs = Date.parse(now);
+  return new Date(
+    Number.isFinite(previousMs) ? Math.max(nowMs, previousMs + 1) : nowMs,
+  ).toISOString();
+}

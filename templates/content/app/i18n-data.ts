@@ -2,6 +2,7 @@ import { type BuiltinLocaleCode as LocaleCode } from "@agent-native/core/client/
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 import { commentAttributionMessagesByLocale } from "../shared/comment-attribution-messages";
+import { importMessagesByLocale } from "./import-messages";
 import { trashMessagesByLocale } from "./trash-messages";
 
 const databaseMessages = {
@@ -786,6 +787,8 @@ const editorToolbarMessages = {
   openInClaude: "Open in Claude",
   openInClaudeCode: "Open in Claude Code",
   openInCodex: "Open in Codex",
+  connectContent: "Connect Content",
+  otherAgents: "Other agents",
   agentCopyAccessNote:
     "Agents can use Content MCP with your existing permissions",
   temporaryAgentLink: "Temporary agent link",
@@ -855,6 +858,7 @@ const editorToolbarMessages = {
   notionPageUrlOrId: "Notion page URL or page ID",
   open: "Open",
   openInNotion: "Open in Notion",
+  openInAgentNative: "Open in Agent-Native",
   orgCanFindAndView: "Anyone in your organization can find and view",
   orgLinkCanView: "Anyone in your organization with the link can view",
   pageBreadcrumb: "Page breadcrumb",
@@ -1303,7 +1307,6 @@ const enUS = {
     reorderField: "Reorder {{name}}",
     title: "Title",
     toggleField: "Toggle {{name}}",
-    createCollection: "Create collection",
     creatingDatabase: "Creating inline collection...",
     databaseCreated: "Collection created",
     emptyBlockPlaceholder: "Press ‘/’ for commands",
@@ -1448,7 +1451,17 @@ const enUS = {
     addEmoji: "Add emoji",
     mentionSomeone: "Mention someone",
     mentionPeople: "People",
+    mentionPeopleLoadFailed: "Couldn't load people.",
     mentionAgents: "Agents",
+    identityPerson: "Person",
+    identityModel: "Model",
+    identityEffort: "Effort",
+    identityRan: "Ran",
+    identityNotRecorded: "Not recorded",
+    identityOpenRun: "Open run",
+    identityRoleOwner: "Owner",
+    identityRoleAdmin: "Admin",
+    identityRoleMember: "Member",
     commentTitle: "Comment",
     suggestionTitle: "Suggestion",
     close: "Close",
@@ -1478,6 +1491,9 @@ const enUS = {
     aiUndo: "Undo",
     aiDone: "Done",
     aiMoreChanges: "+{{count}} more",
+    suggestionReplaced: "Replaced",
+    suggestionWithdrawn: "Withdrawn",
+    suggestedChange: "Suggested change",
     aiUndoUnavailable: "Removed text can't be restored automatically",
     aiUndoFailed: "Couldn't undo the change",
     aiResolvedByAi: "Resolved by AI",
@@ -1648,6 +1664,11 @@ const enUS = {
     deletePermanently: "Delete permanently",
     failedCreateDatabase: "Failed to create collection",
     failedCreatePage: "Failed to create page",
+    failedCreatePageDraftDescription:
+      "Your draft is saved in this browser. You can retry page creation or discard the draft.",
+    discardFailedCreatePageQuestion: "Discard pending creation?",
+    discardFailedCreatePageDescription:
+      "This clears the pending creation and any unsaved draft. If the page was already saved, it will remain in your workspace.",
     failedCreateWorkspace: "Failed to create workspace",
     failedDeletePage: "Failed to delete page",
     failedPermanentDeleteDatabase: "Failed to permanently delete collection",
@@ -1740,6 +1761,7 @@ const enUS = {
     workspaces: "Workspaces",
   },
   trash: trashMessagesByLocale["en-US"],
+  contentImport: importMessagesByLocale["en-US"],
 };
 
 type Messages = typeof enUS;
@@ -1802,6 +1824,7 @@ function mergeMessages(overrides: PartialMessages): Messages {
     localFiles: { ...enUS.localFiles, ...overrides.localFiles },
     sidebar: { ...enUS.sidebar, ...overrides.sidebar },
     trash: enUS.trash,
+    contentImport: enUS.contentImport,
     creativeContext: {
       ...enUS.creativeContext,
       ...overrides.creativeContext,
@@ -2319,6 +2342,7 @@ function mergeMessagesForLocale(
     },
     sidebar: { ...base.sidebar, ...rawLiteralOverrides.sidebar },
     trash: trashMessagesByLocale[locale],
+    contentImport: importMessagesByLocale[locale],
   };
 }
 

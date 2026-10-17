@@ -22,7 +22,6 @@ A few entry points:
 - `writing-agent-instructions` — read before editing instructions, skills, or
   tool/action descriptions.
 - `verifying-changes` — exercise the broken path before reporting a fix done.
-- `design-figma-parity` — read before making or reviewing Design parity claims.
 - `adding-tests-and-ci` — read before adding a test, CI job, or workflow
   trigger.
 - `reporting-progress` — read during long runs and before asking for status.
@@ -282,6 +281,8 @@ instructions, and application state.
 - Schema changes must be additive. Never drop, rename, truncate, or destructively
   alter tables or columns in migrations or startup code. New columns must
   default or allow null.
+- Core framework tables belong to `defineStore()` migration lists: append, never
+  edit; read `framework-stores`.
 - SQL stores structured app state, metadata, references, and searchable text. Do
   not store large raw payloads — files, images, videos, audio, PDFs, ZIPs,
   screenshots, session replay chunks, thumbnails, `data:` URLs, or base64 file

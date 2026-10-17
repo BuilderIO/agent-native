@@ -1,6 +1,8 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "block.renderUnavailable": "هذه الكتلة غير متاحة مؤقتًا.",
+  "block.loading": "جارٍ تحميل هذه الكتلة.",
   "composer.contextUrlLabel": "عنوان URL",
   "composer.contextInvalidUrl": "أدخل عنوان URL صالحًا يبدأ بـ HTTP أو HTTPS.",
   "composer.contextAttach": "إرفاق",
@@ -38,6 +40,12 @@ const messages: ToolkitAgentChatTranslation = {
   "agent.queued": "في قائمة الانتظار",
   "agent.completed": "أنهى العمل",
   "agent.failed": "يحتاج إلى الانتباه",
+  "agent.failureReason.failed": "تعذّر الإكمال",
+  "agent.failureReason.setup": "يحتاج إلى إعداد أولًا",
+  "agent.failureReason.auth": "تم رفض الوصول",
+  "agent.failureReason.timeout": "استغرق وقتًا طويلًا",
+  "agent.failureReason.budget": "انتهى الوقت",
+  "agent.failureReason.response": "لا توجد نتيجة صالحة",
   "agent.closed": "أغلق",
   "approval.alwaysAllow": "السماح دائمًا",
   "approval.alwaysAllowHint": "الموافقة على هذا الأمر المحدد والسماح به دائمًا",
@@ -84,6 +92,8 @@ const messages: ToolkitAgentChatTranslation = {
     "نص اختياري للتحقق من وجوده في الرد…",
   "observability.promoteMustContainLabel":
     "النص الذي سيتم التحقق منه في رد التقييم الذي تمت ترقيته",
+  "observability.promoteReviewedPromptLabel":
+    "مطالبة تمت مراجعتها يدويًا (لا تُنسخ من الإنتاج تلقائيًا)",
   "observability.promoteNeedsContains":
     "لا تتضمن هذه الجولة أي استدعاء ناجح للأداة. أدخل نصًا يجب أن تحتوي عليه الإجابة قبل الترويج.",
   "observability.viewDetails": "عرض التفاصيل",
@@ -124,7 +134,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.skipForNow": "تخطي الآن",
   "onboarding.saveRoleError": "تعذر حفظ دورك.",
   "onboarding.builderCreateAccount": "استخدم Builder.io",
-  "onboarding.builderSignInWithAccount": "استخدم Builder.io",
+  "onboarding.builderSignInWithAccount": "سجّل الدخول بحساب Builder.io",
   "onboarding.builderActivateDescription":
     "أنشئ حساب Builder.io الخاص بك أو أعد استخدامه وفعّل أرصدته المجانية بنقرة واحدة.",
   "onboarding.builderActiveCredits":
@@ -142,8 +152,17 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderActivateTitle": "تفعيل الأرصدة المجانية",
   "onboarding.builderAccountExistsTitle": "لديك حساب Builder.io بالفعل",
   "onboarding.builderAccountExistsDescription": "سجّل الدخول لاستخدام حسابك.",
+  "onboarding.builderActivationChecking":
+    "جارٍ التحقق مما إذا كان إنشاء حساب جديد متاحًا.",
+  "onboarding.builderActivationUnavailable":
+    "أنشئ حسابًا أو سجّل الدخول للاتصال بـ Builder.io.",
+  "onboarding.builderActivationUnavailableInMode":
+    "أنشئ حسابًا أو سجّل الدخول للاتصال بـ Builder.io.",
+  "onboarding.builderActivationCheckFailed":
+    "تعذّر التحقق مما إذا كان هذا التطبيق يتيح إنشاء حسابات جديدة.",
+
   "onboarding.builderActivationDescription":
-    "أنشئ حساب Builder.io أو اربطه بنقرة واحدة للحصول على أرصدة مجانية.",
+    "أنشئ حسابًا جديدًا لتفعيل الأرصدة المجانية، أو تابع باستخدام حساب موجود.",
   "onboarding.builderOrgActivationDescription":
     "سننشئ حساب Builder.io الخاص بك بنقرة واحدة ليتمكن مؤسستك من استخدامه.",
   "onboarding.builderCreateAndActivate": "إنشاء وتفعيل",
@@ -151,11 +170,13 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderTerms": "شروط الخدمة",
   "onboarding.builderPrivacy": "سياسة الخصوصية",
   "onboarding.builderConsentAnd": "و",
-  "onboarding.builderExistingAccount": "استخدم Builder.io",
+  "onboarding.builderExistingAccount": "لديّ حساب Builder.io",
+  "onboarding.builderConnect": "الاتصال بـ Builder.io",
   "onboarding.builderActivating": "جارٍ تفعيل أرصدة Builder.io المجانية",
   "onboarding.builderConnecting": "جارٍ إعداد أرصدة Builder.io المجانية",
   "onboarding.builderProvisioningDescription":
     "جارٍ إنشاء حساب Builder.io الخاص بك وتفعيل الأرصدة المجانية.",
+  "onboarding.builderCancelPending": "جارٍ التحقق من حالة الاتصال…",
   "onboarding.builderConnectionDescription":
     "أكمل الاتصال بنقرة واحدة في النافذة الجديدة.",
   "onboarding.builderReadyWithCodeChanges":
@@ -185,6 +206,10 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.keySummary": "التضمينات",
   "onboarding.capability.embeddings.why":
     "تُحسّن التضمينات البحث الدلالي. يظل البحث بالكلمات المفتاحية يعمل من دونها.",
+  "onboarding.capability.webSearch.label": "البحث على الويب",
+  "onboarding.capability.webSearch.keySummary": "بحث على الويب مُدار من Builder",
+  "onboarding.capability.webSearch.why":
+    "ابحث في المصادر العامة الحديثة على الويب. يستخدم البحث المُدار من Builder أرصدة Builder AI المضمنة، لذلك لا تحتاج إلى مفتاح بحث منفصل.",
   "onboarding.capability.systemOne.why":
     "Jev نموذج قرار اختياري يساعد في اختيار الأدوات والمهارات المناسبة قبل أول طلب للنموذج من الوكيل.",
   "onboarding.capability.assetsImageGeneration.label": "إنشاء الصور",
@@ -492,7 +517,20 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "رفع ملف مهارة",
   "composer.upload": "رفع",
   "composer.uploadFailed": "تعذّر رفع الملف المحدد.",
+  "composer.fileTooLarge":
+    "هذا الملف أكبر من حد الرفع البالغ {{size}} ميغابايت.",
+  "composer.sessionExpired":
+    "انتهت صلاحية جلستك. سجّل الدخول مرة أخرى، ثم أرسل رسالتك.",
   "composer.unsupportedFileType": "نوع الملف هذا غير مدعوم.",
+  "composer.uploadUnavailable":
+    "رفع الملفات غير متاح الآن. حاول مرة أخرى بعد قليل.",
+  "composer.uploadOffline":
+    "تعذّر وصول الرفع إلى الخادم. تحقق من اتصالك وحاول مرة أخرى.",
+  "composer.submissionNotReady":
+    "الدردشة ليست جاهزة للإرسال بعد. انتظر لحظة، ثم أرسل مرة أخرى.",
+  "composer.submissionScopeChanged":
+    "تغيّرت هذه الدردشة قبل إرسال رسالتك. أرسلها مرة أخرى.",
+  "composer.attachmentNotSaved": "لم يُحفظ مع هذه الدردشة",
   "composer.useAttachedContext": "استخدم السياق المرفق.",
   "mentions.commands": "الأوامر",
   "mentions.learnMore": "معرفة المزيد",
@@ -637,6 +675,10 @@ const messages: ToolkitAgentChatTranslation = {
     "رفض مزوّد النموذج هذا الطلب لأنه غير صالح، لذلك لم تُعد المحاولة. أعد المحاولة، أو ابدأ محادثة جديدة إذا استمر الأمر.",
   "errorMessages.requestTooLarge":
     "تجاوز هذا الطلب حد الحجم على الخادم (HTTP 413). ابدأ دردشة جديدة أو أزل المرفقات أو المراجع الكبيرة، ثم حاول مرة أخرى.",
+  "errorMessages.capabilityUnavailable":
+    "تعذّر إرسال رسالتك الآن. يُرجى المحاولة مرة أخرى بعد قليل.",
+  "errorMessages.capabilityUnsupported":
+    "لا يمكن لهذا التطبيق إعادة محاولة المطالبة المحفوظة بأمان بعد. حدّث التطبيق ثم حاول مرة أخرى.",
   "errorMessages.runInterrupted": "توقف الوكيل قبل أن يُكمل.",
   "errorMessages.runFailed": "فشل تشغيل الوكيل.",
   "errorMessages.runUnverified":
@@ -645,6 +687,8 @@ const messages: ToolkitAgentChatTranslation = {
     "لقد سجّلت الخروج، لذا لا يمكن لهذه المحادثة متابعة الوكيل. سجّل الدخول مجددًا، ثم أعد التحميل.",
   "errorMessages.malformedRequestAttachment":
     "رفض النموذج ملفًا مرفقًا، لذلك لم تُرسل هذه الرسالة إطلاقًا. أزل المرفق وأعد المحاولة — تُقرأ ملفات PDF والنصوص العادية وصور JPEG وPNG وGIF وWebP مباشرةً، أما الصيغ الأخرى فيجب رفعها والإشارة إليها برابط.",
+  "errorMessages.invalidAttachment":
+    "رفض مزوّد النموذج هذا المرفق بسبب نوعه أو حجمه. للصور، صدّر نسخة أصغر بصيغة PNG أو JPEG أو GIF أو WebP؛ وللمستندات، استخدم تنسيق ملف مدعومًا أو الصق النص ذي الصلة، ثم أرفقه مجددًا.",
   "errorMessages.noProviderConnected":
     "لا يوجد موفّر LLM متصل. افتح الإعدادات > الوكيل > موفّرو الذكاء الاصطناعي، ثم استخدم Builder.io (الخطة المجانية متاحة) أو أضف مفتاح موفّر.",
   "errorMessages.openBuilderSpaceSettings": "فتح إعدادات مساحة Builder",
@@ -1147,6 +1191,15 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.copyFailed": "فشل النسخ",
   "recovery.continueUnavailable":
     "لم يعد بالإمكان متابعة هذا التشغيل. أرسل رسالة للمتابعة.",
+  "errorMessages.invalidAttachmentNamed":
+    "رفض موفّر النموذج {{name}} لأن تنسيقه أو حجمه غير مدعوم. صدّر الصور بحجم أصغر بصيغة PNG أو JPEG أو GIF أو WebP. للمستندات، استخدم تنسيقًا مدعومًا أو الصق النص ذي الصلة ثم أعد المحاولة.",
+  "recovery.resendVerificationEmail": "إعادة إرسال رسالة التحقق",
+  "recovery.sendingVerificationEmail": "جارٍ الإرسال...",
+  "recovery.verificationEmailRequested":
+    "تم طلب رسالة التحقق. تحقق من صندوق الوارد ومجلد الرسائل غير المرغوب فيها.",
+  "recovery.verificationEmailFailed":
+    "تعذر طلب رسالة التحقق. يرجى المحاولة مرة أخرى.",
+  "recovery.retryWithoutAttachment": "إعادة المحاولة بدون مرفق",
   "recovery.retryAttachmentUnavailable":
     "تضمّن هذا الطلب ملفًا لا يمكن إعادة المحاولة به. أرفقه مجددًا في مربع الرسالة، ثم حاول مرة أخرى.",
   "recovery.deferredSubmissionFailed":
@@ -1188,6 +1241,7 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.emptyHint": "أضف مفتاحًا لاستخدام حساباتك الخاصة.",
   "secrets.emptyMore": "و{{count}} أخرى ضمن جديد، أو أضف أي مفتاح مخصص",
   "secrets.emptyTitle": "لا توجد مفاتيح بعد.",
+  "secrets.figmaTokenMustBeToken": "الصق رمز وصول Figma، وليس رابط ملف Figma.",
   "secrets.fromEnvironment": "توفّره بيئة النشر.",
   "secrets.managedInVault":
     "تتم إدارته في Vault الخاص بمساحة العمل. يستخدم كل تطبيق في مساحة العمل هذه القيمة.",
@@ -1219,6 +1273,12 @@ const messages: ToolkitAgentChatTranslation = {
   "selection.attached_many": "تم إرفاق {{formattedCount}} حرفًا من التحديد",
   "selection.attached_other": "تم إرفاق {{formattedCount}} حرف من التحديد",
   "selection.clear": "مسح سياق التحديد",
+  "setup.addKeyInSettings": "أضف مفتاحًا من الإعدادات",
+  "setup.addKeyInSettingsDescription": "لحسابك أو مؤسستك.",
+  "setup.setEnvironmentVariable": "عيّن متغير بيئة",
+  "setup.setEnvironmentVariableDescription":
+    "مفتاح موفّر واحد لجميع مستخدمي هذا التطبيق.",
+
   "setup.addOwnKeys": "إضافة مفاتيحك الخاصة",
   "setup.builderCredits":
     "يتضمن Builder.io أرصدة مجانية، أو يمكنك استخدام مفتاح API الخاص بك.",
@@ -2717,6 +2777,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.search.appDefaultModel": "النموذج الافتراضي للتطبيق",
   "settingsShell.search.backgroundAgents": "الوكلاء في الخلفية",
   "settingsShell.search.browserAutomation": "أتمتة المتصفح",
+  "settingsShell.search.webSearch": "البحث على الويب",
   "settingsShell.search.connectedAgents": "الوكلاء المتصلون",
   "settingsShell.search.database": "قاعدة البيانات",
   "settingsShell.search.defaultModel": "النموذج الافتراضي",
@@ -2845,6 +2906,7 @@ const messages: ToolkitAgentChatTranslation = {
     "يُبقي الشرائح والتصاميم المُنشأة متوافقة مع علامتك التجارية.",
   "settingsInfra.whyBackground": "يُجري تغييرات في الكود من بيئة الإنتاج.",
   "settingsInfra.whyBrowser": "يتيح للوكيل استخدام متصفح في بيئة الإنتاج.",
+  "settingsInfra.whyWebSearch": "يعثر على معلومات عامة حديثة ووثائق رسمية.",
   "settingsInfra.provider": "المزوّد",
   "settingsInfra.keyOrg": "يستخدم مفتاح {{provider}} الخاص بالمؤسسة.",
   "settingsInfra.manageKey": "إدارة المفتاح",
@@ -3187,6 +3249,26 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsSubAgents.close": "إغلاق",
   "observability.insights.rawTrace":
     "التتبع الخام (كل الخطوات مع المدخلات والمخرجات)",
+  "reportProblem.menuItem": "الإبلاغ عن مشكلة",
+  "reportProblem.title_zero":
+    "هل تريد إرفاق ما فعله التطبيق خلال آخر {{count}} ثانية؟",
+  "reportProblem.title_one":
+    "هل تريد إرفاق ما فعله التطبيق خلال آخر {{count}} ثانية؟",
+  "reportProblem.title_two":
+    "هل تريد إرفاق ما فعله التطبيق خلال آخر {{count}} ثانيتين؟",
+  "reportProblem.title_few":
+    "هل تريد إرفاق ما فعله التطبيق خلال آخر {{count}} ثوانٍ؟",
+  "reportProblem.title_many":
+    "هل تريد إرفاق ما فعله التطبيق خلال آخر {{count}} ثانيةً؟",
+  "reportProblem.title_other":
+    "هل تريد إرفاق ما فعله التطبيق خلال آخر {{count}} ثانية؟",
+  "reportProblem.noEvents": "لم يُسجَّل شيء بعد.",
+  "reportProblem.send": "إرسال إلى الوكيل",
+  "reportProblem.copy": "نسخ تقرير المشكلة",
+  "reportProblem.attaching": "جارٍ الإرفاق…",
+  "reportProblem.notAttached": "لم يتم إرفاق التقرير.",
+  "reportProblem.agentMessage":
+    "حدث خطأ ما في التطبيق. استخدم تقرير المشكلة المرفق لشرح ما حدث.",
 };
 
 export default messages;

@@ -3620,7 +3620,7 @@ it("materializes duplicate source rows with last value winning for existing prop
   expect(JSON.parse(values[0]!.valueJson)).toBe("Second author");
 });
 
-it("does not let open-row hydration promotion downgrade a queued full Builder body", async () => {
+it("hydrates a queued full Builder body when the current body has multiline empty blocks", async () => {
   builderReadMock.mode = "full";
   builderReadMock.calls = [];
   builderReadMock.singleEntryCalls = [];
@@ -3649,7 +3649,7 @@ it("does not let open-row hydration promotion downgrade a queued full Builder bo
       ownerEmail: OWNER,
       parentId: databaseDocId,
       title: "Open hydration downgrade",
-      content: "<empty-block/>",
+      content: "<empty-block/>\n<empty-block/>",
       createdAt: now,
       updatedAt: now,
     },
@@ -5257,7 +5257,7 @@ it("explicitly retries a terminal retryable Builder hydration while preserving e
   expect(after.queued).toBeNull();
 });
 
-it("re-enqueues hydrated Builder rows with empty document content on resync", async () => {
+it("re-enqueues hydrated Builder rows with multiline empty content on resync", async () => {
   builderReadMock.mode = "full";
   builderReadMock.calls = [];
   const db = getDb();
@@ -5281,7 +5281,7 @@ it("re-enqueues hydrated Builder rows with empty document content on resync", as
       ownerEmail: OWNER,
       parentId: databaseDocId,
       title: "Hydration One",
-      content: "   ",
+      content: "<empty-block/>\n<empty-block/>",
       createdAt: now,
       updatedAt: now,
     },

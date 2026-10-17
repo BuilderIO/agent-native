@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockSsrHandler = vi.hoisted(() => vi.fn());
-const mockVerifyScopedAgentAccessToken = vi.hoisted(() => vi.fn());
 const mockRecording = vi.hoisted(() => ({
   value: null as Record<string, unknown> | null,
 }));
@@ -13,8 +12,6 @@ vi.mock("@agent-native/core/server/ssr-handler", () => ({
 vi.mock("@agent-native/core/server", () => ({
   getForwardedRequestOrigin: (event: { url: string }) =>
     new URL(event.url).origin,
-  verifyScopedAgentAccessToken: (...args: unknown[]) =>
-    mockVerifyScopedAgentAccessToken(...args),
 }));
 
 vi.mock("h3", () => ({
@@ -53,8 +50,6 @@ vi.mock("../db/index.js", () => ({
       id: "recordings.id",
       title: "recordings.title",
       status: "recordings.status",
-      updatedAt: "recordings.updatedAt",
-      sharePasswordVersion: "recordings.sharePasswordVersion",
       visibility: "recordings.visibility",
       password: "recordings.password",
       expiresAt: "recordings.expiresAt",
@@ -86,8 +81,6 @@ function recording(overrides: Record<string, unknown> = {}) {
     id: "rec-1",
     title: "Public clip",
     status: "ready",
-    updatedAt: "2026-01-01T00:00:00.000Z",
-    sharePasswordVersion: "initial",
     visibility: "public",
     password: null,
     expiresAt: null,
@@ -111,7 +104,6 @@ describe("Clips page agent discovery", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockRecording.value = recording();
-    mockVerifyScopedAgentAccessToken.mockReturnValue({ ok: false });
     mockSsrHandler.mockImplementation(() => htmlResponse());
   });
 
@@ -147,6 +139,20 @@ describe("Clips page agent discovery", () => {
     expect(html).toContain("clips-get-frame");
   });
 
+  it("puts transcript and frame discovery in public direct recording links", async () => {
+    const response = (await (handler as any)({
+      url: "https://clips.example.com/r/rec-1",
+      query: {},
+    })) as Response;
+    const html = await response.text();
+
+    expect(html).toContain(
+      '<link rel="alternate" type="application/json" href="https://clips.example.com/api/agent-context.json?id=rec-1"',
+    );
+    expect(html).toContain("clips-get-transcript");
+    expect(html).toContain("clips-get-frame");
+  });
+
   it("does not duplicate the discovery script already rendered by /share", async () => {
     mockSsrHandler.mockResolvedValue(
       htmlResponse(
@@ -164,15 +170,37 @@ describe("Clips page agent discovery", () => {
     expect(html.match(/rel="alternate"/g)).toHaveLength(1);
   });
 
-  it("does not inject tokenized discovery into the public SSR shell", async () => {
-    mockRecording.value = recording({ visibility: "private" });
-    const publicResponse = (await (handler as any)({
+  it("gives private links generic agent discovery without clip details", async () => {
+    mockRecording.value = recording({
+      title: "Secret private clip title",
+      status: "processing",
+      visibility: "private",
+    });
+
+    const shareResponse = (await (handler as any)({
       url: "https://clips.example.com/share/rec-1",
       query: {},
     })) as Response;
-    expect(await publicResponse.text()).not.toContain("agent-context.json");
+    const shareHtml = await shareResponse.text();
+    expect(shareHtml).toContain(
+      'href="https://clips.example.com/api/agent-context.json?id=rec-1"',
+    );
+    expect(shareHtml).toContain("Share with agents");
+    expect(shareHtml).not.toContain("Secret private clip title");
+    expect(shareHtml).not.toContain('"recordingStatus":"processing"');
 
-    mockVerifyScopedAgentAccessToken.mockReturnValue({ ok: true });
+    const directResponse = (await (handler as any)({
+      url: "https://clips.example.com/r/rec-1",
+      query: {},
+    })) as Response;
+    expect(await directResponse.text()).toContain("agent-context.json");
+  });
+
+  it("keeps tokenized links discoverable without echoing the token", async () => {
+    mockRecording.value = recording({
+      title: "Secret private clip title",
+      visibility: "private",
+    });
     const tokenEvent = {
       url: "https://clips.example.com/share/rec-1?agent_access=tok%2B1",
       query: { agent_access: "tok+1" },
@@ -181,8 +209,11 @@ describe("Clips page agent discovery", () => {
     const tokenResponse = (await (handler as any)(tokenEvent)) as Response;
     const html = await tokenResponse.text();
 
-    expect(html).not.toContain("clips-agent-context");
+    expect(html).toContain("clips-agent-context");
+    expect(html).toContain("Share with agents");
+    expect(html).not.toContain("Secret private clip title");
     expect(html).not.toContain("agent_access=tok%2B1");
+    expect(html).not.toContain("tok+1");
     expect(tokenResponse.headers.get("cache-control")).toBe(
       "public, max-age=60",
     );
@@ -191,8 +222,10 @@ describe("Clips page agent discovery", () => {
     );
   });
 
-  it("does not publish discovery for expired recordings in the anonymous shell", async () => {
+  it("gives expired recordings generic discovery without revealing status", async () => {
     mockRecording.value = recording({
+      title: "Expired private details",
+      status: "failed",
       expiresAt: "2020-01-01T00:00:00.000Z",
     });
 
@@ -201,7 +234,11 @@ describe("Clips page agent discovery", () => {
       query: {},
     })) as Response;
 
-    expect(await response.text()).not.toContain("agent-context.json");
+    const html = await response.text();
+    expect(html).toContain("agent-context.json");
+    expect(html).toContain("Share with agents");
+    expect(html).not.toContain("Expired private details");
+    expect(html).not.toContain('"recordingStatus":"failed"');
   });
 
   it("treats t as playback state rather than an access token", async () => {
@@ -211,6 +248,18 @@ describe("Clips page agent discovery", () => {
     })) as Response;
 
     expect(await response.text()).toContain("clips-agent-context");
-    expect(mockVerifyScopedAgentAccessToken).not.toHaveBeenCalled();
+  });
+
+  it("publishes generic discovery for unknown ids without revealing existence", async () => {
+    mockRecording.value = null;
+
+    const response = (await (handler as any)({
+      url: "https://clips.example.com/share/unknown-id",
+      query: {},
+    })) as Response;
+
+    expect(await response.text()).toContain(
+      'href="https://clips.example.com/api/agent-context.json?id=unknown-id"',
+    );
   });
 });

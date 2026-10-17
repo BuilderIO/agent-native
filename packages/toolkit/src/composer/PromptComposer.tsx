@@ -55,12 +55,14 @@ import {
   isLocalRuntimeEngine,
   TiptapComposer,
   type ComposerAgentOption,
+  type ComposerTextReference,
   type ComposerTextSelection,
   type ComposerImageModelMenu,
   type ComposerSubmitIntent,
   type ComposerDraftSnapshot,
   type TiptapComposerHandle,
   type TiptapComposerSubmitOptions,
+  sameComposerDraft,
 } from "./TiptapComposer.js";
 import type {
   AgentComposerLayoutVariant,
@@ -124,8 +126,13 @@ export interface PromptComposerProps {
   /** Accessible name forwarded to the rich text editor. */
   ariaLabel?: string;
   disabled?: boolean;
+  isReferenceTarget?: boolean;
   /** Block all submission paths while allowing draft, file, and context staging. */
   submissionDisabled?: boolean;
+  /** Require the Agent-Native readiness check for this agent chat composer. */
+  requireAgentEngine?: boolean;
+  /** Hide the local setup card when the host shows the same card beside the composer. */
+  showMissingApiKeySetup?: boolean;
   /** Disable only the send control while the submission is being accepted. */
   sendButtonDisabled?: boolean;
   /** Prevent submission while preserving editor focus and draft entry. */
@@ -182,6 +189,8 @@ export interface PromptComposerProps {
   initialText?: string;
   /** Stable key used to re-apply `initialText` when the host picks a preset. */
   initialTextKey?: string | number;
+  /** Chips placed into `initialText`, as the composer handle's `setText` takes them. */
+  initialReferences?: readonly ComposerTextReference[];
   /** Optional host-owned control rendered directly after the "+" button. */
   modeControl?: ReactNode;
   /** Current agent execution mode shown in the shared composer toolbar. */
@@ -235,10 +244,12 @@ export interface PromptComposerProps {
   onModelSelectorOpenChange?: (open: boolean) => void;
   /** Enable server-backed model/provider status checks. Defaults on, except for a selected local runtime. */
   modelStatusChecksEnabled?: boolean;
-  requireAgentEngine?: boolean;
   /** Called whenever the plain editor text changes. */
   onTextChange?: (text: string) => void;
   mentionItems?: MentionItem[];
+  /** Why some of `mentionItems` could not load, shown in the @ popover. */
+  mentionItemsError?: string;
+  onRetryMentionItems?: () => void;
   mentionPopoverDensity?: "default" | "stacked";
   includeDefaultMentionSearch?: boolean;
   onReferencesChange?: (references: Reference[]) => void;
@@ -358,11 +369,11 @@ function formatInlineTextFile(name: string, text: string): string {
     .join("\n");
 }
 
-/** Submissions stay blocked until the provider check confirms the engine can run. */
+/** Only a confirmed missing provider disables the composer. */
 export function shouldGateComposerForEngine(
   state: ComposerAgentEngineState,
 ): boolean {
-  return state !== "configured";
+  return state === "missing";
 }
 
 /** Show setup treatment only when a confirmed-missing engine has setup UI. */
@@ -622,7 +633,9 @@ function PromptComposerInner({
   placeholder,
   ariaLabel,
   disabled,
+  isReferenceTarget,
   submissionDisabled,
+  showMissingApiKeySetup = true,
   sendButtonDisabled,
   submitting,
   willQueue = false,
@@ -650,7 +663,9 @@ function PromptComposerInner({
   extensionTools = false,
   initialText,
   initialTextKey,
+  initialReferences,
   modeControl,
+  requireAgentEngine = false,
   execMode,
   onExecModeChange,
   planModeDisabled,
@@ -679,9 +694,10 @@ function PromptComposerInner({
   onAgentChange,
   onModelSelectorOpenChange,
   modelStatusChecksEnabled,
-  requireAgentEngine = true,
   onTextChange,
   mentionItems,
+  mentionItemsError,
+  onRetryMentionItems,
   mentionPopoverDensity,
   includeDefaultMentionSearch,
   onReferencesChange,
@@ -705,7 +721,6 @@ function PromptComposerInner({
   const t = adapters.translate!;
   const modelsAdapter = adapters.models!;
   const BuilderSetupCard = modelsAdapter.BuilderSetupCard;
-  const BuilderSetupContent = modelsAdapter.BuilderSetupContent;
   const localRef = useRef<TiptapComposerHandle>(null);
   const handleRef = composerRef ?? localRef;
   const attachments = useComposer((state) => state.attachments);
@@ -771,29 +786,91 @@ function PromptComposerInner({
   const handleEffortChange = showModelSelector
     ? (onEffortChange ?? models.onEffortChange)
     : undefined;
-  const agentEngineConfigured = modelsAdapter.useAgentEngineConfigured!(
-    requireAgentEngine && resolvedModelStatusChecksEnabled,
-  );
+  const readinessEngine = selectedEngine ?? models.selectedEngine;
   const engineStatusChecksEnabled =
-    requireAgentEngine && resolvedModelStatusChecksEnabled;
+    requireAgentEngine && !isLocalRuntimeEngine(readinessEngine);
+  const agentEngineConfigured = modelsAdapter.useAgentEngineConfigured!(
+    engineStatusChecksEnabled,
+  );
   const engineState = engineStatusChecksEnabled
     ? agentEngineConfigured.state
     : "configured";
   const missingApiKey = engineStatusChecksEnabled && engineState === "missing";
+  const [setupBouncePulse, setSetupBouncePulse] = useState(0);
+  const [providerCheckPending, setProviderCheckPending] = useState(false);
+  const heldProviderDraftRef = useRef<ComposerDraftSnapshot | null>(null);
+  const [heldProviderDraftRevision, setHeldProviderDraftRevision] = useState(0);
   const handleBuilderConnected = useCallback(() => {
     if (typeof window !== "undefined") {
       window.dispatchEvent(new Event("agent-engine:configured-changed"));
     }
   }, []);
-  const useInlineMissingKeySetup = layoutVariant === "compact";
   const engineSubmissionBlocked = shouldGateComposerForEngine(engineState);
+  const composerDisabled = Boolean(disabled || missingApiKey);
+  const handleDisabledComposerClick = useCallback(() => {
+    if (missingApiKey) setSetupBouncePulse((pulse) => pulse + 1);
+    onDisabledClick?.();
+  }, [missingApiKey, onDisabledClick]);
+  const validateEngineBeforeSubmit = useCallback(async () => {
+    if (!engineStatusChecksEnabled) return "configured" as const;
+    try {
+      const fetchConfiguredState =
+        modelsAdapter.fetchAgentEngineConfiguredState;
+      if (!fetchConfiguredState) return "unavailable" as const;
+      return await fetchConfiguredState(true, {
+        fresh: false,
+        timeoutMs: 10_000,
+      });
+    } catch {
+      return "unavailable" as const;
+    }
+  }, [
+    engineStatusChecksEnabled,
+    modelsAdapter.fetchAgentEngineConfiguredState,
+  ]);
+  const beforeSubmit = useCallback(
+    async (
+      draft?: Parameters<NonNullable<PromptComposerProps["onBeforeSubmit"]>>[0],
+    ) => {
+      setProviderCheckPending(true);
+      try {
+        const state = await validateEngineBeforeSubmit();
+        if (state !== "configured") {
+          if (state === "missing" && draft) {
+            heldProviderDraftRef.current = draft;
+            setHeldProviderDraftRevision((revision) => revision + 1);
+          }
+          return false;
+        }
+        heldProviderDraftRef.current = null;
+        return onBeforeSubmit ? await onBeforeSubmit(draft) : true;
+      } finally {
+        setProviderCheckPending(false);
+      }
+    },
+    [onBeforeSubmit, validateEngineBeforeSubmit],
+  );
+  useEffect(() => {
+    const held = heldProviderDraftRef.current;
+    if (engineState !== "configured" || !held) return;
+    heldProviderDraftRef.current = null;
+    const target =
+      typeof handleRef === "object" && handleRef && "current" in handleRef
+        ? handleRef.current
+        : null;
+    const current = target?.getDraftSnapshot?.();
+    if (current && sameComposerDraft(held, current)) {
+      void target?.submit?.();
+    }
+  }, [engineState, handleRef, heldProviderDraftRevision]);
+  const useInlineMissingKeySetup = layoutVariant === "compact";
   const retryEngineStatus = useCallback(() => {
     if (typeof window !== "undefined") {
       window.dispatchEvent(new Event("agent-engine:configured-changed"));
     }
   }, []);
   useEffect(() => {
-    if (!autoFocus || disabled) return;
+    if (!autoFocus || composerDisabled) return;
     const id = window.setTimeout(() => {
       const target =
         typeof handleRef === "object" && handleRef && "current" in handleRef
@@ -802,7 +879,7 @@ function PromptComposerInner({
       target?.focus();
     }, 50);
     return () => window.clearTimeout(id);
-  }, [autoFocus, disabled, handleRef]);
+  }, [autoFocus, composerDisabled, handleRef]);
 
   const handleSubmit = useCallback(
     async (
@@ -846,23 +923,17 @@ function PromptComposerInner({
       inlineTextAttachments,
     ],
   );
+
   return (
     <>
-      {missingApiKey && !useInlineMissingKeySetup && BuilderSetupCard ? (
+      {missingApiKey && showMissingApiKeySetup && BuilderSetupCard ? (
         <BuilderSetupCard
           onConnected={handleBuilderConnected}
+          bouncePulse={setupBouncePulse}
           attached
           fullWidth
-          layout="sidebar"
+          layout={useInlineMissingKeySetup ? "sidebar" : "default"}
         />
-      ) : null}
-      {missingApiKey && useInlineMissingKeySetup && BuilderSetupContent ? (
-        <div className="agent-builder-setup-inline--attached mb-0 rounded-md border border-border/80 bg-background/80 p-2.5 text-start shadow-sm">
-          <BuilderSetupContent
-            onConnected={handleBuilderConnected}
-            layout="sidebar"
-          />
-        </div>
       ) : null}
       {engineState === "unavailable" ? (
         <div
@@ -882,16 +953,14 @@ function PromptComposerInner({
       <AgentComposerFrame
         className={cn(
           "text-start",
-          onDisabledClick && "agent-composer-area--attached-above",
+          composerDisabled && "agent-composer-area--attached-above",
           className,
         )}
         rootClassName={rootClassName}
         style={style}
         rootStyle={rootStyle}
         layoutVariant={layoutVariant}
-        onClick={
-          disabled && onDisabledClick ? () => onDisabledClick() : undefined
-        }
+        onClick={composerDisabled ? handleDisabledComposerClick : undefined}
       >
         <PromptAttachmentStrip />
         <TiptapComposer
@@ -905,10 +974,12 @@ function PromptComposerInner({
           contextButtonTooltipDisabled={contextButtonTooltipDisabled}
           ariaLabel={ariaLabel}
           focusRef={handleRef}
-          disabled={disabled}
+          disabled={composerDisabled}
+          isReferenceTarget={isReferenceTarget}
           contextControlsDisabled={engineSubmissionBlocked}
           submissionDisabled={submissionDisabled || engineSubmissionBlocked}
-          sendButtonDisabled={sendButtonDisabled}
+          sendButtonDisabled={sendButtonDisabled || providerCheckPending}
+          sendButtonBusy={submitting || providerCheckPending}
           submitting={submitting}
           willQueue={willQueue}
           maxDocumentAttachmentBytes={maxDocumentAttachmentBytes}
@@ -916,9 +987,10 @@ function PromptComposerInner({
           placeholder={placeholder}
           initialText={initialText}
           initialTextKey={initialTextKey}
+          initialReferences={initialReferences}
           onSubmit={handleSubmit}
           onEmptySubmit={onEmptySubmit}
-          onBeforeSubmit={onBeforeSubmit}
+          onBeforeSubmit={beforeSubmit}
           onSubmissionPendingChange={onSubmissionPendingChange}
           getSubmitFailureDraftScope={getSubmitFailureDraftScope}
           onAttachmentError={onAttachmentError}
@@ -952,6 +1024,8 @@ function PromptComposerInner({
           voiceEnabled={voiceEnabled}
           onTextChange={onTextChange}
           mentionItems={mentionItems}
+          mentionItemsError={mentionItemsError}
+          onRetryMentionItems={onRetryMentionItems}
           mentionPopoverDensity={mentionPopoverDensity}
           includeDefaultMentionSearch={includeDefaultMentionSearch}
           onReferencesChange={onReferencesChange}
@@ -1025,6 +1099,7 @@ function PromptComposerRuntime(props: PromptComposerProps) {
           <StaleIndexBoundary
             resetKey={resetKey}
             componentName="PromptComposer"
+            remountOnResetKey={false}
           >
             <PromptComposerInner {...props} />
           </StaleIndexBoundary>

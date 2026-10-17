@@ -8,7 +8,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   getRenderedSlideSource,
@@ -48,10 +48,20 @@ vi.mock("@/components/deck/ExcalidrawSlide", () => ({
 }));
 vi.mock("@/root", () => ({ enterSelectionMode: vi.fn() }));
 
+// happy-dom has no layout: an empty stack makes the pointer resolver fall back
+// to the event target's ancestors.
+beforeEach(() => {
+  Object.defineProperty(document, "elementsFromPoint", {
+    configurable: true,
+    value: () => [],
+  });
+});
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  Reflect.deleteProperty(document, "elementsFromPoint");
 });
 
 function Providers({ children }: { children: ReactNode }) {
@@ -63,6 +73,86 @@ function Providers({ children }: { children: ReactNode }) {
 }
 
 describe("SlideEditor with a newer version of the edited slide", () => {
+  it("keeps an undo selection visible but disables handles until AutoFit settles", () => {
+    vi.stubGlobal("fetch", () => new Promise(() => {}));
+    let animationFrameId = 0;
+    const animationFrames = new Map<number, FrameRequestCallback>();
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe() {}
+        disconnect() {}
+      },
+    );
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      const id = ++animationFrameId;
+      animationFrames.set(id, callback);
+      return id;
+    });
+    vi.stubGlobal("cancelAnimationFrame", (id: number) => {
+      animationFrames.delete(id);
+    });
+    const noop = () => {};
+    const slide = {
+      id: "slide-undo-overlay",
+      content:
+        '<div class="fmd-slide"><img data-slide-object-id="image-1" src="https://example.test/image.svg" style="position:absolute;left:40px;top:80px;width:160px;height:90px"></div>',
+      layout: "blank",
+    } as Slide;
+    const onUndoSelectionConsumed = vi.fn();
+
+    const view = render(
+      <SlideEditor
+        slide={slide}
+        onUpdateSlide={() => undefined}
+        onGenerateImage={noop}
+        onOpenAssetLibrary={noop}
+        onUploadImage={noop}
+        onToggleObjectFit={noop}
+        onChangeObjectPosition={noop}
+      />,
+      { wrapper: Providers },
+    );
+    view.rerender(
+      <SlideEditor
+        slide={{
+          ...slide,
+          content: slide.content.replace("left:40px", "left:120px"),
+        }}
+        undoSelection={{
+          sequence: 1,
+          slideId: slide.id,
+          targets: [{ objectId: "image-1", path: [0] }],
+        }}
+        onUndoSelectionConsumed={onUndoSelectionConsumed}
+        onUpdateSlide={() => undefined}
+        onGenerateImage={noop}
+        onOpenAssetLibrary={noop}
+        onUploadImage={noop}
+        onToggleObjectFit={noop}
+        onChangeObjectPosition={noop}
+      />,
+    );
+
+    expect(onUndoSelectionConsumed).toHaveBeenCalled();
+    expect(
+      view.container.querySelector(".slide-content [data-builder-id]"),
+    ).not.toBeNull();
+    expect(
+      document.querySelectorAll('[data-slide-selection-outline="true"]'),
+    ).toHaveLength(1);
+    expect(
+      document.querySelector('[data-slide-resize-handle="se"]'),
+    ).toBeNull();
+
+    const pendingFrames = Array.from(animationFrames.values());
+    animationFrames.clear();
+    act(() => pendingFrames.forEach((callback) => callback(0)));
+    expect(
+      document.querySelector('[data-slide-resize-handle="se"]'),
+    ).not.toBeNull();
+  });
+
   it("keeps the first image selected when Shift-clicking another image", async () => {
     vi.stubGlobal("fetch", () => new Promise(() => {}));
     const noop = () => {};
@@ -497,9 +587,75 @@ describe("SlideEditor with a newer version of the edited slide", () => {
     await waitFor(() => {
       const submenu = getByRole("menuitem", {
         name: "styleInspector.bringToFront",
-      }).closest('[role="menu"]');
+      }).closest<HTMLElement>('[role="menu"]');
       expect(submenu?.className).toContain("z-[2147483647]");
+      expect(submenu?.style.animation).toBe("none");
+      expect(submenu?.style.transition).toBe("none");
     });
+  });
+
+  it("suppresses native context menus, prevents image dragging, and reopens instantly after Escape", async () => {
+    vi.stubGlobal("fetch", () => new Promise(() => {}));
+    const noop = () => {};
+    const slide = {
+      id: "slide-context-menu-repeat",
+      content:
+        '<div class="fmd-slide"><img src="https://example.test/image.svg" alt="Image"></div>',
+      layout: "blank",
+    } as Slide;
+    const { container, getByRole, queryByRole } = render(
+      <SlideEditor
+        slide={slide}
+        onUpdateSlide={() => undefined}
+        onGenerateImage={noop}
+        onOpenAssetLibrary={noop}
+        onUploadImage={noop}
+        onToggleObjectFit={noop}
+        onChangeObjectPosition={noop}
+      />,
+      { wrapper: Providers },
+    );
+    const image =
+      container.querySelector<HTMLImageElement>(".slide-content img")!;
+
+    const canvasWrapper = container.querySelector<HTMLElement>(
+      "[data-main-slide-canvas]",
+    )!;
+    const outsideTriggerEvent = new MouseEvent("contextmenu", {
+      bubbles: true,
+      cancelable: true,
+      button: 2,
+    });
+    act(() => canvasWrapper.dispatchEvent(outsideTriggerEvent));
+    expect(outsideTriggerEvent.defaultPrevented).toBe(true);
+
+    const rightClick = () => {
+      const event = new MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+        button: 2,
+      });
+      act(() => image.dispatchEvent(event));
+      expect(event.defaultPrevented).toBe(true);
+    };
+
+    rightClick();
+    const firstMenu = getByRole("menu");
+    expect(firstMenu.style.animation).toBe("none");
+    expect(firstMenu.style.transition).toBe("none");
+
+    const dragStart = new Event("dragstart", {
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => image.dispatchEvent(dragStart));
+    expect(dragStart.defaultPrevented).toBe(true);
+
+    fireEvent.keyDown(firstMenu, { key: "Escape" });
+    await waitFor(() => expect(queryByRole("menu")).toBeNull());
+
+    rightClick();
+    expect(getByRole("menu")).toBeTruthy();
   });
 
   it("keeps a comment-highlight click in the active text editor", () => {

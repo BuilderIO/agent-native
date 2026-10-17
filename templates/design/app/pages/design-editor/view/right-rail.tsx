@@ -6,7 +6,6 @@ import { EditPanel } from "@/components/design/EditPanel";
 import type { EditorContentAndComponents } from "../domains/use-editor-content-and-components";
 import type { EditorCore } from "../domains/use-editor-core";
 import type { EditorHistory } from "../domains/use-editor-history";
-import type { EditorModes } from "../domains/use-editor-modes";
 import { rightInspectorPanelClassName } from "../minimal-inspector";
 import { TOP_BAR_HEIGHT_PX } from "../top-bar";
 
@@ -14,37 +13,31 @@ export function renderRightRail({
   editorCore,
   editorHistory,
   editorContentAndComponents,
-  editorModes,
   projectTitleControl,
   minimalUiToggle,
-  renderZoomControl,
   localPreviewRow,
   rightSidebarActions,
   topBarVisible,
-  renderResponsiveInteractBar,
+  interactFloatingBar,
   rightSidebarVisible,
   editPanelProps,
 }: {
   editorCore: EditorCore;
   editorHistory: EditorHistory;
   editorContentAndComponents: EditorContentAndComponents;
-  editorModes: EditorModes;
   projectTitleControl: ReactElement;
-  minimalUiToggle: ReactElement;
-  renderZoomControl: (
-    controlId: "toolbar" | "inspector" | "topbar",
-  ) => ReactElement;
+  minimalUiToggle: ReactElement | null;
   localPreviewRow: ReactElement | null;
   rightSidebarActions: ReactElement;
   topBarVisible: boolean;
-  renderResponsiveInteractBar: (floating: boolean) => ReactElement;
+  interactFloatingBar: ReactElement | null;
   rightSidebarVisible: boolean;
   editPanelProps: Omit<
     import("react").ComponentProps<typeof EditPanel>,
     "width"
   >;
 }) {
-  const { t, mode, hostOwnsChrome, widgetEmbed } = editorCore;
+  const { t, mode, hostOwnsChrome } = editorCore;
   const {
     rightSidebarContentRef,
     minimalUi,
@@ -52,7 +45,6 @@ export function renderRightRail({
     startSidebarResize,
   } = editorHistory;
   const { uiHidden } = editorContentAndComponents;
-  const { responsiveInteractActive } = editorModes;
 
   return (
     <>
@@ -99,35 +91,36 @@ export function renderRightRail({
         </div>
       ) : null}
 
+      {interactFloatingBar && !minimalUi ? (
+        <div
+          data-design-interact-floating
+          className="pointer-events-none absolute inset-x-0 top-0 z-[90] flex justify-center px-3 pt-3"
+        >
+          {interactFloatingBar}
+        </div>
+      ) : null}
+
       {minimalUi && !hostOwnsChrome ? (
         <div
           data-design-minimal-ui
           className="pointer-events-none absolute inset-x-0 top-0 z-[90]"
         >
           <div className="grid grid-cols-[minmax(0,auto)_minmax(0,1fr)_minmax(0,auto)] items-start gap-3 px-3 pt-3">
-            {widgetEmbed ? (
-              <div aria-hidden="true" />
-            ) : (
-              <div
-                data-design-minimal-bar="left"
-                className="pointer-events-auto flex h-10 min-w-0 max-w-full items-center overflow-hidden rounded-lg border border-border bg-[var(--design-editor-panel-bg)] px-1 shadow-xl"
-              >
-                <AgentNativeMenuMark className="mx-1 size-5 shrink-0 text-foreground dark:text-white" />
-                <div className="min-w-0 flex-1 px-1">{projectTitleControl}</div>
-                {minimalUiToggle}
-              </div>
-            )}
+            <div
+              data-design-minimal-bar="left"
+              className="pointer-events-auto flex h-10 min-w-0 max-w-full items-center overflow-hidden rounded-lg border border-border bg-[var(--design-editor-panel-bg)] px-1 shadow-xl"
+            >
+              <AgentNativeMenuMark className="mx-1 size-5 shrink-0 text-foreground dark:text-white" />
+              <div className="min-w-0 flex-1 px-1">{projectTitleControl}</div>
+              {minimalUiToggle}
+            </div>
             <div
               data-design-minimal-bar="interact"
               className="pointer-events-none flex min-w-0 justify-center"
             >
-              {responsiveInteractActive
-                ? renderResponsiveInteractBar(true)
-                : null}
+              {interactFloatingBar}
             </div>
-            {widgetEmbed ? (
-              <div aria-hidden="true" />
-            ) : !rightSidebarVisible || uiHidden ? (
+            {!rightSidebarVisible || uiHidden ? (
               <div
                 data-design-minimal-bar="right"
                 className="pointer-events-auto min-w-0 max-w-full overflow-hidden rounded-lg border border-border bg-[var(--design-editor-panel-bg)] shadow-xl md:max-w-[680px]"
@@ -138,17 +131,6 @@ export function renderRightRail({
               <div aria-hidden="true" style={{ width: rightSidebarWidth }} />
             )}
           </div>
-        </div>
-      ) : null}
-
-      {/* The widget's only persistent control sits in the bottom corner so it
-            never covers the page header the screen starts with. */}
-      {widgetEmbed && minimalUi && (!rightSidebarVisible || uiHidden) ? (
-        <div
-          data-design-widget-zoom
-          className="absolute bottom-3 right-3 z-[90] flex h-7 items-center rounded-md border border-border bg-[var(--design-editor-panel-bg)] px-0.5 shadow-md"
-        >
-          {renderZoomControl("inspector")}
         </div>
       ) : null}
     </>

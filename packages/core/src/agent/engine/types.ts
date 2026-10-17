@@ -86,6 +86,9 @@ export interface EngineToolResultPart {
   toolInput: string;
   content: string;
   isError?: boolean;
+  approvalPause?: boolean;
+  approvalAskId?: string;
+  outcome?: "unknown";
   images?: EngineToolResultImagePart[];
 }
 

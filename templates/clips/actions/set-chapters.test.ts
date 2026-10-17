@@ -7,13 +7,22 @@ const { mockDb, schema, stored, written } = vi.hoisted(() => ({
       id: "recordings.id",
       chaptersJson: "recordings.chaptersJson",
       editsJson: "recordings.editsJson",
+      mediaUpdatedAt: "recordings.mediaUpdatedAt",
+      updatedAt: "recordings.updatedAt",
     },
   },
   stored: {
     chaptersJson: "[]",
     editsJson: "{}",
+    mediaUpdatedAt: "media-1",
+    updatedAt: "2026-01-01T00:00:00.000Z",
     // Racing writes, one landing just before each update in turn.
-    changedBeforeWrite: [] as { chaptersJson?: string; editsJson?: string }[],
+    changedBeforeWrite: [] as {
+      chaptersJson?: string;
+      editsJson?: string;
+      mediaUpdatedAt?: string;
+      updatedAt?: string;
+    }[],
   },
   written: [] as unknown[],
 }));
@@ -45,6 +54,8 @@ beforeEach(() => {
   written.length = 0;
   stored.chaptersJson = JSON.stringify([intro]);
   stored.editsJson = "{}";
+  stored.mediaUpdatedAt = "media-1";
+  stored.updatedAt = "2026-01-01T00:00:00.000Z";
   stored.changedBeforeWrite = [];
   mockDb.select.mockReturnValue({
     from: () => ({
@@ -53,6 +64,8 @@ beforeEach(() => {
           id: "rec_1",
           chaptersJson: stored.chaptersJson,
           editsJson: stored.editsJson,
+          mediaUpdatedAt: stored.mediaUpdatedAt,
+          updatedAt: stored.updatedAt,
         },
       ],
     }),
@@ -68,9 +81,15 @@ beforeEach(() => {
             "recordings.id": "rec_1",
             "recordings.chaptersJson": stored.chaptersJson,
             "recordings.editsJson": stored.editsJson,
+            "recordings.mediaUpdatedAt": stored.mediaUpdatedAt,
+            "recordings.updatedAt": stored.updatedAt,
           };
           if (terms.some((t: any) => current[t.column] !== t.value)) return [];
           written.push({ values, condition });
+          Object.assign(stored, {
+            chaptersJson: (values as any).chaptersJson ?? stored.chaptersJson,
+            updatedAt: (values as any).updatedAt ?? stored.updatedAt,
+          });
           return [{ id: "rec_1" }];
         },
       }),
@@ -78,9 +97,16 @@ beforeEach(() => {
   });
 });
 
+async function save(args: Record<string, unknown>) {
+  return action.run({
+    expectedMediaUpdatedAt: stored.mediaUpdatedAt,
+    ...args,
+  } as any);
+}
+
 describe("set-chapters", () => {
   it("writes when the stored chapters match the expected ones", async () => {
-    await action.run({
+    await save({
       recordingId: "rec_1",
       chapters: [intro, demo],
       expectedChapters: [intro],
@@ -94,6 +120,11 @@ describe("set-chapters", () => {
               column: "recordings.chaptersJson",
               value: JSON.stringify([intro]),
             },
+            { column: "recordings.mediaUpdatedAt", value: "media-1" },
+            {
+              column: "recordings.updatedAt",
+              value: "2026-01-01T00:00:00.000Z",
+            },
           ],
         },
       }),
@@ -103,7 +134,7 @@ describe("set-chapters", () => {
   it("refuses when the stored chapters differ from the expected ones", async () => {
     stored.chaptersJson = JSON.stringify([intro, demo]);
     await expect(
-      action.run({
+      save({
         recordingId: "rec_1",
         chapters: [demo],
         expectedChapters: [intro],
@@ -120,7 +151,7 @@ describe("set-chapters", () => {
       { chaptersJson: JSON.stringify([intro, demo]) },
     ];
     await expect(
-      action.run({
+      save({
         recordingId: "rec_1",
         chapters: [demo],
         expectedChapters: [intro],
@@ -134,17 +165,17 @@ describe("set-chapters", () => {
   it("succeeds when a racing write stored exactly the requested list", async () => {
     stored.changedBeforeWrite = [{ chaptersJson: JSON.stringify([demo]) }];
     await expect(
-      action.run({
+      save({
         recordingId: "rec_1",
         chapters: [demo],
         expectedChapters: [intro],
       } as any),
-    ).resolves.toEqual({ id: "rec_1", chapters: [demo] });
+    ).resolves.toMatchObject({ id: "rec_1", chapters: [demo] });
   });
 
   it("refuses a chapter whose title is only spaces, rather than dropping it", async () => {
     await expect(
-      action.run({
+      save({
         recordingId: "rec_1",
         chapters: [intro, { startMs: 30_000, title: "  " }],
         expectedChapters: [],
@@ -153,17 +184,56 @@ describe("set-chapters", () => {
     expect(written).toHaveLength(0);
   });
 
+  it("preserves an existing hidden chapter while saving a visible rename", async () => {
+    const hidden = { startMs: 60_000, title: "" };
+    stored.chaptersJson = JSON.stringify([intro, hidden]);
+
+    await save({
+      recordingId: "rec_1",
+      chapters: [{ ...intro, title: "Opening" }, hidden],
+      expectedChapters: [intro, hidden],
+    });
+
+    expect(JSON.parse(stored.chaptersJson)).toEqual([
+      { ...intro, title: "Opening" },
+      hidden,
+    ]);
+  });
+
+  it("refuses when the media version changed after the chapter list was read", async () => {
+    await expect(
+      save({
+        recordingId: "rec_1",
+        chapters: [demo],
+        expectedChapters: [intro],
+        expectedMediaUpdatedAt: "media-old",
+      }),
+    ).rejects.toMatchObject({ errorCode: "chapters_changed" });
+    expect(written).toHaveLength(0);
+  });
+
+  it("requires an expected media version", async () => {
+    await expect(
+      action.run({
+        recordingId: "rec_1",
+        chapters: [demo],
+        expectedChapters: [intro],
+      } as any),
+    ).rejects.toMatchObject({ errorCode: "expected_media_version_required" });
+    expect(written).toHaveLength(0);
+  });
+
   it("replaces unreadable entries only when asked to, still checking the list", async () => {
     stored.chaptersJson = JSON.stringify([intro, { startMs: "soon" }]);
     await expect(
-      action.run({
+      save({
         recordingId: "rec_1",
         chapters: [demo],
         expectedChapters: [demo],
         discardUnreadable: true,
       } as any),
     ).rejects.toMatchObject({ errorCode: "chapters_changed" });
-    await action.run(
+    await save(
       action.schema.parse({
         recordingId: "rec_1",
         chapters: [demo],
@@ -176,7 +246,7 @@ describe("set-chapters", () => {
 
   it("drops unreadable entries when asked to, even if the rest is unchanged", async () => {
     stored.chaptersJson = JSON.stringify([intro, { startMs: "soon" }]);
-    await action.run({
+    await save({
       recordingId: "rec_1",
       chapters: [intro],
       expectedChapters: [intro],
@@ -191,7 +261,7 @@ describe("set-chapters", () => {
       { startMs: "30000", title: "Demo" },
     ]);
     await expect(
-      action.run({
+      save({
         recordingId: "rec_1",
         chapters: [demo],
         expectedChapters: [intro],
@@ -208,7 +278,7 @@ describe("set-chapters", () => {
   ])("refuses a guarded save over stored %s", async (_, chaptersJson) => {
     stored.chaptersJson = chaptersJson;
     await expect(
-      action.run({
+      save({
         recordingId: "rec_1",
         chapters: [demo],
         expectedChapters: [],
@@ -232,13 +302,13 @@ describe("set-chapters", () => {
   ])("refuses a save with %s, and writes nothing", async (_, extra) => {
     stored.chaptersJson = JSON.stringify([intro, demo]);
     await expect(
-      action.run({ recordingId: "rec_1", chapters: [demo], ...extra } as any),
+      save({ recordingId: "rec_1", chapters: [demo], ...extra } as any),
     ).rejects.toMatchObject({ errorCode: "expected_chapters_required" });
     expect(written).toEqual([]);
   });
 
   it("checks the stored chapters in the update even when only the version is given", async () => {
-    await action.run({
+    await save({
       recordingId: "rec_1",
       chapters: [demo],
       expectedVersion: chaptersVersionOf(JSON.stringify([intro])),
@@ -252,6 +322,11 @@ describe("set-chapters", () => {
               column: "recordings.chaptersJson",
               value: JSON.stringify([intro]),
             },
+            { column: "recordings.mediaUpdatedAt", value: "media-1" },
+            {
+              column: "recordings.updatedAt",
+              value: "2026-01-01T00:00:00.000Z",
+            },
           ],
         },
       }),
@@ -263,7 +338,7 @@ describe("set-chapters expected list", () => {
   it("accepts an expected list with times and titles the player can show but set-chapters wouldn't write", async () => {
     const odd = [{ startMs: 12_500.5, title: "" }];
     stored.chaptersJson = JSON.stringify(odd);
-    await action.run({
+    await save({
       recordingId: "rec_1",
       chapters: [demo],
       expectedChapters: odd,
@@ -280,7 +355,7 @@ describe("set-chapters expected cuts", () => {
   it("refuses when the cuts differ from the ones the times were mapped through", async () => {
     stored.editsJson = cutEdits;
     await expect(
-      action.run({
+      save({
         recordingId: "rec_1",
         chapters: [intro, demo],
         expectedChapters: [intro],
@@ -298,7 +373,7 @@ describe("set-chapters expected cuts", () => {
 
   it("writes when the cuts match", async () => {
     stored.editsJson = cutEdits;
-    await action.run({
+    await save({
       recordingId: "rec_1",
       chapters: [intro, demo],
       expectedChapters: [intro],
@@ -313,7 +388,7 @@ describe("set-chapters expected cuts", () => {
         chaptersJson: JSON.stringify([{ ...intro, extra: true }]),
       },
     ];
-    await action.run({
+    await save({
       recordingId: "rec_1",
       chapters: [demo],
       expectedChapters: [intro],
@@ -327,7 +402,7 @@ describe("set-chapters expected cuts", () => {
         editsJson: JSON.stringify({ thumbnail: { atMs: 1000 } }),
       },
     ];
-    await action.run({
+    await save({
       recordingId: "rec_1",
       chapters: [demo],
       expectedChapters: [intro],
@@ -339,7 +414,7 @@ describe("set-chapters expected cuts", () => {
   it("refuses after a racing edit that added a cut", async () => {
     stored.changedBeforeWrite = [{ editsJson: cutEdits }];
     await expect(
-      action.run({
+      save({
         recordingId: "rec_1",
         chapters: [demo],
         expectedChapters: [intro],
@@ -358,7 +433,7 @@ describe("set-chapters expected cuts", () => {
       { chaptersJson: JSON.stringify([intro, demo]) },
     ];
     await expect(
-      action.run({
+      save({
         recordingId: "rec_1",
         chapters: [demo],
         expectedChapters: [intro],
@@ -373,7 +448,7 @@ describe("set-chapters expected cuts", () => {
 
   it("writes through edits to the cuts when only the chapters are guarded", async () => {
     stored.changedBeforeWrite = [{ editsJson: cutEdits }];
-    await action.run({
+    await save({
       recordingId: "rec_1",
       chapters: [demo],
       expectedChapters: [intro],
@@ -382,7 +457,7 @@ describe("set-chapters expected cuts", () => {
   });
 
   it("writes when the version token matches the stored chapters", async () => {
-    await action.run({
+    await save({
       recordingId: "rec_1",
       chapters: [demo],
       expectedVersion: chaptersVersionOf(JSON.stringify([intro])),
@@ -392,7 +467,7 @@ describe("set-chapters expected cuts", () => {
 
   it("refuses when the version token is for other chapters", async () => {
     await expect(
-      action.run({
+      save({
         recordingId: "rec_1",
         chapters: [demo],
         expectedVersion: chaptersVersionOf("[]"),
@@ -405,7 +480,7 @@ describe("set-chapters expected cuts", () => {
     stored.changedBeforeWrite = [1000, 2000, 3000].map((atMs) => ({
       editsJson: JSON.stringify({ thumbnail: { atMs } }),
     }));
-    await action.run({
+    await save({
       recordingId: "rec_1",
       chapters: [demo],
       expectedChapters: [intro],
@@ -422,13 +497,13 @@ describe("set-chapters expected cuts", () => {
       { chaptersJson: JSON.stringify([demo]) },
     ];
     await expect(
-      action.run({
+      save({
         recordingId: "rec_1",
         chapters: [demo],
         expectedChapters: [intro],
         expectedCuts: [],
       } as any),
-    ).resolves.toEqual({ id: "rec_1", chapters: [demo] });
+    ).resolves.toMatchObject({ id: "rec_1", chapters: [demo] });
   });
 
   it("gives up without writing when every guarded update misses", async () => {
@@ -436,7 +511,7 @@ describe("set-chapters expected cuts", () => {
       editsJson: JSON.stringify({ thumbnail: { atMs } }),
     }));
     await expect(
-      action.run({
+      save({
         recordingId: "rec_1",
         chapters: [demo],
         expectedChapters: [intro],
@@ -455,12 +530,20 @@ describe("set-chapters expected cuts", () => {
       from: () => ({
         where: async () =>
           reads++ === 0
-            ? [{ id: "rec_1", chaptersJson: "[]", editsJson: "{}" }]
+            ? [
+                {
+                  id: "rec_1",
+                  chaptersJson: "[]",
+                  editsJson: "{}",
+                  mediaUpdatedAt: stored.mediaUpdatedAt,
+                  updatedAt: stored.updatedAt,
+                },
+              ]
             : [],
       }),
     }));
     await expect(
-      action.run({
+      save({
         recordingId: "rec_1",
         chapters: [demo],
         expectedChapters: [],
@@ -471,7 +554,7 @@ describe("set-chapters expected cuts", () => {
 
   it("takes expectedCuts as a JSON string from the CLI", async () => {
     stored.editsJson = cutEdits;
-    await action.run({
+    await save({
       recordingId: "rec_1",
       chapters: [demo],
       expectedChapters: [intro],

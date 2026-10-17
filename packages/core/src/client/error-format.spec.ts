@@ -13,6 +13,8 @@ import {
 } from "./chat/run-outcome.js";
 import {
   BUILDER_SPACE_SETTINGS_URL,
+  CHAT_CAPABILITY_UNAVAILABLE_MESSAGE,
+  CHAT_CAPABILITY_UNSUPPORTED_MESSAGE,
   NEW_CHAT_ACTION_HREF,
   PROVIDER_CREDENTIAL_REJECTED_MESSAGE,
   SERVER_AUTHORED_CREDENTIAL_CODES,
@@ -97,7 +99,7 @@ describe("formatChatErrorText", () => {
 
   it("adds a Start-new-chat CTA for no-detail builder gateway errors", () => {
     const text = formatChatErrorText(
-      'Gateway error (no detail; raw event: {"type":"stop","reason":"error","requestId":"req_1"})',
+      "Gateway error (no detail)",
       undefined,
       "builder_gateway_error",
     );
@@ -126,17 +128,35 @@ describe("formatChatErrorText", () => {
     expect(text).toContain(`[Start new chat](${NEW_CHAT_ACTION_HREF})`);
   });
 
-  it("keeps raw gateway events out of the primary user-facing message", () => {
-    const normalized = normalizeChatError(
-      'Gateway error (no detail; raw event: {"type":"stop","reason":"error","requestId":"req_1"})',
-    );
-    expect(normalized.details).toBe(
-      'Gateway error (no detail; raw event: {"type":"stop","reason":"error","requestId":"req_1"})',
-    );
+  it("normalizes no-detail gateway errors without exposing a raw event", () => {
+    const normalized = normalizeChatError("Gateway error (no detail)");
+    expect(normalized.details).toBe("Gateway error (no detail)");
     expect(normalized.message).not.toMatch(/recover automatically/i);
     expect(normalized.message).not.toMatch(/another model/i);
     expect(normalized.message).toMatch(/gateway/i);
     expect(normalized.message).toMatch(/new chat|retry|wait/i);
+  });
+
+  it("redacts legacy raw gateway events from persisted error details", () => {
+    const legacyError =
+      'Gateway error (no detail; raw event: {"type":"stop","reason":"error","requestId":"req_example"})';
+
+    for (const errorCode of [undefined, "invalid_request"]) {
+      const normalized = normalizeChatError(legacyError, errorCode);
+
+      expect(normalized.details).toBe("Gateway error (no detail)");
+      expect(normalized.message).not.toContain("req_example");
+    }
+  });
+
+  it("uses malformed-request guidance for no-detail invalid_request errors", () => {
+    const normalized = normalizeChatError(
+      "Gateway error (no detail)",
+      "invalid_request",
+    );
+
+    expect(normalized.message).toMatch(/rejected this request as malformed/i);
+    expect(normalized.message).toMatch(/was not retried/i);
   });
 
   it("normalizes provider rate limits without exposing raw status-only text", () => {
@@ -426,6 +446,29 @@ describe("Builder gateway internal-error envelope", () => {
 });
 
 describe("malformed provider request", () => {
+  it("gives a typed attachment rejection smaller and supported-format guidance", () => {
+    const normalized = normalizeChatError(
+      "Invalid 'input[0].content[1].image_url': image size exceeds limit.",
+      "invalid_attachment",
+    );
+
+    expect(normalized.message).toBe(
+      "The model provider rejected this attachment's format or size. For images, export a smaller PNG, JPEG, GIF, or WebP; for documents, use a supported file format or paste the relevant text, then attach it again.",
+    );
+    expect(normalized.details).toContain("image_url");
+    expect(normalized.message).not.toMatch(/retry/i);
+    expect(
+      formatChatErrorText("provider detail", undefined, "invalid_attachment"),
+    ).toBe(`Error: ${normalized.message}`);
+  });
+
+  it.each([
+    ["http_400", "Image generation is not supported for this model."],
+    ["http_413", "The file is too large for this request."],
+  ])("keeps generic %s errors outside attachment guidance", (code, raw) => {
+    expect(normalizeChatError(raw, code).message).toBe(raw);
+  });
+
   it("names the attachment when a file part is rejected", () => {
     const raw =
       "Invalid 'input[0].content[1].file_url': string too long. " +
@@ -506,6 +549,51 @@ describe("localizeKnownChatErrorText", () => {
             : interpolate(key, options),
       ),
     ).toBe("Fehler: Diese Anfrage ist zu groß.");
+  });
+
+  it("localizes an unavailable capability message", () => {
+    expect(
+      localizeKnownChatErrorText(
+        `Error: ${CHAT_CAPABILITY_UNAVAILABLE_MESSAGE}`,
+        (key, options) =>
+          key === "agentChat.errorMessages.capabilityUnavailable"
+            ? "No fue posible enviar tu mensaje ahora. Inténtalo de nuevo en breve."
+            : interpolate(key, options),
+      ),
+    ).toBe(
+      "Fehler: No fue posible enviar tu mensaje ahora. Inténtalo de nuevo en breve.",
+    );
+  });
+
+  it("localizes an unsupported capability message", () => {
+    expect(
+      localizeKnownChatErrorText(
+        `Error: ${CHAT_CAPABILITY_UNSUPPORTED_MESSAGE}`,
+        (key, options) =>
+          key === "agentChat.errorMessages.capabilityUnsupported"
+            ? "Diese App kann deinen gespeicherten Prompt noch nicht sicher erneut senden. Aktualisiere die App und versuche es erneut."
+            : interpolate(key, options),
+      ),
+    ).toBe(
+      "Fehler: Diese App kann deinen gespeicherten Prompt noch nicht sicher erneut senden. Aktualisiere die App und versuche es erneut.",
+    );
+  });
+
+  it("localizes a typed invalid-attachment failure", () => {
+    const normalized = normalizeChatError(
+      "provider detail",
+      "invalid_attachment",
+    );
+
+    expect(
+      localizeKnownChatErrorText(normalized.message, (key, options) =>
+        key === "agentChat.errorMessages.invalidAttachment"
+          ? "Bitte exportieren Sie ein kleineres Bild in einem unterstützten Format."
+          : interpolate(key, options),
+      ),
+    ).toBe(
+      "Bitte exportieren Sie ein kleineres Bild in einem unterstützten Format.",
+    );
   });
 
   it.each([

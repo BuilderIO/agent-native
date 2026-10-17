@@ -1,5 +1,6 @@
 import type { AgentChatMessage } from "@agent-native/core/client/agent-chat";
 import type { PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
+import { InvalidCanvasDimensionsError } from "@shared/canvas-dimensions";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 
 import type { UploadedFile } from "@/components/editor/PromptDialog";
@@ -38,6 +39,7 @@ export interface StartRetryGenerationArgs {
     effort?: PromptComposerSubmitOptions["effort"];
   } | null>;
   imageAttachmentUnavailableMessage: string;
+  invalidCanvasDimensionsMessage: string;
   id: string | undefined;
   setGenerationChatTabId: Dispatch<SetStateAction<string | null>>;
   setGenerationIssue: Dispatch<SetStateAction<string | null>>;
@@ -68,6 +70,7 @@ export async function runStartRetryGeneration(
     design,
     generationModelRef,
     imageAttachmentUnavailableMessage,
+    invalidCanvasDimensionsMessage,
     id,
     setGenerationChatTabId,
     setGenerationIssue,
@@ -106,6 +109,27 @@ export async function runStartRetryGeneration(
     mode === "auto"
       ? `(Automatically retrying attempt ${attempt} of ${MAX_GENERATION_ATTEMPTS} — the previous attempt did not complete.)`
       : "(Retrying — the previous attempt did not complete.)";
+  let generationDirectives: string[];
+  try {
+    generationDirectives = promptState.templateId
+      ? designTemplateRefinementDirectives(
+          id,
+          promptState.templateId,
+          promptState.designSystemId,
+          images.length,
+        )
+      : designGenerationDirectives(
+          id,
+          promptState.designSystemId,
+          images.length,
+          promptState.prompt,
+        );
+  } catch (error) {
+    if (!(error instanceof InvalidCanvasDimensionsError)) throw error;
+    setGenerationIssue(invalidCanvasDimensionsMessage);
+    setHasPendingGeneration(false);
+    return;
+  }
   const context = [
     promptState.templateId
       ? `The user picked the "${promptState.source ?? "template"}" template (id: "${promptState.templateId}").`
@@ -119,18 +143,7 @@ export async function runStartRetryGeneration(
     fileContext,
     "",
     retryLine,
-    ...(promptState.templateId
-      ? designTemplateRefinementDirectives(
-          id,
-          promptState.templateId,
-          promptState.designSystemId,
-          images.length,
-        )
-      : designGenerationDirectives(
-          id,
-          promptState.designSystemId,
-          images.length,
-        )),
+    ...generationDirectives,
   ].join("\n");
   clearGenerationCompleteTimer();
   setGenerationIssue(null);

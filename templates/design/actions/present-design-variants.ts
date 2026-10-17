@@ -1,4 +1,5 @@
 import { defineAction, embedApp } from "@agent-native/core";
+import { fail } from "@agent-native/core/action";
 import {
   deleteAppState,
   writeAppStateForCurrentTab,
@@ -6,7 +7,6 @@ import {
 import { seedFromText } from "@agent-native/core/collab";
 import { buildDeepLink } from "@agent-native/core/server";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
-import { track } from "@agent-native/core/tracking";
 import { and, eq, inArray } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
@@ -14,9 +14,13 @@ import { z } from "zod";
 import "../server/db/index.js";
 import { getDb, schema } from "../server/db/index.js";
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
+import { trackDesign } from "../server/lib/design-tracking.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
-import { explicitCanvasDimensionsFromPrompt } from "../shared/canvas-dimensions.js";
+import {
+  assertSingleCanvasOutput,
+  resolveCanvasIntent,
+} from "../shared/canvas-dimensions.js";
 import {
   mergeCanvasFramePlacements,
   nextFreeCanvasRowY,
@@ -34,6 +38,8 @@ import {
   visibleBreakpointWidths,
 } from "../shared/responsive-frame-layout.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
+import { hasSpecifiedDesignPrompt } from "../shared/specified-design-prompt.js";
+import { withGenerationAttempt } from "./_generation-tracking.js";
 
 const VARIANT_GAP = 96;
 const MAX_COLUMNS = 3;
@@ -50,17 +56,17 @@ const DEFAULT_RESPONSIVE_BREAKPOINTS = [MOBILE_WIDTH].map((widthPx) => ({
   prefix: widthToPrefix(widthPx),
 }));
 
-const SPECIFICATION_SIGNAL_PATTERNS = [
-  /\b(?:attached|uploaded|reference|mockup|screenshot|wireframe|source of truth|source-of-truth)\b/i,
-  /\b(?:\d+\s*[- ]\s*col(?:umn)?|grid spec|layout spec|section order|feature list)\b/i,
-  /\b(?:design system|brand system|brand kit|visual language|tokens?)\b/i,
-] as const;
-
-export function hasSpecifiedDesignPrompt(prompt?: string): boolean {
-  const value = prompt?.trim() ?? "";
-  if (!value) return false;
-  if (explicitCanvasDimensionsFromPrompt(value)) return true;
-  return SPECIFICATION_SIGNAL_PATTERNS.some((pattern) => pattern.test(value));
+function isModelVisibleImageAttachment(attachment: {
+  type?: string;
+  name?: string;
+  contentType?: string;
+  displayOnly?: boolean;
+}): boolean {
+  if (attachment.displayOnly === true) return false;
+  if (attachment.type === "image") return true;
+  const contentType = attachment.contentType?.split(";", 1)[0]?.trim();
+  if (contentType) return contentType.toLowerCase().startsWith("image/");
+  return /\.(?:avif|gif|jpe?g|png|svg|webp)$/i.test(attachment.name ?? "");
 }
 
 async function hasLinkedDesignSystem(designId: string): Promise<boolean> {
@@ -508,8 +514,10 @@ function fitVariantAspectRatio(width: number, height: number) {
 function inferVariantSize(
   variant: z.infer<typeof variantSchema>,
   prompt?: string,
+  intent = resolveCanvasIntent(prompt),
 ) {
-  const promptDimensions = explicitCanvasDimensionsFromPrompt(prompt);
+  const promptDimensions =
+    intent.kind === "fixed" ? intent.dimensions : undefined;
   if (promptDimensions) return promptDimensions;
 
   const explicitWidth = boundedDimension(
@@ -546,6 +554,13 @@ function inferVariantSize(
     return fitVariantAspectRatio(
       explicitWidth ?? inferredWidth,
       explicitHeight ?? inferredHeight,
+    );
+  }
+
+  if (intent.kind === "fixed") {
+    return fitVariantAspectRatio(
+      explicitWidth ?? DESKTOP_WIDTH,
+      explicitHeight ?? DESKTOP_HEIGHT,
     );
   }
 
@@ -807,18 +822,23 @@ export default defineAction({
     "call get-design-snapshot with fileId for the kept screen before " +
     "calling edit-design on that same fileId in a bounded pass. Use " +
     '`mode: "replace-file"` when expanding the representative placeholder ' +
-    "into a complete but compact product UI in the chosen direction. Do not call generate-design after a " +
+    "into a complete but compact product UI in the chosen direction. Pass " +
+    "the original user request in `brief` and keep `prompt` as the short chat " +
+    "caption so size and output type are preserved. Do not call generate-design after a " +
     "variant pick. Stop after the first successful edit-design save. For " +
     "complex apps, " +
     "make each variant a " +
     "compact representative screen; pass concise labels/descriptions/features " +
-    "and omit content only for open-ended exploration. For a prompt with a " +
-    "specific product surface, reference, layout, or design system, provide " +
-    "complete self-contained HTML for every variant; the generic fallback is " +
+    "and omit content only for open-ended exploration. For a fixed canvas " +
+    "(exact size, ad, social post), an attached reference image, or a brief " +
+    "with a specific reference, layout, or design system, provide complete " +
+    "self-contained HTML for every variant; the generic fallback is " +
     "blocked there. Design will render compact screens from direction data only " +
     "for open-ended exploration. Expand the chosen direction after the user " +
-    "picks. Exact pixel dimensions in the prompt set every variant's exact " +
-    "canvas size and suppress extra mobile or tablet frames. Use one exact " +
+    "picks. Exact pixel dimensions in the original brief set every variant's " +
+    "exact canvas size and suppress extra mobile or tablet frames. Static " +
+    "artwork such as ads, banners, social posts, flyers, and posters also has " +
+    "no responsive frames. Use one exact " +
     "canvas size per call; different sizes require separate calls scoped to " +
     "each screen. Screens from an earlier variant set are never " +
     "deleted automatically: if you are knowingly replacing your own earlier " +
@@ -830,6 +850,12 @@ export default defineAction({
       .string()
       .optional()
       .describe("Caption shown in chat above the variant choice buttons"),
+    brief: z
+      .string()
+      .optional()
+      .describe(
+        "Original user request for this design. Keep requested output type and exact dimensions here; prompt is only the short chat caption.",
+      ),
     variants: z
       .array(variantSchema)
       .min(2)
@@ -841,7 +867,7 @@ export default defineAction({
       .boolean()
       .optional()
       .describe(
-        "Whether generated direction screens should include responsive breakpoint frames. Defaults to true; exact pixel dimensions in the prompt always suppress extra device frames.",
+        "Whether generated app direction screens should include responsive breakpoint frames. Defaults to true for app surfaces; exact dimensions and static artwork such as ads suppress extra device frames.",
       ),
     deleteSupersededSetIds: z
       .array(z.string())
@@ -873,21 +899,54 @@ export default defineAction({
     destructiveHint: true,
     openWorldHint: false,
   },
-  run: async (
-    { designId, prompt, variants, deleteSupersededSetIds, responsive },
-    context,
-  ) => {
+  run: withGenerationAttempt(async (input, context, attempt) => {
+    const {
+      designId,
+      prompt,
+      brief,
+      variants,
+      deleteSupersededSetIds,
+      responsive,
+    } = input;
     await assertAccess("design", designId, "editor");
-    const promptDimensions = explicitCanvasDimensionsFromPrompt(prompt);
+    attempt.start({
+      designId,
+      generationPath: "variants",
+      prompt: brief?.trim() || prompt,
+      properties: { prompt_type: "ui", variant_count: variants.length },
+    });
+    const originalBrief =
+      brief?.trim() ||
+      (prompt?.trim() && !/^pick a direction$/i.test(prompt.trim())
+        ? prompt.trim()
+        : "");
+    const intentPrompt = originalBrief;
+    const canvasIntent = resolveCanvasIntent(intentPrompt);
+    assertSingleCanvasOutput(canvasIntent);
+    const promptDimensions =
+      canvasIntent.kind === "fixed" ? canvasIntent.dimensions : undefined;
     await snapshotDesignBeforeAgentEdit(designId, context);
-    const useResponsiveFrames = !promptDimensions && responsive !== false;
+    const useResponsiveFrames =
+      canvasIntent.kind !== "fixed" && responsive !== false;
 
     const omittedContent = variants.filter(
       (variant) => !variant.content?.trim(),
     );
+    const hasUnrenderedImageReference = context?.attachments?.some(
+      isModelVisibleImageAttachment,
+    );
+    if (omittedContent.length > 0 && hasUnrenderedImageReference) {
+      fail(
+        "Every variant must include complete HTML when an image attachment is present; the direction-only fallback does not use attached image references.",
+        {
+          errorCode: "image_attachment_requires_variant_content",
+          statusCode: 422,
+        },
+      );
+    }
     if (
       omittedContent.length > 0 &&
-      (hasSpecifiedDesignPrompt(prompt) ||
+      (hasSpecifiedDesignPrompt(intentPrompt) ||
         (await hasLinkedDesignSystem(designId)))
     ) {
       throw new Error(
@@ -920,6 +979,8 @@ export default defineAction({
     const variantSetId = nanoid();
     let screenFileIds: string[] = [];
     const screenContents = new Map<string, string>();
+    let savedScreenCount = 0;
+    attempt.savedFileCount = () => savedScreenCount;
     const screens = await withDesignSourceMutationTransaction(
       designId,
       async (tx) => {
@@ -943,14 +1004,19 @@ export default defineAction({
           );
           const fileId = nanoid();
           const providedContent = variant.content?.trim();
-          const initialSize = inferVariantSize(variant, prompt);
+          const initialSize = inferVariantSize(
+            variant,
+            intentPrompt,
+            canvasIntent,
+          );
           const rawContent =
             providedContent ||
-            fallbackVariantContent(variant, index, prompt, initialSize);
+            fallbackVariantContent(variant, index, intentPrompt, initialSize);
           const { width, height } = providedContent
             ? inferVariantSize(
                 { ...variant, content: rawContent },
-                promptDimensions ? prompt : undefined,
+                promptDimensions ? intentPrompt : undefined,
+                canvasIntent,
               )
             : initialSize;
           const content = annotateScreenHtmlForPersist(rawContent, "html");
@@ -979,6 +1045,7 @@ export default defineAction({
         return createdScreens;
       },
     );
+    savedScreenCount = screens.length;
     await Promise.all(
       screens.map((screen) =>
         seedFromText(screen.id, screenContents.get(screen.id)!),
@@ -1035,7 +1102,7 @@ export default defineAction({
           } else {
             metadata.breakpointWidths = [];
           }
-          if (promptDimensions) {
+          if (canvasIntent.kind === "fixed") {
             metadata.heightPinned = true;
             metadata.heightMode = "fixed";
           }
@@ -1044,6 +1111,7 @@ export default defineAction({
         previousVariantSets[variantSetId] = {
           id: variantSetId,
           prompt: prompt ?? "Pick a direction",
+          ...(originalBrief ? { brief: originalBrief } : {}),
           createdAt: now,
           screenCount: screens.length,
           screens: screens.map((screen) => ({
@@ -1133,8 +1201,8 @@ export default defineAction({
         ),
       );
     const variantPickContext = [
-      prompt?.trim()
-        ? `The user's original request for this design: "${prompt.trim()}". Expand the kept direction into that, not into a generic version of it.`
+      originalBrief
+        ? `The user's original request for this design: "${originalBrief}". Expand the kept direction into that, not into a generic version of it.`
         : "",
       linkedDesign?.designSystemId
         ? `This design is linked to design system "${linkedDesign.designSystemId}". Call \`get-design-system\` for that id and apply its tokens, typography, and usage notes while expanding the kept screen — do not substitute a generic palette or font.`
@@ -1183,13 +1251,17 @@ export default defineAction({
     });
     await deleteAppState("design-variants").catch(() => false);
 
-    track(
+    attempt.addProperties({
+      has_linked_design_system: Boolean(linkedDesign?.designSystemId),
+      variant_set_id: variantSetId,
+    });
+    trackDesign(
       "variants_generated",
       {
-        app_name: "design",
-        template_name: "design",
         output_id: designId,
         output_type: "design",
+        generation_attempt_id: attempt.id,
+        variant_set_id: variantSetId,
         variant_count: screens.length,
       },
       context,
@@ -1216,7 +1288,7 @@ export default defineAction({
       nextRequiredAction:
         'Wait for the user to pick a screen in chat. Then delete each unchosen variant screen with delete-file at most once, call get-design-snapshot exactly once with fileId for the chosen screen, and call edit-design with that same fileId in a bounded pass. Use mode "replace-file" to replace the representative direction screen with a complete but compact requested app/product UI in the chosen visual style. Prioritize the primary workflow and render secondary details as visible controls, states, or affordances if the full feature list is too large for one reliable edit. Do not leave a direction board, variant brief, or summary card as the final result. Do not repeat delete/snapshot cycles. Do not call generate-design after a variant pick. Stop after the first successful edit-design save.',
     };
-  },
+  }),
   link: ({ result }) => {
     if (!result || typeof result !== "object") return null;
     const designId = (result as { designId?: string }).designId;

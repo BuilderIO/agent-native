@@ -9,7 +9,7 @@ description: "Cron 예약 메시지는 에이전트가 일일 다이제스트, �
 
 <Callout tone="info">
 
-**Recurring Jobs**는 **Scheduled** 자동화의 기존 이름입니다. **Automations**는 **Scheduled**와 **Event**를 포괄합니다. `jobs/`와 `manage-jobs`는 기존 schedule-only 통합을 위해 유지됩니다. 모델과 MCP 허용 목록을 포함한 새로운 개인 또는 조직 작업에는 `manage-automations`와 `/agent#jobs`의 **Automations**를 사용하세요.
+**Recurring Jobs**는 **Scheduled** 자동화의 기존 이름입니다. **Automations**는 **Scheduled**와 **Event**를 포괄합니다. `jobs/`와 `manage-jobs`는 기존 schedule-only 통합을 위해 유지됩니다. 모델과 MCP 허용 목록을 포함한 새로운 개인 또는 조직 작업에는 `manage-automations`와 **Settings › Automations**를 사용하세요.
 
 </Callout>
 
@@ -104,6 +104,10 @@ mcpTools:
 프레임워크에는 리소스 및 스케줄러 계층에서 내부적으로 사용되는 cron 문자열을 검증하고 렌더링하기 위한 cron 유틸리티(`isValidCron()` 및 `describeCron()`)가 포함되어 있습니다.
 
 ## 작업 생성 {#creating}
+
+### Automations UI에서
+
+**Settings › Automations**를 열고 **Scheduled** 자동화를 만드세요. 이전 `/agent#jobs` 링크는 이곳으로 리디렉션됩니다.
 
 ### 작업공간 탭에서
 
@@ -233,8 +237,8 @@ Netlify, Vercel, Cloudflare에서는 같은 틱이 이벤트 트리거 자동화
 
 ## 작업 디버깅 {#debugging}
 
-- 에이전트 리소스에서 `jobs/<name>.md`를 엽니다. 머리말에는 `lastRun`, `lastStatus`, `lastError`, `nextRun`가 표시됩니다.
-- **기다리지 않고 테스트하세요.** **Automations**에서 자동화를 열고 **Run now**를 선택하세요. 자동화가 실제 부수 효과와 함께 즉시 실행되며 스케줄러 틱을 기다리지 않으므로, 로컬과 트리거가 없는 호스트에서도 동작합니다.
+- **Settings › Automations**에서 자동화의 세부 정보를 열거나 에이전트 리소스에서 `jobs/<name>.md`를 확인합니다. 머리말에는 `lastRun`, `lastStatus`, `lastError`, `nextRun`가 표시됩니다.
+- **기다리지 않고 테스트하세요.** **Settings › Automations**에서 **Run now**를 클릭하거나 에이전트에게 실행을 요청하세요(`manage-automations`의 `action=run-now`). 작업의 프롬프트가 실제 부작용과 함께 즉시 실행되며 `nextRun`은 바뀌지 않습니다. 예외는 프레임워크가 일시 중지한 작업입니다. 실행이 성공하면 작업이 다시 켜지고 `nextRun`이 다시 계산됩니다. Run now는 스케줄러 틱을 기다리지 않으므로 `AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS` 없는 localhost와 스케줄러 트리거가 없는 호스트에서도 작동합니다.
 - **일시 중지:** `enabled: false`를 뒤집습니다. 파일은 그대로 유지되고 실행이 중지됩니다.
 
 ## 에이전트 도구 {#agent-tool}

@@ -15,6 +15,7 @@ import { createDeckAgentMessage } from "@/lib/agent-visible-message";
 import { canAddInlineImageToPayload } from "@/lib/image-drop-to-agent";
 import {
   importUploadedDeckIntoDeck,
+  validateUploadedDeckImport,
   type ImportedSourceDeck,
 } from "@/lib/import-uploaded-deck";
 import {
@@ -29,8 +30,11 @@ export const WEBSITE_STYLE_REFERENCE_DIRECTIVE =
 export const NO_UPLOADED_FILES_CONTEXT =
   "No uploaded files are attached to this run. Use source text already present in the user message or supplied reference context. For a supplied URL, follow its dedicated import instructions. Never invent a local file path or call `import-file` for an unattached file. If the referenced content is not present or retrievable from a supplied reference, ask the user to upload the file or paste its contents.";
 
+export const BLANK_AND_FOLLOW_UP_SCOPE_INSTRUCTION =
+  'Scale the work to the request; this rule overrides the generation steps below. A blank or empty deck request needs no question, outline, progress run, retitle, or audit: add one empty slide with `add-slide` (layout "blank") and reply. These generation instructions govern only this generation and its guided-question answers; a later direct request in this thread, such as adding an empty slide, renaming, reordering, or deleting, is a targeted edit: make it with the one action it needs and reply.';
+
 export const SLIDE_COUNT_COMPLETION_INSTRUCTION =
-  "For a requested slide count, compare the slideCount returned by every add-slide result with the persisted target. Once it matches, stop all slide writes and return a completion summary. If add-slide returns errorCode target_slide_count_reached, re-read get-deck once; if the target is already satisfied, stop without retrying and finish the response. Only add more slides if the user explicitly asks to extend the deck and targetSlideCountOverride is set to the new total.";
+  "For a requested slide count, compare the realSlideCount returned by every add-slide result (slideCount only if realSlideCount is absent) with the persisted target; blank placeholder slides do not count. Once it matches, stop all slide writes and return a completion summary. If add-slide returns errorCode target_slide_count_reached, re-read get-deck once; if the target is already satisfied, stop without retrying and finish the response. Only add more slides if the user explicitly asks to extend the deck and targetSlideCountOverride is set to the new total of real slides.";
 
 interface DesignSystemGenerationContextResult {
   agentContext?: string;
@@ -230,7 +234,7 @@ export function describeUploadedFilesForAgent(
     "",
     "File handling rules:",
     importedSourceDeck
-      ? "- The imported source deck is canonical. Preserve its slide count, order, IDs, factual copy, notes, imagery, charts, tables, diagrams, and freeform objects while improving styling. For a deck-wide restyle, read the full deck once with get-deck compact=false; it returns sourceImport.slideIds, each slide's HTML and contentHash, and the linked design context. Call get-design-system once for full tokens, assets, and instructions, then use one patch-deck call with requireAllSourceSlides=true and the matching baseContentHash on every patch-slide. Set styleOnly=true for CSS-only changes that preserve slide structure. Verify once with get-deck using slideIds=sourceImport.slideIds and compact=false. Use update-slide only for a targeted one-slide edit. Do not rebuild it with add-slide."
+      ? "- The imported source deck is canonical. Preserve its slide count, order, IDs, factual copy, notes, imagery, charts, tables, diagrams, and freeform objects while improving styling. For a deck-wide restyle, read the full deck once with get-deck compact=false; it returns sourceImport.slideIds, each slide's HTML and contentHash, and the linked design context. Call get-design-system once for full tokens, assets, and instructions, then use one patch-deck call with requireAllSourceSlides=true and the matching baseContentHash on every patch-slide. Verify once with get-deck using slideIds=sourceImport.slideIds and compact=false. Use update-slide only for a targeted one-slide edit. Do not rebuild it with add-slide."
       : hasDocumentReferences
         ? "- PDF, PPTX, and DOCX files were already read before this run. Their content and measured visual language are in the `Attached Reference Documents` section below, or in the reference deck they were imported into. Do not call `import-file` for them again unless the `Attached Reference Documents` section says a file was omitted for space, and never generate as if a reference were missing."
         : "- No PDF, PPTX, or DOCX reference is attached to this run; do not invent one.",
@@ -295,6 +299,7 @@ type CreateDeck = (
   options?: {
     noDefaultSlides?: boolean;
     designSystemId?: string | null;
+    creation?: { method: "generated" };
   },
 ) => Deck;
 
@@ -387,10 +392,187 @@ export async function persistDeckGenerationContext(
   });
 }
 
+const NUMBER_WORDS =
+  "one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty".split(
+    " ",
+  );
+// Only one..twenty are counts; the larger words are matched so they can veto.
+const NUMBER = `${NUMBER_WORDS.join("|")}|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|dozen|couple|few|several|twice|double|triple|half|pair`;
+const CORE = "deck|presentation|pitch|slideshow|keynote|talk|powerpoint|ppt";
+const DECK = `${CORE}|summary|overview|explainer|proposal|report|briefing|update|demo|guide|tutorial|training|workshop|course|lesson|intro|introduction|plan|roadmap|strategy|recap|template|walkthrough|review|story|infographic|carousel|whitepaper|study|handout|primer|brief`;
+const BOUNDS =
+  "at most|at least|up to|than|under|over|fewer|less|more|min|max|minimum|maximum|most|least|tops|limit|cap|ceiling|budget|around|approximately|roughly|nearly|almost|circa|top|first|last|next|another|additional|as many|as few|minus|excluded";
+// A revision anywhere in the prompt withdraws the count.
+const REVISION =
+  "actually|instead|scratch that|on second thought|never mind|correction|change (?:it )?to|cut (?:it )?(?:down )?to|let's say|let’s say|works better|is better|too long|too short|disagree|cancel|disregard|update";
+const DRIFT = "maybe|perhaps|bump|raise|increase|reduce|trim|shrink|lower";
+// Words that make a count provisional, flexible, or additive.
+const SOFT =
+  "flexible|suggestion|guideline|judgment|exceed|separate|appendix|excluding|not counting|not including|besides|beyond|bonus|extra|in addition|on top|feel free|add more|more if|as needed|as necessary|if needed|if necessary|count|length|longer|shorter|then|followed|plus|later|initially|for now|starting|start|begin|now|extend|expand|revisit|iterate|revise|after|optional|stretch|backups?|hidden|if|unless|ideally|preferably|approximate|ballpark|estimate|guidelines|suggestions|give or take|aim|might|rough|tbd|open to|bigger|go over|unresolved";
+// "N slides", "N-slide", "N more slides". Every separator is a single bounded
+// run: a flood of whitespace has nothing to backtrack over.
+const MENTION = new RegExp(
+  `\\b(\\d+|${NUMBER})(?:[ –-]{1,3}([a-z]+))?[ –-]{0,3}slide(s?)\\b`,
+  "gi",
+);
+const OTHER_NUMBER = new RegExp(`\\b(?:\\d{1,2}|${NUMBER})\\b`, "i");
+// "Slide 3" and a "1." list marker name a slide inside the deck; only a number
+// past the count contradicts it.
+const SLIDE_REF =
+  /\bslides? (\d{1,2})(?: ?[-–] ?(\d{1,2}))?\b|\n ?(?:[-*•] )?(\d{1,2})[.)] /gi;
+const VERB =
+  /\b(?:create|make|build|generate|produce|draft|design|write|prepare|put together|crie|want|need|give|compose|craft|assemble|develop)\b/i;
+// An imperative that opens its own sentence or line is a separate ask; two of
+// them mean the count may size something other than the deck.
+const ASK_OPENER =
+  /^(?:(?:\d{1,2}[.)]|[-*•>]|please|also|then|now|and)\s+)*(?:create|make|build|generate|produce|draft|design|write|prepare|put together|crie|compose|craft|assemble|develop)\b/i;
+// A question, a hypothetical, someone else's or a cancelled task, a quoted UI
+// label, or a label/product number ("Windows 11", "Day 2") is not a deck-size ask.
+const FRAME =
+  "how|why|what|suppose|imagine|hypothetically|cannot|unable|impossible|cancel|ignore|disregard|forget|scrap|drop|skip|remind|ask|tell|schedule|probably|likely|optionally|guess|limited|capped|restricted|confined|held|kept|close|comparable|equivalent|related|relative|compared|according|akin|proportional|alternatively|option|worst|earlier|asked|wrote|said|told|day|week|phase|chapter|module|lesson|grade|round|level|stage|tier|step|part|section|version|release|season|episode|unit|page|figure|item|track|pod|call|called|named|titled|title|rename|label|button|chip";
+// Before the count: negation, a reference to another deck, a bound or a hedge,
+// or a frame that scopes the request to part of the deck ("For the intro,").
+const BEFORE = new RegExp(
+  `\\b(?:\\w+n['’]t|do not|never|avoid|except|but|not|like|similar|based|modell?ed|style of|better|shorter|half|my|our|your|their|his|her|its|this|that|these|those|existing|attached|current|source|previous|typical|competitor|per|each|every|apiece|keep|stick|restrict|confine|cut|within|try|aim|ideally|preferably|hopefully|possibly|should|whether|might|may|usually|normally|typically|often|always|generally|sometimes|yesterday|ago|already|tried|had|did|was|were|refuse|hate|stop|quit|${FRAME}|${BOUNDS}|${REVISION}|${DRIFT}|${SOFT})\\b|~|(?<!\\blet)['’]s\\b|^(?:for|in|on|under|at|during|across|inside|throughout|regarding|as|when|once|while|until|before|since|because|given)\\b`,
+  "i",
+);
+const REVISED = new RegExp(`\\b(?:${REVISION}|make (?:that|it))\\b`, "i");
+// Words in the request's own paragraph that bound or extend the count: a bound
+// or hedge word, "add a closing slide", or a sentence that continues the
+// request ("And a Q&A.").
+const INSTRUCTION_WORDS = new RegExp(
+  `\\b(?:${REVISION}|${DRIFT}|${BOUNDS}|${SOFT})\\b|\\badd\\b[^.!?\\n]{0,30}\\bslides?\\b|[.!?\\n] ?(?:and|also|with|along|together|as well|aside|apart|except|without|other than|bar)\\b`,
+  "i",
+);
+const AFTER = new RegExp(
+  `\\b(?:${REVISION}|${DRIFT}|${BOUNDS}|${SOFT}|or|though|but|rather|and|with|rest|remaining|others|per|each|every|long|total|minutes|hours|pages|words|depending|needed|necessary|possible|preferably|ideally)\\b|-ish|~`,
+  "i",
+);
+// "Create 10 slides": the count follows the verb directly.
+const DIRECT =
+  /^(?: (?:me|us|it|a|an|exactly|precisely|just|only|some|new|short|quick|brief)){0,3} $/i;
+// "Create a deck about X with 10 slides": a deck, a topic, then a connector.
+const DECK_OBJECT = new RegExp(`^ (?:\\S+ ){0,2}(?:(?:${DECK})\\b ?)+`, "i");
+// "of" only reaches the count from a deck: "a summary of 10 slides" is about
+// slides that already exist.
+const CONNECTOR =
+  /(?: (?:with|in|to)|\b(?:deck|presentation|pitch|slideshow|keynote|powerpoint|ppt) (?:of|de))(?: (?:exactly|precisely|just|only|a total of|an?))* $/i;
+// A document named after the deck ("a deck from a PDF with 40 slides") may be
+// the one that has the slides.
+const DOCUMENT = new RegExp(
+  `\\b(?:${DECK}|docs?|document|pdf|file|notes|article|paper|book|site|website|page|spreadsheet|sheet|transcript|email|thread|video|recording)\\b`,
+  "i",
+);
+const SOURCE_WORDS =
+  /\b(?:from|out|using|based|into|via|per|following|matching|mirroring|copying|reusing|resembling)\b/i;
+const CLEAN_TAIL = /^[ ,;:).!?]*(?:please)?[ ,;:).!?]*$/i;
+// The app's own pt-BR chip: "Crie um pitch de 10 slides a partir deste doc".
+const SOURCE_TAIL =
+  /^ (?:from|a partir) (?:this|these|deste|desta|este|esta) (?:doc|document|file|pdf|report|notes)$/i;
+// "a 10-slide deck": up to two modifiers, then the noun, which must end the
+// phrase: "a 10-slide deck review" reviews a deck. A preposition or a
+// conjunction is never a modifier, before the count or after it.
+const NOT_MODIFIER =
+  "the|for|about|on|of|from|with|in|to|into|at|by|as|that|who|which|and|or|so|if|when|where|plus|vs|no";
+const PHRASE_END =
+  "(?= (?:for|about|on|of|from|to|in|at|by|that|which|who|where|using|based|aimed|designed|built|focused|targeted)\\b| \\w+ing\\b|[,;:!?()]|$)";
+const COMPOUND = new RegExp(
+  `^(?: (?!(?:${NOT_MODIFIER}|${CORE})\\b)[^\\s,;:!?()]+){0,2} (?:${DECK})(?: (?:${CORE}))*\\b${PHRASE_END}`,
+  "i",
+);
+const COMPOUND_WINDOW = new RegExp(
+  `^(?: (?!(?:${NOT_MODIFIER})\\b)[\\w'’&-]+){0,3} $`,
+  "i",
+);
+
+// Only a short prompt is read at all: past a few sentences the ask is wrapped
+// in context, caveats, pasted source or later revisions that no word list
+// reads reliably, and a long brief is where the wrong counts came from.
+const MAX_REQUEST_CHARS = 500;
+// "a 10-slide deck": the word before the count is a plain lowercase word, not a
+// label or product ("Windows 11 slide", "Day 2 slide", "iPhone 16 slide").
+const PLAIN_LAST_WORD = /(?:^| )[a-z]+(?:['’-][a-z]+)* $|^ $/;
+
+function numberValue(token: string): number {
+  const word = token.toLowerCase();
+  if (/^\d/.test(word)) return /^[1-9]\d?$/.test(word) ? Number(word) : 0;
+  return NUMBER_WORDS.indexOf(word) + 1;
+}
+
+// The result is persisted as the deck's enforced slide target: a wrong one ends
+// a healthy run, while no target only skips the completion gate. So only the
+// opening sentence can size the deck, and only as one unhedged "create ... N
+// slides" ask. Widen what it rejects by adding words to the lists above, not
+// branches here.
 export function requestedSlideCount(prompt: string): number | undefined {
-  const match = prompt.match(/\b(\d{1,2})\s*(?:-|\s)?slide(?:s)?\b/i);
-  const count = match ? Number(match[1]) : NaN;
-  return Number.isInteger(count) && count > 0 ? count : undefined;
+  if (prompt.length > MAX_REQUEST_CHARS * 2) return undefined;
+  const text = (/[a-z]/.test(prompt) ? prompt : prompt.toLowerCase())
+    // Soft hyphens and zero-width characters from pasted PDFs split words.
+    .replace(/[\u00ad\u200b-\u200d\ufeff]/g, "")
+    .replace(/[^\S\n]+/g, " ")
+    .trim()
+    .replace(/^(?:#{1,6}|[-*•>]|\d{1,2}[.)]) /, "")
+    // "on one slide" places content; it neither sizes the deck nor clashes.
+    .replace(/ ?\b(?:on|in|onto|to|per|each) (?:1|one) slide\b/gi, "");
+  if (text.length > MAX_REQUEST_CHARS) return undefined;
+  if (
+    text.split(/[.!?\n]+/).filter((part) => ASK_OPENER.test(part.trim()))
+      .length > 1
+  ) {
+    return undefined;
+  }
+  const mentions = [...text.matchAll(MENTION)];
+  if (mentions.length !== 1) return undefined;
+  const [m] = mentions;
+  const value = numberValue(m[1]);
+  const end = text.search(/[.!?](?=[ \n]|$)|\n/);
+  const sentence = end === -1 ? text : text.slice(0, end);
+  const verb = VERB.exec(sentence);
+  const countEnd = m.index + m[0].length;
+  if (
+    m[2] ||
+    value === 0 ||
+    sentence.length > 600 ||
+    countEnd > sentence.length ||
+    !verb ||
+    verb.index + verb[0].length > m.index
+  ) {
+    return undefined;
+  }
+  const before = sentence.slice(0, m.index);
+  const window = before.slice(verb.index + verb[0].length);
+  const rest = sentence.slice(countEnd);
+  const later = text
+    .slice(countEnd)
+    .replace(SLIDE_REF, (_, a, b, c) =>
+      Math.max(Number(a ?? 0), Number(b ?? 0), Number(c ?? 0)) <= value
+        ? " "
+        : " 99 ",
+    );
+  if (
+    window.trim().split(" ").length > 8 ||
+    OTHER_NUMBER.test(before) ||
+    SOURCE_WORDS.test(window) ||
+    BEFORE.test(before) ||
+    REVISED.test(later) ||
+    INSTRUCTION_WORDS.test(later) ||
+    OTHER_NUMBER.test(later)
+  ) {
+    return undefined;
+  }
+  const object = DECK_OBJECT.exec(window);
+  const sizesDeck =
+    m[3] !== ""
+      ? (DIRECT.test(window) ||
+          (object !== null &&
+            CONNECTOR.test(window) &&
+            !DOCUMENT.test(window.slice(object[0].length)))) &&
+        (CLEAN_TAIL.test(rest) || SOURCE_TAIL.test(rest))
+      : COMPOUND.test(rest) &&
+        COMPOUND_WINDOW.test(window) &&
+        PLAIN_LAST_WORD.test(window) &&
+        !AFTER.test(rest);
+  return sizesDeck ? value : undefined;
 }
 
 export async function startDeckGeneration({
@@ -440,6 +622,49 @@ export async function startDeckGeneration({
   const filesForSourceImprovement = filesForGeneration.filter(
     (file) => !referenceFilePaths.has(file.path),
   );
+  const sourceImprovementRequest = isSourceImprovementRequest(
+    prompt,
+    filesForSourceImprovement,
+  );
+  let sourceDeckPaths: string[] = [];
+  if (sourceImprovementRequest) {
+    try {
+      sourceDeckPaths = validateUploadedDeckImport(
+        filesForSourceImprovement,
+      ).map((file) => file.path);
+    } catch (error) {
+      onSetupFailure?.(prompt, filesForGeneration, error);
+      return "failed";
+    }
+  }
+
+  let referenceHydration: Awaited<ReturnType<typeof hydrateReferenceDocuments>>;
+  try {
+    referenceHydration = await hydrateReferenceDocuments(filesForGeneration, {
+      excludePaths: [
+        ...(referenceSelection.importedReferenceFilePath
+          ? [referenceSelection.importedReferenceFilePath]
+          : []),
+        ...sourceDeckPaths,
+      ],
+    });
+  } catch (error) {
+    onSetupFailure?.(prompt, filesForGeneration, error);
+    return "failed";
+  }
+  if (referenceHydration.status === "unreadable") {
+    onSetupFailure?.(
+      prompt,
+      filesForGeneration,
+      new Error(referenceHydration.message),
+    );
+    return "failed";
+  }
+  const referenceDocumentContext =
+    referenceHydration.status === "hydrated" ? referenceHydration.context : "";
+  const hasHydratedReferenceDesign =
+    referenceHydration.status === "hydrated" &&
+    referenceHydration.measuredDesignCount > 0;
   const selectedDesignSystem = designSystemId
     ? designSystems.find((designSystem) => designSystem.id === designSystemId)
     : undefined;
@@ -449,6 +674,7 @@ export async function startDeckGeneration({
     deck = createDeck(undefined, {
       noDefaultSlides: true,
       designSystemId,
+      creation: { method: "generated" },
     });
   });
   if (!deck) return "failed";
@@ -462,44 +688,27 @@ export async function startDeckGeneration({
   }
 
   let importedSourceDeck: ImportedSourceDeck | null = null;
-  if (isSourceImprovementRequest(prompt, filesForSourceImprovement)) {
+  let sourceImportMayHaveWrittenSlides = false;
+  if (sourceImprovementRequest) {
     try {
       importedSourceDeck = await importUploadedDeckIntoDeck(
         filesForSourceImprovement,
         deckId,
+        {
+          onImportStarted: () => {
+            sourceImportMayHaveWrittenSlides = true;
+          },
+          onImportCleanupSafe: () => {
+            sourceImportMayHaveWrittenSlides = false;
+          },
+        },
       );
     } catch (error) {
-      deleteDeck(deckId);
+      if (!sourceImportMayHaveWrittenSlides) deleteDeck(deckId);
       onSetupFailure?.(prompt, filesForGeneration, error);
       return "failed";
     }
   }
-
-  const referenceHydration = await hydrateReferenceDocuments(
-    filesForGeneration,
-    {
-      excludePaths: [
-        ...(referenceSelection.importedReferenceFilePath
-          ? [referenceSelection.importedReferenceFilePath]
-          : []),
-        ...(importedSourceDeck ? [importedSourceDeck.file.path] : []),
-      ],
-    },
-  );
-  if (referenceHydration.status === "unreadable") {
-    deleteDeck(deckId);
-    onSetupFailure?.(
-      prompt,
-      filesForGeneration,
-      new Error(referenceHydration.message),
-    );
-    return "failed";
-  }
-  const referenceDocumentContext =
-    referenceHydration.status === "hydrated" ? referenceHydration.context : "";
-  const hasHydratedReferenceDesign =
-    referenceHydration.status === "hydrated" &&
-    referenceHydration.measuredDesignCount > 0;
 
   const trimmedPrompt = prompt.trim();
   const hasImportedGoogleDocContext = trimmedPrompt.includes("<google-doc ");
@@ -603,7 +812,7 @@ export async function startDeckGeneration({
         "Source-preserving improvement mode:",
         `- The target deck already contains ${importedSourceDeck.slideCount} imported source slides. Treat those slides as the user's complete source, not as inspiration for a new deck.`,
         "- Keep the exact source slide count, order, IDs, factual meaning, notes, images, charts, tables, diagrams, and freeform objects unless the user explicitly asks to change one of them.",
-        "- Read the full deck once with get-deck compact=false to get sourceImport.slideIds, every slide's HTML and contentHash, and the linked design context; call get-design-system once for its full tokens, assets, and instructions. Make the deck-wide restyle in one patch-deck call using requireAllSourceSlides=true, with each patch-slide's matching contentHash as baseContentHash; use styleOnly=true for CSS-only changes that preserve slide structure. Do not split a full-deck restyle into arbitrary batches or fall back to one-by-one update-slide calls; use update-slide only for a targeted one-slide edit. Keep every original image source and enough original factual copy for each slide; for PDF slides, use restrained design-system chrome around the page without obscuring it.",
+        "- Read the full deck once with get-deck compact=false to get sourceImport.slideIds, every slide's HTML and contentHash, and the linked design context; call get-design-system once for its full tokens, assets, and instructions. Make the deck-wide restyle in one patch-deck call using requireAllSourceSlides=true, with each patch-slide's matching contentHash as baseContentHash. Do not split a full-deck restyle into arbitrary batches or fall back to one-by-one update-slide calls; use update-slide only for a targeted one-slide edit. Keep every original image source and enough original factual copy for each slide; for PDF slides, use restrained design-system chrome around the page without obscuring it.",
         "- For this restyle, keep the source slide structure and do not replace source images with generic cards. If the user explicitly asks to add, delete, or reorder slides, use the corresponding operation normally; it clears source-import provenance, so verify the edited slide count and order instead of waiting for sourceCoverage.",
         "- After a source-preserving patch that leaves sourceImport present, verify once with get-deck using slideIds=sourceImport.slideIds and compact=false. Confirm the full source reflects the request and sourceCoverage.complete is true with expectedSlideIds and actualSlideIds matching in order. If structural operations cleared sourceImport, verify the resulting slide count and order instead and do not require sourceCoverage.complete. Do not report an initial or partial pass, and do not leave any source slides for a later run.",
         "- If get-deck reports partial source fidelity or skipped images, stop and report the exact warning instead of claiming a reliable restyle.",
@@ -630,6 +839,7 @@ export async function startDeckGeneration({
       ? `The user uploaded a source presentation into target deck (id: "${deckId}") and wants a reliable visual improvement.`
       : `The user just created a new empty deck (id: "${deckId}") and wants to create a presentation or standalone visual.`,
     "The visible user message above contains the user's request and/or pasted source material for the deck. Treat pasted memo content as source material even if the user did not explicitly say they are pasting it.",
+    BLANK_AND_FOLLOW_UP_SCOPE_INSTRUCTION,
     googleDocContext,
     fileContext,
     referenceDocumentContext,
@@ -644,7 +854,7 @@ export async function startDeckGeneration({
     SLIDE_COUNT_COMPLETION_INSTRUCTION,
     "Add each generated slide through sequential add-slide calls, preserving the established deck contract and using a targeted get-deck read with slideId and compact=false after the first slide to verify it.",
     "If no explicit count was given (including when the guided slide-count question was skipped), infer the count from the distinct topics/sections implied by the request — one slide per section plus a title and closing slide — and add slides for every section before considering the deck done. Do not stop at an arbitrary round number (e.g. 10) if sections remain uncovered, and never call `generate-slides-ai` for this flow; it is a legacy single-shot helper capped at 10 slides.",
-    "The original brief and uploaded/reference handles are persisted on the deck as generationContext. On every continuation or follow-up, call get-deck first and treat that context as the canonical brief. Continue the original slide sequence from the current slide count; do not replace it with a fresh topic inferred only from the follow-up message.",
+    "The original brief and uploaded/reference handles are persisted on the deck as generationContext. When continuing this generation (guided-question answers, or a request to keep going or finish the deck), call get-deck first and treat that context as the canonical brief. Continue the original slide sequence from the current slide count; do not replace it with a fresh topic inferred only from the follow-up message. A targeted edit is not a continuation.",
     "An explicit theme or brand instruction in the original brief overrides the background, palette, and styling of an uploaded/reference image or source page. Preserve source content and imagery, but do not copy a white wireframe background when the requested theme is dark.",
     "Do not report completion until the persisted generationContext targetSlideCount is reached, or, when sourceCoverage is present for source-preserving mode, get-deck compact=true reports it complete for the ordered source manifest. If the current deck is short, finish the missing requested slides before adding unrelated content.",
     "Every slide is rendered into a fixed native canvas (default 16:9 is 960x540 CSS pixels, with 800x412px available inside standard 64px 80px padding). Keep the main content within that fit budget; split dense source material across more slides instead of packing it tightly. Never use zoom, transform: scale(), clipping, or scroll overflow to hide content overflow, and keep body text at least 16px.",

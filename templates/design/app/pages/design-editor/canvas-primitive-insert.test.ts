@@ -58,6 +58,12 @@ describe("blankScreenHtml", () => {
     );
     expect(blankScreenHtml("A & B")).toContain("<title>A &amp; B</title>");
   });
+
+  it("loads the Inter family used by new screens", () => {
+    expect(blankScreenHtml("Screen 1")).toMatch(
+      /fonts\.googleapis\.com[^\"]*family=Inter/,
+    );
+  });
 });
 
 describe("appendCanvasPrimitiveToHtml on a URL-backed live screen", () => {
@@ -120,6 +126,20 @@ describe("appendCanvasPrimitiveToHtml on a URL-backed live screen", () => {
 
     expect(element?.style.width).toBe("max-content");
     expect(element?.style.height).toBe("auto");
+  });
+
+  it("loads Inter when new text is added to an existing screen", () => {
+    const html = appendCanvasPrimitiveToHtml(
+      "<!doctype html><html><head></head><body></body></html>",
+      {
+        kind: "text",
+        nodeId: "inter-text",
+        geometry: { x: 0, y: 0, width: 80, height: 24 },
+        text: "Hello",
+      },
+    );
+
+    expect(html).toMatch(/fonts\.googleapis\.com[^\"]*family=Inter/);
   });
 
   const withContainer = (kind: "frame" | "rectangle") =>
@@ -322,7 +342,7 @@ describe("a freshly drawn frame is visible", () => {
     );
   });
 
-  it("is white on the dark board too, as in Figma", () => {
+  it("keeps its default white fill on a dark board", () => {
     expect(frameStyle(drawFrame(true))).toMatch(/background(-color)?:\s*#fff/i);
   });
 
@@ -613,7 +633,7 @@ describe("pen path paint defaults", () => {
     return path;
   };
 
-  it("commits a closed pen path stroke-only, as Figma does on close", () => {
+  it("commits a closed pen path as stroke-only", () => {
     const path = committedPath(penPath("M 10 10 L 90 10 L 50 70 Z"));
     expect(path.getAttribute("fill")).toBe("none");
     expect(path.getAttribute("stroke")).toBe("#000000");
@@ -915,7 +935,7 @@ describe("reopening and reclosing a pen path", () => {
     expect(closedEl.getAttribute("fill-opacity")).toBeNull();
   });
 
-  it("keeps a stroke-only pen path unfilled when it closes, like Figma", () => {
+  it("keeps a stroke-only pen path unfilled when it closes", () => {
     const content = svgHtml("none", "#000000").replace(
       'd="M 0 0 L 10 0 L 5 10 Z"',
       'd="M 0 0 L 10 0 L 5 10"',

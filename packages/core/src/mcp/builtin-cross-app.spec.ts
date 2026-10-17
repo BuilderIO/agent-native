@@ -417,6 +417,166 @@ describe("list_apps — reports the live request origin for the current app", ()
 });
 
 describe("ask_app — honest routing metadata", () => {
+  it("recovers typed local 503 status failures while keeping 403 terminal", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const unavailable = Object.assign(
+      new Error("service principal lookup unavailable"),
+      { statusCode: 503 },
+    );
+    const localAgentTaskClient = {
+      send: vi.fn(),
+      getTask: vi.fn().mockRejectedValue(unavailable),
+    };
+    const tools = getBuiltinCrossAppTools(
+      baseConfig({ askAgent: async () => "unused" }),
+      { origin: "https://mail.example.com", localAgentTaskClient },
+    );
+    const readStatus = () =>
+      runWithRequestContext(
+        { userEmail: "alice@example.test", orgId: "org-1" },
+        () => tools.ask_app_status.run({ taskId: "local-task" }),
+      );
+    const pending = readStatus();
+    await expect(pending).resolves.toMatchObject({
+      taskId: "local-task",
+      statusRead: "unavailable",
+      errorCategory: "upstream_5xx",
+      retryable: true,
+      attempts: 4,
+    });
+    expect(localAgentTaskClient.getTask).toHaveBeenCalledTimes(4);
+    localAgentTaskClient.getTask.mockClear().mockRejectedValue(
+      Object.assign(new Error("service principal suspended"), {
+        statusCode: 403,
+      }),
+    );
+    await expect(readStatus()).rejects.toThrow("suspended");
+    expect(localAgentTaskClient.getTask).toHaveBeenCalledOnce();
+  });
+  it("uses the local durable client for same-app submit and both status formats", async () => {
+    const authSpy = vi.spyOn(callerAuth, "resolveA2ACallerAuth");
+    const task = {
+      id: "local-mcp-task",
+      status: {
+        state: "working" as const,
+        timestamp: new Date().toISOString(),
+      },
+    };
+    const localAgentTaskClient = {
+      send: vi.fn().mockResolvedValue(task),
+      getTask: vi.fn().mockResolvedValue({
+        ...task,
+        status: {
+          ...task.status,
+          state: "completed",
+          message: {
+            role: "agent",
+            parts: [{ type: "text", text: "local authenticated answer" }],
+          },
+        },
+      }),
+    };
+    const tools = getBuiltinCrossAppTools(
+      baseConfig({ askAgent: async () => "unused" }),
+      { origin: "https://mail.example.com", localAgentTaskClient },
+    );
+    await runWithRequestContext(
+      { userEmail: "alice@example.test", orgId: "org-1" },
+      async () => {
+        const submitted: any = await tools.ask_app.run({
+          message: "read only",
+          async: true,
+        });
+        expect(submitted).toMatchObject({
+          taskId: task.id,
+          routedVia: "local",
+        });
+        expect(submitted.taskHandle).toBeTruthy();
+        expect(localAgentTaskClient.send).toHaveBeenCalledWith(
+          { role: "user", parts: [{ type: "text", text: "read only" }] },
+          expect.objectContaining({
+            async: true,
+            idempotencyKey: expect.any(String),
+          }),
+        );
+        for (const args of [
+          { taskHandle: submitted.taskHandle },
+          { app: "mail", taskId: task.id },
+        ]) {
+          await expect(tools.ask_app_status.run(args)).resolves.toMatchObject({
+            status: "completed",
+            response: "local authenticated answer",
+          });
+        }
+      },
+    );
+    expect(localAgentTaskClient.getTask).toHaveBeenCalledTimes(2);
+    expect(authSpy).not.toHaveBeenCalled();
+  });
+
+  it("preserves organization-only A2A submission and both status formats", async () => {
+    process.env.A2A_SECRET = "test-deployment-secret";
+    vi.spyOn(orgContext, "getOrgDomain").mockResolvedValue("acme.test");
+    vi.spyOn(orgContext, "getOrgA2ASecret").mockResolvedValue(
+      "test-org-secret",
+    );
+    const authSpy = vi.spyOn(callerAuth, "resolveA2ACallerAuth");
+    const task = {
+      id: "org-only-task",
+      status: {
+        state: "working" as const,
+        timestamp: new Date().toISOString(),
+      },
+    };
+    const send = vi
+      .spyOn(a2aClient.A2AClient.prototype, "send")
+      .mockResolvedValue(task);
+    const getTask = vi
+      .spyOn(a2aClient.A2AClient.prototype, "getTask")
+      .mockResolvedValue({
+        ...task,
+        status: { ...task.status, state: "completed" },
+      });
+    const localAgentTaskClient = { send: vi.fn(), getTask: vi.fn() };
+    const tools = getBuiltinCrossAppTools(
+      baseConfig({ askAgent: async () => "unused" }),
+      { origin: "https://mail.example.com", localAgentTaskClient },
+    );
+    await runWithRequestContext({ orgId: "org-1" }, async () => {
+      const submitted: any = await tools.ask_app.run({
+        message: "read only",
+        async: true,
+      });
+      expect(submitted.taskId).toBe(task.id);
+      expect(submitted.taskHandle).toBeTruthy();
+      for (const args of [
+        { taskHandle: submitted.taskHandle },
+        { app: "mail", taskId: task.id },
+      ]) {
+        await expect(tools.ask_app_status.run(args)).resolves.toMatchObject({
+          status: "completed",
+        });
+      }
+    });
+    expect(localAgentTaskClient.send).not.toHaveBeenCalled();
+    expect(localAgentTaskClient.getTask).not.toHaveBeenCalled();
+    expect(send).toHaveBeenCalledOnce();
+    expect(getTask).toHaveBeenCalledTimes(2);
+    expect(authSpy).toHaveBeenCalledTimes(3);
+    const auth = await authSpy.mock.results[0].value;
+    expect(auth.userEmail).toBeUndefined();
+    expect(auth.orgId).toBe("org-1");
+    expect(auth.apiKey).toBeTruthy();
+    expect(send).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        metadata: {
+          orgDomain: "acme.test",
+          requestOrigin: "https://mail.example.com",
+        },
+      }),
+    );
+  });
   it("describes direct tools as preferred and ask_app as the fallback", () => {
     const tools = getBuiltinCrossAppTools(baseConfig({ appId: "mail" }));
     expect(tools.ask_app.tool.description).toMatch(
@@ -1122,6 +1282,64 @@ describe("list_apps — org-directory merge", () => {
 });
 
 describe("ask_app — org-directory routing", () => {
+  it("keeps remote durable tasks on A2A when a local client is available", async () => {
+    vi.spyOn(orgDirectory, "fetchOrgApps").mockResolvedValue([
+      {
+        id: "calendar",
+        name: "Calendar",
+        url: "https://calendar.acme.com",
+        a2aUrl: "https://calendar.acme.com/_agent-native/a2a",
+      },
+    ]);
+    const auth = vi
+      .spyOn(callerAuth, "resolveA2ACallerAuth")
+      .mockResolvedValue({
+        apiKey: "signed-org-jwt",
+        userEmail: "caller@acme.com",
+        orgId: "org-1",
+        metadata: {},
+      });
+    const task = {
+      id: "peer-task",
+      status: {
+        state: "working" as const,
+        timestamp: new Date().toISOString(),
+      },
+    };
+    const send = vi
+      .spyOn(a2aClient.A2AClient.prototype, "send")
+      .mockResolvedValue(task);
+    const getTask = vi
+      .spyOn(a2aClient.A2AClient.prototype, "getTask")
+      .mockResolvedValue(task);
+    const localAgentTaskClient = { send: vi.fn(), getTask: vi.fn() };
+    const tools = getBuiltinCrossAppTools(
+      baseConfig({ askAgent: async () => "unused" }),
+      { origin: "https://mail.example.com", localAgentTaskClient },
+    );
+    await runWithRequestContext(
+      { userEmail: "caller@acme.com", orgId: "org-1" },
+      async () => {
+        const submitted: any = await tools.ask_app.run({
+          app: "calendar",
+          message: "read only",
+          async: true,
+        });
+        expect(submitted).toMatchObject({
+          taskId: "peer-task",
+          routedVia: "a2a",
+        });
+        await tools.ask_app_status.run({ taskHandle: submitted.taskHandle });
+      },
+    );
+    expect(auth).toHaveBeenCalledWith({
+      audience: "https://calendar.acme.com",
+    });
+    expect(send).toHaveBeenCalledOnce();
+    expect(getTask).toHaveBeenCalledWith("peer-task");
+    expect(localAgentTaskClient.send).not.toHaveBeenCalled();
+    expect(localAgentTaskClient.getTask).not.toHaveBeenCalled();
+  });
   it("routes an org-directory-only app over A2A and reports it honestly", async () => {
     vi.spyOn(orgDirectory, "fetchOrgApps").mockResolvedValue([
       {

@@ -52,6 +52,177 @@ export function isConflictSaveError(error: unknown): boolean {
   );
 }
 
+const REJECTED_RESTORE_CLAIM_ERROR_CODES = new Set([
+  "localhost_connection_scope_mismatch",
+  "localhost_connection_scope_required",
+  "screen_restore_claim_used",
+]);
+
+export function isRejectedRestoreClaimError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as Record<string, unknown>;
+  const data =
+    candidate.data && typeof candidate.data === "object"
+      ? (candidate.data as Record<string, unknown>)
+      : undefined;
+  const code = candidate.errorCode ?? candidate.code ?? data?.errorCode;
+  return (
+    typeof code === "string" && REJECTED_RESTORE_CLAIM_ERROR_CODES.has(code)
+  );
+}
+
+export function rejectedRestoreClaimTargetFileIds(
+  error: unknown,
+  claims: readonly unknown[],
+): string[] {
+  if (!error || typeof error !== "object") return [];
+  const candidate = error as Record<string, unknown>;
+  const data = isRecord(candidate.data) ? candidate.data : undefined;
+  const details = isRecord(candidate.details)
+    ? candidate.details
+    : data && isRecord(data.details)
+      ? data.details
+      : undefined;
+  const targetFileIds = details?.restoreTargetFileIds;
+  if (Array.isArray(targetFileIds)) {
+    return [
+      ...new Set(
+        targetFileIds.filter(
+          (value): value is string => typeof value === "string",
+        ),
+      ),
+    ];
+  }
+  return [
+    ...new Set(
+      claims.flatMap((claim) =>
+        isRecord(claim) && typeof claim.targetFileId === "string"
+          ? [claim.targetFileId]
+          : [],
+      ),
+    ),
+  ];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+export function stripRejectedRestoreClaimAssignments(
+  operations: readonly unknown[],
+  claims: readonly unknown[],
+): { operations: unknown[]; removed: boolean } {
+  const targetFileIds = new Set(
+    claims.flatMap((claim) =>
+      isRecord(claim) && typeof claim.targetFileId === "string"
+        ? [claim.targetFileId]
+        : [],
+    ),
+  );
+  if (targetFileIds.size === 0)
+    return { operations: [...operations], removed: false };
+
+  let removedAssignment = false;
+  const reconciledOperations = operations.flatMap((operation) => {
+    if (!isRecord(operation) || !Array.isArray(operation.path)) {
+      return [operation];
+    }
+    const [map, fileId, field] = operation.path;
+    if (
+      (map !== "screenMetadata" && map !== "localhostScreens") ||
+      typeof fileId !== "string" ||
+      !targetFileIds.has(fileId)
+    ) {
+      return [operation];
+    }
+    if (
+      operation.op === "set" &&
+      field === "connectionId" &&
+      operation.path.length === 3
+    ) {
+      removedAssignment = true;
+      return [];
+    }
+    if (
+      operation.op === "set" &&
+      operation.path.length === 2 &&
+      isRecord(operation.value) &&
+      typeof operation.value.connectionId === "string" &&
+      operation.value.connectionId.length > 0
+    ) {
+      const metadata = { ...operation.value };
+      delete metadata.connectionId;
+      removedAssignment = true;
+      return Object.keys(metadata).length > 0
+        ? [{ ...operation, value: metadata }]
+        : [];
+    }
+    return [operation];
+  });
+  return { operations: reconciledOperations, removed: removedAssignment };
+}
+
+/**
+ * Drop a rejected restore's connection assignment while preserving its other
+ * metadata and geometry writes so the rest of the queued save can proceed.
+ */
+export function reconcileRejectedRestoreClaimOutboxEntryResult(
+  entry: DesignSaveOutboxEntry,
+  rejectedTargetFileIds?: readonly string[],
+):
+  | { kind: "updated"; entry: DesignSaveOutboxEntry }
+  | { kind: "empty" }
+  | null {
+  const claims = entry.payload.restoreClaims;
+  const operations = entry.payload.dataOperations;
+  if (!Array.isArray(claims) || !Array.isArray(operations)) return null;
+  const rejectedTargetFileIdSet =
+    rejectedTargetFileIds === undefined ? null : new Set(rejectedTargetFileIds);
+  const rejectedClaims = claims.filter(
+    (claim) =>
+      rejectedTargetFileIdSet === null ||
+      (isRecord(claim) &&
+        typeof claim.targetFileId === "string" &&
+        rejectedTargetFileIdSet.has(claim.targetFileId)),
+  );
+  if (rejectedClaims.length === 0) return null;
+  const reconciliation = stripRejectedRestoreClaimAssignments(
+    operations,
+    rejectedClaims,
+  );
+  if (!reconciliation.removed) return null;
+  if (reconciliation.operations.length === 0) return { kind: "empty" };
+
+  const payload = { ...entry.payload };
+  const remainingClaims = claims.filter(
+    (claim) => !rejectedClaims.includes(claim),
+  );
+  if (remainingClaims.length === 0) delete payload.restoreClaims;
+  else payload.restoreClaims = remainingClaims;
+  return {
+    kind: "updated",
+    entry: {
+      ...entry,
+      payload: { ...payload, dataOperations: reconciliation.operations },
+      updatedAt: Date.now(),
+    },
+  };
+}
+
+/**
+ * Backward-compatible entry view for callers that acknowledge empty results.
+ */
+export function reconcileRejectedRestoreClaimOutboxEntry(
+  entry: DesignSaveOutboxEntry,
+  rejectedTargetFileIds?: readonly string[],
+): DesignSaveOutboxEntry | null {
+  const result = reconcileRejectedRestoreClaimOutboxEntryResult(
+    entry,
+    rejectedTargetFileIds,
+  );
+  return result?.kind === "updated" ? result.entry : null;
+}
+
 const DATABASE_NAME = "agent-native-design-save-outbox";
 const DATABASE_VERSION = 2;
 const ENTRY_STORE = "entries";
@@ -409,7 +580,38 @@ async function drainEntries(
       await storage.deleteIfRevision(entry);
       result.saved.push(entry);
     } catch (error) {
-      if (isTerminalSaveError(error)) {
+      if (
+        isRejectedRestoreClaimError(error) &&
+        Array.isArray(entry.payload.restoreClaims)
+      ) {
+        const rejectedTargetFileIds = rejectedRestoreClaimTargetFileIds(
+          error,
+          entry.payload.restoreClaims,
+        );
+        const reconciled = reconcileRejectedRestoreClaimOutboxEntryResult(
+          entry,
+          rejectedTargetFileIds,
+        );
+        if (reconciled?.kind === "updated") {
+          await storage.putLatest(reconciled.entry);
+          result.rebased.push({ entry, error });
+          if (typeof console !== "undefined") {
+            console.warn(
+              `[design-save-outbox] removed rejected Screen restore connection metadata from ${entry.actionName} ${entry.resourceId}`,
+            );
+          }
+        } else if (reconciled?.kind === "empty") {
+          await storage.deleteIfRevision(entry);
+          result.rebased.push({ entry, error });
+          if (typeof console !== "undefined") {
+            console.warn(
+              `[design-save-outbox] discarded an empty reconciled save for ${entry.actionName} ${entry.resourceId}`,
+            );
+          }
+        } else {
+          result.failed.push({ entry, error });
+        }
+      } else if (isTerminalSaveError(error)) {
         await storage.deleteIfRevision(entry);
         result.dropped.push({ entry, error });
         if (typeof console !== "undefined") {

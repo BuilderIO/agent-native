@@ -66,6 +66,7 @@ function recording(overrides: Record<string, unknown> = {}) {
     id: "recording-1",
     organizationId: "org-1",
     sharePasswordVersion: "initial",
+    updatedAt: "2026-01-01T00:00:00.000Z",
     ...overrides,
   };
 }
@@ -80,7 +81,9 @@ beforeEach(() => {
   state.selectRows = [[recording()], [recording()]];
   mockAssertAccess.mockResolvedValue(undefined);
   mockWriteAppState.mockResolvedValue(undefined);
-  mockSaveChapters.mockResolvedValue(undefined);
+  mockSaveChapters.mockResolvedValue({
+    updatedAt: "2026-10-16T00:00:00.000Z",
+  });
 });
 
 describe("update-recording share password version", () => {
@@ -110,6 +113,17 @@ describe("update-recording share password version", () => {
     expect(state.patches[0]).toMatchObject({ title: "Updated title" });
     expect(state.patches[0]).not.toHaveProperty("sharePasswordVersion");
   });
+
+  it("keeps recording revisions monotonic for metadata updates", async () => {
+    state.selectRows = [
+      [recording({ updatedAt: "2099-01-01T00:00:00.000Z" })],
+      [recording()],
+    ];
+
+    await run({ id: "recording-1", title: "Updated title" });
+
+    expect(state.patches[0]?.updatedAt).toBe("2099-01-01T00:00:00.001Z");
+  });
 });
 
 describe("update-recording chapters", () => {
@@ -133,6 +147,7 @@ describe("update-recording chapters", () => {
       id: "recording-1",
       chaptersJson: JSON.stringify([demo, intro]),
       expectedChapters: JSON.stringify([intro]),
+      expectedMediaUpdatedAt: "media-1",
     });
     expect(mockSaveChapters).toHaveBeenCalledWith({
       recordingId: "recording-1",
@@ -140,6 +155,7 @@ describe("update-recording chapters", () => {
       expectedChapters: [intro],
       expectedVersion: null,
       expectedCuts: null,
+      expectedMediaUpdatedAt: "media-1",
     });
     expect(state.patches[0]).not.toHaveProperty("chaptersJson");
   });
@@ -154,19 +170,39 @@ describe("update-recording chapters", () => {
         title: "Updated title",
         chaptersJson: JSON.stringify([demo]),
         expectedChapters: [intro],
+        expectedMediaUpdatedAt: "media-1",
       }),
     ).rejects.toMatchObject({ errorCode: "chapters_changed" });
     expect(state.patches).toEqual([]);
   });
 
-  it("refuses chapters the player couldn't show", async () => {
+  it("passes existing hidden chapters through the guarded save", async () => {
+    const hidden = { startMs: 60_000, title: "" };
+
+    await run({
+      id: "recording-1",
+      chaptersJson: JSON.stringify([hidden]),
+      expectedChapters: [hidden],
+      expectedMediaUpdatedAt: "media-1",
+    });
+
+    expect(mockSaveChapters).toHaveBeenCalledWith(
+      expect.objectContaining({
+        chapters: [hidden],
+        expectedChapters: [hidden],
+        expectedMediaUpdatedAt: "media-1",
+      }),
+    );
+  });
+
+  it("refuses chapter writes without the media version", async () => {
     await expect(
       run({
         id: "recording-1",
-        chaptersJson: JSON.stringify([{ startMs: 0, title: "" }]),
-        expectedChapters: [],
+        chaptersJson: JSON.stringify([demo]),
+        expectedChapters: [intro],
       }),
-    ).rejects.toMatchObject({ errorCode: "invalid_chapters" });
+    ).rejects.toMatchObject({ errorCode: "expected_media_version_required" });
     expect(mockSaveChapters).not.toHaveBeenCalled();
   });
 });

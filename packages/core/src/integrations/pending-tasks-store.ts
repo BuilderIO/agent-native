@@ -4,18 +4,41 @@ import {
   ensureColumnExists,
   ensureIndexExists,
 } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
+import { assertNoInlineImageBytes } from "../shared/inline-bytes.js";
 
-let _initPromise: Promise<void> | undefined;
 export const MAX_PENDING_TASK_ATTEMPTS = 3;
 // A task is an agent turn answering a message. A day later that reply would no
 // longer answer it, so older unfinished rows are never run again and no longer
 // hold their thread's queue. The rows themselves are left exactly as they are.
 export const MAX_RECOVERABLE_PENDING_TASK_AGE_MS = 24 * 60 * 60 * 1000;
 
-async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const createSql = `CREATE TABLE IF NOT EXISTS integration_pending_tasks (
+export class PendingTaskPayloadNotPersistableError extends Error {
+  readonly code = "pending_task_attachment_not_persistable";
+
+  constructor() {
+    super(
+      "Integration task payload cannot include inline image bytes. Upload the image to durable storage and send its URL instead.",
+    );
+    this.name = "PendingTaskPayloadNotPersistableError";
+  }
+}
+
+function validatePendingTaskPayload(payload: string): void {
+  try {
+    assertNoInlineImageBytes(payload, "integration pending task payload");
+  } catch {
+    throw new PendingTaskPayloadNotPersistableError();
+  }
+}
+
+export const pendingTasksStore = defineStore({
+  id: "pending_tasks",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createSql = `CREATE TABLE IF NOT EXISTS integration_pending_tasks (
   id TEXT PRIMARY KEY,
   platform TEXT NOT NULL,
   external_thread_id TEXT NOT NULL,
@@ -33,8 +56,6 @@ async function ensureTable(): Promise<void> {
   updated_at BIGINT NOT NULL,
   completed_at BIGINT
 )`;
-
-      {
         await ensureTableExists("integration_pending_tasks", createSql);
         await ensureColumnExists(
           "integration_pending_tasks",
@@ -73,18 +94,17 @@ async function ensureTable(): Promise<void> {
           "idx_pending_tasks_dispatch_scope",
           `CREATE INDEX IF NOT EXISTS idx_pending_tasks_dispatch_scope ON integration_pending_tasks(platform, dispatch_scope)`,
         );
-        return;
-      }
-    })().catch((err) => {
-      _initPromise = undefined;
-      throw err;
-    });
-  }
-  return _initPromise;
+      },
+    },
+  ],
+});
+
+function ensureTable(): Promise<void> {
+  return pendingTasksStore.ready();
 }
 
-export async function ensurePendingTasksTable(): Promise<void> {
-  await ensureTable();
+export function ensurePendingTasksTable(): Promise<void> {
+  return pendingTasksStore.ready();
 }
 
 export type PendingTaskStatus =
@@ -147,6 +167,7 @@ export async function insertPendingTask(input: {
   externalEventKey?: string | null;
   dispatchScope?: string | null;
 }): Promise<void> {
+  validatePendingTaskPayload(input.payload);
   await ensureTable();
   const client = getDbExec();
   const now = Date.now();
@@ -416,6 +437,7 @@ export async function stageTaskDeliveryPayload(
   id: string,
   payload: string,
 ): Promise<void> {
+  validatePendingTaskPayload(payload);
   await ensureTable();
   const client = getDbExec();
   const now = Date.now();
@@ -440,6 +462,7 @@ export async function markTaskDeliveryRetryable(
   payload: string,
   errorMessage: string,
 ): Promise<void> {
+  validatePendingTaskPayload(payload);
   await ensureTable();
   const client = getDbExec();
   const result = await client.execute({

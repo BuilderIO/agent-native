@@ -1,5 +1,9 @@
 import { AgentKitClient } from "@agent-native/agentkit/client";
-import { resumeEntryFromApproval } from "@agent-native/agentkit/protocol";
+import {
+  AGENT_NATIVE_SUBMISSION_DEADLINES_CAPABILITY_ID,
+  createAgentKitProtocolVersionOffer,
+  resumeEntryFromApproval,
+} from "@agent-native/agentkit/protocol";
 import type { AgentEvent } from "@agent-native/agentkit/protocol";
 import { describe, expect, it, vi } from "vitest";
 
@@ -9,8 +13,13 @@ import {
   mergeThreadDataForClientSave,
   upsertUserMessage,
 } from "../../agent/thread-data-builder.js";
+import { projectRootAssistantMessages } from "../../agent/thread-message-projection.js";
 import { agentTroubleCauseForCode } from "../../shared/analytics-events.js";
-import { createAgentNativeAgentKitTransport } from "./agentkit-agent-native.js";
+import {
+  AgentChatAiSetupRequiredError,
+  resetAgentEngineReadinessForTests,
+} from "../agent-engine-readiness.js";
+import { createAgentNativeAgentKitTransport as createAgentNativeAgentKitTransportImplementation } from "./agentkit-agent-native.js";
 import { AGENT_NATIVE_PROTOCOL_METADATA_KEY } from "./agentkit-protocol.js";
 import type { RunOutcomeReport } from "./run-outcome.js";
 import {
@@ -33,6 +42,191 @@ function json(value: unknown, status = 200): Response {
   });
 }
 
+describe("projectRootAssistantMessages", () => {
+  it("counts event-associated durable replies when deciding whether a run is ambiguous", () => {
+    const runId = "run-with-event-associated-root";
+    const projection = projectRootAssistantMessages({
+      rootMessages: [
+        {
+          id: "root-explicit",
+          role: "assistant",
+          status: { type: "complete" },
+          content: [{ type: "text", text: "Done." }],
+          metadata: { runId },
+        },
+        {
+          id: "root-event-associated",
+          role: "assistant",
+          status: { type: "complete" },
+          content: [{ type: "text", text: "Done." }],
+        },
+      ],
+      snapshotMessages: [
+        {
+          id: "snapshot-canonical",
+          role: "assistant",
+          parts: [{ type: "text", text: "Done." }],
+          metadata: { runId },
+        },
+        {
+          id: "snapshot-duplicate",
+          role: "assistant",
+          parts: [{ type: "text", text: "Done.\nDone." }],
+          metadata: { runId },
+        },
+      ],
+      events: [
+        {
+          type: "message.completed",
+          runId,
+          message: { id: "root-event-associated", role: "assistant" },
+        },
+      ],
+    });
+
+    expect(projection.representedRootMessageIds).not.toContain("root-explicit");
+    expect(projection.supersededSnapshotMessageIds).not.toContain(
+      "snapshot-duplicate",
+    );
+  });
+
+  it("keeps the durable answer when the only snapshot repeats it", () => {
+    const runId = "run-with-only-repeated-snapshot";
+    const projection = projectRootAssistantMessages({
+      rootMessages: [
+        {
+          id: "root-answer",
+          role: "assistant",
+          status: { type: "complete" },
+          content: [{ type: "text", text: "Done." }],
+          metadata: { runId },
+        },
+      ],
+      snapshotMessages: [
+        {
+          id: "snapshot-repeated",
+          role: "assistant",
+          parts: [{ type: "text", text: "Done.\nDone." }],
+          metadata: { runId },
+        },
+      ],
+    });
+
+    expect(projection.representedRootMessageIds).not.toContain("root-answer");
+    expect(projection.supersededSnapshotMessageIds).toContain(
+      "snapshot-repeated",
+    );
+  });
+
+  it("keeps one exact copy and suppresses additional exact and repeated copies", () => {
+    const runId = "run-with-multiple-exact-snapshots";
+    const projection = projectRootAssistantMessages({
+      rootMessages: [
+        {
+          id: "root-answer",
+          role: "assistant",
+          status: { type: "complete" },
+          content: [{ type: "text", text: "Done." }],
+          metadata: { runId },
+        },
+      ],
+      snapshotMessages: [
+        {
+          id: "snapshot-canonical",
+          role: "assistant",
+          parts: [{ type: "text", text: "Done." }],
+          metadata: { runId },
+        },
+        {
+          id: "snapshot-exact-copy",
+          role: "assistant",
+          parts: [{ type: "text", text: "Done." }],
+          metadata: { runId },
+        },
+        {
+          id: "snapshot-repeated-copy",
+          role: "assistant",
+          parts: [{ type: "text", text: "Done.\nDone." }],
+          metadata: { runId },
+        },
+      ],
+    });
+
+    expect(
+      projection.snapshotMessageIdsByRootMessageId.get("root-answer"),
+    ).toBe("snapshot-canonical");
+    expect(projection.supersededSnapshotMessageIds).toEqual(
+      new Set(["snapshot-exact-copy", "snapshot-repeated-copy"]),
+    );
+  });
+
+  it("keeps durable tool calls when an exact-text snapshot omits them", () => {
+    const runId = "run-with-durable-tool-call";
+    const projection = projectRootAssistantMessages({
+      rootMessages: [
+        {
+          id: "root-answer",
+          role: "assistant",
+          status: { type: "complete" },
+          content: [
+            { type: "text", text: "Done." },
+            {
+              type: "tool-call",
+              toolCallId: "call-1",
+              toolName: "search",
+              args: { query: "example" },
+              result: { ok: true },
+            },
+          ],
+          metadata: { runId },
+        },
+      ],
+      snapshotMessages: [
+        {
+          id: "snapshot-canonical",
+          role: "assistant",
+          parts: [{ type: "text", text: "Done." }],
+          metadata: { runId },
+        },
+        {
+          id: "snapshot-repeated",
+          role: "assistant",
+          parts: [{ type: "text", text: "Done.\nDone." }],
+          metadata: { runId },
+        },
+      ],
+    });
+
+    expect(projection.representedRootMessageIds).not.toContain("root-answer");
+    expect(projection.supersededSnapshotMessageIds).toEqual(
+      new Set(["snapshot-canonical", "snapshot-repeated"]),
+    );
+  });
+});
+
+function createAgentNativeAgentKitTransport(
+  options: Parameters<
+    typeof createAgentNativeAgentKitTransportImplementation
+  >[0],
+) {
+  const fetchImpl = options.fetch ?? fetch;
+  return createAgentNativeAgentKitTransportImplementation({
+    ...options,
+    fetch: (async (input, init) => {
+      const url = String(input);
+      if (url.includes("/_agent-native/agent-engine/status")) {
+        return json({ configured: true, chatEligible: true });
+      }
+      if (url.endsWith("/_agent-native/agent-chat/capabilities")) {
+        return json({
+          [AGENT_NATIVE_SUBMISSION_DEADLINES_CAPABILITY_ID]: true,
+        });
+      }
+      return fetchImpl(input, init);
+    }) as typeof fetch,
+  });
+}
+
 function resumableNativeRuntime(
   events: AgentChatRuntimeKnownEvent[],
 ): AgentChatRuntime {
@@ -49,6 +243,448 @@ function resumableNativeRuntime(
 }
 
 describe("createAgentNativeAgentKitTransport", () => {
+  it.each([
+    {
+      supported: true,
+      response: json({
+        [AGENT_NATIVE_SUBMISSION_DEADLINES_CAPABILITY_ID]: true,
+      }),
+    },
+    { supported: false, response: json({ error: "Not found" }, 404) },
+  ])(
+    "reports deadline support from the server endpoint ($supported)",
+    async ({ supported, response }) => {
+      const apiUrl = "https://provider.example.test/_agent-native/agent-chat";
+      const capabilityUrl = `${apiUrl}/capabilities`;
+      const fetcher = vi.fn(async (input: RequestInfo | URL) =>
+        String(input) === capabilityUrl
+          ? response
+          : json({ error: "Not found" }, 404),
+      );
+      const runtime = createAgentNativeChatRuntime({
+        apiUrl,
+        fetch: fetcher as typeof fetch,
+      });
+      const transport = createAgentNativeAgentKitTransportImplementation({
+        apiUrl,
+        fetch: fetcher as typeof fetch,
+        runtime,
+      });
+
+      const discovery = await transport.discoverCapabilities?.({
+        protocol: createAgentKitProtocolVersionOffer(),
+      });
+
+      expect(
+        discovery?.legacy?.[AGENT_NATIVE_SUBMISSION_DEADLINES_CAPABILITY_ID],
+      ).toBe(supported);
+      expect(
+        discovery?.capabilities.find(
+          (capability) =>
+            capability.id === AGENT_NATIVE_SUBMISSION_DEADLINES_CAPABILITY_ID,
+        )?.state,
+      ).toBe(supported ? "available" : "unsupported");
+      expect(
+        discovery?.capabilities.find(
+          (capability) => capability.id === "messageQueue",
+        )?.state,
+      ).toBe("available");
+      expect(fetcher).toHaveBeenCalledWith(
+        capabilityUrl,
+        expect.objectContaining({ method: "GET", cache: "no-store" }),
+      );
+    },
+  );
+
+  it.each(["HTTP 503", "network rejection"] as const)(
+    "retries capability discovery after a transient %s failure",
+    async (failure) => {
+      const apiUrl = "https://provider.example.test/_agent-native/agent-chat";
+      const capabilityUrl = `${apiUrl}/capabilities`;
+      let capabilityRequests = 0;
+      let promptDispatches = 0;
+      const fetcher = vi.fn(
+        async (input: RequestInfo | URL, init?: RequestInit) => {
+          if (String(input).endsWith("/_agent-native/agent-engine/status")) {
+            return json({ configured: true, chatEligible: true });
+          }
+          if (String(input) === capabilityUrl) {
+            capabilityRequests += 1;
+            if (capabilityRequests === 1) {
+              if (failure === "network rejection") {
+                throw new Error("Network unavailable");
+              }
+              return json({ error: "Temporarily unavailable" }, 503);
+            }
+            return json({
+              [AGENT_NATIVE_SUBMISSION_DEADLINES_CAPABILITY_ID]: true,
+            });
+          }
+          if (
+            String(input) === apiUrl &&
+            (init?.method ?? "GET").toUpperCase() === "POST"
+          ) {
+            promptDispatches += 1;
+            return new Response(
+              `data: ${JSON.stringify({ type: "done" })}\n\n`,
+              {
+                headers: {
+                  "content-type": "text/event-stream",
+                  "x-run-id": "run-after-capability-retry",
+                },
+              },
+            );
+          }
+          return json({ error: "Not found" }, 404);
+        },
+      );
+      const transport = createAgentNativeAgentKitTransportImplementation({
+        apiUrl,
+        fetch: fetcher as typeof fetch,
+        runtime: createAgentNativeChatRuntime({
+          apiUrl,
+          fetch: fetcher as typeof fetch,
+        }),
+      });
+      const client = new AgentKitClient({ transport });
+
+      try {
+        await expect(
+          client.sendMessage({
+            threadId: "thread-capability-retry",
+            text: "First try",
+            metadata: {
+              custom: {
+                agentNativeSubmissionExpiresAt: Date.now() + 60_000,
+              },
+            },
+          }),
+        ).rejects.toMatchObject({
+          code: "capability_unavailable",
+          retryable: true,
+        });
+        expect(promptDispatches).toBe(0);
+        expect(
+          client
+            .getSnapshot()
+            .capabilityDiscovery?.capabilities.find(
+              (candidate) =>
+                candidate.id ===
+                AGENT_NATIVE_SUBMISSION_DEADLINES_CAPABILITY_ID,
+            ),
+        ).toMatchObject({ state: "unavailable", error: { retryable: true } });
+
+        const run = await client.sendMessage({
+          threadId: "thread-capability-retry",
+          text: "Retry after discovery recovers",
+          metadata: {
+            custom: {
+              agentNativeSubmissionExpiresAt: Date.now() + 60_000,
+            },
+          },
+        });
+        await run.completed;
+
+        expect(capabilityRequests).toBe(2);
+        expect(promptDispatches).toBe(1);
+      } finally {
+        await client.shutdown();
+      }
+    },
+  );
+
+  it("does not send a deadline-bound prompt to an older server", async () => {
+    const apiUrl = "https://provider.example.test/_agent-native/agent-chat";
+    const capabilityUrl = `${apiUrl}/capabilities`;
+    let promptDispatches = 0;
+    const fetcher = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input) === capabilityUrl) {
+          return json({ error: "Not found" }, 404);
+        }
+        if (
+          String(input) === apiUrl &&
+          (init?.method ?? "GET").toUpperCase() === "POST"
+        ) {
+          promptDispatches += 1;
+        }
+        return json({ error: "Not found" }, 404);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransportImplementation({
+      apiUrl,
+      fetch: fetcher as typeof fetch,
+      runtime: createAgentNativeChatRuntime({
+        apiUrl,
+        fetch: fetcher as typeof fetch,
+      }),
+    });
+    const client = new AgentKitClient({ transport });
+
+    try {
+      await expect(
+        client.sendMessage({
+          threadId: "thread-old-server",
+          text: "Retry the saved prompt",
+          metadata: {
+            custom: {
+              agentNativeSubmissionExpiresAt: Date.now() + 60_000,
+            },
+          },
+        }),
+      ).rejects.toMatchObject({ code: "capability_unsupported" });
+
+      expect(promptDispatches).toBe(0);
+      expect(client.getThread("thread-old-server").messages).toEqual([]);
+    } finally {
+      await client.shutdown();
+    }
+  });
+
+  it("keeps ordinary prompts usable when the deadline endpoint is unavailable", async () => {
+    const apiUrl = "https://provider.example.test/_agent-native/agent-chat";
+    const capabilityUrl = `${apiUrl}/capabilities`;
+    let capabilityRequests = 0;
+    let promptDispatches = 0;
+    const fetcher = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).endsWith("/_agent-native/agent-engine/status")) {
+          return json({ configured: true, chatEligible: true });
+        }
+        if (String(input) === capabilityUrl) {
+          capabilityRequests += 1;
+          return json({ error: "Temporarily unavailable" }, 503);
+        }
+        if (
+          String(input) === apiUrl &&
+          (init?.method ?? "GET").toUpperCase() === "POST"
+        ) {
+          promptDispatches += 1;
+          return new Response(`data: ${JSON.stringify({ type: "done" })}\n\n`, {
+            headers: {
+              "content-type": "text/event-stream",
+              "x-run-id": "run-ordinary-prompt",
+            },
+          });
+        }
+        return json({ error: "Not found" }, 404);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransportImplementation({
+      apiUrl,
+      fetch: fetcher as typeof fetch,
+      runtime: createAgentNativeChatRuntime({
+        apiUrl,
+        fetch: fetcher as typeof fetch,
+      }),
+    });
+    const client = new AgentKitClient({ transport });
+
+    try {
+      const run = await client.sendMessage({
+        threadId: "thread-ordinary-prompt",
+        text: "Continue normally",
+      });
+      await run.completed;
+
+      expect(await client.getCapabilities()).not.toHaveProperty(
+        AGENT_NATIVE_SUBMISSION_DEADLINES_CAPABILITY_ID,
+      );
+      expect(capabilityRequests).toBe(1);
+      expect(promptDispatches).toBe(1);
+    } finally {
+      await client.shutdown();
+    }
+  });
+
+  it("blocks a client send through the constructed transport when AI is missing", async () => {
+    resetAgentEngineReadinessForTests();
+    const statusUrl =
+      "https://provider.example.test/_agent-native/agent-engine/status";
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) === statusUrl) {
+        return json({ configured: true, chatEligible: false });
+      }
+      return json({ error: "Unexpected prompt dispatch" }, 500);
+    });
+    const transport = createAgentNativeAgentKitTransportImplementation({
+      apiUrl: "https://provider.example.test/_agent-native/agent-chat",
+      engine: "openai",
+      fetch: fetcher as typeof fetch,
+    });
+    const client = new AgentKitClient({ transport });
+
+    try {
+      await expect(
+        client.sendMessage({ threadId: "thread-no-ai", text: "Blocked" }),
+      ).rejects.toBeInstanceOf(AgentChatAiSetupRequiredError);
+      expect(fetcher.mock.calls.map(([input]) => String(input))).toEqual([
+        statusUrl,
+      ]);
+    } finally {
+      await client.shutdown();
+      resetAgentEngineReadinessForTests();
+    }
+  });
+
+  it("propagates snapshot cancellation and does not retry after abort", async () => {
+    const threadId = "cancelled-snapshot";
+    const calls: Array<{ method: string; init?: RequestInit }> = [];
+    let threadReads = 0;
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        const method = init?.method ?? "GET";
+        calls.push({ method, init });
+        if (url.endsWith(`/threads/${threadId}`) && method === "GET") {
+          threadReads += 1;
+          return threadReads === 1
+            ? json({ error: "Not found" }, 404)
+            : json({
+                id: threadId,
+                threadData: JSON.stringify({ messages: [] }),
+              });
+        }
+        if (url.endsWith("/threads") && method === "POST") {
+          return json({ error: "Already exists" }, 409);
+        }
+        if (url.endsWith(`/threads/${threadId}`) && method === "PUT") {
+          return new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener(
+              "abort",
+              () => reject(init.signal?.reason),
+              { once: true },
+            );
+          });
+        }
+        return json({ error: "Unexpected request" }, 500);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+    });
+    const abortController = new AbortController();
+
+    try {
+      const persistence = transport.persistThreadSnapshot?.(
+        {
+          threadId,
+          snapshot: {
+            id: threadId,
+            createdAt: "2026-10-01T00:00:00.000Z",
+            updatedAt: "2026-10-01T00:00:01.000Z",
+            messages: [
+              {
+                id: "user-message",
+                role: "user",
+                parts: [{ type: "text", text: "Save this message" }],
+              },
+            ],
+          },
+        },
+        { signal: abortController.signal },
+      );
+      await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(4));
+      abortController.abort();
+
+      await expect(persistence).rejects.toMatchObject({ name: "AbortError" });
+      expect(calls.map(({ method }) => method)).toEqual([
+        "GET",
+        "POST",
+        "GET",
+        "PUT",
+      ]);
+      expect(
+        calls.every(({ init }) => init?.signal === abortController.signal),
+      ).toBe(true);
+    } finally {
+      abortController.abort();
+      await transport.dispose();
+    }
+  });
+
+  it("uses the transport engine when checking AI readiness", async () => {
+    resetAgentEngineReadinessForTests();
+    const localFetch = vi.fn(async () => json({ chatEligible: true }));
+    const localTransport = createAgentNativeAgentKitTransportImplementation({
+      apiUrl: "https://mobile.example.test/_agent-native/agent-chat",
+      engine: "codex-cli",
+      fetch: localFetch as typeof fetch,
+    });
+
+    await expect(
+      localTransport.assertAiSetupReady?.({}),
+    ).resolves.toBeUndefined();
+    expect(localFetch).not.toHaveBeenCalled();
+
+    const providerFetch = vi.fn(async () => json({ chatEligible: true }));
+    const providerTransport = createAgentNativeAgentKitTransportImplementation({
+      apiUrl: "https://provider.example.test/_agent-native/agent-chat",
+      engine: "openai",
+      fetch: providerFetch as typeof fetch,
+    });
+    await expect(
+      providerTransport.assertAiSetupReady?.({}),
+    ).resolves.toBeUndefined();
+    expect(providerFetch).toHaveBeenCalledOnce();
+    expect(String(providerFetch.mock.calls[0]?.[0])).toBe(
+      "https://provider.example.test/_agent-native/agent-engine/status",
+    );
+    resetAgentEngineReadinessForTests();
+  });
+
+  it("starts the send deadline before resolving async auth headers and recovers", async () => {
+    vi.useFakeTimers();
+    resetAgentEngineReadinessForTests();
+    let resolveHeaders!: (value: HeadersInit) => void;
+    const pendingHeaders = new Promise<HeadersInit>((resolve) => {
+      resolveHeaders = resolve;
+    });
+    const headers = vi.fn(() => pendingHeaders);
+    let resolveFetchStarted!: () => void;
+    const fetchStarted = new Promise<void>((resolve) => {
+      resolveFetchStarted = resolve;
+    });
+    const fetcher = vi.fn(async () => {
+      resolveFetchStarted();
+      return json({ configured: true, chatEligible: true });
+    });
+    const transport = createAgentNativeAgentKitTransportImplementation({
+      apiUrl: "https://headers.example.test/_agent-native/agent-chat",
+      engine: "openai",
+      fetch: fetcher as typeof fetch,
+      headers,
+    });
+
+    try {
+      const firstCheck = transport.assertAiSetupReady?.({
+        threadId: "thread-header-timeout",
+      });
+      const timedOutCheck = expect(firstCheck).rejects.toMatchObject({
+        name: AgentChatAiSetupRequiredError.name,
+        state: "unavailable",
+      });
+      await vi.advanceTimersByTimeAsync(10_000);
+      await timedOutCheck;
+      expect(headers).toHaveBeenCalledOnce();
+      expect(fetcher).not.toHaveBeenCalled();
+
+      resolveHeaders({ Authorization: "Bearer test" });
+      await fetchStarted;
+      await expect(
+        transport.assertAiSetupReady?.({
+          threadId: "thread-header-timeout",
+        }),
+      ).resolves.toBeUndefined();
+      expect(headers).toHaveBeenCalledOnce();
+      expect(fetcher).toHaveBeenCalledOnce();
+    } finally {
+      resetAgentEngineReadinessForTests();
+      vi.useRealTimers();
+    }
+  });
+
   it("creates a missing thread when its first snapshot races the user-message save", async () => {
     const requests: Array<{ url: string; method: string; body?: string }> = [];
     let created = false;
@@ -130,6 +766,56 @@ describe("createAgentNativeAgentKitTransport", () => {
     expect(JSON.parse(savedThreadData ?? "{}").agentKit.messages).toEqual([
       expect.objectContaining({ id: "prompt-1", role: "user" }),
     ]);
+  });
+
+  it("scrubs inline image data before sending a thread snapshot PUT", async () => {
+    const threadId = "snapshot-inline-image-data";
+    const inlineData = "data:image/png;base64,INLINE_SNAPSHOT_PIXELS";
+    let savedBody: string | undefined;
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes(`/threads/${threadId}`) && init?.method === "PUT") {
+          savedBody = String(init.body);
+          return json({ ok: true });
+        }
+        if (url.includes(`/threads/${threadId}`)) {
+          return json({
+            id: threadId,
+            threadData: JSON.stringify({ agentKit: { messages: [] } }),
+          });
+        }
+        return json({ error: "Not found" }, 404);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+    });
+
+    await transport.persistThreadSnapshot?.({
+      threadId,
+      snapshot: {
+        id: threadId,
+        createdAt: "2026-10-01T00:00:00.000Z",
+        updatedAt: "2026-10-01T00:00:00.000Z",
+        messages: [
+          {
+            id: "user-image-prompt",
+            role: "user",
+            parts: [
+              { type: "text", text: `Describe this reference: ${inlineData}` },
+            ],
+          },
+        ],
+      },
+    });
+
+    expect(savedBody).toBeDefined();
+    expect(savedBody).not.toContain("data:image/");
+    expect(savedBody).not.toContain("INLINE_SNAPSHOT_PIXELS");
+    expect(savedBody).toContain("[inline image/png data omitted]");
+    await transport.dispose();
   });
 
   it("merges raced snapshot widgets by their globally unique ID", async () => {
@@ -626,15 +1312,24 @@ describe("createAgentNativeAgentKitTransport", () => {
         status: "running" as const,
       },
     }));
-    const newerSnapshotEvents = snapshotEvents.map((event, index) =>
-      index === 19
-        ? {
-            ...event,
-            type: "activity.updated" as const,
-            activity: { ...event.activity, label: "newer snapshot" },
-          }
-        : event,
-    );
+    const newerSnapshotEvents = [
+      ...snapshotEvents.map((event, index) =>
+        index === 19
+          ? {
+              ...event,
+              type: "activity.updated" as const,
+              activity: { ...event.activity, label: "newer snapshot" },
+            }
+          : event,
+      ),
+      {
+        ...snapshotEvents[0],
+        id: "event-20",
+        sequence: 21,
+        occurredAt: "2026-10-01T00:00:21.000Z",
+        activity: { ...snapshotEvents[0].activity, id: "activity-20" },
+      },
+    ];
     let repository: Record<string, any> = {
       messages: [],
       agentKit: {
@@ -822,11 +1517,11 @@ describe("createAgentNativeAgentKitTransport", () => {
     expect(requests.every((agentKit) => agentKit._snapshotDelta === true)).toBe(
       true,
     );
-    expect(repository.agentKit.events).toHaveLength(20);
+    expect(repository.agentKit.events).toHaveLength(21);
     expect(interleavedNewerSnapshot).toBe(true);
     expect(
       repository.agentKit.events.map((event: { id: string }) => event.id),
-    ).toEqual(Array.from({ length: 20 }, (_, index) => `event-${index}`));
+    ).toEqual(Array.from({ length: 21 }, (_, index) => `event-${index}`));
     expect(
       repository.agentKit.events.find(
         (event: { id: string }) => event.id === "event-19",
@@ -2013,6 +2708,33 @@ describe("createAgentNativeAgentKitTransport", () => {
     },
   );
 
+  it.each([
+    "data:image/png;base64,INLINE_QUEUE_PIXELS",
+    { type: "image", source: { type: "base64", data: "INLINE_QUEUE_PIXELS" } },
+  ])(
+    "rejects inline image bytes in queued metadata before sending",
+    async (image) => {
+      const fetcher = vi.fn(async () =>
+        json({ error: "Unexpected request" }, 500),
+      );
+      const transport = createAgentNativeAgentKitTransport({
+        apiUrl: "/_agent-native/agent-chat",
+        fetch: fetcher as typeof fetch,
+      });
+
+      await expect(
+        transport.queueMessage?.({
+          threadId: "thread-queue-inline-metadata",
+          text: "Continue",
+          metadata: { custom: { image } },
+        }),
+      ).rejects.toThrow("queuedMessage.metadata");
+
+      expect(fetcher).not.toHaveBeenCalled();
+      await transport.dispose();
+    },
+  );
+
   it("appends queue messages from independent transports without replacing snapshots", async () => {
     const persisted: Array<Record<string, unknown>> = [];
     const fetcher = vi.fn(
@@ -2306,11 +3028,33 @@ describe("createAgentNativeAgentKitTransport", () => {
             status: "completed",
           },
           {
+            id: "tool-approval-history",
+            name: "publish-release",
+            input: { releaseId: "release-1" },
+            output: "Awaiting human approval. This action did NOT execute.",
+            status: "completed",
+            runId: "run-history",
+            messageId: "assistant-history",
+            metadata: {
+              approvalPause: true,
+              approvalAskId: "approval-1",
+            },
+          },
+          {
             id: "tool-large-history",
             name: "large-result",
             output: "x".repeat(65_536),
             status: "completed",
             messageId: "assistant-history",
+          },
+          {
+            id: "tool-large-approval-history",
+            name: "large-approval-input",
+            input: { payload: "x".repeat(70_000) },
+            output: "Awaiting human approval. This action did NOT execute.",
+            status: "completed",
+            runId: "run-large-approval",
+            metadata: { approvalPause: true },
           },
         ],
         widgets: [
@@ -2509,6 +3253,11 @@ describe("createAgentNativeAgentKitTransport", () => {
           },
           {
             type: "file",
+            name: "inline-secret.txt",
+            omitted: "inline-bytes",
+          },
+          {
+            type: "file",
             name: "remote.txt",
             url: "https://files.example.test/remote.txt",
           },
@@ -2531,6 +3280,8 @@ describe("createAgentNativeAgentKitTransport", () => {
       "do not persist raw data",
     );
     expect(JSON.stringify(saved.agentKit.messages)).not.toContain("c2VjcmV0");
+    expect(threadData).not.toContain("base64,");
+    expect(threadData).not.toContain("data:text");
     expect(JSON.stringify(saved.agentKit.messages)).not.toContain(
       "do not persist this metadata",
     );
@@ -2579,6 +3330,16 @@ describe("createAgentNativeAgentKitTransport", () => {
         output: '{"value":1}',
       },
       {
+        id: "tool-approval-history",
+        name: "publish-release",
+        status: "completed",
+        input: { releaseId: "release-1" },
+        output: "Awaiting human approval. This action did NOT execute.",
+        runId: "run-history",
+        messageId: "assistant-history",
+        metadata: { approvalPause: true, approvalAskId: "approval-1" },
+      },
+      {
         id: "tool-large-history",
         name: "large-result",
         status: "completed",
@@ -2590,6 +3351,20 @@ describe("createAgentNativeAgentKitTransport", () => {
           },
         },
       },
+      {
+        id: "tool-large-approval-history",
+        name: "large-approval-input",
+        status: "completed",
+        runId: "run-large-approval",
+        metadata: {
+          approvalPause: true,
+          agentKitSnapshot: {
+            toolCallResult: "omitted",
+            reason: "size_limit",
+            inputFingerprint: expect.stringMatching(/^fnv1a64:[0-9a-f]{16}$/),
+          },
+        },
+      },
     ]);
     expect(
       saved.agentKit.events.map((event: AgentEvent) => event.type),
@@ -2598,6 +3373,7 @@ describe("createAgentNativeAgentKitTransport", () => {
       "activity.started",
       "activity.completed",
       "message.completed",
+      "x-agent-native.persisted-event-omission",
       "run.completed",
       "run.failed",
     ]);
@@ -2629,6 +3405,7 @@ describe("createAgentNativeAgentKitTransport", () => {
       "activity.started",
       "activity.completed",
       "message.completed",
+      "x-agent-native.persisted-event-omission",
       "run.completed",
       "run.failed",
     ]);
@@ -2656,6 +3433,11 @@ describe("createAgentNativeAgentKitTransport", () => {
             type: "file",
             name: "durable-upload.txt",
             fileId: "upload-1",
+          },
+          {
+            type: "file",
+            name: "inline-secret.txt",
+            omitted: "inline-bytes",
           },
           {
             type: "file",
@@ -2704,6 +3486,16 @@ describe("createAgentNativeAgentKitTransport", () => {
         output: '{"value":1}',
       },
       {
+        id: "tool-approval-history",
+        name: "publish-release",
+        status: "completed",
+        input: { releaseId: "release-1" },
+        output: "Awaiting human approval. This action did NOT execute.",
+        runId: "run-history",
+        messageId: "assistant-history",
+        metadata: { approvalPause: true, approvalAskId: "approval-1" },
+      },
+      {
         id: "tool-large-history",
         name: "large-result",
         status: "completed",
@@ -2715,9 +3507,150 @@ describe("createAgentNativeAgentKitTransport", () => {
           },
         },
       },
+      {
+        id: "tool-large-approval-history",
+        name: "large-approval-input",
+        status: "completed",
+        runId: "run-large-approval",
+        metadata: {
+          approvalPause: true,
+          agentKitSnapshot: {
+            toolCallResult: "omitted",
+            reason: "size_limit",
+            inputFingerprint: expect.stringMatching(/^fnv1a64:[0-9a-f]{16}$/),
+          },
+        },
+      },
     ]);
     expect(restored?.suggestions).toEqual([]);
     expect(saved.agentKit.suggestions).toEqual([]);
+  });
+
+  it("compacts high-volume omissions and marks a retained history prefix", async () => {
+    const threadId = "thread-compact-events";
+    let threadData = JSON.stringify({ messages: [], agentKit: {} });
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith(`/runs/active?threadId=${threadId}`)) {
+          return json({ active: false });
+        }
+        if (url.endsWith(`/threads/${threadId}`) && init?.method === "PUT") {
+          const incoming = JSON.parse(JSON.parse(String(init.body)).threadData);
+          threadData = JSON.stringify(
+            mergeThreadDataForClientSave(JSON.parse(threadData), incoming),
+          );
+          return json({ ok: true });
+        }
+        if (url.endsWith(`/threads/${threadId}`)) {
+          return json({
+            id: threadId,
+            createdAt: "2026-09-26T00:00:00.000Z",
+            updatedAt: "2026-09-26T00:01:00.000Z",
+            threadData,
+          });
+        }
+        return json({ error: "Not found" }, 404);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: fetcher as typeof fetch,
+    });
+    const firstRetainedSequence = 5_000;
+    const lastSequence = firstRetainedSequence + 1_001;
+    const events: AgentEvent[] = [
+      {
+        id: "compact-run-start",
+        threadId,
+        runId: "run-compact",
+        sequence: firstRetainedSequence,
+        occurredAt: "2026-09-26T00:00:01.000Z",
+        type: "run.started",
+      },
+      ...Array.from({ length: 1_000 }, (_, index) => ({
+        id: `compact-delta-${index + 1}`,
+        threadId,
+        runId: "run-compact",
+        sequence: firstRetainedSequence + index + 1,
+        occurredAt: "2026-09-26T00:00:02.000Z",
+        type: "message.delta" as const,
+        messageId: "assistant-stream",
+        text: "chunk",
+      })),
+      {
+        id: "compact-run-completed",
+        threadId,
+        runId: "run-compact",
+        sequence: lastSequence,
+        occurredAt: "2026-09-26T00:00:03.000Z",
+        type: "run.completed",
+      },
+    ];
+
+    await transport.persistThreadSnapshot?.({
+      threadId,
+      snapshot: {
+        id: threadId,
+        createdAt: "2026-09-26T00:00:00.000Z",
+        updatedAt: "2026-09-26T00:01:00.000Z",
+        messages: [],
+        toolCalls: [],
+        widgets: [],
+        events,
+        runs: [
+          {
+            id: "run-compact",
+            threadId,
+            status: "completed",
+            lastSequence,
+          },
+        ],
+      },
+    });
+
+    const saved = JSON.parse(threadData);
+    const omissionRanges = saved.agentKit.events.filter(
+      (event: AgentEvent) =>
+        event.type === "x-agent-native.persisted-event-omission-range",
+    );
+    expect(omissionRanges).toHaveLength(24);
+    expect(
+      omissionRanges
+        .slice(0, 20)
+        .map((event: any) => [event.sequence, event.payload.lastSequence]),
+    ).toEqual(
+      Array.from({ length: 20 }, (_, index) => [
+        index * 256 + 1,
+        Math.min((index + 1) * 256, firstRetainedSequence - 1),
+      ]),
+    );
+    expect(
+      omissionRanges
+        .slice(20)
+        .map((event: any) => [event.sequence, event.payload.lastSequence]),
+    ).toEqual([
+      [5_001, 5_256],
+      [5_257, 5_512],
+      [5_513, 5_768],
+      [5_769, 6_000],
+    ]);
+    expect(saved.agentKit.events).toHaveLength(26);
+    expect(saved.agentKit._eventRunWatermarks).toEqual({
+      "run-compact": lastSequence,
+    });
+
+    const restored = await transport.getThreadSnapshot?.({ threadId });
+    expect(restored?.events).toEqual(saved.agentKit.events);
+    if (!restored) throw new Error("Expected the persisted snapshot to reload");
+
+    await transport.persistThreadSnapshot?.({
+      threadId,
+      snapshot: restored,
+    });
+
+    expect(JSON.parse(threadData).agentKit.events).toEqual(
+      saved.agentKit.events,
+    );
   });
 
   it("rejects non-JSON tool results instead of hiding snapshot data loss", async () => {
@@ -2924,7 +3857,7 @@ describe("createAgentNativeAgentKitTransport", () => {
     }
 
     // A server that applies the same merge a client thread PUT goes through.
-    function threadServer(initial: unknown) {
+    function threadServer(initial: unknown, threadId = "thread-refused") {
       let repo = initial;
       const transport = createAgentNativeAgentKitTransport({
         fetch: vi.fn(
@@ -2939,7 +3872,7 @@ describe("createAgentNativeAgentKitTransport", () => {
               return json({ ok: true });
             }
             return json({
-              id: "thread-refused",
+              id: threadId,
               createdAt: "2026-10-01T00:00:00.000Z",
               updatedAt: "2026-10-01T00:00:01.000Z",
               threadData: JSON.stringify(repo),
@@ -2971,6 +3904,195 @@ describe("createAgentNativeAgentKitTransport", () => {
         submittedTurnId: "turn-1",
       },
     };
+
+    it("restores the selected model and request mode needed by Continue", async () => {
+      const threadId = "thread-continue-selection";
+      const transport = threadServer({}, threadId);
+      const selected = {
+        id: "user-selected-model",
+        role: "user" as const,
+        parts: [{ type: "text" as const, text: "Continue the design" }],
+        metadata: {
+          model: "provider/model-v2",
+          engine: "openai",
+          effort: "high",
+          requestMode: "plan",
+          opaqueValue: "drop this unrelated metadata",
+          custom: {
+            agentNativeRecoveryOfRunId: "run-needing-continue",
+            opaqueValue: "drop this custom metadata",
+          },
+        },
+      };
+      const dataUrlSelection = {
+        id: "user-invalid-selection",
+        role: "user" as const,
+        parts: [{ type: "text" as const, text: "Invalid selection" }],
+        metadata: {
+          model: "data:image/png;base64,not-model-metadata",
+          engine: "x".repeat(257),
+          effort: "invalid",
+          requestMode: "continue",
+        },
+      };
+
+      await transport.persistThreadSnapshot?.({
+        threadId,
+        snapshot: {
+          id: threadId,
+          createdAt: "2026-10-01T00:00:00.000Z",
+          updatedAt: "2026-10-01T00:00:01.000Z",
+          messages: [selected, dataUrlSelection],
+        },
+      });
+      const reloaded = await transport.getThreadSnapshot?.({ threadId });
+
+      expect(reloaded?.messages.map((message) => message.id)).toEqual([
+        "user-selected-model",
+        "user-invalid-selection",
+      ]);
+      expect(reloaded?.messages[0]?.metadata).toEqual({
+        model: "provider/model-v2",
+        engine: "openai",
+        effort: "high",
+        requestMode: "plan",
+        custom: { agentNativeRecoveryOfRunId: "run-needing-continue" },
+      });
+      expect(reloaded?.messages[1]?.metadata).toBeUndefined();
+      await transport.dispose();
+    });
+
+    it("persists only durable retry image fields needed by Continue after reload", async () => {
+      const threadId = "thread-continue-resized-image";
+      const transport = threadServer({}, threadId);
+      const userMessage = {
+        id: "user-resized-image",
+        role: "user" as const,
+        parts: [{ type: "text" as const, text: "Continue with this image" }],
+        metadata: {
+          custom: {
+            agentNativeRetryRequestAttachments: [
+              {
+                type: "image",
+                name: "reference.png",
+                contentType: "image/png",
+                url: "https://files.example.test/reference-resized.png",
+                referenceUrl:
+                  "https://files.example.test/reference-original.png",
+                data: "data:image/png;base64,inline-pixels-must-not-persist",
+                ignoredField: "drop this field",
+              },
+              {
+                type: "image",
+                name: "inline-only.png",
+                contentType: "image/png",
+                url: "data:image/png;base64,inline-url-must-not-persist",
+              },
+              {
+                type: "image",
+                name: "inline-with-durable-reference.png",
+                contentType: "image/png",
+                url: "data:image/png;base64,inline-url-must-not-persist",
+                referenceUrl:
+                  "https://files.example.test/reference-fallback.png",
+              },
+              {
+                type: "image",
+                name: "signed-url.png",
+                contentType: "image/png",
+                url: "https://files.example.test/signed.png?token=signed-url-secret",
+                referenceUrl:
+                  "https://files.example.test/signed-reference.png#private-fragment",
+              },
+              {
+                type: "image",
+                name: "short-base64-url.png",
+                contentType: "image/png",
+                url: "AQID",
+              },
+              {
+                type: "image",
+                name: "short-base64-reference.png",
+                contentType: "image/png",
+                url: "https://files.example.test/reference-with-short-base64.png",
+                referenceUrl: "AQIDBA==",
+              },
+              {
+                type: "image",
+                name: "credential-url.png",
+                contentType: "image/png",
+                url: "https://user:password-secret@files.example.test/private.png",
+              },
+              {
+                type: "image",
+                name: "insecure-url.png",
+                contentType: "image/png",
+                url: "http://files.example.test/insecure.png",
+              },
+              {
+                type: "image",
+                name: "relative-url.png",
+                contentType: "image/png",
+                url: "/uploads/reference.png",
+              },
+            ],
+          },
+        },
+      };
+
+      await transport.persistThreadSnapshot?.({
+        threadId,
+        snapshot: {
+          id: threadId,
+          createdAt: "2026-10-01T00:00:00.000Z",
+          updatedAt: "2026-10-01T00:00:01.000Z",
+          messages: [userMessage],
+        },
+      });
+      const reloaded = await transport.getThreadSnapshot?.({ threadId });
+      const serializedReload = JSON.stringify(reloaded);
+
+      expect(reloaded?.messages[0]?.metadata).toEqual({
+        custom: {
+          agentNativeRetryRequestAttachments: [
+            {
+              type: "image",
+              name: "reference.png",
+              contentType: "image/png",
+              url: "https://files.example.test/reference-resized.png",
+              referenceUrl: "https://files.example.test/reference-original.png",
+            },
+            {
+              type: "image",
+              name: "inline-with-durable-reference.png",
+              contentType: "image/png",
+              url: "https://files.example.test/reference-fallback.png",
+            },
+            {
+              type: "image",
+              name: "short-base64-reference.png",
+              contentType: "image/png",
+              url: "https://files.example.test/reference-with-short-base64.png",
+            },
+          ],
+        },
+      });
+      expect(serializedReload).toContain(
+        "https://files.example.test/reference-resized.png",
+      );
+      expect(serializedReload).not.toContain("inline-pixels-must-not-persist");
+      expect(serializedReload).not.toContain("inline-url-must-not-persist");
+      expect(serializedReload).not.toContain("data:image");
+      expect(serializedReload).not.toContain("signed-url-secret");
+      expect(serializedReload).not.toContain("private-fragment");
+      expect(serializedReload).not.toContain("password-secret");
+      expect(serializedReload).not.toContain("AQID");
+      expect(serializedReload).not.toContain("AQIDBA==");
+      expect(serializedReload).not.toContain("insecure.png");
+      expect(serializedReload).not.toContain("/uploads/reference.png");
+      expect(serializedReload).not.toContain("ignoredField");
+      await transport.dispose();
+    });
 
     it("keeps its marker and retry context when the client saves the loaded thread and reloads", async () => {
       const transport = threadServer(serverRefusal());
@@ -3186,6 +4308,301 @@ describe("createAgentNativeAgentKitTransport", () => {
     await transport.dispose();
   });
 
+  it("uses the completed durable answer after mid-run and finished-thread reloads", async () => {
+    const threadId = "thread-two-reload-answer";
+    const runId = "run-two-reload-answer";
+    const nonce = "two-reload-7A4C";
+    const finalAnswer = `${nonce}-L1: one\n${nonce}-L40: forty`;
+    const staleAnswer = `${nonce}-L1: an earlier version\n${nonce}-L40: an earlier ending`;
+    let threadReads = 0;
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) => {
+        const url = String(input);
+        if (url.includes(`/runs/active?threadId=${threadId}`)) {
+          return json(
+            threadReads === 1
+              ? { active: true, status: "running", runId }
+              : { active: false, status: "completed", runId },
+          );
+        }
+        if (url.includes("/runs/latest?")) {
+          return json({
+            runId,
+            turnId: "turn-1",
+            status: threadReads === 1 ? "running" : "completed",
+          });
+        }
+        if (url.endsWith(`/threads/${threadId}`)) {
+          threadReads += 1;
+          const completed = threadReads > 1;
+          return json({
+            id: threadId,
+            threadData: JSON.stringify({
+              messages: [
+                {
+                  message: {
+                    id: "server-user",
+                    role: "user",
+                    content: [
+                      { type: "text", text: `Write forty lines ${nonce}` },
+                    ],
+                    metadata: {
+                      custom: {
+                        agentKitMessageId: "snapshot-user",
+                        submittedRunId: runId,
+                        submittedTurnId: "turn-1",
+                      },
+                    },
+                  },
+                },
+                ...(completed
+                  ? [
+                      {
+                        message: {
+                          id: "server-assistant",
+                          role: "assistant",
+                          status: { type: "complete" },
+                          content: [{ type: "text", text: finalAnswer }],
+                          metadata: { runId, custom: { turnId: "turn-1" } },
+                        },
+                      },
+                    ]
+                  : []),
+              ],
+              agentKit: {
+                messages: [
+                  {
+                    id: "snapshot-user",
+                    role: "user",
+                    parts: [
+                      { type: "text", text: `Write forty lines ${nonce}` },
+                    ],
+                  },
+                  ...(completed
+                    ? [
+                        {
+                          id: "snapshot-assistant",
+                          role: "assistant",
+                          status: "complete",
+                          parts: [{ type: "text", text: staleAnswer }],
+                          metadata: { runId },
+                        },
+                      ]
+                    : [
+                        {
+                          id: "snapshot-assistant",
+                          role: "assistant",
+                          status: "streaming",
+                          parts: [{ type: "text", text: `${nonce}-L1: one` }],
+                          metadata: { runId },
+                        },
+                      ]),
+                ],
+                events: completed
+                  ? ["message.created", "message.completed"].map(
+                      (type, index) => ({
+                        id: `${runId}:${index + 1}`,
+                        type,
+                        sequence: index + 1,
+                        threadId,
+                        runId,
+                        occurredAt: "2026-10-12T00:00:00.000Z",
+                        message: {
+                          id: "snapshot-assistant",
+                          role: "assistant",
+                          status: "complete",
+                          parts: [{ type: "text", text: staleAnswer }],
+                        },
+                      }),
+                    )
+                  : [],
+                runs: [
+                  {
+                    id: runId,
+                    threadId,
+                    status: completed ? "completed" : "running",
+                    ...(completed
+                      ? {}
+                      : { activeMessageId: "snapshot-assistant" }),
+                    lastSequence: completed ? 2 : 0,
+                  },
+                ],
+              },
+            }),
+          });
+        }
+        return json({ error: "Not found" }, 404);
+      }) as typeof fetch,
+    });
+
+    const duringRun = await transport.getThreadSnapshot?.({ threadId });
+    expect(duringRun?.activeRunIds).toContain(runId);
+    expect(
+      duringRun?.messages.filter((message) => message.role === "assistant"),
+    ).toHaveLength(0);
+
+    const afterCompletion = await transport.getThreadSnapshot?.({ threadId });
+    expect(
+      afterCompletion?.messages.filter(
+        (message) => message.role === "assistant",
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        id: "server-assistant",
+        parts: [{ type: "text", text: finalAnswer }],
+      }),
+    ]);
+    await transport.dispose();
+  });
+
+  it("drops repeated snapshot text and preserves distinct same-run content", async () => {
+    const threadId = "thread-duplicate-assistant-snapshot";
+    const runId = "run-duplicate-assistant-snapshot";
+    const answer = "L1: one\nL40: forty";
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) =>
+        String(input).includes("/runs/active")
+          ? json({ active: false, status: "completed", runId })
+          : json({
+              id: threadId,
+              threadData: JSON.stringify({
+                messages: [
+                  {
+                    message: {
+                      id: "server-user",
+                      role: "user",
+                      content: [{ type: "text", text: "Write forty lines" }],
+                      metadata: {
+                        custom: {
+                          agentKitMessageId: "snapshot-user",
+                          submittedRunId: runId,
+                          submittedTurnId: "turn-1",
+                        },
+                      },
+                    },
+                  },
+                  {
+                    message: {
+                      id: "server-assistant",
+                      role: "assistant",
+                      status: { type: "complete" },
+                      content: [{ type: "text", text: answer }],
+                      metadata: { runId, custom: { turnId: "turn-1" } },
+                    },
+                  },
+                ],
+                agentKit: {
+                  messages: [
+                    {
+                      id: "snapshot-user",
+                      role: "user",
+                      parts: [{ type: "text", text: "Write forty lines" }],
+                    },
+                    {
+                      id: "assistant-duplicate",
+                      role: "assistant",
+                      status: "complete",
+                      parts: [{ type: "text", text: `${answer}\n${answer}` }],
+                      metadata: { runId },
+                    },
+                    {
+                      id: "assistant-duplicate-with-trailing-whitespace",
+                      role: "assistant",
+                      status: "complete",
+                      parts: [{ type: "text", text: `${answer}\n${answer}\n` }],
+                      metadata: { runId },
+                    },
+                    {
+                      id: "assistant-extended",
+                      role: "assistant",
+                      status: "complete",
+                      parts: [
+                        {
+                          type: "text",
+                          text: `${answer}\nHere is the full diff: ...`,
+                        },
+                      ],
+                      metadata: { runId },
+                    },
+                    {
+                      id: "assistant-unmatched-reasoning",
+                      role: "assistant",
+                      status: "complete",
+                      parts: [
+                        { type: "text", text: `${answer}\n${answer}` },
+                        { type: "reasoning", text: "extra reasoning" },
+                      ],
+                      metadata: { runId },
+                    },
+                    {
+                      id: "assistant-unmatched-tool-call",
+                      role: "assistant",
+                      status: "complete",
+                      parts: [
+                        { type: "text", text: `${answer}\n${answer}` },
+                        {
+                          type: "data",
+                          mediaType:
+                            "application/x-agent-native-repository-part",
+                          data: {
+                            type: "tool-call",
+                            toolCallId: "tool-unmatched",
+                            toolName: "search",
+                            args: { query: "extra content" },
+                          },
+                        },
+                      ],
+                      metadata: { runId },
+                    },
+                    {
+                      id: "assistant-canonical",
+                      role: "assistant",
+                      status: "complete",
+                      parts: [{ type: "text", text: answer }],
+                      metadata: { runId },
+                    },
+                  ],
+                  runs: [
+                    {
+                      id: runId,
+                      threadId,
+                      status: "completed",
+                      lastSequence: 2,
+                    },
+                  ],
+                },
+              }),
+            }),
+      ) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({ threadId });
+
+    const assistantMessages = snapshot?.messages.filter(
+      (message) => message.role === "assistant",
+    );
+    expect(assistantMessages).toHaveLength(4);
+    expect(assistantMessages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "assistant-canonical",
+          role: "assistant",
+          parts: [{ type: "text", text: answer }],
+        }),
+        expect.objectContaining({
+          id: "assistant-extended",
+          role: "assistant",
+          parts: [
+            { type: "text", text: `${answer}\nHere is the full diff: ...` },
+          ],
+        }),
+        expect.objectContaining({ id: "assistant-unmatched-reasoning" }),
+        expect.objectContaining({ id: "assistant-unmatched-tool-call" }),
+      ]),
+    );
+    await transport.dispose();
+  });
+
   // The shape of a thread whose page was reloaded mid-run: the page saved
   // its snapshot with only the prompt, and the server then finished the run.
   function reloadedMidRunThread(agentKitMessages: unknown[]) {
@@ -3281,15 +4698,29 @@ describe("createAgentNativeAgentKitTransport", () => {
     successorFailed?: boolean;
     /** The text of each message the open page saved for run-1, run-2's included. */
     pageSaw?: string[];
+    /** Zero-based indexes of pageSaw messages completed by run-1. */
+    completedPageSaw?: number[];
+    otherTurnAnswer?: string;
+    successorReplyText?: string;
   }) {
-    const streamed = (id: string, sequence: number) => ({
-      id: `run-1:${sequence}`,
-      type: "message.created",
+    const streamed = (
+      id: string,
+      sequence: number,
+      runId = "run-1",
+      type = "message.created",
+      text = "",
+    ) => ({
+      id: `${runId}:${sequence}`,
+      type,
       threadId: "thread-recovered",
-      runId: "run-1",
+      runId,
       sequence,
       occurredAt: "2026-10-05T17:00:50.000Z",
-      message: { id, role: "assistant", parts: [] },
+      message: {
+        id,
+        role: "assistant",
+        parts: text ? [{ type: "text", text }] : [],
+      },
     });
     return {
       id: "thread-recovered",
@@ -3319,13 +4750,37 @@ describe("createAgentNativeAgentKitTransport", () => {
                     status: input.successorFailed
                       ? { type: "incomplete", reason: "error" }
                       : { type: "complete", reason: "stop" },
-                    content: [{ type: "text", text: "Refund handled." }],
+                    content: [
+                      {
+                        type: "text",
+                        text: input.successorReplyText ?? "Refund handled.",
+                      },
+                    ],
                     metadata: {
                       runId: "run-2",
                       custom: { turnId: "turn-1", foldedRunIds: ["run-2"] },
                     },
                   },
                   parentId: "server-user-run-1",
+                },
+              ]
+            : []),
+          ...(input.otherTurnAnswer
+            ? [
+                {
+                  message: {
+                    id: "server-user-run-3",
+                    role: "user",
+                    status: "complete",
+                    content: [{ type: "text", text: "Check the shipment" }],
+                    metadata: {
+                      custom: {
+                        submittedRunId: "run-3",
+                        submittedTurnId: "turn-2",
+                      },
+                    },
+                  },
+                  parentId: null,
                 },
               ]
             : []),
@@ -3344,10 +4799,53 @@ describe("createAgentNativeAgentKitTransport", () => {
               status: "complete",
               parts: text ? [{ type: "text", text }] : [],
             })),
+            ...(input.otherTurnAnswer
+              ? [
+                  {
+                    id: "user-3",
+                    role: "user",
+                    status: "complete",
+                    parts: [{ type: "text", text: "Check the shipment" }],
+                    metadata: { custom: { submittedRunId: "run-3" } },
+                  },
+                  {
+                    id: "assistant-other-turn",
+                    role: "assistant",
+                    status: "complete",
+                    parts: [{ type: "text", text: input.otherTurnAnswer }],
+                    metadata: {
+                      runId: "run-3",
+                      custom: { turnId: "turn-2" },
+                    },
+                  },
+                ]
+              : []),
           ],
-          events: (input.pageSaw ?? []).map((_text, index) =>
-            streamed(`assistant-${index + 1}`, index + 1),
-          ),
+          events: [
+            ...(input.pageSaw ?? []).map((_text, index) =>
+              streamed(`assistant-${index + 1}`, index + 1),
+            ),
+            ...(input.completedPageSaw ?? []).map((index) =>
+              streamed(
+                `assistant-${index + 1}`,
+                (input.pageSaw?.length ?? 0) + index + 1,
+                "run-1",
+                "message.completed",
+                input.pageSaw?.[index] ?? "",
+              ),
+            ),
+            ...(input.otherTurnAnswer
+              ? [
+                  streamed(
+                    "assistant-other-turn",
+                    1,
+                    "run-3",
+                    "message.completed",
+                    input.otherTurnAnswer,
+                  ),
+                ]
+              : []),
+          ],
           runs: [
             {
               id: "run-1",
@@ -3356,6 +4854,18 @@ describe("createAgentNativeAgentKitTransport", () => {
               lastSequence: 0,
               ...input.run1,
             },
+            ...(input.otherTurnAnswer
+              ? [
+                  {
+                    id: "run-3",
+                    threadId: "thread-recovered",
+                    startedAt: "2026-10-05T17:00:48.000Z",
+                    lastSequence: 1,
+                    status: "completed",
+                    activeMessageId: "assistant-other-turn",
+                  },
+                ]
+              : []),
           ],
           activeRunIds: [],
         },
@@ -3450,6 +4960,58 @@ describe("createAgentNativeAgentKitTransport", () => {
         parts: [{ type: "text", text: "Refund handled." }],
       },
     ]);
+    await transport.dispose();
+  });
+
+  it("replaces a completed divergent same-turn answer and preserves another turn", async () => {
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) =>
+        String(input).includes("/runs/active")
+          ? json({
+              active: false,
+              status: "completed",
+              runId: "run-2",
+              turnId: "turn-1",
+            })
+          : json(
+              recoveredTurnThread({
+                run1: { status: "completed" },
+                successorReply: true,
+                successorReplyText: "The refund was returned to your card.",
+                pageSaw: ["The refund was returned to your original payment."],
+                completedPageSaw: [0],
+                otherTurnAnswer: "The shipment is on its way.",
+              }),
+            ),
+      ) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({
+      threadId: "thread-recovered",
+    });
+
+    const assistantMessages = snapshot?.messages.filter(
+      (message) => message.role === "assistant",
+    );
+    expect(assistantMessages?.map((message) => message.id).sort()).toEqual([
+      "assistant-other-turn",
+      "server-run-2",
+    ]);
+    expect(assistantMessages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "server-run-2",
+          parts: [
+            { type: "text", text: "The refund was returned to your card." },
+          ],
+        }),
+        expect.objectContaining({
+          id: "assistant-other-turn",
+          parts: [{ type: "text", text: "The shipment is on its way." }],
+        }),
+      ]),
+    );
+    expect(snapshot?.messages.map((message) => message.id)).toContain("user-3");
     await transport.dispose();
   });
 
@@ -4272,6 +5834,16 @@ describe("createAgentNativeAgentKitTransport", () => {
         createdAt: "2026-08-29T00:02:00.000Z",
       },
     ];
+    let threadData = JSON.stringify({
+      messages: [
+        {
+          id: "user-1",
+          role: "user",
+          content: [{ type: "text", text: "Review the release" }],
+        },
+      ],
+      queuedMessages,
+    });
     let activeRunChecks = 0;
     const fetcher = vi.fn(
       async (input: string | URL | Request, init?: RequestInit) => {
@@ -4286,16 +5858,7 @@ describe("createAgentNativeAgentKitTransport", () => {
             title: "Release review",
             createdAt: "2026-08-29T00:00:00.000Z",
             updatedAt: "2026-08-29T00:01:00.000Z",
-            threadData: JSON.stringify({
-              messages: [
-                {
-                  id: "user-1",
-                  role: "user",
-                  content: [{ type: "text", text: "Review the release" }],
-                },
-              ],
-              queuedMessages,
-            }),
+            threadData,
           });
         }
         if (url.endsWith("/threads/thread-1/queued")) {
@@ -4323,6 +5886,13 @@ describe("createAgentNativeAgentKitTransport", () => {
             });
           }
           return json({ queuedMessages });
+        }
+        if (
+          url.endsWith("/threads/thread-1") &&
+          String(init?.method).toUpperCase() === "PUT"
+        ) {
+          threadData = JSON.parse(String(init?.body)).threadData;
+          return json({ ok: true });
         }
         if (url.endsWith("/_agent-native/agent-chat")) {
           const stream = [
@@ -4400,6 +5970,13 @@ describe("createAgentNativeAgentKitTransport", () => {
         claimId: expect.any(String),
       },
     ]);
+    expect(JSON.parse(threadData).agentKit.messages).toContainEqual(
+      expect.objectContaining({
+        id: "queued-1",
+        role: "user",
+        parts: [{ type: "text", text: "Continue after approval" }],
+      }),
+    );
     expect(activeRunChecks).toBe(1);
     expect(events.map((event) => event.type)).toEqual([
       "run.started",
@@ -5093,6 +6670,87 @@ describe("createAgentNativeAgentKitTransport", () => {
     await transport.dispose();
   });
 
+  it("preserves prefix and final snapshot segments when an exact same-run root is represented", async () => {
+    const threadId = "thread-prefix-final-projection";
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) => {
+        if (String(input).includes("/runs/active"))
+          return json({ active: false, status: "idle" });
+        return json({
+          id: threadId,
+          threadData: JSON.stringify({
+            messages: [
+              {
+                message: {
+                  id: "server-run-one",
+                  role: "assistant",
+                  content: [{ type: "text", text: "Answer complete" }],
+                  status: { type: "complete", reason: "stop" },
+                  metadata: {
+                    runId: "run-one",
+                    custom: { foldedRunIds: ["run-one"] },
+                  },
+                },
+              },
+            ],
+            agentKit: {
+              _mergeRootMessages: true,
+              events: ["segment-prefix", "segment-final"].map((id, index) => ({
+                id: `event-${index}`,
+                type: "message.completed",
+                sequence: index + 1,
+                threadId,
+                runId: "run-one",
+                occurredAt: "2026-10-11T00:00:00Z",
+                message: {
+                  id,
+                  role: "assistant",
+                  status: "complete",
+                  parts: [
+                    {
+                      type: "text",
+                      text:
+                        id === "segment-prefix" ? "Answer" : "Answer complete",
+                    },
+                  ],
+                },
+              })),
+              messages: [
+                {
+                  id: "segment-prefix",
+                  role: "assistant",
+                  status: "complete",
+                  parts: [{ type: "text", text: "Answer" }],
+                  metadata: { runId: "run-one" },
+                },
+                {
+                  id: "segment-final",
+                  role: "assistant",
+                  status: "complete",
+                  parts: [{ type: "text", text: "Answer complete" }],
+                  metadata: { runId: "run-one" },
+                },
+              ],
+            },
+          }),
+        });
+      }) as typeof fetch,
+    });
+    try {
+      const snapshot = await transport.getThreadSnapshot?.({ threadId });
+      expect(snapshot?.messages.map((message) => message.id)).toEqual([
+        "segment-prefix",
+        "segment-final",
+      ]);
+      expect(snapshot?.messages.map((message) => message.parts)).toEqual([
+        [{ type: "text", text: "Answer" }],
+        [{ type: "text", text: "Answer complete" }],
+      ]);
+    } finally {
+      await transport.dispose();
+    }
+  });
+
   it("drops an exact same-run server mirror without collapsing AgentKit messages", async () => {
     const threadId = "thread-server-reply-mirror";
     const runId = "run-server-reply-mirror";
@@ -5673,8 +7331,9 @@ describe("createAgentNativeAgentKitTransport", () => {
     await transport.dispose();
   });
 
-  it("normalizes a resumed runtime ID in the active-run snapshot", async () => {
+  it("preserves a paused protocol run when Core reports the turn as terminal", async () => {
     const threadId = "thread-active-runtime-alias";
+    let approvalPending = true;
     async function* approvalEvents(): AsyncIterable<AgentChatRuntimeKnownEvent> {
       yield {
         type: "approval-request",
@@ -5697,11 +7356,17 @@ describe("createAgentNativeAgentKitTransport", () => {
         });
       }
       if (url.includes(`/runs/active?threadId=${threadId}`)) {
-        return json({
-          active: true,
-          status: "running",
-          runId: "runtime-after-approval",
-        });
+        return approvalPending
+          ? json({
+              active: false,
+              status: "completed",
+              runId: "runtime-before-approval",
+            })
+          : json({
+              active: true,
+              status: "running",
+              runId: "runtime-after-approval",
+            });
       }
       return json({ error: "Not found" }, 404);
     });
@@ -5748,6 +7413,16 @@ describe("createAgentNativeAgentKitTransport", () => {
       expect(next.done).toBe(false);
       if (next.value?.type === "approval.requested") break;
     }
+    const pausedSnapshot = await transport.getThreadSnapshot?.({ threadId });
+
+    expect(pausedSnapshot?.runs).toContainEqual(
+      expect.objectContaining({
+        id: runId,
+        status: "awaiting_approval",
+      }),
+    );
+    expect(pausedSnapshot?.activeRunIds).toContain(runId);
+    approvalPending = false;
     const resumed = await transport.resumeRun?.({
       threadId,
       runId,
@@ -6796,6 +8471,7 @@ describe("createAgentNativeAgentKitTransport", () => {
               },
             ],
             agentKit: {
+              _mergeRootMessages: true,
               messages: [
                 {
                   id: "message-agentkit-one",
@@ -7154,8 +8830,30 @@ describe("createAgentNativeAgentKitTransport", () => {
 
   it("releases a claimed queue item when starting its run fails", async () => {
     const queueWrites: unknown[] = [];
-    let queuedMessages = [{ id: "queued-terminal", text: "Try again" }];
+    const queuedImage = {
+      type: "image",
+      name: "optimized.png",
+      contentType: "image/png",
+      url: "https://storage.example.test/optimized.png",
+      referenceUrl: "https://storage.example.test/original.png",
+    };
+    let queuedMessages = [
+      {
+        id: "queued-terminal",
+        text: "Try again",
+        attachments: [
+          {
+            type: "file",
+            name: "original.png",
+            mediaType: "image/png",
+            url: "https://storage.example.test/original.png",
+          },
+        ],
+        requestAttachments: [queuedImage],
+      },
+    ];
     let startRunRequests = 0;
+    let startRunBody: Record<string, unknown> | undefined;
     let claimId: string | undefined;
     const fetcher = vi.fn(
       async (input: string | URL | Request, init?: RequestInit) => {
@@ -7191,6 +8889,10 @@ describe("createAgentNativeAgentKitTransport", () => {
         }
         if (url.endsWith("/_agent-native/agent-chat")) {
           startRunRequests += 1;
+          startRunBody = JSON.parse(String(init?.body)) as Record<
+            string,
+            unknown
+          >;
           return json({ error: "Deterministic start rejection" }, 502);
         }
         return json({ error: "Not found" }, 404);
@@ -7209,6 +8911,21 @@ describe("createAgentNativeAgentKitTransport", () => {
     ).rejects.toThrow("Deterministic start rejection");
 
     expect(startRunRequests).toBe(1);
+    expect(startRunBody?.attachments).toEqual([
+      {
+        type: "file",
+        name: "original.png",
+        contentType: "image/png",
+        url: "https://storage.example.test/original.png",
+        referenceOnly: true,
+      },
+      {
+        type: "image",
+        name: "optimized.png",
+        contentType: "image/png",
+        url: "https://storage.example.test/optimized.png",
+      },
+    ]);
     expect(queueWrites).toHaveLength(2);
     expect(queueWrites[0]).toEqual({
       type: "claim",
@@ -7220,8 +8937,18 @@ describe("createAgentNativeAgentKitTransport", () => {
       messageId: "queued-terminal",
       claimId,
     });
-    expect(queuedMessages).toEqual([
-      { id: "queued-terminal", text: "Try again" },
+    expect(queuedMessages).toMatchObject([
+      {
+        id: "queued-terminal",
+        text: "Try again",
+        attachments: [
+          {
+            type: "file",
+            url: "https://storage.example.test/original.png",
+          },
+        ],
+        requestAttachments: [queuedImage],
+      },
     ]);
     await transport.dispose();
   });
@@ -7477,6 +9204,17 @@ describe("createAgentNativeAgentKitTransport", () => {
                     id: "user-1",
                     role: "user",
                     parts: [{ type: "text", text: "Review it" }],
+                    metadata: {
+                      custom: {
+                        legacyImage: {
+                          type: "image",
+                          name: "legacy-reference.png",
+                          data: "data:image/png;base64,LEGACY_FORK_PIXEL_URL",
+                          base64: "LEGACY_FORK_RAW_BASE64",
+                          url: "data:image/png;base64,LEGACY_FORK_PIXEL_URL",
+                        },
+                      },
+                    },
                   },
                   {
                     id: "assistant-1",
@@ -7589,6 +9327,12 @@ describe("createAgentNativeAgentKitTransport", () => {
     };
     expect(forkBody.source?.messageCount).toBe(2);
     expect(forkBody.source?.fromMessageId).toBe("assistant-1");
+    const serializedForkSource = JSON.stringify(
+      JSON.parse(forkBody.source?.threadData ?? "{}"),
+    );
+    expect(serializedForkSource).not.toContain("data:image/");
+    expect(serializedForkSource).not.toContain("LEGACY_FORK_RAW_BASE64");
+    expect(serializedForkSource).toContain('"omitted":"inline-bytes"');
     expect(
       JSON.parse(forkBody.source?.threadData ?? "{}").messages,
     ).toHaveLength(1);

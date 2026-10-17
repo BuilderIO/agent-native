@@ -8,6 +8,7 @@
     "build": "agent-native build",
     "start": "agent-native start",
     "test": "vitest --run",
+    "oracle:ratchet": "vitest run --config oracle/vitest.modes.config.ts; tsx oracle/ratchet.ts",
     "format.fix": "oxfmt --write .",
     "typecheck": "agent-native typecheck",
     "migrate:production": "tsx scripts/migrate-production.ts",

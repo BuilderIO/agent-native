@@ -43,6 +43,7 @@ import {
   resolveOverviewScreenSourceType,
   shouldUseRuntimeLayerProjection,
 } from "../pending-edits";
+import { findInteractLinkTarget } from "../screen-command-utils";
 import {
   getContentSignature,
   getOverviewScreenContentKey,
@@ -51,6 +52,11 @@ import {
   shouldUseOverviewRuntimeReplacement,
 } from "../selection-state";
 import { resolveToolAfterSelection } from "../tool-state";
+import {
+  isPublicDesignViewer,
+  shouldShowLocalhostPreviewRecovery,
+  shouldShowPublicLocalhostPreviewUnavailable,
+} from "./localhost-preview-recovery";
 import type { EditorActiveScreenAndGeometry } from "./use-editor-active-screen-and-geometry";
 import type { EditorCanvasAndScreens } from "./use-editor-canvas-and-screens";
 import type { EditorClipboard } from "./use-editor-clipboard";
@@ -150,6 +156,7 @@ export function useEditorScreenRendering({
     liveRoutePathsByScreenId,
     liveRoutePathsByScreenIdRef,
     handleLiveRoutePathChange,
+    handlePreviewThemeStatus,
     runtimeStructureVerificationRequest,
     pendingVisualStyleBaselineResetRequest,
     handleTextEditingStateChangeForScreen,
@@ -168,6 +175,7 @@ export function useEditorScreenRendering({
     clearPendingOverviewLayerSelectionTimer,
     lockedLayerIds,
     hiddenLayerIds,
+    motionDockOpen,
     shaderFillPreview,
     activeBreakpointWidthState,
     setActiveBreakpointWidthState,
@@ -189,6 +197,11 @@ export function useEditorScreenRendering({
     scheduleVisualEditSnapshotPublication,
     handleComponentSourceJump,
   } = editorGenerationAndAccess;
+  const publicViewer = isPublicDesignViewer({
+    publicVisualEdit,
+    visibility: design?.visibility,
+    accessRole: designAccessRole,
+  });
   const {
     navigate,
     cssVarValues,
@@ -201,7 +214,7 @@ export function useEditorScreenRendering({
     designDataJsonRef,
     boardFileId,
     overviewScreens,
-    publicVisualEditPreviewTokenQuery,
+    localhostPreviewTokenQuery,
     remoteVisualEditPending,
     handleScreenExternalContentSnapshot,
     getScreenRootComputedStylesCallback,
@@ -242,17 +255,23 @@ export function useEditorScreenRendering({
     contentRenderRevision,
     motionDurationMs,
     motionDefaultEase,
+    motionEasingVariables,
     zoom,
     selectedCanvasSelectorCandidates,
     selectedCanvasSelector,
     canEditLiveScreen,
     designFusionUrl,
     motionTracksWire,
+    motionPathTargetNodeId,
+    motionPathTrackId,
+    motionSelectedTarget,
+    motionOriginEditing,
   } = editorLiveEditsAndPresence;
   const {
     hoveredCanvasSelectorCandidates,
     hoveredCanvasSelector,
     applyFileContentUpdate,
+    handleMotionCanvasPathTracksChange,
   } = editorContentAndComponents;
   const {
     reviewFocusRequest,
@@ -285,7 +304,7 @@ export function useEditorScreenRendering({
     runtimeStructureDeleteRequest,
     runtimeStructureRollbackRequest,
     reflowOverviewScreensForBreakpoints,
-    commentsHidden,
+    commentPinsHidden,
     handleRuntimeStructureInsertRejected,
     handleRuntimeStructureInsertApplied,
     handleRuntimeStructureDeleteApplied,
@@ -297,8 +316,13 @@ export function useEditorScreenRendering({
     handleRuntimeLayerRenameApplied,
     runtimeLayerRenameForScreen,
   } = editorEditCommands;
-  const { suppressOverviewPopForExplicitZoomRef, handleExitReviewCommentMode } =
-    editorModes;
+  const {
+    suppressOverviewPopForExplicitZoomRef,
+    handleExitReviewCommentMode,
+    previewColorScheme,
+    screenReloadNonces,
+    handleModeChange,
+  } = editorModes;
   const { exportPreviewScreenId } = editorExportAndHandoff;
   const {
     getLayerSelectorsForFile,
@@ -382,7 +406,12 @@ export function useEditorScreenRendering({
         !intent &&
         activeFileIdRef.current !== null &&
         screenId !== activeFileIdRef.current;
-      const droppedEcho = supersededEcho || inactiveScreenEcho;
+      const inactiveBreakpointEcho =
+        viewModeRef.current === "overview" &&
+        !intent &&
+        options.breakpointWidthPx !== activeBreakpointWidthStateRef.current;
+      const droppedEcho =
+        supersededEcho || inactiveScreenEcho || inactiveBreakpointEcho;
       if (!intent && droppedEcho) {
         return;
       }
@@ -419,6 +448,24 @@ export function useEditorScreenRendering({
     });
     window.dispatchEvent(event);
   }, []);
+
+  // A link to another screen in the Interact preview switches the previewed
+  // screen, keeping Interact and its device, the same hop the screen picker makes.
+  const handleInteractLinkNavigate = useCallback(
+    (screen: string) => {
+      const target = findInteractLinkTarget(
+        files,
+        screen,
+        activeFileIdRef.current,
+      );
+      if (!target) return;
+      handleModeChange("interact", {
+        targetFileId: target.id,
+        keepInteractDevice: true,
+      });
+    },
+    [files, handleModeChange],
+  );
 
   const handleKScaleStyleBatchChange = useCallback(
     (screenId: string, changes: KScaleStyleChange[]) => {
@@ -564,20 +611,20 @@ export function useEditorScreenRendering({
   const [openZoomControl, setOpenZoomControl] = useState<
     "toolbar" | "inspector" | "topbar" | null
   >(null);
-  const [zoomInputValue, setZoomInputValue] = useState(zoomLabel);
+  const zoomInputDigits = String(Math.round(zoom));
+  const [zoomInputValue, setZoomInputValue] = useState(zoomInputDigits);
   useEffect(() => {
-    if (!openZoomControl) setZoomInputValue(zoomLabel);
-  }, [zoomLabel, openZoomControl]);
+    if (!openZoomControl) setZoomInputValue(zoomInputDigits);
+  }, [zoomInputDigits, openZoomControl]);
   const commitZoomInput = useCallback(() => {
-    const next = Number(zoomInputValue.replace("%", "").trim());
-    if (!Number.isFinite(next)) {
-      setZoomInputValue(zoomLabel);
+    if (zoomInputValue === "") {
+      setZoomInputValue(zoomInputDigits);
       return;
     }
     suppressOverviewPopForExplicitZoomRef.current = true;
-    setZoom(clampZoom(next));
+    setZoom(clampZoom(Number(zoomInputValue)));
     setOpenZoomControl(null);
-  }, [setZoom, zoomInputValue, zoomLabel]);
+  }, [setZoom, zoomInputValue, zoomInputDigits]);
   const renderEditableScreenContent = useCallback(
     (
       screen: OverviewScreenRendererArgs[0],
@@ -614,37 +661,79 @@ export function useEditorScreenRendering({
         designAccessRole !== "owner" &&
         screenSourceType === "localhost",
       );
-      const screenBridgeUrl = screenSnapshotOnly ? undefined : screen.bridgeUrl;
+      const refreshedLocalhostConnection = screen.connectionId
+        ? localhostPreviewTokenQuery.data?.connections?.[screen.connectionId]
+        : undefined;
+      const hasLocalhostConnection = Boolean(
+        screenSourceType === "localhost" && screen.connectionId,
+      );
+      const screenBridgeUrl = screenSnapshotOnly
+        ? undefined
+        : screenSourceType === "localhost"
+          ? (refreshedLocalhostConnection?.bridgeUrl ??
+            (hasLocalhostConnection ? undefined : screen.bridgeUrl))
+          : screen.bridgeUrl;
       const screenPreviewUrl = screen.url ?? screen.previewUrl;
       const currentLiveRoutePath =
         liveRoutePathsByScreenIdRef.current[screen.id];
       const screenPreviewToken =
         effectivePreviewTokensByScreenId[screen.id] ??
-        ("previewToken" in screen && typeof screen.previewToken === "string"
-          ? screen.previewToken
-          : (publicVisualEditPreviewTokenQuery.data?.connections?.[
-              screen.connectionId ?? ""
-            ]?.previewToken ??
-            (screen.connectionId === publicVisualEditConnectionId
-              ? publicVisualEditPreviewTokenQuery.data?.previewToken
-              : undefined)));
+        (screenSourceType === "localhost"
+          ? refreshedLocalhostConnection?.previewToken
+          : undefined) ??
+        (hasLocalhostConnection
+          ? undefined
+          : "previewToken" in screen && typeof screen.previewToken === "string"
+            ? screen.previewToken
+            : (localhostPreviewTokenQuery.data?.connections?.[
+                screen.connectionId ?? ""
+              ]?.previewToken ??
+              (screen.connectionId === publicVisualEditConnectionId
+                ? localhostPreviewTokenQuery.data?.previewToken
+                : undefined)));
       const screenLiveEditCapability =
         effectiveLiveEditCapabilitiesByScreenId[screen.id] ??
-        publicVisualEditPreviewTokenQuery.data?.connections?.[
+        localhostPreviewTokenQuery.data?.connections?.[
           screen.connectionId ?? ""
         ]?.liveEditCapability ??
         (screen.connectionId === publicVisualEditConnectionId
-          ? publicVisualEditPreviewTokenQuery.data?.liveEditCapability
+          ? localhostPreviewTokenQuery.data?.liveEditCapability
           : undefined);
       const screenLiveEditRegistrationCapability =
         effectiveLiveEditRegistrationCapabilitiesByScreenId[screen.id] ??
-        publicVisualEditPreviewTokenQuery.data?.connections?.[
+        localhostPreviewTokenQuery.data?.connections?.[
           screen.connectionId ?? ""
         ]?.liveEditRegistrationCapability ??
         (screen.connectionId === publicVisualEditConnectionId
-          ? publicVisualEditPreviewTokenQuery.data
-              ?.liveEditRegistrationCapability
+          ? localhostPreviewTokenQuery.data?.liveEditRegistrationCapability
           : undefined);
+      const canRegisterLocalLiveEditPreview = Boolean(
+        screenPreviewToken &&
+        (screenLiveEditRegistrationCapability ?? screenLiveEditCapability),
+      );
+      const localhostPreviewUnavailablePublic =
+        shouldShowPublicLocalhostPreviewUnavailable({
+          sourceType: screenSourceType,
+          snapshotOnly: screenSnapshotOnly,
+          publicViewer,
+          serverUnavailable:
+            refreshedLocalhostConnection?.errorCode ===
+            "public_localhost_preview_unavailable",
+        });
+      const localhostPreviewUnavailable = shouldShowLocalhostPreviewRecovery({
+        sourceType: screenSourceType,
+        connectionId: screen.connectionId,
+        snapshotOnly: screenSnapshotOnly,
+        refreshFailed: localhostPreviewTokenQuery.isError,
+        hasUsablePreviewCredentials: Boolean(
+          screen.connectionId && screenBridgeUrl && screenPreviewToken,
+        ),
+        connectionUnavailable:
+          refreshedLocalhostConnection?.status === "unavailable",
+        canEdit: canEditDesign || canEditLiveScreen(screen.id),
+        publicUnavailable: localhostPreviewUnavailablePublic,
+        publicVisualEdit,
+      });
       const screenSnapshot = liveScreenSnapshotsById[screen.id]?.html;
       const useRuntimeReplacement = shouldUseOverviewRuntimeReplacement({
         sourceType: screenSourceType,
@@ -784,6 +873,12 @@ export function useEditorScreenRendering({
           nativePreviewActive={screenIsActive}
           sharedSnapshotPollActive={screenIsActive}
           previewToken={screenSnapshotOnly ? undefined : screenPreviewToken}
+          localhostPreviewUnavailable={localhostPreviewUnavailable}
+          localhostPreviewUnavailablePublic={localhostPreviewUnavailablePublic}
+          onRetryLocalhostPreview={() =>
+            void localhostPreviewTokenQuery.refetch()
+          }
+          localhostPreviewRetryPending={localhostPreviewTokenQuery.isFetching}
           liveEditCapability={
             screenSnapshotOnly ? undefined : screenLiveEditCapability
           }
@@ -805,6 +900,14 @@ export function useEditorScreenRendering({
           }
           onRoutePathChange={
             screenSnapshotOnly ? undefined : handleLiveRoutePathChange
+          }
+          previewColorScheme={screenIsActive ? previewColorScheme : null}
+          previewReloadNonce={screenReloadNonces[screen.id] ?? 0}
+          onPreviewThemeStatus={handlePreviewThemeStatus}
+          onPrototypeNavigate={
+            mode === "interact" && screenIsActive
+              ? handleInteractLinkNavigate
+              : undefined
           }
           publicVisualEdit={!screenSnapshotOnly && publicVisualEdit}
           externalSnapshotHtml={screenSnapshotOnly ? undefined : screenSnapshot}
@@ -855,8 +958,28 @@ export function useEditorScreenRendering({
           fusionUrl={designFusionUrl}
           onComponentSourceJump={handleComponentSourceJump}
           motionTracks={screenIsActive ? motionTracksWire : NO_MOTION_TRACKS}
+          motionEasingVariables={motionEasingVariables}
           motionDefaultEase={motionDefaultEase}
           motionDurationMs={motionDurationMs}
+          motionPathEditingEnabled={
+            screenIsActive &&
+            motionDockOpen &&
+            (canEditDesign || canEditLiveScreen(screen.id))
+          }
+          motionPathTargetNodeId={motionPathTargetNodeId}
+          motionPathTrackId={motionPathTrackId}
+          motionOriginEditingEnabled={
+            screenIsActive &&
+            motionOriginEditing &&
+            motionDockOpen &&
+            (canEditDesign || canEditLiveScreen(screen.id))
+          }
+          motionOriginTargetNodeId={motionSelectedTarget?.nodeId ?? null}
+          onMotionPathTracksChange={
+            screenIsActive && (canEditDesign || canEditLiveScreen(screen.id))
+              ? handleMotionCanvasPathTracksChange
+              : undefined
+          }
           shaderFillPreview={screenIsActive ? shaderFillPreview : null}
           gradientEditTarget={
             inScreenGradientEditTarget?.screenId === screen.id
@@ -896,6 +1019,13 @@ export function useEditorScreenRendering({
           spacePanActive={spacePanActive}
           clearSelectionRequest={overviewClearSelectionRequest}
           registerRuntimeBridge={screenIsActive || screenIsBeingExported}
+          registerLiveEditPreview={
+            screenIsActive ||
+            screenIsBeingExported ||
+            (!screenSnapshotOnly &&
+              screenSourceType === "localhost" &&
+              canRegisterLocalLiveEditPreview)
+          }
           selectedSelector={screenOwnsSelection ? selectedCanvasSelector : null}
           selectedSelectorCandidates={
             screenOwnsSelection
@@ -919,7 +1049,6 @@ export function useEditorScreenRendering({
           lockedSelectors={getLayerSelectorsForFile(screen.id, lockedLayerIds)}
           hiddenSelectors={getLayerSelectorsForFile(screen.id, hiddenLayerIds)}
           onElementSelect={(info, intent) => {
-            activateResponsiveScope();
             handleIframeElementSelect(screen.id, info, intent, {
               breakpointWidthPx,
             });
@@ -987,7 +1116,7 @@ export function useEditorScreenRendering({
           }}
           onTextContentChange={(selector, value, info, details) => {
             activateResponsiveScope();
-            handleScreenTextContentChange(
+            return handleScreenTextContentChange(
               screen.id,
               selector,
               value,
@@ -1004,7 +1133,7 @@ export function useEditorScreenRendering({
           tweakValues={cssVarValues}
           drawMode={false}
           pinMode={screenIsActive && pinMode}
-          commentPinsHidden={commentsHidden || !screenIsActive}
+          commentPinsHidden={commentPinsHidden || !screenIsActive}
           onExitPinMode={handleExitReviewCommentMode}
           designId={id}
           reviewCanPost={canCommentDesign}
@@ -1050,6 +1179,10 @@ export function useEditorScreenRendering({
       handleRuntimeStructureDeleteRejected,
       handleRuntimeStructureRollbackResult,
       handleLiveRoutePathChange,
+      handlePreviewThemeStatus,
+      handleInteractLinkNavigate,
+      previewColorScheme,
+      screenReloadNonces,
       liveRoutePathsByScreenId,
       handleRuntimeStructureDeleteApplied,
       runtimeStructureVerificationRequest,
@@ -1062,7 +1195,14 @@ export function useEditorScreenRendering({
       designFusionUrl,
       handleComponentSourceJump,
       motionTracksWire,
+      motionPathTargetNodeId,
+      motionPathTrackId,
+      motionSelectedTarget,
+      motionOriginEditing,
+      motionDockOpen,
+      handleMotionCanvasPathTracksChange,
       motionDefaultEase,
+      motionEasingVariables,
       motionDurationMs,
       shaderFillPreview,
       inScreenGradientEditTarget,
@@ -1076,8 +1216,10 @@ export function useEditorScreenRendering({
       isVisualEditSurface,
       isLiveCanvasShareLink,
       publicVisualEditConnectionId,
-      publicVisualEditPreviewTokenQuery.data?.previewToken,
-      publicVisualEditPreviewTokenQuery.data?.connections,
+      localhostPreviewTokenQuery.data?.previewToken,
+      localhostPreviewTokenQuery.data?.connections,
+      localhostPreviewTokenQuery.isError,
+      localhostPreviewTokenQuery.isFetching,
       designAccessRole,
       scheduleVisualEditSnapshotPublication,
       canEditDesign,
@@ -1089,7 +1231,7 @@ export function useEditorScreenRendering({
       canCommentDesign,
       activeTool,
       pinMode,
-      commentsHidden,
+      commentPinsHidden,
       spacePanActive,
       overviewClearSelectionRequest,
       selectedCanvasSelector,
@@ -1383,6 +1525,7 @@ export function useEditorScreenRendering({
     handleKScaleStyleBatchChange,
     handleApplyToSource,
     zoomLabel,
+    zoomInputDigits,
     openZoomControl,
     setOpenZoomControl,
     zoomInputValue,

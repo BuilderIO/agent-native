@@ -1,15 +1,23 @@
 import crypto from "node:crypto";
 
-import type { AgentRunOptions } from "@agent-native/agentkit/protocol";
-
 import {
+  AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY,
+  parseQueueMessageInput,
+  type AgentRunOptions,
+} from "@agent-native/agentkit/protocol";
+
+import { normalizeSubmissionDeadlineMetadata } from "../agent/submission-deadline.js";
+import {
+  extractThreadMeta,
   mergeThreadDataForClientSave,
   normalizeThreadRepository,
   normalizeThreadTitle,
   type ThreadAnnotationSnapshotConflict,
 } from "../agent/thread-data-builder.js";
 import {
-  representedRootAssistantMessageIds,
+  failedRunIdsWithError,
+  isRenderedRunNotStartedNotice,
+  projectRootAssistantMessages,
   threadMessageRecord,
 } from "../agent/thread-message-projection.js";
 import { getDbExec } from "../db/client.js";
@@ -19,20 +27,28 @@ import {
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
+import { fromMigrationEntries } from "../db/versioned-store-migrations.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { getRequestOrgId } from "../server/request-context.js";
+import {
+  assertNoInlineImageBytes,
+  stripInlineBytes,
+} from "../shared/inline-bytes.js";
 import { resolveAccess, type AccessContext } from "../sharing/access.js";
 import { registerShareableResource } from "../sharing/registry.js";
 import { roleSatisfies, type ShareRole } from "../sharing/schema.js";
 import { emitChatThreadChange } from "./emitter.js";
+import {
+  CHAT_THREAD_SCHEMA_MIGRATIONS,
+  CHAT_THREAD_SCHEMA_MIGRATIONS_TABLE,
+} from "./schema-migrations.js";
 import {
   chatThreads,
   chatThreadShares,
   CHAT_THREAD_SHARES_CREATE_SQL,
   CHAT_THREAD_SHARES_RESOURCE_INDEX_SQL,
 } from "./schema.js";
-
-let _initPromise: Promise<void> | undefined;
 
 /**
  * Per-thread async mutex. Read-modify-write on the `thread_data` JSON blob
@@ -73,10 +89,13 @@ export function withThreadDataLock<T>(
   return next as Promise<T>;
 }
 
-async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const createSql = `
+export const chatThreadsStore = defineStore({
+  id: "chat_threads",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createSql = `
         CREATE TABLE IF NOT EXISTS chat_threads (
           id TEXT PRIMARY KEY,
           owner_email TEXT NOT NULL,
@@ -100,7 +119,6 @@ async function ensureTable(): Promise<void> {
         )
       `;
 
-      {
         // Hot path: the `chat_threads` table and its indexes are virtually
         // always already present in production. Issuing `CREATE TABLE`/
         // `CREATE INDEX` still takes a lock that, in a fresh background-worker
@@ -139,6 +157,11 @@ async function ensureTable(): Promise<void> {
           "chat_thread_shares",
           CHAT_THREAD_SHARES_CREATE_SQL,
         );
+      },
+    },
+    {
+      name: "widen-bigint",
+      run: async () => {
         // Widen millisecond-timestamp columns that older deployments created as
         // 32-bit `INTEGER`; on Postgres the `Date.now()` written on every turn
         // overflows int4. No-op once widened / on fresh BIGINT databases.
@@ -148,6 +171,11 @@ async function ensureTable(): Promise<void> {
           "pinned_at",
           "archived_at",
         ]);
+      },
+    },
+    {
+      name: "indexes",
+      run: async () => {
         // Indexes for the hot read paths. Both the sidebar list and the
         // scoped/per-resource list filter on owner_email (and optionally
         // scope) and sort by updated_at. Probe pg_indexes first (no lock)
@@ -194,15 +222,18 @@ async function ensureTable(): Promise<void> {
           "chat_thread_shares_resource_idx",
           CHAT_THREAD_SHARES_RESOURCE_INDEX_SQL,
         );
-        return;
-      }
-    })().catch((err) => {
-      // Retry init on the next call after a failed startup.
-      _initPromise = undefined;
-      throw err;
-    });
-  }
-  return _initPromise;
+      },
+    },
+    ...fromMigrationEntries(
+      CHAT_THREAD_SCHEMA_MIGRATIONS_TABLE,
+      CHAT_THREAD_SCHEMA_MIGRATIONS,
+      { data: [3] },
+    ),
+  ],
+});
+
+function ensureTable(): Promise<void> {
+  return chatThreadsStore.ready();
 }
 
 /**
@@ -392,6 +423,11 @@ function normalizeForkSourceSnapshot(
   } catch {
     return null;
   }
+  parsed = stripInlineBytes(parsed, "placeholder");
+  assertPersistableThreadData(
+    JSON.stringify(parsed),
+    "fork source thread_data",
+  );
 
   const messageCount = countThreadMessages(parsed, 0);
   if (messageCount <= 0) return null;
@@ -423,17 +459,25 @@ function countThreadMessages(value: unknown, fallback: number): number {
     return fallback;
   }
 
-  const rootMessages = Array.isArray(repo.messages) ? repo.messages : [];
+  const failedRunIds = failedRunIdsWithError(repo.agentKit?.runs);
+  const rootMessages = (
+    Array.isArray(repo.messages) ? repo.messages : []
+  ).filter(
+    (entry: unknown) => !isRenderedRunNotStartedNotice(entry, failedRunIds),
+  );
   const agentKitMessages = Array.isArray(repo.agentKit?.messages)
     ? repo.agentKit.messages
     : [];
-  const mirroredRootIds = representedRootAssistantMessageIds({
+  const assistantProjection = projectRootAssistantMessages({
     rootMessages,
     snapshotMessages: agentKitMessages,
     events: repo.agentKit?.events,
     runs: repo.agentKit?.runs,
     toolCalls: repo.agentKit?.toolCalls,
   });
+  const mirroredRootIds = assistantProjection.representedRootMessageIds;
+  const supersededSnapshotMessageIds =
+    assistantProjection.supersededSnapshotMessageIds;
   const agentKitUserMessageId = (entry: unknown): string | undefined => {
     const message = threadMessageRecord(entry);
     if (message?.role !== "user") return undefined;
@@ -494,7 +538,16 @@ function countThreadMessages(value: unknown, fallback: number): number {
     }
     countMessage(entry);
   }
-  for (const entry of agentKitMessages) countMessage(entry);
+  for (const entry of agentKitMessages) {
+    const message = threadMessageRecord(entry);
+    if (
+      typeof message?.id === "string" &&
+      supersededSnapshotMessageIds.has(message.id)
+    ) {
+      continue;
+    }
+    countMessage(entry);
+  }
   return messageIds.size + unkeyedMessages;
 }
 
@@ -875,8 +928,32 @@ export function registerChatThreadsShareable(): void {
   });
 }
 
-export async function ensureChatThreadTables(): Promise<void> {
-  await ensureTable();
+export function ensureChatThreadTables(): Promise<void> {
+  return chatThreadsStore.ready();
+}
+
+/**
+ * Yes/no access check that never reads the conversation body. Callers that
+ * only need the answer (run polling, run ownership) must use this, not
+ * `resolveThreadAccess`: that one returns the whole thread, and `thread_data`
+ * is the full message history, so a boolean check would pull megabytes per call.
+ */
+export async function hasThreadAccess(
+  userEmail: string | null | undefined,
+  threadId: string | null | undefined,
+  minRole: ShareRole | "owner" = "viewer",
+  ctx: Omit<AccessContext, "userEmail"> = {},
+): Promise<boolean> {
+  if (!userEmail || !threadId) return false;
+  // `skipResourceBody` keeps the access load a projected row. Without it the
+  // load is an unprojected `select()` that pulls `thread_data`.
+  const access = await resolveAccess(
+    "chat_thread",
+    threadId,
+    { userEmail, orgId: ctx.orgId },
+    { skipResourceBody: true },
+  );
+  return !!access && roleSatisfies(access.role, minRole);
 }
 
 export async function resolveThreadAccess(
@@ -886,18 +963,7 @@ export async function resolveThreadAccess(
   ctx: Omit<AccessContext, "userEmail"> = {},
 ): Promise<ChatThread | null> {
   if (!userEmail || !threadId) return null;
-  // `skipResourceBody` matters more here than anywhere else: without it the
-  // access load is an unprojected `select()` that pulls `thread_data` — the
-  // whole conversation JSON — and then this function discards the row and reads
-  // it again through `getThread`. Two full-blob reads of the same row per call,
-  // on the agent-chat hot path.
-  const access = await resolveAccess(
-    "chat_thread",
-    threadId,
-    { userEmail, orgId: ctx.orgId },
-    { skipResourceBody: true },
-  );
-  if (!access || !roleSatisfies(access.role, minRole)) return null;
+  if (!(await hasThreadAccess(userEmail, threadId, minRole, ctx))) return null;
   return await getThread(threadId);
 }
 
@@ -1030,11 +1096,15 @@ export async function forkThread(
     return null;
   }
   const id = opts?.id ?? generateId();
-  const threadData = forkThreadData(
-    source.threadData,
-    id,
-    snapshot?.fromMessageId,
+  const threadData = JSON.stringify(
+    stripInlineBytes(
+      JSON.parse(
+        forkThreadData(source.threadData, id, snapshot?.fromMessageId),
+      ),
+      "placeholder",
+    ),
   );
+  assertPersistableThreadData(threadData, "forked thread_data");
   const now = Date.now();
   const title = source.title ? `${source.title} (fork)` : "";
   const client = getDbExec();
@@ -1393,12 +1463,34 @@ export interface UpdateThreadDataOptions {
   preserveExistingTopLevelKeys?: boolean;
   preserveCurrentMetadata?: boolean;
   preserveCurrentTitleAndPreview?: boolean;
+  trustedRunSequenceResetIds?: ReadonlySet<string>;
   onAnnotationConflict?: (conflict: ThreadAnnotationSnapshotConflict) => void;
   transformThreadData?: (
     currentThreadData: string,
   ) => string | { threadData: string; preview?: string };
   maxAttempts?: number;
   ignoreConflicts?: boolean;
+}
+
+export class InlineAttachmentDataNotPersistableError extends Error {
+  readonly code = "inline_attachment_data_not_persistable";
+
+  constructor(
+    message = "Inline attachment data cannot be stored in chat history.",
+  ) {
+    super(message);
+    this.name = "InlineAttachmentDataNotPersistableError";
+  }
+}
+
+function assertPersistableThreadData(threadData: string, label: string): void {
+  try {
+    assertNoInlineImageBytes(threadData, label);
+  } catch (error) {
+    throw new InlineAttachmentDataNotPersistableError(
+      error instanceof Error ? error.message : undefined,
+    );
+  }
 }
 
 function parseThreadData(value: string): any {
@@ -1433,7 +1525,13 @@ export async function updateThreadData(
       const current = await getThread(id);
       if (!current) return false;
 
-      const transformed = options.transformThreadData?.(current.threadData);
+      const safeCurrentThreadData = stripInlineBytes(
+        parseThreadData(current.threadData),
+        "placeholder",
+      );
+      const transformed = options.transformThreadData?.(
+        JSON.stringify(safeCurrentThreadData),
+      );
       const incomingThreadData =
         typeof transformed === "string"
           ? transformed
@@ -1442,35 +1540,54 @@ export async function updateThreadData(
       let nextMessageCount = messageCount;
       const annotationConflicts: ThreadAnnotationSnapshotConflict[] = [];
       const merged = mergeThreadDataForClientSave(
-        parseThreadData(current.threadData),
+        safeCurrentThreadData,
         parseThreadData(incomingThreadData),
         {
           preserveExistingQueuedMessages:
             options.preserveExistingQueuedMessages ?? true,
           preserveExistingTopLevelKeys:
             options.preserveExistingTopLevelKeys ?? true,
+          trustedRunSequenceResetIds: options.trustedRunSequenceResetIds,
           onAnnotationConflict: (conflict) =>
             annotationConflicts.push(conflict),
         },
       );
-      nextThreadData = JSON.stringify(merged);
+      // Client snapshots can predate their upload URL, so inline bytes become a
+      // visible placeholder rather than failing the save; legacy rows are
+      // scrubbed on their next write.
+      nextThreadData = JSON.stringify(stripInlineBytes(merged, "placeholder"));
+      assertPersistableThreadData(nextThreadData, "thread_data");
       nextMessageCount = countThreadMessages(merged, messageCount);
 
       const nextUpdatedAt = Math.max(Date.now(), current.updatedAt + 1);
       // Completion persistence can race the separate generated-title save.
       // Keep a title already committed by that save when this caller only has
       // its stale empty snapshot.
+      const preserveCurrentMetadata = options.preserveCurrentMetadata;
       const preserveCurrentTitleAndPreview =
-        options.preserveCurrentMetadata ||
         options.preserveCurrentTitleAndPreview;
-      const nextTitle = preserveCurrentTitleAndPreview
+      const snapshotMetaForBlankFields =
+        !options.preserveCurrentMetadata &&
+        options.preserveCurrentTitleAndPreview &&
+        (!current.title.trim() || !current.preview.trim())
+          ? extractThreadMeta(merged)
+          : undefined;
+      const nextTitle = preserveCurrentMetadata
         ? current.title
-        : title || current.title;
-      const nextPreview = preserveCurrentTitleAndPreview
+        : preserveCurrentTitleAndPreview
+          ? current.title.trim()
+            ? current.title
+            : snapshotMetaForBlankFields?.title || current.title
+          : title || current.title || extractThreadMeta(merged).title;
+      const nextPreview = preserveCurrentMetadata
         ? current.preview
-        : typeof transformed === "object" && transformed.preview !== undefined
-          ? transformed.preview
-          : preview;
+        : preserveCurrentTitleAndPreview
+          ? current.preview.trim()
+            ? current.preview
+            : snapshotMetaForBlankFields?.preview || current.preview
+          : typeof transformed === "object" && transformed.preview !== undefined
+            ? transformed.preview
+            : preview;
       const result = await client.execute({
         sql: `UPDATE chat_threads SET thread_data = ?, title = ?, preview = ?, message_count = COALESCE(?, message_count), updated_at = ? WHERE id = ? AND updated_at = ? AND LOWER(owner_email) = LOWER(?)`,
         args: [
@@ -1495,6 +1612,9 @@ export async function updateThreadData(
 
       lastConflict = true;
     } catch (error) {
+      if (error instanceof InlineAttachmentDataNotPersistableError) {
+        throw error;
+      }
       // Completion saves happen after a long model/tool turn, when a
       // transient connection or serverless DB failure is especially costly.
       // Retry the whole read/merge/write attempt like a CAS conflict, while
@@ -1580,6 +1700,7 @@ export interface QueuedMessage {
   threadId?: string;
   createdAt?: string;
   attachments?: unknown[];
+  requestAttachments?: unknown[];
   metadata?: Record<string, unknown>;
   options?: AgentRunOptions;
   promotionClaim?: { id: string; expiresAt: number };
@@ -1597,17 +1718,72 @@ export interface ThreadQueuedMessageMutationResult {
   message?: QueuedMessage;
   claimedMessage?: QueuedMessage;
   claimBusy?: boolean;
+  submissionExpired?: boolean;
   promotionBusy?: boolean;
   released?: boolean;
 }
 
 const QUEUED_MESSAGE_CLAIM_TTL_MS = 60_000;
 
+function queuedSubmissionExpired(message: QueuedMessage, now: number): boolean {
+  const custom = message.metadata?.custom;
+  if (
+    !custom ||
+    typeof custom !== "object" ||
+    Array.isArray(custom) ||
+    !Object.prototype.hasOwnProperty.call(
+      custom,
+      AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY,
+    )
+  ) {
+    return false;
+  }
+  const expiresAt = (custom as Record<string, unknown>)[
+    AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY
+  ];
+  return (
+    typeof expiresAt !== "number" ||
+    !Number.isFinite(expiresAt) ||
+    expiresAt <= now
+  );
+}
+
 /** Applies a queue operation to the latest durable thread state on every CAS retry. */
 export async function mutateThreadQueuedMessages(
   threadId: string,
   mutation: ThreadQueuedMessageMutation,
 ): Promise<ThreadQueuedMessageMutationResult | null> {
+  if (mutation.type === "append") {
+    const metadata = normalizeSubmissionDeadlineMetadata(
+      mutation.message.metadata,
+      Date.now(),
+    );
+    mutation = {
+      type: "append",
+      message: {
+        ...mutation.message,
+        ...(metadata ? { metadata } : {}),
+      },
+    };
+    try {
+      assertNoInlineImageBytes(
+        { type: "file", metadata: mutation.message.metadata },
+        "queuedMessage.metadata",
+      );
+    } catch (error) {
+      throw new InlineAttachmentDataNotPersistableError(
+        error instanceof Error ? error.message : undefined,
+      );
+    }
+    parseQueueMessageInput(
+      {
+        ...mutation.message,
+        threadId: mutation.message.threadId ?? threadId,
+      },
+      "queuedMessage",
+    );
+  }
+
   return withThreadDataLock(threadId, async () => {
     let result: ThreadQueuedMessageMutationResult | undefined;
     await updateThreadData(threadId, "{}", "", "", 0, {
@@ -1648,6 +1824,10 @@ export async function mutateThreadQueuedMessages(
 
         switch (mutation.type) {
           case "append": {
+            if (queuedSubmissionExpired(mutation.message, Date.now())) {
+              response = { submissionExpired: true };
+              break;
+            }
             const existing = current.find(
               (message) => message.id === mutation.message.id,
             );
@@ -1673,7 +1853,8 @@ export async function mutateThreadQueuedMessages(
             const message = current[index];
             if (
               message?.promotionClaim &&
-              message.promotionClaim.expiresAt > Date.now()
+              message.promotionClaim.expiresAt > Date.now() &&
+              !queuedSubmissionExpired(message, Date.now())
             ) {
               response = { promotionBusy: true };
               break;
@@ -1714,6 +1895,13 @@ export async function mutateThreadQueuedMessages(
             }
             const message = current[index]!;
             const now = Date.now();
+            if (queuedSubmissionExpired(message, now)) {
+              queuedMessages = current.filter(
+                (candidate) => candidate.id !== mutation.messageId,
+              );
+              response = { submissionExpired: true };
+              break;
+            }
             if (
               message.promotionClaim &&
               message.promotionClaim.id !== mutation.claimId &&

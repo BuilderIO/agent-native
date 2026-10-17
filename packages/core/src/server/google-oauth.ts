@@ -14,6 +14,7 @@ import { normalizeAppPath } from "../shared/sign-in-journey.js";
 import { getAppBasePathFromViteEnv } from "./app-base-path.js";
 import {
   readAnalyticsAnonymousId,
+  readAnalyticsSessionId,
   signupAttributionFromCookieHeader,
 } from "./attribution.js";
 import {
@@ -407,8 +408,28 @@ function isRequestUnderAppBasePath(event: H3Event): boolean {
 
 export type OAuthRedirectUriOptions = {
   allowRootCallback?: boolean;
+  /**
+   * Keep the callback under the app's own mount instead of the shared
+   * workspace root callback. Use for providers that register the redirect
+   * URI per flow (e.g. MCP dynamic client registration): the callback then
+   * lands on the app that started the flow without a root relay, which
+   * cannot recover the app id from an opaque state.
+   */
+  appScopedCallback?: boolean;
   useNetlifyPreviewGoogleOAuthRelay?: boolean;
 };
+
+function usesRootOAuthCallback(
+  pathname: string,
+  options: OAuthRedirectUriOptions,
+): boolean {
+  return (
+    !options.appScopedCallback &&
+    (isWorkspaceOAuthCallbackRelayEnabled() ||
+      options.allowRootCallback === true) &&
+    isFrameworkOAuthCallbackPath(pathname)
+  );
+}
 
 function getDefaultOAuthRedirectUrl(
   event: H3Event,
@@ -416,10 +437,7 @@ function getDefaultOAuthRedirectUrl(
   options: OAuthRedirectUriOptions = {},
 ): string {
   const cleanPath = path.startsWith("/") ? path : `/${path}`;
-  if (
-    (isWorkspaceOAuthCallbackRelayEnabled() || options.allowRootCallback) &&
-    isFrameworkOAuthCallbackPath(cleanPath)
-  ) {
+  if (usesRootOAuthCallback(cleanPath, options)) {
     return `${getOrigin(event)}${publicFrameworkPath(cleanPath)}`;
   }
   const basePath = isRequestUnderAppBasePath(event) ? getAppBasePath() : "";
@@ -488,9 +506,7 @@ export function isAllowedOAuthRedirectUri(
     basePath && isRequestUnderAppBasePath(event)
       ? [
           `${basePath}/_agent-native/`,
-          ...((isWorkspaceOAuthCallbackRelayEnabled() ||
-            options.allowRootCallback) &&
-          isFrameworkOAuthCallbackPath(pathname)
+          ...(usesRootOAuthCallback(pathname, options)
             ? ["/_agent-native/"]
             : []),
         ]
@@ -848,12 +864,14 @@ export async function createOAuthSession(
       setFirstRunOnboardingCookie(event);
     }
     if (shouldTrackSignup && opts.trackSignup) {
+      const signupCookieHeader = getHeader(event, "cookie") ?? null;
       const attribution =
         opts.trackSignup.attribution ??
-        signupAttributionFromCookieHeader(getHeader(event, "cookie") ?? null);
+        signupAttributionFromCookieHeader(signupCookieHeader);
       const anonymousId =
         opts.trackSignup.signupAnonymousId ??
-        readAnalyticsAnonymousId(getHeader(event, "cookie") ?? null);
+        readAnalyticsAnonymousId(signupCookieHeader);
+      const sessionId = readAnalyticsSessionId(signupCookieHeader);
       const authUserId =
         (await getBetterAuthUserIdForEmail(email)) ??
         opts.trackSignup.canonicalAuthUserId;
@@ -866,6 +884,7 @@ export async function createOAuthSession(
         name: opts.trackSignup.name,
         attribution,
         anonymousId,
+        sessionId,
       });
     }
     // Desktop SSO: record this session in the home-dir broker file so

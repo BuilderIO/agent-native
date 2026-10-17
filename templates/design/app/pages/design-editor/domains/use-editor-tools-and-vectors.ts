@@ -57,6 +57,10 @@ import { runScaleSelection } from "../commands/scale-selection";
 import { runSendOverviewAnnotations } from "../commands/send-overview-annotations";
 import { runTweakPromptSubmit } from "../commands/tweak-prompt-submit";
 import {
+  clearOverviewInteractTarget,
+  getCreatedScreenNavigationPlan,
+} from "../created-screen-navigation";
+import {
   EMPTY_TEXT_CLEANUP_MAX_ATTEMPTS,
   EMPTY_TEXT_CLEANUP_RETRY_MS,
 } from "../editor-constants";
@@ -71,8 +75,10 @@ import {
   computeOverviewScreenPickSelectionIds,
   getSelectedScreenIdsForEditorState,
   overviewScreenSelectionForPendingEcho,
+  reconcileSelectedLayerIdsForOverviewScreens,
   sameStringIds,
   shouldClearSelectionForReviewThreadTarget,
+  shouldResetBreakpointAfterOverviewSelectionClear,
   updateExplicitOverviewScreenSelection,
 } from "../selection-state";
 import { endedTextEditMatchesPendingCreation } from "../text-edit-utils";
@@ -126,6 +132,8 @@ export function useEditorToolsAndVectors({
     viewMode,
     setViewMode,
     viewModeRef,
+    overviewInteractScreenIdRef,
+    setOverviewInteractScreenId,
     selectedElement,
     setSelectedElement,
     setRuntimeStructureInsertRequest,
@@ -136,8 +144,6 @@ export function useEditorToolsAndVectors({
     setActiveFileId,
   } = editorCore;
   const {
-    activeInspectorTab,
-    setActiveInspectorTab,
     activeLeftPanel,
     setActiveLeftPanel,
     selectedLayerIdsState,
@@ -196,6 +202,12 @@ export function useEditorToolsAndVectors({
     activeFile,
     handleBreakpointBarSelect,
     overviewCanvasZoom,
+    interactDeviceName,
+    interactDeviceSize,
+    interactTheme,
+    setCameraCommand,
+    cameraCommandNonceRef,
+    exportCanvasFrameGeometryById,
   } = editorActiveScreenAndGeometry;
   const {
     setHoveredElementScreenId,
@@ -210,6 +222,12 @@ export function useEditorToolsAndVectors({
     canvasContainerRef,
     activeProjectionContent,
     selectedCodeLayerNode,
+    motionAutoKeyframeEnabled,
+    motionDockLiveState,
+    motionDurationMs,
+    motionPlayhead,
+    motionPlaybackMode,
+    motionTimelineId,
   } = editorLiveEditsAndPresence;
   const { applyLocalContentUpdate, applyFileContentUpdate } =
     editorContentAndComponents;
@@ -367,7 +385,7 @@ export function useEditorToolsAndVectors({
         setSelectedLayerIdsState(boardTarget ? [] : [targetId]);
         setMode("edit");
       }
-      setActiveInspectorTab("comments");
+      setActiveLeftPanel("threads");
       reviewFocusNonceRef.current += 1;
       setReviewFocusRequest({
         nonce: reviewFocusNonceRef.current,
@@ -922,6 +940,9 @@ export function useEditorToolsAndVectors({
       });
   }, []);
   const spaceForwardArmedRef = useRef(false);
+  // Interact hands Space to the page: no pan, no Hand tool, no cancelled key.
+  const interactOwnsSpaceRef = useRef(mode === "interact");
+  interactOwnsSpaceRef.current = mode === "interact";
   useEffect(() => {
     if (
       shellMode ||
@@ -933,6 +954,7 @@ export function useEditorToolsAndVectors({
 
     const handleWindowKeyDown = (event: KeyboardEvent) => {
       if (event.key !== " " || event.code !== "Space") return;
+      if (interactOwnsSpaceRef.current) return;
       if (event.repeat) return;
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       if (isKeyboardShortcutsDialogTarget(event.target)) return;
@@ -1080,6 +1102,13 @@ export function useEditorToolsAndVectors({
           return owner ? [owner.fileId] : [];
         }),
       );
+      setSelectedLayerIdsState((current) =>
+        reconcileSelectedLayerIdsForOverviewScreens({
+          selectedLayerIds: current,
+          screenFileIds: fileIds,
+          selectedScreenIds: nextIds,
+        }),
+      );
       if (
         intent?.source === "marquee" &&
         (intent.metaKey === true || intent.ctrlKey === true)
@@ -1105,31 +1134,23 @@ export function useEditorToolsAndVectors({
               intent?.source === "marquee"
                 ? intent.additive === true
                 : shiftKeyHeldRef.current,
+            marqueeSelectedScreenIds:
+              intent?.source === "marquee"
+                ? (intent.marqueeSelectedScreenIds ?? [])
+                : [],
           });
       }
       setOverviewSelectedScreenIds((current) =>
         sameStringIds(current, nextIds) ? current : nextIds,
       );
-      // BP-DEEP item 5 — Framer click-to-target: a click on EMPTY overview
-      // canvas clears the screen selection (ids === []); that gesture also
-      // returns the active edit scope to Base, mirroring clicking the base
-      // frame itself. Two guards keep this from over-firing:
-      // - viewModeRef: the selection-clear that fires while entering
-      //   single-screen mode (enterSingleScreen flips the ref to "single"
-      //   synchronously before any state settles) must not reset a
-      //   breakpoint the user is about to keep editing in the focused view.
-      // - overviewSelectedScreenIdsRef (still holding the PRE-update
-      //   selection when this callback runs — it's re-assigned during
-      //   render): MultiScreenCanvas's selection-report effect fires once on
-      //   mount with [] before its prop sync, and an []→[] "transition" is
-      //   that mount echo, not a user's empty-canvas click; without this
-      //   guard every overview (re)mount would clobber a persisted/agent-set
-      //   active breakpoint back to auto.
       if (
-        ids.length === 0 &&
-        overviewSelectedScreenIdsRef.current.length > 0 &&
-        viewModeRef.current === "overview" &&
-        activeBreakpointWidthStateRef.current !== undefined
+        shouldResetBreakpointAfterOverviewSelectionClear({
+          selectedScreenIds: nextIds,
+          previousSelectedScreenIds: overviewSelectedScreenIdsRef.current,
+          viewMode: viewModeRef.current,
+          activeBreakpointWidth: activeBreakpointWidthStateRef.current,
+          intent,
+        })
       ) {
         handleBreakpointBarSelect(undefined);
       }
@@ -1282,7 +1303,6 @@ export function useEditorToolsAndVectors({
         activeBreakpointWidthState,
         activeCodeFile,
         activeFile,
-        activeInspectorTab,
         activeLeftPanel,
         activeTool,
         design,
@@ -1292,9 +1312,21 @@ export function useEditorToolsAndVectors({
         files,
         hoveredElement,
         id,
+        interactDevice: {
+          name: interactDeviceName,
+          width: interactDeviceSize.width,
+          height: interactDeviceSize.height,
+        },
+        interactTheme,
         isSignedIn,
         mode,
+        motionAutoKeyframeEnabled,
         motionDockOpen,
+        motionDockLiveState,
+        motionDurationMs,
+        motionPlayhead,
+        motionPlaybackMode,
+        motionTimelineId,
         pendingPersistedSelectionWriteRef,
         persistedSelectionContextRef,
         persistedSelectionStateRef,
@@ -1316,19 +1348,28 @@ export function useEditorToolsAndVectors({
       hoveredElement,
       mode,
       activeTool,
-      activeInspectorTab,
       activeLeftPanel,
       activeCodeFile,
       overviewSelectedScreenIds,
       viewMode,
       zoom,
       motionDockOpen,
+      motionAutoKeyframeEnabled,
+      motionDockLiveState,
+      motionDurationMs,
+      motionPlayhead,
+      motionPlaybackMode,
+      motionTimelineId,
       activeBreakpointWidthState,
       responsiveEditScope,
       designDataJson,
       layoutGrids,
       selectedStateId,
       isSignedIn,
+      interactDeviceName,
+      interactDeviceSize.width,
+      interactDeviceSize.height,
+      interactTheme,
     ],
   );
 
@@ -1421,8 +1462,8 @@ export function useEditorToolsAndVectors({
   // PF8: onPick has no unstable deps (state setters + refs + a
   // zero-dep useCallback) — hoisting removes a fresh-arrow-per-render prop
   // on MultiScreenCanvas without changing behavior.
-  const handleOverviewScreenPick = useCallback(
-    (pickedId: string) => {
+  const selectOverviewScreen = useCallback(
+    (pickedId: string, fitCamera: boolean) => {
       if (!shiftKeyHeldRef.current) selectionRevisionRef.current += 1;
       pendingOverviewScreenSelectionRef.current = null;
       pendingOverviewLayerSelectionRef.current = null;
@@ -1450,11 +1491,57 @@ export function useEditorToolsAndVectors({
       setActiveFileId(pickedId);
       setActiveTool(resolveToolAfterSelection);
       setMode("edit");
+      clearOverviewInteractTarget({
+        setOverviewInteractScreenId,
+        overviewInteractScreenIdRef,
+      });
+      if (fitCamera) {
+        const geometry = exportCanvasFrameGeometryById[pickedId];
+        if (
+          geometry &&
+          Number.isFinite(geometry.x) &&
+          Number.isFinite(geometry.y) &&
+          Number.isFinite(geometry.width) &&
+          Number.isFinite(geometry.height)
+        ) {
+          cameraCommandNonceRef.current += 1;
+          setCameraCommand({
+            ...getCreatedScreenNavigationPlan({
+              screenId: pickedId,
+              geometry: {
+                x: geometry.x as number,
+                y: geometry.y as number,
+                width: geometry.width as number,
+                height: geometry.height as number,
+              },
+            }).camera,
+            nonce: cameraCommandNonceRef.current,
+          });
+        }
+      }
       if (activeBreakpointWidthStateRef.current !== undefined) {
         handleBreakpointBarSelect(undefined);
       }
     },
-    [clearPendingOverviewLayerSelectionTimer, handleBreakpointBarSelect],
+    [
+      cameraCommandNonceRef,
+      clearPendingOverviewLayerSelectionTimer,
+      exportCanvasFrameGeometryById,
+      handleBreakpointBarSelect,
+      overviewInteractScreenIdRef,
+      setOverviewInteractScreenId,
+      setCameraCommand,
+    ],
+  );
+
+  const handleOverviewScreenPick = useCallback(
+    (pickedId: string) => selectOverviewScreen(pickedId, true),
+    [selectOverviewScreen],
+  );
+
+  const handleOverviewScreenGestureSelect = useCallback(
+    (pickedId: string) => selectOverviewScreen(pickedId, false),
+    [selectOverviewScreen],
   );
 
   return {
@@ -1497,6 +1584,7 @@ export function useEditorToolsAndVectors({
     handleSendOverviewAnnotations,
     handleTweakPromptSubmit,
     handleOverviewScreenPick,
+    handleOverviewScreenGestureSelect,
   };
 }
 

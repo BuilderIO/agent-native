@@ -6,6 +6,10 @@ import {
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
+import { isMigrationAuthorizedRuntime } from "../db/migration-runtime.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
+import { isRecordingStoreMigration } from "../db/runtime-facts.js";
+import { defineStore } from "../db/store-registry.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { noteJobFrontmatterWrite } from "../jobs/frontmatter-loss.js";
 import {
@@ -32,6 +36,8 @@ import {
   putSetting,
   type StoreWriteOptions,
 } from "../settings/store.js";
+import { isPersistableAttachmentUrl } from "../shared/attachments.js";
+import { assertNoInlineImageBytes } from "../shared/inline-bytes.js";
 import { emitResourceChange, emitResourceDelete } from "./emitter.js";
 
 export const SHARED_OWNER = "__shared__";
@@ -328,6 +334,7 @@ export interface ResourceConditionalWrite {
   expectedUpdatedAt: number;
   expectedContent: string;
   mimeType?: string;
+  metadata?: ResourceWriteOptions["metadata"];
 }
 
 export interface ResourceSnapshotWrite {
@@ -345,6 +352,23 @@ export interface ResourceSnapshotWrite {
 export interface ResourceSnapshotWriteResult {
   before: Resource | null;
   resource: Resource;
+}
+
+function assertResourcePayloadIsSqlSafe(
+  content: string,
+  mimeType?: string,
+  metadata?: ResourceWriteOptions["metadata"],
+): void {
+  assertNoInlineImageBytes({ content, metadata }, "resource");
+  if (
+    mimeType?.toLowerCase().startsWith("image/") &&
+    !isPersistableAttachmentUrl(content)
+  ) {
+    assertNoInlineImageBytes(
+      { type: "image", mimeType, data: content },
+      "resource content",
+    );
+  }
 }
 
 export interface ResourceListOptions {
@@ -381,7 +405,6 @@ export interface EffectiveResourceContext {
   layers: EffectiveResourceLayer[];
 }
 
-let _initPromise: Promise<void> | undefined;
 let _lastScratchCleanupAt = 0;
 
 const AGENT_SCRATCH_TTL_MS = 24 * 60 * 60 * 1000;
@@ -663,6 +686,7 @@ async function migrateDefaultResourceContent({
   previousContent: string;
   content: string;
 }): Promise<void> {
+  assertResourcePayloadIsSqlSafe(content, "text/markdown");
   await client.execute({
     sql: `UPDATE resources SET content = ?, size = ?, updated_at = ? WHERE owner = ? AND path = ? AND content = ?`,
     args: [
@@ -1125,19 +1149,7 @@ function scheduleExpiredAgentScratchCleanup(client: DbExec): void {
     });
 }
 
-export async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = _doEnsureTable().catch((err) => {
-      _initPromise = undefined;
-      throw err;
-    });
-  }
-  return _initPromise;
-}
-
-async function _doEnsureTable(): Promise<void> {
-  const client = getDbExec();
-  const createSql = `
+const RESOURCES_CREATE_SQL = `
     CREATE TABLE IF NOT EXISTS resources (
       id TEXT PRIMARY KEY,
       path TEXT NOT NULL,
@@ -1158,50 +1170,119 @@ async function _doEnsureTable(): Promise<void> {
     )
   `;
 
-  {
-    await ensureTableExists("resources", createSql);
-    const pgColumns: Array<[string, string]> = [
-      ["created_by", "TEXT NOT NULL DEFAULT 'user'"],
-      ["visibility", "TEXT NOT NULL DEFAULT 'workspace'"],
-      ["thread_id", "TEXT"],
-      ["run_id", "TEXT"],
-      ["expires_at", "BIGINT"],
-      ["metadata", "TEXT"],
-    ];
-    for (const [col, def] of pgColumns) {
-      await ensureColumnExists(
-        "resources",
-        col,
-        `ALTER TABLE resources ADD COLUMN IF NOT EXISTS ${col} ${def}`,
-      );
-    }
-  }
+export const resourcesStore = defineStore({
+  id: "resources",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        await ensureTableExists("resources", RESOURCES_CREATE_SQL);
+        const pgColumns: Array<[string, string]> = [
+          ["created_by", "TEXT NOT NULL DEFAULT 'user'"],
+          ["visibility", "TEXT NOT NULL DEFAULT 'workspace'"],
+          ["thread_id", "TEXT"],
+          ["run_id", "TEXT"],
+          ["expires_at", "BIGINT"],
+          ["metadata", "TEXT"],
+        ];
+        for (const [col, def] of pgColumns) {
+          await ensureColumnExists(
+            "resources",
+            col,
+            `ALTER TABLE resources ADD COLUMN IF NOT EXISTS ${col} ${def}`,
+          );
+        }
+      },
+    },
+    {
+      name: "widen-bigint",
+      run: () =>
+        widenIntColumnsToBigInt("resources", [
+          "created_at",
+          "updated_at",
+          "expires_at",
+        ]),
+    },
+    {
+      name: "visibility-expires-index",
+      run: async () => {
+        await ensureIndexExists(
+          "resources_visibility_expires_idx",
+          `CREATE INDEX IF NOT EXISTS resources_visibility_expires_idx ON resources (visibility, expires_at)`,
+        ).catch((err) => {
+          // At release, fail so the ledger never records an index that was not built.
+          if (isMigrationAuthorizedRuntime() || isRecordingStoreMigration()) {
+            throw err;
+          }
+          // An index is an optimization, not a correctness requirement: a
+          // concurrent creator or a permissions edge must not fail table init and
+          // take the app down with it. The scan it avoids is slow, not wrong — but
+          // say so, because "silently slow forever" is the outcome nobody notices.
+          // coercion-ok: absence of an index degrades latency, never correctness
+          console.warn(
+            "[resources] could not ensure resources_visibility_expires_idx; scratch cleanup will full-scan:",
+            (err as Error)?.message ?? err,
+          );
+        });
+      },
+    },
+    {
+      name: "path-pattern-index",
+      run: async () => {
+        // The (path, owner) unique index uses the default operator class, which a
+        // prefix LIKE cannot use under a non-C collation; the trigger dispatcher
+        // reads jobs/ by prefix every few seconds.
+        //
+        // NOT built CONCURRENTLY: this ensure path runs at release over the pooled
+        // Neon endpoint, where a transaction-pooled connection returns from
+        // `CREATE INDEX CONCURRENTLY` without creating anything (see the matching
+        // note in chat-threads/store.ts). A plain build is the form that lands.
+        await ensureIndexExists(
+          "resources_path_pattern_idx",
+          `CREATE INDEX IF NOT EXISTS resources_path_pattern_idx ON resources (path text_pattern_ops)`,
+        ).catch((err) => {
+          if (isMigrationAuthorizedRuntime() || isRecordingStoreMigration()) {
+            throw err;
+          }
+          // coercion-ok: absence of an index degrades latency, never correctness
+          console.warn(
+            "[resources] could not ensure resources_path_pattern_idx; prefix reads such as the jobs/ fingerprint will full-scan:",
+            (err as Error)?.message ?? err,
+          );
+        });
+      },
+    },
+  ],
+});
 
-  await widenIntColumnsToBigInt("resources", [
-    "created_at",
-    "updated_at",
-    "expires_at",
-  ]);
+let _defaultResourcesSeed: Promise<void> | undefined;
+let _sharedLearnSharedMigration: Promise<void> | undefined;
 
-  await ensureIndexExists(
-    "resources_visibility_expires_idx",
-    `CREATE INDEX IF NOT EXISTS resources_visibility_expires_idx ON resources (visibility, expires_at)`,
+export async function ensureTable(): Promise<void> {
+  await resourcesStore.ready();
+  // Kept out of the store ledger: the seed's marker is versioned by
+  // RESOURCE_SEED_VERSION so a bump re-seeds, which a one-time ledger entry
+  // would never do.
+  _defaultResourcesSeed ??= retainRequestDbPoolScope(
+    seedDefaultResources(getDbExec()),
   ).catch((err) => {
-    // An index is an optimization, not a correctness requirement: a
-    // concurrent creator or a permissions edge must not fail table init and
-    // take the app down with it. The scan it avoids is slow, not wrong — but
-    // say so, because "silently slow forever" is the outcome nobody notices.
-    // coercion-ok: absence of an index degrades latency, never correctness
-    console.warn(
-      "[resources] could not ensure resources_visibility_expires_idx; scratch cleanup will full-scan:",
-      (err as Error)?.message ?? err,
-    );
+    _defaultResourcesSeed = undefined;
+    throw err;
   });
+  await _defaultResourcesSeed;
+  // Also kept out of the ledger: it has its own durable marker, and a failure
+  // must leave resources usable and retry in a later process.
+  _sharedLearnSharedMigration ??= retainRequestDbPoolScope(
+    migrateSharedLearnSharedDefault(getDbExec()),
+  );
+  await _sharedLearnSharedMigration;
+}
 
-  // Migrate both shipped paths without touching edited copies. The legacy
-  // path wins duplicate-name resolution in existing workspaces.
-  // This marker stays separate from the shared seed version so it cannot
-  // resurrect deleted defaults or rerun personal seeding.
+// Migrate both shipped paths without touching edited copies. The legacy
+// path wins duplicate-name resolution in existing workspaces.
+// This marker stays separate from the shared seed version so it cannot
+// resurrect deleted defaults or rerun personal seeding.
+async function migrateSharedLearnSharedDefault(client: DbExec): Promise<void> {
   try {
     if (!(await alreadySeeded(SHARED_LEARN_SHARED_APPROVAL_MIGRATION_KEY))) {
       let migrationComplete = true;
@@ -1235,11 +1316,13 @@ async function _doEnsureTable(): Promise<void> {
       (err as Error)?.message ?? err,
     );
   }
+}
 
+async function seedDefaultResources(client: DbExec): Promise<void> {
   // Seed default shared resources if they don't exist (INSERT OR IGNORE to avoid
   // race conditions).
   //
-  // Guarded by a durable marker: `_doEnsureTable` runs once per PROCESS, which on
+  // Guarded by a durable marker: this seed used to run once per PROCESS, which on
   // serverless is once per cold start, so this block was issuing ~10 writes and
   // 2 migration scans per container to insert rows that had existed since day
   // one (53,785 of them in one production sample). The marker makes it once per
@@ -1270,6 +1353,7 @@ async function _doEnsureTable(): Promise<void> {
 
   const learningsSeedContent =
     (await readProjectRootLearningsSeed()) ?? DEFAULT_LEARNINGS_SHARED_MD;
+  assertResourcePayloadIsSqlSafe(learningsSeedContent, "text/markdown");
   const learningsSize = Buffer.byteLength(learningsSeedContent, "utf8");
   await client.execute({
     sql: seedSql,
@@ -1311,39 +1395,36 @@ async function _doEnsureTable(): Promise<void> {
     ],
   });
 
-  try {
-    const { getBuiltinAgentsForSeeding } =
-      await import("../server/agent-discovery.js");
-    const builtins = getBuiltinAgentsForSeeding();
-    for (const agent of builtins) {
-      const agentJson = JSON.stringify(
-        {
-          id: agent.id,
-          name: agent.name,
-          description: agent.description,
-          url: agent.url, // always prod
-          color: agent.color,
-        },
-        null,
-        2,
-      );
-      const agentSize = Buffer.byteLength(agentJson, "utf8");
-      await client.execute({
-        sql: seedSql,
-        args: [
-          crypto.randomUUID(),
-          `remote-agents/${agent.id}.json`,
-          SHARED_OWNER,
-          agentJson,
-          "application/json",
-          agentSize,
-          now,
-          now,
-        ],
-      });
-    }
-  } catch {
-    // Agent discovery not available — skip seeding
+  const { getBuiltinAgentsForSeeding } =
+    await import("../server/agent-discovery.js");
+  const builtins = getBuiltinAgentsForSeeding();
+  for (const agent of builtins) {
+    const agentJson = JSON.stringify(
+      {
+        id: agent.id,
+        name: agent.name,
+        description: agent.description,
+        url: agent.url, // always prod
+        color: agent.color,
+      },
+      null,
+      2,
+    );
+    assertResourcePayloadIsSqlSafe(agentJson, "application/json");
+    const agentSize = Buffer.byteLength(agentJson, "utf8");
+    await client.execute({
+      sql: seedSql,
+      args: [
+        crypto.randomUUID(),
+        `remote-agents/${agent.id}.json`,
+        SHARED_OWNER,
+        agentJson,
+        "application/json",
+        agentSize,
+        now,
+        now,
+      ],
+    });
   }
 
   try {
@@ -1630,6 +1711,7 @@ export async function resourcePut(
   mimeType?: string,
   options?: ResourceWriteOptions,
 ): Promise<Resource> {
+  assertResourcePayloadIsSqlSafe(content, mimeType, options?.metadata);
   await ensureTable();
   if (
     isBareWorkspaceResourceOwner(owner) &&
@@ -1785,6 +1867,7 @@ async function resourcePutIfAbsentInternal(
   emitChange: boolean,
   clientOverride?: DbExec,
 ): Promise<Resource | null> {
+  assertResourcePayloadIsSqlSafe(content, mimeType, options?.metadata);
   await ensureTable();
   if (
     isBareWorkspaceResourceOwner(owner) &&
@@ -1861,6 +1944,45 @@ async function resourcePutIfAbsentInternal(
 export async function resourcePutIfCurrent(
   input: ResourceConditionalWrite,
 ): Promise<Resource | null> {
+  const resource = await writeResourceIfCurrent(input, getDbExec());
+  if (resource) await notifyResourceIfCurrent(input, resource);
+  return resource;
+}
+
+/** The caller must emit the returned notification only after its transaction commits. */
+export async function resourcePutIfCurrentInTransaction(
+  input: ResourceConditionalWrite,
+  tx: DbExec,
+): Promise<{ resource: Resource; notify: () => Promise<void> } | null> {
+  const resource = await writeResourceIfCurrent(input, tx);
+  return resource
+    ? {
+        resource,
+        notify: () => notifyResourceIfCurrent(input, resource),
+      }
+    : null;
+}
+
+async function notifyResourceIfCurrent(
+  input: ResourceConditionalWrite,
+  resource: Resource,
+): Promise<void> {
+  await noteJobFrontmatterWrite({
+    owner: resource.owner,
+    orgId: organizationIdFromResourceOwner(resource.owner),
+    path: resource.path,
+    before: input.expectedContent,
+    after: resource.content,
+    writer: "resourcePutIfCurrent",
+  });
+  emitResourceChange(resource.id, resource.path, resource.owner);
+}
+
+async function writeResourceIfCurrent(
+  input: ResourceConditionalWrite,
+  client: DbExec,
+): Promise<Resource | null> {
+  assertResourcePayloadIsSqlSafe(input.content, input.mimeType);
   await ensureTable();
   if (
     isBareWorkspaceResourceOwner(input.owner) &&
@@ -1872,17 +1994,18 @@ export async function resourcePutIfCurrent(
     await assertWritableWorkspaceResourcePath(input.path);
   }
 
-  const client = getDbExec();
   const now = Math.max(Date.now(), input.expectedUpdatedAt + 1);
   const size = Buffer.byteLength(input.content, "utf8");
   const mime = input.mimeType || "text/markdown";
+  const metadata = serializeMetadata(input.metadata);
   const result = await client.execute({
-    sql: `UPDATE resources SET content = ?, mime_type = ?, size = ?, updated_at = ? WHERE owner = ? AND path = ? AND id = ? AND updated_at = ? AND content = ?`,
+    sql: `UPDATE resources SET content = ?, mime_type = ?, size = ?, updated_at = ?${metadata !== undefined ? ", metadata = ?" : ""} WHERE owner = ? AND path = ? AND id = ? AND updated_at = ? AND content = ?`,
     args: [
       input.content,
       mime,
       size,
       now,
+      ...(metadata !== undefined ? [metadata] : []),
       input.owner,
       input.path,
       input.expectedId,
@@ -1900,15 +2023,6 @@ export async function resourcePutIfCurrent(
   });
   if (rows.length === 0) return null;
   const resource = rowToResource(rows[0]);
-  await noteJobFrontmatterWrite({
-    owner: resource.owner,
-    orgId: organizationIdFromResourceOwner(resource.owner),
-    path: resource.path,
-    before: input.expectedContent,
-    after: resource.content,
-    writer: "resourcePutIfCurrent",
-  });
-  emitResourceChange(resource.id, resource.path, resource.owner);
   return resource;
 }
 
@@ -1951,6 +2065,11 @@ async function resourcePutIfSnapshotInternal(
   emitChange: boolean,
   clientOverride?: DbExec,
 ): Promise<ResourceSnapshotWriteResult | null> {
+  assertResourcePayloadIsSqlSafe(
+    input.content,
+    input.mimeType,
+    input.options?.metadata,
+  );
   await ensureTable();
   let previous = input.previous;
   if (
@@ -2085,6 +2204,14 @@ export async function resourcePutSnapshotBatchIfCurrent(
     );
   }
 
+  for (const write of writes) {
+    assertResourcePayloadIsSqlSafe(
+      write.content,
+      write.mimeType,
+      write.options?.metadata,
+    );
+  }
+
   await ensureTable();
   const client = getDbExec();
   if (!client.transaction) {
@@ -2145,6 +2272,11 @@ export async function resourceRestoreSnapshotIfCurrent(
   snapshot: Resource,
   current: Resource | null,
 ): Promise<boolean> {
+  assertResourcePayloadIsSqlSafe(
+    snapshot.content,
+    snapshot.mimeType,
+    snapshot.metadata,
+  );
   await ensureTable();
   const snapshotLocal = localWorkspaceResourceSnapshot(snapshot);
   if (snapshotLocal) {
@@ -2622,23 +2754,93 @@ export async function resourceEffectiveContext(
   };
 }
 
-export async function resourceListAllOwners(
+function resourceFingerprint(
+  rows: Array<{
+    id: string;
+    owner: string;
+    path: string;
+    updatedAt: number;
+    contentMd5: string;
+  }>,
+  localResources: ResourceMeta[],
+): string {
+  const sqlPart = rows
+    .map(
+      (row) =>
+        `${row.id}|${row.owner}|${row.path}|${row.updatedAt}|${row.contentMd5}`,
+    )
+    .sort()
+    .join("\n");
+  // Local metadata carries the file's content hash, not just its mtime.
+  const localPart = localResources
+    .map(
+      (resource) =>
+        `${resource.path}@${resource.updatedAt}@${resource.metadata ?? ""}`,
+    )
+    .sort()
+    .join("\n");
+  return crypto
+    .createHash("sha256")
+    .update(`${sqlPart}\n--\n${localPart}`)
+    .digest("hex");
+}
+
+/**
+ * A cheap change detector for everything `resourceListAllOwners(pathPrefix)`
+ * reads: any insert, update, delete, move or snapshot restore of a SQL row
+ * changes it, including a same-size edit in the same millisecond. Content is
+ * hashed in the database, so only short per-row digests are transferred.
+ * Local workspace files are tracked by path, modification time and content
+ * hash. Equal to
+ * the fingerprint `resourceListAllOwnersWithFingerprint` returns for the same
+ * state.
+ */
+export async function resourceFingerprintAllOwners(
   pathPrefix: string,
-  options: { includeShadowedWorkspaceRows?: boolean } = {},
-): Promise<Resource[]> {
+  options: { timeoutMs?: number } = {},
+): Promise<string> {
   await ensureTable();
-  const client = getDbExec();
-  const { rows } = await client.execute({
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT id, owner, path, updated_at, md5(COALESCE(content, '')) AS content_md5 FROM resources WHERE path LIKE ? ESCAPE '!'`,
+    args: [prefixLike(pathPrefix)],
+    ...(options.timeoutMs === undefined
+      ? {}
+      : { timeoutMs: options.timeoutMs, maxAttempts: 1 }),
+  });
+  return resourceFingerprint(
+    rows.map((row) => ({
+      id: row.id as string,
+      owner: row.owner as string,
+      path: row.path as string,
+      updatedAt: Number(row.updated_at),
+      contentMd5: row.content_md5 as string,
+    })),
+    await localWorkspaceResourceMetas(pathPrefix),
+  );
+}
+
+async function readAllOwners(pathPrefix: string): Promise<{
+  rows: Record<string, unknown>[];
+  localMetas: ResourceMeta[];
+  localResources: Resource[];
+}> {
+  await ensureTable();
+  const { rows } = await getDbExec().execute({
     sql: `SELECT * FROM resources WHERE path LIKE ? ESCAPE '!'`,
     args: [prefixLike(pathPrefix)],
   });
+  const localMetas = await localWorkspaceResourceMetas(pathPrefix);
   const localResources = (
-    await Promise.all(
-      (
-        await localWorkspaceResourceMetas(pathPrefix)
-      ).map((resource) => resourceGet(resource.id)),
-    )
+    await Promise.all(localMetas.map((resource) => resourceGet(resource.id)))
   ).filter((resource): resource is Resource => !!resource);
+  return { rows, localMetas, localResources };
+}
+
+function mergeAllOwners(
+  rows: Record<string, unknown>[],
+  localResources: Resource[],
+  includeShadowedWorkspaceRows: boolean | undefined,
+): Resource[] {
   const localPaths = new Set(localResources.map((resource) => resource.path));
   return [
     ...localResources,
@@ -2646,11 +2848,51 @@ export async function resourceListAllOwners(
       .map(rowToResource)
       .filter(
         (resource) =>
-          options.includeShadowedWorkspaceRows ||
+          includeShadowedWorkspaceRows ||
           resource.owner !== WORKSPACE_OWNER ||
           !localPaths.has(resource.path),
       ),
   ];
+}
+
+export async function resourceListAllOwners(
+  pathPrefix: string,
+  options: { includeShadowedWorkspaceRows?: boolean } = {},
+): Promise<Resource[]> {
+  const { rows, localResources } = await readAllOwners(pathPrefix);
+  return mergeAllOwners(
+    rows,
+    localResources,
+    options.includeShadowedWorkspaceRows,
+  );
+}
+
+/**
+ * `resourceListAllOwners` plus the fingerprint of exactly the rows that one
+ * read returned, so a later `resourceFingerprintAllOwners` match proves the
+ * list is unchanged.
+ */
+export async function resourceListAllOwnersWithFingerprint(
+  pathPrefix: string,
+): Promise<{ resources: Resource[]; fingerprint: string }> {
+  const { rows, localMetas, localResources } = await readAllOwners(pathPrefix);
+  const fingerprint = resourceFingerprint(
+    rows.map((row) => ({
+      id: row.id as string,
+      owner: row.owner as string,
+      path: row.path as string,
+      updatedAt: Number(row.updated_at),
+      contentMd5: crypto
+        .createHash("md5")
+        .update((row.content as string | null) ?? "", "utf8")
+        .digest("hex"),
+    })),
+    localMetas,
+  );
+  return {
+    resources: mergeAllOwners(rows, localResources, false),
+    fingerprint,
+  };
 }
 
 export async function resourceMove(

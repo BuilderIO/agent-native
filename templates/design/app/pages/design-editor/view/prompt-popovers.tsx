@@ -1,5 +1,6 @@
 import { readCreativeContextState } from "@agent-native/creative-context/client";
 import { type PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
+import { InvalidCanvasDimensionsError } from "@shared/canvas-dimensions";
 import { getOverviewScreenFileIds } from "@shared/design-files";
 import { toast } from "sonner";
 
@@ -73,7 +74,6 @@ export function renderPromptPopovers({
     setGenerationChatTabId,
     generating,
     promptAnchorRef,
-    tweaksEnabled,
     migrateMutation,
     saveDesignAsTemplateMutation,
   } = editorGenerationAndAccess;
@@ -114,6 +114,7 @@ export function renderPromptPopovers({
         scopeDraftsToOrg={isSignedIn}
         open={showPrompt}
         onOpenChange={handlePromptOpenChange}
+        requireAgentEngine
         title={t("designEditor.generateDesign")}
         placeholder={t("designEditor.generatePlaceholder")}
         onSubmit={async (
@@ -164,21 +165,17 @@ export function renderPromptPopovers({
             shouldExploreVariants ||
             hasReferenceImages ||
             (intake ? allIntakeTopicsCovered(intake.coverage) : false);
-          const context = [
-            `The user has design "${id}" (title: "${design.title}") open and wants to fill it with design files.`,
-            `User request: "${prompt}"`,
-            designSystemId ? `Design system id: "${designSystemId}"` : "",
-            designSystemContext,
-            fileContext,
-            "",
-            ...(shouldExploreVariants
-              ? designVariantGenerationDirectives(id, designSystemId)
+          let generationDirectives: string[];
+          try {
+            generationDirectives = shouldExploreVariants
+              ? designVariantGenerationDirectives(id, designSystemId, prompt)
               : shouldSkipQuestions
                 ? [
                     ...designGenerationDirectives(
                       id,
                       designSystemId,
                       images.length,
+                      prompt,
                     ),
                     ...(intake?.explicitContext &&
                     intake.precedent.status === "strong"
@@ -200,7 +197,22 @@ export function renderPromptPopovers({
                           unavailableReason: intake.unavailableReason,
                         }
                       : undefined,
-                  )),
+                    prompt,
+                  );
+          } catch (error) {
+            if (!(error instanceof InvalidCanvasDimensionsError)) throw error;
+            const issue = t("designEditor.invalidCanvasDimensions");
+            setGenerationIssue(issue);
+            throw new Error(issue);
+          }
+          const context = [
+            `The user has design "${id}" (title: "${design.title}") open and wants to fill it with design files.`,
+            `User request: "${prompt}"`,
+            designSystemId ? `Design system id: "${designSystemId}"` : "",
+            designSystemContext,
+            fileContext,
+            "",
+            ...generationDirectives,
           ].join("\n");
           clearGenerationCompleteTimer();
           setGenerationIssue(null);
@@ -268,8 +280,9 @@ export function renderPromptPopovers({
       />
       <PromptPopover
         scopeDraftsToOrg={isSignedIn}
-        open={showTweakPrompt && tweaksEnabled}
+        open={showTweakPrompt}
         onOpenChange={handleTweakPromptOpenChange}
+        requireAgentEngine
         title={t("designEditor.tweaksPromptTitle")}
         placeholder={t("designEditor.tweaksPlaceholder")}
         onSubmit={handleTweakPromptSubmit}

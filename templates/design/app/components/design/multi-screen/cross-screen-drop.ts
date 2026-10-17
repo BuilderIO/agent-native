@@ -10,6 +10,7 @@ import type {
   CrossScreenDropMode,
   CrossScreenDropPlacement,
   CrossScreenHitTestAnchorRect,
+  CrossScreenHitTestOrigin,
   CrossScreenHitTestResult,
   FrameGeometry,
   Point,
@@ -318,10 +319,13 @@ export function applyCrossScreenPathFrameDropTarget(args: {
 }
 
 export function getCrossScreenSourceGeometry(args: {
+  dragStartGeometry?: FrameGeometry;
   renderedGeometry?: FrameGeometry;
   persistedGeometry?: FrameGeometry;
 }): FrameGeometry | undefined {
-  return args.renderedGeometry ?? args.persistedGeometry;
+  return (
+    args.dragStartGeometry ?? args.renderedGeometry ?? args.persistedGeometry
+  );
 }
 
 export function getBoardDropRoute(args: {
@@ -441,6 +445,14 @@ export function isCrossScreenHitTestAnchorRect(
     Number.isFinite(rect.width) &&
     Number.isFinite(rect.height)
   );
+}
+
+export function isCrossScreenHitTestOrigin(
+  value: unknown,
+): value is CrossScreenHitTestOrigin {
+  if (!value || typeof value !== "object") return false;
+  const origin = value as Record<string, unknown>;
+  return Number.isFinite(origin.left) && Number.isFinite(origin.top);
 }
 
 export function isCrossScreenGridPlacement(

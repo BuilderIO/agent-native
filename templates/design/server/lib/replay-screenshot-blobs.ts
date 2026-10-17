@@ -1,11 +1,14 @@
 import { fail } from "@agent-native/core/action";
 import {
   deletePrivateBlob,
+  getActivePrivateBlobProviderForRequest,
+  isPrivateBlobConfiguredForRequest,
   putPrivateBlob,
   resolveAttachment,
   type PrivateBlobHandle,
 } from "@agent-native/core/private-blob";
 
+import { isValidReplayScreenshotBlobHandle } from "./replay-screenshot-private-blob.js";
 import { deleteVisualEditSnapshotBlobs } from "./visual-edit-snapshot-blobs.js";
 
 export const MAX_REPLAY_SCREENSHOT_BYTES = 10 * 1024 * 1024;
@@ -19,6 +22,27 @@ export interface StoredReplayScreenshotBlob {
   blobHandle: PrivateBlobHandle;
   mimeType: ReplayScreenshotMimeType;
   sizeBytes: number;
+}
+
+export type ReplayScreenshotStorage =
+  | { kind: "private-provider"; providerId: string }
+  | { kind: "encrypted-public-upload" };
+
+export async function resolveReplayScreenshotStorage(
+  allowEncryptedPublicUploadFallback: boolean,
+): Promise<ReplayScreenshotStorage> {
+  const provider = await getActivePrivateBlobProviderForRequest();
+  if (provider) return { kind: "private-provider", providerId: provider.id };
+  if (
+    allowEncryptedPublicUploadFallback === true &&
+    (await isPrivateBlobConfiguredForRequest())
+  ) {
+    return { kind: "encrypted-public-upload" };
+  }
+  fail(
+    "Replay screenshots require a configured private blob provider. Set allowEncryptedPublicUploadFallback to true only when approved to use the app's encrypted public-upload fallback.",
+    { errorCode: "private_blob_provider_required", statusCode: 503 },
+  );
 }
 
 export function detectImageMimeType(
@@ -55,30 +79,29 @@ export function detectImageMimeType(
   return null;
 }
 
-export function attachmentFailureMessage(status: string): string {
-  if (status === "forbiddenScope") {
-    return "Screenshot attachments must be personal files owned by the current user.";
+export function validateReplayScreenshotBytes(
+  data: Uint8Array,
+): ReplayScreenshotMimeType {
+  const mimeType = detectImageMimeType(data);
+  if (!mimeType) {
+    fail("Screenshot bytes must be a PNG, JPEG, or WebP image.", {
+      errorCode: "invalid_replay_screenshot_image",
+      statusCode: 400,
+    });
   }
-  if (status === "storageUnavailable") {
-    return "The screenshot attachment storage is unavailable. Retry with the same attachment reference.";
+  if (data.byteLength === 0 || data.byteLength > MAX_REPLAY_SCREENSHOT_BYTES) {
+    fail("Each replay screenshot must be 10 MiB or smaller.", {
+      errorCode: "replay_screenshot_too_large",
+      statusCode: 413,
+    });
   }
-  return "A screenshot attachment is missing, expired, or invalid. Reattach it and retry.";
+  return mimeType;
 }
 
-/**
- * Copies a personal attachment into the active private blob provider, owned by
- * the design owner, so `/api/design-board-replay-screenshots/:id` can serve it
- * to anyone with viewer access to the design.
- */
-export async function storeAttachmentAsPrivateBlob(args: {
+export async function resolveAttachmentScreenshotBytes(args: {
   attachmentRef: string;
   requesterEmail: string;
-  blobOwnerEmail: string;
-  providerId: string;
-  rowId: string;
-  designId: string;
-  replayId: string;
-}): Promise<StoredReplayScreenshotBlob> {
+}): Promise<Uint8Array> {
   const resolved = await resolveAttachment(args.attachmentRef, {
     ownerEmail: args.requesterEmail,
     orgId: null,
@@ -99,25 +122,32 @@ export async function storeAttachmentAsPrivateBlob(args: {
       },
     });
   }
-  const mimeType = detectImageMimeType(resolved.file.data);
-  if (!mimeType) {
-    fail(
-      "Screenshot attachments must contain PNG, JPEG, or WebP image bytes.",
-      {
-        errorCode: "invalid_replay_screenshot_image",
-        statusCode: 400,
-      },
-    );
+  validateReplayScreenshotBytes(resolved.file.data);
+  return resolved.file.data;
+}
+
+export function attachmentFailureMessage(status: string): string {
+  if (status === "forbiddenScope") {
+    return "Screenshot attachments must be personal files owned by the current user.";
   }
-  const sizeBytes = resolved.file.data.byteLength;
-  if (sizeBytes === 0 || sizeBytes > MAX_REPLAY_SCREENSHOT_BYTES) {
-    fail("Each replay screenshot must be 10 MiB or smaller.", {
-      errorCode: "replay_screenshot_too_large",
-      statusCode: 413,
-    });
+  if (status === "storageUnavailable") {
+    return "The screenshot attachment storage is unavailable. Retry with the same attachment reference.";
   }
+  return "A screenshot attachment is missing, expired, or invalid. Reattach it and retry.";
+}
+
+export async function storeReplayScreenshotBytesAsPrivateBlob(args: {
+  data: Uint8Array;
+  blobOwnerEmail: string;
+  providerId?: string;
+  rowId: string;
+  designId: string;
+  replayId: string;
+}): Promise<StoredReplayScreenshotBlob> {
+  const mimeType = validateReplayScreenshotBytes(args.data);
+  const sizeBytes = args.data.byteLength;
   const blobHandle = await putPrivateBlob({
-    data: resolved.file.data,
+    data: args.data,
     filename: `session-replay-${args.rowId}.${mimeType === "image/jpeg" ? "jpg" : mimeType.slice(6)}`,
     mimeType,
     ownerEmail: args.blobOwnerEmail,
@@ -129,14 +159,44 @@ export async function storeAttachmentAsPrivateBlob(args: {
       statusCode: 503,
     });
   }
-  if (blobHandle.provider !== args.providerId || blobHandle.opaque !== true) {
+  if (
+    !isValidReplayScreenshotBlobHandle(blobHandle) ||
+    (args.providerId && blobHandle.provider !== args.providerId)
+  ) {
     await discardPrivateBlobs([blobHandle]);
-    fail(
-      "Replay screenshots must be stored by the active private blob provider.",
-      { errorCode: "private_blob_provider_mismatch", statusCode: 503 },
-    );
+    fail("Replay screenshots must use an opaque private blob storage handle.", {
+      errorCode: "private_blob_provider_mismatch",
+      statusCode: 503,
+    });
   }
   return { blobHandle, mimeType, sizeBytes };
+}
+
+/**
+ * Copies a personal attachment into private blob storage, owned by the design
+ * owner, so `/api/design-board-replay-screenshots/:id` can serve it to anyone
+ * with viewer access to the design.
+ */
+export async function storeAttachmentAsPrivateBlob(args: {
+  attachmentRef: string;
+  requesterEmail: string;
+  blobOwnerEmail: string;
+  providerId?: string;
+  rowId: string;
+  designId: string;
+  replayId: string;
+}): Promise<StoredReplayScreenshotBlob> {
+  return storeReplayScreenshotBytesAsPrivateBlob({
+    data: await resolveAttachmentScreenshotBytes({
+      attachmentRef: args.attachmentRef,
+      requesterEmail: args.requesterEmail,
+    }),
+    blobOwnerEmail: args.blobOwnerEmail,
+    providerId: args.providerId,
+    rowId: args.rowId,
+    designId: args.designId,
+    replayId: args.replayId,
+  });
 }
 
 /** Deletes blobs no committed row references; anything the provider cannot delete now is queued for retry. */

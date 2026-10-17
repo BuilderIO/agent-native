@@ -19,18 +19,27 @@ import type {
 } from "@/components/design/design-canvas/iframe-events";
 import { DESIGN_FILE_STORAGE_REQUIRED_EVENT } from "@/components/design/editor/DesignBottomToolbar";
 import { FigmaPasteImagesNotice } from "@/components/design/FigmaPasteImagesNotice";
+import {
+  findCanvasIframeForScreen,
+  readCanvasPreviewMeasurementContext,
+} from "@/components/design/multi-screen/iframe-targeting";
 import { getCurrentBoardSelectionWorldBounds } from "@/components/design/multi-screen/overview-layout";
+import { readPortableStyleSnapshot } from "@/components/design/multi-screen/read-portable-style-snapshot";
 import type {
   MultiScreenCanvasProps,
   Point,
   VisibleCanvasRect,
 } from "@/components/design/multi-screen/types";
-import type { ElementInfo } from "@/components/design/types";
+import type {
+  ElementInfo,
+  PortableStyleSnapshot,
+} from "@/components/design/types";
 import {
   getDesignClipboardLayerEntries,
   readDesignClipboardPayloadFromSystem,
   readSystemClipboard,
 } from "@/lib/design-clipboard";
+import type { DesignClipboardManagedStyleSnapshot } from "@/lib/design-clipboard-managed-styles";
 import {
   type DesignClipboardPayload,
   type DesignClipboardScreenEntry,
@@ -42,14 +51,14 @@ import {
   figmaPasteImageNoticeDismissed,
 } from "@/lib/figma-paste-image-notice";
 
-import { uniqueLayerId } from "../canvas-primitive-insert";
-import { insertClonedHtmlLayers } from "../clone-and-pen-edit";
+import { measurePreparedCloneVisualOffset } from "../clone-and-pen-edit";
 import {
   bridgeSourceIdForCodeLayerNode,
   elementInfoFromCodeLayerNode,
 } from "../code-layer-state";
 import type { CanvasLayerClipboardEntry } from "../command-types";
 import { runCopySelection } from "../commands/copy-selection";
+import { runCutSelection } from "../commands/cut-selection";
 import { runDeleteSelection } from "../commands/delete-selection";
 import { runDuplicateSelection } from "../commands/duplicate-selection";
 import { runEditorPaste } from "../commands/editor-paste";
@@ -62,15 +71,19 @@ import {
 import { runInsertFigmaPasteLayers } from "../commands/insert-figma-paste-layers";
 import { runPasteCopiedScreens } from "../commands/paste-copied-screens";
 import { runPasteOverSelection } from "../commands/paste-over-selection";
-import { runPasteSelection } from "../commands/paste-selection";
+import {
+  runPasteSelection,
+  type PasteSelectionArgs,
+  type PastedClipboardLayerSource,
+} from "../commands/paste-selection";
+import { runPastedSvgLayer } from "../commands/paste-svg-layer";
 import { runPasteToReplace } from "../commands/paste-to-replace";
 import {
-  getOverviewCanvasCenter,
+  clientToOverviewCanvasPoint,
   runPastedImageFiles,
   type PastedImageFilesClientAnchor,
   type PastedImageFilesTarget,
 } from "../commands/pasted-image-files";
-import { parsePastedSvg } from "../commands/pasted-svg";
 import { runSendRuntimeLayerSemanticHandoff } from "../commands/send-runtime-layer-semantic-handoff";
 import {
   runContextMenuPaste,
@@ -78,16 +91,17 @@ import {
 } from "../commands/system-clipboard-paste";
 import { runUngroupSelection } from "../commands/ungroup-selection";
 import { withMeasuredGeometry } from "../editor-helpers";
+import { isStandaloneHttpUrl } from "../editor-state";
 import { resolveFigmaPasteScene } from "../figma-paste-scene";
 import {
   autoHeightScreenIds,
   getAllScreenFrameEntries,
-  findScreenFrameAtCanvasPoint,
   pinnedHeightScreenIds,
   withMeasuredFrameHeights,
   getBoardSelectionFitBounds,
 } from "../overview-camera";
 import { resolvePastePlacementForSelection } from "../paste-placement";
+import { positionCoordinateRenderOffsetForWindow } from "../position-coordinate-context";
 import type { EditorActiveScreenAndGeometry } from "./use-editor-active-screen-and-geometry";
 import type { EditorCanvasAndScreens } from "./use-editor-canvas-and-screens";
 import type { EditorContentAndComponents } from "./use-editor-content-and-components";
@@ -156,11 +170,13 @@ export function useEditorClipboard({
     latestClipboardMutationContentRef,
     clipboardPasteUndoStackRef,
     clipboardPasteRedoStackRef,
+    selectedLayerIdsStateRef,
+    overviewSelectedScreenIdsRef,
+    explicitOverviewScreenSelectionRef,
     activeBreakpointWidthState,
     activeBreakpointWidthStateRef,
     undoManagerRef,
     contentUndoStackRef,
-    explicitOverviewScreenSelectionRef,
     historyOrderRef,
     clearRedoStacks,
     captureCurrentSelection,
@@ -230,6 +246,125 @@ export function useEditorClipboard({
   } = editorSelectionAndStyles;
   const { recordPendingLiveStructureEdit } = editorScreenChangeHandlers;
 
+  const getRenderedElementInfoForSelector = useCallback(
+    (selector: string): ElementInfo | null | undefined => {
+      if (!activeFile) return undefined;
+      const content = getFreshActiveContent();
+      if (isStandaloneHttpUrl(activeFile.content ?? content)) return undefined;
+      const projection = buildCodeLayerProjection(content, {
+        source: { kind: "design-file", fileId: activeFile.id },
+      });
+      const node = projection.nodes.find((candidate) =>
+        candidate.selectors.includes(selector),
+      );
+      if (!node) return null;
+      const frame = findCanvasIframeForScreen(
+        canvasContainerRef.current,
+        activeFile.id,
+        boardFileId,
+        viewModeRef.current === "overview"
+          ? activeBreakpointWidthStateRef.current
+          : undefined,
+      );
+      if (!frame) return null;
+      const measured = withMeasuredGeometry(
+        elementInfoFromCodeLayerNode(node),
+        activeFile.id,
+        { measureAbsoluteSiblingVisualOrigin: true, previewIframe: frame },
+      );
+      return measured.absoluteSiblingVisualOrigin ? measured : null;
+    },
+    [
+      activeFile,
+      activeBreakpointWidthStateRef,
+      boardFileId,
+      canvasContainerRef,
+      getFreshActiveContent,
+      viewModeRef,
+    ],
+  );
+  const getPreparedCloneVisualOffset = useCallback(
+    (
+      selector: string,
+      layerHtml: string,
+      styleSnapshot?: PortableStyleSnapshot,
+      managedStyleSnapshot?: DesignClipboardManagedStyleSnapshot,
+      sourceFileId?: string,
+      placement: "before" | "after" | "inside" = "before",
+      targetFileId: string | undefined = activeFile?.id,
+    ):
+      | { x: number; y: number; styleSnapshot?: PortableStyleSnapshot }
+      | null
+      | undefined => {
+      if (!targetFileId || typeof document === "undefined") return undefined;
+      const breakpointWidth =
+        viewModeRef.current === "overview"
+          ? activeBreakpointWidthStateRef.current
+          : undefined;
+      const frame = findCanvasIframeForScreen(
+        canvasContainerRef.current,
+        targetFileId,
+        boardFileId,
+        breakpointWidth,
+      );
+      const expectedBreakpointPreview =
+        breakpointWidth !== undefined && targetFileId !== boardFileId;
+      try {
+        const preview = readCanvasPreviewMeasurementContext(
+          frame,
+          expectedBreakpointPreview,
+        );
+        if (!preview) return preview;
+        const { view, doc } = preview;
+        const target = doc.querySelector(selector);
+        const renderOffset = positionCoordinateRenderOffsetForWindow(view);
+        if (!target || !renderOffset) return null;
+        return measurePreparedCloneVisualOffset(target, layerHtml, {
+          styleSnapshot,
+          managedStyleSnapshot,
+          placement,
+          preserveSourceAuthoredRootStyles:
+            sourceFileId !== undefined && sourceFileId === targetFileId,
+          view,
+          renderOffset,
+        });
+      } catch {
+        // coercion-ok: inaccessible preview geometry makes paste fail visibly.
+        return null;
+      }
+    },
+    [
+      activeFile?.id,
+      activeBreakpointWidthStateRef,
+      boardFileId,
+      canvasContainerRef,
+      viewModeRef,
+    ],
+  );
+
+  const getPreparedPasteVisualOffset = useCallback<
+    NonNullable<PasteSelectionArgs["getPreparedPasteVisualOffset"]>
+  >(
+    ({
+      targetFileId,
+      targetSelector,
+      placement,
+      layerHtml,
+      styleSnapshot,
+      managedStyleSnapshot,
+    }) =>
+      getPreparedCloneVisualOffset(
+        targetSelector ?? "body",
+        layerHtml,
+        styleSnapshot,
+        managedStyleSnapshot,
+        undefined,
+        placement,
+        targetFileId,
+      ),
+    [getPreparedCloneVisualOffset],
+  );
+
   const canUploadDesignMedia =
     fileUploadStatus.isSuccess && fileUploadStatus.data.configured === true;
   const requestFileStorageSetup = useCallback(() => {
@@ -250,6 +385,9 @@ export function useEditorClipboard({
   const lastWrittenClipboardMarkerRef = useRef<string | null>(null);
   const lastWrittenClipboardPlainTextRef = useRef<string | null>(null);
   const pasteCascadeRef = useRef(0);
+  const pastedClipboardLayerSourcesRef = useRef(
+    new Map<string, PastedClipboardLayerSource>(),
+  );
   const figmaPasteImportingRef = useRef(false);
   const [figmaHydrationOpen, setFigmaHydrationOpen] = useState(false);
   const [figmaHydrationFileIds, setFigmaHydrationFileIds] = useState<string[]>(
@@ -316,6 +454,31 @@ export function useEditorClipboard({
       selectedLayerIdsState,
     ],
   );
+
+  // Cut reads this after an awaited clipboard write; the ref keeps it on the
+  // latest render instead of the closure captured when cut started.
+  const getSelectionContentKey = () => {
+    const layerSnapshots = getSelectedLayerSnapshots();
+    const screenIds =
+      layerSnapshots.length === 0 && viewModeRef.current === "overview"
+        ? overviewSelectedScreenIds
+        : [];
+    return JSON.stringify([
+      layerSnapshots.map((snapshot) => [
+        snapshot.rootNodeId,
+        snapshot.sourceFileId,
+        snapshot.html,
+      ]),
+      screenIds.map((screenId) => [
+        screenId,
+        getScreenContent(screenId),
+        liveScreenSnapshotsById[screenId]?.html,
+        runtimeLayerSnapshotsById[screenId]?.html,
+      ]),
+    ]);
+  };
+  const getSelectionContentKeyRef = useRef(getSelectionContentKey);
+  getSelectionContentKeyRef.current = getSelectionContentKey;
 
   const getCanvasClipboardEntries = useCallback(() => {
     return getDesignClipboardLayerEntries({
@@ -429,12 +592,22 @@ export function useEditorClipboard({
         overviewScreens,
         overviewSelectedScreenIds,
         pasteCascadeRef,
+        readPortableStyleSnapshot: (screenId, target) =>
+          readPortableStyleSnapshot(
+            screenId,
+            target,
+            viewModeRef.current === "overview"
+              ? activeBreakpointWidthStateRef.current
+              : undefined,
+            boardFileId,
+          ),
         runtimeLayerSnapshotsById,
         setHasCanvasClipboard,
         t,
         viewModeRef,
       }),
     [
+      boardFileId,
       canvasFrameGeometryById,
       designSourceType,
       files,
@@ -459,7 +632,9 @@ export function useEditorClipboard({
           canvasFrameGeometryById,
           createFileMutation,
           files,
+          getVisibleCanvasRect: () => visibleCanvasRectRef.current?.() ?? null,
           id,
+          overviewScreens,
           pasteCascadeRef,
           queryClient,
           queueFrameGeometrySave,
@@ -481,6 +656,7 @@ export function useEditorClipboard({
       createFileMutation,
       files,
       id,
+      overviewScreens,
       queryClient,
       queueFrameGeometrySave,
       t,
@@ -500,6 +676,7 @@ export function useEditorClipboard({
           boardFileId,
           canEditDesign,
           canvasContainerRef,
+          canvasFrameGeometryById,
           clearRedoStacks,
           clipboardPasteRedoStackRef,
           clipboardPasteUndoStackRef,
@@ -507,10 +684,15 @@ export function useEditorClipboard({
           getCanvasClipboardEntries,
           getCanvasScreenClipboardEntries,
           getFreshActiveContent,
+          getPreparedPasteVisualOffset,
           getScreenContent,
+          getVisibleCanvasRect: () => visibleCanvasRectRef.current?.() ?? null,
           historyOrderRef,
           latestClipboardMutationContentRef,
+          overviewScreens,
+          overviewSelectedScreenIds,
           pasteCascadeRef,
+          pastedClipboardLayerSourcesRef,
           pasteCopiedScreens,
           pendingLocalFileContentsRef,
           publishAuthoritativeClipboardMutation,
@@ -538,12 +720,16 @@ export function useEditorClipboard({
       boardFileId,
       canEditDesign,
       canEditLiveScreen,
+      canvasFrameGeometryById,
       getCanvasClipboardEntries,
       getCanvasScreenClipboardEntries,
       getFreshActiveContent,
+      getPreparedPasteVisualOffset,
       getScreenContent,
       historyOrderRef,
       files,
+      overviewScreens,
+      overviewSelectedScreenIds,
       pasteCopiedScreens,
       publishAuthoritativeClipboardMutation,
       refreshClipboardFromSystemClipboard,
@@ -624,6 +810,12 @@ export function useEditorClipboard({
     ],
   );
 
+  const getScreenContentRef = useRef(getScreenContent);
+  getScreenContentRef.current = getScreenContent;
+  const uploadImageFileForHtmlRef = useRef<(file: File) => Promise<string>>(
+    async () => "",
+  );
+
   const showPastedImagesNotice = useCallback(
     ({ count, fileIds }: { count: number; fileIds: string[] }) => {
       if (figmaPasteImageNoticeDismissed()) return;
@@ -633,6 +825,8 @@ export function useEditorClipboard({
             count={count}
             designId={id ?? ""}
             fileIds={fileIds}
+            getScreenContent={(fileId) => getScreenContentRef.current(fileId)}
+            uploadImage={(file) => uploadImageFileForHtmlRef.current(file)}
             onConnect={() => {
               setFigmaHydrationFileIds(fileIds);
               setFigmaHydrationOpen(true);
@@ -681,127 +875,56 @@ export function useEditorClipboard({
 
   const handlePastedSvg = useCallback(
     (source: string, sourceScreenId?: string) => {
-      const parsed = parsePastedSvg(source);
-      if (!parsed || !canEditDesign || !activeFile?.id) return false;
-
-      let targetFileId = activeFile.id;
-      let point = { x: 120, y: 120 };
-      const pastedIntoScreen =
-        sourceScreenId &&
-        sourceScreenId !== boardFileId &&
-        files.some((file) => file.id === sourceScreenId);
-      if (pastedIntoScreen) {
-        targetFileId = sourceScreenId;
-        const frame = getAllScreenFrameEntries({
-          overviewScreens,
-          canvasFrameGeometryById,
-        }).find((candidate) => candidate.id === sourceScreenId);
-        if (frame) {
-          point = {
-            x: frame.geometry.width / 2,
-            y: frame.geometry.height / 2,
-          };
-        }
-      } else if (viewModeRef.current === "single") {
-        const iframe = canvasContainerRef.current?.querySelector<HTMLElement>(
-          "[data-design-preview-iframe]",
-        );
-        const rect = iframe?.getBoundingClientRect();
-        const factor = zoom / 100;
-        point = rect
-          ? {
-              x: Math.max(0, rect.width / 2 / factor),
-              y: Math.max(0, rect.height / 2 / factor),
-            }
-          : point;
-      } else if (boardFileId) {
-        const frames = getAllScreenFrameEntries({
-          overviewScreens,
-          canvasFrameGeometryById,
-        });
-        let anchor = (() => {
-          if (overviewSelectedScreenIds.length === 1) {
-            const selected = frames.find(
-              (frame) => frame.id === overviewSelectedScreenIds[0],
-            );
-            if (selected) {
-              return {
-                x: selected.geometry.x + selected.geometry.width / 2,
-                y: selected.geometry.y + selected.geometry.height / 2,
-              };
-            }
-          }
-          return getOverviewCanvasCenter(canvasContainerRef.current);
-        })();
-        const hitFrame = findScreenFrameAtCanvasPoint(
-          anchor,
-          frames,
+      return runPastedSvgLayer(
+        {
+          activeFileId: activeFile?.id,
+          applyLinkedComponentEdit,
+          applyFileContentUpdate,
+          applyLocalContentUpdate,
           boardFileId,
-        );
-        targetFileId = hitFrame?.id ?? boardFileId;
-        if (hitFrame) {
-          anchor = {
-            x: anchor.x - hitFrame.geometry.x,
-            y: anchor.y - hitFrame.geometry.y,
-          };
-        }
-        point = anchor;
-      }
-
-      const nodeId = uniqueLayerId("pasted-svg");
-      const svgDocument = new DOMParser().parseFromString(
-        parsed.svg,
-        "image/svg+xml",
+          canEditDesign,
+          canvasContainerRef,
+          canvasFrameGeometryById,
+          designId: id,
+          files,
+          getFreshActiveContent,
+          getFreshActivePreviewContent,
+          getScreenContent,
+          overviewScreens,
+          overviewSelectedScreenIds,
+          replacePreviewContent,
+          selectedElement,
+          selectedLayerTargets: selectedLayerTargetsRef.current,
+          selectionBefore: captureCurrentSelection(),
+          selectInsertedLayers,
+          t,
+          viewModeRef,
+          zoom,
+        },
+        source,
+        sourceScreenId,
       );
-      const root = svgDocument.documentElement;
-      root.setAttribute("data-agent-native-node-id", nodeId);
-      root.setAttribute("data-agent-native-layer-name", "Pasted SVG");
-      root.setAttribute("data-an-primitive", "pasted-svg");
-      root.setAttribute(
-        "style",
-        `${root.getAttribute("style") ?? ""};position:absolute;width:${parsed.width}px;height:${parsed.height}px;`,
-      );
-      const layerHtml = root.outerHTML;
-      const baseContent =
-        targetFileId === activeFile.id
-          ? (getFreshActivePreviewContent() ?? getFreshActiveContent())
-          : getScreenContent(targetFileId);
-      const insertion = insertClonedHtmlLayers(baseContent, [layerHtml], {
-        positions: [{ ...point, space: "visual" }],
-      });
-      if (!insertion) {
-        toast.error(t("designEditor.toasts.duplicateElementFailed"));
-        return true;
-      }
-      const nextContent = insertion.content;
-      if (targetFileId === activeFile.id) {
-        replacePreviewContent(nextContent, null, { forceFullDocument: true });
-        applyLocalContentUpdate(nextContent, {
-          forcePreviewFullDocument: true,
-        });
-      } else {
-        applyFileContentUpdate(targetFileId, nextContent, {
-          forcePreviewFullDocument: true,
-        });
-      }
-      selectInsertedLayers(targetFileId, nextContent, insertion.rootNodeIds);
-      return true;
     },
     [
       activeFile?.id,
+      applyLinkedComponentEdit,
       applyFileContentUpdate,
       applyLocalContentUpdate,
       boardFileId,
       canEditDesign,
       canvasContainerRef,
       canvasFrameGeometryById,
+      captureCurrentSelection,
       files,
       getFreshActiveContent,
       getFreshActivePreviewContent,
       getScreenContent,
+      id,
       overviewScreens,
       overviewSelectedScreenIds,
       replacePreviewContent,
+      selectedElement,
+      selectedLayerTargetsRef,
       selectInsertedLayers,
       t,
       viewModeRef,
@@ -864,7 +987,10 @@ export function useEditorClipboard({
         return "";
       }
       const dataUrl = await readFileAsDataUrl(file);
-      if (!dataUrl) return "";
+      if (!dataUrl) {
+        toast.error(t("designEditor.import.errors.uploadFailed"));
+        return "";
+      }
       const result = (await callAction("upload-image", {
         data: dataUrl,
         filename: file.name,
@@ -877,8 +1003,9 @@ export function useEditorClipboard({
       });
       return "";
     },
-    [canUploadDesignMedia, readFileAsDataUrl, requestFileStorageSetup],
+    [canUploadDesignMedia, readFileAsDataUrl, requestFileStorageSetup, t],
   );
+  uploadImageFileForHtmlRef.current = uploadImageFileForHtml;
 
   const uploadMediaFileForHtml = useCallback(
     (file: File) =>
@@ -1187,6 +1314,10 @@ export function useEditorClipboard({
           handlePasteSelection,
           handlePastedImageFiles,
           insertDroppedImageFiles,
+          resolveBoardPoint: (client) =>
+            viewModeRef.current === "overview"
+              ? clientToOverviewCanvasPoint(canvasContainerRef.current, client)
+              : null,
         },
         point,
       ),
@@ -1208,6 +1339,8 @@ export function useEditorClipboard({
             canEditDesign,
             getCanvasClipboardEntries,
             getFreshActiveContent,
+            getRenderedElementInfoForSelector,
+            getPreparedCloneVisualOffset,
             runtimeStructureInsertRevisionRef,
             selectInsertedLayers,
             selectedCanvasSelector,
@@ -1240,6 +1373,8 @@ export function useEditorClipboard({
       uploadImageFileForHtml,
       getCanvasClipboardEntries,
       getFreshActiveContent,
+      getRenderedElementInfoForSelector,
+      getPreparedCloneVisualOffset,
       selectedCanvasSelector,
       selectInsertedLayers,
       selectedElement?.boundingRect,
@@ -1462,10 +1597,25 @@ export function useEditorClipboard({
   );
 
   const handleCutSelection = useCallback(async () => {
-    const copied = await handleCopySelection();
-    if (!copied) return;
-    handleDeleteSelection();
-  }, [handleCopySelection, handleDeleteSelection]);
+    await runCutSelection({
+      copySelection: handleCopySelection,
+      deleteSelection: handleDeleteSelection,
+      getSelectedLayerIds: () => [
+        ...selectedLayerIdsStateRef.current.map((id) => `layer:${id}`),
+        ...overviewSelectedScreenIdsRef.current.map((id) => `screen:${id}`),
+        ...explicitOverviewScreenSelectionRef.current.map(
+          (id) => `explicit-screen:${id}`,
+        ),
+      ],
+      getSelectionContentKey: () => getSelectionContentKeyRef.current(),
+    });
+  }, [
+    explicitOverviewScreenSelectionRef,
+    handleCopySelection,
+    handleDeleteSelection,
+    overviewSelectedScreenIdsRef,
+    selectedLayerIdsStateRef,
+  ]);
 
   const handleZoomToSelectionFit = useCallback(() => {
     const allFrames = withMeasuredFrameHeights(

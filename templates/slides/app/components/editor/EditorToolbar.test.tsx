@@ -14,9 +14,14 @@ import { createRef, type AnchorHTMLAttributes, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  shareButton: vi.fn(() => null),
+  shareButton: vi.fn((_props: ShareButtonProps) => null),
+  openMcpAppHostLink: vi.fn<(url: string) => Promise<boolean> | false>(
+    () => false,
+  ),
   exportMenu: vi.fn(),
+  exportSubmenu: vi.fn(),
   registerEditorCommands: vi.fn(),
+  widgetEmbed: { value: false },
   creativeContextLabEnabled: { value: true },
   uploadPromptFiles: vi.fn(),
   cleanupUploadedPromptFiles: vi.fn(),
@@ -47,7 +52,8 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 
 vi.mock("@agent-native/core/client/mcp-app-host", () => ({
-  useIsMcpAppWidgetEmbed: () => false,
+  openMcpAppHostLink: (url: string) => mocks.openMcpAppHostLink(url),
+  useIsMcpAppWidgetEmbed: () => mocks.widgetEmbed.value,
   useIsMcpDirectoryWidgetReadOnlyEmbed: () =>
     mocks.readOnlyDirectoryWidget.value,
 }));
@@ -60,7 +66,16 @@ vi.mock("sonner", () => ({
 }));
 
 vi.mock("@agent-native/toolkit/app/progress", () => ({
-  RunsTray: () => null,
+  RunsTray: () => <div data-testid="runs-tray" />,
+}));
+
+vi.mock("@agent-native/toolkit/app/chat", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  AgentToggleButton: () => <button type="button" data-testid="agent-toggle" />,
+}));
+
+vi.mock("@agent-native/toolkit/app/feedback", () => ({
+  FeedbackButton: () => null,
 }));
 
 vi.mock("@agent-native/toolkit/app/sharing", () => ({
@@ -116,6 +131,10 @@ vi.mock("./ExportMenu", () => ({
     mocks.exportMenu(props);
     return null;
   },
+  ExportSubmenu: (props: { hasSlides?: boolean }) => {
+    mocks.exportSubmenu(props);
+    return null;
+  },
   ExportStatusDialog: () => null,
 }));
 
@@ -160,10 +179,13 @@ function render(ui: ReactNode, options?: RenderOptions) {
 }
 
 type ShareButtonProps = {
+  mobileSheet?: boolean;
+  basicSharingOnly?: boolean;
   resourceType?: string;
   resourceId?: string;
   resourceTitle?: string;
   panelTitle?: string;
+  triggerClassName?: string;
   shareUrl?: string;
   showShareLinks?: boolean;
   secondaryShareUrl?: string;
@@ -201,13 +223,14 @@ const deckWithSlides: Deck = {
       content: "",
       notes: "",
       layout: "blank",
-      transition: "instant",
+      transition: "none",
     },
   ],
 };
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.widgetEmbed.value = false;
   mocks.creativeContextLabEnabled.value = true;
   mocks.deckContentConflicts = [];
   mocks.saveError.value = undefined;
@@ -218,6 +241,21 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
 });
+
+async function openAppMenu() {
+  fireEvent.pointerDown(screen.getByRole("button", { name: "appMenu.label" }), {
+    button: 0,
+    ctrlKey: false,
+  });
+  await screen.findByRole("menu");
+}
+
+async function openAppSubmenu(name: string) {
+  await openAppMenu();
+  const trigger = screen.getByRole("menuitem", { name });
+  fireEvent.focus(trigger);
+  fireEvent.keyDown(trigger, { key: "ArrowRight" });
+}
 
 describe("<EditorToolbar>", () => {
   const viewerToolbar = () => (
@@ -234,7 +272,7 @@ describe("<EditorToolbar>", () => {
         onGenerateImage={vi.fn()}
         onOpenAssetLibrary={vi.fn()}
         onShowHistory={vi.fn()}
-        historyButtonRef={createRef<HTMLButtonElement>()}
+        panelAnchorRef={createRef<HTMLDivElement>()}
       />
     </TooltipProvider>
   );
@@ -245,6 +283,14 @@ describe("<EditorToolbar>", () => {
 
     expect(screen.getByText("editorToolbar.viewOnly")).toBeTruthy();
     expect(screen.getByTestId("save-status")).toBeTruthy();
+  });
+
+  it("hides the overflow menu when a viewer has nothing in it", () => {
+    render(viewerToolbar());
+
+    expect(
+      screen.queryByRole("button", { name: "editorToolbar.more" }),
+    ).toBeNull();
   });
 
   it("shows no save status to a viewer with nothing failed", () => {
@@ -259,6 +305,184 @@ describe("<EditorToolbar>", () => {
     render(viewerToolbar());
 
     expect(screen.queryByTestId("save-status")).toBeNull();
+  });
+
+  const widgetToolbar = (
+    props: { onTitleChange?: (title: string) => void } = {},
+  ) => (
+    <TooltipProvider>
+      <EditorToolbar
+        deck={deckWithSlides}
+        deckId="deck-1"
+        deckTitle="Test deck"
+        canEdit
+        onTitleChange={props.onTitleChange ?? vi.fn()}
+        currentSlideIndex={0}
+        currentSlide={deckWithSlides.slides[0]}
+        sidebarOpen
+        onToggleSidebar={vi.fn()}
+        onGenerateImage={vi.fn()}
+        onOpenAssetLibrary={vi.fn()}
+        onShowHistory={vi.fn()}
+        panelAnchorRef={createRef<HTMLDivElement>()}
+        onToggleComments={vi.fn()}
+        onUndo={vi.fn()}
+        onRedo={vi.fn()}
+        onToggleLayers={vi.fn()}
+        onToggleAnimations={vi.fn()}
+      />
+    </TooltipProvider>
+  );
+
+  it("shows the app's top bar in a widget minus what the host and the widget grant own", async () => {
+    mocks.widgetEmbed.value = true;
+    const onTitleChange = vi.fn();
+    render(widgetToolbar({ onTitleChange }));
+
+    const title = screen.getByDisplayValue("Test deck");
+    expect(title).toHaveProperty("readOnly", false);
+    fireEvent.change(title, { target: { value: "Renamed" } });
+    expect(onTitleChange).toHaveBeenCalledWith("Renamed");
+    // The title sizes to its text exactly as in the app; it does not give way
+    // to the other controls.
+    expect(title.className).toContain("shrink-0");
+    expect(title.className).not.toContain("truncate");
+
+    expect(mocks.shareButton).toHaveBeenCalled();
+    const shareProps = mocks.shareButton.mock.calls.at(-1)![0];
+    expect(shareProps).toMatchObject({
+      resourceType: "deck",
+      resourceId: "deck-1",
+      resourceTitle: "Test deck",
+    });
+    // The context tab, access requests and agent links need actions the
+    // widget grant does not carry.
+    expect(shareProps.shareTabs).toBeUndefined();
+    expect(shareProps.basicSharingOnly).toBe(true);
+    // Share is the app's popover, not a widget-only bottom sheet.
+    expect(shareProps.mobileSheet).toBeFalsy();
+
+    expect(screen.getByText("editorToolbar.present")).toBeTruthy();
+    // The host owns navigation and chat.
+    expect(screen.queryByTestId("agent-toggle")).toBeNull();
+    expect(screen.queryByTestId("runs-tray")).toBeNull();
+    screen.getByRole("button", { name: "editorToolbar.more" }).click();
+    expect(screen.queryByText("editorToolbar.comments")).toBeNull();
+
+    await openAppMenu();
+    expect(screen.getByRole("menuitem", { name: "appMenu.edit" })).toBeTruthy();
+    expect(
+      screen.queryByRole("menuitem", { name: "appMenu.backToDashboard" }),
+    ).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "appMenu.file" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "appMenu.help" })).toBeNull();
+    expect(mocks.exportSubmenu).not.toHaveBeenCalled();
+  });
+
+  it("keeps the export handle mounted while the app menu is closed", () => {
+    render(widgetToolbar());
+
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(mocks.exportMenu).toHaveBeenCalledWith(
+      expect.objectContaining({ headless: true, hasSlides: true }),
+    );
+  });
+
+  it("keeps the same Share component and sizing in and out of a widget", () => {
+    render(widgetToolbar());
+    const standard = mocks.shareButton.mock.calls.at(-1)![0];
+    cleanup();
+    mocks.shareButton.mockClear();
+
+    mocks.widgetEmbed.value = true;
+    render(widgetToolbar());
+    const embedded = mocks.shareButton.mock.calls.at(-1)![0];
+
+    expect(embedded.mobileSheet).toBe(standard.mobileSheet);
+    expect(embedded.triggerClassName).toBe(standard.triggerClassName);
+    expect(embedded.showShareLinks).toBe(standard.showShareLinks);
+  });
+
+  it("keeps the way back to the deck list and the agent controls outside the widget", async () => {
+    render(widgetToolbar());
+
+    expect(screen.getByTestId("agent-toggle")).toBeTruthy();
+    expect(screen.getByTestId("runs-tray")).toBeTruthy();
+    await openAppMenu();
+    expect(
+      screen
+        .getByRole("menuitem", { name: "appMenu.backToDashboard" })
+        .getAttribute("href"),
+    ).toBe("/home");
+  });
+
+  it("keeps the creative context tab in Share outside the widget", () => {
+    render(widgetToolbar());
+
+    const shareProps = mocks.shareButton.mock.calls.at(-1)![0];
+    expect(shareProps.shareTabs?.tabs?.[0]?.value).toBe("context");
+    expect(shareProps.basicSharingOnly).toBe(false);
+    expect(
+      screen.queryByRole("button", {
+        name: "editorToolbar.openInAgentNative",
+      }),
+    ).toBeNull();
+  });
+
+  describe("Open in Agent-Native", () => {
+    const openSpy = vi.fn();
+
+    beforeEach(() => {
+      mocks.widgetEmbed.value = true;
+      openSpy.mockReset();
+      vi.stubGlobal("open", openSpy);
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    const openButton = () =>
+      screen.getByRole("button", { name: "editorToolbar.openInAgentNative" });
+
+    it("asks the host to open the deck's app link", async () => {
+      mocks.openMcpAppHostLink.mockResolvedValue(true);
+      render(widgetToolbar());
+
+      fireEvent.click(openButton());
+
+      expect(mocks.openMcpAppHostLink).toHaveBeenCalledTimes(1);
+      expect(mocks.openMcpAppHostLink.mock.calls[0]![0]).toMatch(
+        /\/deck\/deck-1$/,
+      );
+      await Promise.resolve();
+      expect(openSpy).not.toHaveBeenCalled();
+    });
+
+    it("opens a new tab when the host has no link bridge", () => {
+      mocks.openMcpAppHostLink.mockReturnValue(false);
+      render(widgetToolbar());
+
+      fireEvent.click(openButton());
+
+      expect(openSpy).toHaveBeenCalledWith(
+        mocks.openMcpAppHostLink.mock.calls[0]![0],
+        "_blank",
+        "noopener,noreferrer",
+      );
+    });
+
+    it.each([
+      ["refuses the link", () => Promise.resolve(false)],
+      ["rejects the request", () => Promise.reject(new Error("blocked"))],
+    ])("opens a new tab when the host %s", async (_name, request) => {
+      mocks.openMcpAppHostLink.mockImplementation(request);
+      render(widgetToolbar());
+
+      fireEvent.click(openButton());
+
+      await waitFor(() => expect(openSpy).toHaveBeenCalledTimes(1));
+    });
   });
 
   it("waits for a retry to settle before refetching the role", () => {
@@ -314,7 +538,7 @@ describe("<EditorToolbar>", () => {
           onGenerateImage={vi.fn()}
           onOpenAssetLibrary={vi.fn()}
           onShowHistory={vi.fn()}
-          historyButtonRef={createRef<HTMLButtonElement>()}
+          panelAnchorRef={createRef<HTMLDivElement>()}
         />
       </TooltipProvider>,
     );
@@ -361,7 +585,7 @@ describe("<EditorToolbar>", () => {
             onGenerateImage={vi.fn()}
             onOpenAssetLibrary={vi.fn()}
             onShowHistory={vi.fn()}
-            historyButtonRef={createRef<HTMLButtonElement>()}
+            panelAnchorRef={createRef<HTMLDivElement>()}
           />
         </TooltipProvider>,
       );
@@ -420,7 +644,7 @@ describe("<EditorToolbar>", () => {
           onGenerateImage={vi.fn()}
           onOpenAssetLibrary={vi.fn()}
           onShowHistory={vi.fn()}
-          historyButtonRef={createRef<HTMLButtonElement>()}
+          panelAnchorRef={createRef<HTMLDivElement>()}
         />
       </TooltipProvider>,
     );
@@ -458,7 +682,7 @@ describe("<EditorToolbar>", () => {
       content: "",
       notes: "",
       layout: "blank" as const,
-      transition: "instant" as const,
+      transition: "none" as const,
     };
 
     render(
@@ -474,7 +698,7 @@ describe("<EditorToolbar>", () => {
           onGenerateImage={vi.fn()}
           onOpenAssetLibrary={vi.fn()}
           onShowHistory={onShowHistory}
-          historyButtonRef={createRef<HTMLButtonElement>()}
+          panelAnchorRef={createRef<HTMLDivElement>()}
           currentSlide={slide}
           onAddEmptySlide={onAddEmptySlide}
           onToggleTextBoxMode={onToggleTextBoxMode}
@@ -500,10 +724,14 @@ describe("<EditorToolbar>", () => {
         "shape-circle",
         "element-animations",
         "layers",
-        "slide-transition-instant",
+        "slide-transition-none",
+        "slide-transition-dissolve",
         "slide-transition-fade",
-        "slide-transition-slide",
-        "slide-transition-zoom",
+        "slide-transition-slide-from-right",
+        "slide-transition-slide-from-left",
+        "slide-transition-flip",
+        "slide-transition-cube",
+        "slide-transition-gallery",
         "download-html",
         "export-pdf",
         "export-pptx",
@@ -527,7 +755,9 @@ describe("<EditorToolbar>", () => {
     expect(onSelectShape).toHaveBeenCalledWith("rectangle");
     expect(onToggleAnimations).toHaveBeenCalledOnce();
     expect(onToggleLayers).toHaveBeenCalledOnce();
-    expect(onChangeSlideTransition).toHaveBeenCalledWith("fade");
+    expect(onChangeSlideTransition).toHaveBeenCalledWith({
+      transition: "fade",
+    });
     expect(onShowHistory).toHaveBeenCalledOnce();
   });
 
@@ -547,7 +777,7 @@ describe("<EditorToolbar>", () => {
           onGenerateImage={vi.fn()}
           onOpenAssetLibrary={vi.fn()}
           onShowHistory={vi.fn()}
-          historyButtonRef={createRef<HTMLButtonElement>()}
+          panelAnchorRef={createRef<HTMLDivElement>()}
           onExportGoogleSlides={vi.fn()}
           onPresent={onPresent}
         />
@@ -592,7 +822,7 @@ describe("<EditorToolbar>", () => {
           onGenerateImage={vi.fn()}
           onOpenAssetLibrary={vi.fn()}
           onShowHistory={vi.fn()}
-          historyButtonRef={createRef<HTMLButtonElement>()}
+          panelAnchorRef={createRef<HTMLDivElement>()}
           onSelectShape={onSelectShape}
         />
       </TooltipProvider>,
@@ -625,7 +855,7 @@ describe("<EditorToolbar>", () => {
           onGenerateImage={vi.fn()}
           onOpenAssetLibrary={vi.fn()}
           onShowHistory={vi.fn()}
-          historyButtonRef={createRef<HTMLButtonElement>()}
+          panelAnchorRef={createRef<HTMLDivElement>()}
           onPresent={onPresent}
           onExportGoogleSlides={vi.fn()}
         />
@@ -639,12 +869,9 @@ describe("<EditorToolbar>", () => {
     fireEvent.click(presentButton);
     expect(onPresent).not.toHaveBeenCalled();
 
-    fireEvent.pointerDown(
-      screen.getByRole("button", { name: "editorToolbar.more" }),
-      { button: 0, ctrlKey: false },
-    );
-    await screen.findByRole("menu");
-    expect(mocks.exportMenu.mock.calls.at(-1)?.[0]).toEqual(
+    await openAppSubmenu("appMenu.file");
+    await waitFor(() => expect(mocks.exportSubmenu).toHaveBeenCalled());
+    expect(mocks.exportSubmenu.mock.calls.at(-1)?.[0]).toEqual(
       expect.objectContaining({ hasSlides: false }),
     );
     const source = mocks.registerEditorCommands.mock.calls.at(-1)?.[0] as
@@ -660,9 +887,9 @@ describe("<EditorToolbar>", () => {
     );
   });
 
-  it("surfaces history from the top-right overflow menu", async () => {
+  it("surfaces version history from the app menu's File submenu", async () => {
     const onShowHistory = vi.fn();
-    const historyButtonRef = createRef<HTMLButtonElement>();
+    const panelAnchorRef = createRef<HTMLDivElement>();
 
     render(
       <TooltipProvider>
@@ -677,22 +904,86 @@ describe("<EditorToolbar>", () => {
           onGenerateImage={vi.fn()}
           onOpenAssetLibrary={vi.fn()}
           onShowHistory={onShowHistory}
-          historyButtonRef={historyButtonRef}
+          panelAnchorRef={panelAnchorRef}
         />
       </TooltipProvider>,
     );
 
-    fireEvent.pointerDown(
-      screen.getByRole("button", { name: "editorToolbar.more" }),
-      { button: 0, ctrlKey: false },
+    await openAppSubmenu("appMenu.file");
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "appMenu.versionHistory" }),
     );
 
-    const historyItem = await screen.findByRole("menuitem", {
-      name: "History",
-    });
-    fireEvent.click(historyItem);
-
     await waitFor(() => expect(onShowHistory).toHaveBeenCalledTimes(1));
+  });
+
+  describe("app menu canvas commands", () => {
+    const canvasCommands = (hasObjectSelection: boolean) => ({
+      canZoomIn: true,
+      canZoomOut: false,
+      zoomIn: vi.fn(),
+      zoomOut: vi.fn(),
+      hasObjectSelection: () => hasObjectSelection,
+      duplicateObjects: vi.fn(() => true),
+      deleteObjects: vi.fn(() => true),
+    });
+    const toolbar = (
+      commands: ReturnType<typeof canvasCommands> | null,
+      slideProps: {
+        onDuplicateSlides?: () => void;
+        onDeleteSlides?: () => void;
+      } = {},
+    ) => (
+      <TooltipProvider>
+        <EditorToolbar
+          deck={deckWithSlides}
+          deckId="deck-1"
+          deckTitle="Test deck"
+          onTitleChange={vi.fn()}
+          currentSlideIndex={0}
+          sidebarOpen
+          onToggleSidebar={vi.fn()}
+          onGenerateImage={vi.fn()}
+          onOpenAssetLibrary={vi.fn()}
+          onShowHistory={vi.fn()}
+          panelAnchorRef={createRef<HTMLDivElement>()}
+          canvasCommandsRef={{ current: commands }}
+          {...slideProps}
+        />
+      </TooltipProvider>
+    );
+
+    it("acts on selected objects before falling back to slides", async () => {
+      const commands = canvasCommands(true);
+      const onDuplicateSlides = vi.fn();
+      render(toolbar(commands, { onDuplicateSlides }));
+
+      await openAppSubmenu("appMenu.edit");
+      fireEvent.click(
+        await screen.findByRole("menuitem", {
+          name: "appMenu.duplicateSelection",
+        }),
+      );
+
+      expect(commands.duplicateObjects).toHaveBeenCalledTimes(1);
+      expect(onDuplicateSlides).not.toHaveBeenCalled();
+    });
+
+    it("deletes the selected slides when no object is selected", async () => {
+      const commands = canvasCommands(false);
+      const onDeleteSlides = vi.fn();
+      render(toolbar(commands, { onDeleteSlides }));
+
+      await openAppSubmenu("appMenu.edit");
+      fireEvent.click(
+        await screen.findByRole("menuitem", {
+          name: "appMenu.deleteSelection",
+        }),
+      );
+
+      expect(onDeleteSlides).toHaveBeenCalledTimes(1);
+      expect(commands.deleteObjects).not.toHaveBeenCalled();
+    });
   });
 
   it("keeps transition choices, media tools, and theme toggles out of the overflow menu", async () => {
@@ -709,15 +1000,16 @@ describe("<EditorToolbar>", () => {
           onGenerateImage={vi.fn()}
           onOpenAssetLibrary={vi.fn()}
           onShowHistory={vi.fn()}
-          historyButtonRef={createRef<HTMLButtonElement>()}
+          panelAnchorRef={createRef<HTMLDivElement>()}
           currentSlide={{
             id: "slide-1",
             content: "",
             notes: "",
             layout: "blank",
-            transition: "instant",
+            transition: "none",
           }}
           onChangeSlideTransition={vi.fn()}
+          onToggleComments={vi.fn()}
         />
       </TooltipProvider>,
     );
@@ -728,9 +1020,11 @@ describe("<EditorToolbar>", () => {
     );
 
     await screen.findByRole("menu");
+    // Comments is the only item, so no separator leads the menu.
+    expect(screen.queryByRole("separator")).toBeNull();
     expect(
       screen.queryByRole("menuitem", {
-        name: "editorToolbar.transition_instant",
+        name: "editorToolbar.transition_none",
       }),
     ).toBeNull();
     expect(
@@ -765,7 +1059,7 @@ describe("<EditorToolbar>", () => {
             onGenerateImage={vi.fn()}
             onOpenAssetLibrary={vi.fn()}
             onShowHistory={vi.fn()}
-            historyButtonRef={createRef<HTMLButtonElement>()}
+            panelAnchorRef={createRef<HTMLDivElement>()}
           />
         </TooltipProvider>,
       );
@@ -816,7 +1110,7 @@ describe("<EditorToolbar>", () => {
           onGenerateImage={vi.fn()}
           onOpenAssetLibrary={vi.fn()}
           onShowHistory={vi.fn()}
-          historyButtonRef={createRef<HTMLButtonElement>()}
+          panelAnchorRef={createRef<HTMLDivElement>()}
         />
       </TooltipProvider>,
     );
@@ -846,7 +1140,7 @@ describe("<EditorToolbar>", () => {
           onGenerateImage={vi.fn()}
           onOpenAssetLibrary={vi.fn()}
           onShowHistory={vi.fn()}
-          historyButtonRef={createRef<HTMLButtonElement>()}
+          panelAnchorRef={createRef<HTMLDivElement>()}
           onPresent={onPresent}
         />
       </TooltipProvider>,
@@ -875,7 +1169,7 @@ describe("<EditorToolbar>", () => {
           onGenerateImage={vi.fn()}
           onOpenAssetLibrary={vi.fn()}
           onShowHistory={vi.fn()}
-          historyButtonRef={createRef<HTMLButtonElement>()}
+          panelAnchorRef={createRef<HTMLDivElement>()}
           onPresent={onPresent}
         />
       </TooltipProvider>,
@@ -920,7 +1214,7 @@ describe("<EditorToolbar>", () => {
           onGenerateImage={vi.fn()}
           onOpenAssetLibrary={vi.fn()}
           onShowHistory={vi.fn()}
-          historyButtonRef={createRef<HTMLButtonElement>()}
+          panelAnchorRef={createRef<HTMLDivElement>()}
           onPresent={onPresent}
         />
       </TooltipProvider>,
@@ -952,7 +1246,7 @@ describe("<EditorToolbar>", () => {
           onGenerateImage={vi.fn()}
           onOpenAssetLibrary={vi.fn()}
           onShowHistory={vi.fn()}
-          historyButtonRef={createRef<HTMLButtonElement>()}
+          panelAnchorRef={createRef<HTMLDivElement>()}
         />
       </TooltipProvider>,
     );

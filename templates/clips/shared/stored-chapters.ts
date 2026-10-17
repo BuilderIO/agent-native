@@ -4,6 +4,9 @@ export const CHAPTERS_CHANGED = "chapters_changed";
 export const CHAPTERS_BUSY = "chapters_busy";
 /** set-chapters' errorCode when a save names no list it started from. */
 export const EXPECTED_CHAPTERS_REQUIRED = "expected_chapters_required";
+/** set-chapters' errorCode when no media/timeline version is supplied. */
+export const EXPECTED_MEDIA_VERSION_REQUIRED =
+  "expected_media_version_required";
 /** set-chapters' errorCode when a guarded save would delete unreadable entries. */
 export const CHAPTERS_UNREADABLE = "chapters_unreadable";
 

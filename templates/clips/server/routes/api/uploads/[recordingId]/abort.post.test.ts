@@ -14,6 +14,8 @@ const mockDeleteResumableSession = vi.hoisted(() => vi.fn());
 const mockGetResumableSession = vi.hoisted(() => vi.fn());
 const mockAbortSession = vi.hoisted(() => vi.fn());
 const mockResolveResumableUploadProvider = vi.hoisted(() => vi.fn());
+const mockDeleteStoredMediaUrl = vi.hoisted(() => vi.fn());
+const mockReleaseHostedClipRecording = vi.hoisted(() => vi.fn());
 const mockUpdateSets = vi.hoisted(() => [] as Record<string, unknown>[]);
 const mockEqCalls = vi.hoisted(() => [] as unknown[][]);
 const mockUpdateRows = vi.hoisted(() => ({
@@ -68,6 +70,7 @@ vi.mock("drizzle-orm", () => ({
     return "eq";
   },
   isNull: vi.fn(() => "is-null"),
+  sql: (...args: unknown[]) => args,
 }));
 
 vi.mock("h3", () => ({
@@ -88,14 +91,32 @@ vi.mock("../../../../db/index.js", () => ({
       failureReason: "recordings.failureReason",
       uploadAttemptId: "recordings.uploadAttemptId",
       uploadGenerationId: "recordings.uploadGenerationId",
+      storageMode: "recordings.storageMode",
     },
   },
+}));
+
+vi.mock("../../../../lib/recording-media-cleanup.js", () => ({
+  deleteStoredMediaUrl: (...args: unknown[]) =>
+    mockDeleteStoredMediaUrl(...args),
+}));
+
+vi.mock("../../../../lib/video-storage.js", () => ({
+  releaseHostedClipRecording: (...args: unknown[]) =>
+    mockReleaseHostedClipRecording(...args),
 }));
 
 vi.mock("../../../../lib/recordings.js", () => ({
   getEventOwnerContext: (...args: unknown[]) =>
     mockGetEventOwnerContext(...args),
   ownerEmailMatches: (...args: unknown[]) => mockOwnerEmailMatches(...args),
+}));
+
+vi.mock("../../../../lib/upload-lease.js", () => ({
+  isParkedForStorage: (row: {
+    status: string;
+    failureReason?: string | null;
+  }) => row.status === "uploading" && Boolean(row.failureReason),
 }));
 
 vi.mock("../../../../lib/recording-upload-state.js", () => ({
@@ -144,6 +165,8 @@ describe("/api/uploads/:recordingId/abort route", () => {
     mockDeleteResumableSession.mockResolvedValue(undefined);
     mockGetResumableSession.mockResolvedValue(null);
     mockAbortSession.mockResolvedValue(undefined);
+    mockDeleteStoredMediaUrl.mockResolvedValue(false);
+    mockReleaseHostedClipRecording.mockResolvedValue({ ok: true });
     mockResolveResumableUploadProvider.mockResolvedValue({
       resumable: { abortSession: mockAbortSession },
     });
@@ -269,6 +292,99 @@ describe("/api/uploads/:recordingId/abort route", () => {
     expect(mockUpdateSets).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ failureCode: "user_cancelled" }),
+      ]),
+    );
+  });
+
+  it("keeps a storage-parked upload intact after a generic interruption abort", async () => {
+    mockSelectRows.rows = [
+      {
+        id: "rec-1",
+        status: "uploading",
+        videoUrl: null,
+        failureReason: "Waiting for storage setup",
+        uploadAttemptId: "attempt-1",
+        uploadGenerationId: "generation-1",
+      },
+    ];
+    mockReadBody.mockResolvedValue({
+      reason: "Upload failed (503)",
+      failureCode: "upload_interrupted",
+      attemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+    });
+
+    await expect(handler({} as any)).resolves.toEqual({
+      ok: true,
+      recordingId: "rec-1",
+      status: "uploading",
+      parkedForStorage: true,
+    });
+
+    expect(mockUpdateSets).toHaveLength(0);
+    expect(mockCompareAndSetManyAppState).not.toHaveBeenCalled();
+    expect(mockDeleteRecordingChunks).not.toHaveBeenCalled();
+    expect(mockGetResumableSession).not.toHaveBeenCalled();
+    expect(mockDeleteResumableSession).not.toHaveBeenCalled();
+  });
+
+  it("rejects a stale interruption abort for a storage-parked upload", async () => {
+    mockSelectRows.rows = [
+      {
+        id: "rec-1",
+        status: "uploading",
+        videoUrl: null,
+        failureReason: "Waiting for storage setup",
+        uploadAttemptId: "attempt-2",
+        uploadGenerationId: "generation-2",
+      },
+    ];
+    mockReadBody.mockResolvedValue({
+      reason: "Upload failed (503)",
+      failureCode: "upload_interrupted",
+      attemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+    });
+
+    await expect(handler({} as any)).resolves.toEqual({
+      error: "A newer upload retry is already active.",
+      staleAttempt: true,
+    });
+
+    expect(mockSetResponseStatus).toHaveBeenCalledWith(expect.anything(), 409);
+    expect(mockUpdateSets).toHaveLength(0);
+    expect(mockCompareAndSetManyAppState).not.toHaveBeenCalled();
+    expect(mockDeleteRecordingChunks).not.toHaveBeenCalled();
+    expect(mockGetResumableSession).not.toHaveBeenCalled();
+    expect(mockDeleteResumableSession).not.toHaveBeenCalled();
+  });
+
+  it("allows an explicit user cancellation to cancel a storage-parked upload", async () => {
+    mockSelectRows.rows = [
+      {
+        id: "rec-1",
+        status: "uploading",
+        videoUrl: null,
+        failureReason: "Waiting for storage setup",
+        uploadAttemptId: "attempt-1",
+        uploadGenerationId: "generation-1",
+      },
+    ];
+    mockReadBody.mockResolvedValue({
+      reason: "Upload cancelled",
+      failureCode: "user_cancelled",
+      attemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+    });
+
+    await handler({} as any);
+
+    expect(mockUpdateSets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: "failed",
+          failureCode: "user_cancelled",
+        }),
       ]),
     );
   });
@@ -523,6 +639,83 @@ describe("/api/uploads/:recordingId/abort route", () => {
       null,
     );
     expect(mockDeleteResumableSession).toHaveBeenCalledWith("rec-1", null);
+  });
+
+  it("binds hosted media cleanup to the recording being aborted", async () => {
+    const videoUrl = "https://storage.example.com/clips/rec-1/clip.webm";
+    mockSelectRows.rows = [
+      {
+        id: "rec-1",
+        status: "uploading",
+        videoUrl,
+        failureReason: null,
+        storageMode: "hosted",
+      },
+    ];
+    mockReadBody.mockResolvedValue({ reason: "Cancelled" });
+
+    await expect(handler({} as any)).resolves.toMatchObject({
+      ok: true,
+      recordingId: "rec-1",
+    });
+
+    expect(mockDeleteStoredMediaUrl).toHaveBeenCalledWith(videoUrl, {
+      storageMode: "hosted",
+      recordingId: "rec-1",
+    });
+  });
+
+  it("keeps the hosted reservation and session when the provider could not abort the session", async () => {
+    mockSelectRows.rows = [
+      {
+        id: "rec-1",
+        status: "uploading",
+        videoUrl: null,
+        failureReason: null,
+        storageMode: "hosted",
+      },
+    ];
+    mockReadBody.mockResolvedValue({ reason: "Cancelled" });
+    mockGetResumableSession.mockResolvedValue({
+      providerId: "clips-hosted",
+      sessionId: "upload-example",
+      meta: { objectKey: "clips/rec-1.webm" },
+      bytesUploaded: 123,
+    });
+    mockAbortSession.mockRejectedValue(new Error("provider unavailable"));
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await handler({} as any);
+
+    expect(mockDeleteResumableSession).not.toHaveBeenCalled();
+    expect(mockReleaseHostedClipRecording).not.toHaveBeenCalled();
+  });
+
+  it("releases the hosted reservation once the session abort is confirmed", async () => {
+    mockSelectRows.rows = [
+      {
+        id: "rec-1",
+        status: "uploading",
+        videoUrl: null,
+        failureReason: null,
+        storageMode: "hosted",
+      },
+    ];
+    mockReadBody.mockResolvedValue({ reason: "Cancelled" });
+    mockGetResumableSession.mockResolvedValue({
+      providerId: "clips-hosted",
+      sessionId: "upload-example",
+      meta: { objectKey: "clips/rec-1.webm" },
+      bytesUploaded: 123,
+    });
+
+    await handler({} as any);
+
+    expect(mockDeleteResumableSession).toHaveBeenCalled();
+    expect(mockReleaseHostedClipRecording).toHaveBeenCalledWith(
+      expect.objectContaining({ recordingId: "rec-1" }),
+    );
   });
 
   it("aborts provider storage before deleting a resumable session", async () => {

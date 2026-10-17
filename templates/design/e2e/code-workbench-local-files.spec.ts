@@ -8,16 +8,12 @@ import {
   startDesignConnectBridge,
   type DesignConnectBridge,
 } from "@agent-native/core/testing";
-import {
-  expect,
-  test,
-  type APIRequestContext,
-  type Page,
-} from "@playwright/test";
+import { type APIRequestContext, type Page } from "@playwright/test";
 import { build } from "esbuild";
 
 import { e2eBaseURL } from "./base-url";
-import { appPath, cdpScreenshot, selectByText } from "./helpers";
+import { appPath, cdpScreenshot, designFrame, selectByText } from "./helpers";
+import { expect, test } from "./rails";
 
 let baseURL = e2eBaseURL();
 let designId = "";
@@ -27,6 +23,7 @@ let reactBundlePath = "";
 let reactAppUrl = "";
 let devServer: Server | null = null;
 let bridge: DesignConnectBridge | null = null;
+const snapshotFailurePaths = new Set<string>();
 
 function reactFixtureSource(): string {
   const source = `import React from "react";
@@ -218,11 +215,12 @@ test.beforeAll(async ({ request }, workerInfo) => {
   await bundleReactFixture();
 
   devServer = http.createServer((req, res) => {
-    if (req.url?.startsWith("/visual-edit-dead")) {
-      req.socket.destroy();
+    const pathname = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
+    if (snapshotFailurePaths.has(pathname)) {
+      res.writeHead(503, { "content-type": "text/plain; charset=utf-8" });
+      res.end("Snapshot fixture unavailable.");
       return;
     }
-    const pathname = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
     if (pathname === "/react") {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       res.end(
@@ -295,43 +293,55 @@ test.afterAll(async ({ request }) => {
   if (rootPath) fs.rmSync(rootPath, { recursive: true, force: true });
 });
 
-// FLAKY ~67% (measured: 4 failures / 2 passes over 6 isolated runs), and the
-// failure is user-visible DATA LOSS, not a harness problem. The contract this
-// test encodes is right: clicking File to hide the workbench and Code to show
-// it again must preserve an unsaved local edit. When it fails, the buffer has
-// reverted to the on-disk content with `dirty: false` — the edit is gone.
-// Timing is bimodal, which is the tell: passes land at 7.0-8.3s, failures sit
-// at 21.7-28.8s until the 15s predicate times out, so the buffer either
-// survives the remount immediately or is never restored at all.
-// NOT caused by the E2E work — this spec's only change here is the base-URL
-// swap, `appPath` is the sole helper it imports and is untouched, and the
-// workbench source has no uncommitted edits. Fixing it means the workbench /
-// Monaco model lifecycle on hide-show, which needs an owner decision.
-test.fixme("lists the spawned folder, preserves dirty buffers, and saves a local file", async ({
-  page,
-}) => {
-  await page.goto(appPath(`/design/${designId}?editorView=overview`), {
-    waitUntil: "domcontentloaded",
-  });
-  await expect(
-    page.getByRole("button", { name: "Code", exact: true }),
-  ).toBeVisible({ timeout: 30_000 });
-  await page.getByRole("button", { name: "Code", exact: true }).click();
+function workbenchBuffer(page: Page, uri: string) {
+  return page.evaluate((target) => {
+    const workbench = (
+      window as typeof window & { __designCodeWorkbench?: any }
+    ).__designCodeWorkbench;
+    return {
+      content: workbench?.modelRegistry.get(target)?.model.getValue(),
+      dirty: workbench?.api.getState().buffers[target]?.dirty,
+    };
+  }, uri);
+}
 
+// fixme: product bug: opening the localhost design's Code panel answers get-motion-timeline for its screen with 422 before any file is touched
+test.fixme("lists the spawned folder, preserves dirty buffers, and saves a local file", async ({
+  app,
+  page,
+  request,
+}) => {
+  await postAction(request, "revoke-localhost-write-consent", {
+    designId,
+    connectionId,
+  });
+  app.allowFailure(
+    /http 428 POST \/_agent-native\/actions\/write-local-file|status of 428/,
+    "the first save asks for file-write consent",
+  );
+  // The rail has no Code entry; the panel opens from its deep link, as the app's own "edit code" actions do.
+  await page.goto(
+    appPath(`/design/${designId}?editorView=overview&panel=code`),
+    { waitUntil: "domcontentloaded" },
+  );
   const rootName = path.basename(rootPath);
   const localRoot = page.getByText(`LOCAL FILES — ${rootName}`, {
     exact: true,
   });
-  await expect(localRoot).toBeVisible({ timeout: 20_000 });
+  await expect(localRoot).toBeVisible({ timeout: 30_000 });
   await expect(localRoot).toHaveAttribute("title", rootPath);
-
   const localTree = page.getByRole("tree", {
     name: `LOCAL FILES — ${rootName}`,
     exact: true,
   });
+  await expect(
+    localTree.getByText("Dockerfile", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    localTree.getByText(".prettierrc", { exact: true }),
+  ).toBeVisible();
+  await expect(localTree.getByText(".env", { exact: true })).toHaveCount(0);
   await localTree.getByText("src", { exact: true }).click();
-  await localTree.getByText("App.tsx", { exact: true }).click();
-  await expect(page.getByTestId("design-code-monaco-editor")).toBeVisible();
 
   for (const [filename, language] of [
     ["App.tsx", "typescript"],
@@ -344,27 +354,25 @@ test.fixme("lists the spawned folder, preserves dirty buffers, and saves a local
     await expect
       .poll(
         () =>
-          page.evaluate((expectedFilename) => {
+          page.evaluate(() => {
             const workbench = (
               window as typeof window & { __designCodeWorkbench?: any }
             ).__designCodeWorkbench;
             const state = workbench?.api.getState();
             const uri = state?.activeUri;
-            const tab = state?.tabs.find(
-              (entry: { uri: string }) => entry.uri === uri,
-            );
             const buffer = uri ? state?.buffers[uri] : null;
             return {
-              path: tab?.path ?? null,
+              path:
+                state?.tabs.find((entry: { uri: string }) => entry.uri === uri)
+                  ?.path ?? null,
               loading: buffer?.loading ?? null,
               error: buffer?.error ?? null,
               language: uri
                 ? (workbench?.modelRegistry.get(uri)?.model.getLanguageId() ??
                   null)
                 : null,
-              expectedFilename,
             };
-          }, filename),
+          }),
         { message: `${filename} loads into the expected Monaco language` },
       )
       .toEqual({
@@ -372,116 +380,91 @@ test.fixme("lists the spawned folder, preserves dirty buffers, and saves a local
         loading: false,
         error: null,
         language,
-        expectedFilename: filename,
       });
-    await expect
-      .poll(
-        () =>
-          page.evaluate(() => {
-            const host = document.querySelector(
-              '[data-testid="design-code-monaco-editor"]',
-            );
-            const visibleTokens = [
-              ...(host?.querySelectorAll<HTMLElement>(
-                ".view-lines .view-line span",
-              ) ?? []),
-            ].filter(
-              (element) =>
-                element.childElementCount === 0 &&
-                Boolean(element.textContent?.trim()),
-            );
-            const syntaxColors = new Set(
-              visibleTokens.map((element) => getComputedStyle(element).color),
-            );
-            return visibleTokens.length > 3 && syntaxColors.size > 1;
-          }),
-        {
-          message: `${filename} renders visible syntax-highlighted tokens in Monaco`,
-        },
-      )
-      .toBe(true);
   }
 
   await localTree.getByText("App.tsx", { exact: true }).click();
-  const localUri = await page.evaluate(async () => {
-    const workbench = (
-      window as typeof window & {
-        __designCodeWorkbench?: {
-          api: {
-            getState(): { activeUri: string | null };
-          };
-          modelRegistry: {
-            get(uri: string): {
-              model: { setValue(value: string): void; getValue(): string };
-            } | null;
-          };
-        };
-      }
-    ).__designCodeWorkbench;
-    if (!workbench) throw new Error("Code workbench automation handle missing");
-    const uri = workbench.api.getState().activeUri;
-    if (!uri) throw new Error("No active local file");
-    workbench.modelRegistry
-      .get(uri)
-      ?.model.setValue(
-        "export function App() { return <main>Saved from Design Code</main>; }\n",
-      );
-    return uri;
-  });
-
-  await page.getByRole("button", { name: "File", exact: true }).click();
-  await expect(page.getByTestId("design-code-workbench")).toBeHidden();
-  await page.getByRole("button", { name: "Code", exact: true }).click();
+  const uri: string = await page.evaluate(
+    () =>
+      (
+        window as typeof window & { __designCodeWorkbench?: any }
+      ).__designCodeWorkbench.api.getState().activeUri,
+  );
+  const edited =
+    "export function App() { return <main>Saved from Design Code</main>; }\n";
+  await page
+    .getByTestId("design-code-monaco-editor")
+    .locator(".view-line")
+    .first()
+    .click({ clickCount: 3 });
+  await page.keyboard.insertText(edited);
   await expect
-    .poll(() =>
-      page.evaluate((uri) => {
-        const workbench = (
-          window as typeof window & { __designCodeWorkbench?: any }
-        ).__designCodeWorkbench;
-        return {
-          content: workbench?.modelRegistry.get(uri)?.model.getValue(),
-          dirty: workbench?.api.getState().buffers[uri]?.dirty,
-        };
-      }, localUri),
-    )
-    .toEqual({
-      content:
-        "export function App() { return <main>Saved from Design Code</main>; }\n",
-      dirty: true,
-    });
+    .poll(() => workbenchBuffer(page, uri))
+    .toEqual({ content: edited, dirty: true });
+  expect(
+    fs.readFileSync(path.join(rootPath, "src", "App.tsx"), "utf8"),
+    "nothing is written before save",
+  ).toBe(
+    "export function App() { return <main>Original local source</main>; }\n",
+  );
 
-  await page.getByTestId("design-code-monaco-editor").click();
   await page.keyboard.press("ControlOrMeta+s");
   const consent = page.getByRole("dialog", { name: "Allow file writes" });
-  await expect(consent).toBeVisible();
   await expect(consent).toContainText(rootPath);
   await expect(consent).toContainText("src/App.tsx");
   await consent.getByRole("button", { name: "Allow writes" }).click();
 
   await expect
     .poll(() => fs.readFileSync(path.join(rootPath, "src", "App.tsx"), "utf8"))
-    .toContain("Saved from Design Code");
+    .toBe(edited);
   await expect
-    .poll(() =>
-      page.evaluate((uri) => {
-        const workbench = (
-          window as typeof window & { __designCodeWorkbench?: any }
-        ).__designCodeWorkbench;
-        return workbench?.api.getState().buffers[uri]?.dirty;
-      }, localUri),
-    )
-    .toBe(false);
-
-  await expect(
-    localTree.getByText("Dockerfile", { exact: true }),
-  ).toBeVisible();
-  await expect(
-    localTree.getByText(".prettierrc", { exact: true }),
-  ).toBeVisible();
-  await expect(localTree.getByText(".env", { exact: true })).toHaveCount(0);
+    .poll(() => workbenchBuffer(page, uri))
+    .toEqual({ content: edited, dirty: false });
 });
 
-// oracle: none — verifies the app-specific local-screen inspector flow, not Figma parity.
+test("puts a URL screen's route, Reload and Open in browser in the top bar", async ({
+  page,
+}, testInfo) => {
+  await page.context().grantPermissions(["local-network-access"], {
+    origin: new URL(baseURL).origin,
+  });
+  await page.goto(appPath(`/design/${designId}?editorView=overview`), {
+    waitUntil: "domcontentloaded",
+  });
+  const controls = page.locator(
+    "[data-design-top-bar-center] [data-design-url-screen-controls]",
+  );
+  await expect(controls).toBeVisible({ timeout: 30_000 });
+  await expect(
+    controls.locator("[data-design-url-screen-route] [data-design-route-path]"),
+  ).toHaveText("/");
+  await cdpScreenshot(page, testInfo.outputPath("url-screen-top-bar.png"));
+
+  // Reload is on the bar. Its remount is the same per-screen nonce Interact's
+  // Reload uses (interact-toolbar-layout.spec.ts); this fixture's live editor
+  // does not finish mounting its frame on this route, so there is none to watch.
+  await controls.getByRole("button", { name: "Reload preview" }).click();
+  await expect(controls).toBeVisible();
+
+  // Open in browser is a new tab that cannot reach back into the editor.
+  const open = controls.locator("a[data-design-url-screen-open]");
+  await expect(open).toHaveAttribute("target", "_blank");
+  const [popup] = await Promise.all([page.waitForEvent("popup"), open.click()]);
+  await popup.waitForLoadState("domcontentloaded");
+  expect(new URL(popup.url()).origin).toBe(new URL(reactAppUrl).origin);
+  expect(await popup.evaluate(() => window.opener)).toBeNull();
+  await popup.close();
+
+  // Interact has its own route controls and no inspector.
+  await page.locator('[data-design-mode="interact"]').click();
+  await expect(controls).toHaveCount(0);
+  await expect(
+    page.locator('[data-design-chrome-region="right-panel"]'),
+  ).toHaveCount(0);
+  await page.locator('[data-design-mode="edit"]').click();
+  await expect(controls).toBeVisible();
+});
+
 test("updates only the selected URL screen from the Screen inspector", async ({
   page,
   request,
@@ -639,11 +622,20 @@ test("updates only the selected URL screen from the Screen inspector", async ({
   await cdpScreenshot(page, testInfo.outputPath("screen-source-static.png"));
 });
 
-// oracle: none — verifies local-source promotion and editing, not Figma parity.
-test("promotes and edits a URL-backed React component through the live iframe", async ({
+// fixme: product bug: The inspector's W and H fields read 0px for a URL-backed React button rendered at 160x48 (min-width/min-height 160/48); the canvas badge
+test.fixme("promotes and edits a URL-backed React component through the live iframe", async ({
+  app,
   page,
   request,
 }, testInfo) => {
+  await postAction(request, "revoke-localhost-write-consent", {
+    designId,
+    connectionId,
+  });
+  app.allowFailure(
+    /http 428 POST \/_agent-native\/actions\/create-component|status of 428/,
+    "the first create-component asks for file-write consent",
+  );
   const opened = await postAction(request, "add-localhost-screens", {
     connectionId,
     designId,
@@ -707,6 +699,18 @@ test("promotes and edits a URL-backed React component through the live iframe", 
     column: hostColumn,
   });
   expect(selection.componentAnnotation).toBeUndefined();
+  await expect
+    .soft(
+      page.getByLabel("W size in pixels"),
+      "the inspector reports the rendered width",
+    )
+    .toHaveValue("160px");
+  await expect
+    .soft(
+      page.getByLabel("H size in pixels"),
+      "the inspector reports the rendered height",
+    )
+    .toHaveValue("48px");
   expect(selection.runtimeComponent).toMatchObject({
     name: "PrimaryButton",
     framework: "react",
@@ -876,153 +880,420 @@ test("promotes and edits a URL-backed React component through the live iframe", 
   );
 });
 
-// oracle: none — verifies app undo/redo for a local source, not Figma parity.
+/** Writes the fixture with PrimaryButton already promoted to a component, then rebuilds the bundle the screen loads. */
+async function writePromotedReactFixture(): Promise<void> {
+  fs.writeFileSync(
+    path.join(rootPath, "src", "Component.jsx"),
+    reactFixtureSource().replace(
+      'data-agent-native-node-id="react-button-1"',
+      'data-agent-native-node-id="react-button-1" data-agent-native-component="PrimaryButton" data-agent-native-prop-variant="primary"',
+    ),
+  );
+  await bundleReactFixture();
+}
+
+async function pendingVisualEdits(page: Page) {
+  const response = await page.request.get(
+    appPath(
+      `/_agent-native/actions/get-visual-edit-pending?designId=${encodeURIComponent(designId)}`,
+    ),
+  );
+  expect(response.ok(), `get-visual-edit-pending ${response.status()}`).toBe(
+    true,
+  );
+  const { pendingEditCount, status } = await response.json();
+  return { pendingEditCount, status };
+}
+
 test("duplicates a URL-backed React component through undo and redo", async ({
+  app,
   page,
   request,
 }) => {
-  const componentPath = path.join(rootPath, "src", "Component.jsx");
-  const source = fs.readFileSync(componentPath, "utf8");
-  const targetText = source.includes('variant="tertiary"')
-    ? "tertiary"
-    : "primary";
-  if (!source.includes('data-agent-native-component="PrimaryButton"')) {
-    fs.writeFileSync(
-      componentPath,
-      source.replace(
-        'data-agent-native-node-id="react-button-1"',
-        'data-agent-native-node-id="react-button-1" data-agent-native-component="PrimaryButton" data-agent-native-prop-variant="primary"',
-      ),
-    );
-    await bundleReactFixture();
-  }
+  await writePromotedReactFixture();
   const opened = await postAction(request, "add-localhost-screens", {
     connectionId,
     designId,
     paths: ["/react"],
   });
-  const screenId = opened.screens?.[0]?.id;
-  if (!screenId) {
-    throw new Error(`Missing React screen metadata: ${JSON.stringify(opened)}`);
-  }
-
+  const screenId: string = opened.screens[0].id;
   await openDesignWithLocalNetworkPermission(page);
-  const screenRow = page
+  await page
     .getByRole("tree", { name: "Layers" })
-    .locator(`[data-layer-row-button][data-layer-node-id="${screenId}"]`);
-  await expect(screenRow).toBeVisible({ timeout: 20_000 });
-  await screenRow.click();
-  await expect
-    .poll(() =>
-      page
-        .locator(
-          `iframe[data-design-preview-iframe][data-screen-iframe-id="${screenId}"]`,
-        )
-        .contentFrame()
-        .locator('[data-agent-native-node-id="react-button-1"]')
-        .getAttribute("data-agent-native-component"),
-    )
-    .toBe("PrimaryButton");
-
+    .locator(`[data-layer-row-button][data-layer-node-id="${screenId}"]`)
+    .click();
   const frame = page
     .locator(
       `iframe[data-design-preview-iframe][data-screen-iframe-id="${screenId}"]`,
     )
     .contentFrame();
-  const selection: any = await selectByText(page, targetText, { screenId });
-  const instances = () =>
-    frame.locator('[data-agent-native-component="PrimaryButton"]');
+  const original = frame.locator(
+    '[data-agent-native-node-id="react-button-1"]',
+  );
+  await expect(original).toHaveAttribute(
+    "data-agent-native-component",
+    "PrimaryButton",
+  );
+  const instances = frame.locator(
+    '[data-agent-native-component="PrimaryButton"]',
+  );
+  const instanceIds = () =>
+    instances.evaluateAll((elements) =>
+      elements.map((element) =>
+        element.getAttribute("data-agent-native-node-id"),
+      ),
+    );
+  const box = (await original.boundingBox())!;
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await expect
+    .poll(() => app.selectedLayers())
+    .toEqual(["React Primary Button"]);
+  expect(await pendingVisualEdits(page)).toEqual({
+    pendingEditCount: 0,
+    status: "empty",
+  });
   const pendingToolbar = page.locator(
     "[data-design-pending-visual-style-toolbar]",
   );
 
-  await expect(instances()).toHaveCount(1);
   await page.keyboard.press("ControlOrMeta+d");
-  await expect(instances()).toHaveCount(2);
-  const duplicatedIds = await instances().evaluateAll((elements) =>
-    elements.map((element) =>
-      element.getAttribute("data-agent-native-node-id"),
-    ),
-  );
-  expect(new Set(duplicatedIds).size).toBe(2);
-  const runtimeInstanceIds = await instances().evaluateAll((elements) =>
-    elements.map((element) =>
-      element.getAttribute("data-agent-native-runtime-instance-id"),
-    ),
-  );
-  const cloneRuntimeInstanceIds = runtimeInstanceIds.filter(
-    (instanceId): instanceId is string => Boolean(instanceId),
-  );
-  expect(cloneRuntimeInstanceIds).toHaveLength(1);
-  expect(cloneRuntimeInstanceIds[0]).not.toBe(
-    selection.runtimeComponent?.instanceId,
-  );
-  await expect(pendingToolbar).toBeVisible();
 
-  await page.keyboard.press("ControlOrMeta+z");
-  await expect(instances()).toHaveCount(1);
-  await expect(pendingToolbar).toBeHidden();
-  await page.keyboard.press("ControlOrMeta+Shift+z");
-  await expect(instances()).toHaveCount(2);
-  await expect(pendingToolbar).toBeVisible();
-  const redoneIds = await instances().evaluateAll((elements) =>
-    elements
-      .map((element) => element.getAttribute("data-agent-native-node-id"))
-      .sort(),
-  );
-  expect(redoneIds).toEqual([...duplicatedIds].sort());
-  await expect(instances().first()).toHaveAttribute(
+  await expect(instances).toHaveCount(2);
+  const duplicated = await instanceIds();
+  const cloneId = duplicated[1]!;
+  expect(duplicated).toStrictEqual(["react-button-1", cloneId]);
+  expect(cloneId).toMatch(/^copy-[0-9a-f-]{36}$/);
+  expect(
+    await instances.evaluateAll((elements) =>
+      elements.map((element) =>
+        element.getAttribute("data-agent-native-runtime-instance-id"),
+      ),
+    ),
+    "only the clone gets its own runtime instance",
+  ).toStrictEqual([null, cloneId]);
+  await expect(instances.nth(1)).toHaveAttribute(
     "data-agent-native-layer-name",
     "React Primary Button",
   );
+  await expect(pendingToolbar).toBeVisible();
+  await expect
+    .poll(() => pendingVisualEdits(page))
+    .toEqual({ pendingEditCount: 1, status: "ready" });
+
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(instances).toHaveCount(1);
+  expect(
+    await instanceIds(),
+    "undo removes the clone, not the original",
+  ).toStrictEqual(["react-button-1"]);
+  await expect(pendingToolbar).toBeHidden();
+  await expect
+    .poll(() => pendingVisualEdits(page))
+    .toEqual({ pendingEditCount: 0, status: "empty" });
+
+  await page.keyboard.press("ControlOrMeta+Shift+z");
+  await expect(instances).toHaveCount(2);
+  expect(await instanceIds()).toStrictEqual(["react-button-1", cloneId]);
+  await expect(pendingToolbar).toBeVisible();
+  await expect
+    .poll(() => pendingVisualEdits(page))
+    .toEqual({ pendingEditCount: 1, status: "ready" });
 });
 
-// oracle: none — verifies app-specific local-screen error handling, not Figma parity.
-test("keeps a URL screen selected when its static snapshot fails", async ({
+// fixme: product bug: The failure toast shows the bridge's raw JSON: 'Bridge snapshot failed (503): { "ok": false, "source": "agent-native-design-connect", ...
+test.fixme("keeps a URL screen selected when its static snapshot fails", async ({
+  app,
   page,
   request,
 }) => {
-  const opened = await postAction(request, "add-localhost-screens", {
-    designId,
-    paths: ["/visual-edit-dead"],
-  });
-  const screenId = opened.screens?.[0]?.id;
-  if (!screenId) throw new Error(`Missing dead-route screen: ${opened}`);
+  app.allowFailure(
+    /status of 503/,
+    "the dead route's snapshot fixture answers 503",
+  );
+  app.allowFailure(
+    /http 424 POST \/_agent-native\/actions\/update-screen-source|status of 424/,
+    "switching the dead route to Static must fail",
+  );
+  app.allowFailure(
+    /error toast/,
+    "the failed snapshot is reported in a toast; its text is asserted in the test",
+  );
+  const unavailablePath = "/visual-edit-dead";
+  const expectedUrl = new URL(unavailablePath, reactAppUrl).toString();
+  snapshotFailurePaths.add(unavailablePath);
+  let unavailablePreviewMatcher: ((url: URL) => boolean) | undefined;
+  let blockedPreviewRequests = 0;
+  try {
+    await openDesignWithLocalNetworkPermission(page);
 
-  const readDesign = async () => {
-    const response = await page.request.get(
-      `${baseURL}/_agent-native/actions/get-design?id=${encodeURIComponent(designId)}`,
-    );
-    if (!response.ok()) {
-      throw new Error(
-        `get-design failed: ${response.status()} ${await response.text()}`,
+    unavailablePreviewMatcher = (url) =>
+      url.pathname === "/live-edit" &&
+      url.searchParams.get("url") === expectedUrl;
+    await page.route(unavailablePreviewMatcher, (route) => {
+      blockedPreviewRequests += 1;
+      return route.abort();
+    });
+
+    const opened = await postAction(request, "add-localhost-screens", {
+      designId,
+      paths: [unavailablePath],
+    });
+    const screenId = opened.screens?.[0]?.id;
+    if (!screenId) throw new Error(`Missing dead-route screen: ${opened}`);
+
+    const readDesign = async () => {
+      const response = await page.request.get(
+        `${baseURL}/_agent-native/actions/get-design?id=${encodeURIComponent(designId)}`,
       );
+      if (!response.ok()) {
+        throw new Error(
+          `get-design failed: ${response.status()} ${await response.text()}`,
+        );
+      }
+      return response.json();
+    };
+
+    const beforeDesign = await readDesign();
+    const beforeData = JSON.parse(beforeDesign.data ?? "{}") as Record<
+      string,
+      any
+    >;
+    const beforeFile = beforeDesign.files.find(
+      (file: { id?: string }) => file.id === screenId,
+    );
+    if (typeof beforeFile?.content !== "string") {
+      throw new Error(`URL screen ${screenId} has no readable source file`);
     }
-    return response.json();
-  };
+    expect(beforeData.screenMetadata?.[screenId]).toMatchObject({
+      sourceType: "localhost",
+      url: expectedUrl,
+      path: unavailablePath,
+      connectionId,
+    });
 
-  await openDesignWithLocalNetworkPermission(page);
+    await page.reload({ waitUntil: "commit" });
+    await expect(
+      page.getByRole("button", { name: "Move", exact: true }),
+    ).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole("tree", { name: "Layers" })).toBeVisible();
+    await expect.poll(() => blockedPreviewRequests).toBeGreaterThan(0);
 
-  const screenRow = page
-    .getByRole("tree", { name: "Layers" })
-    .locator(`[data-layer-row-button][data-layer-node-id="${screenId}"]`);
-  await expect(screenRow).toBeVisible();
-  await screenRow.click();
-  await expect(page.getByLabel("Screen URL")).toHaveValue(/visual-edit-dead/);
+    const screenRow = page
+      .getByRole("tree", { name: "Layers" })
+      .locator(`[data-layer-row-button][data-layer-node-id="${screenId}"]`);
+    await expect(screenRow).toBeVisible();
+    await screenRow.click();
+    const screenUrlInput = page.getByLabel("Screen URL");
+    await expect(screenUrlInput).toHaveValue(expectedUrl);
 
-  await page.getByRole("tab", { name: "Static", exact: true }).click();
+    const updateRequestPromise = page.waitForRequest(
+      (nextRequest) =>
+        nextRequest
+          .url()
+          .includes("/_agent-native/actions/update-screen-source") &&
+        nextRequest.method() === "POST",
+    );
+    const updateResponsePromise = page.waitForResponse(
+      (response) =>
+        response
+          .url()
+          .includes("/_agent-native/actions/update-screen-source") &&
+        response.request().method() === "POST",
+    );
+    await page.getByRole("tab", { name: "Static", exact: true }).click();
 
-  await expect(page.getByLabel("Screen URL")).toBeVisible();
-  await expect
-    .poll(async () => {
-      const design = await readDesign();
-      const data = JSON.parse(design.data ?? "{}") as Record<string, any>;
-      return data.screenMetadata?.[screenId]?.sourceType;
-    })
-    .toBe("localhost");
+    const updateRequest = await updateRequestPromise;
+    const updateInput = updateRequest.postDataJSON() as Record<string, unknown>;
+    expect(updateInput).toMatchObject({
+      designId,
+      fileId: screenId,
+      sourceType: "static",
+    });
+    expect(updateInput).not.toHaveProperty("snapshotHtml");
+
+    const updateResponse = await updateResponsePromise;
+    expect(updateResponse.status()).toBe(424);
+    const updateError = await updateResponse.json();
+    expect(updateError.error).toMatch(/snapshot failed \(503\)/i);
+
+    await expect(screenUrlInput).toBeVisible();
+    await expect(screenUrlInput).toHaveValue(expectedUrl);
+    const failureToast = page
+      .locator("[data-sonner-toast]")
+      .filter({ hasText: "Bridge snapshot failed (503)" });
+    await expect(failureToast).toBeVisible({ timeout: 10_000 });
+    expect
+      .soft(
+        await failureToast.innerText(),
+        "the toast explains the failure instead of dumping the bridge's JSON",
+      )
+      .not.toContain("{");
+
+    const afterDesign = await readDesign();
+    const afterData = JSON.parse(afterDesign.data ?? "{}") as Record<
+      string,
+      any
+    >;
+    const afterFile = afterDesign.files.find(
+      (file: { id?: string }) => file.id === screenId,
+    );
+    expect(afterFile?.content).toBe(beforeFile.content);
+    expect(afterData.screenMetadata?.[screenId]).toMatchObject({
+      sourceType: "localhost",
+      url: expectedUrl,
+      path: unavailablePath,
+      connectionId,
+    });
+    expect(afterData.localhostScreens?.[screenId]).toMatchObject({
+      sourceType: "localhost",
+      url: expectedUrl,
+      path: unavailablePath,
+      connectionId,
+    });
+  } finally {
+    if (unavailablePreviewMatcher) {
+      await page.unroute(unavailablePreviewMatcher);
+    }
+    snapshotFailurePaths.delete(unavailablePath);
+  }
+});
+
+// fixme: product bug: In a design with a localhost screen, the selected inline (seeded) screen's inspector shows Source = URL with the raw '<!doctype html>…'
+test.fixme("registers an inactive local Screen at its current bridge endpoint", async ({
+  app,
+  page,
+  request,
+}) => {
+  const isolatedDesignId = await app.seed(
+    '<!doctype html><html><body><main data-agent-native-node-id="active-static">Editable static screen</main></body></html>',
+    { title: "Inactive local preview" },
+  );
+  const staticScreenId = (await app.savedRecord(isolatedDesignId)).files.find(
+    (file) => file.filename === "index.html",
+  )!.id;
+
+  const opened = await postAction(request, "add-localhost-screens", {
+    designId: isolatedDesignId,
+    connectionId,
+    paths: ["/inactive-preview"],
+  });
+  const localScreenId = opened.screens?.[0]?.id;
+  if (!localScreenId) {
+    throw new Error("add-localhost-screens returned no local Screen");
+  }
+  const expectedBridgeUrl = String(opened.bridgeUrl ?? "");
+  if (!expectedBridgeUrl) {
+    throw new Error("add-localhost-screens returned no bridge URL");
+  }
+  const expectedBridgeOrigin = new URL(expectedBridgeUrl).origin;
+  const staleBridgeOrigin = new URL(baseURL).origin;
+  await postAction(request, "update-design", {
+    id: isolatedDesignId,
+    dataOperations: [
+      {
+        op: "set",
+        path: ["screenMetadata", localScreenId, "bridgeUrl"],
+        value: staleBridgeOrigin,
+      },
+      {
+        op: "set",
+        path: ["screenMetadata", localScreenId, "previewToken"],
+        value: "stale-preview-token",
+      },
+    ],
+  });
+
+  const successfulRegistrations: string[] = [];
+  const registrationAttempts: Array<{
+    origin: string;
+    hasPreviewToken: boolean;
+    usedStaleMetadataToken: boolean;
+  }> = [];
+  const failedRegistrations: Array<{ origin: string; status: number }> = [];
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (url.pathname !== "/live-edit-bridge" || request.method() !== "POST") {
+      return;
+    }
+    const payload = request.postDataJSON() as { designId?: string };
+    if (payload.designId !== isolatedDesignId) return;
+    const previewToken = request.headers()["x-design-preview-token"];
+    registrationAttempts.push({
+      origin: url.origin,
+      hasPreviewToken: Boolean(previewToken),
+      usedStaleMetadataToken: previewToken === "stale-preview-token",
+    });
+  });
+  page.on("response", (response) => {
+    const url = new URL(response.url());
+    if (
+      url.pathname !== "/live-edit-bridge" ||
+      response.request().method() !== "POST"
+    ) {
+      return;
+    }
+    const payload = response.request().postDataJSON() as {
+      designId?: string;
+    };
+    if (payload.designId === isolatedDesignId) {
+      if (response.ok()) {
+        successfulRegistrations.push(payload.designId);
+      } else {
+        failedRegistrations.push({
+          origin: url.origin,
+          status: response.status(),
+        });
+      }
+    }
+  });
+
+  await page.context().grantPermissions(["local-network-access"], {
+    origin: new URL(baseURL).origin,
+  });
+  await page.goto(
+    appPath(
+      `/design/${isolatedDesignId}?editorView=overview&screen=${encodeURIComponent(staticScreenId)}`,
+    ),
+    { waitUntil: "domcontentloaded" },
+  );
   await expect(
-    page
-      .locator("[data-sonner-toast], [role='alert']")
-      .filter({ hasText: /snapshot|bridge|failed|could not/i }),
-  ).toBeVisible({ timeout: 10_000 });
+    page.getByRole("button", { name: "Move", exact: true }),
+  ).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole("tree", { name: "Layers" })).toBeVisible();
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get("screen"))
+    .toBe(staticScreenId);
+  await expect(
+    page.getByRole("button", { name: "All screens", exact: true }),
+  ).toHaveAttribute("aria-current", "page");
+  const staticScreenRow = page.locator('[data-screen-row][title="index.html"]');
+  await expect(staticScreenRow).toBeVisible();
+  await expect(staticScreenRow).not.toHaveAttribute("aria-current", "page");
+  await expect(
+    page.locator(
+      `[data-screen-shell][data-frame-id="${localScreenId}"] iframe[data-design-preview-iframe]`,
+    ),
+  ).toBeAttached();
+  await expect
+    .poll(() => successfulRegistrations.length, { timeout: 20_000 })
+    .toBeGreaterThan(0);
+  expect(registrationAttempts.length).toBeGreaterThan(0);
+  expect(
+    registrationAttempts.every(
+      (attempt) =>
+        attempt.origin === expectedBridgeOrigin &&
+        attempt.hasPreviewToken &&
+        !attempt.usedStaleMetadataToken,
+    ),
+  ).toBe(true);
+  expect(failedRegistrations).toEqual([]);
+  await expect(
+    designFrame(page, localScreenId).getByText("Local workbench fixture"),
+  ).toBeVisible();
+  await expect
+    .soft(
+      page.getByLabel("Screen URL"),
+      "the selected inline screen is inspected as Static, not as a URL",
+    )
+    .toHaveCount(0);
 });

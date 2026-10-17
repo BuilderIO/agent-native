@@ -150,6 +150,8 @@ export function useShareButtonController(
   } = useShareQuery<ShareButtonSharesResponse>(
     options.resourceType,
     options.resourceId,
+    open,
+    0,
   );
   const { setVisibility, share, unshare } = useShareMutations();
   const visibilityGuard = useShareMutationGuard();
@@ -168,10 +170,9 @@ export function useShareButtonController(
       if (nextOpen) {
         setActiveShareTab(shareTabDefaultValue);
         options.shareTabs?.onValueChange?.(shareTabDefaultValue);
-        if (visibilityOverride === null) void sharesQuery.refetch();
       }
     },
-    [options, shareTabDefaultValue, sharesQuery, visibilityOverride],
+    [options, shareTabDefaultValue],
   );
 
   useEffect(() => {
@@ -325,12 +326,6 @@ export function useShareButtonController(
       next.delete(key);
       return next;
     });
-  }, []);
-
-  useEffect(() => {
-    void sharesQuery.refetch();
-    // The resource identity is intentionally stable for this controller.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const memberSearch = useShareOrgMemberSearch(

@@ -2,7 +2,7 @@ import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
 import {
-  ChapterSchema,
+  ChapterInputSchema,
   CutRangeSchema,
   StoredChapterSchema,
   parseList,
@@ -11,11 +11,11 @@ import {
 
 export default defineAction({
   description:
-    "Overwrite the chapters on a recording. Chapters are {startMs,title} entries that appear as markers on the timeline and in the player. Pass the chapters the edit started from as expectedChapters (get-recording-player-data returns them) or expectedVersion; a save over chapters changed meanwhile is refused.",
+    "Overwrite the chapters on a recording. Chapters are {startMs,title} entries that appear as markers on the timeline and in the player. Pass the chapters the edit started from as expectedChapters (get-recording-player-data returns them) or expectedVersion, and pass expectedMediaUpdatedAt from the same response; saves based on changed chapters or media are refused.",
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
     chapters: z
-      .union([z.string(), z.array(ChapterSchema)])
+      .union([z.string(), z.array(ChapterInputSchema)])
       .describe(
         "Array of {startMs,title} — either a JSON-encoded string (CLI) or an array (agent).",
       ),
@@ -38,6 +38,12 @@ export default defineAction({
       .describe(
         "Optional. The cut ranges ({startMs,endMs}, original-media ms) the chapter times were mapped through; if the recording's cuts differ, nothing is written and the call fails with errorCode chapters_changed.",
       ),
+    expectedMediaUpdatedAt: z
+      .string()
+      .optional()
+      .describe(
+        "Required with every chapter replacement: mediaUpdatedAt from the get-recording-player-data response used to create these times.",
+      ),
     discardUnreadable: z
       .union([z.boolean(), z.enum(["true", "false"])])
       .transform((value) => value === true || value === "true")
@@ -52,7 +58,7 @@ export default defineAction({
       chapters: parseList(
         args.chapters,
         "chapters",
-        ChapterSchema,
+        ChapterInputSchema,
         "invalid_chapters",
       ),
       expectedChapters:
@@ -65,6 +71,7 @@ export default defineAction({
               "invalid_chapters",
             ),
       expectedVersion: args.expectedVersion ?? null,
+      expectedMediaUpdatedAt: args.expectedMediaUpdatedAt ?? null,
       discardUnreadable: args.discardUnreadable ?? false,
       expectedCuts:
         args.expectedCuts === undefined

@@ -22,6 +22,7 @@ describe("workspace connection provider catalog", () => {
       "notion",
       "gmail",
       "google_calendar",
+      "bigquery",
       "google_drive",
       "google_docs",
       "google_sheets",
@@ -32,6 +33,8 @@ describe("workspace connection provider catalog", () => {
       "sentry",
       "granola",
       "clips",
+      "sigma",
+      "dbt",
       "anthropic-managed-agents",
       "generic",
     ]);
@@ -57,6 +60,25 @@ describe("workspace connection provider catalog", () => {
         "https://www.googleapis.com/auth/drive.file",
       ]),
     );
+    expect(getWorkspaceConnectionProvider("bigquery")?.oauth?.scopes).toEqual(
+      expect.arrayContaining([
+        "openid",
+        "email",
+        "profile",
+        "https://www.googleapis.com/auth/bigquery",
+      ]),
+    );
+    expect(
+      getWorkspaceConnectionProvider("google_sheets")?.oauth?.scopes,
+    ).toEqual([
+      "openid",
+      "email",
+      "profile",
+      "https://www.googleapis.com/auth/drive.file",
+    ]);
+    expect(
+      getWorkspaceConnectionProvider("google_sheets")?.oauth?.provider,
+    ).toBe("google_sheets");
     expect(getWorkspaceConnectionProvider("gmail")?.oauth?.scopes).toEqual(
       expect.arrayContaining([
         "openid",
@@ -117,6 +139,47 @@ describe("workspace connection provider catalog", () => {
       label: "GitHub",
       capabilities: expect.arrayContaining(["code", "search"]),
     });
+  });
+
+  it("registers Sigma API credentials as an Analytics workspace connection", () => {
+    expect(getWorkspaceConnectionProvider("sigma")).toMatchObject({
+      id: "sigma",
+      recommendedTemplateUses: ["analytics"],
+      credentialKeys: [
+        { key: "SIGMA_CLIENT_ID", required: true },
+        { key: "SIGMA_CLIENT_SECRET", required: true },
+        { key: "SIGMA_BASE_URL", required: false },
+      ],
+    });
+    expect(
+      listWorkspaceConnectionProvidersForTemplate("analytics").map(
+        (provider) => provider.id,
+      ),
+    ).toContain("sigma");
+    expect(getWorkspaceConnectionProvider("sigma")?.oauth).toBeUndefined();
+  });
+
+  it("registers dbt's token and non-secret Semantic Layer connection settings", () => {
+    expect(getWorkspaceConnectionProvider("dbt")).toMatchObject({
+      id: "dbt",
+      recommendedTemplateUses: ["analytics"],
+      credentialKeys: [{ key: "DBT_SEMANTIC_LAYER_TOKEN", required: false }],
+      configurationFields: [
+        {
+          key: "semanticLayerBaseUrl",
+          required: true,
+        },
+        {
+          key: "semanticLayerEnvironmentId",
+          required: true,
+        },
+      ],
+    });
+    expect(
+      listWorkspaceConnectionProvidersForTemplate("analytics").map(
+        (provider) => provider.id,
+      ),
+    ).toContain("dbt");
   });
 
   it("replaces one provider definition without dropping the rest", () => {

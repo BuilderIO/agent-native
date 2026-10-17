@@ -1011,6 +1011,55 @@ describe("workspace deploy", () => {
     }
   });
 
+  it("renders Tabler icons with varied accents for Community directory apps", async () => {
+    const appIds = [
+      "account-expert",
+      "account-tiering",
+      "call-follow-up-drafter",
+      "churn-early-warning",
+      "demo-clip-library",
+      "linkedin-icp-prospect-tracker",
+      "linkedin-signal-watch",
+      "outbound-in-your-voice",
+      "win-loss-memo",
+    ];
+    for (const appId of appIds) makeWorkspaceApp(tmpDir, appId);
+    fs.writeFileSync(
+      path.join(tmpDir, "agent-native.mts"),
+      'export default { deployment: { workspace: { rootPage: "directory" } } };\n',
+    );
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      preset: "netlify",
+      buildOnly: true,
+      execFile: execFile as typeof execFileSync,
+    });
+
+    const directoryPage = fs.readFileSync(
+      path.join(tmpDir, "dist", "index.html"),
+      "utf-8",
+    );
+    const iconMarks = [
+      ...directoryPage.matchAll(
+        /<span class="app-card__mark"[^>]*>(.*?)<\/span>/gs,
+      ),
+    ];
+    expect(iconMarks).toHaveLength(appIds.length);
+    for (const [, mark] of iconMarks) expect(mark).toContain("<svg ");
+    for (const appId of appIds)
+      expect(directoryPage).toContain(`href="/${appId}/"`);
+    for (const accent of [
+      "AccentColor",
+      "LinkText",
+      "Mark",
+      "Highlight",
+      "ButtonText",
+    ]) {
+      expect(directoryPage).toContain(`--accent:${accent}`);
+    }
+  });
+
   it("routes the root Google OAuth callback without a Dispatch app", async () => {
     makeWorkspaceApp(tmpDir, "alpha", { displayName: "Zulu" });
     makeWorkspaceApp(tmpDir, "beta", { displayName: "Alpha" });
@@ -1406,6 +1455,68 @@ describe("workspace deploy", () => {
     });
 
     expect(execFile).toHaveBeenCalledTimes(1);
+  });
+
+  it("builds apps in parallel up to AGENT_NATIVE_DEPLOY_CONCURRENCY", async () => {
+    const apps = ["alpha", "beta", "gamma"];
+    for (const app of apps) makeWorkspaceApp(tmpDir, app);
+    vi.stubEnv("AGENT_NATIVE_DEPLOY_CONCURRENCY", "2");
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const asyncBuild = vi.fn(async (_cmd: string, args: string[]) => {
+      maxInFlight = Math.max(maxInFlight, ++inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      writeAppBuildOutput(tmpDir, String(args[1]));
+      inFlight--;
+    });
+
+    try {
+      await runWorkspaceDeploy({
+        workspaceRoot: tmpDir,
+        preset: "netlify",
+        buildOnly: true,
+        execFile: asyncBuild as unknown as typeof execFileSync,
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+
+    expect(maxInFlight).toBe(2);
+    for (const app of apps) {
+      expect(
+        fs.existsSync(path.join(tmpDir, "dist", "_workspace_static", app)),
+      ).toBe(true);
+    }
+  });
+
+  it("waits for in-flight builds and reports every failure", async () => {
+    for (const app of ["alpha", "beta", "gamma"]) makeWorkspaceApp(tmpDir, app);
+    vi.stubEnv("AGENT_NATIVE_DEPLOY_CONCURRENCY", "2");
+    const finished: string[] = [];
+    const failingBuild = vi.fn(async (_cmd: string, args: string[]) => {
+      const app = String(args[1]);
+      await new Promise((resolve) =>
+        setTimeout(resolve, app === "alpha" ? 5 : 20),
+      );
+      finished.push(app);
+      throw new Error(`${app} build failed`);
+    });
+
+    try {
+      await expect(
+        runWorkspaceDeploy({
+          workspaceRoot: tmpDir,
+          preset: "netlify",
+          buildOnly: true,
+          execFile: failingBuild as unknown as typeof execFileSync,
+        }),
+      ).rejects.toThrow(/alpha build failed\nbeta build failed/);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+
+    expect(finished).toEqual(["alpha", "beta"]);
+    expect(failingBuild).toHaveBeenCalledTimes(2);
   });
 
   it("requires A2A_SECRET for hosted Netlify workspace deploy builds", async () => {

@@ -1,6 +1,8 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "block.renderUnavailable": "यह ब्लॉक अस्थायी रूप से उपलब्ध नहीं है।",
+  "block.loading": "ब्लॉक लोड हो रहा है।",
   "composer.contextUrlLabel": "यूआरएल",
   "composer.contextInvalidUrl": "मान्य HTTP या HTTPS यूआरएल दर्ज करें।",
   "composer.contextAttach": "अटैच करें",
@@ -38,6 +40,12 @@ const messages: ToolkitAgentChatTranslation = {
   "agent.queued": "कतार में",
   "agent.completed": "काम पूरा किया",
   "agent.failed": "ध्यान देने की ज़रूरत है",
+  "agent.failureReason.failed": "पूरा नहीं हो सका",
+  "agent.failureReason.setup": "पहले सेटअप ज़रूरी है",
+  "agent.failureReason.auth": "पहुँच अस्वीकार की गई",
+  "agent.failureReason.timeout": "बहुत देर लगी",
+  "agent.failureReason.budget": "समय समाप्त हो गया",
+  "agent.failureReason.response": "कोई उपयोगी परिणाम नहीं",
   "agent.closed": "बंद किया",
   "approval.alwaysAllow": "हमेशा अनुमति दें",
   "approval.alwaysAllowHint": "इस सटीक कमांड को स्वीकृत करें और हमेशा अनुमति दें",
@@ -83,6 +91,8 @@ const messages: ToolkitAgentChatTranslation = {
   "observability.promoteMustContainOptional": "जवाब में जाँचने के लिए वैकल्पिक टेक्स्ट…",
   "observability.promoteMustContainLabel":
     "प्रमोट किए गए मूल्यांकन के जवाब में जाँचने वाला टेक्स्ट",
+  "observability.promoteReviewedPromptLabel":
+    "मैन्युअल रूप से समीक्षा किया गया प्रॉम्प्ट (प्रोडक्शन से कभी स्वतः कॉपी नहीं किया जाता)",
   "observability.promoteNeedsContains":
     "इस रन में कोई सफल टूल कॉल नहीं है। प्रमोट करने से पहले वह टेक्स्ट दर्ज करें जो जवाब में होना चाहिए।",
   "observability.viewDetails": "विवरण देखें",
@@ -123,7 +133,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.skipForNow": "अभी छोड़ें",
   "onboarding.saveRoleError": "आपकी भूमिका सहेजी नहीं जा सकी।",
   "onboarding.builderCreateAccount": "Builder.io इस्तेमाल करें",
-  "onboarding.builderSignInWithAccount": "Builder.io इस्तेमाल करें",
+  "onboarding.builderSignInWithAccount": "Builder.io खाते से साइन इन करें",
   "onboarding.builderActivateDescription":
     "एक क्लिक में अपना Builder.io खाता बनाएँ या फिर से इस्तेमाल करें और उसके मुफ़्त क्रेडिट सक्रिय करें।",
   "onboarding.builderActiveCredits": "सक्रिय Builder.io मुफ़्त क्रेडिट में शामिल",
@@ -141,8 +151,17 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderAccountExistsTitle": "आपके पास पहले से Builder.io खाता है",
   "onboarding.builderAccountExistsDescription":
     "अपने खाते का उपयोग करने के लिए लॉग इन करें।",
+  "onboarding.builderActivationChecking":
+    "जाँचा जा रहा है कि नया खाता बनाना उपलब्ध है या नहीं।",
+  "onboarding.builderActivationUnavailable":
+    "Builder.io से जुड़ने के लिए खाता बनाएँ या साइन इन करें।",
+  "onboarding.builderActivationUnavailableInMode":
+    "Builder.io से जुड़ने के लिए खाता बनाएँ या साइन इन करें।",
+  "onboarding.builderActivationCheckFailed":
+    "यह जाँचा नहीं जा सका कि यह ऐप नए खाते बना सकता है या नहीं।",
+
   "onboarding.builderActivationDescription":
-    "मुफ़्त क्रेडिट पाने के लिए एक क्लिक में Builder.io खाता बनाएँ या कनेक्ट करें।",
+    "मुफ़्त क्रेडिट सक्रिय करने के लिए नया खाता बनाएँ, या मौजूदा खाते से आगे बढ़ें।",
   "onboarding.builderOrgActivationDescription":
     "हम एक क्लिक में आपका Builder.io खाता बनाएँगे, ताकि आपका संगठन इसका उपयोग कर सके।",
   "onboarding.builderCreateAndActivate": "बनाएँ और सक्रिय करें",
@@ -150,11 +169,13 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderTerms": "सेवा की शर्तों",
   "onboarding.builderPrivacy": "गोपनीयता नीति",
   "onboarding.builderConsentAnd": "और",
-  "onboarding.builderExistingAccount": "Builder.io इस्तेमाल करें",
+  "onboarding.builderExistingAccount": "मेरे पास Builder.io खाता है",
+  "onboarding.builderConnect": "Builder.io से कनेक्ट करें",
   "onboarding.builderActivating": "Builder.io के मुफ़्त क्रेडिट सक्रिय किए जा रहे हैं",
   "onboarding.builderConnecting": "Builder.io के मुफ़्त क्रेडिट सेट अप हो रहे हैं",
   "onboarding.builderProvisioningDescription":
     "आपका Builder.io खाता बनाया जा रहा है और मुफ़्त क्रेडिट सक्रिय किए जा रहे हैं।",
+  "onboarding.builderCancelPending": "कनेक्शन की स्थिति जाँची जा रही है…",
   "onboarding.builderConnectionDescription":
     "नई विंडो में एक क्लिक से कनेक्शन पूरा करें।",
   "onboarding.builderReadyWithCodeChanges":
@@ -184,6 +205,10 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.keySummary": "एंबेडिंग",
   "onboarding.capability.embeddings.why":
     "एंबेडिंग अर्थपूर्ण खोज को बेहतर बनाती हैं। इनके बिना भी कीवर्ड खोज काम करती है।",
+  "onboarding.capability.webSearch.label": "वेब खोज",
+  "onboarding.capability.webSearch.keySummary": "Builder द्वारा प्रबंधित वेब खोज",
+  "onboarding.capability.webSearch.why":
+    "वेब पर मौजूदा सार्वजनिक स्रोत खोजें। Builder द्वारा प्रबंधित खोज शामिल Builder AI क्रेडिट का उपयोग करती है, इसलिए अलग खोज API कुंजी की ज़रूरत नहीं है।",
   "onboarding.capability.systemOne.why":
     "Jev एक वैकल्पिक निर्णय मॉडल है, जो एजेंट के पहले मॉडल अनुरोध से पहले प्रासंगिक टूल और स्किल चुनने में मदद करता है।",
   "onboarding.capability.assetsImageGeneration.label": "इमेज जनरेशन",
@@ -494,7 +519,19 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "स्किल फ़ाइल अपलोड करें",
   "composer.upload": "अपलोड करें",
   "composer.uploadFailed": "चुनी गई फ़ाइल अपलोड नहीं हो सकी।",
+  "composer.fileTooLarge": "यह फ़ाइल {{size}} MB की अपलोड सीमा से बड़ी है।",
+  "composer.sessionExpired":
+    "आपका सत्र समाप्त हो गया है। फिर से साइन इन करें, फिर अपना संदेश भेजें।",
   "composer.unsupportedFileType": "यह फ़ाइल प्रकार समर्थित नहीं है।",
+  "composer.uploadUnavailable":
+    "फ़ाइल अपलोड अभी उपलब्ध नहीं है। कुछ देर बाद फिर कोशिश करें।",
+  "composer.uploadOffline":
+    "अपलोड सर्वर तक नहीं पहुंच सका। अपना कनेक्शन जांचें और फिर कोशिश करें।",
+  "composer.submissionNotReady":
+    "चैट अभी भेजने के लिए तैयार नहीं है। थोड़ा रुकें, फिर दोबारा भेजें।",
+  "composer.submissionScopeChanged":
+    "आपका संदेश भेजे जाने से पहले यह चैट बदल गई। इसे फिर से भेजें।",
+  "composer.attachmentNotSaved": "इस चैट के साथ सहेजा नहीं गया",
   "composer.useAttachedContext": "अटैच किए गए संदर्भ का उपयोग करें।",
   "mentions.commands": "कमांड",
   "mentions.learnMore": "और जानें",
@@ -631,6 +668,10 @@ const messages: ToolkitAgentChatTranslation = {
     "मॉडल प्रदाता ने इस अनुरोध को त्रुटिपूर्ण मानकर अस्वीकार कर दिया, इसलिए इसे दोबारा नहीं भेजा गया। फिर से प्रयास करें, या बार-बार होने पर नई चैट शुरू करें।",
   "errorMessages.requestTooLarge":
     "यह अनुरोध सर्वर की आकार सीमा से बड़ा था (HTTP 413)। नई चैट शुरू करें या बड़े अटैचमेंट या संदर्भ हटाकर फिर कोशिश करें।",
+  "errorMessages.capabilityUnavailable":
+    "हम अभी आपका संदेश नहीं भेज सके। कृपया थोड़ी देर बाद फिर कोशिश करें।",
+  "errorMessages.capabilityUnsupported":
+    "यह ऐप अभी आपके सहेजे गए संदेश को सुरक्षित रूप से दोबारा नहीं भेज सकता। ऐप अपडेट करें और फिर कोशिश करें।",
   "errorMessages.runInterrupted": "एजेंट काम पूरा करने से पहले रुक गया।",
   "errorMessages.runFailed": "एजेंट का रन विफल हो गया।",
   "errorMessages.runUnverified":
@@ -639,6 +680,8 @@ const messages: ToolkitAgentChatTranslation = {
     "आप साइन आउट हो चुके हैं, इसलिए यह चैट एजेंट को फ़ॉलो नहीं कर सकती। फिर से साइन इन करें, फिर रीलोड करें।",
   "errorMessages.malformedRequestAttachment":
     "मॉडल ने एक संलग्न फ़ाइल अस्वीकार कर दी, इसलिए यह संदेश कभी भेजा ही नहीं गया। अटैचमेंट हटाकर दोबारा प्रयास करें — PDF, सादा टेक्स्ट फ़ाइल, या JPEG, PNG, GIF या WebP छवि सीधे पढ़ी जाती है; अन्य फ़ॉर्मैट अपलोड करके लिंक करने होंगे।",
+  "errorMessages.invalidAttachment":
+    "मॉडल प्रदाता ने इस अटैचमेंट के फ़ॉर्मैट या आकार के कारण इसे अस्वीकार कर दिया। छवियों के लिए छोटी PNG, JPEG, GIF या WebP फ़ाइल निर्यात करें; दस्तावेज़ों के लिए समर्थित फ़ाइल फ़ॉर्मैट इस्तेमाल करें या संबंधित टेक्स्ट चिपकाएँ, फिर उसे दोबारा अटैच करें।",
   "errorMessages.noProviderConnected":
     "कोई LLM प्रदाता कनेक्ट नहीं है। सेटिंग > एजेंट > AI प्रदाता खोलें, फिर Builder.io (मुफ़्त टियर उपलब्ध) का उपयोग करें या प्रदाता कुंजी जोड़ें।",
   "errorMessages.openBuilderSpaceSettings": "Builder स्पेस सेटिंग्स खोलें",
@@ -1123,6 +1166,15 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.copyFailed": "कॉपी नहीं हो सका",
   "recovery.continueUnavailable":
     "यह रन अब जारी नहीं रखा जा सकता। आगे बढ़ने के लिए एक संदेश भेजें।",
+  "errorMessages.invalidAttachmentNamed":
+    "मॉडल प्रदाता ने {{name}} को अस्वीकार कर दिया क्योंकि इसका फ़ॉर्मैट या आकार समर्थित नहीं है। छवियों को छोटे PNG, JPEG, GIF या WebP के रूप में निर्यात करें। दस्तावेज़ों के लिए समर्थित फ़ॉर्मैट इस्तेमाल करें या संबंधित पाठ चिपकाकर फिर कोशिश करें।",
+  "recovery.resendVerificationEmail": "सत्यापन ईमेल फिर से भेजें",
+  "recovery.sendingVerificationEmail": "भेजा जा रहा है...",
+  "recovery.verificationEmailRequested":
+    "सत्यापन ईमेल का अनुरोध किया गया। अपना इनबॉक्स और स्पैम फ़ोल्डर देखें।",
+  "recovery.verificationEmailFailed":
+    "सत्यापन ईमेल का अनुरोध नहीं हो सका। कृपया फिर से कोशिश करें।",
+  "recovery.retryWithoutAttachment": "अटैचमेंट के बिना फिर से कोशिश करें",
   "recovery.retryAttachmentUnavailable":
     "इस अनुरोध में ऐसी फ़ाइल थी जिसे दोबारा नहीं भेजा जा सकता। उसे संदेश बॉक्स में फिर से जोड़ें, फिर कोशिश करें।",
   "recovery.deferredSubmissionFailed":
@@ -1165,6 +1217,8 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.emptyMore":
     "और {{count}} अधिक 'नया' के अंतर्गत, या नाम से कोई भी कस्टम कुंजी जोड़ें",
   "secrets.emptyTitle": "अभी तक कोई कुंजी नहीं।",
+  "secrets.figmaTokenMustBeToken":
+    "Figma एक्सेस टोकन पेस्ट करें, Figma फ़ाइल URL नहीं।",
   "secrets.fromEnvironment": "डिप्लॉयमेंट एनवायरनमेंट द्वारा प्रदान किया गया।",
   "secrets.managedInVault":
     "वर्कस्पेस के Vault में प्रबंधित किया जाता है। इस वर्कस्पेस का हर ऐप यह वैल्यू उपयोग करता है।",
@@ -1192,6 +1246,12 @@ const messages: ToolkitAgentChatTranslation = {
   "selection.attached_one": "चयन का {{formattedCount}} अक्षर अटैच है",
   "selection.attached_other": "चयन के {{formattedCount}} अक्षर अटैच हैं",
   "selection.clear": "चयन संदर्भ हटाएँ",
+  "setup.addKeyInSettings": "सेटिंग में कुंजी जोड़ें",
+  "setup.addKeyInSettingsDescription": "आपके खाते या संगठन के लिए।",
+  "setup.setEnvironmentVariable": "एनवायरनमेंट वेरिएबल सेट करें",
+  "setup.setEnvironmentVariableDescription":
+    "इस ऐप के सभी उपयोगकर्ताओं के लिए एक प्रदाता कुंजी।",
+
   "setup.addOwnKeys": "अपनी कुंजियाँ जोड़ें",
   "setup.builderCredits":
     "Builder.io में मुफ़्त क्रेडिट शामिल हैं, या आप अपनी API कुंजी इस्तेमाल कर सकते हैं।",
@@ -2533,6 +2593,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.search.appDefaultModel": "ऐप का डिफ़ॉल्ट मॉडल",
   "settingsShell.search.backgroundAgents": "बैकग्राउंड एजेंट",
   "settingsShell.search.browserAutomation": "ब्राउज़र ऑटोमेशन",
+  "settingsShell.search.webSearch": "वेब खोज",
   "settingsShell.search.connectedAgents": "कनेक्ट किए गए एजेंट",
   "settingsShell.search.database": "डेटाबेस",
   "settingsShell.search.defaultModel": "डिफ़ॉल्ट मॉडल",
@@ -2665,6 +2726,8 @@ const messages: ToolkitAgentChatTranslation = {
     "बनाई गई स्लाइड और डिज़ाइन को ब्रांड के अनुरूप रखता है।",
   "settingsInfra.whyBackground": "प्रोडक्शन से कोड में बदलाव करता है।",
   "settingsInfra.whyBrowser": "एजेंट को प्रोडक्शन में ब्राउज़र इस्तेमाल करने देता है।",
+  "settingsInfra.whyWebSearch":
+    "नई सार्वजनिक जानकारी और आधिकारिक दस्तावेज़ ढूँढता है।",
   "settingsInfra.provider": "प्रदाता",
   "settingsInfra.keyOrg": "संगठन की {{provider}} कुंजी इस्तेमाल करता है।",
   "settingsInfra.manageKey": "कुंजी प्रबंधित करें",
@@ -2988,6 +3051,18 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsSubAgents.connectTitle": "{{name}} कनेक्ट करें",
   "settingsSubAgents.close": "बंद करें",
   "observability.insights.rawTrace": "रॉ ट्रेस (हर स्पैन, इनपुट और आउटपुट के साथ)",
+  "reportProblem.menuItem": "समस्या की रिपोर्ट करें",
+  "reportProblem.title_one":
+    "पिछले {{count}} सेकंड में ऐप ने जो किया, क्या उसे संलग्न करें?",
+  "reportProblem.title_other":
+    "पिछले {{count}} सेकंड में ऐप ने जो किया, क्या उसे संलग्न करें?",
+  "reportProblem.noEvents": "अभी तक कुछ रिकॉर्ड नहीं हुआ।",
+  "reportProblem.send": "एजेंट को भेजें",
+  "reportProblem.copy": "समस्या रिपोर्ट कॉपी करें",
+  "reportProblem.attaching": "संलग्न किया जा रहा है…",
+  "reportProblem.notAttached": "रिपोर्ट संलग्न नहीं हुई।",
+  "reportProblem.agentMessage":
+    "ऐप में कुछ गड़बड़ हो गई। संलग्न समस्या रिपोर्ट से बताइए कि क्या हुआ।",
 };
 
 export default messages;

@@ -1,3 +1,4 @@
+import { breakpointUpperBoundPx } from "@shared/responsive-classes";
 import { isRunningAppSourceType } from "@shared/source-mode";
 import { useEffect, useCallback, useRef, useMemo } from "react";
 
@@ -107,6 +108,20 @@ export function useEditorScreenChangeHandlers({
     activeBreakpointUpperBoundPx,
     activeCanvasSourceType,
   } = editorActiveScreenAndGeometry;
+  const activeBreakpointUpperBoundAtEvent = useCallback(() => {
+    const activeWidthPx = activeBreakpointWidthStateRef.current;
+    return activeWidthPx == null
+      ? null
+      : breakpointUpperBoundPx(
+          designBreakpoints.map((breakpoint) => breakpoint.widthPx),
+          activeWidthPx,
+          activeScreenBaseWidthPx,
+        );
+  }, [
+    activeBreakpointWidthStateRef,
+    activeScreenBaseWidthPx,
+    designBreakpoints,
+  ]);
   const {
     localhostConnectionRootPathByIdRef,
     recordPendingHistoryEntry,
@@ -498,12 +513,13 @@ export function useEditorScreenChangeHandlers({
         preserveSelection?: boolean;
         routePath?: string;
         runtimeApplied?: boolean;
+        requirePersistedSourceAcceptance?: boolean;
         relativeOperations?: Record<string, PendingRelativeStyleOperation>;
       },
     ) =>
       runScreenVisualStyleChange(
         {
-          activeBreakpointUpperBoundPx,
+          activeBreakpointUpperBoundPx: activeBreakpointUpperBoundAtEvent(),
           activeBreakpointWidthStateRef,
           activeFile,
           applyFileContentUpdate,
@@ -524,7 +540,7 @@ export function useEditorScreenChangeHandlers({
         metadata,
       ),
     [
-      activeBreakpointUpperBoundPx,
+      activeBreakpointUpperBoundAtEvent,
       activeFile?.id,
       applyFileContentUpdate,
       canEditDesign,
@@ -615,7 +631,7 @@ export function useEditorScreenChangeHandlers({
           elementInfo.sourceId,
           interactionState,
           styles,
-          activeBreakpointUpperBoundPx,
+          activeBreakpointUpperBoundAtEvent(),
         );
         if (nextContent === baseContent) return;
         applyFileContentUpdate(screenId, nextContent, {
@@ -629,21 +645,23 @@ export function useEditorScreenChangeHandlers({
         );
         return;
       }
-      for (const [property, value] of Object.entries(styles)) {
-        sendLinkedScreenPreviewStyleChange(
-          screenId,
-          selector,
-          property,
-          value,
-          {
-            selectorCandidates,
-            nodeId: elementInfo?.runtimeSourceId ?? elementInfo?.sourceId,
-            relativeOperation: relativeOperationsForStyles(
-              { [property]: value },
-              metadata,
-            )?.[property],
-          },
-        );
+      if (!metadata?.requirePersistedSourceAcceptance) {
+        for (const [property, value] of Object.entries(styles)) {
+          sendLinkedScreenPreviewStyleChange(
+            screenId,
+            selector,
+            property,
+            value,
+            {
+              selectorCandidates,
+              nodeId: elementInfo?.runtimeSourceId ?? elementInfo?.sourceId,
+              relativeOperation: relativeOperationsForStyles(
+                { [property]: value },
+                metadata,
+              )?.[property],
+            },
+          );
+        }
       }
       if (
         metadata?.phase === "preview" ||
@@ -654,14 +672,16 @@ export function useEditorScreenChangeHandlers({
       const relativeOperations = relativeOperationsForStyles(styles, metadata);
       handleScreenVisualStyleChange(screenId, selector, styles, elementInfo, {
         phase: metadata?.phase === "commit" ? "commit" : undefined,
-        runtimeApplied: true,
+        runtimeApplied: !metadata?.requirePersistedSourceAcceptance,
+        requirePersistedSourceAcceptance:
+          metadata?.requirePersistedSourceAcceptance,
         ...(relativeOperations ? { relativeOperations } : {}),
         routePath:
           metadata?.routePath ?? liveRoutePathsByScreenIdRef.current[screenId],
       });
     },
     [
-      activeBreakpointUpperBoundPx,
+      activeBreakpointUpperBoundAtEvent,
       activeFile?.id,
       applyFileContentUpdate,
       canEditDesign,
@@ -950,7 +970,7 @@ export function useEditorScreenChangeHandlers({
   >(
     (selector, value, info, details) => {
       if (!boardFileId) return;
-      handleScreenTextContentChange(
+      return handleScreenTextContentChange(
         boardFileId,
         selector,
         value,

@@ -3,6 +3,7 @@ import { type CodeLayerNode, type CodeLayerTreeNode } from "@shared/code-layer";
 import type { InteractionState } from "@shared/interaction-states";
 import { isRunningAppSourceType } from "@shared/source-mode";
 import { useState, useCallback, useRef, useMemo } from "react";
+import { toast } from "sonner";
 
 import { type LayersPanelMoveIntent } from "@/components/design/LayersPanel";
 import {
@@ -49,7 +50,11 @@ import {
 import { getLocalhostRouteSourceFile } from "../editor-state";
 import { getBodyInlineStyles } from "../html-layer-positioning";
 import { deriveStatePreviewTarget } from "../pending-edits";
-import { measurePositionCoordinateContext } from "../position-coordinate-context";
+import {
+  measurePositionCoordinateContext,
+  positionCoordinateRenderOffsetForWindow,
+} from "../position-coordinate-context";
+import { readRelativePositionStyles } from "../relative-position-offset";
 import {
   isScreenRootElementInfo,
   resolveMarqueeAdditive,
@@ -89,11 +94,16 @@ function readRenderedLayerInfo(
         preferredCodeLayerSelector(owner.node),
       );
       if (!element) continue;
-      const computed = preview.getComputedStyle(element);
+      const relativePosition = readRelativePositionStyles(element, (target) =>
+        preview.getComputedStyle(target),
+      );
       const parent = element.parentElement;
+      const renderOffset = positionCoordinateRenderOffsetForWindow(preview);
+      if (!renderOffset) continue;
       const positionCoordinateContext = measurePositionCoordinateContext(
         element,
         preview,
+        renderOffset,
       );
       const parentComputed = parent
         ? preview.getComputedStyle(parent)
@@ -108,9 +118,10 @@ function readRenderedLayerInfo(
         sourceLayerIdentity: { screenId: owner.fileId, nodeId: owner.node.id },
         computedStyles: {
           ...base.computedStyles,
-          position: computed.position,
-          zIndex: computed.zIndex,
+          ...relativePosition.computedStyles,
         },
+        relativeContainingBlockDirection:
+          relativePosition.relativeContainingBlockDirection,
         boundingRect: {
           x: rect.x + scrollX,
           y: rect.y + scrollY,
@@ -219,7 +230,6 @@ export function useEditorLayerActions({
     activeBreakpointWidthState,
     activeBreakpointWidthStateRef,
     activeInteractionStateState,
-    focusDesignInspectorForSelection,
     contentUndoStackRef,
     selectedLayerIdsStateRef,
     explicitOverviewScreenSelectionRef,
@@ -284,15 +294,11 @@ export function useEditorLayerActions({
     applyLinkedComponentEdit,
     getFreshActiveContent,
     handleStyleChange,
-    handleFrameSelection,
   } = editorSelectionAndStyles;
   const {
     handleCopySelection,
-    handlePasteToReplace,
     handleDuplicateSelection,
     handleDeleteSelection,
-    handleGroupSelection,
-    handleUngroupSelection,
   } = editorClipboard;
   const { setRuntimeStructureDeleteRequest, getActiveFileSelectedNodeIds } =
     editorLayoutAndStructure;
@@ -667,6 +673,9 @@ export function useEditorLayerActions({
   const selectedDomLayerOwners = selectedDomLayerIds.map((layerId) =>
     codeLayerOwnerByNodeId.get(layerId),
   );
+  const selectedLayersInActiveFile = selectedDomLayerOwners.every(
+    (owner) => !owner || owner.fileId === activeFile?.id,
+  );
   const selectedRuntimeLayerOwners = selectedDomLayerOwners.filter(
     (owner) => owner?.runtimeOnly,
   );
@@ -751,6 +760,9 @@ export function useEditorLayerActions({
           activeFile,
           applyFileContentUpdate,
           boardFileId,
+          canvasFrameGeometryById: getCanvasFrameGeometry(
+            designDataJsonRef.current,
+          ),
           codeLayerOwnerByNodeId,
           effectiveCodeLayerState,
           files,
@@ -931,21 +943,22 @@ export function useEditorLayerActions({
       ) {
         return;
       }
+      if (
+        !measured.positionReferenceRect ||
+        !measured.positionContainingBlockOrigin ||
+        !measured.positionContainingBlockTransform
+      ) {
+        return;
+      }
       const stableId = owner.node.dataAttributes["data-agent-native-node-id"];
-      renderedElementInfoByLayerKeyRef.current.set(
-        `${owner.fileId}:${owner.node.id}`,
-        measured,
-      );
-      if (stableId) {
-        renderedElementInfoByLayerKeyRef.current.set(
-          `${owner.fileId}:${stableId}`,
-          measured,
-        );
+      const ownerId = stableId ?? bridgeSourceIdForCodeLayerNode(owner.node);
+      const layerKey = `${owner.fileId}:${owner.node.id}`;
+      const stableKey = stableId ? `${owner.fileId}:${stableId}` : undefined;
+      renderedElementInfoByLayerKeyRef.current.set(layerKey, measured);
+      if (stableKey) {
+        renderedElementInfoByLayerKeyRef.current.set(stableKey, measured);
       }
       if (selectedLayerIdsStateRef.current.includes(layerId)) {
-        const ownerId =
-          owner.node.dataAttributes["data-agent-native-node-id"] ??
-          bridgeSourceIdForCodeLayerNode(owner.node);
         const mergeMeasured = (current: ElementInfo | null) => {
           if (!current) return measured;
           const currentId = current.sourceId ?? current.runtimeSourceId;
@@ -957,17 +970,22 @@ export function useEditorLayerActions({
             boundingRect: measured.boundingRect,
             parentBoundingRect:
               measured.parentBoundingRect ?? current.parentBoundingRect,
-            positionReferenceRect:
-              measured.positionReferenceRect ?? current.positionReferenceRect,
+            positionReferenceRect: measured.positionReferenceRect,
             positionContainingBlockOrigin:
-              measured.positionContainingBlockOrigin ??
-              current.positionContainingBlockOrigin,
+              measured.positionContainingBlockOrigin,
             positionContainingBlockTransform:
-              measured.positionContainingBlockTransform ??
-              current.positionContainingBlockTransform,
+              measured.positionContainingBlockTransform,
+            relativeContainingBlockDirection:
+              measured.relativeContainingBlockDirection,
             computedStyles: {
               ...measured.computedStyles,
               ...current.computedStyles,
+              position: measured.computedStyles.position,
+              left: measured.computedStyles.left,
+              right: measured.computedStyles.right,
+              top: measured.computedStyles.top,
+              bottom: measured.computedStyles.bottom,
+              zIndex: measured.computedStyles.zIndex,
             },
           };
           return samePlainData(merged, current) ? current : merged;
@@ -1041,7 +1059,6 @@ export function useEditorLayerActions({
             effectiveCodeLayerState,
             files,
             getScreenContent,
-            focusDesignInspectorForSelection,
             overviewSelectedScreenIds,
             pendingOverviewLayerSelectionRef,
             pendingOverviewScreenSelectionRef,
@@ -1071,7 +1088,6 @@ export function useEditorLayerActions({
       codeLayerOwnerByNodeId,
       effectiveCodeLayerState,
       files,
-      focusDesignInspectorForSelection,
       getScreenContent,
       activeBreakpointWidthStateRef,
       overviewSelectedScreenIds,
@@ -1130,7 +1146,6 @@ export function useEditorLayerActions({
         runLayerMarqueeSelectionChange(
           {
             clearPendingOverviewLayerSelectionTimer,
-            focusDesignInspectorForSelection,
             getCodeLayerProjectionForScreen,
             hasActiveSelectionRef,
             lastMarqueeSelectionSignatureRef,
@@ -1154,7 +1169,6 @@ export function useEditorLayerActions({
     },
     [
       clearPendingOverviewLayerSelectionTimer,
-      focusDesignInspectorForSelection,
       getCodeLayerProjectionForScreen,
       recordMarqueeSelectionHistoryAroundChange,
     ],
@@ -1392,6 +1406,29 @@ export function useEditorLayerActions({
     ],
   );
 
+  const handleCopyLayerLink = useCallback(
+    (nodeId?: string) => {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("selection");
+      if (nodeId && files.some((file) => file.id === nodeId)) {
+        url.searchParams.set("screen", nodeId);
+      } else if (nodeId) {
+        url.searchParams.set("selection", nodeId);
+        const ownerFileId = codeLayerOwnerByNodeId.get(nodeId)?.fileId;
+        if (ownerFileId) url.searchParams.set("screen", ownerFileId);
+      }
+      if (!navigator.clipboard) {
+        toast.error(t("review.copyLinkFailed"));
+        return;
+      }
+      navigator.clipboard
+        .writeText(url.toString())
+        .then(() => toast.success(t("review.linkCopied")))
+        .catch(() => toast.error(t("review.copyLinkFailed")));
+    },
+    [codeLayerOwnerByNodeId, files, t],
+  );
+
   const layerPanelHandlers = {
     onRename: handleLayerRename,
     onToggleLocked: handleToggleLayerLocked,
@@ -1401,13 +1438,10 @@ export function useEditorLayerActions({
     canMoveLayer,
     onSelectionChange: handleLayerSelectionChange,
     onCopyLayer: handleCopySelection,
+    onCopyLink: handleCopyLayerLink,
     onDuplicateLayer: handleDuplicateSelection,
     onDeleteLayer: handleDeleteSelection,
-    onGroupSelection: handleGroupSelection,
-    onUngroupSelection: handleUngroupSelection,
     onReorderLayer: changeSelectedZIndex,
-    onPasteToReplace: handlePasteToReplace,
-    onFrameSelection: handleFrameSelection,
     onFlipHorizontal: handleFlipHorizontal,
     onFlipVertical: handleFlipVertical,
   };
@@ -1432,16 +1466,13 @@ export function useEditorLayerActions({
         ...args: Parameters<typeof handleLayerSelectionChange>
       ) => latest().onSelectionChange(...args),
       onCopyLayer: () => latest().onCopyLayer(),
+      onCopyLink: (nodeId: string) => latest().onCopyLink(nodeId),
       onDuplicateLayer: () => latest().onDuplicateLayer(),
       onDeleteLayer: () => latest().onDeleteLayer(),
-      onGroupSelection: () => latest().onGroupSelection(),
-      onUngroupSelection: () => latest().onUngroupSelection(),
       onReorderLayer: (
         _ids: string[],
         direction: Parameters<typeof changeSelectedZIndex>[0],
       ) => latest().onReorderLayer(direction),
-      onPasteToReplace: () => latest().onPasteToReplace(),
-      onFrameSelection: () => latest().onFrameSelection(),
       onFlipHorizontal: () => latest().onFlipHorizontal(),
       onFlipVertical: () => latest().onFlipVertical(),
     };
@@ -1493,6 +1524,7 @@ export function useEditorLayerActions({
     editableLiveScreenIds,
     handleJoinPublishWaitlist,
     activeLayerId,
+    handleCopyLayerLink,
     fullViewScreenIds,
     gradientEditTarget,
     inScreenGradientEditTarget,
@@ -1513,6 +1545,7 @@ export function useEditorLayerActions({
     selectedDomLayerIds,
     selectedActiveFileNodeIds,
     selectedLayersUseCompatibleSourceBackend,
+    selectedLayersInActiveFile,
     canUngroup,
     handleCanvasLayerMarqueeSelectionChange,
     handleScreenElementMarqueeSelect,

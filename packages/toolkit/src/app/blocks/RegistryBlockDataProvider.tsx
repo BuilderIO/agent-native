@@ -5,8 +5,13 @@ import {
   type RegistryBlockSideMapBlock,
 } from "@agent-native/toolkit/editor/RegistryBlockContext";
 import { IconPencil } from "@tabler/icons-react";
+import { Suspense } from "react";
 import { useCallback, useMemo, type ReactNode } from "react";
 
+import {
+  BlockRenderErrorBoundary,
+  BlockRenderSuspenseFallback,
+} from "./BlockRenderErrorBoundary.js";
 import { blockEditSurface } from "./BlockView.js";
 import { useOptionalBlockRegistry } from "./provider.js";
 import { SchemaBlockEditor } from "./SchemaBlockEditor.js";
@@ -16,9 +21,11 @@ export function RegistryBlockDataProvider<
 >({
   value,
   children,
+  interactive = false,
 }: {
   value: RegistryBlockDataValue<TBlock>;
   children: ReactNode;
+  interactive?: boolean;
 }) {
   const registryValue = useOptionalBlockRegistry();
   const renderRegisteredBlock = useCallback(
@@ -35,37 +42,71 @@ export function RegistryBlockDataProvider<
       const blockData = block.data;
       const Read = spec.Read;
       let body: ReactNode = (
-        <Read
-          data={blockData}
+        <BlockRenderErrorBoundary
           blockId={block.id}
-          title={block.title}
-          summary={block.summary}
-          ctx={registryValue.ctx}
-        />
+          blockType={blockType}
+          resetKey={blockData}
+          interactive={interactive}
+        >
+          <Suspense
+            fallback={
+              <BlockRenderSuspenseFallback
+                blockId={block.id}
+                blockType={blockType}
+              />
+            }
+          >
+            <Read
+              data={blockData}
+              blockId={block.id}
+              title={block.title}
+              summary={block.summary}
+              ctx={registryValue.ctx}
+            />
+          </Suspense>
+        </BlockRenderErrorBoundary>
       );
       let editSurface: ReactNode = null;
       const canEditBlock = options.editable && spec.placement.includes("block");
       if (canEditBlock) {
         const Edit = spec.Edit;
-        const editorNode = Edit ? (
-          <Edit
-            data={blockData}
-            onChange={options.onChange}
-            editable
+        const editorNode = (
+          <BlockRenderErrorBoundary
             blockId={block.id}
-            title={block.title}
-            summary={block.summary}
-            ctx={registryValue.ctx}
-          />
-        ) : (
-          <SchemaBlockEditor
-            data={blockData}
-            onChange={(nextData) => options.onChange(nextData)}
-            schema={spec.schema}
-            editable
-            blockId={block.id}
-            ctx={registryValue.ctx}
-          />
+            blockType={blockType}
+            resetKey={blockData}
+            interactive={interactive}
+          >
+            <Suspense
+              fallback={
+                <BlockRenderSuspenseFallback
+                  blockId={block.id}
+                  blockType={blockType}
+                />
+              }
+            >
+              {Edit ? (
+                <Edit
+                  data={blockData}
+                  onChange={options.onChange}
+                  editable
+                  blockId={block.id}
+                  title={block.title}
+                  summary={block.summary}
+                  ctx={registryValue.ctx}
+                />
+              ) : (
+                <SchemaBlockEditor
+                  data={blockData}
+                  onChange={(nextData) => options.onChange(nextData)}
+                  schema={spec.schema}
+                  editable
+                  blockId={block.id}
+                  ctx={registryValue.ctx}
+                />
+              )}
+            </Suspense>
+          </BlockRenderErrorBoundary>
         );
         const surface = blockEditSurface(spec);
         if (surface === "panel" && registryValue.ctx.renderEditSurface) {

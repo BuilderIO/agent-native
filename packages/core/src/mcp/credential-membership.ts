@@ -44,18 +44,31 @@ export async function checkCredentialOrgMembership(input: {
   // A human OAuth subject can use a service-shaped address. Only the local
   // record of an authenticated connect token proves it is a service identity.
   const stored = input.storedConnectToken;
-  if (
-    stored?.kind === "service" &&
-    stored.ownerEmail === email &&
-    stored.orgId === orgId &&
-    implicitServiceOrgRole({ email, orgId, requestOrgId: stored.orgId })
-  ) {
-    return "member";
-  }
   const lookup = () =>
     isOrgMember(orgId, email, { requireOrganizationMetadata: true });
   const context = getRequestContext();
   try {
+    if (
+      stored?.kind === "service" &&
+      stored.ownerEmail === email &&
+      stored.orgId === orgId &&
+      implicitServiceOrgRole({ email, orgId, requestOrgId: stored.orgId })
+    ) {
+      const organization = await getDbExec().execute({
+        sql: `SELECT identity_authority, identity_id
+              FROM organizations WHERE id = ? LIMIT 1`,
+        args: [orgId],
+      });
+      const metadata = organization.rows[0] as
+        | { identity_authority?: unknown; identity_id?: unknown }
+        | undefined;
+      if (!metadata) return "not-member";
+      return String(metadata.identity_authority ?? "").trim() ||
+        String(metadata.identity_id ?? "").trim()
+        ? "not-member"
+        : "member";
+    }
+
     const member =
       !input.requestOrigin || context?.requestOrigin
         ? await lookup()

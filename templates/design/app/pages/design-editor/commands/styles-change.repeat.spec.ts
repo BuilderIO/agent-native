@@ -75,6 +75,33 @@ describe("a style commit on one repeated row", () => {
   });
 });
 
+it("forwards persisted source acceptance for a multi-style commit", () => {
+  const commitVisualStyles = vi.fn();
+  const styles = { backgroundImage: "url(https://example.test/fill.png)" };
+
+  runStylesChange(
+    {
+      commitInteractionStateStyles: () => false,
+      commitRelativeStyleDeltaToSelectedLayers: () => false,
+      commitStylesToSelectedLayers: () => false,
+      commitCapturedStyleTargets: () => {},
+      commitVisualStyles,
+      handleClearBreakpointOverride: () => false,
+      previewInteractionStateStyles: () => {},
+      selectedCanvasSelectorCandidates: [],
+      selectedElement: null,
+      selectedLayerTargetsRef: { current: [] },
+      textEditingState: { active: false },
+    },
+    styles,
+    { phase: "commit", requirePersistedSourceAcceptance: true },
+  );
+
+  expect(commitVisualStyles).toHaveBeenCalledWith("body", styles, {
+    requirePersistedSourceAcceptance: true,
+  });
+});
+
 describe("the live preview while dragging", () => {
   it("aims at the same element the commit will write", () => {
     const sent: unknown[] = [];

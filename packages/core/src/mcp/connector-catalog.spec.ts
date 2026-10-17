@@ -84,7 +84,6 @@ vi.mock("../org/context.js", () => ({
 vi.mock("./connect-store.js", () => ({
   MCP_CONNECT_SCOPE: "mcp-connect",
   MCP_CONNECT_OAUTH_CLIENT_ID: "agent-native-connect",
-  isJtiRevoked: vi.fn(async () => false),
   touchTokenUsed: vi.fn(async () => {}),
   lookupConnectTokenOrg: vi.fn(async (jti: string) => {
     const token = issuedConnectTokens.get(jti);

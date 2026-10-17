@@ -84,6 +84,9 @@ describe("clone-creative-context-design-native", () => {
       }),
     );
     expect(mocks.mutateDesignData).toHaveBeenCalled();
+    expect(mocks.createDesign.mock.calls[0]?.[0]).toMatchObject({
+      creationMethod: "context_clone",
+    });
     expect(result).toMatchObject({
       designId: "design-copy",
       clonedExactVersion: "version-1",

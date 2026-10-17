@@ -99,10 +99,18 @@ Each slot uploads one artifact named `beta-e2e-<lane>-<slot>-<run id>`
 `error-context.md` page snapshots).
 
 The same suite also runs automatically from **Beta E2E (scheduled)** every six
-hours (`0 */6 * * *`) with the public, authenticated, journey, and advisory
-lanes. The scheduled workflow also has a manual dispatch entrypoint for checking
-the reporter without waiting for the next cadence. What it reports, and where,
-is under [Reading a failure report](#reading-a-failure-report).
+hours (`0 */6 * * *`) with the public, fleet, and advisory lanes. Authenticated tests
+write durable data, and most Beta apps share a database with production, so the
+scheduled workflow stays public-only until isolated Beta databases are
+provisioned and verified. Its manual dispatch entrypoint also runs the public
+lane for checking the reporter without waiting for the next cadence. What it
+reports, and where, is under
+[Reading a failure report](#reading-a-failure-report).
+
+The public lane avoids the normal writes from authenticated signup, chat, and
+session tests. It still sends unauthenticated POST probes that expect an auth
+rejection, so those checks can detect a broken auth boundary but are not a
+strict no-write guarantee.
 
 The assertions come from what people actually reported breaking in
 `#product-agent-native-feedback`: Google sign-in failures, sign-in loops, apps

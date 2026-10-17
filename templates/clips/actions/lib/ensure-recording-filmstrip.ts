@@ -2,12 +2,12 @@ import {
   readAppState,
   writeAppState,
 } from "@agent-native/core/application-state";
-import { uploadFile } from "@agent-native/core/file-upload";
 import { and, eq, isNull } from "drizzle-orm";
 
 import { getDb, schema } from "../../server/db/index.js";
 import { deleteRecordingMediaObjects } from "../../server/lib/recording-media-cleanup.js";
 import { ownerEmailMatches } from "../../server/lib/recordings.js";
+import { uploadRecordingMedia } from "../../server/lib/upload-recording-media.js";
 import {
   DEFAULT_FILMSTRIP_FRAME_COUNT,
   generateFilmstripSprite,
@@ -82,6 +82,7 @@ export async function ensureRecordingFilmstrip(params: {
       videoUrl: schema.recordings.videoUrl,
       durationMs: schema.recordings.durationMs,
       filmstripUrl: schema.recordings.filmstripUrl,
+      storageMode: schema.recordings.storageMode,
       sourceAppName: schema.recordings.sourceAppName,
     })
     .from(schema.recordings)
@@ -127,7 +128,10 @@ export async function ensureRecordingFilmstrip(params: {
     };
   }
 
-  const fetched = await fetchProviderBytes(rec.videoUrl);
+  const fetched = await fetchProviderBytes(rec.videoUrl, {
+    recordingId,
+    storageMode: rec.storageMode,
+  });
   if (!fetched.ok) {
     return { recordingId, status: fetched.reason, changed: false };
   }
@@ -148,7 +152,8 @@ export async function ensureRecordingFilmstrip(params: {
     };
   }
 
-  const upload = await uploadFile({
+  const upload = await uploadRecordingMedia({
+    recordingId,
     data: sprite.sprite.bytes,
     filename: `${recordingId}-filmstrip-${Date.now()}.jpg`,
     mimeType: "image/jpeg",
@@ -202,6 +207,7 @@ export async function ensureRecordingFilmstrip(params: {
   if (updated.length !== 1 || updated[0]?.filmstripUrl !== upload.url) {
     await deleteRecordingMediaObjects({
       id: recordingId,
+      storageMode: rec.storageMode,
       filmstripUrl: upload.url,
     }).catch(() => {});
     return {
@@ -216,6 +222,7 @@ export async function ensureRecordingFilmstrip(params: {
   if (rec.filmstripUrl && rec.filmstripUrl !== upload.url) {
     await deleteRecordingMediaObjects({
       id: recordingId,
+      storageMode: rec.storageMode,
       filmstripUrl: rec.filmstripUrl,
     }).catch(() => {});
   }
