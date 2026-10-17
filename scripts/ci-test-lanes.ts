@@ -224,13 +224,14 @@ export function requiresFullCoreFastTests(paths: readonly string[]): boolean {
 // plugin, which loads action modules, plugin options, and whatever they import
 // (server/lib, shared, app) through dynamic imports that `vitest --changed`
 // cannot follow. A template-only change, a new core action, or a change to the
-// plugin's catalog assembly would otherwise never reach them.
+// plugin's catalog assembly would otherwise never reach them. The plugin also
+// imports the coding tools and the dev tool registry dynamically.
 const TEMPLATE_REGISTRY_CORE_SPECS = [
   "src/mcp/advertised-tool-annotations.spec.ts",
   "src/mcp/instructions-name-advertised-tools.spec.ts",
 ] as const;
 const TEMPLATE_REGISTRY_SOURCE_RE =
-  /^(?:templates\/[^/]+\/(?:actions|server|shared|app|scripts)\/.+\.[cm]?[jt]sx?|packages\/core\/src\/(?:server\/(?:agent-chat-plugin|agent-chat\/.+)|(?:.+\/)?actions\/.+)\.[cm]?[jt]sx?)$/u;
+  /^(?:templates\/[^/]+\/(?:actions|server|shared|app|scripts)\/.+\.[cm]?[jt]sx?|packages\/core\/src\/(?:server\/(?:agent-chat-plugin|agent-chat\/.+)|coding-tools\/.+|scripts\/dev\/.+|(?:.+\/)?actions\/.+)\.[cm]?[jt]sx?)$/u;
 
 export function templateRegistryCoreSpecs(
   paths: readonly string[],

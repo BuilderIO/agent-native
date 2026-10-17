@@ -13,14 +13,23 @@ export function carryExecutionKey(from: object, to: object): void {
   }
 }
 
+const DISCOVERED_READ_ONLY_HINTS = Object.freeze({
+  readOnlyHint: true,
+  destructiveHint: false,
+  openWorldHint: true,
+} as const);
+const DISCOVERED_WRITE_HINTS = Object.freeze({
+  readOnlyHint: false,
+  destructiveHint: true,
+  openWorldHint: true,
+} as const);
+
 // Filesystem discovery can expose loose actions over MCP. Unknown actions may
-// interact externally, so their open-world hint stays conservative.
+// interact externally, so their open-world hint stays conservative. The same
+// two objects are always returned, so a contract test can tell this fallback
+// from a module's own declaration by identity.
 export function discoveredActionMcpAnnotations(readOnly: boolean) {
-  return {
-    readOnlyHint: readOnly,
-    destructiveHint: !readOnly,
-    openWorldHint: true,
-  } as const;
+  return readOnly ? DISCOVERED_READ_ONLY_HINTS : DISCOVERED_WRITE_HINTS;
 }
 
 /**

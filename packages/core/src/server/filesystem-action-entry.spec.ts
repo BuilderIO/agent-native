@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import { ACTION_EXECUTION_KEY, defineAction } from "../action.js";
-import { filesystemActionEntry } from "./filesystem-action-entry.js";
+import {
+  discoveredActionMcpAnnotations,
+  filesystemActionEntry,
+} from "./filesystem-action-entry.js";
 
 const keyOf = (entry: object) =>
   (entry as Record<symbol, unknown>)[ACTION_EXECUTION_KEY];
@@ -68,6 +71,21 @@ describe("filesystemActionEntry", () => {
       readOnly: false,
     });
 
+    expect(entry.mcpAnnotations).toEqual({
+      readOnlyHint: false,
+      destructiveHint: true,
+      openWorldHint: true,
+    });
+  });
+
+  it("treats a module that does not say it is read-only as a write", () => {
+    const entry = filesystemActionEntry({
+      tool: { description: "Unknown", parameters: { type: "object" } },
+      run: async () => ({}),
+    });
+
+    expect(entry.readOnly).toBeUndefined();
+    expect(entry.mcpAnnotations).toBe(discoveredActionMcpAnnotations(false));
     expect(entry.mcpAnnotations).toEqual({
       readOnlyHint: false,
       destructiveHint: true,

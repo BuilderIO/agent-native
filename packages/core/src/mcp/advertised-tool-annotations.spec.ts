@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 
 import type { ActionEntry } from "../agent/production-agent.js";
+import { discoveredActionMcpAnnotations } from "../server/filesystem-action-entry.js";
 import {
   LOAD_TIMEOUT_MS,
   SURFACES,
@@ -64,15 +65,16 @@ function mutatingToolNames(app: AppCatalog): string[] {
   ].filter((name) => !SERVER_DECIDED_TOOLS.has(name));
 }
 
+// Only an action entry's annotations count as a decision. The server fills in
+// hints for every tool it advertises, so a tool with no entry would always
+// pass; those are reviewed by name in SERVER_DECIDED_TOOLS instead.
 function declaresDestructiveHint(app: AppCatalog, name: string): boolean {
   return advertisements(app)
     .filter(({ tool }) => tool.name === name)
-    .every(({ entry, tool }) => {
-      const destructiveHint = entry
-        ? entry.mcpAnnotations?.destructiveHint
-        : tool.annotations.destructiveHint;
-      return typeof destructiveHint === "boolean";
-    });
+    .every(
+      ({ entry }) =>
+        typeof entry?.mcpAnnotations?.destructiveHint === "boolean",
+    );
 }
 
 // Legacy entries are keyed by whose action the tool is: the template's own
@@ -99,9 +101,9 @@ function readOnlyMismatches(app: AppCatalog): string[] {
 }
 
 // "<app>/<tool>" for every tool whose advertised hints differ from its
-// declaration, with whether the framework declares it for all apps.
-function declaredMismatches(): Array<{ key: string; frameworkName?: string }> {
-  const mismatches = new Map<string, { key: string; frameworkName?: string }>();
+// declaration.
+function declaredMismatches(): string[] {
+  const mismatches = new Set<string>();
   for (const app of apps) {
     for (const { tool, entry } of advertisements(app)) {
       const declared = entry?.mcpAnnotations;
@@ -109,17 +111,11 @@ function declaredMismatches(): Array<{ key: string; frameworkName?: string }> {
         declared &&
         HINTS.some((hint) => declared[hint] !== tool.annotations[hint])
       ) {
-        const key = `${app.appId}/${tool.name}`;
-        mismatches.set(key, {
-          key,
-          ...(app.templateActionNames.has(tool.name)
-            ? {}
-            : { frameworkName: tool.name }),
-        });
+        mismatches.add(`${app.appId}/${tool.name}`);
       }
     }
   }
-  return [...mismatches.values()].sort((a, b) => a.key.localeCompare(b.key));
+  return [...mismatches].sort();
 }
 
 describe("MCP destructiveHint contract over each app's real catalog", () => {
@@ -186,25 +182,53 @@ describe("MCP destructiveHint contract over each app's real catalog", () => {
     }
   });
 
-  it("checks dev-discovered actions against their loaded action entries", () => {
-    const missing = apps.flatMap((app) =>
+  // A dev server wraps loose files (helpers, one-off CLI scripts) as tools.
+  // Without hints of their own they get the framework fallback; this pins what
+  // that fallback advertises, end to end, rather than only that it is set.
+  it("advertises dev-discovered files without their own hints as destructive and open-world", () => {
+    const fallbackHints = {
+      write: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        openWorldHint: true,
+      },
+      read: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+    };
+    let checked = 0;
+    const problems = apps.flatMap((app) =>
       [...app.devDiscoveredTools].flatMap((name) => {
         const discovered = advertisements(app).filter(
           ({ surface, tool }) => surface.dev && tool.name === name,
         );
-        return discovered.length === 0 ||
-          discovered.some(
-            ({ entry }) =>
-              entry === undefined ||
-              HINTS.some(
-                (hint) => typeof entry.mcpAnnotations?.[hint] !== "boolean",
-              ),
+        if (discovered.length === 0) {
+          return [`${app.appId}/${name}: not advertised on the dev surface`];
+        }
+        return discovered.flatMap(({ entry, tool }) => {
+          if (!entry) return [`${app.appId}/${name}: no action entry`];
+          const readOnly = isReadOnlyAction(entry);
+          // The file's own declaration, or none, is checked like any action's.
+          if (
+            entry.mcpAnnotations !== discoveredActionMcpAnnotations(readOnly)
+          ) {
+            return [];
+          }
+          checked++;
+          const expected = readOnly ? fallbackHints.read : fallbackHints.write;
+          return HINTS.every(
+            (hint) => tool.annotations[hint] === expected[hint],
           )
-          ? [`${app.appId}/${name}`]
-          : [];
+            ? []
+            : [
+                `${app.appId}/${name}: advertises ${JSON.stringify(tool.annotations)}`,
+              ];
+        });
       }),
     );
-    expect(missing).toEqual([]);
+    expect(problems).toEqual([]);
+    expect(
+      checked,
+      "No dev-discovered tool carried the fallback, so nothing was checked.",
+    ).toBeGreaterThan(0);
   });
 
   it("classifies mutating actions from metadata independent of MCP hints", () => {
@@ -310,7 +334,7 @@ describe("MCP destructiveHint contract over each app's real catalog", () => {
 
   it("advertises the declared hints on every declared tool", () => {
     expect(
-      declaredMismatches().map(({ key }) => key),
+      declaredMismatches(),
       "A catalog advertises hints that differ from the action's declared mcpAnnotations.",
     ).toEqual([]);
   });

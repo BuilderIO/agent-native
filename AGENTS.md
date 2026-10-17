@@ -143,14 +143,15 @@ Code, and a human equally). `pnpm guards --list` prints the current set;
 `no-source-reading-tests` check only lines this branch added, so the
 pre-existing backlog stays a separate cleanup. Each guard has a documented
 opt-out pragma, and every opt-out is a decision a reviewer should see.
-`no-new-legacy-mcp-hints` is the exception: it compares the frozen MCP
-`destructiveHint` baseline with the merge base and fails on any added id, with
-no opt-out. A new mutating tool declares `mcpAnnotations` on its action.
+`no-new-legacy-mcp-hints` has none: the MCP `destructiveHint` baseline only
+shrinks.
 
-Guards return 0 for pass, 1 for failure, 2 when they cannot run.
-`requireAddedLines` uses exit 2 when a diff guard cannot resolve its base;
-`pnpm guards` marks it SKIPPED and CI fails. Never report success if a check
-inspected nothing.
+A guard reports three outcomes, not two: exit 0 passed, exit 1 failed, exit 2
+could not run. A diff-scoped guard that cannot resolve a base ref exits 2 via
+`requireAddedLines`, and `pnpm guards` renders it SKIPPED and refuses to print
+"All checks passed" — in CI it fails the run. Never reintroduce an `exit(0)`
+for a check that inspected nothing; that is the flagship rule above, violated
+inside the thing that enforces it.
 
 Shared edits are visible in Git; read `concurrent-agents`. Batch fixes to avoid
 CI churn. Update from `origin/main` only for GitHub `CONFLICTING` PRs; merge

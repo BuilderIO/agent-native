@@ -117,6 +117,9 @@ test("runs the template-registry core specs when anything a template's catalog l
     "packages/core/src/server/agent-chat-plugin.ts",
     "packages/core/src/server/agent-chat/mcp-options.ts",
     "packages/core/src/resources/actions/delete-resource.ts",
+    // Framework tools the plugin imports dynamically.
+    "packages/core/src/coding-tools/index.ts",
+    "packages/core/src/scripts/dev/index.ts",
   ]) {
     assert.deepEqual(templateRegistryCoreSpecs([changed]), specs, changed);
   }
@@ -129,6 +132,7 @@ test("runs the template-registry core specs when anything a template's catalog l
     "templates/mail/server/types.d.ts",
     "packages/core/src/mcp/server.ts",
     "packages/core/src/server/agent-chat-plugin.lifecycle.spec.ts",
+    "packages/core/src/coding-tools/index.spec.ts",
   ]) {
     assert.deepEqual(templateRegistryCoreSpecs([unrelated]), [], unrelated);
   }

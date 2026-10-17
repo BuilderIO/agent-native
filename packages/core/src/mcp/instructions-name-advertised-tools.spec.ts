@@ -36,11 +36,13 @@ function unadvertisedReferences(
   text: string,
   { advertised, notToolNames, advertisedOnlyConditionally }: ReferenceRules,
 ): string[] {
+  // Own keys only: `in` would also accept inherited names such as
+  // `constructor` or `toString` as classified.
   return [...toolReferences(text)].filter(
     (reference) =>
       !advertised.has(reference) &&
-      !(reference in notToolNames) &&
-      !(reference in advertisedOnlyConditionally),
+      !Object.hasOwn(notToolNames, reference) &&
+      !Object.hasOwn(advertisedOnlyConditionally, reference),
   );
 }
 
@@ -69,7 +71,7 @@ const NOT_TOOL_NAMES: Record<string, Record<string, string>> = {
     "later-activity",
     "right-censoring",
   ),
-  content: prose("hyphenated prose", "revision-guarded"),
+  content: prose("hyphenated prose", "revision-guarded", "sub-pages"),
   design: {
     ...prose(
       "hyphenated prose",
@@ -85,7 +87,6 @@ const NOT_TOOL_NAMES: Record<string, Record<string, string>> = {
       "next",
     ),
   },
-  forms: prose("hyphenated prose"),
   slides: {
     ...prose(
       "hyphenated prose",
@@ -218,6 +219,15 @@ describe("tool reference detection", () => {
         rules,
       ),
     ).toEqual(["edit-document"]);
+  });
+
+  it("does not treat inherited object keys as exclusions", () => {
+    expect(
+      unadvertisedReferences(
+        "Call `constructor`, `toString`, or `__proto__`.",
+        rules,
+      ),
+    ).toEqual(["constructor", "toString", "__proto__"]);
   });
 });
 
