@@ -88,6 +88,18 @@ function insertValues(written = [{ recordingId: "rec-1" }]) {
   }));
 }
 
+function recordingRow(extra: Record<string, unknown> = {}) {
+  return {
+    mediaUpdatedAt: "media-1",
+    status: "ready",
+    title: "Clip",
+    titleSource: "user",
+    description: "x",
+    durationMs: 1200,
+    ...extra,
+  };
+}
+
 describe("save-browser-transcript", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -167,6 +179,7 @@ describe("save-browser-transcript", () => {
 
   it("best-effort requeues ended meeting notes when an imported transcript is preserved", async () => {
     mocks.rows = [
+      [recordingRow()],
       [
         {
           status: "ready",
@@ -208,6 +221,7 @@ describe("save-browser-transcript", () => {
 
   it("best-effort requeues ended meeting notes when an existing ready transcript is kept", async () => {
     mocks.rows = [
+      [recordingRow()],
       [
         {
           status: "ready",
