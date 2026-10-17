@@ -54,6 +54,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => mocks.t,
+  useFormatters: () => ({ formatNumber: String }),
 }));
 
 vi.mock("sonner", () => ({ toast: { error: mocks.toastError } }));

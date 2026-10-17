@@ -977,6 +977,23 @@ export default {
     resetFilters: "Reset filters",
     collapseFilters: "Collapse filters",
     expandFilters: "Expand filters",
+    drilldownChartPoints: "Chart points",
+    drilldownPreviousPage: "Previous page of chart points",
+    drilldownNextPage: "Next page of chart points",
+    drilldownPageRange: "Showing {{start}}–{{end}} of {{total}}",
+    drilldownFilterRows: "Filter rows",
+    drilldownShowSql: "Show SQL",
+    drilldownHideSql: "Hide SQL",
+    drilldownDownloadCsv: "Download CSV",
+    drilldownShowing: "Showing {{shown}} of {{total}} records",
+    drilldownCsvTruncated:
+      "Incomplete export: the query matched {{total}} records, but only the first {{loaded}} were loaded; this file includes {{exported}} after filtering.",
+    drilldownCountMismatch:
+      "The chart shows {{chart}}, but {{total}} records matched",
+    drilldownAggregateOnly:
+      "This panel only has aggregate rows. Rows matching the clicked point are highlighted.",
+    drilldownNoRecords: "No matching records",
+    drilldownLoadFailed: "Couldn't load records",
     filterSeries: "Filter",
     chartTimeRangeOverride: "Override time range for this chart",
     chartTimeRangeInherit: "Dashboard range",
