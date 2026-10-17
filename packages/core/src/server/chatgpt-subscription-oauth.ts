@@ -837,7 +837,7 @@ export async function getChatGPTSubscriptionStatus(
       accountId: null,
       activeAccountId: null,
       activeAccount: null,
-      accounts: [],
+      accounts: localLoopback ? [] : await accountSummaries(email),
       legacyRegistrationCleanupAvailable: false,
     };
   }
