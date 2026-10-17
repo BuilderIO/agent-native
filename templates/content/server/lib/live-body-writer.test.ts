@@ -485,6 +485,31 @@ describe("lockLegacyBodyWrites", () => {
     });
   });
 
+  it("reads the live copies' versions and an owner's flags once, however many of their pages it locks", async () => {
+    const { drizzleOverExec } = await import("../live-copy/exec-db.js");
+    for (const id of ["a", "b", "c"]) await insertPage(id);
+    async function readsFor(ids: string[]) {
+      let reads = 0;
+      await getDbExec().transaction!(async (exec) => {
+        const recorded: DbExec = {
+          execute: (statement) => {
+            reads += 1;
+            return exec.execute(statement);
+          },
+        };
+        await bodyRevision.lockLegacyBodyWrites(drizzleOverExec(exec), ids, {
+          operation: "test-writer",
+          exec: recorded,
+        });
+      });
+      return reads;
+    }
+
+    const onePage = await readsFor(["a"]);
+    expect(onePage).toBeGreaterThan(1);
+    expect(await readsFor(["a", "b", "c"])).toBe(onePage);
+  });
+
   it("lets a one-body writer change a switched page's metadata when its body already reads that body", async () => {
     await setFlags(WRITER_FLAGS);
     await insertPage("switched");

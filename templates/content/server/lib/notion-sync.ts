@@ -2,6 +2,7 @@
 // in pnpm's node_modules. Logic is correct; types just don't unify across instances.
 import crypto from "node:crypto";
 
+import { ActionContractError } from "@agent-native/core";
 import {
   parseIconValue,
   serializeIconValue,
@@ -829,8 +830,11 @@ export async function linkDocumentToNotionPage(
     "linking a page",
   );
   await getDocument(documentId, owner);
+  // Linking ends in a pull that writes Notion's body to the page.
+  await assertLegacyBodyWriter(documentId, { operation: "Notion link" });
   const pageId = normalizeNotionPageId(pageIdOrUrl);
   const page = await fetchNotionPage(connection.accessToken, pageId);
+  const previousLink = await getSyncLink(documentId, owner);
   await upsertSyncLink({
     owner,
     documentId,
@@ -840,7 +844,48 @@ export async function linkDocumentToNotionPage(
     warnings: [],
     hasConflict: false,
   });
-  return pullDocumentFromNotion(owner, documentId, true);
+  try {
+    return await pullDocumentFromNotion(owner, documentId, true);
+  } catch (error) {
+    // The page took its live copy after the check above. Linking changed
+    // nothing at Notion, so the page keeps the link it had, if any.
+    if (isUnsupportedBodyWriter(error)) {
+      await restoreSyncLink(owner, documentId, previousLink);
+    }
+    throw error;
+  }
+}
+
+async function restoreSyncLink(
+  owner: string,
+  documentId: string,
+  link: LinkRow | null,
+) {
+  if (link) {
+    await upsertSyncLink({
+      owner,
+      documentId,
+      remotePageId: link.remotePageId,
+      state: link.state,
+      lastSyncedAt: link.lastSyncedAt,
+      lastPulledRemoteUpdatedAt: link.lastPulledRemoteUpdatedAt,
+      lastPushedLocalUpdatedAt: link.lastPushedLocalUpdatedAt,
+      lastKnownRemoteUpdatedAt: link.lastKnownRemoteUpdatedAt,
+      lastSyncedContentHash: link.lastSyncedContentHash,
+      lastError: link.lastError,
+      warnings: parseWarnings(link),
+      hasConflict: Boolean(link.hasConflict),
+    });
+    return;
+  }
+  await getDb()
+    .delete(schema.documentSyncLinks)
+    .where(
+      and(
+        eq(schema.documentSyncLinks.documentId, documentId),
+        eq(schema.documentSyncLinks.ownerEmail, owner),
+      ),
+    );
 }
 
 /**
@@ -1482,14 +1527,15 @@ export async function createAndLinkNotionPage(
     "creating a page",
   );
   const document = await getDocument(documentId, owner);
-  // Linking ends in a pull, whose refusal the fallbacks below would hide.
+  // Linking ends in a pull that writes Notion's body to the page.
   await assertLegacyBodyWriter(documentId, { operation: "Notion link" });
 
   const existingLink = await getSyncLink(documentId, owner);
   if (existingLink) {
     try {
       return await pullDocumentFromNotion(owner, documentId, true);
-    } catch {
+    } catch (error) {
+      if (isUnsupportedBodyWriter(error)) throw error;
       return buildStatus({
         connected: true,
         documentId,
@@ -1553,6 +1599,22 @@ export async function createAndLinkNotionPage(
   try {
     return await pullDocumentFromNotion(owner, documentId, true);
   } catch (error) {
+    if (isUnsupportedBodyWriter(error)) {
+      // The page took its live copy after the check above, once Notion had
+      // the new page. The link to it stays, so a retry doesn't make another.
+      throw new ActionContractError(
+        `Created Notion page ${newPage.id} from page ${documentId} and linked it, but the page now takes body writes through its live copy, so it can't take Notion's copy of its body yet.`,
+        {
+          errorCode: error.errorCode,
+          statusCode: 409,
+          details: {
+            documentId,
+            operation: "Notion link",
+            remotePageId: newPage.id,
+          },
+        },
+      );
+    }
     const link = await getSyncLink(documentId, owner);
     return buildStatus({
       connected: true,

@@ -296,6 +296,7 @@ export default defineAction({
       } else if (decision === "accept_source") {
         const legacy = await lockLegacyBodyWrites(tx, [target.document.id], {
           operation: "resolve-local-folder-conflict",
+          content: sourceContent!,
         });
         const [currentDocument] = await tx
           .select()

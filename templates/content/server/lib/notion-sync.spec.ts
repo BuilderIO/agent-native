@@ -268,10 +268,12 @@ vi.mock("./live-body-writer.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./live-body-writer.js")>()),
   isLiveBodyWriterPage: async (documentId: string) =>
     liveCopyPages.has(documentId),
-  liveBodyWriterGateForRow: async (row: { id: string }) =>
-    liveCopyPages.has(row.id)
-      ? { writePath: "live_copy" }
-      : { writePath: "legacy", reason: "not_switched" },
+  liveBodyWriterGatesForRows: async (rows: Array<{ id: string }>) =>
+    rows.map((row) =>
+      liveCopyPages.has(row.id)
+        ? { writePath: "live_copy" }
+        : { writePath: "legacy", reason: "not_switched" },
+    ),
 }));
 
 describe("createAndLinkNotionPage", () => {
@@ -1671,5 +1673,135 @@ describe("a page that takes body writes through its live copy", () => {
     expect(notionMocks.readNotionPageAsDocument).not.toHaveBeenCalled();
     expect(testState.link).toEqual(link);
     expect(testState.document).toEqual(page);
+  });
+
+  it("refuses to link the page to a Notion page before it reads or links one", async () => {
+    const { linkDocumentToNotionPage } = await import("./notion-sync.js");
+    const link = testState.link;
+
+    await expect(
+      linkDocumentToNotionPage("alice@example.com", "doc-1", "other-page"),
+    ).rejects.toMatchObject({
+      errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+      details: { documentId: "doc-1", operation: "Notion link" },
+    });
+
+    expect(notionMocks.fetchNotionPage).not.toHaveBeenCalled();
+    expect(testState.link).toEqual(link);
+    expect(testState.document).toEqual(page);
+  });
+
+  it.each([
+    ["puts back the link it had", true],
+    ["leaves it unlinked", false],
+  ])(
+    "when the page takes its live copy while it links to a Notion page, refuses and %s",
+    async (_name, linked) => {
+      const { linkDocumentToNotionPage } = await import("./notion-sync.js");
+      liveCopyPages.delete("doc-1");
+      if (!linked) testState.link = null;
+      const link = testState.link;
+      notionMocks.fetchNotionPage.mockImplementationOnce(async () => {
+        liveCopyPages.add("doc-1");
+        return {
+          id: "other-page",
+          last_edited_time: "2026-06-01T10:30:00.000Z",
+        };
+      });
+      notionMocks.readNotionPageAsDocument.mockResolvedValue({
+        pageId: "other-page",
+        title: "Other title",
+        icon: null,
+        content: "The other page's body",
+        lastEditedTime: "2026-06-01T10:30:00.000Z",
+        warnings: [],
+      });
+
+      await expect(
+        linkDocumentToNotionPage("alice@example.com", "doc-1", "other-page"),
+      ).rejects.toMatchObject({
+        errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+        details: { documentId: "doc-1", operation: "Notion sync" },
+      });
+
+      expect(testState.document).toEqual(page);
+      if (link) {
+        expect(testState.link).toMatchObject({
+          remotePageId: link.remotePageId,
+          state: link.state,
+          lastPulledRemoteUpdatedAt: link.lastPulledRemoteUpdatedAt,
+          lastKnownRemoteUpdatedAt: link.lastKnownRemoteUpdatedAt,
+          lastSyncedContentHash: link.lastSyncedContentHash,
+        });
+      } else {
+        expect(testState.link).toBeNull();
+      }
+    },
+  );
+
+  it("refuses, instead of answering with the link, when the page takes its live copy while it relinks", async () => {
+    const { createAndLinkNotionPage } = await import("./notion-sync.js");
+    liveCopyPages.delete("doc-1");
+    notionMocks.readNotionPageAsDocument.mockImplementationOnce(async () => {
+      liveCopyPages.add("doc-1");
+      return {
+        pageId: "notion-page",
+        title: "Local title",
+        icon: null,
+        content: "Remote edit from Notion",
+        lastEditedTime: "2026-06-01T10:30:00.000Z",
+        warnings: [],
+      };
+    });
+
+    await expect(
+      createAndLinkNotionPage("alice@example.com", "doc-1", "parent-page"),
+    ).rejects.toMatchObject({
+      errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+      details: { documentId: "doc-1", operation: "Notion sync" },
+    });
+    expect(testState.document).toEqual(page);
+  });
+
+  it("keeps the link to a Notion page it created when the page takes its live copy before the page takes Notion's copy, and says so", async () => {
+    const { createAndLinkNotionPage } = await import("./notion-sync.js");
+    liveCopyPages.delete("doc-1");
+    testState.link = null;
+    notionMocks.fetchNotionPage.mockResolvedValue({
+      id: "parent-page",
+      last_edited_time: "2026-06-01T10:30:00.000Z",
+    });
+    notionMocks.createNotionPageWithMarkdown.mockImplementationOnce(
+      async () => {
+        liveCopyPages.add("doc-1");
+        return { id: "new-page", url: "https://notion.so/new-page" };
+      },
+    );
+    notionMocks.readNotionPageAsDocument.mockResolvedValue({
+      pageId: "new-page",
+      title: "Local title",
+      icon: null,
+      content: "Notion's copy of the local body",
+      lastEditedTime: "2026-06-01T10:30:00.000Z",
+      warnings: [],
+    });
+
+    await expect(
+      createAndLinkNotionPage("alice@example.com", "doc-1", "parent-page"),
+    ).rejects.toMatchObject({
+      errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+      statusCode: 409,
+      details: {
+        documentId: "doc-1",
+        operation: "Notion link",
+        remotePageId: "new-page",
+      },
+      message: expect.stringContaining("Created Notion page new-page"),
+    });
+    expect(testState.document).toEqual(page);
+    expect(testState.link).toMatchObject({
+      remotePageId: "new-page",
+      lastSyncedContentHash: hashContentForTest("Local body"),
+    });
   });
 });

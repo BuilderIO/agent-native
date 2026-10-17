@@ -175,10 +175,12 @@ vi.mock("../server/lib/live-body-writer.js", async (importOriginal) => ({
   >()),
   isLiveBodyWriterPage: async (documentId: string) =>
     liveCopyPages.has(documentId),
-  liveBodyWriterGateForRow: async (row: { id: string }) =>
-    liveCopyPages.has(row.id)
-      ? { writePath: "live_copy" }
-      : { writePath: "legacy", reason: "not_switched" },
+  liveBodyWriterGatesForRows: async (rows: Array<{ id: string }>) =>
+    rows.map((row) =>
+      liveCopyPages.has(row.id)
+        ? { writePath: "live_copy" }
+        : { writePath: "legacy", reason: "not_switched" },
+    ),
 }));
 
 let resolveBuilderDocsSource: typeof import("./_builder-docs-client.js").resolveBuilderDocsSource;

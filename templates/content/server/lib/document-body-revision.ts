@@ -5,10 +5,10 @@ import { asc, inArray, sql, type SQL } from "drizzle-orm";
 import type { getDb } from "../db/index.js";
 import { documents } from "../db/schema.js";
 import {
-  assertLegacyBodyWritePath,
   isLiveBodyWriterPage,
-  liveBodyWriterGateForRow,
+  liveBodyWriterGatesForRows,
   liveBodyWriterPageColumns,
+  liveBodyWritePathChanged,
   type LiveBodyWriterPageRow,
 } from "./live-body-writer.js";
 
@@ -100,18 +100,17 @@ export async function lockLegacyBodyWrites(
       .where(inArray(documents.id, ids.slice(start, start + LOCK_BATCH)))
       .orderBy(asc(documents.id))
       .for("update");
-    for (const row of rows) {
-      if (options.content !== undefined && row.content === options.content) {
-        continue;
-      }
-      if (options.routed) {
-        await assertLegacyBodyWritePath(row, { transaction: exec });
-        continue;
-      }
-      const gate = await liveBodyWriterGateForRow(row, { transaction: exec });
-      if (gate.writePath === "live_copy") {
-        throw unsupportedBodyWriter(row.id, options);
-      }
+    const writes = rows.filter(
+      (row) => options.content === undefined || row.content !== options.content,
+    );
+    const gates = await liveBodyWriterGatesForRows(writes, {
+      transaction: exec,
+    });
+    for (const [index, row] of writes.entries()) {
+      if (gates[index].writePath !== "live_copy") continue;
+      throw options.routed
+        ? liveBodyWritePathChanged(row.id)
+        : unsupportedBodyWriter(row.id, options);
     }
   }
   return { bodyRevision: bodyRevisionForContent };

@@ -1991,6 +1991,67 @@ describe("local-folder Content source", () => {
     ]);
   });
 
+  it("accepts a folder revision that changes only the title of a page that takes body writes through its live copy", async () => {
+    const connection = await runWithRequestContext({ userEmail: OWNER }, () =>
+      connectLocalFolder.run({
+        connectionId: "desktop-folder-live-copy-resolve-title",
+        label: "Live copy resolve title",
+        createSourceBackedSpace: true,
+        truthPolicy: "source_primary",
+      }),
+    );
+    const first = await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: connection.sourceId,
+        files: { "resolve.md": "---\ntitle: Baseline title\n---\nBody." },
+      }),
+    );
+    const documentId = first.created[0]!.id;
+    await getDb()
+      .update(schema.documents)
+      .set({ title: "Content title", updatedAt: new Date().toISOString() })
+      .where(eq(schema.documents.id, documentId));
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: connection.sourceId,
+        files: { "resolve.md": "---\ntitle: Folder title\n---\nBody." },
+      }),
+    );
+    const [changeSet] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(
+        and(
+          eq(
+            schema.contentDatabaseSourceChangeSets.sourceId,
+            connection.sourceId,
+          ),
+          eq(schema.contentDatabaseSourceChangeSets.documentId, documentId),
+        ),
+      );
+    await putPageOnLiveCopy(documentId);
+    const before = await pageBodyState(documentId);
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      resolveLocalFolderConflict.run({
+        changeSetId: changeSet.id,
+        decision: "accept_source",
+        sourceContent: "Body.",
+      }),
+    );
+
+    const after = await pageBodyState(documentId);
+    expect(after.page).toMatchObject({
+      title: "Folder title",
+      content: "Body.",
+      bodyRevision: before.page.bodyRevision,
+    });
+    expect(after.liveCopyVersion).toBe(before.liveCopyVersion);
+    expect((await folderSourceState(connection)).changeSets).toEqual([
+      expect.objectContaining({ id: changeSet.id, state: "applied" }),
+    ]);
+  });
+
   it("refuses re-sharing over a copy that takes body writes through its live copy", async () => {
     const id = "content_local_file_share_live_copy";
     const now = new Date().toISOString();
