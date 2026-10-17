@@ -2060,9 +2060,9 @@ export function liveCopyWritePathConfirmer(options: {
   const check = async () => {
     do {
       askAgain = false;
+      let live: boolean;
       try {
-        if (!(await confirmLiveCopyWritePath(options.readDocument)))
-          return leave();
+        live = await confirmLiveCopyWritePath(options.readDocument);
       } catch (error) {
         // It stays unknown, so a save asks again and reads as unsaved.
         console.warn(
@@ -2072,8 +2072,10 @@ export function liveCopyWritePathConfirmer(options: {
         return;
       }
       // An acknowledgment that came in while the page was read may be for an
-      // update the server took after that read.
-      if (!askAgain) known = true;
+      // update the server took after that read, so the answer may be stale.
+      if (askAgain) continue;
+      if (!live) return leave();
+      known = true;
     } while (askAgain);
   };
   const start = () =>
@@ -2085,6 +2087,7 @@ export function liveCopyWritePathConfirmer(options: {
       if (action === "leave") return leave();
       if (action === "keep") {
         known = true;
+        if (running) askAgain = true;
         return;
       }
       known = false;

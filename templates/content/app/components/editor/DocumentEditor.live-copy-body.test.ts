@@ -129,6 +129,21 @@ describe("confirming where a live-copy page's body goes", () => {
     expect(leave).toHaveBeenCalledTimes(1);
   });
 
+  it("reads again when a changed update is acknowledged during a check", async () => {
+    const { path, readDocument, reads, leave } = confirmer();
+    path.acknowledge("confirm");
+    await vi.waitFor(() => expect(reads).toHaveLength(1));
+    path.acknowledge("keep");
+    // The read may have been answered before the server took that update.
+    reads[0]!({ writePath: "legacy" });
+    await vi.waitFor(() => expect(reads).toHaveLength(2));
+    expect(leave).not.toHaveBeenCalled();
+    reads[1]!({ writePath: "live_copy" });
+    await expect(path.confirmed()).resolves.toBe(true);
+    expect(readDocument).toHaveBeenCalledTimes(2);
+    expect(leave).not.toHaveBeenCalled();
+  });
+
   it("takes a changed update's acknowledgment as confirmation", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
