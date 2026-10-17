@@ -650,7 +650,7 @@ export async function lockLifecycleGroup(
   if (args.operation === "restore") {
     // Every membership's page, not just those the collection parents now:
     // renumbering picks its pages when it runs, and a move can reparent one
-    // in between.
+    // in between without locking the collection.
     const memberships = await selectMembershipsOfDatabases(db, databaseIds);
     await lockDatabaseMemberships(
       db,

@@ -2809,6 +2809,51 @@ isFavorite: true
       expect(remaining).toHaveLength(1);
     });
 
+    it("decides each purge unit by the access its own transaction reads", async () => {
+      const key = fixtureKey();
+      const pages = [`${key}_p1`, `${key}_p2`];
+      const { orgId, asMember } = await seedSharedOrgTrash(
+        key,
+        pages.map((id) => ({ id, trashRootId: id })),
+      );
+      const { planId, operationId } = await queuePurge(key, orgId, pages);
+      // The second unit loses access before the purge starts, and gets it
+      // back as the first unit's deletion commits.
+      await getDb()
+        .update(schema.documentShares)
+        .set({ principalId: `${key}_other@example.test` })
+        .where(eq(schema.documentShares.id, `${pages[1]}_share`));
+      const regrant = `${key}_regrant`;
+      await getDb().execute(
+        sql.raw(
+          `CREATE FUNCTION ${regrant}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN UPDATE document_shares SET principal_id = '${OWNER}' WHERE id = '${pages[1]}_share'; RETURN NEW; END $$`,
+        ),
+      );
+      await getDb().execute(
+        sql.raw(
+          `CREATE TRIGGER ${regrant} AFTER UPDATE OF outcome ON content_trash_purge_plan_items FOR EACH ROW WHEN (NEW.outcome = 'deleted' AND NEW.plan_id = '${planId}') EXECUTE FUNCTION ${regrant}()`,
+        ),
+      );
+      try {
+        await asMember(() => processContentTrashPurge(operationId));
+      } finally {
+        await getDb().execute(
+          sql.raw(`DROP TRIGGER ${regrant} ON content_trash_purge_plan_items`),
+        );
+        await getDb().execute(sql.raw(`DROP FUNCTION ${regrant}()`));
+      }
+      expect(await readPurgeOperation(operationId)).toEqual({
+        status: "succeeded",
+        deletedCount: 2,
+        blockedCount: 0,
+      });
+      const remaining = await getDb()
+        .select({ id: schema.documents.id })
+        .from(schema.documents)
+        .where(inArray(schema.documents.id, pages));
+      expect(remaining).toHaveLength(0);
+    });
+
     it("blocks the collection owner of a page in a purge unit that loses access", async () => {
       const key = fixtureKey();
       const ids = {
