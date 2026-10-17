@@ -174,7 +174,6 @@ test("Select layer on a non-active overview screen preserves exact screen and la
   expect(await app.savedHtml(designId, "about.html")).toBe(aboutBaseline);
 });
 
-// fixme: #7453 removed the canvas menu's "Edit with AI…" entry this test opens (Edit with Agent now opens the agent sidebar); re-author against the new entry point
 test("Select layer on a non-active overview screen routes selection to that exact screen", async ({
   app,
   page,

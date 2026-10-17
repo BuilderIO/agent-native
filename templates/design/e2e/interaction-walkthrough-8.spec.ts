@@ -382,6 +382,7 @@ test("Shift+A on an element that already has auto layout wraps it in a new auto-
   expect(styleOf(after.get(wrapperId))).toEqual({
     display: "flex",
     "flex-direction": "column",
+    "align-items": "flex-start",
     gap: "10px",
     padding: "0px",
     width: "fit-content",

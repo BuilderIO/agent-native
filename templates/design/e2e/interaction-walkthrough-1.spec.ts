@@ -206,6 +206,7 @@ test.describe("interaction: button component", () => {
       top: "200px",
       display: "flex",
       "flex-direction": "column",
+      "align-items": "flex-start",
       gap: "10px",
       padding: "0px",
       width: "fit-content",

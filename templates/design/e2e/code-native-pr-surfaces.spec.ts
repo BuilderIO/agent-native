@@ -1,7 +1,10 @@
 import type { Page } from "@playwright/test";
 
 import { DESIGN_MOTION_LAB, DESIGN_REVIEW_TOOLS_LAB } from "../shared/labs";
-import { compileMotionCode } from "../shared/motion-code";
+import {
+  compileMotionCode,
+  MOTION_CODE_METADATA_VERSION,
+} from "../shared/motion-code";
 import { injectManagedMotionCss } from "../shared/motion-compiler";
 import type { MotionTimeline } from "../shared/motion-timeline";
 import { appPath, openAppMenuSubmenu } from "./helpers";
@@ -48,9 +51,9 @@ const AUDIT_HTML = `<!doctype html>
 function expectedAlphaOpacityCss(durationMs = 500): string {
   const source = encodeURIComponent(
     JSON.stringify({
-      version: 3,
-      // The timeline stretches to fit its longest animation.
-      durationMs: Math.max(2000, durationMs),
+      version: MOTION_CODE_METADATA_VERSION,
+      // The stored timeline keeps its own length; a longer style runs past it.
+      durationMs: 2000,
       defaultEase: "ease",
       tracks: [],
       playbackMode: "once",
@@ -100,7 +103,7 @@ function expectedAlphaOpacityCss(durationMs = 500): string {
     animation: none !important;
   }
 }
-/* agent-native-motion-source:v3:${source} */`;
+/* agent-native-motion-source:v${MOTION_CODE_METADATA_VERSION}:${source} */`;
 }
 
 const UNSUPPORTED_MOTION_CSS = compileMotionCode({
@@ -510,7 +513,6 @@ test("unsupported managed Motion syntax is visible and does not block canvas tex
   }
 });
 
-// fixme: fails in CI on current main: Timeoutlocator.click: Timeout 15000ms exceeded.
 test("adding an opacity track saves one managed motion style for that button and reopens with its keyframes", async ({
   app,
   page,
