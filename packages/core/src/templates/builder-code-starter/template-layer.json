@@ -9,6 +9,7 @@
     "app/components/layout/AgentInspector.test.tsx",
     "app/components/layout/AgentInspector.tsx",
     "app/components/layout/Header.tsx",
+    "app/components/layout/Sidebar.spec.tsx",
     "app/components/layout/Sidebar.tsx",
     "app/i18n",
     "app/i18n-data.ts",
