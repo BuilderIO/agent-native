@@ -197,4 +197,95 @@ describe("assistant root projection", () => {
       false,
     );
   });
+
+  it("matches a folded root claimed only by an inherited snapshot message id", () => {
+    const result = projectRootAssistantMessages({
+      rootMessages: [
+        {
+          id: "root-answer",
+          role: "assistant",
+          parts: [{ type: "text", text: "Answer complete" }],
+          metadata: {
+            runId: "run-root",
+            custom: { foldedRunIds: ["run-root", "run-continuation"] },
+          },
+        },
+      ],
+      snapshotMessages: [
+        {
+          id: "snapshot-answer",
+          role: "assistant",
+          parts: [{ type: "text", text: "Answer complete" }],
+        },
+      ],
+      runs: [
+        {
+          id: "run-continuation",
+          status: "completed",
+          inheritedMessageId: "snapshot-answer",
+        },
+      ],
+    });
+
+    expect(result.representedRootMessageIds.has("root-answer")).toBe(true);
+  });
+
+  it("matches durable text and tool calls split across same-run snapshots", () => {
+    const result = projectRootAssistantMessages({
+      rootMessages: [
+        {
+          id: "root-answer",
+          role: "assistant",
+          status: { type: "complete" },
+          content: [
+            { type: "text", text: "Done." },
+            {
+              type: "tool-call",
+              toolCallId: "call-1",
+              toolName: "search",
+              args: { query: "example" },
+            },
+          ],
+          metadata: { runId: "run-one" },
+        },
+      ],
+      snapshotMessages: [
+        {
+          id: "snapshot-text",
+          role: "assistant",
+          parts: [{ type: "text", text: "Done." }],
+          metadata: { runId: "run-one" },
+        },
+        {
+          id: "snapshot-tool",
+          role: "assistant",
+          parts: [
+            {
+              type: "tool-call",
+              toolCallId: "call-1",
+              toolName: "search",
+              args: { query: "example" },
+            },
+          ],
+          metadata: { runId: "run-one" },
+        },
+      ],
+      toolCalls: [
+        {
+          id: "call-1",
+          name: "search",
+          input: { query: "example" },
+          messageId: "snapshot-tool",
+        },
+      ],
+    });
+
+    expect(result.representedRootMessageIds.has("root-answer")).toBe(true);
+    expect(result.snapshotMessageIdsByRootMessageId.get("root-answer")).toBe(
+      "snapshot-text",
+    );
+    expect(result.supersededSnapshotMessageIds.has("snapshot-tool")).toBe(
+      false,
+    );
+  });
 });

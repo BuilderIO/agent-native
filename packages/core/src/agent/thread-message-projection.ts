@@ -118,6 +118,7 @@ function eventRunIds(events: unknown, runs: unknown): Map<string, Set<string>> {
   for (const value of Array.isArray(runs) ? runs : []) {
     const run = record(value);
     remember(run?.activeMessageId, run?.id);
+    remember(run?.inheritedMessageId, run?.id);
   }
   return result;
 }
@@ -288,6 +289,56 @@ function snapshotRepresentsRootContent(
     toolMessageIds?.size === 1 &&
     toolMessageIds.has(candidate.id)
   );
+}
+
+function splitSnapshotGroupMatch(
+  root: Record<string, unknown>,
+  candidates: Record<string, unknown>[],
+  toolMessageIds: Set<string> | undefined,
+): Record<string, unknown> | undefined {
+  const rootText = text(root);
+  const rootCalls = rootToolCalls(root);
+  if (!rootText || rootCalls.length === 0) return undefined;
+
+  const textCandidates = candidates.filter(
+    (candidate) =>
+      text(candidate) === rootText &&
+      snapshotAdditionalContentIsRepresented(root, candidate),
+  );
+  if (textCandidates.length !== 1) return undefined;
+
+  const textCandidate = textCandidates[0]!;
+  const callPartsMatch = rootCalls.every((rootCall) =>
+    candidates.some((candidate) => {
+      if (
+        candidate.id === textCandidate.id ||
+        !snapshotAdditionalContentIsRepresented(root, candidate)
+      ) {
+        return false;
+      }
+      const candidateText = text(candidate);
+      return (
+        (!candidateText || isPrefixCompatible(rootText, candidateText)) &&
+        rootToolCalls(candidate).some((candidateCall) =>
+          sameToolCallIdentity(rootCall, candidateCall),
+        )
+      );
+    }),
+  );
+  const indexedToolMessagesMatch =
+    toolMessageIds !== undefined &&
+    toolMessageIds.size > 0 &&
+    [...toolMessageIds].every(
+      (messageId) =>
+        messageId !== textCandidate.id &&
+        candidates.some(
+          (candidate) =>
+            candidate.id === messageId &&
+            snapshotAdditionalContentIsRepresented(root, candidate),
+        ),
+    );
+
+  return callPartsMatch || indexedToolMessagesMatch ? textCandidate : undefined;
 }
 
 function sameValue(left: unknown, right: unknown): boolean {
@@ -606,6 +657,26 @@ export function projectRootAssistantMessages(input: {
             );
           })
         : [];
+    const splitGroupMatch =
+      rootText && isTerminalAssistant(root)
+        ? splitSnapshotGroupMatch(root, sameRunCandidates, toolMessageIds)
+        : undefined;
+    if (splitGroupMatch && typeof splitGroupMatch.id === "string") {
+      represented.add(root.id);
+      directMatches.set(root.id, splitGroupMatch.id);
+      for (const candidate of duplicateCandidates) {
+        if (candidate.id === splitGroupMatch.id) continue;
+        const candidateText = text(candidate);
+        if (
+          candidateText &&
+          snapshotAdditionalContentIsRepresented(root, candidate) &&
+          typeof candidate.id === "string"
+        ) {
+          supersededSnapshotMessageIds.add(candidate.id);
+        }
+      }
+      continue;
+    }
     if (
       rootText &&
       isTerminalAssistant(root) &&

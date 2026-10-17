@@ -5044,7 +5044,11 @@ export class AgentKitClient implements AgentKitController {
     );
     const runAssociatedMessageIds = new Set(
       runs
-        .flatMap((run) => [run.activeMessageId, run.inheritedMessageId])
+        .flatMap((run) =>
+          this.isTerminalStatus(run.status)
+            ? [run.activeMessageId]
+            : [run.activeMessageId, run.inheritedMessageId],
+        )
         .filter((messageId): messageId is string => messageId !== undefined),
     );
     // A snapshot lists a request with the status it had when it was written, so

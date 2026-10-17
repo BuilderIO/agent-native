@@ -6240,6 +6240,41 @@ describe("AgentKitClient", () => {
     ]);
   });
 
+  it("settles a streaming message held only by a terminal inherited claim", async () => {
+    const transport = createTransport([]);
+    transport.getThreadSnapshot = async () => ({
+      id: "thread-1",
+      createdAt: "2026-08-29T00:00:00.000Z",
+      updatedAt: "2026-08-29T00:00:02.000Z",
+      messages: [
+        {
+          id: "assistant-complete",
+          role: "assistant",
+          status: "streaming",
+          parts: [{ type: "text", text: "Completed response" }],
+        },
+      ],
+      runs: [
+        {
+          id: "run-complete",
+          threadId: "thread-1",
+          status: "completed" as const,
+          lastSequence: 1,
+          completedAt: "2026-08-29T00:00:02.000Z",
+          inheritedMessageId: "assistant-complete",
+        },
+      ],
+      activeRunIds: [],
+    });
+    const client = new AgentKitClient({ transport });
+
+    const thread = await client.loadThread("thread-1");
+
+    expect(thread.messages).toEqual([
+      expect.objectContaining({ id: "assistant-complete", status: "complete" }),
+    ]);
+  });
+
   it("settles unassociated streaming messages conservatively for mixed terminals", async () => {
     const transport = createTransport([]);
     transport.getThreadSnapshot = async () => ({

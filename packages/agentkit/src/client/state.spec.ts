@@ -433,6 +433,46 @@ describe("AgentKit lifecycle projections", () => {
     ]);
   });
 
+  it("assigns a shared reply to every unprojected continuation", () => {
+    let thread = [
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "message.delta",
+        messageId: "assistant-shared",
+        text: "Partial",
+      }),
+    ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+    thread = {
+      ...thread,
+      runs: {
+        "run-2": { id: "run-2", status: "running", lastSequence: 0 },
+        "run-3": { id: "run-3", status: "running", lastSequence: 0 },
+        ...thread.runs,
+      },
+      activeRunIds: [...thread.activeRunIds, "run-2", "run-3"],
+    };
+
+    thread = reduceAgentEvent(thread, event(3, { type: "run.completed" }));
+
+    expect(thread.runs["run-2"]?.inheritedMessageId).toBe("assistant-shared");
+    expect(thread.runs["run-3"]?.inheritedMessageId).toBe("assistant-shared");
+    expect(thread.messages[0]?.status).toBe("streaming");
+
+    thread = reduceAgentEvent(thread, {
+      ...event(1, { type: "run.completed" }),
+      id: "run-2-completed",
+      runId: "run-2",
+    });
+    expect(thread.messages[0]?.status).toBe("streaming");
+
+    thread = reduceAgentEvent(thread, {
+      ...event(1, { type: "run.completed" }),
+      id: "run-3-completed",
+      runId: "run-3",
+    });
+    expect(thread.messages[0]?.status).toBe("complete");
+  });
+
   it("does not record a continuation that never writes as the shared reply's author", () => {
     let thread = [
       event(1, { type: "run.started" }),

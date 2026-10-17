@@ -675,8 +675,6 @@ function settleRunItems(
     if (run.id === runId) continue;
     if (isTerminalRunStatus(run.status)) continue;
     if (run.activeMessageId || run.inheritedMessageId) {
-      if (run.activeMessageId) messageIds.delete(run.activeMessageId);
-      if (run.inheritedMessageId) messageIds.delete(run.inheritedMessageId);
       continue;
     }
     const foldedMessageId =
@@ -695,7 +693,6 @@ function settleRunItems(
       (message) => message.id === foldedMessageId,
     );
     if (folded?.role !== "assistant" || folded.status !== "streaming") continue;
-    messageIds.delete(foldedMessageId);
     runs = {
       ...runs,
       [run.id]: { ...run, inheritedMessageId: foldedMessageId },
