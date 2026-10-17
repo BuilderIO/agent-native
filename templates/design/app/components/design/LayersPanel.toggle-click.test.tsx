@@ -157,7 +157,12 @@ describe("LayersPanel lock/hide toggles", () => {
   it.each(["locked", "hidden"] as const)(
     "does not change %s state on a secondary-button press",
     async (kind) => {
-      const panel = renderPanel();
+      const panel = renderPanel({
+        layers: [
+          { id: "n1", name: "Box", type: "element" },
+          { id: "n2", name: "Circle", type: "element" },
+        ],
+      });
       await panel.mount();
       const button = layerToggleButton(panel.host, "n1", kind);
       if (!button) throw new Error(`no ${kind} toggle`);
@@ -170,6 +175,14 @@ describe("LayersPanel lock/hide toggles", () => {
       });
       await act(async () => {
         button.dispatchEvent(event);
+      });
+
+      const targetRow = layerTreeitem(panel.host, "n2");
+      const targetButton = layerToggleButton(panel.host, "n2", kind);
+      if (!targetButton) throw new Error(`no target ${kind} toggle`);
+      setHorizontalBounds(targetButton, 10, 30);
+      await act(async () => {
+        mouseOver(targetRow, 20);
       });
 
       expect(event.defaultPrevented).toBe(false);
