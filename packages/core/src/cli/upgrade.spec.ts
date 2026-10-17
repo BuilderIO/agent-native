@@ -610,6 +610,111 @@ describe("runUpgrade", () => {
     expect(fs.readFileSync(workspacePath, "utf-8")).toBe(workspaceBefore);
   });
 
+  it.each([
+    { description: "malformed YAML", workspaceYaml: "packages: [services/*" },
+    {
+      description: "an invalid package pattern",
+      workspaceYaml: "packages:\n  - 42\n",
+    },
+  ])(
+    "blocks upgrades when workspace package patterns are $description",
+    async ({ workspaceYaml }) => {
+      const root = makeTempProject({
+        kind: "workspace",
+        workspaceYaml,
+        rootPkg: { name: "ws", private: true },
+        workspaces: {
+          "services/web": {
+            name: "web",
+            dependencies: { "@agent-native/core": "latest" },
+          },
+        },
+      });
+      const workspacePath = path.join(root, "pnpm-workspace.yaml");
+      const workspaceBefore = fs.readFileSync(workspacePath, "utf-8");
+      const packagePath = path.join(root, "services", "web", "package.json");
+      const packageBefore = fs.readFileSync(packagePath, "utf-8");
+      const { io, out, err } = captureIo();
+
+      expect(
+        await runUpgrade(
+          [
+            "--cwd",
+            root,
+            "--skip-install",
+            "--skip-skills",
+            "--skip-verify",
+            "--json",
+          ],
+          io,
+        ),
+      ).toBe(1);
+
+      const result = JSON.parse(err.join("\n"));
+      expect(result).toMatchObject({
+        ok: false,
+        doctor: { workspaceDiscoveryError: expect.any(String) },
+        steps: [{ id: "doctor", status: "failed" }],
+      });
+      expect(out).toEqual([]);
+      expect(fs.readFileSync(workspacePath, "utf-8")).toBe(workspaceBefore);
+      expect(fs.readFileSync(packagePath, "utf-8")).toBe(packageBefore);
+    },
+  );
+
+  it("blocks upgrades when the workspace YAML cannot be read", async () => {
+    const root = makeTempProject({
+      kind: "workspace",
+      rootPkg: { name: "ws", private: true },
+      workspaces: {
+        "services/web": {
+          name: "web",
+          dependencies: { "@agent-native/core": "latest" },
+        },
+      },
+    });
+    const workspacePath = path.join(root, "pnpm-workspace.yaml");
+    const workspaceBefore = fs.readFileSync(workspacePath, "utf-8");
+    const packagePath = path.join(root, "services", "web", "package.json");
+    const packageBefore = fs.readFileSync(packagePath, "utf-8");
+    const readFileSync = fs.readFileSync;
+    vi.spyOn(fs, "readFileSync").mockImplementation(
+      (file: fs.PathOrFileDescriptor, options?: unknown) => {
+        if (typeof file === "string" && path.resolve(file) === workspacePath) {
+          throw new Error("EACCES: permission denied, open");
+        }
+        return readFileSync(file, options as never);
+      },
+    );
+    const { io, out, err } = captureIo();
+
+    expect(
+      await runUpgrade(
+        [
+          "--cwd",
+          root,
+          "--skip-install",
+          "--skip-skills",
+          "--skip-verify",
+          "--json",
+        ],
+        io,
+      ),
+    ).toBe(1);
+
+    const result = JSON.parse(err.join("\n"));
+    expect(result).toMatchObject({
+      ok: false,
+      doctor: {
+        workspaceDiscoveryError: "EACCES: permission denied, open",
+      },
+      steps: [{ id: "doctor", status: "failed" }],
+    });
+    expect(out).toEqual([]);
+    expect(readFileSync(workspacePath, "utf-8")).toBe(workspaceBefore);
+    expect(readFileSync(packagePath, "utf-8")).toBe(packageBefore);
+  });
+
   it("check exits non-zero when overrides are present", async () => {
     const root = makeTempProject({
       rootPkg: {

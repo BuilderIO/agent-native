@@ -833,18 +833,9 @@ function workspacePackageFilesForPatterns(
 }
 
 function parseWorkspacePackagePatterns(workspaceYaml: string): string[] {
-  let text = "";
-  try {
-    text = fs.readFileSync(workspaceYaml, "utf-8");
-  } catch {
-    return ["apps/*", "packages/*"];
-  }
-  try {
-    const patterns = pnpmWorkspacePackagePatterns(text);
-    return patterns.length ? patterns : ["apps/*", "packages/*"];
-  } catch {
-    return ["apps/*", "packages/*"];
-  }
+  const text = fs.readFileSync(workspaceYaml, "utf-8");
+  const patterns = pnpmWorkspacePackagePatterns(text);
+  return patterns.length ? patterns : ["apps/*", "packages/*"];
 }
 
 function packageFilesForWorkspacePattern(

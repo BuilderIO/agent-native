@@ -47,11 +47,22 @@ export function pnpmWorkspaceListsProject(
 /** Return pnpm workspace package globs from either block- or flow-style YAML. */
 export function pnpmWorkspacePackagePatterns(yaml: string): string[] {
   const parsed: unknown = parseYaml(yaml);
-  const packages = isPlainRecord(parsed) ? parsed.packages : undefined;
-  if (!Array.isArray(packages)) return [];
+  if (parsed == null) return [];
+  if (!isPlainRecord(parsed)) {
+    throw new Error("pnpm-workspace.yaml must contain a mapping");
+  }
+  if (!Object.hasOwn(parsed, "packages")) return [];
+  const packages: unknown = parsed.packages;
+  if (!Array.isArray(packages)) {
+    throw new Error("pnpm-workspace.yaml packages must be an array");
+  }
   const patterns: string[] = [];
   for (const pattern of packages) {
-    if (typeof pattern !== "string" || !pattern) return [];
+    if (typeof pattern !== "string" || !pattern.trim() || pattern === "!") {
+      throw new Error(
+        "pnpm-workspace.yaml packages must contain non-empty patterns",
+      );
+    }
     patterns.push(pattern);
   }
   return patterns;
