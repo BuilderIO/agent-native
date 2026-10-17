@@ -15,6 +15,7 @@ export interface SnapshotFile {
   fileType: string;
   content: string;
   source: "collab" | "stored";
+  createdAt?: string | null;
 }
 
 export interface DesignSnapshot {

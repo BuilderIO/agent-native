@@ -45,18 +45,14 @@ describe("computeAlignedPositions", () => {
     ];
     expect(computeAlignedPositions(rects, bounds, "left").get("a")).toEqual({
       x: 0,
-      y: 20,
     });
     expect(computeAlignedPositions(rects, bounds, "right").get("a")).toEqual({
       x: 170,
-      y: 20,
     });
     expect(computeAlignedPositions(rects, bounds, "top").get("a")).toEqual({
-      x: 50,
       y: 0,
     });
     expect(computeAlignedPositions(rects, bounds, "bottom").get("a")).toEqual({
-      x: 50,
       y: 90,
     });
   });
@@ -66,10 +62,10 @@ describe("computeAlignedPositions", () => {
       { id: "a", x: 0, y: 0, width: 20, height: 10 },
     ];
     expect(computeAlignedPositions(rects, bounds, "center-h").get("a")).toEqual(
-      { x: 90, y: 0 },
+      { x: 90 },
     );
     expect(computeAlignedPositions(rects, bounds, "center-v").get("a")).toEqual(
-      { x: 0, y: 45 },
+      { y: 45 },
     );
   });
 
@@ -87,8 +83,8 @@ describe("computeAlignedPositions", () => {
       { id: "b", x: 150, y: 50, width: 40, height: 10 },
     ];
     const result = computeAlignedPositions(rects, bounds, "left");
-    expect(result.get("a")).toEqual({ x: 0, y: 0 });
-    expect(result.get("b")).toEqual({ x: 0, y: 50 });
+    expect(result.get("a")).toEqual({ x: 0 });
+    expect(result.get("b")).toEqual({ x: 0 });
   });
 });
 
@@ -108,7 +104,7 @@ describe("computeDistributedPositions", () => {
       { id: "c", x: 100, y: 0, width: 10, height: 10 },
     ];
     const result = computeDistributedPositions(rects, "horizontal");
-    expect(result.get("b")).toEqual({ x: 50, y: 0 });
+    expect(result.get("b")).toEqual({ x: 50 });
     expect(result.has("a")).toBe(false);
     expect(result.has("c")).toBe(false);
   });
@@ -120,7 +116,7 @@ describe("computeDistributedPositions", () => {
       { id: "c", x: 0, y: 100, width: 10, height: 10 },
     ];
     const result = computeDistributedPositions(rects, "vertical");
-    expect(result.get("b")).toEqual({ x: 0, y: 50 });
+    expect(result.get("b")).toEqual({ y: 50 });
   });
 
   it("sorts unsorted input by position before distributing", () => {
@@ -130,7 +126,7 @@ describe("computeDistributedPositions", () => {
       { id: "b", x: 20, y: 0, width: 10, height: 10 },
     ];
     const result = computeDistributedPositions(rects, "horizontal");
-    expect(result.get("b")).toEqual({ x: 50, y: 0 });
+    expect(result.get("b")).toEqual({ x: 50 });
   });
 });
 

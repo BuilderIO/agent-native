@@ -329,10 +329,11 @@ export function findSourceWorkspaceFile(
     ? files.find((candidate) => candidate.id === target.fileId)
     : files.find((candidate) => candidate.filename === normalizedPath);
   if (!file) {
-    throw new Error(
+    fail(
       target.fileId
         ? `Source file id "${target.fileId}" not found.`
         : `Source file "${normalizedPath}" not found.`,
+      { statusCode: 404, errorCode: "source_file_not_found" },
     );
   }
   return file;

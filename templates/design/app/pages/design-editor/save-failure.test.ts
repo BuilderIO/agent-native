@@ -49,6 +49,31 @@ describe("Design save failure classification", () => {
     ).toBe("offline");
   });
 
+  it("treats a 2xx whose response body was lost as offline, so the save replays", () => {
+    expect(
+      classifyDesignSaveFailure(
+        Object.assign(
+          new Error(
+            "Action update-file returned 200 but the body could not be read: Failed to fetch",
+          ),
+          { status: 200 },
+        ),
+        true,
+      ),
+    ).toBe("offline");
+    expect(
+      classifyDesignSaveFailure(
+        Object.assign(
+          new Error(
+            'Action update-file returned a non-JSON 200 response: {"id',
+          ),
+          { status: 200 },
+        ),
+        true,
+      ),
+    ).toBe("offline");
+  });
+
   it("shows the server error instead of the reconnect warning when a save is rejected online", () => {
     const report = {
       warnChangesWillRetry: vi.fn(),

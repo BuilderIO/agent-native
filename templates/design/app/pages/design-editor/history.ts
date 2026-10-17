@@ -651,6 +651,12 @@ export interface PendingTextCreationFinalization {
   confirm: () => void;
 }
 
+export const NOT_A_TEXT_CREATION: PendingTextCreationFinalization = {
+  isCreationCommit: false,
+  historyHandled: false,
+  confirm: () => {},
+};
+
 export function finalizeTextCreationHistory(
   stack: readonly ContentHistoryEntry[],
   pending: PendingTextCreationHistory,

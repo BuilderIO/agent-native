@@ -4,6 +4,7 @@ import {
   applyOrdinaryVisualStyleBatch,
   applyVisualEdit,
   type ApplyVisualEditResult,
+  buildCodeLayerProjection,
   type CodeLayerSource,
   type VisualStyleBatchResult,
 } from "@shared/code-layer";
@@ -1860,20 +1861,18 @@ export function resolveOverviewScreenSourceType(
   fallbackSourceType: DesignSourceType = "inline",
 ): DesignSourceType {
   if (!screen) return fallbackSourceType;
-  return (
+  const screenSourceType =
     normalizeDesignSourceType(screen.sourceType) ??
-    (screen.bridgeUrl ? "localhost" : undefined) ??
-    (fallbackSourceType === "localhost" && (screen.url || screen.previewUrl)
-      ? "localhost"
-      : undefined) ??
-    (fallbackSourceType === "localhost" &&
-    typeof screen.content === "string" &&
-    screen.content.trim().length > 0 &&
-    !/^\s*https?:\/\//i.test(screen.content)
-      ? "inline"
-      : undefined) ??
-    fallbackSourceType
-  );
+    (screen.bridgeUrl ? "localhost" : undefined);
+  if (screenSourceType) return screenSourceType;
+  if (fallbackSourceType !== "localhost") return fallbackSourceType;
+  if (screen.url || screen.previewUrl) return "localhost";
+  if (typeof screen.content !== "string") return "inline";
+  const content = screen.content.trim();
+  if (!content) return "localhost";
+  // Every localhost screen records its own sourceType; adding one flips the
+  // whole design to localhost, so unmarked markup screens are still inline.
+  return /^https?:\/\//i.test(content) ? "localhost" : "inline";
 }
 
 export function shouldUseRuntimeLayerProjection(args: {
@@ -2023,15 +2022,20 @@ export function applyScopedVisualStyleEdit(args: {
       { source },
     );
     if (maxPatch.result.status !== "applied") return maxPatch;
+    const ruleNodeId = breakpointRuleNodeId(
+      maxPatch.content,
+      target.nodeId,
+      source,
+    );
     const withoutCascade = removeBreakpointMediaDeclaration(maxPatch.content, {
-      nodeId: target.nodeId,
+      nodeId: ruleNodeId,
       maxWidthPx: upperBoundPx,
       property: normalizedProperty,
     });
     return {
       ...maxPatch,
       content: setExactBreakpointDeclaration(withoutCascade, {
-        nodeId: target.nodeId,
+        nodeId: ruleNodeId,
         property: normalizedProperty,
         value,
         minWidthPx: Math.round(lowerBoundPx),
@@ -2040,9 +2044,9 @@ export function applyScopedVisualStyleEdit(args: {
     };
   }
   const cleanedContent =
-    "nodeId" in target
+    "nodeId" in target && content.includes(EXACT_BREAKPOINT_ATTR)
       ? removeExactBreakpointDeclarations(content, {
-          nodeId: target.nodeId,
+          nodeId: breakpointRuleNodeId(content, target.nodeId, source),
           property: normalizedProperty,
         })
       : content;
@@ -2095,6 +2099,18 @@ export function applyScopedVisualStyleEdit(args: {
 }
 
 const EXACT_BREAKPOINT_ATTR = "data-agent-native-breakpoint-range";
+
+/** Breakpoint rules select `data-agent-native-node-id`, not the projection id. */
+function breakpointRuleNodeId(
+  content: string,
+  projectionNodeId: string,
+  source?: CodeLayerSource,
+): string {
+  const node = buildCodeLayerProjection(content, { source }).nodes.find(
+    (candidate) => candidate.id === projectionNodeId,
+  );
+  return node?.dataAttributes["data-agent-native-node-id"] ?? projectionNodeId;
+}
 
 function exactBreakpointMarker(
   nodeId: string,
@@ -2201,7 +2217,7 @@ function setExactBreakpointDeclaration(
   const block = `<style ${EXACT_BREAKPOINT_ATTR}="${marker}">
 @media (min-width: ${args.minWidthPx}px) and (max-width: ${args.maxWidthPx}px) {
   [data-agent-native-node-id="${selectorId}"][data-agent-native-node-id="${selectorId}"] {
-    ${args.property}: ${args.value.trim()};
+    ${args.property}: ${args.value.trim()} !important;
   }
 }
 </style>`;

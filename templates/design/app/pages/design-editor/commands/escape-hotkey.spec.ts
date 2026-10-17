@@ -14,6 +14,7 @@ const SELECTED_ELEMENT = {
 function harness(overrides: Partial<EscapeHotkeyArgs> = {}) {
   const calls = {
     setSelectedElement: vi.fn(),
+    setCreatedOverviewLayerSelection: vi.fn(),
     setHoveredElement: vi.fn(),
     setOverviewSelectedScreenIds: vi.fn(),
     setSelectedLayerIdsState: vi.fn(),
@@ -58,6 +59,14 @@ describe("runEscapeHotkey", () => {
     expect(calls.setSelectedLayerIdsState).toHaveBeenCalledWith([]);
     expect(calls.setOverviewSelectedScreenIds).toHaveBeenCalledWith([]);
     expect(calls.setOverviewClearSelectionRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it("clears the selection a draw just made, which the Layers panel shows in overview", () => {
+    const { args, calls } = harness();
+
+    runEscapeHotkey(args);
+
+    expect(calls.setCreatedOverviewLayerSelection).toHaveBeenCalledWith(null);
   });
 
   it("does not fall back to selecting the containing screen frame", () => {

@@ -21,6 +21,7 @@ import type { ExportSnapshotSource } from "@/pages/design-editor/export-snapshot
 import {
   PngCaptureError,
   renderExportDocumentCanvas,
+  screenFrameCropRect,
 } from "@/pages/design-editor/png-export-render";
 
 export interface DownloadAllScreensPdfArgs {
@@ -302,12 +303,10 @@ export async function runDownloadAllScreensPdf({
           doc,
           iframe,
           exportScale: PDF_MIN_PRINT_RASTER_SCALE,
-          cropRect: {
-            x: doc.defaultView?.scrollX ?? 0,
-            y: doc.defaultView?.scrollY ?? 0,
-            width: Math.max(1, iframe.clientWidth),
-            height: Math.max(1, iframe.clientHeight),
-          },
+          cropRect: screenFrameCropRect(doc, iframe, {
+            width: pageWidth,
+            height: pageHeight,
+          }),
         });
         const dataUrl = rendered.canvas.toDataURL("image/png");
         pages.push({ dataUrl, width: pageWidth, height: pageHeight });

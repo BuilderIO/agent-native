@@ -924,6 +924,10 @@ export default {
       animations: "Animations",
       pathEditAmbiguous:
         "Ce calque comporte plusieurs animations de position, son tracé ne peut donc pas être modifié sans ambiguïté.",
+      pathEditPositionConflict:
+        "Ce calque a déjà une autre animation de position, son tracé ne peut donc pas être courbé.",
+      positionStyleConflict:
+        "Ce calque a déjà une animation de position qui ne peut pas être combinée avec une autre.",
       animationStyles: {
         title: "Animations",
         createTitle: "Créer un nouveau style d’animation",

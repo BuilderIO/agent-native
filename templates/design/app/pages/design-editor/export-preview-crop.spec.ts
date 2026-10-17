@@ -51,6 +51,7 @@ function captureTarget(
       clientWidth: 1440,
       clientHeight: 900,
       hasAttribute: () => true,
+      getAttribute: () => null,
     } as unknown as HTMLIFrameElement,
   });
 }
@@ -247,6 +248,33 @@ describe("runRenderPngBlob element scope", () => {
 
     expect(await documentBlob.text()).toBe("full");
     expect(cropCanvasToRect).not.toHaveBeenCalled();
+  });
+
+  it("crops a screen document taller than its frame to the frame", async () => {
+    await runRenderPngBlob(
+      {
+        ...renderArgs(null),
+        overviewScreens: [{ id: "screen-1", width: 300, height: 200 }],
+        canvasFrameGeometryById: { "screen-1": { width: 300, height: 200 } },
+        resolvePngCaptureTarget: () => ({
+          cropSelection: null,
+          doc: document,
+          iframe: {
+            clientWidth: 300,
+            clientHeight: 844,
+            hasAttribute: () => true,
+            getAttribute: () => "screen-1",
+          } as unknown as HTMLIFrameElement,
+        }),
+      } as unknown as Parameters<typeof runRenderPngBlob>[0],
+      { scope: "document", settings: { scale: 1 } },
+    );
+
+    expect(vi.mocked(renderExportDocumentCanvas)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cropRect: { x: 0, y: 0, width: 300, height: 200 },
+      }),
+    );
   });
 
   it("crops to a resolvable element selection", async () => {

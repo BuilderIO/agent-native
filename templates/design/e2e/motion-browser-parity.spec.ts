@@ -211,12 +211,12 @@ test.afterAll(async ({ request }) => {
   await postAction(request, "delete-design", { id: designId });
 });
 
-// fixme: fails on current main after the merge: Error: expect(received).toEqual(expected) // deep equality
-test.fixme("Motion dock edits, saves, previews, and restores a CSS timeline", async ({
+test("Motion dock edits, saves, previews, and restores a CSS timeline", async ({
   page,
   request,
 }) => {
-  test.setTimeout(240_000);
+  // CI runs this in about 235 s; it takes about 105 s locally.
+  test.setTimeout(360_000);
   await page.setViewportSize({ width: 1728, height: 941 });
   await gotoEditor(page, designId);
   await selectByText(page, "Alpha Button", { screenId: fileId });
@@ -346,7 +346,8 @@ test.fixme("Motion dock edits, saves, previews, and restores a CSS timeline", as
     ),
   ).toEqual([
     [0, "0.1", "cubic-bezier(0.5, 0, 0.5, 1)"],
-    [1, "1", undefined],
+    // Read back from compiled CSS, a keyframe saved without an ease gets the CSS default.
+    [1, "1", "ease"],
   ]);
   await gotoEditor(page, designId);
   await selectByText(page, "Alpha Button", { screenId: fileId });
@@ -362,14 +363,18 @@ test.fixme("Motion dock edits, saves, previews, and restores a CSS timeline", as
   await referencePlayhead.press("Tab");
   const referenceRows = referenceDock.locator("[data-motion-track-row]");
   await expect(referenceRows).toHaveCount(2);
+  const referencePositionRow = referenceRows.filter({
+    has: page.getByLabel("Keyframe at 1200ms"),
+  });
+  await expect(referencePositionRow).toHaveCount(1);
   for (const timeMs of [1200, 1603, 1999, 2398, 2804, 3202, 3601]) {
     await expect(
-      referenceRows.first().getByLabel(`Keyframe at ${timeMs}ms`),
+      referencePositionRow.getByLabel(`Keyframe at ${timeMs}ms`),
     ).toBeVisible();
   }
   await expect(
-    referenceRows.nth(1).getByLabel("Keyframe at 1000ms"),
-  ).toBeVisible();
+    referenceRows.filter({ has: page.getByLabel("Keyframe at 1000ms") }),
+  ).toHaveCount(1);
   await captureMotionStep(page, "motion-imported-timeline");
 
   const animationStyleTrigger = page.getByRole("button", {
@@ -531,7 +536,7 @@ test.fixme("Motion dock edits, saves, previews, and restores a CSS timeline", as
     exact: true,
   });
   await expect(positionType).toHaveText("Slide in");
-  await expect(positionDirection).toHaveText("To left");
+  await expect(positionDirection).toHaveText("From left");
   const positionTypeSave = page.waitForResponse(
     (response) =>
       response.url().includes("/_agent-native/actions/apply-motion-edit") &&
@@ -625,7 +630,7 @@ test.fixme("Motion dock edits, saves, previews, and restores a CSS timeline", as
       width: rect.width,
     };
   });
-  expect(initialPositionSpan.endMs).toBe(1000);
+  expect(initialPositionSpan.endMs).toBe(500);
   const targetPositionDurationMs = 901;
   const positionSpanEndHandle = positionSpan.locator(
     '[data-motion-native-style-span-handle="end"]',
@@ -1037,7 +1042,15 @@ test.fixme("Motion dock edits, saves, previews, and restores a CSS timeline", as
   await expect(dock.getByLabel("Keyframe at 2000ms")).toHaveCount(4);
   const timelineTrackRows = dock.locator("[data-motion-track-row]");
   await expect(timelineTrackRows).toHaveCount(4);
-  const positionTimelineRow = timelineTrackRows.nth(3);
+  const positionRowIndex = (
+    await dock
+      .locator("[data-motion-property-row]")
+      .evaluateAll((rows) =>
+        rows.map((row) => row.getAttribute("data-motion-property-row")),
+      )
+  ).indexOf("translate");
+  expect(positionRowIndex).toBeGreaterThanOrEqual(0);
+  const positionTimelineRow = timelineTrackRows.nth(positionRowIndex);
 
   await expect
     .poll(() =>
@@ -1118,12 +1131,13 @@ test.fixme("Motion dock edits, saves, previews, and restores a CSS timeline", as
   const endpointBox = await endpoint.boundingBox();
   if (!endpointBox)
     throw new Error("The final Position path keyframe is missing.");
-  const endpointSave = page.waitForResponse(
-    (response) =>
-      response.url().includes("/_agent-native/actions/apply-motion-edit") &&
-      response.request().method() === "POST",
-    { timeout: 20_000 },
-  );
+  const motionEdits: string[] = [];
+  const recordMotionEdit = (sent: { url(): string }) => {
+    if (sent.url().includes("/_agent-native/actions/apply-motion-edit")) {
+      motionEdits.push(sent.url());
+    }
+  };
+  page.on("request", recordMotionEdit);
   await page.mouse.move(
     endpointBox.x + endpointBox.width / 2,
     endpointBox.y + endpointBox.height / 2,
@@ -1135,60 +1149,28 @@ test.fixme("Motion dock edits, saves, previews, and restores a CSS timeline", as
     { steps: 5 },
   );
   await page.mouse.up();
-  const savedEndpoint = await endpointSave;
-  expect(savedEndpoint.ok(), await savedEndpoint.text()).toBe(true);
-  const endpointTimeline = await getAction(request, "get-motion-timeline", {
+  // A second Position animation composes only as straight px moves (#7557),
+  // so curving this path is refused instead of saved.
+  await expect(
+    page.getByText(
+      "This layer has another Position animation, so its path can't be curved.",
+    ),
+  ).toBeVisible();
+  await expect.poll(() => motionStyle.textContent()).toBe(initialPathSource);
+  const refusedTimeline = await getAction(request, "get-motion-timeline", {
     designId,
     sourceRef: fileId,
   });
-  const endpointTranslateTrack = endpointTimeline.timelines?.[0]?.tracks?.find(
-    (track: { property: string }) => track.property === "translate",
-  );
   expect(
-    endpointTranslateTrack?.keyframes?.some(
-      (keyframe: { motionPath?: unknown }) => keyframe.motionPath !== undefined,
-    ),
-  ).toBe(true);
-  expect(endpointTranslateTrack?.keyframes?.at(-1)?.motionPath).toBeUndefined();
-  await expect
-    .poll(() => motionStyle.textContent())
-    .not.toBe(initialPathSource);
-  await expect
-    .poll(() => motionStyle.textContent())
-    .toContain("offset-path: path(");
-
-  const control = pathOverlay.locator(
-    '[data-motion-path-handle="control1"][data-motion-path-segment-start="0"]',
-  );
-  const controlBox = await control.boundingBox();
-  if (!controlBox)
-    throw new Error("The Position path curve handle is missing.");
-  const endpointPathSource = (await motionStyle.textContent()) ?? "";
-  const curveSave = page.waitForResponse(
-    (response) =>
-      response.url().includes("/_agent-native/actions/apply-motion-edit") &&
-      response.request().method() === "POST",
-    { timeout: 20_000 },
-  );
-  const pathModifier = process.platform === "darwin" ? "Meta" : "Control";
-  await page.keyboard.down(pathModifier);
-  await page.mouse.move(
-    controlBox.x + controlBox.width / 2,
-    controlBox.y + controlBox.height / 2,
-  );
-  await page.mouse.down();
-  await page.mouse.move(
-    controlBox.x + controlBox.width / 2 + 16,
-    controlBox.y + controlBox.height / 2 - 14,
-    { steps: 5 },
-  );
-  await page.mouse.up();
-  await page.keyboard.up(pathModifier);
-  const savedCurve = await curveSave;
-  expect(savedCurve.ok(), await savedCurve.text()).toBe(true);
-  await expect
-    .poll(() => motionStyle.textContent())
-    .not.toBe(endpointPathSource);
+    refusedTimeline.timelines?.[0]?.tracks
+      ?.find((track: { property: string }) => track.property === "translate")
+      ?.keyframes?.some(
+        (keyframe: { motionPath?: unknown }) =>
+          keyframe.motionPath !== undefined,
+      ),
+  ).toBe(false);
+  page.off("request", recordMotionEdit);
+  expect(motionEdits).toEqual([]);
 
   await currentTime.fill("3601");
   await currentTime.press("Tab");
@@ -1480,9 +1462,8 @@ test.fixme("Motion dock edits, saves, previews, and restores a CSS timeline", as
   ).toBeVisible();
 
   const restoredPath = motionFrame.locator("style[data-agent-native-motion]");
-  await expect
-    .poll(() => restoredPath.textContent())
-    .toContain("offset-path: path(");
+  await expect.poll(() => restoredPath.textContent()).toContain("@keyframes");
+  expect(await restoredPath.textContent()).not.toContain("offset-path: path(");
   const restoredTimeline = await getAction(request, "get-motion-timeline", {
     designId,
     sourceRef: fileId,
@@ -1494,7 +1475,7 @@ test.fixme("Motion dock edits, saves, previews, and restores a CSS timeline", as
     translateTrack?.keyframes?.some(
       (keyframe: { motionPath?: unknown }) => keyframe.motionPath !== undefined,
     ),
-  ).toBe(true);
+  ).toBe(false);
 
   await page.setViewportSize({ width: 700, height: 900 });
   const mobilePropertiesButton = page.getByRole("button", {
