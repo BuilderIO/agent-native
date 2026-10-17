@@ -37,7 +37,7 @@ export function useExternalExtensionLinks(
   const callbacksRef = useRef({ onReady, onHostPortReady });
   callbacksRef.current = { onReady, onHostPortReady };
 
-  useEffect(() => {
+  useLinkEffect(() => {
     recoveryAttemptedRef.current = false;
     setNonce(enabled ? createExternalExtensionLinkNonce() : null);
   }, [enabled, frameIdentity]);

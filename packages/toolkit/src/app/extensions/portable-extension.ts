@@ -460,6 +460,7 @@ export function normalizeAgentNativeExtensionSandbox(
     tokens.delete("allow-popups");
     tokens.delete("allow-top-navigation");
     tokens.delete("allow-top-navigation-by-user-activation");
+    tokens.delete("allow-top-navigation-to-custom-protocol");
   }
   tokens.add("allow-scripts");
   tokens.add("allow-downloads");
