@@ -66,8 +66,8 @@ production code remains at the requested revision. Run each phase inside its
 pinned worktree and use fresh paths for every reproduction:
 
 ```sh
-BASELINE_SHA=3215556c9c955b5e37ff359708f4ef527d019c4e
-CANDIDATE_SHA=183ed110e7e149916ddfcf76b1f7de2159d21a2b
+BASELINE_SHA=929369c0493edf4e3208c287db9374b8aa893d49
+CANDIDATE_SHA=58fcf892f4632eef17ecceddb93d5db8e514ef1d
 RUN_ID="$(date +%s)-$$"
 BASELINE_DIR=".tmp/analytics-eval-baseline-$RUN_ID"
 CANDIDATE_DIR=".tmp/analytics-eval-candidate-$RUN_ID"
@@ -110,34 +110,46 @@ run is retained as a score-0 failure.
 
 ## Current latest-wave comparison
 
+[`SYNTHETIC-analytics-query-quality-v7-main-vs-pr7639.csv`](./SYNTHETIC-analytics-query-quality-v7-main-vs-pr7639.csv)
+contains thirteen synthetic questions run twice through the production path on
+baseline `929369c0493edf4e3208c287db9374b8aa893d49` and candidate
+`58fcf892f4632eef17ecceddb93d5db8e514ef1d`. The baseline passed 10/26 runs;
+the candidate passed 26/26. Eight cases failed both baseline repetitions:
+Content API requests versus Visual Views, disconnected dbt abstention,
+paginated MetricFlow grouping, rolling-window MetricFlow grouping, an annual
+2025 request that initially uses an all-time dbt query, monthly AI credits
+routing, organization-grain validation, and first-party DIV recovery. Every
+baseline row has production-path, guard, owner/org-context, and usage receipts;
+failures are `contract_failed`, not missing or aborted runs.
+
+The annual-period case is a recovery check: the baseline used one all-time dbt
+query and failed the case, while the candidate retried with the exact 2025
+calendar range in both runs. The paired phases use identical harness bytes,
+SHA-256 `f094bafff058d6864a39a33289a7989b1fc4c28b832c6763c3e183dd9dc58a18`,
+and all case/replicate pairs are present.
+
+This is a deterministic scripted-engine contract comparison with mocked
+provider responses; it does not measure independent model choices, live
+warehouse accuracy, user outcomes, or provider latency. The paired CSV contains
+only synthetic case keys, reason codes, booleans, call counts, and synthetic
+usage counters. It contains no prompts, SQL, provider rows, identity values,
+cursors, or credentials.
+
+### Previous v6 snapshot
+
 [`SYNTHETIC-analytics-query-quality-v6-main-vs-pr7639.csv`](./SYNTHETIC-analytics-query-quality-v6-main-vs-pr7639.csv)
 contains twelve synthetic questions run twice through the production path on
 baseline `3215556c9c955b5e37ff359708f4ef527d019c4e` and candidate
 `183ed110e7e149916ddfcf76b1f7de2159d21a2b`. The baseline passed 10/24 runs;
-the candidate passed 24/24. Seven cases failed both baseline repetitions:
-Content API requests versus Visual Views, disconnected dbt abstention,
-paginated MetricFlow grouping, rolling-window MetricFlow grouping, monthly AI
-credits routing, organization-grain validation, and first-party DIV recovery.
-Every baseline row records that the production path, final guard, owner/org
-context, and usage capture ran; failures are `contract_failed`, not missing
-production-path evidence.
+the candidate passed 24/24. It is retained as the prior snapshot, not the
+current result.
 
-The comparison uses the same harness bytes in both phases, SHA-256
-`0184e1c5482dff4ac016e120c753e704fb62c7a94ff8c224060206922cb235d3`, with every
-case/replicate pair present. The baseline DIV fixture now uses the baseline's
-actual plain-error policy message. The organization-grain case checks
-`metric_time` with `WEEK` in both the captured action input and returned query
-specification. Both phases have production-path, guard, owner/org-context, and
-usage receipts.
-
-At current `origin/main` `695f465ed885fe727c9c473f5055a91f32790c88`, no files
-under `templates/analytics` changed between the baseline and main. This is a
-deterministic scripted-engine contract comparison with mocked provider
-responses; it does not measure independent model choices, live warehouse
-accuracy, user outcomes, or provider latency. The paired CSV contains only
-synthetic case keys, reason codes, booleans, call counts, and synthetic usage
-counters. It contains no prompts, SQL, provider rows, identity values, cursors,
-or credentials.
+The v6 comparison used identical harness bytes with SHA-256
+`0184e1c5482dff4ac016e120c753e704fb62c7a94ff8c224060206922cb235d3`. The
+baseline DIV fixture used the baseline's actual plain-error policy message, and
+the organization-grain case checked `metric_time` with `WEEK` in both the
+captured action input and returned query specification. At the time of that
+run, `origin/main` was `695f465ed885fe727c9c473f5055a91f32790c88`.
 
 ### Previous v5 snapshot
 

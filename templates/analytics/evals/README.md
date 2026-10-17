@@ -44,14 +44,19 @@ accuracy gain. No production index or data rows were written for this eval.
 ## Latest synthetic question wave
 
 The [synthetic query-path report](./synthetic-query-path/README.md) and
-[paired CSV](./synthetic-query-path/SYNTHETIC-analytics-query-quality-v2.csv)
-compare the previous PR head with the candidate on ten synthetic questions.
-The candidate passes 20/20 guidance and production-path contract checks versus
-18/20 on the baseline. The two baseline misses are the related-metric guidance
-check for a Content API request count versus Visual Views. The deterministic
-engine scripts the tool sequence, query, and final response, so this score does
-not measure model choice or independent answer accuracy. See the report for the
-scope and limits of the comparison.
+[paired CSV](./synthetic-query-path/SYNTHETIC-analytics-query-quality-v7-main-vs-pr7639.csv)
+compare current `origin/main` `929369c0493edf4e3208c287db9374b8aa893d49` with
+Analytics code at `58fcf892f4632eef17ecceddb93d5db8e514ef1d` over thirteen
+synthetic questions, with two production-path runs per question. The baseline
+passed 10/26 contract checks; the candidate passed 26/26. The new annual-period
+case shows the candidate recovering from an all-time query and rerunning the
+exact 2025 range in both replicates. The deterministic engine scripts the tool
+sequence and final response, and provider results are mocked, so this measures
+production-path and guard contracts, not model choices or live warehouse
+accuracy. See the report for the scope and limits of the comparison.
+
+The earlier [v2 paired CSV](./synthetic-query-path/SYNTHETIC-analytics-query-quality-v2.csv)
+is retained as a historical snapshot.
 
 ## Synthetic source and grain cases
 
