@@ -971,9 +971,6 @@ export function FirstRunOnboarding({
                 ? t("agentChat.onboarding.creditsTitleClips")
                 : t("agentChat.onboarding.creditsTitle")}
             </h1>
-            <p className="max-w-md text-sm leading-6 text-muted-foreground">
-              {t("agentChat.onboarding.creditsReason")}
-            </p>
             <div className="flex w-full max-w-sm flex-col items-center gap-3">
               <button
                 type="button"

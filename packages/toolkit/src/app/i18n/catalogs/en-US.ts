@@ -182,8 +182,6 @@ const messages = {
     "This will create a free Builder.io account. By continuing, you agree to our",
   "onboarding.creditsConnectExisting": "Connect an existing Builder.io account",
   "onboarding.creditsMoreInfo": "More info",
-  "onboarding.creditsReason":
-    "Free and open source. Builder.io pays for the AI so you don't need to bring a key.",
   "onboarding.creditsSkipBody":
     "If you skip, you'll need to connect your own keys to use AI and storage.",
   "onboarding.builderActivating": "Activating Builder.io free credits",

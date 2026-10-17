@@ -173,8 +173,6 @@ const messages: ToolkitAgentChatTranslation = {
     "这将创建一个免费的 Builder.io 账户。继续表示您同意我们的",
   "onboarding.creditsConnectExisting": "连接现有 Builder.io 账户",
   "onboarding.creditsMoreInfo": "更多信息",
-  "onboarding.creditsReason":
-    "免费且开源。AI 费用由 Builder.io 承担，您无需自带密钥。",
   "onboarding.creditsSkipBody":
     "如果您跳过，您需要连接自己的密钥才能使用 AI 和存储。",
   "onboarding.builderConnect": "连接 Builder.io",

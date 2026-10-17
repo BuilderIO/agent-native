@@ -179,8 +179,6 @@ const messages: ToolkitAgentChatTranslation = {
     "سيؤدي هذا إلى إنشاء حساب Builder.io مجاني. بالمتابعة، فأنت توافق على",
   "onboarding.creditsConnectExisting": "الاتصال بحساب Builder.io موجود",
   "onboarding.creditsMoreInfo": "المزيد من المعلومات",
-  "onboarding.creditsReason":
-    "مجاني ومفتوح المصدر. تتحمل Builder.io تكلفة الذكاء الاصطناعي، فلا حاجة لإحضار مفتاح خاص بك.",
   "onboarding.creditsSkipBody":
     "إذا تخطيت، ستحتاج إلى توصيل مفاتيحك الخاصة لاستخدام الذكاء الاصطناعي والتخزين.",
   "onboarding.builderConnect": "الاتصال بـ Builder.io",

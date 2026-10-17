@@ -2925,9 +2925,7 @@ describe("FirstRunOnboarding", () => {
       openChoice();
       const offer = q("first-run-credits-offer")?.textContent;
       expect(offer).toContain("Try it with 60 free Agent Credits a month");
-      expect(offer).toContain(
-        "Free and open source. Builder.io pays for the AI so you don't need to bring a key.",
-      );
+      expect(offer).not.toContain("Free and open source");
       expect(offer).toContain("This will create a free Builder.io account.");
       expect(q("first-run-credits-activate")?.textContent).toBe(
         "Activate free credits",

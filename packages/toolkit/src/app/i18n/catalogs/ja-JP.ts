@@ -187,8 +187,6 @@ const messages: ToolkitAgentChatTranslation = {
     "無料の Builder.io アカウントが作成されます。続行することで、当社の",
   "onboarding.creditsConnectExisting": "既存の Builder.io アカウントを接続",
   "onboarding.creditsMoreInfo": "詳細情報",
-  "onboarding.creditsReason":
-    "無料のオープンソースです。AI の費用は Builder.io が負担するため、キーを用意する必要はありません。",
   "onboarding.creditsSkipBody":
     "スキップする場合は、AI とストレージを使用するために独自のキーを接続する必要があります。",
   "onboarding.builderConnect": "Builder.io に接続",
