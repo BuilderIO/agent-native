@@ -3,4 +3,4 @@ type: fixed
 date: 2026-10-17
 ---
 
-Pressing Alt after starting a drag only duplicates a layer when the pointer keeps moving.
+After Alt is pressed during a drag, the pointer must move past the drag threshold before the layer duplicates.

@@ -8246,15 +8246,15 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         y: previewPoint.y,
         width: previewWidth,
         height: previewHeight,
-        canDuplicate: !!onDuplicate,
+        canDuplicate: false,
         moved: false,
       });
       setIsDragging(true);
-      setDragCursor(e.altKey ? "copy" : null);
+      setDragCursor(null);
 
-      let lastCanDuplicate = !!onDuplicate;
+      let lastCanDuplicate = false;
       let lastMoved = false;
-      let lastCursor: string | null = e.altKey ? "copy" : null;
+      let lastCursor: string | null = null;
       let lastPointer = origin;
       let altDragOrigin: { x: number; y: number } | null = e.altKey
         ? origin
@@ -8274,10 +8274,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       window.addEventListener("keydown", handleAltKeyDown, true);
       window.addEventListener("keyup", handleAltKeyUp, true);
 
-      const handleMouseMove = (ev: MouseEvent) => {
-        const dx = ev.clientX - origin.x;
-        const dy = ev.clientY - origin.y;
-        const moved = Math.hypot(dx, dy) >= DUPLICATE_DRAG_THRESHOLD;
+      const canDuplicateAt = (ev: MouseEvent, moved: boolean) => {
         if (ev.altKey) {
           altDragOrigin ??= lastPointer;
           if (
@@ -8292,11 +8289,19 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           altDragOrigin = null;
           movedAfterAlt = false;
         }
+        return moved && ev.altKey && movedAfterAlt;
+      };
+
+      const handleMouseMove = (ev: MouseEvent) => {
+        const dx = ev.clientX - origin.x;
+        const dy = ev.clientY - origin.y;
+        const moved = Math.hypot(dx, dy) >= DUPLICATE_DRAG_THRESHOLD;
+        const canDuplicateOnDrop = canDuplicateAt(ev, moved);
         lastPointer = { x: ev.clientX, y: ev.clientY };
         const rect = surfaceRef.current?.getBoundingClientRect();
         const x = rect ? ev.clientX - rect.left + 16 : ev.clientX;
         const y = rect ? ev.clientY - rect.top + 16 : ev.clientY;
-        const canDuplicate = !!onDuplicate && ev.altKey;
+        const canDuplicate = !!onDuplicate && canDuplicateOnDrop;
 
         const el = duplicatePreviewElRef.current;
         if (el) {
@@ -8319,7 +8324,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           });
         }
 
-        const cursor = ev.altKey ? "copy" : null;
+        const cursor = canDuplicate ? "copy" : null;
         if (cursor !== lastCursor) {
           lastCursor = cursor;
           setDragCursor(cursor);
@@ -8338,17 +8343,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         const moved =
           Math.hypot(ev.clientX - origin.x, ev.clientY - origin.y) >=
           DUPLICATE_DRAG_THRESHOLD;
-        if (
-          ev.altKey &&
-          altDragOrigin &&
-          Math.hypot(
-            ev.clientX - altDragOrigin.x,
-            ev.clientY - altDragOrigin.y,
-          ) >= DUPLICATE_DRAG_THRESHOLD
-        ) {
-          movedAfterAlt = true;
-        }
-        const shouldDuplicate = moved && ev.altKey && movedAfterAlt;
+        const shouldDuplicate = !!onDuplicate && canDuplicateAt(ev, moved);
 
         if (onDuplicate && shouldDuplicate) {
           suppressNextPick.current = true;
