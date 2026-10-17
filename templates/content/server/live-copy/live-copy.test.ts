@@ -21,6 +21,56 @@ import * as Y from "yjs";
 import { createContentEditorStructuralSchema } from "../../shared/content-editor-structural-schema.js";
 import * as nfm from "../../shared/nfm.js";
 
+const { outcomeCounter } = vi.hoisted(() => ({ outcomeCounter: vi.fn() }));
+vi.mock("@agent-native/core/tracking", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/tracking")>()),
+  countOutcome: outcomeCounter,
+}));
+
+// The live copy's worker bundles its own Yjs and serializer, so these record
+// only what ran on this thread, and only while `recording` is set.
+const { thisThread, recordedOnThisThread } = vi.hoisted(() => {
+  const thisThread = { recording: false, calls: [] as string[] };
+  function recordedOnThisThread<T extends object>(
+    actual: T,
+    names: readonly string[],
+  ): T {
+    const recorded = { ...actual } as Record<string, unknown>;
+    for (const name of names) {
+      const call = recorded[name] as (...args: unknown[]) => unknown;
+      recorded[name] = (...args: unknown[]) => {
+        if (thisThread.recording) thisThread.calls.push(name);
+        return call(...args);
+      };
+    }
+    return recorded as T;
+  }
+  return { thisThread, recordedOnThisThread };
+});
+vi.mock("yjs", async (importOriginal) =>
+  recordedOnThisThread(await importOriginal<typeof import("yjs")>(), [
+    "applyUpdate",
+    "applyUpdateV2",
+    "readUpdate",
+    "readUpdateV2",
+    "diffUpdate",
+    "diffUpdateV2",
+    "mergeUpdates",
+    "mergeUpdatesV2",
+    "decodeUpdate",
+    "decodeUpdateV2",
+    "decodeStateVector",
+    "encodeStateVectorFromUpdate",
+    "encodeStateVectorFromUpdateV2",
+  ]),
+);
+vi.mock("../../shared/nfm.js", async (importOriginal) =>
+  recordedOnThisThread(
+    await importOriginal<typeof import("../../shared/nfm.js")>(),
+    ["docToNfm", "nfmToDoc"],
+  ),
+);
+
 const TEST_DB_PATH = join(
   tmpdir(),
   `content-live-copy-${process.pid}-${Date.now()}.pglite`,
@@ -222,23 +272,31 @@ function markdownBlocks(markdown: string) {
   return nfm.nfmToDoc(markdown).content ?? [];
 }
 
-/** Runs `run`, recording the longest stretch this thread could not tick. */
-async function longestStall(run: () => Promise<unknown>) {
-  let last = performance.now();
-  let stall = 0;
-  const timer = setInterval(() => {
-    const now = performance.now();
-    stall = Math.max(stall, now - last);
-    last = now;
-  }, 10);
+/**
+ * Runs `run`, recording the tasks it handed the live copy's bounded runner and
+ * the Yjs decodes and serializer calls it made on this thread.
+ */
+async function whereItRan(run: () => Promise<unknown>) {
+  const runner = binding.contentLiveCopy.runner;
+  const send = runner.run.bind(runner);
+  const tasks: string[] = [];
+  const spy = vi
+    .spyOn(runner, "run")
+    .mockImplementation(async (task, ...rest) => {
+      tasks.push(task);
+      return send(task, ...rest);
+    });
+  thisThread.calls.length = 0;
+  thisThread.recording = true;
   try {
     const outcome = await run().then(
       (value) => ({ value }),
       (error: unknown) => ({ error }),
     );
-    return { ...outcome, stall: Math.max(stall, performance.now() - last) };
+    return { ...outcome, tasks, thisThread: [...thisThread.calls] };
   } finally {
-    clearInterval(timer);
+    thisThread.recording = false;
+    spy.mockRestore();
   }
 }
 
@@ -997,16 +1055,43 @@ describe("server writers through editContentLiveCopy", () => {
   it("refuses a replace that names no base body before it reaches the live copy", async () => {
     await switchedPage("no-base", "Before");
     const version = await collabVersion("no-base");
+    const edit: string = binding.CONTENT_LIVE_COPY_EDITS.replaceBody;
 
     await expect(
       writer.editContentLiveCopy("no-base", {
         cause: { operation: "test-no-base" },
-        edit: binding.CONTENT_LIVE_COPY_EDITS.replaceBody,
-        input: { content: "After" } as never,
+        edit,
+        // @ts-expect-error An edit typed as any string still owes its base.
+        input: { content: "After" },
       }),
     ).rejects.toThrow(/must name the body it was built from/);
     expect(await collabVersion("no-base")).toBe(version);
     expect((await page("no-base")).content).toBe("Before");
+  });
+
+  it("checks the base a replace names even when a structured clone would drop it", async () => {
+    await switchedPage("hidden-base", "Same");
+    const spy = peerCommitsAfterBuild("hidden-base", "Peer");
+    const input = Object.defineProperty({ content: "Mine" }, "expected", {
+      value: "Same",
+      enumerable: false,
+    }) as { content: string; expected: string };
+    try {
+      await expect(
+        writer.editContentLiveCopy("hidden-base", {
+          cause: { operation: "test-hidden-base" },
+          edit: binding.CONTENT_LIVE_COPY_EDITS.replaceBody,
+          input,
+        }),
+      ).rejects.toMatchObject({
+        name: "LiveCopyError",
+        reason: "base_changed",
+      });
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect((await page("hidden-base")).content).toBe("Peer");
   });
 
   it("takes an intent's hash and changed blocks from the commit when the writer leaves them out", async () => {
@@ -1115,6 +1200,12 @@ describe("a browser save to a switched page's body", () => {
     );
   }
 
+  /** The reason the last save's outcome was counted under. */
+  async function countedReason() {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    return outcomeCounter.mock.lastCall?.[1]?.reason_code;
+  }
+
   async function receipts(id: string) {
     return getDb()
       .select({ attemptId: schema.documentBrowserSaveAttempts.attemptId })
@@ -1144,8 +1235,8 @@ describe("a browser save to a switched page's body", () => {
       .where(eq(schema.documentPreviewDrafts.documentId, id));
   }
 
-  /** Another tab rewrites the page's one paragraph, keeping its structure. */
-  async function typeInOtherTab(id: string, bodies: string[]) {
+  /** A tab synced to the live copy edits its body into each of `bodies`. */
+  async function typeInTab(id: string, bodies: string[]) {
     for (const body of bodies) {
       await asOwner(async () =>
         collab.applyUpdate(id, await editorUpdate(id, markdownBlocks(body))),
@@ -1157,14 +1248,16 @@ describe("a browser save to a switched page's body", () => {
     await switchedPage("two-tabs", "Hello there");
     const loaded = await page("two-tabs");
     // The other tab's commits record no body intents.
-    await typeInOtherTab("two-tabs", ["Hello there B1", "Hello there B2"]);
+    await typeInTab("two-tabs", ["Hello there B1", "Hello there B2"]);
     const before = await page("two-tabs");
     expect(before.bodyRevision).toBe(loaded.bodyRevision + 2);
 
     const saved = await browserSave("two-tabs", loaded, "Hello there A");
 
+    expect(await countedReason()).toBe("live_copy_save_unheld");
     expect(saved).not.toHaveProperty("preservationRequired");
     expect(saved).not.toHaveProperty("conflict");
+    expect(saved).not.toHaveProperty("bodyIntentOutcome");
     expect(saved).toMatchObject({
       content: "Hello there B2",
       bodySave: {
@@ -1239,6 +1332,146 @@ describe("a browser save to a switched page's body", () => {
       bodySave: { matchesLiveCopy: true },
       browserSaveAttempt: { result: "replayed" },
     });
+  });
+
+  it("settles a save the live copy holds, though a peer committed after it", async () => {
+    await switchedPage("held", "First\n\nSecond");
+    const loaded = await page("held");
+    // Tab A's own typing reaches the live copy over collab, then another
+    // tab's commit lands before tab A's save.
+    await typeInTab("held", ["First A\n\nSecond"]);
+    const typed = (await page("held")).content;
+    await typeInTab("held", ["First A\n\nSecond B"]);
+    await keepDraft("held", typed);
+    const before = await page("held");
+    const save = () =>
+      browserSave("held", loaded, typed, {
+        editorSnapshotTitle: "held",
+        editorSnapshotContent: typed,
+      });
+
+    const saved = await save();
+
+    expect(await countedReason()).toBe("live_copy_save_held");
+    expect(saved).not.toHaveProperty("preservationRequired");
+    expect(saved).toMatchObject({
+      content: before.content,
+      bodyIntentOutcome: { status: "applied" },
+      bodySave: { status: "live_copy", matchesLiveCopy: false },
+      browserSaveAttempt: { result: "live_copy" },
+    });
+    expect(await page("held")).toEqual(before);
+    expect(await drafts("held")).toEqual([]);
+    expect(await receipts("held")).toEqual([{ attemptId: "held-attempt" }]);
+    expect(await bodyIntents("held")).toEqual([]);
+
+    // A resend of the same attempt is answered the same way from its receipt.
+    await expect(save()).resolves.toMatchObject({
+      bodyIntentOutcome: { status: "applied" },
+      bodySave: { matchesLiveCopy: false },
+      browserSaveAttempt: { result: "replayed" },
+    });
+  });
+
+  it("compares a save's title heading as the editor wrote it", async () => {
+    await switchedPage("headed", "# headed\n\nFirst\n\nSecond");
+    const loaded = await page("headed");
+    await typeInTab("headed", ["# headed\n\nFirst A\n\nSecond"]);
+    const typed = (await page("headed")).content;
+    await typeInTab("headed", ["# headed\n\nFirst A\n\nSecond B"]);
+    await keepDraft("headed", typed);
+
+    // update-document strips a heading that repeats the title from the body
+    // it writes, and the live copy keeps it.
+    await expect(
+      browserSave("headed", loaded, typed, {
+        editorSnapshotTitle: "headed",
+        editorSnapshotContent: typed,
+      }),
+    ).resolves.toMatchObject({
+      content: expect.stringMatching(/^# headed\n/),
+      bodyIntentOutcome: { status: "applied" },
+    });
+    expect(await countedReason()).toBe("live_copy_save_held");
+    expect(await drafts("headed")).toEqual([]);
+  });
+
+  it("keeps a tab's draft when only part of its typing reached the live copy", async () => {
+    await switchedPage("partial", "Hello");
+    const loaded = await page("partial");
+    await typeInTab("partial", ["Hello w"]);
+    await keepDraft("partial", "Hello world");
+
+    const saved = await browserSave("partial", loaded, "Hello world", {
+      editorSnapshotTitle: "partial",
+      editorSnapshotContent: "Hello world",
+    });
+
+    expect(await countedReason()).toBe("live_copy_save_unheld");
+    expect(saved).toMatchObject({
+      content: "Hello w",
+      bodySave: { matchesLiveCopy: false },
+    });
+    expect(saved).not.toHaveProperty("bodyIntentOutcome");
+    expect(await drafts("partial")).toEqual([{ content: "Hello world" }]);
+    expect(await receipts("partial")).toEqual([]);
+  });
+
+  it("keeps a tab's draft when its save is not its own serialization", async () => {
+    await switchedPage("noncanonical", "Hello");
+    const loaded = await page("noncanonical");
+    await typeInTab("noncanonical", ["Hello\n<callout>\n</callout>"]);
+    const stored = (await page("noncanonical")).content;
+    // The parse drops the unindented callout child, so this compares as the
+    // empty callout the live copy holds.
+    const candidate = "Hello\n<callout>\nOnly text\n</callout>";
+    expect(nfm.docToNfm(nfm.nfmToDoc(candidate))).toBe(stored);
+    await keepDraft("noncanonical", candidate);
+
+    const saved = await browserSave("noncanonical", loaded, candidate, {
+      editorSnapshotTitle: "noncanonical",
+      editorSnapshotContent: candidate,
+    });
+
+    expect(await countedReason()).toBe("live_copy_save_noncanonical");
+    expect(saved).not.toHaveProperty("bodyIntentOutcome");
+    expect(saved).not.toHaveProperty("browserSaveAttempt");
+    expect(await drafts("noncanonical")).toEqual([{ content: candidate }]);
+    expect(await receipts("noncanonical")).toEqual([]);
+  });
+
+  it("keeps a tab's draft when the live copy cannot compare its save in time", async () => {
+    await switchedPage("unchecked", "Hello there");
+    const loaded = await page("unchecked");
+    await keepDraft("unchecked", "Hello there\nOnly in tab A");
+    const { documentRevisionToken } =
+      await import("../../actions/_document-edit-mutation.js");
+    // Unclosed backtick runs, as in the SF-07 deadline test, under the
+    // 500,000-character bound on an authored body.
+    const base = Array.from({ length: 990 }, (_, index) =>
+      "`".repeat(index + 1),
+    ).join(" ");
+
+    const saved = await browserSave(
+      "unchecked",
+      loaded,
+      "Hello there\nOnly in tab A",
+      {
+        authoredBaseRevision: documentRevisionToken(loaded.bodyRevision, base),
+        authoredBaseContent: base,
+        editorSnapshotTitle: "unchecked",
+        editorSnapshotContent: "Hello there\nOnly in tab A",
+      },
+    );
+
+    expect(await countedReason()).toBe("live_copy_save_unchecked");
+    expect(saved).toMatchObject({ bodySave: { matchesLiveCopy: false } });
+    expect(saved).not.toHaveProperty("bodyIntentOutcome");
+    expect(saved).not.toHaveProperty("browserSaveAttempt");
+    expect(await drafts("unchecked")).toEqual([
+      { content: "Hello there\nOnly in tab A" },
+    ]);
+    expect(await receipts("unchecked")).toEqual([]);
   });
 
   it("applies a save's title and leaves its body to the live copy", async () => {
@@ -1366,7 +1599,7 @@ describe("a browser save to a switched page's body", () => {
   it("takes main's path for the same save once the page's flags are off (SF-11)", async () => {
     await switchedPage("flags-off", "Hello there");
     const loaded = await page("flags-off");
-    await typeInOtherTab("flags-off", ["Hello there B1", "Hello there B2"]);
+    await typeInTab("flags-off", ["Hello there B1", "Hello there B2"]);
     await setFlags(false);
 
     // Main's comparator, which L7 saw divert the gate-on save to History.
@@ -1511,20 +1744,26 @@ describe("the slash menu's page-insert save, on a switched page", () => {
 describe("the SF-07 bound on Content's derive and build", () => {
   // The stored-form review's counterexamples, through Content's own schema
   // and serializer. Each ends in a typed refusal that leaves the page alone,
-  // or in a derived body, and never stalls the request thread.
-  const STALL_LIMIT_MS = 500;
+  // or in a derived body, with the decode and serializer work in the worker.
+  // These check where the work ran, not how long this thread stalled: a
+  // stall bound fails on a busy machine.
   const hello = () => markdownBlocks("Hello there");
+  // A derived body's persist parses it once on this thread, to reconcile the
+  // page's inline databases.
+  const PERSIST_PARSES = ["nfmToDoc"];
 
   async function expectRefused(
     id: string,
     run: () => Promise<unknown>,
     expected: { code: string; reason: string },
+    tasks: string[],
   ) {
-    const result = await longestStall(run);
+    const result = await whereItRan(run);
     expect(result).toMatchObject({
       error: { name: "LiveCopyError", ...expected },
     });
-    expect(result.stall).toBeLessThan(STALL_LIMIT_MS);
+    expect(result.tasks).toEqual(tasks);
+    expect(result.thisThread).toEqual([]);
     expect(await page(id)).toMatchObject({
       content: "Hello there",
       bodyRevision: 3,
@@ -1532,13 +1771,28 @@ describe("the SF-07 bound on Content's derive and build", () => {
   }
 
   async function expectDerived(id: string, run: () => Promise<unknown>) {
-    const result = await longestStall(run);
+    const result = await whereItRan(run);
     expect(result).toMatchObject({ value: { liveCopy: "derived" } });
-    expect(result.stall).toBeLessThan(STALL_LIMIT_MS);
+    expect(result.tasks).toEqual(["liveCopy.apply"]);
+    expect(result.thisThread).toEqual(PERSIST_PARSES);
     const row = await page(id);
     expect(row.bodyRevision).toBe(4);
     return row.content;
   }
+
+  it("records the decode of an update to a page off its live copy on this thread", async () => {
+    await insertPage("decoded-here", "Hello there");
+    const doc = new Y.Doc();
+    doc.getXmlFragment("default").insert(0, [new Y.XmlElement("paragraph")]);
+    const update = Y.encodeStateAsUpdate(doc);
+    doc.destroy();
+
+    const result = await whereItRan(() =>
+      asOwner(() => collab.applyUpdate("decoded-here", update)),
+    );
+    expect(result.tasks).toEqual([]);
+    expect(result.thisThread).toContain("applyUpdate");
+  });
 
   it("refuses indent feeding repeat() (about 100 MB) as output_too_large", async () => {
     await switchedPage("indent", "Hello there");
@@ -1554,6 +1808,7 @@ describe("the SF-07 bound on Content's derive and build", () => {
       "indent",
       () => asOwner(() => collab.applyUpdate("indent", update)),
       { code: "derive_failed", reason: "output_too_large" },
+      ["liveCopy.apply"],
     );
   });
 
@@ -1573,11 +1828,13 @@ describe("the SF-07 bound on Content's derive and build", () => {
     await expectRefused(
       "latex",
       () => asOwner(() => collab.applyUpdate("latex", update)),
+      // The runner refuses an input this size before it posts it to a worker.
       { code: "derive_failed", reason: "input_too_large" },
+      ["liveCopy.apply"],
     );
   });
 
-  it("derives a table whose colMeta holds 3M tabs inside the bound", async () => {
+  it("derives a table whose colMeta holds 3M tabs in the worker", async () => {
     await switchedPage("colmeta", "Hello there");
     const update = await editorUpdate("colmeta", [
       ...hello(),
@@ -1622,7 +1879,9 @@ describe("the SF-07 bound on Content's derive and build", () => {
     await expectRefused(
       "marks",
       () => asOwner(() => collab.applyUpdate("marks", update)),
+      // The runner refuses an input this size before it posts it to a worker.
       { code: "derive_failed", reason: "input_too_large" },
+      ["liveCopy.apply"],
     );
   });
 
@@ -1651,10 +1910,11 @@ describe("the SF-07 bound on Content's derive and build", () => {
       "nesting",
       () => asOwner(() => collab.applyUpdate("nesting", update)),
       { code: "derive_failed", reason: "task_threw" },
+      ["liveCopy.apply"],
     );
   });
 
-  it("derives a 200,000-line code block inside the bound", async () => {
+  it("derives a 200,000-line code block in the worker", async () => {
     await switchedPage("code", "Hello there");
     const code = Array.from({ length: 200_000 }, (_, i) => `v${i % 10}`);
     const update = await editorUpdate("code", [
@@ -1672,19 +1932,25 @@ describe("the SF-07 bound on Content's derive and build", () => {
     expect(content.split("\n")).toHaveLength(200_003);
   });
 
-  it("stops building a body of 1M [ at the deadline", async () => {
-    await switchedPage("brackets", "Hello there");
+  it("stops building a body of 1,000 unmatched backtick runs at the deadline", async () => {
+    await switchedPage("backticks", "Hello there");
+    // Runs of 1 to 1,000 backticks, none closed. Building it takes over 20 s
+    // with either NFM parser; 1M `[` stopped tripping once the parser got fast.
+    const content = Array.from({ length: 1_000 }, (_, index) =>
+      "`".repeat(index + 1),
+    ).join(" ");
 
     await expectRefused(
-      "brackets",
+      "backticks",
       () =>
         cause.withContentBodyWriteCause({ operation: "test-replace" }, () =>
-          collab.mutateLiveCopy(binding.contentLiveCopy, "brackets", {
+          collab.mutateLiveCopy(binding.contentLiveCopy, "backticks", {
             edit: binding.CONTENT_LIVE_COPY_EDITS.replaceBody,
-            input: { content: "[".repeat(1_000_000) },
+            input: { content },
           }),
         ),
       { code: "build_failed", reason: "deadline_exceeded" },
+      ["liveCopy.edit"],
     );
   });
 });

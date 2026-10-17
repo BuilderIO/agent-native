@@ -16,6 +16,7 @@ import {
 const TASKS = `
 var ${BOUNDED_TASK_GLOBAL} = { tasks: {
   echo(input) { return input; },
+  where() { return { isMainThread: require("node:worker_threads").isMainThread }; },
   bytes(input) { return { kind: "update", update: new Uint8Array(input.length).fill(7) }; },
   async later(input) { await new Promise((r) => setTimeout(r, input.ms)); return "done"; },
   never() { return new Promise(() => {}); },
@@ -101,26 +102,6 @@ async function failure(promise: Promise<unknown>): Promise<BoundedTaskError> {
   throw new Error("expected the task to fail");
 }
 
-/** Runs `work` while measuring the longest gap between 10 ms timer ticks. */
-async function withHeartbeat<T>(
-  work: () => Promise<T>,
-): Promise<{ result: T; maxGapMs: number; elapsedMs: number }> {
-  const start = performance.now();
-  let last = start;
-  let maxGapMs = 0;
-  const timer = setInterval(() => {
-    const now = performance.now();
-    maxGapMs = Math.max(maxGapMs, now - last);
-    last = now;
-  }, 10);
-  try {
-    const result = await work();
-    return { result, maxGapMs, elapsedMs: performance.now() - start };
-  } finally {
-    clearInterval(timer);
-  }
-}
-
 describe("createBoundedTaskRunner", () => {
   it("runs a task in a worker and returns plain data", async () => {
     const tasks = runner();
@@ -131,16 +112,16 @@ describe("createBoundedTaskRunner", () => {
       length: 4,
     });
     expect(output.update).toEqual(new Uint8Array([7, 7, 7, 7]));
+    await expect(tasks.run("where", {})).resolves.toEqual({
+      isMainThread: false,
+    });
   });
 
-  it("stops a task that never returns at the deadline without blocking this thread", async () => {
+  it("stops a task that never returns at the deadline, then runs the next one", async () => {
     const tasks = runner({ deadlineMs: 400 });
-    const { result, maxGapMs, elapsedMs } = await withHeartbeat(() =>
-      failure(tasks.run("spin", {})),
-    );
+    // A loop that never yields can only be stopped from another thread.
+    const result = await failure(tasks.run("spin", {}));
     expect(result.code).toBe("deadline_exceeded");
-    expect(elapsedMs).toBeLessThan(400 + 5_000);
-    expect(maxGapMs).toBeLessThan(250);
     await expect(tasks.run("echo", "after")).resolves.toBe("after");
   });
 
@@ -153,20 +134,16 @@ describe("createBoundedTaskRunner", () => {
 
   it("refuses indent feeding repeat() (about 100 MB of output)", async () => {
     const tasks = runner();
-    const { result, maxGapMs } = await withHeartbeat(() =>
-      failure(tasks.run("indent", { paragraphs: 1_000, indent: 100_000 })),
+    const result = await failure(
+      tasks.run("indent", { paragraphs: 1_000, indent: 100_000 }),
     );
     expect(["memory_exceeded", "output_too_large"]).toContain(result.code);
-    expect(maxGapMs).toBeLessThan(250);
   });
 
   it("stops the 5M-tab latex/colMeta rescan at the deadline", async () => {
     const tasks = runner({ deadlineMs: 500 });
-    const { result, maxGapMs } = await withHeartbeat(() =>
-      failure(tasks.run("tabs", { tabs: 5_000_000 })),
-    );
+    const result = await failure(tasks.run("tabs", { tabs: 5_000_000 }));
     expect(["deadline_exceeded", "memory_exceeded"]).toContain(result.code);
-    expect(maxGapMs).toBeLessThan(250);
   });
 
   it("refuses 5M tabs passed in directly before any worker runs", async () => {
@@ -178,15 +155,14 @@ describe("createBoundedTaskRunner", () => {
 
   it("refuses repeated mark attributes (50M characters)", async () => {
     const tasks = runner();
-    const { result, maxGapMs } = await withHeartbeat(() =>
-      failure(tasks.run("marks", { attr: 1_000, chars: 50_000 })),
+    const result = await failure(
+      tasks.run("marks", { attr: 1_000, chars: 50_000 }),
     );
     expect([
       "memory_exceeded",
       "output_too_large",
       "deadline_exceeded",
     ]).toContain(result.code);
-    expect(maxGapMs).toBeLessThan(250);
   });
 
   it("reports deep nesting as a typed failure instead of crashing", async () => {
@@ -199,20 +175,16 @@ describe("createBoundedTaskRunner", () => {
 
   it("completes a 200,000-line code block inside the bound", async () => {
     const tasks = runner({ deadlineMs: 2_000 });
-    const { result, maxGapMs } = await withHeartbeat(() =>
-      tasks.run<{ text: string }>("code", { lines: 200_000 }),
-    );
+    const result = await tasks.run<{ text: string }>("code", {
+      lines: 200_000,
+    });
     expect(result.text.split("\n")).toHaveLength(200_002);
-    expect(maxGapMs).toBeLessThan(250);
   });
 
   it("stops the quadratic link scan on many [ at the deadline", async () => {
     const tasks = runner({ deadlineMs: 400 });
-    const { result, maxGapMs } = await withHeartbeat(() =>
-      failure(tasks.run("links", { brackets: 1_000_000 })),
-    );
+    const result = await failure(tasks.run("links", { brackets: 1_000_000 }));
     expect(result.code).toBe("deadline_exceeded");
-    expect(maxGapMs).toBeLessThan(250);
   });
 
   it("runs at most maxWorkers tasks and refuses work beyond the queue", async () => {
@@ -233,6 +205,19 @@ describe("createBoundedTaskRunner", () => {
       "deadline_exceeded",
       "deadline_exceeded",
     ]);
+  });
+
+  it("refuses worker and queue limits that are not whole counts", () => {
+    for (const limits of [
+      { maxWorkers: 1.5 },
+      { maxWorkers: 0 },
+      { maxQueue: 0.5 },
+      { maxQueue: -1 },
+    ]) {
+      expect(() =>
+        createBoundedTaskRunner({ source: source(), ...limits }),
+      ).toThrow(RangeError);
+    }
   });
 
   it("fails a task that waits longer than queueTimeoutMs", async () => {

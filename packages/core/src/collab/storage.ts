@@ -89,7 +89,9 @@ export class CollabStateMalformedError extends Error {
  */
 export type StrictYDocRecord =
   | { kind: "absent" }
-  | { kind: "present"; state: Uint8Array; version: number };
+  | { kind: "present"; state: Uint8Array; version: number }
+  /** Longer than `maxBytes` allows; its text was never read. */
+  | { kind: "too_large"; bytes: number };
 
 /**
  * Decodes canonical base64, or returns null; `Buffer` silently skips junk.
@@ -110,13 +112,21 @@ export function strictBase64ToUint8Array(value: string): Uint8Array | null {
 export async function loadYDocRecordStrict(
   client: DbExec,
   docId: string,
+  maxBytes: number,
   options: { forUpdate?: boolean } = {},
 ): Promise<StrictYDocRecord> {
+  // The longest canonical base64 of maxBytes bytes. Longer text is left in
+  // the database, so a huge row costs neither the transfer nor the decode.
+  const maxLength = 4 * Math.ceil(maxBytes / 3);
   const { rows } = await client.execute({
-    sql: `SELECT yjs_state, version FROM _collab_docs WHERE doc_id = ?${options.forUpdate ? " FOR UPDATE" : ""}`,
-    args: [docId],
+    sql: `SELECT CASE WHEN length(yjs_state) <= ? THEN yjs_state END AS yjs_state, length(yjs_state) AS encoded_length, version FROM _collab_docs WHERE doc_id = ?${options.forUpdate ? " FOR UPDATE" : ""}`,
+    args: [maxLength, docId],
   });
   if (rows.length === 0) return { kind: "absent" };
+  const encodedLength = Number(rows[0].encoded_length);
+  if (encodedLength > maxLength) {
+    return { kind: "too_large", bytes: Math.floor((encodedLength * 3) / 4) };
+  }
   const stored = rows[0].yjs_state;
   if (typeof stored !== "string") {
     throw new CollabStateMalformedError(

@@ -185,6 +185,8 @@ export interface ClientActionCallOptions {
   signal?: AbortSignal;
   timeoutMs?: number;
   headers?: Record<string, string>;
+  /** Set when the action is declared `uiOnly`, so its first request carries the UI capability. */
+  uiOnly?: boolean;
 }
 
 function resolveUserTimezone(): string | undefined {
@@ -232,6 +234,7 @@ export interface ActionFetchOptions {
   responseType?: "blob";
   includeRequestSource?: boolean;
   headers?: Record<string, string>;
+  uiOnly?: boolean;
 }
 
 type InternalActionFetchOptions = ActionFetchOptions & {
@@ -243,7 +246,9 @@ type InternalActionFetchOptions = ActionFetchOptions & {
 
 let uiCapabilityRequest: Promise<void> | undefined;
 
-async function ensureUiActionCapability(): Promise<void> {
+// The mint is shared by concurrent callers, so one caller's abort rejects only
+// its own wait and never cancels the request the others are waiting on.
+function ensureUiActionCapability(signal?: AbortSignal): Promise<void> {
   const request =
     uiCapabilityRequest ??
     (uiCapabilityRequest = fetch(
@@ -258,7 +263,15 @@ async function ensureUiActionCapability(): Promise<void> {
       .finally(() => {
         uiCapabilityRequest = undefined;
       }));
-  return request;
+  if (!signal) return request;
+  return new Promise<void>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason);
+    if (signal.aborted) return onAbort();
+    signal.addEventListener("abort", onAbort, { once: true });
+    request
+      .then(resolve, reject)
+      .finally(() => signal.removeEventListener("abort", onAbort));
+  });
 }
 
 export const ACTION_KEEPALIVE_BODY_BUDGET_BYTES = 48_000;
@@ -389,7 +402,7 @@ async function performActionFetch<T>(
   let readError: unknown;
   try {
     try {
-      const request =
+      const send = () =>
         method === "GET" && canBatchActionGet(options)
           ? fetchActionGet({
               name,
@@ -400,6 +413,9 @@ async function performActionFetch<T>(
               batchUrl: `${actionPrefix()}/${ACTION_BATCH_ACTION_NAME}`,
             })
           : fetch(url, init);
+      const request = options?.uiOnly
+        ? ensureUiActionCapability(controller?.signal).then(send)
+        : send();
       res = await Promise.race([request, timedOutSignal]);
       throwIfAborted(outerSignal);
       options?.onResponse?.(res);
@@ -476,9 +492,9 @@ async function performActionFetch<T>(
       !options?.uiCapabilityRetry &&
       typeof window !== "undefined"
     ) {
-      await ensureUiActionCapability();
       return performActionFetch<T>(name, method, params, {
         ...options,
+        uiOnly: true,
         uiCapabilityRetry: true,
       });
     }
@@ -821,6 +837,7 @@ export function callAction<
     timeoutMs: options.timeoutMs,
     includeRequestSource: false,
     headers: options.headers,
+    uiOnly: options.uiOnly,
   });
 }
 
@@ -835,6 +852,7 @@ export function callActionBlob<TName extends ActionName = ActionName>(
     includeRequestSource: false,
     headers: options.headers,
     responseType: "blob",
+    uiOnly: options.uiOnly,
   });
 }
 
@@ -933,7 +951,7 @@ export function tryCallActionKeepalive<
 >(
   actionName: TName,
   params?: ActionParams<TName>,
-  options: Omit<ClientActionCallOptions, "method"> & {
+  options: Omit<ClientActionCallOptions, "method" | "uiOnly"> & {
     method?: "POST" | "PUT";
   } = {},
 ): KeepaliveActionCallResult<

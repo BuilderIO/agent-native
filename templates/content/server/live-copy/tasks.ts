@@ -11,8 +11,13 @@ import {
 import * as Y from "yjs";
 
 import { createContentEditorStructuralSchema } from "../../shared/content-editor-structural-schema.js";
-import { LIVE_BODY_FIELD, materializeLiveBody } from "../../shared/live-body.js";
+import { bodyHoldsChanges } from "../../shared/document-intent-merge.js";
+import {
+  LIVE_BODY_FIELD,
+  materializeLiveBody,
+} from "../../shared/live-body.js";
 import { docToNfm, nfmToDoc } from "../../shared/nfm.js";
+import { CONTENT_HOLDS_BODY_TASK, type HoldsBodyResult } from "./task-names.js";
 
 // The worker half of Content's live copy: every handler here runs in the
 // bounded task runner, so import only what a worker bundle can carry.
@@ -101,7 +106,32 @@ function isRefusal(value: unknown): value is LiveCopyTaskRefusal {
   );
 }
 
-export const tasks = defineLiveCopyTasks({
+function isCanonical(markdown: string): boolean {
+  try {
+    return docToNfm(nfmToDoc(markdown)) === markdown;
+  } catch {
+    // coercion-ok: a body the parser rejects is not canonical, and its save keeps its draft.
+    return false;
+  }
+}
+
+function holdsBodyInput(input: unknown): {
+  base: string;
+  stored: string;
+  candidate: string;
+} {
+  const { base, stored, candidate } = (input ?? {}) as Record<string, unknown>;
+  if (
+    typeof base !== "string" ||
+    typeof stored !== "string" ||
+    typeof candidate !== "string"
+  ) {
+    throw new TypeError("expected { base, stored, candidate } as strings");
+  }
+  return { base, stored, candidate };
+}
+
+const liveCopyTasks = defineLiveCopyTasks({
   derive: deriveBody,
 
   seed(doc, field, source) {
@@ -133,3 +163,16 @@ export const tasks = defineLiveCopyTasks({
     },
   },
 });
+
+export const tasks = {
+  ...liveCopyTasks,
+  /** Whether the stored body holds every change `candidate` made to `base`. */
+  async [CONTENT_HOLDS_BODY_TASK](input: unknown): Promise<HoldsBodyResult> {
+    const { base, stored, candidate } = holdsBodyInput(input);
+    // The comparison reads the candidate in its parsed form, and a parse can
+    // drop text, such as an unindented callout child. Only an editor's own
+    // serialization says what the save holds.
+    if (!isCanonical(candidate)) return "noncanonical";
+    return bodyHoldsChanges(base, stored, candidate) ? "held" : "unheld";
+  },
+};
