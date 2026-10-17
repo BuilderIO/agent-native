@@ -3292,6 +3292,7 @@ it(
     try {
       const page = await browser.newPage({
         viewport: { width: 900, height: 700 },
+        hasTouch: true,
       });
       page.on("pageerror", (error) => pageErrors.push(error.message));
 
@@ -3343,7 +3344,8 @@ it(
       );
       expect(firstSelection.sourceId).toBe("headline");
 
-      await page.waitForTimeout(500);
+      // Keep this click inside the bridge's repeated-click window.
+      await page.waitForTimeout(50);
       await page.mouse.click(point.x, point.y);
       await page.waitForFunction(
         () => (window as any).__elementSelectPayloads.length > 1,
@@ -3354,6 +3356,15 @@ it(
 
       expect(repeatedSelection.sourceId).toBe("headline");
 
+      await page.touchscreen.tap(point.x, point.y);
+      await page.waitForFunction(
+        () => (window as any).__elementSelectPayloads.length > 2,
+      );
+      const touchSelection = await page.evaluate(() =>
+        (window as any).__elementSelectPayloads.at(-1),
+      );
+      expect(touchSelection.sourceId).toBe("headline");
+
       await page.keyboard.down(PLATFORM_PRIMARY_KEY);
       try {
         await page.mouse.click(point.x, point.y);
@@ -3361,7 +3372,7 @@ it(
         await page.keyboard.up(PLATFORM_PRIMARY_KEY);
       }
       await page.waitForFunction(
-        () => (window as any).__elementSelectPayloads.length > 2,
+        () => (window as any).__elementSelectPayloads.length > 3,
       );
       const deepSelection = await page.evaluate(() =>
         (window as any).__elementSelectPayloads.at(-1),

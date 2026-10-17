@@ -338,6 +338,52 @@ function deepestFrameContaining(
     : null;
 }
 
+function elementsFromPointIncludingPointerTransparent(
+  liveDocument: Document,
+  x: number,
+  y: number,
+): Element[] {
+  const liveView = liveDocument.defaultView;
+  if (!liveView) return liveDocument.elementsFromPoint(x, y);
+
+  // elementsFromPoint skips pointer-events:none even when those elements paint over the point.
+  const pointerTransparentElements = Array.from(
+    liveDocument.querySelectorAll<HTMLElement | SVGElement>("*"),
+  ).filter((element) => {
+    if (liveView.getComputedStyle(element).pointerEvents !== "none") {
+      return false;
+    }
+    const rect = element.getBoundingClientRect();
+    return (
+      rect.width > 0 &&
+      rect.height > 0 &&
+      x >= rect.left &&
+      y >= rect.top &&
+      x <= rect.right &&
+      y <= rect.bottom
+    );
+  });
+  if (!pointerTransparentElements.length) {
+    return liveDocument.elementsFromPoint(x, y);
+  }
+
+  const originalStyles = pointerTransparentElements.map((element) => ({
+    element,
+    style: element.getAttribute("style"),
+  }));
+  try {
+    pointerTransparentElements.forEach((element) => {
+      element.style.setProperty("pointer-events", "auto", "important");
+    });
+    return liveDocument.elementsFromPoint(x, y);
+  } finally {
+    originalStyles.forEach(({ element, style }) => {
+      if (style === null) element.removeAttribute("style");
+      else element.setAttribute("style", style);
+    });
+  }
+}
+
 function paintedSurfaceAtPoint(
   root: Element,
   x: number,
@@ -459,36 +505,71 @@ function paintedSurfaceAtPoint(
     liveView &&
     typeof liveDocument.elementsFromPoint === "function"
   ) {
-    const hits = liveDocument.elementsFromPoint(
+    const hits = elementsFromPointIncludingPointerTransparent(
+      liveDocument,
       x - liveView.scrollX,
       y - liveView.scrollY,
     );
+    const hitSet = new Set(hits);
+    const colors: string[] = [];
+    let opaqueForeground = false;
+    const unseenAncestors: Element[] = [];
+    const seenAncestors = new Set<Element>();
     for (const hit of hits) {
+      const includesBackgroundImage =
+        includeDocumentBackground ||
+        (hit !== liveDocument.body && hit !== liveDocument.documentElement);
+      const style = liveView.getComputedStyle(hit);
+      if (!opaqueForeground) {
+        const unknownPaint = hasUnknownPaint(style, includesBackgroundImage);
+        if (unknownPaint) return { kind: "unknown", reason: unknownPaint };
+      }
       for (
         let element: Element | null = hit;
+        !opaqueForeground && element;
+        element = element.parentElement
+      ) {
+        if (element === hit) continue;
+        const ancestorStyle = liveView.getComputedStyle(element);
+        const unknownOpacity = hasUnknownPaint(ancestorStyle, false);
+        if (unknownOpacity) {
+          return { kind: "unknown", reason: unknownOpacity };
+        }
+      }
+      if (
+        includeDocumentBackground ||
+        (hit !== liveDocument.body && hit !== liveDocument.documentElement)
+      ) {
+        colors.push(style.backgroundColor);
+        const foreground = parseCssColorExtended(style.backgroundColor);
+        if (foreground?.a === 1) opaqueForeground = true;
+      }
+      for (
+        let element = hit.parentElement;
         element;
         element = element.parentElement
       ) {
+        if (hitSet.has(element) || seenAncestors.has(element)) continue;
+        seenAncestors.add(element);
+        unseenAncestors.push(element);
+      }
+    }
+    if (!opaqueForeground) {
+      for (const element of unseenAncestors) {
         const includesBackgroundImage =
           includeDocumentBackground ||
           (element !== liveDocument.body &&
             element !== liveDocument.documentElement);
-        const unknownPaint = hasUnknownPaint(
-          liveView.getComputedStyle(element),
-          includesBackgroundImage,
-        );
+        const style = liveView.getComputedStyle(element);
+        const unknownPaint = hasUnknownPaint(style, includesBackgroundImage);
         if (unknownPaint) return { kind: "unknown", reason: unknownPaint };
+        if (includesBackgroundImage) {
+          colors.push(style.backgroundColor);
+          const foreground = parseCssColorExtended(style.backgroundColor);
+          if (foreground?.a === 1) break;
+        }
       }
     }
-    const colors = hits.flatMap((hit) => {
-      if (
-        !includeDocumentBackground &&
-        (hit === liveDocument.body || hit === liveDocument.documentElement)
-      ) {
-        return [];
-      }
-      return [liveView.getComputedStyle(hit).backgroundColor];
-    });
     return compositePaintStack(colors);
   }
 
@@ -967,7 +1048,8 @@ export function appendCanvasPrimitiveToHtml(
         sampledSurfaceIsLight !== surfaceIsLight;
       const preserveInheritedTextColor =
         paintedSurface?.kind === "unknown" &&
-        (paintedSurface.reason === "translucent" ||
+        (paintedSurface.reason === "background-image" ||
+          paintedSurface.reason === "translucent" ||
           (surfaceIsLight === null && options?.isBoardTarget !== true));
       const resolvedTextColor =
         primitive.fill ??

@@ -854,6 +854,83 @@ describe("text takes its colour from what it lands on", () => {
     expect(styleOf(html ?? "", "t")).toMatch(/color:\s*#000000/i);
   });
 
+  it("treats a pointer-transparent painted overlay as an unknown surface", () => {
+    const content = `<!doctype html><html><body>
+      <div class="light-board" style="background:#ffffff"></div>
+      <div class="dark-overlay" style="position:absolute;left:0;top:0;width:100px;height:100px;pointer-events:none;background-image:linear-gradient(#111111,#111111)"></div>
+    </body></html>`;
+    const liveDocument = new DOMParser().parseFromString(content, "text/html");
+    const board = liveDocument.querySelector<HTMLElement>(".light-board")!;
+    const overlay = liveDocument.querySelector<HTMLElement>(".dark-overlay")!;
+    const originalOverlayStyle = overlay.getAttribute("style");
+    Object.defineProperty(overlay, "getBoundingClientRect", {
+      value: () => ({
+        left: 0,
+        top: 0,
+        right: 100,
+        bottom: 100,
+        width: 100,
+        height: 100,
+      }),
+    });
+    Object.defineProperty(liveDocument, "elementsFromPoint", {
+      value: () =>
+        [overlay, board].filter(
+          (element) =>
+            liveDocument.defaultView?.getComputedStyle(element)
+              .pointerEvents !== "none",
+        ),
+    });
+
+    const html = appendCanvasPrimitiveToHtml(
+      content,
+      {
+        kind: "text",
+        nodeId: "t",
+        geometry: { x: 10, y: 10, width: 120, height: 24 },
+        text: "on a painted overlay",
+      },
+      {
+        isBoardTarget: true,
+        boardBackground: "#ffffff",
+        liveDocument,
+      },
+    );
+
+    expect(styleOf(html ?? "", "t")).toMatch(/color:\s*currentcolor/i);
+    expect(overlay.getAttribute("style")).toBe(originalOverlayStyle);
+  });
+
+  it("ignores unknown paint beneath an opaque foreground surface", () => {
+    const content = `<!doctype html><html><body>
+      <div class="image-board" style="background-image:linear-gradient(#111111,#111111)"></div>
+      <div class="white-card" style="background:#ffffff"></div>
+    </body></html>`;
+    const liveDocument = new DOMParser().parseFromString(content, "text/html");
+    const card = liveDocument.querySelector<HTMLElement>(".white-card")!;
+    const board = liveDocument.querySelector<HTMLElement>(".image-board")!;
+    Object.defineProperty(liveDocument, "elementsFromPoint", {
+      value: () => [card, board],
+    });
+
+    const html = appendCanvasPrimitiveToHtml(
+      content,
+      {
+        kind: "text",
+        nodeId: "t",
+        geometry: { x: 10, y: 10, width: 120, height: 24 },
+        text: "on the card",
+      },
+      {
+        isBoardTarget: true,
+        boardBackground: "#111111",
+        liveDocument,
+      },
+    );
+
+    expect(styleOf(html ?? "", "t")).toMatch(/color:\s*#000000/i);
+  });
+
   it("checks lower painted siblings before a nested hit's painted ancestor", () => {
     const content = `<!doctype html><html><head><style>
       .parent { position: relative; width: 100px; height: 100px; background: #ffffff; }

@@ -3827,8 +3827,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return containerFirstSelectionTarget(hit);
     }
-    function selectedContainerForPlainClick(hit, ev, repeatedClick) {
-      if (!ev || (repeatedClick ?? ev.detail > 1) || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey || !hit || !selectedEl || !document.documentElement.contains(selectedEl)) {
+    function selectedContainerForPlainClick(hit, ev) {
+      if (!ev || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey || !hit || !selectedEl || !document.documentElement.contains(selectedEl)) {
         return null;
       }
       var target = selectionTargetForHit(hit, true);
@@ -6829,6 +6829,13 @@ export const editorChromeBridgeScript: string = `"use strict";
     var lastShieldPointerDownPoint = null;
     var lastShieldPointerDownTarget = null;
     var lastShieldPointerDownModifiers = null;
+    function resetShieldPointerClickState() {
+      shieldPointerClickCount = 0;
+      lastShieldPointerDownAt = 0;
+      lastShieldPointerDownPoint = null;
+      lastShieldPointerDownTarget = null;
+      lastShieldPointerDownModifiers = null;
+    }
     var hoveredSpacingHandleKey = "";
     var spacingHoverClearTimer = null;
     var lastSpacingPointerPoint = null;
@@ -21311,15 +21318,17 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       function onUp(ev) {
         clearPendingShieldDrag();
-        var repeatedClick = Boolean(
-          ev && (ev.detail > 1 || ev.type === "pointerup" && shieldPointerClickCount > 1)
+        var isMousePointerUp = Boolean(
+          ev && ev.type === "pointerup" && ev.pointerType === "mouse"
         );
+        var repeatedClick = Boolean(
+          ev && (ev.detail > 1 || isMousePointerUp && shieldPointerClickCount > 1)
+        );
+        if (ev && ev.type === "pointerup" && !isMousePointerUp) {
+          resetShieldPointerClickState();
+        }
         if (didStartDrag) {
-          shieldPointerClickCount = 0;
-          lastShieldPointerDownAt = 0;
-          lastShieldPointerDownPoint = null;
-          lastShieldPointerDownTarget = null;
-          lastShieldPointerDownModifiers = null;
+          resetShieldPointerClickState();
           return;
         }
         if (!readOnly && !e.altKey) {
@@ -21327,7 +21336,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         if (ev) stopNativeInteraction(ev);
         var cycledEl = !readOnly && (e.metaKey || e.ctrlKey) && !e.shiftKey ? stackCycleTarget(e.clientX, e.clientY, selectedEl) : null;
-        var primaryClickTarget = !readOnly && (e.metaKey || e.ctrlKey) ? modifierClickSelectionTarget(hit) : !designCanvasBoardSurface ? selectedContainerForPlainClick(hit, ev, repeatedClick) || plainClickSelectionTarget(hit) : (!readOnly && !e.shiftKey ? selectedContainerForPlainClick(hit, ev, repeatedClick) || clickThroughSelectionTarget(hit, ev, repeatedClick) : null) || containerFirstSelectionTarget(hit);
+        var primaryClickTarget = !readOnly && (e.metaKey || e.ctrlKey) ? modifierClickSelectionTarget(hit) : !designCanvasBoardSurface ? selectedContainerForPlainClick(hit, ev) || plainClickSelectionTarget(hit) : (!readOnly && !e.shiftKey ? selectedContainerForPlainClick(hit, ev) || clickThroughSelectionTarget(hit, ev, repeatedClick) : null) || containerFirstSelectionTarget(hit);
         var cycleTarget = cycledEl && (!(cycledEl.contains && cycledEl.contains(hit)) || (repeatedClick || primaryClickTarget === selectedEl) && cycledEl !== selectedEl && selectedEl && cycledEl.contains(selectedEl)) ? cycledEl : null;
         if (cycleTarget) {
           selectTarget(cycleTarget, ev, true);

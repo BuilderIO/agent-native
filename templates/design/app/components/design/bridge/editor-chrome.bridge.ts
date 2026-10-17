@@ -3973,11 +3973,9 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
   function selectedContainerForPlainClick(
     hit: Element | null,
     ev?: MouseEvent | null,
-    repeatedClick?: boolean,
   ): Element | null {
     if (
       !ev ||
-      (repeatedClick ?? ev.detail > 1) ||
       ev.metaKey ||
       ev.ctrlKey ||
       ev.shiftKey ||
@@ -8118,6 +8116,13 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     metaKey: boolean;
     shiftKey: boolean;
   } | null = null;
+  function resetShieldPointerClickState() {
+    shieldPointerClickCount = 0;
+    lastShieldPointerDownAt = 0;
+    lastShieldPointerDownPoint = null;
+    lastShieldPointerDownTarget = null;
+    lastShieldPointerDownModifiers = null;
+  }
   var hoveredSpacingHandleKey = "";
   var spacingHoverClearTimer: ReturnType<typeof setTimeout> | null = null;
   var lastSpacingPointerPoint: { x: number; y: number } | null = null;
@@ -27435,17 +27440,18 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     }
     function onUp(ev) {
       clearPendingShieldDrag();
+      var isMousePointerUp = Boolean(
+        ev && ev.type === "pointerup" && ev.pointerType === "mouse",
+      );
       var repeatedClick = Boolean(
         ev &&
-        (ev.detail > 1 ||
-          (ev.type === "pointerup" && shieldPointerClickCount > 1)),
+        (ev.detail > 1 || (isMousePointerUp && shieldPointerClickCount > 1)),
       );
+      if (ev && ev.type === "pointerup" && !isMousePointerUp) {
+        resetShieldPointerClickState();
+      }
       if (didStartDrag) {
-        shieldPointerClickCount = 0;
-        lastShieldPointerDownAt = 0;
-        lastShieldPointerDownPoint = null;
-        lastShieldPointerDownTarget = null;
-        lastShieldPointerDownModifiers = null;
+        resetShieldPointerClickState();
         return;
       }
       if (!readOnly && !e.altKey) {
@@ -27460,10 +27466,10 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         !readOnly && (e.metaKey || e.ctrlKey)
           ? modifierClickSelectionTarget(hit)
           : !designCanvasBoardSurface
-            ? selectedContainerForPlainClick(hit, ev, repeatedClick) ||
+            ? selectedContainerForPlainClick(hit, ev) ||
               plainClickSelectionTarget(hit)
             : (!readOnly && !e.shiftKey
-                ? selectedContainerForPlainClick(hit, ev, repeatedClick) ||
+                ? selectedContainerForPlainClick(hit, ev) ||
                   clickThroughSelectionTarget(hit, ev, repeatedClick)
                 : null) || containerFirstSelectionTarget(hit);
       var cycleTarget =
