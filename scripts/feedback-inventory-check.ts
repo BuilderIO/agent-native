@@ -2563,6 +2563,8 @@ function sourceReceiptChannelName(channelId: string, index: number): string {
 }
 
 const emptySlackSearchResults = "# Search Results for: \n\nNo results found.\n";
+const emptySlackSearchResultsPattern =
+  /^# Search Results for: [^\n]*\n\nNo results found\.\n?$/;
 const exhaustedSlackSearchPagination =
   "End of results - No more pages available.";
 
@@ -2599,7 +2601,7 @@ function parseRawSlackSearchPage(
     );
   }
 
-  if (normalizedResults === emptySlackSearchResults) {
+  if (emptySlackSearchResultsPattern.test(normalizedResults)) {
     if (!exhausted) {
       throw new Error(
         `${sourceName}: empty Slack results require explicit exhausted pagination`,
@@ -4115,6 +4117,20 @@ if (args[0] === "--self-test" && args.length === 1) {
   ) {
     throw new Error(
       "Feedback inventory checker self-test rejected an empty final page",
+    );
+  }
+  const echoedQueryEmptyPage = parseRawSlackSearchPage(
+    "# Search Results for: from:steve in:product\n\nNo results found.\n",
+    exhaustedSlackSearchPagination,
+    "self-test echoed-query empty page",
+  );
+  if (
+    echoedQueryEmptyPage.blocks.length !== 0 ||
+    echoedQueryEmptyPage.nextCursor !== null ||
+    !echoedQueryEmptyPage.exhausted
+  ) {
+    throw new Error(
+      "Feedback inventory checker self-test rejected an echoed-query empty page",
     );
   }
   const nonEmptyResults =
