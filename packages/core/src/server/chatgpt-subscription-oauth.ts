@@ -779,32 +779,34 @@ async function accountSummaries(
   );
 }
 
+function selectAccountSummary(
+  accounts: ChatGPTSubscriptionAccountSummary[],
+  activeAccountId: string | null,
+): ChatGPTSubscriptionAccountSummary | null {
+  return (
+    accounts.find((account) => account.id === activeAccountId) ??
+    (accounts.length === 1 ? (accounts[0] ?? null) : null)
+  );
+}
+
 async function activeAccount(
   email: string,
   accounts?: ChatGPTSubscriptionAccountSummary[],
 ): Promise<ChatGPTSubscriptionAccountSummary | null> {
   const accountRows = accounts ?? (await accountSummaries(email));
   const activeId = await readActiveAccountId(email);
-  if (!activeId) {
-    if (accountRows.length === 1) {
-      await writeActiveAccountId(email, accountRows[0]!.id);
-      return { ...accountRows[0]!, active: true };
-    }
-    return null;
-  }
-  const active = accountRows.find((account) => account.id === activeId);
-  if (!active) {
+  const selected = selectAccountSummary(accountRows, activeId);
+  if (activeId && !accountRows.some((account) => account.id === activeId)) {
     await deleteUserSetting(
       normalizedEmail(email),
       CHATGPT_SUBSCRIPTION_ACTIVE_ACCOUNT_SETTING_KEY,
     );
-    if (accountRows.length === 1) {
-      await writeActiveAccountId(email, accountRows[0]!.id);
-      return { ...accountRows[0]!, active: true };
-    }
-    return null;
   }
-  return { ...active, active: true };
+  if (!selected) return null;
+  if (selected.id !== activeId) {
+    await writeActiveAccountId(email, selected.id);
+  }
+  return { ...selected, active: true };
 }
 
 export async function hasChatGPTSubscriptionCredential(
@@ -832,8 +834,7 @@ export async function getChatGPTSubscriptionStatus(
     const activeAccountId = localLoopback
       ? null
       : await readActiveAccountId(email);
-    const selected =
-      accounts.find((account) => account.id === activeAccountId) ?? null;
+    const selected = selectAccountSummary(accounts, activeAccountId);
     return {
       supported: false,
       localLoopback,

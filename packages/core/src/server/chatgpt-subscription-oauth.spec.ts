@@ -171,9 +171,10 @@ describe("ChatGPT subscription OAuth contract", () => {
         },
       },
     });
+    let activeAccountSetting: { accountId: string } | null = { accountId };
     mocks.getUserSetting.mockImplementation(async (_email, key) =>
       key === CHATGPT_SUBSCRIPTION_ACTIVE_ACCOUNT_SETTING_KEY
-        ? { accountId }
+        ? activeAccountSetting
         : null,
     );
 
@@ -212,6 +213,19 @@ describe("ChatGPT subscription OAuth contract", () => {
         await expect(
           getChatGPTSubscriptionAccess("alice@example.com"),
         ).rejects.toThrow("available only from a local app");
+
+        activeAccountSetting = null;
+        await expect(
+          getChatGPTSubscriptionStatus("alice@example.com"),
+        ).resolves.toMatchObject({
+          supported: false,
+          activeAccountId: accountId,
+          activeAccount: expect.objectContaining({
+            id: accountId,
+            active: true,
+          }),
+          accounts: [expect.objectContaining({ id: accountId, active: true })],
+        });
       },
     );
     expect(mocks.getUserSetting).toHaveBeenCalledWith(
