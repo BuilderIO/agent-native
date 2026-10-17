@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   listOAuthAccountsByOwner: vi.fn(),
   getUserSetting: vi.fn(),
   putUserSetting: vi.fn(),
+  deleteUserSetting: vi.fn(),
   readOAuthCredentialState: vi.fn(),
 }));
 
@@ -36,7 +37,7 @@ vi.mock("../settings/user-settings.js", async (importOriginal) => ({
   getUserSetting: mocks.getUserSetting,
   mutateUserSetting: vi.fn(),
   putUserSetting: mocks.putUserSetting,
-  deleteUserSetting: vi.fn(),
+  deleteUserSetting: mocks.deleteUserSetting,
 }));
 
 import {
@@ -289,7 +290,10 @@ describe("ChatGPT subscription OAuth contract", () => {
           localLoopback: false,
           connected: false,
           activeAccountId: accountId,
-          activeAccount: expect.objectContaining({ id: accountId, active: true }),
+          activeAccount: expect.objectContaining({
+            id: accountId,
+            active: true,
+          }),
           accounts: [
             expect.objectContaining({
               id: accountId,
@@ -311,10 +315,18 @@ describe("ChatGPT subscription OAuth contract", () => {
         ).resolves.toMatchObject({
           supported: false,
           activeAccountId: accountId,
-          activeAccount: expect.objectContaining({ id: accountId, active: true }),
+          activeAccount: expect.objectContaining({
+            id: accountId,
+            active: true,
+          }),
           accounts: [expect.objectContaining({ id: accountId, active: true })],
           legacyRegistrationCleanupAvailable: true,
         });
+        expect(mocks.putUserSetting).toHaveBeenCalledWith(
+          "alice@example.com",
+          CHATGPT_SUBSCRIPTION_ACTIVE_ACCOUNT_SETTING_KEY,
+          { accountId },
+        );
 
         mocks.readOAuthCredentialState.mockResolvedValue({
           kind: "reconnect_required",

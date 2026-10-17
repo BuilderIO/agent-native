@@ -858,8 +858,8 @@ export async function getChatGPTSubscriptionStatus(
       accountSummaries(email),
       hasLegacyCredential(email),
     ]);
-    const activeAccountId = await readActiveAccountId(email);
-    const selected = selectAccountSummary(accounts, activeAccountId);
+    const selected = await activeAccount(email, accounts);
+    const activeAccountId = selected?.id ?? null;
     return {
       supported: false,
       localLoopback,
