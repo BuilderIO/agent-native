@@ -577,40 +577,48 @@ export function useCollabReconcile({
     requestJoinEvidence(doc, revision);
     return null;
   };
-  // The stored snapshot a joining doc takes as current, which the reconcile
-  // below records only after turning away anything it rejects, and the others
-  // it took at that time. Until the doc holds a stored body, only the current
-  // one may finish its join, and not once a save acknowledged after it is
-  // accepted: an older one, even one the doc matches, lacks the newer stored
-  // edit. Same-time revisions nothing can order count in the order they
-  // arrive, so one taken earlier cannot come back.
+  // The stored snapshot a joining doc takes as current, props or an
+  // acknowledged save, which the reconcile below records as it accepts one,
+  // and the others it took at that time. Until the doc holds a stored body,
+  // only the current one may finish its join: an older one, even one the doc
+  // matches, lacks the newer stored edit. Same-time revisions nothing can
+  // order count in the order they arrive, so one taken earlier cannot come
+  // back.
   const joinSnapshotRef = useRef<{
     ydoc: YDoc;
     updatedAt: string;
     revision: string | null;
     earlier: Set<string>;
   } | null>(null);
-  const takeJoinSnapshot = () => {
+  const takeJoinSnapshot = (
+    {
+      updatedAt,
+      revision: snapshotRevision,
+    }: {
+      updatedAt?: string | null;
+      revision?: string | null;
+    } = { updatedAt: contentUpdatedAt, revision: contentRevision },
+  ) => {
     if (
       !joinsOnPeerEvidence ||
       !ydoc ||
       lastAppliedSerializedRef.current !== null ||
-      !contentUpdatedAt
+      !updatedAt
     )
       return true;
-    const revision = contentRevision ?? null;
+    const revision = snapshotRevision ?? null;
     const current =
       joinSnapshotRef.current?.ydoc === ydoc ? joinSnapshotRef.current : null;
-    if (!current || contentUpdatedAt > current.updatedAt) {
+    if (!current || updatedAt > current.updatedAt) {
       joinSnapshotRef.current = {
         ydoc,
-        updatedAt: contentUpdatedAt,
+        updatedAt,
         revision,
         earlier: new Set(),
       };
       return true;
     }
-    if (contentUpdatedAt < current.updatedAt) return false;
+    if (updatedAt < current.updatedAt) return false;
     if (revision === current.revision) return true;
     const order =
       revision && current.revision
@@ -632,8 +640,7 @@ export function useCollabReconcile({
       !contentUpdatedAt ||
       (current?.ydoc === ydoc &&
         current.updatedAt === contentUpdatedAt &&
-        current.revision === (contentRevision ?? null) &&
-        !propsOlderThanAcknowledged())
+        current.revision === (contentRevision ?? null))
     );
   };
   const reportedConflictRevisionRef = useRef<string | null>(null);
@@ -700,14 +707,6 @@ export function useCollabReconcile({
     updatedAt: string;
     sequence: number;
   } | null>(null);
-  const propsOlderThanAcknowledged = () => {
-    const acknowledged = acknowledgedLocalSnapshotRef.current;
-    return (
-      !!acknowledged &&
-      !!contentUpdatedAt &&
-      contentUpdatedAt < acknowledged.updatedAt
-    );
-  };
   const latestObservedUpdatedAtRef = useRef<string | null>(
     contentUpdatedAt ?? null,
   );
@@ -1172,7 +1171,11 @@ export function useCollabReconcile({
               acknowledgementRevisionOrder === undefined ||
               acknowledgementRevisionOrder === null ||
               acknowledgementRevisionOrder >= 0));
-        if (acknowledgementIsNewestAccepted && acknowledgementIsNotSuperseded) {
+        if (
+          acknowledgementIsNewestAccepted &&
+          acknowledgementIsNotSuperseded &&
+          takeJoinSnapshot(acknowledgedLocalSnapshot)
+        ) {
           acknowledgedLocalSnapshotRef.current = acknowledgedLocalSnapshot;
           const existingRollback = acknowledgementBaseRollbackRef.current;
           if (
@@ -1242,7 +1245,14 @@ export function useCollabReconcile({
         }
         return;
       }
-      if (propsOlderThanAcknowledged() || !takeJoinSnapshot()) return;
+      if (
+        acknowledged &&
+        contentUpdatedAt &&
+        contentUpdatedAt < acknowledged.updatedAt
+      ) {
+        return;
+      }
+      if (!takeJoinSnapshot()) return;
       if (collab && !collabSynced) {
         retry = setTimeout(() => apply(deferred), 300);
         return;
@@ -1713,7 +1723,15 @@ export function useCollabReconcile({
     return () => {
       editor.off("update", check);
     };
-  }, [contentRevision, contentUpdatedAt, editor, joinEvidence, value, ydoc]);
+  }, [
+    acknowledgedLocalSnapshot,
+    contentRevision,
+    contentUpdatedAt,
+    editor,
+    joinEvidence,
+    value,
+    ydoc,
+  ]);
 
   const shouldIgnoreUpdate = (transaction: Transaction): boolean => {
     if (!editable || isSettingContentRef.current || isJoinPending())

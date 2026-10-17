@@ -1315,9 +1315,12 @@ describe("useCollabReconcile: what finishes a join", () => {
     value: `${SAVED}\n\n${CHARLIE}`,
     updatedAt: "2024-01-01T00:00:07.000Z",
   };
+  const takeWordBack = (author: CoreEditor) =>
+    author.commands.setContent(ORIGINAL);
   it.each([
     [
       "that arrives after it",
+      acknowledged,
       between,
       (author: CoreEditor) =>
         author.commands.insertContentAt(author.state.doc.content.size, {
@@ -1325,14 +1328,16 @@ describe("useCollabReconcile: what finishes a join", () => {
           content: [{ type: "text", text: CHARLIE }],
         }),
     ],
+    ["it already had", acknowledged, STORED, takeWordBack],
     [
-      "it already had",
+      "at the same time, which it already had",
+      { ...acknowledged, updatedAt: STORED.updatedAt },
       STORED,
-      (author: CoreEditor) => author.commands.setContent(ORIGINAL),
+      takeWordBack,
     ],
   ])(
     "does not finish on a snapshot older than a save it has had acknowledged %s",
-    async (_, older, move) => {
+    async (_, acknowledgedC, older, move) => {
       const tabs = makeTabs({ ids: { A: 5, B: 2, C: 3 } });
       vi.useFakeTimers();
       try {
@@ -1348,7 +1353,7 @@ describe("useCollabReconcile: what finishes a join", () => {
                 snapshot: STORED,
                 snapshotC,
                 withC: true,
-                acknowledgedC: acknowledged,
+                acknowledgedC,
               }),
             ),
           );
@@ -1358,41 +1363,49 @@ describe("useCollabReconcile: what finishes a join", () => {
         expect(tabs.markdown("C")).toBe(older.value);
         expect(tabs.results.C!.isJoinPending()).toBe(true);
         expect(tabs.editors.C!.isEditable).toBe(false);
-        expect(heldRevision(tabs.awareness.C)).toBe(acknowledged.revision);
+        expect(heldRevision(tabs.awareness.C)).toBe(acknowledgedC.revision);
       } finally {
         tabs.dispose();
       }
     },
   );
 
-  it("finishes on a snapshot the doc matches that equals a save it has had acknowledged", async () => {
-    const tabs = makeTabs({ ids: { A: 5, B: 2, C: 3 } });
-    vi.useFakeTimers();
-    try {
-      await openCWhileASaves(tabs);
-      expect(tabs.results.C!.isJoinPending()).toBe(true);
-      act(() =>
-        root.render(
-          React.createElement(tabs.Tabs, {
-            snapshot: STORED,
-            snapshotC: ACKNOWLEDGED,
-            withC: true,
-            acknowledgedC: { ...ACKNOWLEDGED, sequence: 1 },
-          }),
-        ),
-      );
-      await act(async () => vi.advanceTimersByTimeAsync(100));
+  it.each([
+    ["with it", [ACKNOWLEDGED]],
+    ["after it", [STORED, ACKNOWLEDGED]],
+  ])(
+    "finishes on a snapshot the doc matches that equals a save it has had acknowledged, arriving %s",
+    async (_, snapshotsC) => {
+      const tabs = makeTabs({ ids: { A: 5, B: 2, C: 3 } });
+      vi.useFakeTimers();
+      try {
+        await openCWhileASaves(tabs);
+        expect(tabs.results.C!.isJoinPending()).toBe(true);
+        for (const snapshotC of snapshotsC) {
+          act(() =>
+            root.render(
+              React.createElement(tabs.Tabs, {
+                snapshot: STORED,
+                snapshotC,
+                withC: true,
+                acknowledgedC: { ...ACKNOWLEDGED, sequence: 1 },
+              }),
+            ),
+          );
+          await act(async () => vi.advanceTimersByTimeAsync(100));
+        }
 
-      expect(tabs.counts()).toEqual({ A: 1, B: 1, C: 1 });
-      expect(tabs.results.C!.isJoinPending()).toBe(false);
-      expect(tabs.editors.C!.isEditable).toBe(true);
-      expect(heldRevision(tabs.awareness.C)).toBe(ACKNOWLEDGED.revision);
-      await act(async () => vi.advanceTimersByTimeAsync(21_000));
-      expect(tabs.joinFailed("C")).toBe(false);
-    } finally {
-      tabs.dispose();
-    }
-  });
+        expect(tabs.counts()).toEqual({ A: 1, B: 1, C: 1 });
+        expect(tabs.results.C!.isJoinPending()).toBe(false);
+        expect(tabs.editors.C!.isEditable).toBe(true);
+        expect(heldRevision(tabs.awareness.C)).toBe(ACKNOWLEDGED.revision);
+        await act(async () => vi.advanceTimersByTimeAsync(21_000));
+        expect(tabs.joinFailed("C")).toBe(false);
+      } finally {
+        tabs.dispose();
+      }
+    },
+  );
 
   // C leads and no collaborator holds either stored body, so C applies one.
   it.each([
