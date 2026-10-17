@@ -5,6 +5,7 @@ import {
   getRequestUserEmail,
 } from "@agent-native/core/server";
 import {
+  listWorkspaceConnectionGrants,
   listWorkspaceConnections,
   resolveWorkspaceConnectionsForApp,
   upsertWorkspaceConnection,
@@ -80,13 +81,26 @@ export default defineAction({
       provider: DBT_PROVIDER_ID,
       includeDisabled: true,
     });
-    // A dbt row this caller cannot see may still exist for the org. Creating a new
-    // row beside it would duplicate the connection, so refuse instead.
+    // A row granted to Analytics that this caller cannot use would be duplicated by
+    // a new row. Rows granted only to other apps do not block setup here.
     const orgRows = await listWorkspaceConnections({
       provider: DBT_PROVIDER_ID,
       includeDisabled: true,
     });
-    if (visible.length === 0 && orgRows.length > 0) {
+    const analyticsGrants = await listWorkspaceConnectionGrants({
+      appId: ANALYTICS_APP_ID,
+      provider: DBT_PROVIDER_ID,
+    });
+    const grantedIds = new Set(
+      analyticsGrants.map((grant) => grant.connectionId),
+    );
+    const analyticsRows = orgRows.filter(
+      (row) =>
+        row.allowedApps.length === 0 ||
+        row.allowedApps.includes(ANALYTICS_APP_ID) ||
+        grantedIds.has(row.id),
+    );
+    if (visible.length === 0 && analyticsRows.length > 0) {
       fail(
         "A dbt connection already exists for this organization that you cannot manage. Ask an organization admin to change it in Settings → Integrations.",
         { errorCode: "dbt_connection_restricted", statusCode: 409 },

@@ -220,6 +220,14 @@ describe("Analytics dbt Semantic Layer routing evals", () => {
         ),
       ],
       [
+        "not_connected with the runtime fallback wording",
+        transcript(
+          "This figure is warehouse-derived from BigQuery, not the owner-approved Semantic Layer definition, because the dbt metric query did not complete.",
+          ["get-dbt-connection", "bigquery"],
+          [connectionReadiness("not_connected")],
+        ),
+      ],
+      [
         "token_missing with paraphrased disclosure",
         transcript(
           "The value is 10, read from warehouse tables rather than the approved dbt Semantic Layer definition.",

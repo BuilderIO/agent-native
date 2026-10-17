@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   hasAppSecret: vi.fn(async () => true),
   listWorkspaceConnectionsForApp: vi.fn(),
   listWorkspaceConnections: vi.fn(),
+  listWorkspaceConnectionGrants: vi.fn(),
   upsertWorkspaceConnection: vi.fn(),
   requireAnalyticsAdminContext: vi.fn(),
 }));
@@ -28,6 +29,7 @@ vi.mock("@agent-native/core/secrets", () => ({
 
 vi.mock("@agent-native/core/workspace-connections", () => ({
   listWorkspaceConnections: mocks.listWorkspaceConnections,
+  listWorkspaceConnectionGrants: mocks.listWorkspaceConnectionGrants,
   resolveWorkspaceConnectionsForApp: mocks.listWorkspaceConnectionsForApp,
   upsertWorkspaceConnection: mocks.upsertWorkspaceConnection,
 }));
@@ -74,6 +76,7 @@ describe("save-dbt-connection", () => {
     mocks.hasAppSecret.mockResolvedValue(true);
     mocks.listWorkspaceConnectionsForApp.mockResolvedValue([]);
     mocks.listWorkspaceConnections.mockResolvedValue([]);
+    mocks.listWorkspaceConnectionGrants.mockResolvedValue([]);
     mocks.upsertWorkspaceConnection.mockImplementation(async (input) => ({
       ...input,
       id: input.id ?? "conn_new",
@@ -193,6 +196,19 @@ describe("save-dbt-connection", () => {
       includeDisabled: true,
     });
     expect(mocks.upsertWorkspaceConnection).not.toHaveBeenCalled();
+  });
+
+  it("saves a first Analytics connection when the org's only dbt row is granted to another app", async () => {
+    mocks.listWorkspaceConnections.mockResolvedValueOnce([
+      { ...existingRow, allowedApps: ["brain"] },
+    ]);
+
+    await expect(action.run(validInput, {} as never)).resolves.toMatchObject({
+      status: "connected",
+    });
+    expect(mocks.upsertWorkspaceConnection).toHaveBeenCalledWith(
+      expect.objectContaining({ id: undefined, allowedApps: ["analytics"] }),
+    );
   });
 
   it("carries forward the existing row's id, label, app access, scopes, and groups on re-save", async () => {

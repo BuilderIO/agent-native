@@ -36,7 +36,10 @@ const UNCONNECTED_READINESS: readonly string[] = [
 ];
 
 // Lexical checks: a paraphrase outside these forms fails rather than passing.
-const WAREHOUSE_READ = /\bwarehouse\s+tables?\b/i;
+// Keep in step with DBT_FALLBACK_SOURCE in server/plugins/agent-chat.ts: the
+// runtime disclosure must pass this check.
+const WAREHOUSE_READ =
+  /\bwarehouse[-\s]derived\b|\bfrom\s+BigQuery\b|\bwarehouse\s+tables?\b/i;
 const NOT_APPROVED =
   /\b(?:not|rather\s+than)\s+(?:the\s+|an?\s+)?(?:owner[-\s]approved|approved)\s+(?:dbt\s+)?(?:semantic[-\s]layer\s+)?(?:definition|metric)\b/i;
 // The negative lookahead keeps "the approved definition is not available" from
