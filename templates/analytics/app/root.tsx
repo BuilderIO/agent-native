@@ -33,6 +33,7 @@ import { TAB_ID } from "@/lib/tab-id";
 import { CommandPalette } from "./components/layout/CommandPalette";
 import { Layout as AppLayout } from "./components/layout/Layout";
 import { i18nCatalog } from "./i18n";
+import { DashboardNameDraftRouterBridge } from "./pages/adhoc/sql-dashboard/DashboardNameDrafts";
 import { isReplayFrameRequest } from "./pages/sessions/session-replay-frame";
 
 import stylesheet from "./global.css?url";
@@ -81,6 +82,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <Links />
       </head>
       <body>
+        <DashboardNameDraftRouterBridge />
         {children}
         <ScrollRestoration />
         <Scripts />

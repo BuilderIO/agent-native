@@ -58,6 +58,10 @@ import { cn } from "@/lib/utils";
 
 import { DateRangeInput } from "../_shared/components/DateRangeInput";
 import {
+  NameDraftDashboardContext,
+  useDashboardNameDraft,
+} from "./DashboardNameDrafts";
+import {
   FILTER_PARAM_PREFIX,
   isDateRangePresetFilter,
   MAX_FILTER_PRESETS,
@@ -219,7 +223,15 @@ class BusyFocusBoundary extends Component<
   }
 }
 
-export function DashboardFilterBar({
+export function DashboardFilterBar(props: DashboardFilterBarProps) {
+  return (
+    <NameDraftDashboardContext value={props.loadedDashboardId ?? null}>
+      <DashboardFilterBarContent {...props} />
+    </NameDraftDashboardContext>
+  );
+}
+
+function DashboardFilterBarContent({
   filters,
   loadedDashboardId,
   views = NO_VIEWS,
@@ -247,8 +259,8 @@ export function DashboardFilterBar({
     }
   };
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
-  const [viewName, setViewName] = useState("");
-  const [setAsDefault, setSetAsDefault] = useState(false);
+  const [{ name: viewName, isDefault: setAsDefault }, setViewDraft] =
+    useDashboardNameDraft("view", { name: "", isDefault: false });
   const [savingView, setSavingView] = useState(false);
   const defaultCheckboxId = useId();
   const [filtersOpen, setFiltersOpen] = useState(true);
@@ -310,8 +322,7 @@ export function DashboardFilterBar({
     try {
       const currentFilters = extractFilterParams(uniqueFilters, searchParams);
       await onSaveView(viewName.trim(), currentFilters, setAsDefault);
-      setViewName("");
-      setSetAsDefault(false);
+      setViewDraft({ name: "", isDefault: false });
       setSaveDialogOpen(false);
     } catch (error) {
       toast.error(
@@ -333,6 +344,7 @@ export function DashboardFilterBar({
     uniqueFilters,
     searchParams,
     setAsDefault,
+    setViewDraft,
     t,
   ]);
 
@@ -475,8 +487,7 @@ export function DashboardFilterBar({
         onOpenChange={(open) => {
           setSaveDialogOpen(open && !filtersBusy);
           if (!open && !filtersBusy) {
-            setViewName("");
-            setSetAsDefault(false);
+            setViewDraft({ name: "", isDefault: false });
           }
         }}
       >
@@ -494,7 +505,10 @@ export function DashboardFilterBar({
               disabled={filtersBusy}
               placeholder={t("sqlDashboard.viewNameRecentPlaceholder")}
               value={viewName}
-              onChange={(e) => setViewName(e.target.value)}
+              onChange={(e) => {
+                const name = e.target.value;
+                setViewDraft((draft) => ({ ...draft, name }));
+              }}
               onKeyDown={(e) => e.key === "Enter" && void handleSaveView()}
               autoFocus
             />
@@ -506,7 +520,12 @@ export function DashboardFilterBar({
                 disabled={filtersBusy}
                 id={defaultCheckboxId}
                 checked={setAsDefault}
-                onCheckedChange={(checked) => setSetAsDefault(checked === true)}
+                onCheckedChange={(checked) =>
+                  setViewDraft((draft) => ({
+                    ...draft,
+                    isDefault: checked === true,
+                  }))
+                }
               />
               <span>{t("sqlDashboard.setAsDefault")}</span>
             </label>
@@ -517,8 +536,7 @@ export function DashboardFilterBar({
               size="sm"
               onClick={() => {
                 setSaveDialogOpen(false);
-                setViewName("");
-                setSetAsDefault(false);
+                setViewDraft({ name: "", isDefault: false });
               }}
               disabled={filtersBusy || savingView}
             >
@@ -603,7 +621,11 @@ function MultiSelectFilter({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [naming, setNaming] = useState(false);
-  const [groupName, setGroupName] = useState("");
+  const [groupName, setGroupName] = useDashboardNameDraft<string>(
+    "preset",
+    "",
+    filter.id,
+  );
   const disabledRef = useRef(disabled);
   disabledRef.current = disabled;
   useEffect(() => {

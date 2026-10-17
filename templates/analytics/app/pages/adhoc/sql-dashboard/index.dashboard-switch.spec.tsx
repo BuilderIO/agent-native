@@ -4,18 +4,24 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   act,
   useLayoutEffect,
+  useState,
+  useSyncExternalStore,
   type ComponentProps,
   type ReactNode,
 } from "react";
-import { createRoot, type Root } from "react-dom/client";
+import { createRoot, hydrateRoot, type Root } from "react-dom/client";
+import { renderToString } from "react-dom/server";
 import {
   MemoryRouter,
+  UNSAFE_createClientRoutes,
+  Outlet,
   createMemoryRouter,
   RouterProvider,
   Route,
   Routes,
   useNavigate,
   useParams,
+  useRouteError,
   type NavigateFunction,
 } from "react-router";
 import { toast } from "sonner";
@@ -27,7 +33,14 @@ import {
   parsePersonalColumnWidths,
   personalColumnWidthsKey,
 } from "@/lib/personal-column-widths";
+import { loader as dashboardRouteLoader } from "@/routes/dashboards.$id";
 
+import {
+  DashboardNameDrafts,
+  DashboardNameDraftRouterBridge,
+  NameDraftDashboardContext,
+  useDashboardNameDraft,
+} from "./DashboardNameDrafts";
 import SqlDashboardPage from "./index";
 import type { SqlPanel } from "./types";
 
@@ -71,7 +84,17 @@ const mocks = vi.hoisted(() => ({
   transientSaveTriggerVisible: false,
   saveView:
     vi.fn<(dashboardId: string | undefined, view: unknown) => Promise<void>>(),
-  session: { email: "viewer@example.com" },
+  publicMetadata: vi.fn(async (_id: string): Promise<null> => null),
+  session: { email: "viewer@example.com", orgId: "org-a" } as {
+    email: string;
+    orgId?: string;
+  } | null,
+  sessionStatus: "authenticated" as
+    | "loading"
+    | "authenticated"
+    | "signing-out"
+    | "unauthenticated",
+  sessionListeners: new Set<() => void>(),
   noop: () => {},
   mutation: { mutateAsync: async () => ({}), isPending: false },
   revisions: { data: undefined, refetch: async () => ({}) },
@@ -108,6 +131,22 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
 
 vi.mock("@agent-native/core/client/analytics", () => ({
   trackEvent: () => {},
+  captureException: () => {},
+}));
+
+vi.mock("@agent-native/core/server", () => ({
+  getConfiguredAppBasePath: () => "",
+}));
+
+vi.mock("@agent-native/core/shared", () => ({
+  buildResourceSocialMeta: () => [],
+  normalizeDocumentTitle: (title: string) => title,
+}));
+
+vi.mock("@/pages/adhoc/AdhocRouter", () => ({ default: () => null }));
+
+vi.mock("../../../../server/lib/dashboards-store", () => ({
+  getPublicDashboardMetadata: mocks.publicMetadata,
 }));
 
 vi.mock("@agent-native/core/client/api-path", () => ({
@@ -122,7 +161,29 @@ vi.mock("@agent-native/core/client/collab", () => ({
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
-  useSession: () => ({ session: mocks.session, isLoading: false }),
+  useSession: () => ({
+    session: useSyncExternalStore(
+      (listener) => {
+        mocks.sessionListeners.add(listener);
+        return () => {
+          mocks.sessionListeners.delete(listener);
+        };
+      },
+      () => mocks.session,
+      () => null,
+    ),
+    isLoading: false,
+    status: useSyncExternalStore(
+      (listener) => {
+        mocks.sessionListeners.add(listener);
+        return () => {
+          mocks.sessionListeners.delete(listener);
+        };
+      },
+      () => mocks.sessionStatus,
+      () => "loading",
+    ),
+  }),
   callAction: async (name: string, args: Record<string, unknown>) => {
     if (name === "get-sql-dashboard") {
       return mocks.dashboards[args.id as string] ?? null;
@@ -428,10 +489,21 @@ function CaptureNavigate() {
   return null;
 }
 
+function RootErrorBoundary() {
+  const error = useRouteError();
+  return (
+    <div role="alert">
+      {error instanceof Error ? error.message : "Route failure"}
+    </div>
+  );
+}
+
 describe("SqlDashboardPage dashboard switch", () => {
   let container: HTMLDivElement;
   let root: Root;
   let queryClient: QueryClient;
+  let layoutMounts: number;
+  let layoutUnmounts: number;
 
   async function settle() {
     for (let i = 0; i < 5; i += 1) {
@@ -499,7 +571,12 @@ describe("SqlDashboardPage dashboard switch", () => {
     mocks.transientSaveTriggerVisible = false;
     mocks.saveView.mockReset();
     mocks.saveView.mockResolvedValue(undefined);
-    mocks.session = { email: "viewer@example.com" };
+    mocks.session = { email: "viewer@example.com", orgId: "org-a" };
+    mocks.sessionStatus = "authenticated";
+    layoutMounts = 0;
+    layoutUnmounts = 0;
+    mocks.publicMetadata.mockReset();
+    mocks.publicMetadata.mockResolvedValue(null);
     mocks.saveDashboard = async () => ({});
     mocks.collab = {
       ydoc: null,
@@ -570,6 +647,567 @@ describe("SqlDashboardPage dashboard switch", () => {
     expect(input.value).toBe(name);
     expect(viewDefaultCheckbox().getAttribute("aria-checked")).toBe("true");
   }
+
+  const draftFilter = {
+    id: "app",
+    label: "App",
+    type: "multi-select",
+    options: [
+      { value: "chat", label: "Chat" },
+      { value: "slides", label: "Slides" },
+      { value: "design", label: "Design" },
+    ],
+  };
+
+  function presetInput() {
+    return document.querySelector<HTMLInputElement>(
+      'input[aria-label="sqlDashboard.groupName"]',
+    )!;
+  }
+
+  function typeName(input: HTMLInputElement, name: string) {
+    act(() => {
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!.call(input, name);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  }
+
+  async function openPresetDraft() {
+    await act(async () => {
+      [...container.querySelectorAll<HTMLElement>('[role="radio"]')]
+        .find((element) => element.textContent === "dashboardMode.edit")!
+        .click();
+    });
+    act(() =>
+      container
+        .querySelector<HTMLButtonElement>(
+          '[role="group"][aria-label="sqlDashboard.filters"] [aria-haspopup="dialog"]',
+        )!
+        .click(),
+    );
+    act(() => viewButton("sqlDashboard.saveAsGroup").click());
+    return presetInput();
+  }
+
+  async function renderRootErrorRouter() {
+    mocks.dashboards["dash-a"].filters = [draftFilter];
+    mocks.dashboards["dash-b"].filters = [draftFilter];
+    const routes = frameworkRoutes(
+      {
+        Layout: ({ children }: { children: ReactNode }) => {
+          useLayoutEffect(() => {
+            layoutMounts++;
+            return () => {
+              layoutUnmounts++;
+            };
+          }, []);
+          return (
+            <>
+              <DashboardNameDraftRouterBridge />
+              {children}
+            </>
+          );
+        },
+        default: () => (
+          <>
+            <HeaderActionsOutlet />
+            <Outlet />
+          </>
+        ),
+        ErrorBoundary: RootErrorBoundary,
+      },
+      { default: SqlDashboardPage, clientLoader: dashboardRouteLoader },
+    );
+    const dataRouter = createMemoryRouter(routes, {
+      initialEntries: ["/dashboards/dash-a?f_app=chat,slides"],
+      hydrationData: { loaderData: { root: null, dashboard: null } },
+    });
+    await renderDataRouter(dataRouter);
+    return dataRouter;
+  }
+
+  function frameworkRoutes(
+    rootModule: Parameters<typeof UNSAFE_createClientRoutes>[1][string],
+    dashboardModule: Parameters<typeof UNSAFE_createClientRoutes>[1][string],
+  ) {
+    const entry = {
+      hasAction: false,
+      hasLoader: false,
+      hasClientAction: false,
+      hasClientLoader: false,
+      hasClientMiddleware: false,
+      hasErrorBoundary: false,
+      module: "test",
+      clientActionModule: undefined,
+      clientLoaderModule: undefined,
+      clientMiddlewareModule: undefined,
+      hydrateFallbackModule: undefined,
+    };
+    return UNSAFE_createClientRoutes(
+      {
+        root: { ...entry, id: "root", path: "/", hasErrorBoundary: true },
+        dashboard: {
+          ...entry,
+          id: "dashboard",
+          parentId: "root",
+          path: "dashboards/:id",
+          hasClientLoader: !!dashboardModule?.clientLoader,
+        },
+      },
+      { root: rootModule, dashboard: dashboardModule },
+      null,
+      false,
+      false,
+    );
+  }
+
+  it.each(["authentication", "account", "organization", "sign-out"])(
+    "keeps Root and its preloaded QueryClient through %s",
+    async (transition) => {
+      if (transition === "authentication") {
+        mocks.session = null;
+        mocks.sessionStatus = "loading";
+      }
+      let mounts = 0;
+      let unmounts = 0;
+      const clients: QueryClient[] = [];
+      function RootProbe() {
+        const [client] = useState(() => {
+          const next = new QueryClient();
+          next.setQueryData(["preloaded"], "already loaded");
+          clients.push(next);
+          return next;
+        });
+        useLayoutEffect(() => {
+          mounts++;
+          return () => {
+            unmounts++;
+          };
+        }, []);
+        return (
+          <QueryClientProvider client={client}>
+            <Outlet />
+          </QueryClientProvider>
+        );
+      }
+      const dataRouter = createMemoryRouter(
+        frameworkRoutes(
+          { default: RootProbe, ErrorBoundary: RootErrorBoundary },
+          { default: () => null },
+        ),
+        {
+          initialEntries: ["/dashboards/dash-a"],
+          hydrationData: { loaderData: { root: null, dashboard: null } },
+        },
+      );
+      try {
+        await act(async () =>
+          root.render(
+            <DashboardNameDrafts>
+              <RouterProvider router={dataRouter} />
+            </DashboardNameDrafts>,
+          ),
+        );
+        const preloadedClient = clients[0];
+        act(() => {
+          mocks.session =
+            transition === "sign-out"
+              ? null
+              : {
+                  email:
+                    transition === "account"
+                      ? "other@example.com"
+                      : "viewer@example.com",
+                  orgId: transition === "organization" ? "org-b" : "org-a",
+                };
+          mocks.sessionStatus =
+            transition === "sign-out" ? "unauthenticated" : "authenticated";
+          mocks.sessionListeners.forEach((listener) => listener());
+        });
+        expect({ mounts, unmounts }).toEqual({ mounts: 1, unmounts: 0 });
+        expect(clients).toEqual([preloadedClient]);
+        expect(clients[0].getQueryData(["preloaded"])).toBe("already loaded");
+      } finally {
+        dataRouter.dispose();
+        clients.forEach((client) => client.clear());
+      }
+    },
+  );
+
+  it.each(["account", "organization", "signing-out", "signed-out"])(
+    "resets only both draft records and rejects captured setters across %s and return",
+    async (transition) => {
+      let mounts = 0;
+      let unmounts = 0;
+      let currentView!: ReturnType<
+        typeof useDashboardNameDraft<{ name: string; isDefault: boolean }>
+      >[1];
+      let currentPreset!: ReturnType<typeof useDashboardNameDraft<string>>[1];
+      function DraftProbe() {
+        const [view, setView] = useDashboardNameDraft<{
+          name: string;
+          isDefault: boolean;
+        }>("view", {
+          name: "",
+          isDefault: false,
+        });
+        const [preset, setPreset] = useDashboardNameDraft<string>(
+          "preset",
+          "",
+          "app",
+        );
+        currentView = setView;
+        currentPreset = setPreset;
+        useLayoutEffect(() => {
+          mounts++;
+          return () => {
+            unmounts++;
+          };
+        }, []);
+        return <output>{JSON.stringify({ view, preset })}</output>;
+      }
+      const routes = frameworkRoutes(
+        {
+          Layout: ({ children }: { children: ReactNode }) => (
+            <>
+              <DashboardNameDraftRouterBridge />
+              {children}
+            </>
+          ),
+          default: () => (
+            <NameDraftDashboardContext value="dash-a">
+              <DraftProbe />
+            </NameDraftDashboardContext>
+          ),
+          ErrorBoundary: RootErrorBoundary,
+        },
+        { default: () => null },
+      );
+      const dataRouter = createMemoryRouter(routes, {
+        initialEntries: ["/dashboards/dash-a"],
+        hydrationData: { loaderData: { root: null, dashboard: null } },
+      });
+      const names = () =>
+        JSON.parse(container.querySelector("output")!.textContent!);
+      const empty = { view: { name: "", isDefault: false }, preset: "" };
+      try {
+        await renderDataRouter(dataRouter);
+        act(() => {
+          currentView({ name: "Old view", isDefault: true });
+          currentPreset("Old preset");
+        });
+        const oldView = currentView;
+        const oldPreset = currentPreset;
+        act(() => {
+          if (transition === "signed-out") mocks.session = null;
+          else if (transition !== "signing-out")
+            mocks.session = {
+              email:
+                transition === "account"
+                  ? "other@example.com"
+                  : "viewer@example.com",
+              orgId: transition === "organization" ? "org-b" : "org-a",
+            };
+          mocks.sessionStatus =
+            transition === "signing-out"
+              ? "signing-out"
+              : transition === "signed-out"
+                ? "unauthenticated"
+                : "authenticated";
+          mocks.sessionListeners.forEach((listener) => listener());
+        });
+        expect(names()).toEqual(empty);
+        const staleUpdater = vi.fn(() => ({ name: "Stale", isDefault: true }));
+        act(() => {
+          oldView(staleUpdater);
+          oldPreset("Stale preset");
+        });
+        expect(staleUpdater).not.toHaveBeenCalled();
+        expect(names()).toEqual(empty);
+        act(() => {
+          mocks.session = { email: "viewer@example.com", orgId: "org-a" };
+          mocks.sessionStatus = "authenticated";
+          mocks.sessionListeners.forEach((listener) => listener());
+        });
+        expect(names()).toEqual(empty);
+        act(() => {
+          currentView({ name: "Current view", isDefault: false });
+          currentPreset("Current preset");
+          oldView(staleUpdater);
+          oldPreset("Stale preset");
+        });
+        expect(names()).toEqual({
+          view: { name: "Current view", isDefault: false },
+          preset: "Current preset",
+        });
+        expect(staleUpdater).not.toHaveBeenCalled();
+        expect({ mounts, unmounts }).toEqual({ mounts: 1, unmounts: 0 });
+      } finally {
+        dataRouter.dispose();
+      }
+    },
+  );
+
+  it("hydrates the closed-form shell with a client-only owner and no added DOM", async () => {
+    function ClosedForms() {
+      const [view] = useDashboardNameDraft("view", {
+        name: "",
+        isDefault: false,
+      });
+      const [preset] = useDashboardNameDraft<string>("preset", "", "app");
+      return (
+        <main>
+          <button data-view={view.name}>Save view</button>
+          <button data-preset={preset}>Save as group</button>
+        </main>
+      );
+    }
+    const routes = frameworkRoutes(
+      {
+        Layout: ({ children }: { children: ReactNode }) => (
+          <>
+            <DashboardNameDraftRouterBridge />
+            {children}
+          </>
+        ),
+        default: () => (
+          <NameDraftDashboardContext value="dash-a">
+            <ClosedForms />
+          </NameDraftDashboardContext>
+        ),
+        ErrorBoundary: RootErrorBoundary,
+      },
+      { default: () => null },
+    );
+    const dataRouter = createMemoryRouter(routes, {
+      initialEntries: ["/dashboards/dash-a"],
+      hydrationData: { loaderData: { root: null, dashboard: null } },
+    });
+    const hydrationContainer = document.createElement("div");
+    document.body.appendChild(hydrationContainer);
+    const recoverable = vi.fn();
+    let hydrated: Root | undefined;
+    try {
+      const shell = renderToString(<RouterProvider router={dataRouter} />);
+      hydrationContainer.innerHTML = shell;
+      await act(async () => {
+        hydrated = hydrateRoot(
+          hydrationContainer,
+          <DashboardNameDrafts>
+            <RouterProvider router={dataRouter} />
+          </DashboardNameDrafts>,
+          { onRecoverableError: recoverable },
+        );
+      });
+      expect(recoverable).not.toHaveBeenCalled();
+      expect(hydrationContainer.innerHTML).toBe(shell);
+      expect(hydrationContainer.querySelectorAll("main > button")).toHaveLength(
+        2,
+      );
+      expect(
+        hydrationContainer.querySelector("input, [role=dialog]"),
+      ).toBeNull();
+    } finally {
+      act(() => hydrated?.unmount());
+      hydrationContainer.remove();
+      dataRouter.dispose();
+    }
+  });
+
+  async function renderDataRouter(
+    dataRouter: ReturnType<typeof createMemoryRouter>,
+  ) {
+    await act(async () =>
+      root.render(
+        <DashboardNameDrafts>
+          <QueryClientProvider client={queryClient}>
+            <TooltipProvider>
+              <RouterProvider router={dataRouter} />
+            </TooltipProvider>
+          </QueryClientProvider>
+        </DashboardNameDrafts>,
+      ),
+    );
+    await settle();
+  }
+
+  async function failAndRecover(
+    dataRouter: ReturnType<typeof createMemoryRouter>,
+  ) {
+    const mounts = mocks.filterBarMounts;
+    const previousLayoutMounts = layoutMounts;
+    const previousLayoutUnmounts = layoutUnmounts;
+    mocks.publicMetadata.mockRejectedValueOnce(
+      new Error("public metadata unavailable"),
+    );
+    await act(async () => {
+      await dataRouter.navigate("/dashboards/dash-b?f_app=slides,design");
+    });
+    await settle();
+    expect(dataRouter.state.errors?.root).toBeInstanceOf(Error);
+    expect(container.textContent).toContain("public metadata unavailable");
+    expect(
+      container.querySelector('[aria-label="sqlDashboard.filters"]'),
+    ).toBeNull();
+    expect(mocks.retainedFilter!.canUpdate()).toBe(false);
+    expect(layoutMounts).toBe(previousLayoutMounts + 1);
+    expect(layoutUnmounts).toBe(previousLayoutUnmounts + 1);
+    await act(async () => {
+      await dataRouter.navigate("/dashboards/dash-a?f_app=slides,design");
+    });
+    await settle();
+    expect(dataRouter.state.errors).toBeNull();
+    expect(mocks.filterBarMounts).toBe(mounts + 1);
+    expect(layoutMounts).toBe(previousLayoutMounts + 2);
+    expect(layoutUnmounts).toBe(previousLayoutUnmounts + 2);
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+  }
+
+  it.each(["view", "preset"])(
+    "restores both names (%s) after the actual route loader reaches the root error boundary",
+    async (kind) => {
+      const dataRouter = await renderRootErrorRouter();
+      try {
+        if (kind === "preset")
+          typeName(await openPresetDraft(), "Preset recovery");
+        else enterViewDraft("View recovery");
+        await failAndRecover(dataRouter);
+        if (kind === "preset") {
+          expect((await openPresetDraft()).value).toBe("Preset recovery");
+          const saved = vi.fn(async (_args: Record<string, unknown>) => ({}));
+          mocks.saveDashboard = saved;
+          await act(async () => viewButton("explorer.save").click());
+          await settle();
+          expect(saved).toHaveBeenCalledTimes(1);
+          expect(saved.mock.calls[0][0]).toMatchObject({
+            dashboardId: "dash-a",
+            config: {
+              filters: [
+                {
+                  id: "app",
+                  presets: [
+                    { label: "Preset recovery", values: ["slides", "design"] },
+                  ],
+                },
+              ],
+            },
+          });
+          return;
+        }
+        act(() => viewButton("sqlDashboard.saveView").click());
+        expect(viewNameInput().value).toBe("View recovery");
+        expect(viewDefaultCheckbox().getAttribute("aria-checked")).toBe("true");
+        await act(async () => viewButton("explorer.save").click());
+        expect(mocks.saveView).toHaveBeenLastCalledWith("dash-a", {
+          id: "view-recovery",
+          name: "View recovery",
+          filters: { f_app: "slides,design" },
+          isDefault: true,
+        });
+      } finally {
+        dataRouter.dispose();
+      }
+    },
+  );
+
+  it.each(
+    ["view", "preset"].flatMap((kind) =>
+      [
+        "account",
+        "organization",
+        "navigation",
+        "cancel",
+        "dismiss",
+        "success",
+      ].map((reason) => [kind, reason]),
+    ),
+  )("discards root-error %s name draft after %s", async (kind, reason) => {
+    const dataRouter = await renderRootErrorRouter();
+    try {
+      if (kind === "preset")
+        typeName(await openPresetDraft(), "Preset recovery");
+      else enterViewDraft("View recovery");
+      await failAndRecover(dataRouter);
+      if (reason === "account" || reason === "organization") {
+        mocks.session =
+          reason === "account"
+            ? { email: "other@example.com", orgId: "org-a" }
+            : { email: "viewer@example.com", orgId: "org-b" };
+        act(() => mocks.sessionListeners.forEach((listener) => listener()));
+        await act(async () => {
+          await dataRouter.navigate(
+            "/dashboards/dash-a?f_app=slides,design&changed=1",
+          );
+        });
+        await settle();
+        // Returning to the former scope must not resurrect its draft either.
+        mocks.session = { email: "viewer@example.com", orgId: "org-a" };
+        act(() => mocks.sessionListeners.forEach((listener) => listener()));
+        await act(async () => {
+          await dataRouter.navigate("/dashboards/dash-a?f_app=slides,design");
+        });
+        await settle();
+      } else if (reason === "navigation") {
+        await act(async () => {
+          await dataRouter.navigate("/dashboards/dash-b?f_app=chat,slides");
+        });
+        await settle();
+        await act(async () => {
+          await dataRouter.navigate("/dashboards/dash-a?f_app=slides,design");
+        });
+        await settle();
+      } else {
+        if (kind === "preset") {
+          await openPresetDraft();
+          if (reason === "success")
+            act(() => viewButton("explorer.save").click());
+          else if (reason === "cancel")
+            act(() =>
+              presetInput().dispatchEvent(
+                new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+              ),
+            );
+          if (reason !== "success")
+            act(() =>
+              container
+                .querySelector<HTMLButtonElement>(
+                  '[role="group"][aria-label="sqlDashboard.filters"] [aria-haspopup="dialog"]',
+                )!
+                .click(),
+            );
+        } else {
+          act(() => viewButton("sqlDashboard.saveView").click());
+          if (reason === "success")
+            await act(async () => viewButton("explorer.save").click());
+          else if (reason === "cancel")
+            act(() => viewButton("sidebar.cancel").click());
+          else
+            act(() =>
+              viewNameInput().dispatchEvent(
+                new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+              ),
+            );
+          await settle();
+        }
+        await failAndRecover(dataRouter);
+      }
+      if (kind === "preset") {
+        expect((await openPresetDraft()).value).toBe("");
+      } else {
+        act(() => viewButton("sqlDashboard.saveView").click());
+        expect(viewNameInput().value).toBe("");
+        expect(viewDefaultCheckbox().getAttribute("aria-checked")).toBe(
+          "false",
+        );
+        act(() => viewButton("sidebar.cancel").click());
+      }
+    } finally {
+      dataRouter.dispose();
+    }
+  });
 
   it("starts an empty save-view draft when a cached loaded dashboard replaces another", async () => {
     mocks.dashboards["dash-a"].filters = [
@@ -694,6 +1332,47 @@ describe("SqlDashboardPage dashboard switch", () => {
       }
     },
   );
+
+  it("does not restore a root-error preset name under a different filter id", async () => {
+    const dataRouter = await renderRootErrorRouter();
+    try {
+      typeName(await openPresetDraft(), "App draft");
+      await failAndRecover(dataRouter);
+      mocks.dashboards["dash-a"].filters = [{ ...draftFilter, id: "other" }];
+      await act(async () => {
+        await queryClient.invalidateQueries({
+          queryKey: ["data", "sql-dashboard", "dash-a"],
+        });
+        await dataRouter.navigate("/dashboards/dash-a?f_other=slides,design");
+      });
+      await settle();
+      expect((await openPresetDraft()).value).toBe("");
+    } finally {
+      dataRouter.dispose();
+    }
+  });
+
+  it("does not let an unmounted save clear a new root-error recovery draft", async () => {
+    const dataRouter = await renderRootErrorRouter();
+    let completeSave!: () => void;
+    mocks.saveView.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          completeSave = resolve;
+        }),
+    );
+    try {
+      enterViewDraft("Original draft");
+      act(() => viewButton("explorer.save").click());
+      await failAndRecover(dataRouter);
+      act(() => viewButton("sqlDashboard.saveView").click());
+      typeName(viewNameInput(), "Recovered draft");
+      await act(async () => completeSave());
+      expect(viewNameInput().value).toBe("Recovered draft");
+    } finally {
+      dataRouter.dispose();
+    }
+  });
 
   it("revokes an actual page updater after its bar unmounts even when its route returns", async () => {
     mocks.dashboards["dash-a"].filters = [
