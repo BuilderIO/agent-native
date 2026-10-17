@@ -4,6 +4,7 @@ const PANEL_FIELDS = [
   "source",
   "chartType",
   "width",
+  "height",
   "tab",
 ] as const;
 

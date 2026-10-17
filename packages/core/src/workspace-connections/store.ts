@@ -19,6 +19,7 @@ import {
   ensureTableExists,
 } from "../db/ddl-guard.js";
 import { defineStore } from "../db/store-registry.js";
+import { fromMigrationEntries } from "../db/versioned-store-migrations.js";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -30,6 +31,10 @@ import {
   workspaceUserGroupsIncludeUser,
 } from "./groups.js";
 import { notifyWorkspaceConnectionLifecycle } from "./lifecycle.js";
+import {
+  WORKSPACE_CONNECTIONS_MIGRATIONS,
+  WORKSPACE_CONNECTIONS_MIGRATIONS_TABLE,
+} from "./migrations.js";
 
 export type WorkspaceConnectionStatus =
   | "connected"
@@ -560,6 +565,10 @@ export const workspaceConnectionsStore = defineStore({
         );
       },
     },
+    ...fromMigrationEntries(
+      WORKSPACE_CONNECTIONS_MIGRATIONS_TABLE,
+      WORKSPACE_CONNECTIONS_MIGRATIONS.filter((entry) => entry.version <= 7),
+    ),
   ],
 });
 

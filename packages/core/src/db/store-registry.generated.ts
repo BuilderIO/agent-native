@@ -77,6 +77,13 @@ export const FRAMEWORK_STORES: ReadonlyArray<
       import("../jobs/run-history.js").then((m) => m.automationRunHistoryStore),
   ],
   [
+    "automation_trigger_events",
+    () =>
+      import("../triggers/event-queue.js").then(
+        (m) => m.automationTriggerEventsStore,
+      ),
+  ],
+  [
     "automation_webhook_tokens",
     () =>
       import("../triggers/webhook-store.js").then(
@@ -88,6 +95,13 @@ export const FRAMEWORK_STORES: ReadonlyArray<
     () =>
       import("../integrations/awaiting-input-store.js").then(
         (m) => m.awaitingInputsStore,
+      ),
+  ],
+  [
+    "better_auth",
+    () =>
+      import("../server/better-auth-migrations.js").then(
+        (m) => m.betterAuthStore,
       ),
   ],
   [
@@ -121,6 +135,13 @@ export const FRAMEWORK_STORES: ReadonlyArray<
     () =>
       import("../integrations/computer-supervision-store.js").then(
         (m) => m.computerApprovalsStore,
+      ),
+  ],
+  [
+    "context_xray",
+    () =>
+      import("../agent/context-xray/schema-store.js").then(
+        (m) => m.contextXrayStore,
       ),
   ],
   [
@@ -237,6 +258,7 @@ export const FRAMEWORK_STORES: ReadonlyArray<
         (m) => m.observationalMemoryStore,
       ),
   ],
+  ["org", () => import("../org/schema-store.js").then((m) => m.orgStore)],
   [
     "pending_tasks",
     () =>

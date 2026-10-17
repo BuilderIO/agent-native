@@ -5,6 +5,11 @@ import {
   ensureTableExists,
 } from "../../db/ddl-guard.js";
 import { defineStore } from "../../db/store-registry.js";
+import { fromMigrationEntries } from "../../db/versioned-store-migrations.js";
+import {
+  AGENT_HARNESS_SESSION_MIGRATIONS,
+  AGENT_HARNESS_SESSION_MIGRATIONS_TABLE,
+} from "./migrations.js";
 
 export type AgentHarnessSessionStatus =
   | "running"
@@ -137,6 +142,10 @@ export const agentHarnessSessionsStore = defineStore({
         );
       },
     },
+    ...fromMigrationEntries(
+      AGENT_HARNESS_SESSION_MIGRATIONS_TABLE,
+      AGENT_HARNESS_SESSION_MIGRATIONS,
+    ),
   ],
 });
 

@@ -5,6 +5,7 @@ import {
   isMigrationAuthorizedRuntime,
   isProductionServerlessFunctionRuntime,
 } from "./migration-runtime.js";
+import { isRecordingStoreMigration } from "./runtime-facts.js";
 
 const PLAIN_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -59,7 +60,9 @@ export async function widenIntColumnsToBigInt(
     int4Columns = new Set(rows.map((r) => String(r.column_name)));
   } catch (err) {
     // At release the store ledger records success, so a skipped widen must fail.
-    if (isMigrationAuthorizedRuntime()) throw err;
+    if (isMigrationAuthorizedRuntime() || isRecordingStoreMigration()) {
+      throw err;
+    }
     return;
   }
   for (const col of columns) {
@@ -69,7 +72,9 @@ export async function widenIntColumnsToBigInt(
         `ALTER TABLE ${table} ALTER COLUMN ${col} TYPE BIGINT`,
       );
     } catch (err) {
-      if (isMigrationAuthorizedRuntime()) throw err;
+      if (isMigrationAuthorizedRuntime() || isRecordingStoreMigration()) {
+        throw err;
+      }
       // A concurrent boot already widened it, or the role lacks ALTER — both
       // are safe to ignore; a later boot retries if still needed.
     }

@@ -1,6 +1,6 @@
 import { signA2AToken } from "@agent-native/core/a2a";
 import { createApp } from "h3";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const discoverOrgDirectoryAgentsMock = vi.hoisted(() => vi.fn());
 const runWithRequestContextMock = vi.hoisted(() =>
@@ -38,14 +38,16 @@ import {
 
 const TEST_SECRET = "fake-directory-plugin-secret";
 
-async function authorization(): Promise<string> {
+async function authorization(
+  audience = "https://dispatch.example.test",
+): Promise<string> {
   return `Bearer ${await signA2AToken(
     "operator@example.test",
     "example.test",
     TEST_SECRET,
     {
       preferGlobalSecret: false,
-      audience: "https://dispatch.example.test/_agent-native/org/apps",
+      audience,
     },
   )}`;
 }
@@ -53,6 +55,7 @@ async function authorization(): Promise<string> {
 async function request(
   url = "https://dispatch.example.test/_agent-native/org/apps",
   extraHeaders: Record<string, string> = {},
+  tokenAudience = "https://dispatch.example.test",
 ): Promise<Response> {
   const app = createApp();
   app.use(orgAppsHandler);
@@ -63,7 +66,7 @@ async function request(
       headers: {
         host: requestUrl.host,
         "x-forwarded-proto": requestUrl.protocol.slice(0, -1),
-        authorization: await authorization(),
+        authorization: await authorization(tokenAudience),
         "x-agent-native-include-directory-app": "1",
         ...extraHeaders,
       },
@@ -74,11 +77,17 @@ async function request(
 
 describe("org apps directory handler", () => {
   beforeEach(() => {
+    vi.stubEnv("APP_BASE_PATH", "");
+    vi.stubEnv("VITE_APP_BASE_PATH", "");
     _resetOrgAppsDirectoryCache();
     discoverOrgDirectoryAgentsMock.mockReset();
     runWithRequestContextMock.mockClear();
     vi.spyOn(console, "info").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   it("coalesces authenticated same-org discovery and caches complete success", async () => {
@@ -149,5 +158,32 @@ describe("org apps directory handler", () => {
     );
 
     expect(response.status).toBe(200);
+  });
+
+  it("includes the configured mount prefix but excludes the route path", async () => {
+    vi.stubEnv("APP_BASE_PATH", "/dispatch");
+    discoverOrgDirectoryAgentsMock.mockResolvedValue({
+      status: "available",
+      agents: [],
+    });
+
+    const url = "http://dispatch.example.test/dispatch/_agent-native/org/apps";
+    const headers = { "x-forwarded-proto": "https, http" };
+    const response = await request(
+      url,
+      headers,
+      "https://dispatch.example.test/dispatch",
+    );
+
+    expect(response.status).toBe(200);
+    expect(
+      (
+        await request(
+          url,
+          headers,
+          "https://dispatch.example.test/dispatch/_agent-native/org/apps",
+        )
+      ).status,
+    ).toBe(401);
   });
 });
