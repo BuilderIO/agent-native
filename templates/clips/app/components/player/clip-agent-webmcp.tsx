@@ -12,6 +12,7 @@ import {
   CLIPS_WEBMCP_TOOL_NAMES,
   formatAgentTimestamp,
   MAX_AGENT_FRAME_SHEET_FPS,
+  MIN_AGENT_FRAME_SHEET_FPS,
   nextAgentTranscriptStartMs,
   safeMs,
 } from "../../../shared/agent-context";
@@ -337,11 +338,11 @@ function parseFrameSheetInput(input: unknown): {
     fps !== undefined &&
     (typeof fps !== "number" ||
       !Number.isFinite(fps) ||
-      fps <= 0 ||
+      fps < MIN_AGENT_FRAME_SHEET_FPS ||
       fps > MAX_AGENT_FRAME_SHEET_FPS)
   ) {
     throw new Error(
-      `Frame sheet input fps must be above 0 and at most ${MAX_AGENT_FRAME_SHEET_FPS}`,
+      `Frame sheet input fps must be from ${MIN_AGENT_FRAME_SHEET_FPS} to ${MAX_AGENT_FRAME_SHEET_FPS}`,
     );
   }
   return {

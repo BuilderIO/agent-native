@@ -19,6 +19,7 @@ export const CLIPS_WEBMCP_MAX_TRANSCRIPT_SEGMENTS = 50;
 // over a second at 30 fps and stays legible after vision models downscale it.
 export const MAX_AGENT_FRAME_SHEET_FRAMES = 36;
 export const MAX_AGENT_FRAME_SHEET_SPAN_MS = 60_000;
+export const MIN_AGENT_FRAME_SHEET_FPS = 0.1;
 export const MAX_AGENT_FRAME_SHEET_FPS = 60;
 
 export const CLIPS_WEBMCP_TOOL_NAMES = {
@@ -90,7 +91,7 @@ export const CLIPS_WEBMCP_INPUT_SCHEMAS = {
       },
       fps: {
         type: "number",
-        exclusiveMinimum: 0,
+        minimum: MIN_AGENT_FRAME_SHEET_FPS,
         maximum: MAX_AGENT_FRAME_SHEET_FPS,
         description:
           "Frames per second to sample. Omit it to use the video's own frame rate, so every frame in the range appears once.",

@@ -28,6 +28,7 @@ import {
   MAX_AGENT_FRAME_SHEET_FPS,
   MAX_AGENT_FRAME_SHEET_FRAMES,
   MAX_AGENT_FRAME_SHEET_SPAN_MS,
+  MIN_AGENT_FRAME_SHEET_FPS,
   toAgentTranscriptSegments,
 } from "../../shared/agent-context.js";
 import { parseAppActivitySummary } from "../../shared/app-activity.js";
@@ -999,7 +1000,7 @@ export function buildPublicAgentContext({
               query: {
                 startMs: "Time of the first frame, in milliseconds.",
                 endMs: `Optional end of the range in milliseconds (exclusive). Without it, the sheet holds ${MAX_AGENT_FRAME_SHEET_FRAMES} frames from startMs.`,
-                fps: `Optional frames per second, above 0 and at most ${MAX_AGENT_FRAME_SHEET_FPS}. Without it, the sheet uses the video's own frame rate.`,
+                fps: `Optional frames per second, from ${MIN_AGENT_FRAME_SHEET_FPS} to ${MAX_AGENT_FRAME_SHEET_FPS}. Without it, the sheet uses the video's own frame rate.`,
               },
             },
           }

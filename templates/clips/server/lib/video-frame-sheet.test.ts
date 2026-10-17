@@ -52,6 +52,12 @@ describe("parseFrameSheetRequest", () => {
       parseFrameSheetRequest({ startMs: "0", endMs: "", fps: "0" }),
     ).toMatchObject({ ok: false });
     expect(
+      parseFrameSheetRequest({ startMs: "0", endMs: "", fps: "5e-324" }),
+    ).toMatchObject({ ok: false });
+    expect(
+      parseFrameSheetRequest({ startMs: "0", endMs: "", fps: "0.1" }),
+    ).toMatchObject({ ok: true, value: { fps: 0.1 } });
+    expect(
       parseFrameSheetRequest({ startMs: "0", endMs: "", fps: "61" }),
     ).toMatchObject({ ok: false });
   });
@@ -115,6 +121,9 @@ describe("frameSheetFpsFromProbe", () => {
     expect(frameSheetFpsFromProbe(probe("120 fps, 120 tbr, 15360 tbn"))).toBe(
       60,
     );
+    expect(frameSheetFpsFromProbe(probe("240 fps, 240 tbr, 15360 tbn"))).toBe(
+      60,
+    );
   });
 });
 
@@ -169,6 +178,37 @@ describe("planFrameSheet", () => {
     expect(slower.frameCount).toBe(36);
   });
 
+  it("names requests that fit for any rate", () => {
+    for (const fps of [29.975, 23.976, 59.94, 7, 0.7]) {
+      for (const endMs of [2000, 5001, 60_000]) {
+        const result = planFrameSheet({
+          request: request({ startMs: 0, endMs, fps }),
+          fps,
+        });
+        if (result.ok) continue;
+        const suggested = (name: string) =>
+          [
+            ...result.nextStep.matchAll(new RegExp(`${name}=([0-9.]+)`, "g")),
+          ].map((match) => Number(match[1]));
+        const [keptFps, otherFps] = suggested("fps");
+        const [fittingEndMs] = suggested("endMs");
+        expect(keptFps).toBe(fps);
+        expect(
+          planFrameSheet({
+            request: request({ startMs: 0, endMs: fittingEndMs, fps }),
+            fps,
+          }).ok,
+        ).toBe(true);
+        expect(
+          planFrameSheet({
+            request: request({ startMs: 0, endMs, fps: otherFps }),
+            fps: otherFps,
+          }).ok,
+        ).toBe(true);
+      }
+    }
+  });
+
   it("keeps portrait and square cells inside the box", () => {
     expect(
       plan({ request: request(), fps: 30, width: 1080, height: 1920 }),
@@ -180,14 +220,14 @@ describe("planFrameSheet", () => {
 });
 
 describe("frameSheetFfmpegArgs", () => {
-  it("seeks a second early and moves startMs to time zero", () => {
+  it("seeks to the keyframe before startMs and moves startMs to time zero", () => {
     const { inputArgs, filter } = frameSheetFfmpegArgs(
       plan({ request: request(), fps: 30 }),
     );
-    expect(inputArgs).toEqual(["-ss", "0.000000", "-t", "3.000000"]);
+    expect(inputArgs).toEqual(["-noaccurate_seek", "-ss", "1.000000"]);
     expect(filter).toBe(
       [
-        "setpts=PTS-1.002000/TB",
+        "setpts=PTS-0.002000/TB",
         "fps=fps=30:start_time=0:round=up",
         "trim=end_frame=30",
         "scale=320:180:force_original_aspect_ratio=decrease",
@@ -195,13 +235,5 @@ describe("frameSheetFfmpegArgs", () => {
         "tile=4x8",
       ].join(","),
     );
-  });
-
-  it("does not seek before the start of the video", () => {
-    const { inputArgs, filter } = frameSheetFfmpegArgs(
-      plan({ request: request({ startMs: 300, endMs: 400 }), fps: 30 }),
-    );
-    expect(inputArgs.slice(0, 2)).toEqual(["-ss", "0.000000"]);
-    expect(filter.startsWith("setpts=PTS-0.302000/TB,")).toBe(true);
   });
 });

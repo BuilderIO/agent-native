@@ -435,7 +435,10 @@ describe("extractJpegFrameSheetFromFile", () => {
 
   async function withNumberedVideo(
     run: (paths: { root: string; videoPath: string }) => Promise<void>,
-    { dropFrames }: { dropFrames?: [number, number] } = {},
+    {
+      dropFrames,
+      durationSeconds = 1.5,
+    }: { dropFrames?: [number, number]; durationSeconds?: number } = {},
   ) {
     const root = await mkdtemp(join(tmpdir(), "clips-frame-sheet-test-"));
     const videoPath = join(root, "video.mp4");
@@ -450,7 +453,7 @@ describe("extractJpegFrameSheetFromFile", () => {
         "-f",
         "lavfi",
         "-i",
-        "color=c=black:s=64x48:r=30:d=1.5,geq=lum='20+4*N':cb=128:cr=128",
+        `color=c=black:s=64x48:r=30:d=${durationSeconds},geq=lum='20+4*N':cb=128:cr=128`,
         // A screen recording drops frames while nothing moves.
         ...(dropFrames
           ? [
@@ -565,6 +568,25 @@ describe("extractJpegFrameSheetFromFile", () => {
           expect(frames).toEqual([18, 19, 19, 19, 19, 19, 36]);
         },
         { dropFrames: [20, 35] },
+      );
+    },
+  );
+
+  it.skipIf(!availableFfmpegPath)(
+    "finds the frame on screen after a long still stretch",
+    async () => {
+      // Nothing changes from frame 4 (133 ms) until frame 81 (2.7 s), so the
+      // frame on screen at 2 s is frame 4, well before the seek point.
+      await withNumberedVideo(
+        async ({ root, videoPath }) => {
+          const { frames } = await sheetFrames(root, videoPath, {
+            startMs: 2000,
+            endMs: 2300,
+            fps: 10,
+          });
+          expect(frames).toEqual([4, 4, 4]);
+        },
+        { dropFrames: [5, 80], durationSeconds: 3 },
       );
     },
   );

@@ -11,16 +11,13 @@ import {
   MAX_AGENT_FRAME_SHEET_FPS,
   MAX_AGENT_FRAME_SHEET_FRAMES,
   MAX_AGENT_FRAME_SHEET_SPAN_MS,
+  MIN_AGENT_FRAME_SHEET_FPS,
 } from "@shared/agent-context";
 
 export const DEFAULT_FRAME_SHEET_FPS = 30;
 const CELL_BOX_WIDTH = 320;
 const CELL_BOX_HEIGHT = 240;
 const MAX_SHEET_WIDTH = 1280;
-// Decode from a second before startMs, so the first cell shows the frame
-// already on screen rather than the next one after a still stretch (screen
-// recordings drop frames while nothing moves).
-const LOOKBACK_MS = 1000;
 // A frame that starts up to 2 ms after a cell's time still belongs to that
 // cell: containers round timestamps to whole milliseconds.
 const CELL_TOLERANCE_MS = 2;
@@ -78,13 +75,13 @@ export function parseFrameSheetRequest(query: {
   }
   if (
     fps === undefined ||
-    (fps !== null && (fps <= 0 || fps > MAX_AGENT_FRAME_SHEET_FPS))
+    (fps !== null &&
+      (fps < MIN_AGENT_FRAME_SHEET_FPS || fps > MAX_AGENT_FRAME_SHEET_FPS))
   ) {
     return {
       ok: false,
-      error: `fps must be a number above 0 and at most ${MAX_AGENT_FRAME_SHEET_FPS}.`,
-      nextStep:
-        "Set fps between 0 and 60, or leave it out to use the video's own frame rate.",
+      error: `fps must be a number from ${MIN_AGENT_FRAME_SHEET_FPS} to ${MAX_AGENT_FRAME_SHEET_FPS}.`,
+      nextStep: `Set fps from ${MIN_AGENT_FRAME_SHEET_FPS} to ${MAX_AGENT_FRAME_SHEET_FPS}, or leave it out to use the video's own frame rate.`,
     };
   }
   return {
@@ -127,7 +124,8 @@ export function clampFrameSheetRange(
  * own rate from ffmpeg's stream line, so each frame appears once. tbr (the
  * nominal rate) comes first because a screen recording's average fps drops
  * while nothing moves. MediaRecorder WebM reports a millisecond timebase
- * ("1k tbr") and no rate at all; those fall back to 30.
+ * ("1k tbr") and no rate at all; those fall back to 30. A real rate above 60
+ * is capped at 60.
  */
 export function frameSheetFpsFromProbe(stderr: string): number {
   const input = stderr.split(/\n(?:Stream mapping:|Output #0)/)[0] ?? "";
@@ -141,7 +139,7 @@ export function frameSheetFpsFromProbe(stderr: string): number {
     );
     if (!match) return null;
     const value = Number(match[1]) * (match[2] ? 1000 : 1);
-    return Number.isFinite(value) && value >= 1 && value <= 120 ? value : null;
+    return Number.isFinite(value) && value >= 1 && value < 1000 ? value : null;
   };
   const detected = rate("tbr") ?? rate("fps");
   return detected === null
@@ -236,23 +234,24 @@ function cellSize(width?: number | null, height?: number | null) {
 }
 
 /**
- * ffmpeg input and filter arguments for a plan. The seek lands up to a second
- * early; setpts moves startMs (less the tolerance) to time zero, and the fps
- * filter then emits, for each cell, the latest frame at or before its time.
- * trim keeps exactly frameCount cells, and tile flushes a partial grid when
- * the video ends first, leaving the remaining cells black.
+ * ffmpeg input and filter arguments for a plan. -noaccurate_seek keeps every
+ * frame from the keyframe before startMs, so the frame already on screen is
+ * there however long the screen stood still (screen recordings drop frames
+ * while nothing moves). setpts moves startMs (less the tolerance) to time
+ * zero, and the fps filter then emits, for each cell, the latest frame at or
+ * before its time. trim keeps exactly frameCount cells and ends the run, and
+ * tile flushes a partial grid when the video ends first, leaving the remaining
+ * cells black. There is no input -t: without an accurate seek it would count
+ * from the keyframe, not from startMs.
  */
 export function frameSheetFfmpegArgs(plan: FrameSheetPlan): {
   inputArgs: string[];
   filter: string;
 } {
-  const seekMs = Math.max(0, plan.startMs - LOOKBACK_MS);
-  const leadMs = plan.startMs - seekMs;
-  const decodeMs = leadMs + (plan.endMs - plan.startMs) + 1000;
   return {
-    inputArgs: ["-ss", seconds(seekMs), "-t", seconds(decodeMs)],
+    inputArgs: ["-noaccurate_seek", "-ss", seconds(plan.startMs)],
     filter: [
-      `setpts=PTS-${seconds(leadMs + CELL_TOLERANCE_MS)}/TB`,
+      `setpts=PTS-${seconds(CELL_TOLERANCE_MS)}/TB`,
       `fps=fps=${plan.fps}:start_time=0:round=up`,
       `trim=end_frame=${plan.frameCount}`,
       `scale=${plan.cellWidth}:${plan.cellHeight}:force_original_aspect_ratio=decrease`,
@@ -270,6 +269,7 @@ function formatSeconds(ms: number): string {
   return `${Math.round(ms / 100) / 10} seconds`;
 }
 
+// The exact value, so a suggested request computed from it still fits.
 function formatFps(fps: number): string {
-  return String(Math.round(fps * 100) / 100);
+  return String(fps);
 }
