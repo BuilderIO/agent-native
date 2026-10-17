@@ -4,7 +4,6 @@ import {
 } from "@agent-native/core/application-state";
 import {
   deleteUploadedFile,
-  uploadFile,
   type FileUploadResult,
 } from "@agent-native/core/file-upload";
 import { and, eq, isNull, ne, or } from "drizzle-orm";
@@ -21,7 +20,9 @@ import {
   releaseLease,
   type RecordingLease,
 } from "./recording-leases.js";
+import { deleteStoredMediaUrl } from "./recording-media-cleanup.js";
 import { ownerEmailMatches } from "./recordings.js";
+import { uploadRecordingMedia } from "./upload-recording-media.js";
 import { extractJpegFrame, VideoFrameExtractionError } from "./video-frame.js";
 
 export const RECORDING_THUMBNAIL_AT_MS = 350;
@@ -278,10 +279,16 @@ async function cleanupReplacedGeneratedThumbnail(
     ) {
       return;
     }
-    const deleted = await deleteUploadedFile(previousAsset.provider, {
-      url: previousAsset.url,
-      ...(previousAsset.id ? { id: previousAsset.id } : {}),
-    });
+    const deleted =
+      previousAsset.provider === "clips-hosted"
+        ? await deleteStoredMediaUrl(previousAsset.url, {
+            storageMode: "hosted",
+            recordingId,
+          })
+        : await deleteUploadedFile(previousAsset.provider, {
+            url: previousAsset.url,
+            ...(previousAsset.id ? { id: previousAsset.id } : {}),
+          });
     if (!deleted) {
       console.warn("[clips] replaced recording thumbnail cleanup unavailable", {
         recordingId,
@@ -319,10 +326,16 @@ async function cleanupUnreferencedThumbnail(
   }
 
   try {
-    const deleted = await deleteUploadedFile(uploaded.provider, {
-      url: uploaded.url,
-      ...(uploaded.id ? { id: uploaded.id } : {}),
-    });
+    const deleted =
+      uploaded.provider === "clips-hosted"
+        ? await deleteStoredMediaUrl(uploaded.url, {
+            storageMode: "hosted",
+            recordingId,
+          })
+        : await deleteUploadedFile(uploaded.provider, {
+            url: uploaded.url,
+            ...(uploaded.id ? { id: uploaded.id } : {}),
+          });
     if (!deleted) {
       console.warn(
         "[clips] generated recording thumbnail cleanup unavailable",
@@ -483,7 +496,8 @@ async function ensureRecordingThumbnailOnce(
     let uploaded: FileUploadResult | null = null;
     let uploadError: unknown;
     try {
-      uploaded = await uploadFile({
+      uploaded = await uploadRecordingMedia({
+        recordingId,
         data: frame,
         filename: `thumb-${recordingId}.${thumbnailExtension}`,
         mimeType: thumbnailMimeType,

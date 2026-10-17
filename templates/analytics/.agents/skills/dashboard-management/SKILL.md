@@ -1,7 +1,7 @@
 ---
 name: dashboard-management
 description: >-
-  Create, lay out, organize, or share Analytics dashboards and panels: sources, placement, folders, verification. Use to create a dashboard or to move, reorder, or lay out panels; a small edit of one existing panel needs no skill.
+  Create, lay out, organize, or share Analytics dashboards and panels: sources, placement, folders, verification, chart markers. Use to create a dashboard, to move, reorder, or lay out panels, or to add a key date or data note; a small edit of one existing panel needs no skill.
 ---
 
 # Dashboard Management
@@ -12,17 +12,17 @@ Dashboards are the canonical SQL-backed Analytics resources. New dashboards, sav
 
 Current storage:
 
-| Table              | Purpose                                      |
-| ------------------ | -------------------------------------------- |
-| `dashboards`       | Explorer and SQL dashboard records           |
-| `dashboard_folders` | Personal and shared SQL dashboard folders  |
-| `dashboard_views`  | Saved filter presets per dashboard           |
-| `dashboard_shares` | Standard framework share grants              |
-| `dashboard_folder_shares` | Standard folder share grants          |
-| `dashboard_revisions` | Bounded dashboard history snapshots       |
-| `analyses`         | Saved ad-hoc analysis records                |
-| `analysis_revisions` | Bounded analysis history snapshots        |
-| `analysis_shares`  | Standard framework share grants for analyses |
+| Table                     | Purpose                                      |
+| ------------------------- | -------------------------------------------- |
+| `dashboards`              | Explorer and SQL dashboard records           |
+| `dashboard_folders`       | Personal and shared SQL dashboard folders    |
+| `dashboard_views`         | Saved filter presets per dashboard           |
+| `dashboard_shares`        | Standard framework share grants              |
+| `dashboard_folder_shares` | Standard folder share grants                 |
+| `dashboard_revisions`     | Bounded dashboard history snapshots          |
+| `analyses`                | Saved ad-hoc analysis records                |
+| `analysis_revisions`      | Bounded analysis history snapshots           |
+| `analysis_shares`         | Standard framework share grants for analyses |
 
 Legacy settings keys such as `u:<email>:dashboard-*`, `u:<email>:sql-dashboard-*`, `o:<orgId>:sql-dashboard-*`, and `adhoc-analysis-*` are still read as a fallback and copied into SQL on access. Do not create new dashboard settings rows.
 
@@ -59,8 +59,34 @@ Every meaningful dashboard save snapshots the previous state into
 points and `restore-dashboard-revision` to restore one; restore snapshots the
 current state first, then syncs open dashboard editors.
 
+Each revision's `changes` names what the save that left it behind changed
+(`panel-added`, `column-resized`, `filter-changed`, `version-restored`, and so
+on), so restoring it undoes that change and every later one. To answer "undo
+the column I widened", pick the revision whose `changes` match instead of
+guessing from times. `changesStatus` is `absent` for revisions saved before
+changes were recorded and `unreadable` when the stored list is corrupt; say you
+can't tell what those changed rather than treating them as empty.
+
+On the page, an editor's own saves show a toast that names the change its Undo
+takes back, says "Saved for everyone" (org or public visibility; "Saved" when
+private), and counts the others who have the dashboard open. That Undo
+restores the revision its save left (a full-config `update-dashboard` save
+returns it as `revisionId`), but only while the dashboard is as that save left
+it: once someone else has saved, it fails rather than taking their change back.
+For "undo my last change" in chat, restore the newest revision from
+`list-dashboard-revisions`. The History panel shows each revision's first
+change with "+N more".
+
 Saved analyses follow the same undo model with `analysis_revisions`,
 `list-analysis-revisions`, and `restore-analysis-revision`.
+
+Dashboards open in View mode. An editor switches the header toggle to Edit
+before drags, panel resizing, renames, column edits, and adding, editing, showing or hiding key
+dates and data notes on the page save for everyone; the chat context reports the current
+mode. A table column width dragged in View mode is
+stored only in that person's browser, so "widen this column for me" is a drag
+in View mode, not a dashboard change. `config.columns[].width` is the shared
+width everyone sees; set it only when asked to change the dashboard itself.
 
 Never use `db-patch`, raw SQL, or settings-key edits to create or modify a
 dashboard config. Those bypass the dashboard action's access checks, SQL
@@ -123,7 +149,7 @@ those CTEs needs its own `{{timeRange}}`/`{{<id>Start}}`/`{{<id>End}}`
 reference or literal date bound — not just the final `SELECT` or one sibling
 CTE. A CTE that computes something like "this user's first-ever active day"
 by scanning `analytics_events` with no bound at all will full-table-scan on
-every render even though the panel *looks* time-bound overall (root cause of
+every render even though the panel _looks_ time-bound overall (root cause of
 a 2026-07-25 production incident: several dashboards had exactly this shape).
 Server validation checks each top-level CTE independently now, so this fails
 at save time — but write it right the first time: bound every CTE, or use
@@ -139,7 +165,7 @@ When the user asks for a dashboard:
 2. If a metric definition, date range, or grain is ambiguous and the choice would change the panel's numbers, use the `ask-question` clarifying tool once before building. Skip it when the dictionary or the user already settled it.
 3. If a metric is not documented, do not guess column names and do not ask the user for them. Find the table and columns with `search-bigquery-schema` (or the provider's own schema action), then propose a dictionary entry with `save-data-dictionary-entry`.
 4. Build a complete `SqlDashboardConfig` with `name` and `panels`. Optionally set top-level `columns` (1–6, default 2) to control how many grid columns the panels before any section use.
-5. Every panel needs `id`, `title`, `source`, `chartType`, `width`, and `sql`. `width` is the number of grid columns the panel spans (1..6, clamped to the active section's column count). Section panels skip `source` and `sql` and may set their own `columns` (1–6) to override the dashboard default for the panels following the section. Extension panels (`chartType: "extension"`) also skip `source` and `sql`; use `config.extensionId` for ordinary author-selected shared embeds. Use `config.extensionSlotId` only when the user explicitly asks for a personal/per-viewer slot (see "Embedding An Extension As A Panel").
+5. Every panel needs `id`, `title`, `source`, `chartType`, `width`, and `sql`. `width` is the number of grid columns the panel spans (1..6, clamped to the active section's column count). `height` is optional; when set, it is 1–6 units of 180px, and when omitted the panel sizes to its content. Section panels skip `source` and `sql` and may set their own `columns` (1–6) to override the dashboard default for the panels following the section. Extension panels (`chartType: "extension"`) also skip `source` and `sql`; use `config.extensionId` for ordinary author-selected shared embeds. Use `config.extensionSlotId` only when the user explicitly asks for a personal/per-viewer slot (see "Embedding An Extension As A Panel").
 6. Persist with `update-dashboard` (load it with `tool-search` — it is not on the
    initial tool surface), not raw SQL or settings writes. For a large first-party
    dashboard, load `compose-dashboard` the same way in one `tool-search` call.
@@ -153,6 +179,8 @@ is materially ambiguous, the change is destructive, or it has an external side
 effect such as sending email or outreach.
 
 Layout is always **1 column when the available content width is below the `md` threshold** (panels stack), then expands to the configured column count at/above it. The grid uses a container query, so it also stacks when the agent sidebar narrows the content pane — not only at narrow viewports. So picking 3 or 4 columns is fine — the renderer keeps narrow layouts readable automatically.
+
+In Edit mode, drag a panel's right edge to change its grid width and its bottom edge to set a fixed height. Width is saved as grid columns; height is saved in 180px units. Existing panels without `height` keep content-based height until resized.
 
 ```bash
 pnpm action update-dashboard --dashboardId weekly-metrics --config '<full json>'
@@ -211,24 +239,148 @@ flattens into the baseline and reads as "no data."
 
 ## Key-Date Event Markers
 
-Mark a launch, release, or incident on a `line`, `area`, `bar`, or `combo`
-chart with a date x-axis using `config.events`. Do not add a fake series or an
-extension for this.
+Key dates mark a launch, release, or product change on `line`, `area`, `bar`,
+and `combo` charts with a date x-axis. Do not add a fake series or an extension
+for this. They live in two places:
+
+- **Key-date sets** hold moments that matter across charts, such as Launches or
+  Product changes. A set belongs to the organization (to the user when there is
+  no organization) and draws on every time chart of every dashboard. Read sets
+  with `list-key-dates`, passing `dashboardId` for the ones a dashboard draws;
+  add or edit a date with `save-key-date` (name the set
+  with `setName` and it is created if missing); rename or create a set with
+  `save-key-date-set`; remove with `delete-key-date` or `delete-key-date-set`.
+  Prefer a set to copying one date into many panels.
+- **Panel events** in `config.events` hold a date that matters to one chart
+  only, in the same shape:
 
 ```json
 "config": {
-  "events": [{ "date": "2026-10-14", "label": "Agent Native beta launch date" }]
+  "events": [
+    { "date": "2026-10-14", "time": "00:01", "timeZone": "America/Los_Angeles", "label": "Product Hunt live" },
+    { "date": "2026-10-14", "time": "12:00", "timeZone": "America/New_York", "label": "Launch posts on X, LinkedIn" }
+  ]
 }
 ```
 
-- Each event is `{ date: "YYYY-MM-DD", label, color? }`; multiple are allowed.
+A dashboard leaves sets off its charts with `config.annotations`, set through
+`mutate-dashboard`'s `setDashboard({ annotations: { hiddenKeyDateSets: [setId, ...] } })`.
+The list replaces the sets already hidden, so include those that stay hidden;
+the hidden data notes are kept. In Edit mode, people do the same from the dashboard
+header's Annotations menu, which also adds and edits key dates and sets.
+
+- Each event is `{ date: "YYYY-MM-DD", label, time?: "HH:MM", timeZone?, color? }`;
+  multiple are allowed. `date` is the calendar date in the event's own zone.
+  Give `time` when the moment matters (a launch hour); `timeZone` is an IANA
+  zone and needs a `time`. Without a zone, the time is UTC.
 - A badge sits on the x-axis at the date with a faint dashed guide line.
-  Hovering the badge shows the label and date. It adds no legend entry and does
-  not change the series tooltip.
-- A date missing from the data snaps to the nearest x value; a date outside the
-  visible range is hidden; a non-date x-axis shows nothing.
+  Hovering the badge lists every event on that day with its time, shown in the
+  event's own zone ("12:01 AM PT"). It adds no legend entry and does not change
+  the series tooltip.
+- Events on the same day share one badge; on an hourly axis each timed event
+  sits in its own hour, and an event without a time sits on the first hour
+  shown for its date.
+- On a daily or coarser axis, a date missing from the data snaps to the nearest
+  x value. On an hourly axis, an event without a time whose date has no hours
+  shown is hidden. A date outside the visible range is hidden; a non-date
+  x-axis shows nothing.
+- A set's date that a panel also lists in `config.events` draws once.
 - `mutate-dashboard` rejects malformed events and other chart types.
-- Scheduled email reports draw the guide line, badge, and label text.
+- Scheduled email reports draw key dates and panel events: the guide line,
+  badge, and label text, including on combo charts. Labels sit in rows above the
+  plot: same-day labels join, a long one wraps at words, and days that find no
+  room are counted, not cut.
+- A dashboard and its report emails draw the key dates of its owner's
+  organization, minus the sets it hides, even for a viewer or reviewer in
+  another organization. There `list-key-dates` returns `editable: false`,
+  without member emails or, unless you can edit the dashboard, the hidden sets,
+  and no sets at all when no chart there draws key dates: a date you save lands
+  in your own organization's sets, not on that dashboard. For a Human Review
+  preview, pass `list-key-dates` and `list-data-notes` the `dashboardId` and the
+  same `reviewPreview` and `reviewOrgId` as `get-sql-dashboard`.
+
+## Data Notes
+
+A data note says the numbers on a chart are wrong or unusual for a stretch of
+time: an incident (`kind: "incident"`) or a tracking problem (`kind: "data"`).
+Use one instead of a key date whenever the point is "don't trust this range".
+Notes belong to the organization, like key-date sets, and a dashboard draws
+its owner organization's. Read them with `list-data-notes`, passing
+`dashboardId` for the ones a dashboard draws; add or change one with
+`save-data-note` (pass `id` to change only the fields given); remove with
+`delete-data-note`.
+
+- `matchEvents` lists the event names the problem affects. A note shows on every
+  chart whose SQL filters on one of them: either side of `=` (in `WHERE` or
+  `CASE WHEN`), an `IN (...)` item, or a simple `CASE event WHEN` value,
+  matched exactly and case-sensitively; or a `LIKE` pattern (`ILIKE` in any
+  case). A name the SQL only selects as a label, returns from `THEN`/`ELSE`,
+  excludes (`!=`, `<>`, or a `NOT` over its comparison or parentheses), or
+  writes in a comment does not count, and neither does `= ANY(ARRAY[...])` or
+  `IN UNNEST([...])`. `unlessEvents` skips charts that also filter on the
+  corrected event. Pin a note to specific charts with
+  `panels: [{ dashboardId, panelId }]` when no event filter identifies them.
+- `startDate` and `endDate` are `YYYY-MM-DD`. Leave out `endDate` while the
+  problem is ongoing, and `startDate` when it has been wrong since before
+  tracking began. Marking a note `status: "fixed"` needs an `endDate`; say what
+  fixed it in `fix`. Pass `null` to clear a date or the fix.
+- Time charts shade the note's range, with an edge only where it starts or ends
+  inside the chart, and a hoverable title. Rows sorted by something other than
+  date shade each run of the note's rows, never a row between them, under one
+  title. Incidents are red; open data problems amber; fixed data problems grey.
+  Other charts flag the note by the title and write it under the chart while it
+  is ongoing or ended in the last 30 days, as does a time chart whose x values
+  aren't dates.
+- A dashboard hides a note on one chart with
+  `setDashboard({ annotations: { hiddenDataNotes: [{ noteId, panelId }, ...] } })`,
+  listing the notes already hidden that stay hidden; `hiddenKeyDateSets` is kept.
+- In Edit mode, people add a note from a chart's menu ("Add data note", pinned
+  to that chart) or the Annotations menu; a note's hover card offers Edit, Mark
+  fixed, and Hide on this chart, and the chart's menu offers Hide for each of
+  its notes.
+  On a dashboard from another organization they can hide its notes and sets
+  but not add or change them.
+- Scheduled email reports shade the same ranges, title each note once in the
+  label rows above the plot alongside key dates (a title with no room left is
+  counted), and write each note's text under the chart.
+
+## Adding A Marker
+
+When someone asks to mark something on a chart, pick the kind from what a
+reader should take away:
+
+- A moment that explains a change (a launch, a release, a pricing change) is a
+  key date. Call `list-key-dates` first and add it to the set it belongs in
+  rather than starting a near-duplicate set. Give `time` and `timeZone` when
+  the hour matters, as it does for launches. Use a panel's `config.events`
+  only when the date matters to that one chart.
+- A stretch where the numbers are wrong or unusual (an outage, an undercount, a
+  tracking gap) is a data note. Take `matchEvents` from the event names the
+  charts' SQL filters on (`get-sql-dashboard` with `panelIds`), not from how
+  the person phrased it, and pin `panels` when no event name identifies the
+  charts.
+
+Pass the open dashboard's id as `dashboardId` to `save-key-date` or
+`save-data-note`, and read the result's `dashboard` before replying. A note
+lists the charts it is on in `shownOn`; a key date says only whether the
+dashboard shows its set, in `setShown`. Neither promises a mark: a time chart
+draws one only over the dates it plots. When `hint` says it shows on none, fix
+the event names, or tell the person why. A `hint` with neither `shownOn` nor
+`setShown` means the dashboard can't draw it at all (an Explorer dashboard, or
+another organization's); it is still saved. A set or note the dashboard hides
+is that dashboard's choice, so ask before showing it.
+
+To explain a spike or dip, read `keyDateSets` and `dataNotes` from
+`get-sql-dashboard` or `view-screen` first and cite what they say. If
+`annotationsError` is there instead, say the markers could not be read rather
+than that there are none. `omittedKeyDateSetCount` or `omittedDataNoteCount`
+means the list was cut to fit, so read `list-key-dates` or `list-data-notes`
+with `dashboardId` before saying a marker isn't there. `keyDatesHint` means no
+chart on the dashboard draws key dates, so don't cite one there. A note's `panelIds` are the charts it is
+on, but a time chart draws it only over the dates it plots (and, if its x
+values aren't dates, only while the note is recent), so cite it for a change
+only when the change falls within the note's dates. `editable: false` means
+they are the owner organization's, so cite them but don't change them.
 
 ## Reusable Native Dashboard Patterns
 
@@ -236,17 +388,28 @@ The recent extension-backed dashboards in Builder Analytics cluster into a few
 repeatable compositions. Prefer these native panels, with a real SQL or Data
 Program result behind each one, when creating a replacement or a new dashboard:
 
-| Pattern | Native composition |
-| --- | --- |
-| Customer ROI / value realization | `metric` KPI cards, `line` or `area` trends, `table` detail, and `callout` or `section` panels for the business narrative |
-| Account engagement / outreach | `metric` coverage and adoption cards, a daily `line` trend, `heatmap` or `table` segmentation, and `callout` alerts |
-| GTM pipeline / cross-sell | `funnel` for ordered stages, `metric` totals, `bar` or `line` trends, and a `table` for account-level follow-up |
-| Win/loss analysis | `section` groups with `metric`, `table`, `bar`, `callout`, and trend panels; use a Data Program for provider joins and evidence rows |
+| Pattern                          | Native composition                                                                                                                   |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Customer ROI / value realization | `metric` KPI cards, `line` or `area` trends, `table` detail, and `callout` or `section` panels for the business narrative            |
+| Account engagement / outreach    | `metric` coverage and adoption cards, a daily `line` trend, `heatmap` or `table` segmentation, and `callout` alerts                  |
+| GTM pipeline / cross-sell        | `funnel` for ordered stages, `metric` totals, `bar` or `line` trends, and a `table` for account-level follow-up                      |
+| Win/loss analysis                | `section` groups with `metric`, `table`, `bar`, `callout`, and trend panels; use a Data Program for provider joins and evidence rows |
 
 Funnel panels use `config.xKey` for the stage label and `config.yKey` for a
 non-negative count or value. The renderer preserves the SQL row order, shows
 each stage's share of the first stage, and shows the change from the previous
 stage. Keep the intended stage order in SQL with `ORDER BY`.
+
+When people can skip a stage or go around it (onboarding, setup flows), add
+`config.funnelOutcomes` so a skip never reads as drop-off. It names result
+columns of per-stage people counts, not shares: `completedKey` and `leftKey`
+are required, `skippedKey` is optional, and `optionalKey` names a boolean
+column that tags a stage Optional. `yKey` stays the people shown the stage, and
+completed + skipped + left must not exceed it; the rest are "moved on without
+either". Each bar then splits into those outcomes and the stage leads with the
+share who left the app there. A missing column draws the usual warning; a
+stage whose counts are not numbers or add up to more than shown draws a plain
+bar, and the panel check reports it under `funnelOutcomes`.
 
 When a dashboard is being migrated from an extension, create a new v2 copy,
 bind its panels to the real provider schema or Data Programs, and compare it
@@ -255,6 +418,34 @@ customer-specific SQL, provider joins, cached rows, or extension ids in a
 catalog template. Existing dashboards remain readable while the native
 replacement is validated. Bespoke interaction flows, arbitrary layouts, and
 visualizations outside these contracts may remain Custom Blocks.
+
+## Sigma workbook import
+
+The dashboard menu opens the Sigma import flow, where users can browse and
+preview workbooks. Imports remain disabled for elements whose source project
+Analytics cannot verify: Sigma's connection API reports provider type and
+metadata but does not expose a BigQuery project identifier. Do not call
+`migrate-sigma-workbook` for an unverified source or treat an Analytics
+BigQuery credential as proof that it targets Sigma's project. Users can list
+workbooks with `list-sigma-workbooks` and inspect one with
+`inspect-sigma-workbook`. The feature is controlled by
+`analytics.sigma-dashboard-migration` and requires a Sigma connection granted
+to Analytics.
+
+Use an existing Dispatch Sigma connection when it is granted to Analytics; the
+import flow discovers accessible connections without copying their Vault
+values. If direct setup is needed, an organization owner or admin can enter
+Sigma client credentials in the Analytics dialog. Analytics saves those values
+under Analytics-specific encrypted organization secrets and links them to an
+Analytics-only connection. Credential values must never pass through agent chat,
+action arguments, logs, source, or screenshots.
+
+If Sigma adds verifiable source mapping in the future, the planned import will
+create a private snapshot in the user's personal `Sigma` folder. Other source
+types and unsupported elements will become review callouts. Preserve migration
+warnings and never describe a future result as parity-complete or automatically
+synchronized. Sigma's workbook-code API is public Beta and can omit unsupported
+workbook features before inspection receives the response.
 
 The source tree ships four provider-free v2 manifests in
 `server/lib/native-v2-dashboards.ts`: Customer ROI, Account Engagement,
@@ -375,7 +566,13 @@ Use conditional blocks for optional filters:
 
 An unwrapped `{{<id>:list}}` with no selection fails the query on purpose. Option values must not contain commas.
 
+To offer a named group of values, give the multi-select `presets`, such as `"presets": [{ "label": "Launch apps", "values": ["clips", "slides", "design"] }]`. Each preset shows as a button beside Select all in the dropdown, and picking it replaces only that filter's selection, so the other filters keep their values. Every value must be one of the filter's options. Use a preset rather than a saved view when the user wants a shortcut for one filter: a saved view replaces every filter. In Edit mode, people add presets themselves: checking two or more values that no preset matches offers Save as group at the bottom of the dropdown, which appends the same `presets` entry, so treat a preset you did not write as someone's saved choice and keep it unless asked.
+
 Filters auto-apply on change — there is no Apply button. Each filter change writes to the URL and re-runs the affected panels. Other filters are preserved (the URL update is functional, not destructive). If you see a filter "reset" itself when another filter changes, look for a duplicate `id` first.
+
+**Reset filters** in the filter bar returns to the saved view that is open: the one named by `view`, which filter edits keep. With no view open, it returns to what a fresh load shows: the default saved view when the dashboard has one, otherwise each filter's own `default`. It shows only while a filter's resolved value differs from that target, so `f_timeRange=30d` on a 30d-default filter counts as reset. To reset for the user with `set-search-params`, set the target view's params and `view=<id>`, or, when there is no target view, remove every `f_` param and `view`.
+
+Filter changes are personal: they live in the URL and in the user's own `dashboard-filters:<id>` pref, never in the dashboard. While a filter differs from the Reset target, the bar says "Only you see these filters", and people who can edit the dashboard get Save view on hover. To share filters, save a view (shared with everyone who can open the dashboard) or send the link. The pref also remembers the open `view`, so a dashboard with no default view reopens on it, as long as that view still exists. A default view still wins over the pref on a fresh load.
 
 ## Modifying A Dashboard
 
@@ -398,11 +595,11 @@ The complete typed API (`dashboard.*`, panel selections, `PanelPatch`,
 `panels`, `panelsMatching`, `section`, `insertPanel`. Selection methods:
 `moveToTop`, `moveToBottom`, `moveBefore`, `moveAfter`, `moveToIndex`,
 `moveNextTo`, `moveToRow`, `remove`, `set`, `setTitle`, `setSql`, `setWidth`,
-`setConfig`, `setConfigPath`, `duplicate`. Inserted and duplicated panels take
+`setHeight`, `clearHeight`, `setConfig`, `setConfigPath`, `duplicate`. Inserted and duplicated panels take
 one chained placement: `atTop`, `atBottom`, `before`, `after`, `atIndex`,
 `nextTo`, `atRow`, `atRowStart`, `atRowEnd`. Panel `config` holds renderer
 options (`xKey`, `yKey`, `columns`, formatters); `sql`, `chartType`, `source`,
-`title`, and `width` are panel fields set with `setSql` or `set`.
+`title`, `width`, and `height` are panel fields set with `setSql` or `set`.
 
 Examples:
 
@@ -419,9 +616,12 @@ dashboard.setFilterDefault("emailFilter", "exclude_builder");
 dashboard.panel("top-referrers").setTitle("Top Referrers by Domain");
 dashboard.panel("retention").set({
   width: 2,
+  height: 2,
   config: { description: "Updated definition." },
 });
 dashboard.panelsMatching({ source: "first-party" }).setWidth(2);
+dashboard.panel("retention").setHeight(2);
+dashboard.panel("retention").clearHeight(); // return to content-based height
 dashboard
   .panelsMatching({ titleIncludes: "Revenue" })
   .setConfigPath("yAxis.format", "currency");
@@ -542,6 +742,23 @@ in the same `set({...})` call.
 - `config.pivot` (`{ xKey, seriesKey, valueKey }`) reshapes long-format rows into
   one series per `seriesKey` value and drops every other column. If the query now
   returns wide-format rows, remove `pivot` or the panel shows "No data".
+- A stacked bar or area chart draws its largest series at the bottom and an
+  "Other"/"unknown" bucket on top; the legend and tooltip use the same order.
+  To fix the order, list series values in `config.pivot.seriesOrder` (they go
+  first, the rest follow by size) or list `config.yKeys` for wide rows.
+- `config.colors` is matched to series in `config.pivot.seriesOrder` order, then
+  result order, never by stack position. When colors carry meaning (green for
+  positive), list those series in `seriesOrder` so row order cannot swap them.
+- To split a chart by Agent-Native app, pivot by a column named `template` or
+  `app` that holds the lowercase app key. Then each app (`mail`, `slides`, ...)
+  takes its fixed color from `shared/tokens/app-series-colors.ts`, on every
+  dashboard and in emailed reports, and the chart's other series (`unknown`,
+  `docs`) are muted. Leave `config.colors` off such panels, or it replaces
+  those colors.
+- A chart draws at most 400 points and says so under the chart. Line, area,
+  combo and heatmap charts keep their last rows, and bar charts their first;
+  over dates in date order (`YYYY-MM-DD`, `YYYYMMDD`, `Sep 30, 2026`, weeks, quarters) both
+  keep the newest. Aggregate or limit the SQL instead of returning more.
 - Config keys the renderer does not honor are ignored. `mutate-dashboard`
   rejects them on the panels you change and lists the honored keys; read that
   error instead of retrying the same key.

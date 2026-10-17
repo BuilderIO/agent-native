@@ -9,21 +9,21 @@ const FIXTURE = `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8" /><title>Inspector</title></head>
   <body data-agent-native-node-id="page" style="margin:0;width:800px;height:600px;background:#ffffff;font-family:system-ui,sans-serif">
-    <h1 data-agent-native-node-id="heading" data-agent-native-layer-name="Heading" style="position:absolute;left:40px;top:40px;width:400px;height:60px;margin:0;font-size:40px;line-height:60px;color:#111827">E2E Hero Heading</h1>
+    <h1 data-agent-native-node-id="heading" data-agent-native-layer-name="Heading" style="position:absolute;left:40px;top:40px;width:400px;height:60px;margin:0;font-size:40px;line-height:60px;color:#111827">Heading</h1>
     <p data-agent-native-node-id="para" data-agent-native-layer-name="Paragraph" style="position:absolute;left:40px;top:120px;width:400px;height:24px;margin:0;line-height:24px">First fixture paragraph</p>
     <button data-agent-native-node-id="button" data-agent-native-layer-name="Button" style="position:absolute;left:40px;top:180px;width:140px;height:44px;padding:0 12px;border:0;background:#6366f1;color:#ffffff">Alpha Button</button>
     <div data-agent-native-node-id="card" data-agent-native-layer-name="Card" style="position:absolute;left:40px;top:260px;width:200px;height:120px;background:#e5e7eb"></div>
   </body>
 </html>`;
 
-const CENTERS = {
-  heading: { x: 240, y: 70, name: "Heading" },
-  para: { x: 240, y: 132, name: "Paragraph" },
-  button: { x: 110, y: 202, name: "Button" },
-  card: { x: 140, y: 320, name: "Card" },
+const LAYER_NAMES = {
+  heading: "Heading",
+  para: "Paragraph",
+  button: "Button",
+  card: "Card",
 } as const;
 
-type NodeKey = keyof typeof CENTERS;
+type NodeKey = keyof typeof LAYER_NAMES;
 
 test.use({ viewport: { width: 1600, height: 1000 } });
 
@@ -34,11 +34,17 @@ async function openInspector(app: App) {
   return id;
 }
 
-/** Selects a layer with a plain canvas click at its centre. */
 async function select(app: App, key: NodeKey) {
-  const { x, y, name } = CENTERS[key];
-  const point = await app.pagePoint(x, y);
-  await app.page.mouse.click(point.x, point.y);
+  const name = LAYER_NAMES[key];
+  const node = app.node(key);
+  await expect(node, `${name} is visible on the canvas`).toBeVisible();
+  const box = await node.boundingBox();
+  if (box === null) {
+    throw new Error(`${name} has no rendered canvas bounds`);
+  }
+  expect(box.width).toBeGreaterThan(0);
+  expect(box.height).toBeGreaterThan(0);
+  await app.page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   await expect.poll(() => app.selectedLayers()).toEqual([name]);
 }
 
@@ -248,7 +254,10 @@ test("text gradient apply and removal survive reselection; box gradient editor p
   const cardFill = inspectorSection(page, "Fill");
   await cardFill.getByRole("button", { name: "Open color picker" }).click();
   await page.getByRole("button", { name: "Gradient", exact: true }).click();
+  const gradientAngle = page.locator('input[aria-label="Gradient angle"]');
+  await expect(gradientAngle).toBeVisible();
   await page.keyboard.press("Escape");
+  await expect(gradientAngle).toBeHidden();
   await app.settled();
   const cardGradient = await savedStyle(app, id, "card");
   expect({

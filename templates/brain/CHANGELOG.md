@@ -3,12 +3,22 @@
 All notable user-facing changes to Agent-Native Brain are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-15
+
+### Improved
+
+- Saving a source's settings refreshes the Sources list faster, and the source shows "Updating…" until its new settings appear.
+
 ## 2026-10-13
 
 ### Changed
 
 - Only organization owners and admins can create Zoom sources or change which meetings they import. Brain records who changed a Zoom meeting list and which approved meetings each sync read from Zoom.
 - The Sources page offers Zoom only to organization owners and admins. Other members see an existing Zoom source's settings as read-only and can still rename it.
+
+### Removed
+
+- Zoom sources no longer import AI Companion summaries. Brain imports only transcripts from cloud recordings, so the Zoom app no longer needs the meeting summary permissions.
 
 ## 2026-10-10
 

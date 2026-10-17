@@ -76,6 +76,26 @@ const mocks = vi.hoisted(() => {
         localhostScreens: {},
       });
     },
+    setAmbiguousDesignSourceFile: () => {
+      designData = JSON.stringify({
+        sourceType: "localhost",
+        connectionId: "connection-1",
+        screenMetadata: {
+          "screen-1": {
+            sourceType: "localhost",
+            connectionId: "connection-1",
+            sourceFile: "app/routes/home.tsx",
+          },
+        },
+        localhostScreens: {
+          "screen-1": {
+            sourceType: "localhost",
+            connectionId: "connection-1",
+            sourceFile: "app/routes/legacy-home.tsx",
+          },
+        },
+      });
+    },
   };
 });
 
@@ -238,6 +258,16 @@ const textDocument = {
     },
   ],
 };
+const textDocumentV2 = {
+  version: 2 as const,
+  animations: textDocument.animations.map((animation) => ({
+    ...animation,
+    animationDirection: "in" as const,
+    order: "left-to-right" as const,
+    ignoreSpaces: true,
+    delayMs: 0,
+  })),
+};
 const managedTextSource = applyMotionReactSourceEdit({
   currentSource: source,
   expectedSource: source,
@@ -279,6 +309,40 @@ describe("get-motion-timeline localhost React source", () => {
     mocks.readLocal.mockResolvedValue({
       content: managedSource,
       versionHash: bridgeVersionHash,
+    });
+  });
+
+  it("returns an explicit unsupported capability for ambiguous passive hydration", async () => {
+    mocks.setAmbiguousDesignSourceFile();
+
+    const result = await action.run({
+      designId: "design-1",
+      sourceRef: "screen-1",
+      passiveRead: true,
+    });
+
+    expect(result).toMatchObject({
+      count: 0,
+      timelines: [],
+      sourceReadCapability: {
+        status: "unsupported",
+        sourceRef: "screen-1",
+        errorCode: "motion_local_source_ambiguous_source_file",
+        reason:
+          "The selected localhost screen does not map to one saved source file.",
+      },
+    });
+    expect(mocks.readLocal).not.toHaveBeenCalled();
+  });
+
+  it("keeps ambiguous source metadata as a validation error for explicit reads", async () => {
+    mocks.setAmbiguousDesignSourceFile();
+
+    await expect(
+      action.run({ designId: "design-1", sourceRef: "screen-1" }),
+    ).rejects.toMatchObject({
+      errorCode: "motion_local_source_ambiguous_source_file",
+      statusCode: 422,
     });
   });
 
@@ -437,7 +501,7 @@ describe("get-motion-timeline localhost React source", () => {
   it("reads and checks capability in the preview-proven child module", async () => {
     const childModulePath = "app/components/Hero.tsx";
     const childModuleSource = `function Hero() {
-  return <h1 data-agent-native-node-id="hero">Hello</h1>;
+  return <main><h1 data-agent-native-node-id="hero">Hello</h1></main>;
 }
 `;
     const childModuleHash = sourceHash(childModuleSource);
@@ -620,10 +684,7 @@ describe("get-motion-timeline localhost React source", () => {
     expect(result.timelines[0]).toMatchObject({
       source: "stored-react-drift",
       tracks: timeline.tracks,
-      textDocument: {
-        version: 1,
-        animations: [{ targetNodeId: "hero", staggerMs: 40 }],
-      },
+      textDocument: textDocumentV2,
     });
   });
 
@@ -641,7 +702,7 @@ describe("get-motion-timeline localhost React source", () => {
     expect(result.timelines[0]).toMatchObject({
       source: "recovered-react",
       tracks: [],
-      textDocument,
+      textDocument: textDocumentV2,
       durationMs: 800,
     });
   });
@@ -700,7 +761,7 @@ describe("get-motion-timeline localhost React source", () => {
     expect(result.timelines[0]).toMatchObject({
       source: "stored-local-unverified",
       tracks: timeline.tracks,
-      textDocument,
+      textDocument: textDocumentV2,
       filePath: null,
       sourceVersionHash: null,
       cssHash: null,

@@ -1,10 +1,20 @@
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  IconCheck,
   IconChevronDown,
   IconDeviceFloppy,
   IconFilterOff,
+  IconPlus,
+  IconUser,
 } from "@tabler/icons-react";
-import { useCallback, useId, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useSearchParams } from "react-router";
 import { toast } from "sonner";
 
@@ -37,41 +47,84 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 import { DateRangeInput } from "../_shared/components/DateRangeInput";
 import {
   FILTER_PARAM_PREFIX,
   isDateRangePresetFilter,
+  MAX_FILTER_PRESETS,
   MULTI_SELECT_EMPTY,
   resolveDefault,
   resolveFilterVars,
+  usableFilterPresets,
 } from "./filter-vars";
-import type { DashboardFilter } from "./types";
+import type { DashboardFilter, FilterPreset } from "./types";
 
 export { FILTER_PARAM_PREFIX, resolveFilterVars } from "./filter-vars";
 
-/** Check if any filter param in the URL differs from the defaults */
-function hasActiveFilters(
+export interface DashboardSavedView {
+  id: string;
+  filters: Record<string, string>;
+  isDefault?: boolean;
+}
+
+// Reset returns to the saved view open in the URL (filter edits keep `view`), so
+// editing a view and resetting lands back on it. With no view open it goes where
+// a fresh load does: the default view, otherwise each filter's own default.
+export function resetTargetView(
+  views: readonly DashboardSavedView[],
+  searchParams: URLSearchParams,
+): DashboardSavedView | undefined {
+  const viewId = searchParams.get("view");
+  return (
+    views.find((view) => view.id === viewId) ??
+    views.find((view) => view.isDefault)
+  );
+}
+
+const NO_VIEWS: readonly DashboardSavedView[] = [];
+
+// Compare resolved values, not param presence: a URL that spells out a default
+// (f_timeRange=30d) still matches.
+export function filtersMatchView(
   filters: DashboardFilter[],
   searchParams: URLSearchParams,
+  view: DashboardSavedView | undefined,
 ): boolean {
-  for (const f of filters) {
-    if (f.type === "date-range") {
-      if (searchParams.has(FILTER_PARAM_PREFIX + f.id + "Start")) return true;
-      if (searchParams.has(FILTER_PARAM_PREFIX + f.id + "End")) return true;
-    } else {
-      if (
-        isDateRangePresetFilter(f) &&
-        (searchParams.has(FILTER_PARAM_PREFIX + f.id + "Start") ||
-          searchParams.has(FILTER_PARAM_PREFIX + f.id + "End"))
-      ) {
-        return true;
-      }
-      if (searchParams.has(FILTER_PARAM_PREFIX + f.id)) return true;
-    }
+  const current = resolveFilterVars(
+    filters,
+    (key) => searchParams.get(FILTER_PARAM_PREFIX + key) ?? "",
+  );
+  const target = resolveFilterVars(
+    filters,
+    (key) => view?.filters[FILTER_PARAM_PREFIX + key] ?? "",
+  );
+  return Object.keys(target).every((key) => current[key] === target[key]);
+}
+
+export function resetFilterParams(
+  prev: URLSearchParams,
+  view: DashboardSavedView | undefined,
+): URLSearchParams {
+  const next = new URLSearchParams(prev);
+  for (const key of Array.from(next.keys())) {
+    if (key.startsWith(FILTER_PARAM_PREFIX)) next.delete(key);
   }
-  return false;
+  if (view) {
+    for (const [key, value] of Object.entries(view.filters)) {
+      if (value) next.set(key, value);
+    }
+    next.set("view", view.id);
+  } else {
+    next.delete("view");
+  }
+  return next;
 }
 
 export function extractFilterParams(
@@ -103,16 +156,29 @@ export function extractFilterParams(
 
 interface DashboardFilterBarProps {
   filters: DashboardFilter[];
+  // null while the saved views load or after they fail: Reset cannot know its target, so it stays hidden.
+  views?: readonly DashboardSavedView[] | null;
+  // While a cached list refetches it can still hold a deleted view, so Reset is
+  // disabled rather than put that view's id back in the URL.
+  viewsRefreshing?: boolean;
   onSaveView?: (
     name: string,
     filters: Record<string, string>,
     isDefault: boolean,
   ) => void | Promise<void>;
+  // Passed only in edit mode: a preset changes the dashboard for everyone who
+  // can see it, so view mode never offers one.
+  onSavePreset?: (filterId: string, preset: FilterPreset) => void;
+  shared?: boolean;
 }
 
 export function DashboardFilterBar({
   filters,
+  views = NO_VIEWS,
+  viewsRefreshing = false,
   onSaveView,
+  onSavePreset,
+  shared = false,
 }: DashboardFilterBarProps) {
   const t = useT();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -162,18 +228,12 @@ export function DashboardFilterBar({
     [setSearchParams],
   );
 
-  const clearAllFilters = useCallback(() => {
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev);
-      const keysToRemove: string[] = [];
-      next.forEach((_, k) => {
-        if (k.startsWith(FILTER_PARAM_PREFIX)) keysToRemove.push(k);
-      });
-      keysToRemove.forEach((k) => next.delete(k));
-      next.delete("view");
-      return next;
-    });
-  }, [setSearchParams]);
+  const resetFilters = useCallback(() => {
+    if (!views) return;
+    setSearchParams((prev) =>
+      resetFilterParams(prev, resetTargetView(views, prev)),
+    );
+  }, [views, setSearchParams]);
 
   const handleSaveView = useCallback(async () => {
     if (!viewName.trim() || !onSaveView || savingView) return;
@@ -211,14 +271,22 @@ export function DashboardFilterBar({
     [uniqueFilters, getParam],
   );
 
-  const filtersActive = hasActiveFilters(uniqueFilters, searchParams);
+  // Reset, the only-you label and Save view share this one test: the label's
+  // tooltip offers saving a view, so the button must show whenever it does.
+  const filtersChanged =
+    views !== null &&
+    !filtersMatchView(
+      uniqueFilters,
+      searchParams,
+      resetTargetView(views, searchParams),
+    );
 
   return (
     <>
       <Collapsible
         open={filtersOpen}
         onOpenChange={setFiltersOpen}
-        className="group rounded-lg bg-card px-3 py-2"
+        className="group @container rounded-lg bg-card px-3 py-2"
       >
         <div className="flex flex-wrap items-end justify-between gap-3">
           <span className="self-center text-xs font-medium text-muted-foreground group-data-[state=open]:hidden">
@@ -235,53 +303,85 @@ export function DashboardFilterBar({
                     searchParams.has(FILTER_PARAM_PREFIX + key)
                   }
                   setValue={(updates) => setParam(updates)}
+                  onSavePreset={
+                    onSavePreset && ((preset) => onSavePreset(f.id, preset))
+                  }
+                  shared={shared}
                 />
               ))}
             </div>
           </CollapsibleContent>
-          <div className="flex shrink-0 items-center gap-1 self-center opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 group-data-[state=closed]:opacity-100">
-            {onSaveView && filtersActive && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 px-2 text-xs text-muted-foreground hover:text-primary"
-                onClick={() => setSaveDialogOpen(true)}
-              >
-                <IconDeviceFloppy className="h-3 w-3 mr-1" />
-                {t("sqlDashboard.saveView")}
-              </Button>
+          <div className="flex shrink-0 items-center gap-1 self-center">
+            <div className="flex items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 group-data-[state=closed]:opacity-100">
+              {onSaveView && filtersChanged && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-2 text-xs text-muted-foreground hover:text-primary"
+                  onClick={() => setSaveDialogOpen(true)}
+                >
+                  <IconDeviceFloppy className="h-3 w-3 mr-1" />
+                  {t("sqlDashboard.saveView")}
+                </Button>
+              )}
+              <CollapsibleTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
+                  aria-label={
+                    filtersOpen
+                      ? t("sqlDashboard.collapseFilters")
+                      : t("sqlDashboard.expandFilters")
+                  }
+                >
+                  {filtersOpen
+                    ? t("sqlDashboard.hide")
+                    : t("sqlDashboard.show")}
+                  <IconChevronDown
+                    className={cn(
+                      "ml-1 h-3 w-3 transition-transform",
+                      filtersOpen && "rotate-180",
+                    )}
+                  />
+                </Button>
+              </CollapsibleTrigger>
+            </div>
+            {/* Outside the hover group on purpose: hidden until hover, people missed it. */}
+            {filtersChanged && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span
+                    tabIndex={0}
+                    className="flex items-center gap-1 px-2 text-xs text-muted-foreground"
+                  >
+                    <IconUser className="h-3 w-3" />
+                    {/* Below this bar width the text pushes four filters onto a
+                        second row each time a filter changes, moving the page. */}
+                    <span className="sr-only @min-[68rem]:not-sr-only">
+                      {t("dashboardFilterScope.onlyYou")}
+                    </span>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs">
+                  {onSaveView
+                    ? t("dashboardFilterScope.hintSaveView")
+                    : t("dashboardFilterScope.hint")}
+                </TooltipContent>
+              </Tooltip>
             )}
-            {filtersActive && (
+            {filtersChanged && (
               <Button
                 variant="ghost"
                 size="sm"
                 className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
-                onClick={clearAllFilters}
+                disabled={viewsRefreshing}
+                onClick={resetFilters}
               >
                 <IconFilterOff className="h-3 w-3 mr-1" />
-                {t("sqlDashboard.clearAll")}
+                {t("sqlDashboard.resetFilters")}
               </Button>
             )}
-            <CollapsibleTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
-                aria-label={
-                  filtersOpen
-                    ? t("sqlDashboard.collapseFilters")
-                    : t("sqlDashboard.expandFilters")
-                }
-              >
-                {filtersOpen ? t("sqlDashboard.hide") : t("sqlDashboard.show")}
-                <IconChevronDown
-                  className={cn(
-                    "ml-1 h-3 w-3 transition-transform",
-                    filtersOpen && "rotate-180",
-                  )}
-                />
-              </Button>
-            </CollapsibleTrigger>
           </div>
         </div>
       </Collapsible>
@@ -392,10 +492,14 @@ function MultiSelectFilter({
   filter,
   value,
   setValue,
+  onSavePreset,
+  shared,
 }: {
   filter: DashboardFilter;
   value: string;
   setValue: (updates: Record<string, string>) => void;
+  onSavePreset?: (preset: FilterPreset) => void;
+  shared: boolean;
 }) {
   const t = useT();
   const labelId = useId();
@@ -403,6 +507,22 @@ function MultiSelectFilter({
   const optionsListId = useId();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [naming, setNaming] = useState(false);
+  const [groupName, setGroupName] = useState("");
+  const saveAsGroupRef = useRef<HTMLButtonElement>(null);
+  const refocusSaveAsGroupRef = useRef(false);
+  useEffect(() => {
+    if (naming || !refocusSaveAsGroupRef.current) return;
+    refocusSaveAsGroupRef.current = false;
+    saveAsGroupRef.current?.focus();
+  }, [naming]);
+  // A save unmounts the name form, and a rejected save then unmounts the group
+  // it showed. Until the dropdown closes, focus that falls to the page goes to
+  // the saved group, or back to Save as group once that group is gone.
+  const savedPresetLabelRef = useRef<string | null>(null);
+  const focusIfLost = (button: HTMLButtonElement | null) => {
+    if (button && document.activeElement === document.body) button.focus();
+  };
   const seenOptionValues = new Set<string>();
   const options = (filter.options ?? []).filter((option) => {
     if (seenOptionValues.has(option.value)) return false;
@@ -422,6 +542,11 @@ function MultiSelectFilter({
       options.find((option) => option.value === selectedValue)?.label ??
       selectedValue,
   );
+  const presets = usableFilterPresets(filter.presets, seenOptionValues);
+  const presetSelected = (preset: FilterPreset) =>
+    new Set(preset.values).size === selectedSet.size &&
+    preset.values.every((presetValue) => selectedSet.has(presetValue));
+  const selectedPreset = presets.find(presetSelected);
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const filteredOptions = normalizedQuery
     ? options.filter(
@@ -448,12 +573,46 @@ function MultiSelectFilter({
         ]),
       ),
     );
+  const applyPreset = (preset: FilterPreset) => {
+    setSelected(Array.from(new Set(preset.values)));
+    setOpen(false);
+    setQuery("");
+  };
   const toggle = (optionValue: string, checked: boolean) =>
     setSelected(
       checked
         ? Array.from(new Set([...selected, optionValue]))
         : selected.filter((value) => value !== optionValue),
     );
+
+  // A save rejects a value with no option, so a URL-only value rules a group out.
+  const canSaveGroup =
+    onSavePreset !== undefined &&
+    presets.length < MAX_FILTER_PRESETS &&
+    !normalizedQuery &&
+    selectedSet.size >= 2 &&
+    !allOptionsSelected &&
+    !selectedPreset &&
+    selected.every((selectedValue) => seenOptionValues.has(selectedValue));
+  const trimmedGroupName = groupName.trim();
+  const groupNameTaken = presets.some(
+    (preset) => preset.label === trimmedGroupName,
+  );
+  const stopNaming = () => {
+    setNaming(false);
+    setGroupName("");
+  };
+  const saveGroup = () => {
+    if (!onSavePreset || !trimmedGroupName || groupNameTaken) return;
+    savedPresetLabelRef.current = trimmedGroupName;
+    onSavePreset({
+      label: trimmedGroupName,
+      values: options
+        .filter((option) => selectedSet.has(option.value))
+        .map((option) => option.value),
+    });
+    stopNaming();
+  };
 
   return (
     <div className="flex flex-col gap-1">
@@ -464,7 +623,10 @@ function MultiSelectFilter({
         open={open}
         onOpenChange={(nextOpen) => {
           setOpen(nextOpen);
-          if (!nextOpen) setQuery("");
+          if (nextOpen) return;
+          savedPresetLabelRef.current = null;
+          setQuery("");
+          stopNaming();
         }}
       >
         <PopoverTrigger asChild>
@@ -478,13 +640,26 @@ function MultiSelectFilter({
             <span className="min-w-0 truncate">
               {allOptionsSelected
                 ? t("sqlDashboard.allValues")
-                : selectedLabels.length > 0
-                  ? selectedLabels.join(", ")
-                  : t("sqlDashboard.allValues")}
+                : selectedPreset
+                  ? selectedPreset.label
+                  : selectedLabels.length > 0
+                    ? selectedLabels.join(", ")
+                    : t("sqlDashboard.allValues")}
             </span>
           </Button>
         </PopoverTrigger>
-        <PopoverContent align="start" className="w-64">
+        <PopoverContent
+          align="start"
+          // Room for Select all, a preset and Clear all on one row.
+          className={presets.length > 0 ? "w-72" : "w-64"}
+          onEscapeKeyDown={(event) => {
+            if (!naming) return;
+            // Escape in the name field backs out of naming, not the dropdown.
+            event.preventDefault();
+            refocusSaveAsGroupRef.current = true;
+            stopNaming();
+          }}
+        >
           <MenuSearchInput
             aria-controls={optionsListId}
             aria-label={t("sqlDashboard.searchValues")}
@@ -492,22 +667,58 @@ function MultiSelectFilter({
             value={query}
             onChange={(event) => setQuery(event.currentTarget.value)}
           />
-          <div className="flex items-center justify-between gap-2 border-b px-2 py-1.5">
+          {/* Presets wrap inside their own column, so Select all and Clear all
+              keep their places on the first line however many groups exist. */}
+          <div className="flex items-start gap-1 border-b px-2 py-1.5">
             <Button
               type="button"
               variant="ghost"
               size="xs"
+              className="shrink-0"
               disabled={noFilteredOptions || allFilteredOptionsSelected}
               onClick={selectAllFiltered}
             >
               {t("sqlDashboard.selectAll")}
             </Button>
+            {presets.length > 0 && !normalizedQuery && (
+              <div
+                role="group"
+                aria-label={t("sqlDashboard.presets")}
+                className="flex min-w-0 flex-1 flex-wrap items-center gap-1"
+              >
+                {presets.map((preset) => {
+                  const active = presetSelected(preset);
+                  return (
+                    <Button
+                      key={preset.label}
+                      ref={(button) => {
+                        if (savedPresetLabelRef.current === preset.label) {
+                          focusIfLost(button);
+                        }
+                      }}
+                      type="button"
+                      variant="ghost"
+                      size="xs"
+                      aria-pressed={active}
+                      className={cn(
+                        "min-w-0 max-w-full",
+                        active && "bg-accent",
+                      )}
+                      onClick={() => applyPreset(preset)}
+                    >
+                      {active && <IconCheck />}
+                      <span className="min-w-0 truncate">{preset.label}</span>
+                    </Button>
+                  );
+                })}
+              </div>
+            )}
             {selected.length > 0 && (
               <Button
                 type="button"
                 variant="ghost"
                 size="xs"
-                className="w-full justify-start"
+                className="ml-auto shrink-0"
                 onClick={() => setSelected([])}
               >
                 {t("sqlDashboard.clearAll")}
@@ -548,6 +759,63 @@ function MultiSelectFilter({
               {noFilteredOptions ? t("sqlDashboard.noValuesFound") : ""}
             </div>
           </div>
+          {canSaveGroup && (
+            <div className="border-t p-1">
+              {naming ? (
+                <form
+                  className="flex flex-col gap-1 p-0.5"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    saveGroup();
+                  }}
+                >
+                  {/* The name gets the full width: beside "Save for everyone"
+                      (longer still in most locales) it would scroll out of view. */}
+                  <Input
+                    size="sm"
+                    autoFocus
+                    value={groupName}
+                    onChange={(event) => setGroupName(event.target.value)}
+                    placeholder={t("sqlDashboard.groupName")}
+                    aria-label={t("sqlDashboard.groupName")}
+                    aria-invalid={groupNameTaken}
+                  />
+                  {groupNameTaken && (
+                    <p role="alert" className="px-1 text-xs text-destructive">
+                      {t("sqlDashboard.groupNameTaken")}
+                    </p>
+                  )}
+                  <Button
+                    type="submit"
+                    size="sm"
+                    className="self-end"
+                    disabled={!trimmedGroupName || groupNameTaken}
+                  >
+                    {shared
+                      ? t("sqlDashboard.saveForEveryone")
+                      : t("explorer.save")}
+                  </Button>
+                </form>
+              ) : (
+                <Button
+                  ref={(button) => {
+                    saveAsGroupRef.current = button;
+                    if (savedPresetLabelRef.current !== null) {
+                      focusIfLost(button);
+                    }
+                  }}
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="w-full justify-start"
+                  onClick={() => setNaming(true)}
+                >
+                  <IconPlus />
+                  {t("sqlDashboard.saveAsGroup")}
+                </Button>
+              )}
+            </div>
+          )}
         </PopoverContent>
       </Popover>
     </div>
@@ -559,6 +827,8 @@ interface FilterControlProps {
   vars: Record<string, string>;
   hasParam: (key: string) => boolean;
   setValue: (updates: Record<string, string>) => void;
+  onSavePreset?: (preset: FilterPreset) => void;
+  shared: boolean;
 }
 
 function FilterControl({
@@ -566,6 +836,8 @@ function FilterControl({
   vars,
   hasParam,
   setValue,
+  onSavePreset,
+  shared,
 }: FilterControlProps) {
   const t = useT();
   if (filter.type === "date-range") {
@@ -667,6 +939,8 @@ function FilterControl({
         filter={filter}
         value={vars[filter.id] || ""}
         setValue={setValue}
+        onSavePreset={onSavePreset}
+        shared={shared}
       />
     );
   }

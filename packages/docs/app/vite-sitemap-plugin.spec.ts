@@ -5,10 +5,19 @@ import { fileURLToPath } from "url";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { DOCS_LOCALES } from "./components/docs-locale";
+import { ARTICLE_TOPICS, getArticleTopics } from "../lib/article-topics";
+import {
+  ARTICLES_BASE,
+  ARTICLES_PAGE_SIZE,
+  USE_CASES_BASE,
+} from "../lib/campaign-content";
+import { loadCampaignContentFromDisk } from "../lib/campaign-content-node";
+import { DOCS_LOCALES, sitePathForLocale } from "./components/docs-locale";
 import {
   SITE_URL,
   buildAgentWebPages,
+  buildCampaignPages,
+  buildPrerenderPaths,
   buildSitemapXml,
   sitemapPlugin,
 } from "./vite-sitemap-plugin";
@@ -62,6 +71,169 @@ describe("docs agent web generation", () => {
       expect(paths).toContain("/es-es/privacy/");
       expect(paths).toContain("/es-es/legal/acceptable-use/");
       expect(paths).toContain("/apps/calendar/");
+    },
+    AGENT_WEB_GENERATION_TIMEOUT_MS,
+  );
+
+  it("generates campaign pages and markdown mirrors only at English canonical paths", () => {
+    const content = loadCampaignContentFromDisk(rootDir);
+    const article = content.articles[0];
+    const useCase = content.useCases[0];
+    const campaignPages = buildCampaignPages({
+      ...content,
+      articles: Array.from({ length: ARTICLES_PAGE_SIZE + 1 }, (_, index) => ({
+        ...article,
+        slug: `test-${index}`,
+      })),
+    });
+    const paths = campaignPages.map((page) => page.path);
+    for (const path of [
+      `${USE_CASES_BASE}/`,
+      `${USE_CASES_BASE}/${useCase.slug}/`,
+      `${ARTICLES_BASE}/`,
+      `${ARTICLES_BASE}/test-0/`,
+      `${ARTICLES_BASE}/topic/${article.topic}/`,
+      `${ARTICLES_BASE}/page/2/`,
+    ]) {
+      expect(paths).toContain(path);
+      for (const locale of DOCS_LOCALES.filter((locale) => locale !== "en-US"))
+        expect(paths).not.toContain(sitePathForLocale(path, locale));
+    }
+    const index = campaignPages.find(
+      (page) => page.path === `${ARTICLES_BASE}/`,
+    )!;
+    expect(index.markdown).toContain(`](${ARTICLES_BASE}/test-0/)`);
+    const detail = campaignPages.find(
+      (page) => page.path === `${ARTICLES_BASE}/test-0/`,
+    )!;
+    expect(detail.title).toBe(article.title);
+    expect(detail.markdownPath).toBe(`${ARTICLES_BASE}/test-0.md`);
+    expect(paths.some((path) => path.includes("/category/"))).toBe(false);
+    expect(paths.some((path) => /\/topic\/[^/]+\/page\//.test(path))).toBe(
+      false,
+    );
+    const topic = campaignPages.find(
+      (page) => page.path === `${ARTICLES_BASE}/topic/${article.topic}/`,
+    )!;
+    expect(topic.title).toBe(ARTICLE_TOPICS[article.topic].name);
+    expect(topic.description).toBe(ARTICLE_TOPICS[article.topic].description);
+    expect(topic.markdown?.match(/^- \[/gm)).toHaveLength(
+      ARTICLES_PAGE_SIZE + 1,
+    );
+    expect(topic.markdown).toContain(
+      `](${ARTICLES_BASE}/test-${ARTICLES_PAGE_SIZE}/)`,
+    );
+    for (const slug of Object.keys(ARTICLE_TOPICS).filter(
+      (slug) => slug !== article.topic,
+    )) {
+      expect(paths).not.toContain(`${ARTICLES_BASE}/topic/${slug}/`);
+    }
+    expect(new Set(paths).size).toBe(paths.length);
+    const mirrors = campaignPages.flatMap((page) =>
+      page.markdownPath ? [page.markdownPath] : [],
+    );
+    expect(new Set(mirrors).size).toBe(mirrors.length);
+  });
+
+  it("publishes precisely the six populated real topic pages and counts at English canonical paths only", () => {
+    const content = loadCampaignContentFromDisk(rootDir);
+    const summaries = getArticleTopics(content.articles);
+    expect(summaries.map(({ slug, count }) => [slug, count])).toEqual([
+      ["agentic-apps", 2],
+      ["coding-agents", 3],
+      ["prototyping", 2],
+      ["meetings-and-notes", 2],
+      ["metrics", 1],
+      ["presentations", 1],
+    ]);
+    const campaignPages = buildCampaignPages(content);
+    for (const summary of summaries) {
+      const topic = campaignPages.find(
+        (page) => page.path === `${ARTICLES_BASE}/topic/${summary.slug}/`,
+      )!;
+      const articles = content.articles.filter(
+        (article) => article.topic === summary.slug,
+      );
+      expect(topic.markdown?.match(/^- \[/gm)).toHaveLength(summary.count);
+      expect(topic.title).toBe(summary.name);
+      expect(topic.lastmod).toEqual(
+        new Date(
+          `${articles
+            .map((article) => article.updated ?? article.published)
+            .sort()
+            .at(-1)}T00:00:00Z`,
+        ),
+      );
+      for (const article of articles)
+        expect(topic.markdown).toContain(
+          `](${ARTICLES_BASE}/${article.slug}/)`,
+        );
+    }
+    expect(
+      campaignPages.filter((page) => page.path.includes("/topic/")),
+    ).toHaveLength(summaries.length);
+    for (const locale of DOCS_LOCALES.filter((locale) => locale !== "en-US"))
+      expect(
+        campaignPages.some((page) =>
+          page.path.startsWith(`/${locale.toLowerCase()}/`),
+        ),
+      ).toBe(false);
+    expect(campaignPages.some((page) => page.path.includes("/category/"))).toBe(
+      false,
+    );
+  });
+
+  it("omits configured topic pages when no articles are present", () => {
+    const pages = buildCampaignPages({ useCases: [], articles: [] });
+    expect(pages.some((page) => /\/(topic|category)\//.test(page.path))).toBe(
+      false,
+    );
+    expect(pages.map((page) => page.path)).toContain(`${ARTICLES_BASE}/`);
+    expect(pages.some((page) => page.path.startsWith("/fr-fr/"))).toBe(false);
+  });
+
+  it("uses the latest updated-or-published date for topic and article sitemap entries", () => {
+    const original = loadCampaignContentFromDisk(rootDir).articles[0];
+    const articles = [
+      {
+        ...original,
+        slug: "older-published",
+        published: "2025-01-01",
+        updated: "2026-09-01",
+      },
+      {
+        ...original,
+        slug: "newer-published",
+        published: "2026-08-01",
+        updated: undefined,
+      },
+    ];
+    const pages = buildCampaignPages({ useCases: [], articles });
+    const topic = pages.find(
+      (page) => page.path === `${ARTICLES_BASE}/topic/${original.topic}/`,
+    )!;
+    expect(topic.lastmod).toEqual(new Date("2026-09-01T00:00:00Z"));
+    for (const article of articles) {
+      const detail = pages.find(
+        (page) => page.path === `${ARTICLES_BASE}/${article.slug}/`,
+      )!;
+      expect(detail.lastmod).toEqual(
+        new Date(`${article.updated ?? article.published}T00:00:00Z`),
+      );
+    }
+    const xml = buildSitemapXml([topic.path]);
+    expect(xml).toContain(`<loc>${SITE_URL}${topic.path}</loc>`);
+  });
+
+  it(
+    "prerenders every published canonical campaign sitemap page",
+    () => {
+      const prerenderPaths = new Set(buildPrerenderPaths());
+      const campaignPages = buildCampaignPages(
+        loadCampaignContentFromDisk(rootDir),
+      );
+      for (const page of campaignPages)
+        expect(prerenderPaths.has(page.path)).toBe(true);
     },
     AGENT_WEB_GENERATION_TIMEOUT_MS,
   );
@@ -143,6 +315,107 @@ describe("docs agent web generation", () => {
           .filter((file) => /^sitemap-.+\.xml$/.test(file))
           .sort(),
       ).toEqual(locales.map((locale) => `sitemap-${locale}.xml`).sort());
+    });
+
+    it("makes the campaign pages discoverable only in the English sitemap", () => {
+      const paths = [
+        `${USE_CASES_BASE}/ask-your-database-in-plain-english/`,
+        `${ARTICLES_BASE}/what-is-an-agent-native-app/`,
+        `${ARTICLES_BASE}/can-people-and-an-ai-agent-edit-the-same-document/`,
+        `${ARTICLES_BASE}/how-do-you-add-skills-to-claude-code-and-codex/`,
+        `${ARTICLES_BASE}/topic/agentic-apps/`,
+      ];
+      const englishUrls = locsIn(
+        fs.readFileSync(path.join(clientDir, "sitemap-en-us.xml"), "utf8"),
+      );
+      for (const path of paths) {
+        expect(englishUrls).toContain(`${SITE_URL}${path}`);
+        expect(pages.find((page) => page.path === path)?.markdown).toBeTruthy();
+      }
+      for (const locale of DOCS_LOCALES.filter(
+        (locale) => locale !== "en-US",
+      )) {
+        const urls = locsIn(
+          fs.readFileSync(
+            path.join(clientDir, `sitemap-${locale.toLowerCase()}.xml`),
+            "utf8",
+          ),
+        );
+        for (const path of paths)
+          expect(urls).not.toContain(
+            `${SITE_URL}${sitePathForLocale(path, locale)}`,
+          );
+      }
+    });
+
+    it("publishes replacement article sitemap entries and English Markdown twins without deleted slugs", () => {
+      const replacements = [
+        {
+          slug: "how-to-use-ai-to-take-meeting-notes",
+          oldSlug: "what-should-meeting-notes-include",
+          title: "How do you use AI to take meeting notes?",
+          topic: "meetings-and-notes",
+        },
+        {
+          slug: "how-to-turn-a-design-brief-into-a-prototype-with-ai",
+          oldSlug: "what-goes-in-a-design-brief",
+          title: "How do you turn a design brief into a prototype with AI?",
+          topic: "prototyping",
+        },
+        {
+          slug: "how-to-make-a-pitch-deck-with-ai",
+          oldSlug: "what-should-a-startup-pitch-deck-include",
+          title: "How do you make a pitch deck with AI?",
+          topic: "presentations",
+        },
+      ];
+      const sitemap = fs.readFileSync(
+        path.join(clientDir, "sitemap-en-us.xml"),
+        "utf8",
+      );
+      const urls = locsIn(sitemap);
+      const base = `${ARTICLES_BASE}/`;
+      const index = pages.find((page) => page.path === base)!;
+      expect(index.markdown?.match(/^- \[/gm)).toHaveLength(11);
+      for (const { slug, oldSlug, title, topic } of replacements) {
+        const detailPath = `${ARTICLES_BASE}/${slug}/`;
+        const markdownPath = `${base}${slug}.md`;
+        const detail = pages.find((page) => page.path === detailPath)!;
+        expect(urls).toContain(`${SITE_URL}${detailPath}`);
+        expect(detail).toMatchObject({ title, markdownPath });
+        const markdown = fs.readFileSync(
+          path.join(clientDir, markdownPath),
+          "utf8",
+        );
+        expect(markdown).toBe(detail.markdown);
+        expect(markdown.startsWith(`# ${title}\n`)).toBe(true);
+        expect(markdown).not.toMatch(/audience:|internal:|target_terms:/);
+        const link = `- [${title}](${detailPath})`;
+        expect(index.markdown).toContain(link);
+        const topicPage = pages.find(
+          (page) => page.path === `${ARTICLES_BASE}/topic/${topic}/`,
+        )!;
+        expect(topicPage.markdown).toContain(link);
+        expect(sitemap).not.toContain(oldSlug);
+        expect(pages.some((page) => page.path.includes(oldSlug))).toBe(false);
+        expect(
+          fs.existsSync(path.join(clientDir, `${base}${oldSlug}.md`)),
+        ).toBe(false);
+        for (const page of pages.filter((page) => page.path.startsWith(base)))
+          expect(page.markdown, page.path).not.toContain(oldSlug);
+      }
+      for (const locale of DOCS_LOCALES.filter(
+        (locale) => locale !== "en-US",
+      )) {
+        const localizedSitemap = fs.readFileSync(
+          path.join(clientDir, `sitemap-${locale.toLowerCase()}.xml`),
+          "utf8",
+        );
+        for (const { slug } of replacements)
+          expect(localizedSitemap).not.toContain(
+            `${SITE_URL}${sitePathForLocale(`${ARTICLES_BASE}/${slug}`, locale)}`,
+          );
+      }
     });
 
     it("lists every page in exactly one per-locale sitemap", () => {

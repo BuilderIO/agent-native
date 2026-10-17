@@ -796,7 +796,11 @@ function documentReadParams(id: string, context: DocumentQueryContext) {
 export function useDocument(
   id: string | null,
   context: DocumentQueryContext = {},
-  options: { enabled?: boolean; refetchOnMount?: false } = {},
+  options: {
+    enabled?: boolean;
+    refetchOnMount?: false;
+    batchRefetches?: false;
+  } = {},
 ) {
   return useActionQuery<Document>(
     "get-document",
@@ -839,6 +843,9 @@ export function usePageOpenDocument(
     enabled: !(
       cachedDocument && isDocumentCreationPending(queryClient, cachedDocument)
     ),
+    // The editor holds its skeleton until this read lands, even over a cached
+    // document, so the read never waits on other reads in a batch.
+    batchRefetches: false,
     ...(adoption === "fresh" ? { refetchOnMount: false } : {}),
   });
   // Runs after the query's own subscription, so from here on sync reaches

@@ -47,12 +47,15 @@ import {
   type MotionEasingVariable,
 } from "../shared/motion-easing.js";
 import {
+  assertMotionHtmlSourceTargets,
   applyMotionHtmlSourceEdit,
+  instrumentMotionHtmlPreviewSource,
   MotionHtmlSourceError,
+  removeUnversionedManagedMotionStyle,
   readMotionHtmlSource,
 } from "../shared/motion-html-source.js";
 import {
-  motionNativeStyleEndTimeMs,
+  motionNativeStyleWithMatchingAuthoredTextWhitespace,
   motionTextDocumentWithNativeStyles,
   motionTextDocumentWithoutNativeStyles,
   MotionNativeStyleRuntimeError,
@@ -74,8 +77,10 @@ import {
 import {
   injectMotionTextRuntime,
   MOTION_TEXT_PROPERTIES,
+  MOTION_TEXT_ORDERS,
   MOTION_TEXT_UNITS,
   MOTION_TEXT_SOURCE_VERSION,
+  MAX_MOTION_TEXT_STAGGER_MS,
   encodeMotionTextDocument,
   MotionTextSourceError,
   readMotionTextDocument,
@@ -88,12 +93,17 @@ import type {
   MotionTrack,
 } from "../shared/motion-timeline.js";
 import {
+  isMotionTrackId,
   readTimelinePlaybackMode,
   motionTimelineDurationForContent,
+  motionTimelineDurationForTracks,
   MOTION_PATH_MAX_CONTROL_OFFSET_PX,
   MOTION_TIMELINE_DEFAULT_DURATION_MS,
   MOTION_TIMELINE_MAX_DURATION_MS,
+  MOTION_TIMELINE_MAX_CONTENT_END_MS,
+  isAdditiveMotionPositionTrack,
   parseMotionPosition,
+  withMotionTrackIdsFromExisting,
   withTimelinePlaybackMode,
 } from "../shared/motion-timeline.js";
 import {
@@ -123,7 +133,7 @@ const motionTextKeyframeSchema = z
 
 const motionTextDocumentSchema = z
   .object({
-    version: z.literal(MOTION_TEXT_SOURCE_VERSION),
+    version: z.union([z.literal(1), z.literal(MOTION_TEXT_SOURCE_VERSION)]),
     animations: z
       .array(
         z
@@ -131,13 +141,29 @@ const motionTextDocumentSchema = z
             targetNodeId: z.string(),
             unit: z.enum(MOTION_TEXT_UNITS),
             direction: z.enum(["forward", "reverse"]),
-            staggerMs: z.number().min(0).max(5000),
+            staggerMs: z.number().min(0).max(MAX_MOTION_DURATION_MS),
+            animationDirection: z.enum(["in", "out"]).optional(),
+            order: z.enum(MOTION_TEXT_ORDERS).optional(),
+            overlapPercent: z.number().min(0).max(100).optional(),
+            ignoreSpaces: z.boolean().optional(),
             delayMs: z.number().min(0).max(MAX_MOTION_DURATION_MS).optional(),
             property: z.enum(MOTION_TEXT_PROPERTIES),
             durationMs: z.number().positive().max(MAX_MOTION_DURATION_MS),
             keyframes: z.array(motionTextKeyframeSchema).min(2).max(128),
           })
-          .strict(),
+          .strict()
+          .superRefine((animation, context) => {
+            if (
+              animation.overlapPercent === undefined &&
+              animation.staggerMs > MAX_MOTION_TEXT_STAGGER_MS
+            ) {
+              context.addIssue({
+                code: "custom",
+                path: ["staggerMs"],
+                message: `staggerMs must be at most ${MAX_MOTION_TEXT_STAGGER_MS} when overlapPercent is absent.`,
+              });
+            }
+          }),
       )
       .min(1)
       .max(64),
@@ -379,6 +405,12 @@ const motionAnimationStylesSchema = z
 
 const trackSchema = z
   .object({
+    id: z
+      .string()
+      .min(1)
+      .max(128)
+      .regex(/^[A-Za-z0-9_-]+$/)
+      .optional(),
     targetNodeId: z
       .string()
       .describe(
@@ -396,6 +428,7 @@ const trackSchema = z
           "rotate are individual CSS transform properties, so they compose " +
           "freely on one node as separate tracks.",
       ),
+    composition: z.enum(["replace", "add"]).optional(),
     keyframes: z
       .array(keyframeSchema)
       .min(1)
@@ -431,6 +464,17 @@ const trackSchema = z
       ),
   })
   .superRefine((track, context) => {
+    if (
+      track.composition === "add" &&
+      !isAdditiveMotionPositionTrack(track as MotionTrack)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["composition"],
+        message:
+          "Additive composition requires finite px Position values without cubic motion paths.",
+      });
+    }
     for (const [index, keyframe] of track.keyframes.entries()) {
       if (!keyframe.motionPath) continue;
       if (track.property !== "translate") {
@@ -460,6 +504,41 @@ const trackSchema = z
           path: ["keyframes", index, "value"],
           message:
             "Spatial motion paths require finite 2D px Position values or unitless zero.",
+        });
+      }
+    }
+  });
+
+const motionTracksSchema = z
+  .array(trackSchema)
+  .superRefine((tracks, context) => {
+    const tracksByKey = new Map<
+      string,
+      Array<{ index: number; track: MotionTrack }>
+    >();
+    for (const [index, track] of tracks.entries()) {
+      const key = motionTrackKey(track.targetNodeId, track.property);
+      const group = tracksByKey.get(key) ?? [];
+      group.push({ index, track: track as MotionTrack });
+      tracksByKey.set(key, group);
+    }
+
+    for (const group of tracksByKey.values()) {
+      if (group.length < 2 || group[0]!.track.property !== "translate") {
+        continue;
+      }
+      for (const { index, track } of group) {
+        if (
+          isAdditiveMotionPositionTrack(track) &&
+          track.composition !== "replace"
+        ) {
+          continue;
+        }
+        context.addIssue({
+          code: "custom",
+          path: [index],
+          message:
+            "Repeated Position tracks require finite px values or unitless zero and cannot use cubic motion paths.",
         });
       }
     }
@@ -552,7 +631,18 @@ export default defineAction({
   description:
     "Apply one Motion timeline to its Design source and return the timeline id " +
     "and compiled source hash, preserving omitted Text, audio, saved-style, " +
-    "and native Figma style data.",
+    "and native style data. On inline HTML or React JSX, a supported static " +
+    "CSS animation is adopted on write: Motion moves its animation " +
+    "declarations and @keyframes into the managed CSS while preserving " +
+    "unrelated declarations. React imports one lossless static JSX <style> " +
+    "text or string/template literal with no substitutions when its animation " +
+    "uses one static id selector matching one JSX host. JSX <style> CSS is " +
+    "global, so this relies on the normal document-unique id contract. Dynamic " +
+    "style elements and unresolved style props fail closed. This does not " +
+    "import external CSS, JSX style-prop animations/transitions, or JavaScript " +
+    "runtime animations such as GSAP, Web Animations API calls, or Alpine " +
+    "x-transition directives; unsupported CSS " +
+    "is left unchanged and fails closed.",
   schema: z.object({
     designId: z.string().describe("Design project ID."),
     fileId: z
@@ -580,6 +670,7 @@ export default defineAction({
         connectionId: z.string().min(1),
         modulePath: z.string().min(1),
         moduleVersionHash: z.string().regex(/^[a-f0-9]{64}$/i),
+        timelineVersionHash: z.string().regex(/^[a-f0-9]{64}$/i),
         renderedNodeIds: z.array(z.string()).max(2048).optional(),
       })
       .strict()
@@ -587,14 +678,16 @@ export default defineAction({
       .describe(
         "Local React/JSX or linked HTML source snapshot from the Vite dev preview. The source " +
           "module path and SHA-256 hash are checked against the selected " +
-          "localhost file before writeback. renderedNodeIds is an optional " +
+          "localhost file before writeback. timelineVersionHash must still " +
+          "match that preview version so dirty edits cannot overwrite code " +
+          "changed since the timeline was opened. renderedNodeIds is an optional " +
           "legacy hint and is not used to authorize targets; target identity " +
           "is resolved from the live React or HTML source.",
       ),
     tracks: z
       .preprocess(
         (v) => (typeof v === "string" ? JSON.parse(v) : v),
-        z.array(trackSchema),
+        motionTracksSchema,
       )
       .describe(
         "CSS animation tracks; an empty array clears CSS tracks and supports " +
@@ -907,6 +1000,12 @@ export default defineAction({
           { errorCode: "motion_local_source_stale_preview", statusCode: 409 },
         );
       }
+      if (localSourceInput.timelineVersionHash !== live.versionHash) {
+        fail(
+          "The React or HTML Motion source changed after the timeline was loaded. Refresh Motion before saving so code edits are not overwritten.",
+          { errorCode: "motion_local_source_stale_timeline", statusCode: 409 },
+        );
+      }
       currentContent = live.content;
       baseVersionHash = live.versionHash;
       localBridgeVersionHash = live.versionHash;
@@ -933,15 +1032,52 @@ export default defineAction({
     );
     const currentReactRead =
       localSourceLocation && !isLocalHtmlSource
-        ? readMotionReactSource(currentContent)
+        ? readMotionReactSource(currentContent, localSourceLocation.filePath)
         : null;
     if (currentReactRead?.status === "invalid") {
       failMotionReactSourceError(currentReactRead.error);
     }
-    const currentHtmlRead = isLocalHtmlSource
-      ? readMotionHtmlSource(currentContent)
-      : null;
-    if (currentHtmlRead?.status === "invalid") {
+    const currentHtmlRead =
+      (isLocalHtmlSource && localSourceLocation) || isInlineHtml
+        ? readMotionHtmlSource(
+            currentContent,
+            localSourceLocation?.filePath ?? file.filename,
+          )
+        : null;
+    const legacyInlineMotionCss =
+      isInlineHtml &&
+      currentHtmlRead?.status === "invalid" &&
+      currentHtmlRead.error.code === "invalid-managed-style"
+        ? extractManagedMotionCss(currentContent)
+        : null;
+    const isLegacyInlineManagedMotion = Boolean(
+      legacyInlineMotionCss &&
+      decodeMotionCodeMetadata(legacyInlineMotionCss).status === "absent",
+    );
+    let inlineHtmlSourceForWrite = currentContent;
+    let legacyAuthoredTracks: MotionTrack[] = [];
+    if (isLegacyInlineManagedMotion) {
+      try {
+        inlineHtmlSourceForWrite =
+          removeUnversionedManagedMotionStyle(currentContent);
+      } catch (error) {
+        if (error instanceof MotionHtmlSourceError) {
+          failMotionHtmlSourceError(error);
+        }
+        throw error;
+      }
+      const legacySourceRead = readMotionHtmlSource(
+        inlineHtmlSourceForWrite,
+        file.filename,
+      );
+      if (legacySourceRead.status === "invalid") {
+        failMotionHtmlSourceError(legacySourceRead.error);
+      }
+      if (legacySourceRead.status === "valid") {
+        legacyAuthoredTracks = legacySourceRead.document?.tracks ?? [];
+      }
+    }
+    if (currentHtmlRead?.status === "invalid" && !isLegacyInlineManagedMotion) {
       failMotionHtmlSourceError(currentHtmlRead.error);
     }
     const currentTextRead = isInlineHtml
@@ -1056,7 +1192,7 @@ export default defineAction({
         { errorCode: "motion_easing_variables_invalid", statusCode: 422 },
       );
     }
-    const nativeStyles: MotionNativeStyleInstance[] =
+    let nativeStyles: MotionNativeStyleInstance[] =
       nativeStylesInput === undefined
         ? existingNativeStyles
         : (nativeStylesInput as MotionNativeStyleInstance[]);
@@ -1075,6 +1211,31 @@ export default defineAction({
     }
     let runtimeTextDocument: MotionTextDocument | null;
     try {
+      if (nativeStylesInput !== undefined && textDocument) {
+        // A new style inherits authored whitespace only when that is its sole
+        // profile difference; an existing style keeps its explicit choice.
+        nativeStyles = nativeStyles.map((style) => {
+          if (
+            style.styleKey !== "TextStagger" ||
+            existingNativeStyles.some(
+              (existing) =>
+                existing.styleKey === "TextStagger" &&
+                existing.targetNodeId === style.targetNodeId,
+            )
+          ) {
+            return style;
+          }
+          const authoredAnimation = textDocument.animations.find(
+            (animation) => animation.targetNodeId === style.targetNodeId,
+          );
+          return authoredAnimation
+            ? motionNativeStyleWithMatchingAuthoredTextWhitespace(
+                style,
+                authoredAnimation,
+              )
+            : style;
+        });
+      }
       runtimeTextDocument = motionTextDocumentWithNativeStyles(
         textDocument,
         nativeStyles,
@@ -1116,7 +1277,37 @@ export default defineAction({
       }
     }
 
-    const inputTracks = tracks as MotionTrack[];
+    const requestedTracks = tracks as MotionTrack[];
+    const requestedTrackKeys = new Set(
+      requestedTracks.map((track) =>
+        motionTrackKey(track.targetNodeId, track.property),
+      ),
+    );
+    const overlappingLegacyAuthoredTrack = legacyAuthoredTracks.find((track) =>
+      requestedTrackKeys.has(
+        motionTrackKey(track.targetNodeId, track.property),
+      ),
+    );
+    if (overlappingLegacyAuthoredTrack) {
+      failMotionHtmlSourceError(
+        new MotionHtmlSourceError(
+          "unsupported-authored-motion",
+          `Legacy managed Motion and authored HTML CSS both define the ${overlappingLegacyAuthoredTrack.property} track on target "${overlappingLegacyAuthoredTrack.targetNodeId}". Remove one source animation before saving.`,
+        ),
+      );
+    }
+    const inputTracks = withMotionTrackIdsFromExisting(
+      [
+        ...requestedTracks,
+        ...legacyAuthoredTracks.filter(
+          (track) =>
+            !requestedTrackKeys.has(
+              motionTrackKey(track.targetNodeId, track.property),
+            ),
+        ),
+      ],
+      existingMotionDocument?.tracks ?? [],
+    );
 
     if (
       inputTracks.length === 0 &&
@@ -1126,7 +1317,7 @@ export default defineAction({
       nativeStyles.length === 0
     ) {
       fail(
-        "A timeline with no CSS tracks must contain a Text animation, a saved Motion style, or a native Figma style.",
+        "A timeline with no CSS tracks must contain a Text animation, a saved Motion style, or a native style instance.",
         {
           errorCode: "motion_text_source_required",
           statusCode: 422,
@@ -1151,14 +1342,23 @@ export default defineAction({
       }
     }
 
+    const trackContentEndMs = Math.ceil(
+      motionTimelineDurationForTracks(requestedDurationMs, inputTracks),
+    );
+    if (trackContentEndMs > MOTION_TIMELINE_MAX_CONTENT_END_MS) {
+      fail(
+        `Motion tracks end at ${trackContentEndMs}ms, which exceeds the ${MOTION_TIMELINE_MAX_CONTENT_END_MS}ms content limit. Reduce a track delay or duration.`,
+        { errorCode: "motion_timeline_duration_exceeded", statusCode: 422 },
+      );
+    }
+
     const durationMs = Math.ceil(
       Math.max(
         motionTimelineDurationForContent(
           requestedDurationMs,
-          inputTracks,
+          [],
           textDocument?.animations ?? [],
         ),
-        ...nativeStyles.map(motionNativeStyleEndTimeMs),
         audioEndMs,
       ),
     );
@@ -1169,23 +1369,51 @@ export default defineAction({
       );
     }
 
-    const seenTrackKeys = new Set<string>();
+    const seenTrackIds = new Set<string>();
+    const tracksByKey = new Map<string, MotionTrack[]>();
     for (const track of inputTracks) {
       assertSafeMotionCssProperty(track.property, "track.property");
-      const trackKey = motionTrackKey(track.targetNodeId, track.property);
-      if (seenTrackKeys.has(trackKey)) {
-        throw new Error(
-          `Duplicate motion track for targetNodeId "${track.targetNodeId}" ` +
-            `and property "${track.property}". Each (targetNodeId, property) ` +
-            "pair may appear at most once — merge the keyframes into a single track.",
-        );
+      if (!isMotionTrackId(track.id)) {
+        fail("Motion track ids must be stable CSS-safe identifiers.", {
+          errorCode: "motion_invalid_track_id",
+          statusCode: 422,
+        });
       }
-      seenTrackKeys.add(trackKey);
+      if (seenTrackIds.has(track.id)) {
+        fail(`Duplicate motion track id "${track.id}".`, {
+          errorCode: "motion_duplicate_track_id",
+          statusCode: 422,
+        });
+      }
+      seenTrackIds.add(track.id);
+      const trackKey = motionTrackKey(track.targetNodeId, track.property);
+      const tracksForKey = tracksByKey.get(trackKey) ?? [];
+      tracksForKey.push(track);
+      tracksByKey.set(trackKey, tracksForKey);
       for (const kf of track.keyframes) {
         assertSafeMotionCssToken(kf.value, "keyframe value");
         if (kf.ease !== undefined) {
           assertValidMotionEase(kf.ease, "keyframe ease");
         }
+      }
+    }
+    for (const tracksForKey of tracksByKey.values()) {
+      if (
+        tracksForKey.length > 1 &&
+        tracksForKey[0]!.property === "translate" &&
+        tracksForKey.some(
+          (track) =>
+            !isAdditiveMotionPositionTrack(track) ||
+            track.composition === "replace",
+        )
+      ) {
+        fail(
+          "Repeated Position tracks require finite px values or unitless zero and cannot use cubic motion paths.",
+          {
+            errorCode: "motion_position_composition_unsupported",
+            statusCode: 422,
+          },
+        );
       }
     }
     assertValidMotionEase(defaultEase, "defaultEase");
@@ -1211,6 +1439,38 @@ export default defineAction({
       createdAt: now,
       updatedAt: now,
     };
+
+    if (isInlineHtml && !canPatchManagedMotionCss(currentContent)) {
+      fail(
+        `${MOTION_SOURCE_WRITE_UNAVAILABLE}: Motion code writes currently work only in inline HTML designs.`,
+        {
+          errorCode: MOTION_SOURCE_WRITE_UNAVAILABLE,
+          statusCode: 422,
+        },
+      );
+    }
+    if (isLegacyInlineManagedMotion) {
+      try {
+        assertMotionHtmlSourceTargets({
+          source: currentContent,
+          sourceFilePath: file.filename,
+          targetNodeIds: [
+            ...new Set([
+              ...typedTracks.map((track) => track.targetNodeId),
+              ...nativeStyles.map((style) => style.targetNodeId),
+              ...(runtimeTextDocument?.animations.map(
+                (animation) => animation.targetNodeId,
+              ) ?? []),
+            ]),
+          ],
+        });
+      } catch (error) {
+        if (error instanceof MotionHtmlSourceError) {
+          failMotionHtmlSourceError(error);
+        }
+        throw error;
+      }
+    }
 
     let reactSourceEdit: ReturnType<typeof applyMotionReactSourceEdit> | null =
       null;
@@ -1267,6 +1527,35 @@ export default defineAction({
         throw new Error("Motion source adapter did not return an edit.");
       }
       compiled = { css: sourceEdit.css, hash: sourceEdit.hash };
+    } else if (isInlineHtml) {
+      try {
+        const preview = instrumentMotionHtmlPreviewSource({
+          source: inlineHtmlSourceForWrite,
+          sourceFilePath: file.filename,
+        });
+        htmlSourceEdit = applyMotionHtmlSourceEdit({
+          currentSource: inlineHtmlSourceForWrite,
+          expectedSource: inlineHtmlSourceForWrite,
+          preview: { sourceHash: preview.sourceHash },
+          sourceFilePath: file.filename,
+          timeline: sourceTimeline,
+          textDocument: runtimeTextDocument,
+          easingVariables,
+          audioClips: sourceAudioClips,
+        });
+      } catch (error) {
+        if (error instanceof MotionHtmlSourceError) {
+          failMotionHtmlSourceError(error);
+        }
+        if (error instanceof MotionNativeStyleRuntimeError) {
+          fail(error.message, {
+            errorCode: `motion_native_style_${error.code.replace(/-/g, "_")}`,
+            statusCode: 422,
+          });
+        }
+        throw error;
+      }
+      compiled = { css: htmlSourceEdit.css, hash: htmlSourceEdit.hash };
     } else {
       try {
         compiled = compileMotionCode(sourceTimeline, {

@@ -205,6 +205,10 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.keySummary": "एंबेडिंग",
   "onboarding.capability.embeddings.why":
     "एंबेडिंग अर्थपूर्ण खोज को बेहतर बनाती हैं। इनके बिना भी कीवर्ड खोज काम करती है।",
+  "onboarding.capability.webSearch.label": "वेब खोज",
+  "onboarding.capability.webSearch.keySummary": "Builder द्वारा प्रबंधित वेब खोज",
+  "onboarding.capability.webSearch.why":
+    "वेब पर मौजूदा सार्वजनिक स्रोत खोजें। Builder द्वारा प्रबंधित खोज शामिल Builder AI क्रेडिट का उपयोग करती है, इसलिए अलग खोज API कुंजी की ज़रूरत नहीं है।",
   "onboarding.capability.systemOne.why":
     "Jev एक वैकल्पिक निर्णय मॉडल है, जो एजेंट के पहले मॉडल अनुरोध से पहले प्रासंगिक टूल और स्किल चुनने में मदद करता है।",
   "onboarding.capability.assetsImageGeneration.label": "इमेज जनरेशन",
@@ -664,6 +668,10 @@ const messages: ToolkitAgentChatTranslation = {
     "मॉडल प्रदाता ने इस अनुरोध को त्रुटिपूर्ण मानकर अस्वीकार कर दिया, इसलिए इसे दोबारा नहीं भेजा गया। फिर से प्रयास करें, या बार-बार होने पर नई चैट शुरू करें।",
   "errorMessages.requestTooLarge":
     "यह अनुरोध सर्वर की आकार सीमा से बड़ा था (HTTP 413)। नई चैट शुरू करें या बड़े अटैचमेंट या संदर्भ हटाकर फिर कोशिश करें।",
+  "errorMessages.capabilityUnavailable":
+    "हम अभी आपका संदेश नहीं भेज सके। कृपया थोड़ी देर बाद फिर कोशिश करें।",
+  "errorMessages.capabilityUnsupported":
+    "यह ऐप अभी आपके सहेजे गए संदेश को सुरक्षित रूप से दोबारा नहीं भेज सकता। ऐप अपडेट करें और फिर कोशिश करें।",
   "errorMessages.runInterrupted": "एजेंट काम पूरा करने से पहले रुक गया।",
   "errorMessages.runFailed": "एजेंट का रन विफल हो गया।",
   "errorMessages.runUnverified":
@@ -2585,6 +2593,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.search.appDefaultModel": "ऐप का डिफ़ॉल्ट मॉडल",
   "settingsShell.search.backgroundAgents": "बैकग्राउंड एजेंट",
   "settingsShell.search.browserAutomation": "ब्राउज़र ऑटोमेशन",
+  "settingsShell.search.webSearch": "वेब खोज",
   "settingsShell.search.connectedAgents": "कनेक्ट किए गए एजेंट",
   "settingsShell.search.database": "डेटाबेस",
   "settingsShell.search.defaultModel": "डिफ़ॉल्ट मॉडल",
@@ -2717,6 +2726,8 @@ const messages: ToolkitAgentChatTranslation = {
     "बनाई गई स्लाइड और डिज़ाइन को ब्रांड के अनुरूप रखता है।",
   "settingsInfra.whyBackground": "प्रोडक्शन से कोड में बदलाव करता है।",
   "settingsInfra.whyBrowser": "एजेंट को प्रोडक्शन में ब्राउज़र इस्तेमाल करने देता है।",
+  "settingsInfra.whyWebSearch":
+    "नई सार्वजनिक जानकारी और आधिकारिक दस्तावेज़ ढूँढता है।",
   "settingsInfra.provider": "प्रदाता",
   "settingsInfra.keyOrg": "संगठन की {{provider}} कुंजी इस्तेमाल करता है।",
   "settingsInfra.manageKey": "कुंजी प्रबंधित करें",
@@ -3040,6 +3051,18 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsSubAgents.connectTitle": "{{name}} कनेक्ट करें",
   "settingsSubAgents.close": "बंद करें",
   "observability.insights.rawTrace": "रॉ ट्रेस (हर स्पैन, इनपुट और आउटपुट के साथ)",
+  "reportProblem.menuItem": "समस्या की रिपोर्ट करें",
+  "reportProblem.title_one":
+    "पिछले {{count}} सेकंड में ऐप ने जो किया, क्या उसे संलग्न करें?",
+  "reportProblem.title_other":
+    "पिछले {{count}} सेकंड में ऐप ने जो किया, क्या उसे संलग्न करें?",
+  "reportProblem.noEvents": "अभी तक कुछ रिकॉर्ड नहीं हुआ।",
+  "reportProblem.send": "एजेंट को भेजें",
+  "reportProblem.copy": "समस्या रिपोर्ट कॉपी करें",
+  "reportProblem.attaching": "संलग्न किया जा रहा है…",
+  "reportProblem.notAttached": "रिपोर्ट संलग्न नहीं हुई।",
+  "reportProblem.agentMessage":
+    "ऐप में कुछ गड़बड़ हो गई। संलग्न समस्या रिपोर्ट से बताइए कि क्या हुआ।",
 };
 
 export default messages;

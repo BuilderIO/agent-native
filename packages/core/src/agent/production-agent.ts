@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 
 import {
+  AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY,
+  AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY,
   MAX_AGENT_REQUEST_ATTACHMENT_DATA_CHARS,
   MAX_AGENT_REQUEST_ATTACHMENTS,
   type AgentSuggestion,
@@ -22,6 +24,7 @@ import type { A2AConnectionRequestMetadata, Task } from "../a2a/types.js";
 import {
   actionCallEmitsChange,
   actionCallIsReadOnly,
+  actionCallIsRetrySafe,
   actionChangeResource,
 } from "../action-call-classification.js";
 import {
@@ -142,6 +145,7 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
   runWithRequestContext,
+  type RequestRunContext,
 } from "../server/request-context.js";
 import { secretKeyNames } from "../server/secret-key-aliases.js";
 import { fireInternalDispatch } from "../server/self-dispatch.js";
@@ -198,6 +202,7 @@ import {
 } from "./context-xray/manifest.js";
 import {
   AGENT_CHAT_BROWSER_SESSION_ID_FIELD,
+  AGENT_CHAT_REQUEST_CONTEXT_FIELD,
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
   AGENT_CHAT_RECOVERY_OF_RUN_FIELD,
@@ -365,6 +370,8 @@ import {
   claimSetupResume,
   setupResumeRefusedRunId,
 } from "./setup-resume-claim.js";
+import { getStrictToolInputValidator } from "./strict-tool-input.js";
+import { normalizeSubmissionDeadlineMetadata } from "./submission-deadline.js";
 import {
   consumeAgentToolApproval,
   createAgentToolApproval,
@@ -926,6 +933,12 @@ export async function getOwnerActiveApiKey(
     const engineSetting = await readDefaultAgentEngineSetting({
       userEmail: ownerEmail ?? getRequestUserEmail(),
       orgId: getRequestOrgId(),
+      ...(getRequestContext()?.orgScope === "personal"
+        ? { orgScope: "personal" as const }
+        : {}),
+      ...(getRequestContext()?.defaultAgentEngineScope === "deployment"
+        ? { defaultAgentEngineScope: "deployment" as const }
+        : {}),
     });
     const activeEngine =
       (engineSetting?.engine as string | undefined) ?? "anthropic";
@@ -978,8 +991,9 @@ export async function resolveOwnerEngineApiKey(input: {
     if (resolved.apiKey) return resolved;
   } else {
     try {
-      const { getSetting } = await import("../settings/store.js");
-      const engineSetting = await getSetting("agent-engine");
+      const { readDefaultAgentEngineSetting } =
+        await import("./default-agent-engine.js");
+      const engineSetting = await readDefaultAgentEngineSetting();
       activeEngineSetting = {
         status: "available",
         engine: (engineSetting?.engine as string | undefined) ?? "anthropic",
@@ -1149,6 +1163,8 @@ export interface ActionEntry {
     result: any,
   ) => import("../action.js").ActionChangeResource | null | undefined;
   parallelSafe?: boolean;
+  /** See `ActionDefinition.retrySafe`. */
+  retrySafe?: boolean | ((input: any) => boolean);
   dedupe?: boolean;
   toolCallable?: boolean;
   agentDiscoveryAvailable?: (
@@ -1168,6 +1184,12 @@ export interface ActionEntry {
         ctx?: import("../action.js").ActionRunContext,
       ) => boolean | Promise<boolean>);
   allowPersistentApproval?: boolean;
+  /**
+   * Identifies what this entry does under its name. Approvals, including
+   * "always allow", are bound to it, so a tool that keeps its name but changes
+   * revision must be approved again.
+   */
+  revision?: string;
   endsTurn?: boolean;
   frameworkGroup?: import("../framework-tools.js").FrameworkToolGroup;
 }
@@ -1385,6 +1407,66 @@ export function readPersistedActionSurface(
   } catch {
     return { orgId: null, allowedActionNames: [] };
   }
+}
+
+function readPersistedAdditionalActionNames(
+  body: AgentChatRequest,
+): string[] | undefined {
+  const names = body.__resolvedAdditionalActionNames;
+  if (names === undefined) return undefined;
+  if (!Array.isArray(names) || names.some((name) => typeof name !== "string")) {
+    throw new Error("Persisted additional action names are malformed");
+  }
+  return names;
+}
+
+// Marks the placeholders that keep a removed name in a pinned turn's registry,
+// so the agent loop treats them as absent: same gone-tool error and stop. A
+// symbol key, not object identity, because registries copy entries by spread.
+const UNAVAILABLE_ACTION = Symbol("agent-native.unavailableAction");
+
+export function isUnavailableActionEntry(
+  entry: ActionEntry | undefined,
+): boolean {
+  return (
+    entry !== undefined &&
+    (entry as { [UNAVAILABLE_ACTION]?: true })[UNAVAILABLE_ACTION] === true
+  );
+}
+
+/**
+ * A durable continuation re-resolves the caller's additional actions, which
+ * may have changed since the turn started. Keep the turn's names: drop entries
+ * that appeared since, and keep a vanished name as an entry that fails loudly
+ * when called, so a persisted action allowlist that names it still resolves.
+ * A name that has since become a registered action is left to that action.
+ */
+export function pinAdditionalActionsToTurn(
+  resolved: Record<string, ActionEntry>,
+  turnNames: readonly string[],
+  registered: Record<string, ActionEntry>,
+): Record<string, ActionEntry> {
+  const pinned: Record<string, ActionEntry> = {};
+  for (const name of turnNames) {
+    if (Object.hasOwn(registered, name)) continue;
+    pinned[name] = Object.hasOwn(resolved, name)
+      ? resolved[name]
+      : ({
+          [UNAVAILABLE_ACTION]: true,
+          agentTool: false,
+          tool: {
+            description: `${name} is no longer available to this caller.`,
+            parameters: { type: "object", properties: {} },
+          },
+          readOnly: true,
+          run: () => {
+            throw new Error(
+              `${name} is no longer available to this caller; it was removed after this turn started.`,
+            );
+          },
+        } as ActionEntry);
+  }
+  return pinned;
 }
 
 export function filterActionsByAllowedNames(
@@ -1705,6 +1787,62 @@ type AgentRunTrackingSource = Pick<
   "userId" | "authUserId" | "anonymousId" | "sessionId"
 > & { isSyntheticTraffic?: boolean };
 
+function submissionExpiryMetadata(
+  metadata: unknown,
+): { submissionExpiresAt: unknown } | undefined {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return undefined;
+  }
+  const custom = (metadata as Record<string, unknown>).custom;
+  if (
+    !custom ||
+    typeof custom !== "object" ||
+    Array.isArray(custom) ||
+    !Object.prototype.hasOwnProperty.call(
+      custom,
+      AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY,
+    )
+  ) {
+    return undefined;
+  }
+  return {
+    submissionExpiresAt: (custom as Record<string, unknown>)[
+      AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY
+    ],
+  };
+}
+
+function mergeQueuedPromotionMetadata(
+  admittedMetadata: unknown,
+  optionMetadata: unknown,
+): Record<string, unknown> {
+  const admitted = queuedPromotionRecord(admittedMetadata) ?? {};
+  const options = queuedPromotionRecord(optionMetadata) ?? {};
+  const admittedCustom = queuedPromotionRecord(admitted.custom) ?? {};
+  const optionCustom = queuedPromotionRecord(options.custom) ?? {};
+  const custom = { ...admittedCustom, ...optionCustom };
+
+  delete custom[AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY];
+  delete custom[AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY];
+  if (
+    Object.prototype.hasOwnProperty.call(
+      admittedCustom,
+      AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY,
+    )
+  ) {
+    custom[AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY] =
+      admittedCustom[AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY];
+  }
+
+  const metadata = { ...admitted, ...options };
+  if (Object.keys(custom).length > 0) {
+    metadata.custom = custom;
+  } else {
+    delete metadata.custom;
+  }
+  return metadata;
+}
+
 export interface PreparedAgentRequest {
   message?: string;
   displayMessage?: string;
@@ -1751,6 +1889,9 @@ export interface ProductionAgentOptions {
     event: any;
     ownerEmail: string | null;
     orgId: string | null;
+    threadId?: string;
+    requestedTurnId?: string;
+    internalContinuation: boolean;
   }) => Record<string, ActionEntry> | Promise<Record<string, ActionEntry>>;
   systemPrompt: string | ((event: any) => string | Promise<string>);
   apiKey?: string;
@@ -1777,6 +1918,7 @@ export interface ProductionAgentOptions {
     attachments?: AgentChatAttachment[];
     queuedMessageId?: string;
     queuedMessageClaimId?: string;
+    submissionExpiresAt?: unknown;
   }) => void | Promise<void>;
   /**
    * The turn was refused before a run started (no usable model credential).
@@ -1790,6 +1932,7 @@ export interface ProductionAgentOptions {
     attachments?: AgentChatAttachment[];
     queuedMessageId?: string;
     agentKitMessageId?: string;
+    submissionExpiresAt?: unknown;
     retryContext: RefusedTurnRetryContext;
     failure: { code: string; message: string };
   }) => Promise<void>;
@@ -1820,7 +1963,16 @@ export interface ProductionAgentOptions {
     threadId: string,
     runId: string,
   ) => void | Promise<void>;
-  onEngineResolved?: (engine: AgentEngine, model: string) => void;
+  /**
+   * Called when the run's engine, model, and effort resolve, and again before
+   * each model call, because a call can run on a rate-limit fallback model or
+   * at the lower effort an empty-response retry steps down to.
+   */
+  onEngineResolved?: (
+    engine: AgentEngine,
+    model: string,
+    reasoningEffort: ReasoningEffort | undefined,
+  ) => void;
   resolveOwnerEmail?: (event: any) => string | Promise<string>;
   finalResponseGuard?: AgentLoopFinalResponseGuard;
   skipFilesContext?: boolean;
@@ -4659,6 +4811,8 @@ export interface ExecuteAgentToolCallOptions {
 
 export interface AgentApprovalBinding {
   toolName: string;
+  /** The entry's `revision` when the call was made; null when it has none. */
+  toolRevision: string | null;
   input: unknown;
   callId: string;
   approvalKey: string;
@@ -4891,6 +5045,7 @@ const DEFAULT_INITIAL_TOOL_NAMES = new Set([
   "docs-search",
   "get-framework-context",
   "read-attachment",
+  "web-search",
   "web-request",
   "describe-workspace-apps",
   "call-agent",
@@ -4922,6 +5077,89 @@ function readToolSearchHistory(messages: EngineMessage[]): {
     }
   }
   return { names, unreadable };
+}
+
+export const TOOL_NO_LONGER_AVAILABLE_PREFIX =
+  "Error: Tool no longer available";
+const MAX_DROPPED_TOOL_NOTE_NAMES = 20;
+// History is client-supplied on some transports, so only tool-name-shaped
+// strings reach the prompt.
+const HISTORY_TOOL_NAME_PATTERN = /^[A-Za-z0-9_.:-]{1,128}$/;
+
+function readHistoryToolNames(
+  messages: EngineMessage[],
+  loadedNames: readonly unknown[],
+): Set<string> {
+  const names = new Set<string>();
+  for (const name of loadedNames) {
+    if (typeof name === "string") names.add(name);
+  }
+  // A call that already got "Unknown tool" named a tool that never existed.
+  const unknownCallIds = new Set<string>();
+  for (const message of messages) {
+    if (message.role !== "user") continue;
+    for (const part of message.content) {
+      if (
+        part.type === "tool-result" &&
+        typeof part.content === "string" &&
+        part.content.startsWith("Error: Unknown tool")
+      ) {
+        unknownCallIds.add(part.toolCallId);
+      }
+    }
+  }
+  for (const message of messages) {
+    if (message.role !== "assistant") continue;
+    for (const part of message.content) {
+      if (part.type === "tool-call" && !unknownCallIds.has(part.id)) {
+        names.add(part.name);
+      }
+    }
+  }
+  return names;
+}
+
+function isHistoryToolName(name: unknown): name is string {
+  return typeof name === "string" && HISTORY_TOOL_NAME_PATTERN.test(name);
+}
+
+function formatDroppedToolsNote(names: readonly string[], max: number): string {
+  const shown = names.slice(0, max);
+  const more = names.length - shown.length;
+  return (
+    `Tools loaded earlier in this conversation are no longer available: ${shown.join(", ")}` +
+    (more > 0 ? ` (and ${more} more)` : "") +
+    ". Do not call them; use tool-search for alternatives."
+  );
+}
+
+function appendUserContextNote(messages: EngineMessage[], text: string): void {
+  const last = messages[messages.length - 1];
+  if (last?.role === "user") {
+    messages[messages.length - 1] = {
+      ...last,
+      content: [...last.content, { type: "text", text }],
+    };
+    return;
+  }
+  messages.push({ role: "user", content: [{ type: "text", text }] });
+}
+
+// The user approved a call whose tool has since gone; letting the model carry
+// on would have it improvise around an approval that no longer applies.
+function approvedToolUnavailableStop(name: string): TerminalActionStop {
+  return {
+    message: `${name} is no longer available, so the call you approved did not run.`,
+    errorCode: "tool_unavailable",
+  };
+}
+
+export function formatToolNoLongerAvailable(name: string): string {
+  return (
+    `${TOOL_NO_LONGER_AVAILABLE_PREFIX}: "${name}". It was available earlier in ` +
+    "this conversation, but it is not among this run's tools. It did NOT " +
+    "execute; do not retry it."
+  );
 }
 
 function normalizeToolInputSchema(
@@ -5879,6 +6117,8 @@ function validateRawToolInput(
   entry: ActionEntry,
   input: unknown,
 ): string | null {
+  const strict = getStrictToolInputValidator(entry);
+  if (strict) return strict(input);
   if (!shouldValidateRawToolParameters(entry)) return null;
   const parameters = entry.tool.parameters;
   if (!parameters) return null;
@@ -5985,6 +6225,15 @@ export async function runAgentLoop(opts: {
   unknownWriteToolNames?: Set<string>;
   internalContinuation?: boolean;
   onModelInput?: ModelInputObserver;
+  /**
+   * The model and effort each model call uses. Either can change mid-run: a
+   * rate limit falls back to another model, and an empty response steps effort
+   * down.
+   */
+  onModelSettings?: (
+    model: string,
+    reasoningEffort: ReasoningEffort | undefined,
+  ) => void;
   onUsage?: (usage: AgentLoopUsage) => void;
   onOutcome?: (outcome: AgentLoopOutcome) => void;
   ownerEmail?: string | null;
@@ -6168,7 +6417,11 @@ export async function runAgentLoop(opts: {
     for (const name of requested) noteToolNeeded(name);
     const wanted = [...requested].flatMap((name) => {
       const tool = availableToolMap.get(name);
-      return tool && !activeToolNames.has(name) ? [tool] : [];
+      return tool &&
+        !activeToolNames.has(name) &&
+        !isUnavailableActionEntry(actions[name])
+        ? [tool]
+        : [];
     });
     const added: string[] = [];
     const overflow: string[] = [];
@@ -6233,6 +6486,30 @@ export async function runAgentLoop(opts: {
   }
   // Newest searches lead, so they win if history alone overflows the cap.
   expandActiveTools(priorSearches.names.reverse());
+  // Each run resolves the caller's current tools, so a tool the conversation
+  // already used or loaded can be gone now. Calls to it are told so rather
+  // than "Unknown tool", and loaded ones that went away are named up front.
+  const historyToolNames = readHistoryToolNames(messages, priorSearches.names);
+  const droppedToolNames = [...new Set(priorSearches.names)].filter(
+    (name) =>
+      isHistoryToolName(name) &&
+      (!availableToolMap.has(name) || isUnavailableActionEntry(actions[name])),
+  );
+  if (droppedToolNames.length > 0) {
+    // In-process continuations rerun this loop on the same messages.
+    const note = formatDroppedToolsNote(
+      droppedToolNames,
+      MAX_DROPPED_TOOL_NOTE_NAMES,
+    );
+    const alreadyNoted = messages.some(
+      (message) =>
+        message.role === "user" &&
+        message.content.some(
+          (part) => part.type === "text" && part.text === note,
+        ),
+    );
+    if (!alreadyNoted) appendUserContextNote(messages, note);
+  }
 
   const processorChain =
     opts.processors && opts.processors.length > 0
@@ -6521,6 +6798,7 @@ export async function runAgentLoop(opts: {
     let terminalStopReason:
       | Extract<EngineEvent, { type: "stop" }>["reason"]
       | undefined;
+    let terminalStopErrorCode: string | undefined;
     const toolCallErrors = new Map<
       string,
       { name: string; input: unknown; error: string }
@@ -6576,6 +6854,7 @@ export async function runAgentLoop(opts: {
       streamedAssistantText = "";
       streamedAssistantToolCalls.length = 0;
       terminalStopReason = undefined;
+      terminalStopErrorCode = undefined;
       toolCallErrors.clear();
       try {
         let providerOptions = opts.providerOptions;
@@ -6624,6 +6903,7 @@ export async function runAgentLoop(opts: {
           providerOptions,
         };
 
+        opts.onModelSettings?.(model, effectiveReasoningEffort);
         usage.llmCalls = (usage.llmCalls ?? 0) + 1;
         notifyModelInputObserver(opts.onModelInput, engineMessages);
         const eventStream = engine.stream(streamOpts);
@@ -6653,6 +6933,9 @@ export async function runAgentLoop(opts: {
             type: "model_stream",
             status: "end",
             ...(terminalStopReason ? { reason: terminalStopReason } : {}),
+            ...(terminalStopErrorCode
+              ? { errorCode: terminalStopErrorCode }
+              : {}),
           });
         };
         let lastModelStreamProgressAt = Date.now();
@@ -6909,6 +7192,7 @@ export async function runAgentLoop(opts: {
             } else if (event.type === "stop") {
               terminalStopReason = event.reason;
               if (event.reason === "error") {
+                terminalStopErrorCode = event.errorCode;
                 throw engineStopError(event, engineMessages);
               }
             }
@@ -6917,6 +7201,13 @@ export async function runAgentLoop(opts: {
               break;
             }
           }
+        } catch (err: unknown) {
+          // A thrown engine error skips the `stop` event, so its code must
+          // reach the bracket end here or the failed attempt goes unlabeled.
+          const thrownCode = (err as { errorCode?: unknown } | null)?.errorCode;
+          if (typeof thrownCode === "string")
+            terminalStopErrorCode ??= thrownCode;
+          throw err;
         } finally {
           closeModelStreamBracket();
           if (!eventIteratorDone) {
@@ -7009,7 +7300,7 @@ export async function runAgentLoop(opts: {
             fallbackModelAttempted = true;
             send({
               type: "activity",
-              label: `${model} is rate limited — switching to ${fallbackModel}`,
+              label: "Model is rate limited — switching to a backup model",
             });
             send({ type: "clear" });
             model = fallbackModel;
@@ -7018,7 +7309,9 @@ export async function runAgentLoop(opts: {
             usage.cacheReadTokens = 0;
             usage.cacheWriteTokens = 0;
             usage.model = fallbackModel;
-            retry = -1;
+            // The sibling shares the throttled quota, so it gets this one
+            // attempt; a fresh retry budget only re-hits the same limit.
+            retry = maxRetriesForError(err) - 1;
             continue;
           }
         }
@@ -7439,27 +7732,36 @@ export async function runAgentLoop(opts: {
       toolCall: import("./engine/types.js").EngineToolCallPart,
     ): Promise<EngineContentPart> => {
       noteToolNeeded(toolCall.name);
-      const actionEntry = actions[toolCall.name];
-      const placeholderNormalization = actionEntry
-        ? normalizeOptionalToolPlaceholders(
-            actionEntry.tool.parameters,
-            toolCall.input,
-          )
-        : { input: toolCall.input, changed: false };
+      const registeredEntry = actions[toolCall.name];
+      const actionEntry = isUnavailableActionEntry(registeredEntry)
+        ? undefined
+        : registeredEntry;
+      const strictToolInput = getStrictToolInputValidator(actionEntry);
+      const placeholderNormalization =
+        actionEntry && !strictToolInput
+          ? normalizeOptionalToolPlaceholders(
+              actionEntry.tool.parameters,
+              toolCall.input,
+            )
+          : { input: toolCall.input, changed: false };
       if (placeholderNormalization.changed) {
         toolCall = { ...toolCall, input: placeholderNormalization.input };
       }
-      const jsonStringCoercion = actionEntry
-        ? coerceStringifiedJsonToolValues(
-            actionEntry.tool.parameters,
-            toolCall.input,
-          )
-        : { input: toolCall.input, changed: false };
+      const jsonStringCoercion =
+        actionEntry && !strictToolInput
+          ? coerceStringifiedJsonToolValues(
+              actionEntry.tool.parameters,
+              toolCall.input,
+            )
+          : { input: toolCall.input, changed: false };
       if (jsonStringCoercion.changed) {
         toolCall = { ...toolCall, input: jsonStringCoercion.input };
       }
       const actionIsReadOnly = actionEntry
         ? actionCallIsReadOnly(actionEntry, toolCall.input, false)
+        : false;
+      const actionRetrySafe = actionEntry
+        ? actionCallIsRetrySafe(actionEntry, toolCall.input)
         : false;
       const repeatGuardStopFromThisCall = noteRepeatedToolCall(
         toolCall.name,
@@ -7500,6 +7802,16 @@ export async function runAgentLoop(opts: {
       ) => {
         if (event.outcomeUnknown) {
           unknownWriteToolNames.add(toolCall.name);
+        }
+        // A write that errored after it was invoked may still have committed,
+        // retry-safe or not, so cached reads of its target are stale.
+        if (
+          event.outcomeUnknown ||
+          (event.isError &&
+            actionInvoked &&
+            !actionIsReadOnly &&
+            !actionRefused)
+        ) {
           readOnlyToolResultCache.clear();
           duplicateReadOnlyToolCalls.clear();
         }
@@ -7662,9 +7974,21 @@ export async function runAgentLoop(opts: {
       }
 
       if (!actionEntry) {
+        const noLongerAvailable =
+          historyToolNames.has(toolCall.name) ||
+          isUnavailableActionEntry(registeredEntry);
         const result = finalizeToolErrorResult(
-          `Error: Unknown tool "${toolCall.name}"`,
+          noLongerAvailable
+            ? formatToolNoLongerAvailable(toolCall.name)
+            : `Error: Unknown tool "${toolCall.name}"`,
         );
+        if (
+          approvedToolCallKeys.has(
+            toolCallCacheKey(toolCall.name, toolCall.input),
+          )
+        ) {
+          requestedActionStop ??= approvedToolUnavailableStop(toolCall.name);
+        }
         send({
           type: "tool_start",
           id: toolCall.id,
@@ -7722,6 +8046,7 @@ export async function runAgentLoop(opts: {
       const requestedApproval = approvedToolCallKeys.delete(approvalKey);
       const approvalBinding: AgentApprovalBinding = {
         toolName: toolCall.name,
+        toolRevision: actionEntry.revision ?? null,
         input: toolCall.input,
         callId: toolCall.id,
         approvalKey,
@@ -8010,8 +8335,8 @@ export async function runAgentLoop(opts: {
           recordToolResult(result, true);
           requestedActionStop ??= {
             message:
-              `I stopped because the ${toolCall.name} action was interrupted ${priorInterruptions} time(s) and its result is unknown. ` +
-              `Check whether it completed before asking me to retry.`,
+              `I stopped before running ${toolCall.name} again. ${priorInterruptions === 1 ? "An earlier attempt" : `${priorInterruptions} earlier attempts`} may have already saved changes and I could not confirm the result. ` +
+              `Check what was saved, then reply "continue" and I will verify it before doing anything else.`,
             errorCode: "write_tool_outcome_unknown",
           };
           return {
@@ -8192,6 +8517,10 @@ export async function runAgentLoop(opts: {
         let result: string;
         let chatUIResult: unknown;
         let isError = false;
+        // A deadline or abort after invocation leaves a zombie that may still
+        // commit, so a retry-safe action stays blocked for it; an error the
+        // handler returned does not.
+        let toolResultLost = false;
         let toolErrorCode: string | undefined;
         let mcpApp:
           | import("../mcp-client/app-result.js").AgentMcpAppPayload
@@ -8279,6 +8608,7 @@ export async function runAgentLoop(opts: {
               toolCall.input as Record<string, string>,
               actionContext,
               actionExecutionOutcome,
+              actionEntry,
             );
           };
           const actionPromise = Promise.resolve(
@@ -8522,6 +8852,9 @@ export async function runAgentLoop(opts: {
           }
         } catch (err: any) {
           actionRefused = actionExecutionOutcome.refused;
+          toolResultLost =
+            signal.aborted ||
+            isToolCallTimeoutResult(String((err as Error)?.message ?? err));
           toolErrorCode = isActionContractError(err)
             ? err.errorCode
             : undefined;
@@ -8648,7 +8981,10 @@ export async function runAgentLoop(opts: {
           ...(isError ? { isError: true } : {}),
           ...(toolErrorCode ? { errorCode: toolErrorCode } : {}),
           ...(isError
-            ? actionInvoked && !actionIsReadOnly && !actionRefused
+            ? actionInvoked &&
+              !actionIsReadOnly &&
+              !actionRefused &&
+              (!actionRetrySafe || toolResultLost)
               ? { outcomeUnknown: true as const }
               : { completedSideEffect: false }
             : receipt
@@ -10098,6 +10434,8 @@ export interface ContinuationDispatchBudget {
   maxDispatchAttempts: number;
   dispatchResponseTimeoutMs: number;
   backoffCapMs: number;
+  /** Total sleep allowed while the target answers 429/502/503/504/520. */
+  overloadWaitBudgetMs: number;
 }
 
 export function resolveContinuationDispatchBudget(opts: {
@@ -10109,6 +10447,9 @@ export function resolveContinuationDispatchBudget(opts: {
       maxDispatchAttempts: 3,
       dispatchResponseTimeoutMs: 15_000,
       backoffCapMs: Infinity,
+      // Durable-background chaining is entered from the foreground function,
+      // which a host kills about 60s in, so it waits no longer than that tier.
+      overloadWaitBudgetMs: 10_000,
     };
   }
   if (opts.workerProvenInBackgroundFunction) {
@@ -10116,12 +10457,17 @@ export function resolveContinuationDispatchBudget(opts: {
       maxDispatchAttempts: 5,
       dispatchResponseTimeoutMs: 15_000,
       backoffCapMs: 4_000,
+      // The chain starts 2 minutes before the 15-minute background budget;
+      // five hung dispatches plus backoff already take about 82s of that.
+      overloadWaitBudgetMs: 30_000,
     };
   }
+  // A hosted foreground function is killed soon after its soft timeout.
   return {
     maxDispatchAttempts: 2,
     dispatchResponseTimeoutMs: 10_000,
     backoffCapMs: Infinity,
+    overloadWaitBudgetMs: 10_000,
   };
 }
 
@@ -10714,7 +11060,7 @@ export function createProductionAgentHandler(
         : typeof parentId === "string" && parentId.trim()
           ? parentId.trim()
           : undefined;
-    let requestMetadata = body.metadata;
+    let requestMetadata = normalizeSubmissionDeadlineMetadata(body.metadata);
     const continuedRunId = (requested: unknown) =>
       internalContinuation === true &&
       typeof requested === "string" &&
@@ -10765,6 +11111,7 @@ export function createProductionAgentHandler(
         AGENT_CHAT_RECOVERY_OF_RUN_FIELD
       ];
       delete body.__resolvedActionSurface;
+      delete body.__resolvedAdditionalActionNames;
     }
     let requestedActionScope: AgentActionScope | undefined;
     if (hasOwn(body, "actionScope")) {
@@ -10843,6 +11190,15 @@ export function createProductionAgentHandler(
       // A client can submit this private field, so overwrite it at the boundary.
       mutableBody[AGENT_CHAT_BROWSER_SESSION_ID_FIELD] =
         getRequestContext()?.browserSessionId ?? null;
+      const requestContext = getRequestContext();
+      mutableBody[AGENT_CHAT_REQUEST_CONTEXT_FIELD] = {
+        requestOrigin: requestContext?.requestOrigin ?? null,
+        isLoopbackRequest:
+          !dispatchToBackground && requestContext?.isLoopbackRequest === true,
+        isDirectLoopbackRequest:
+          !dispatchToBackground &&
+          requestContext?.isDirectLoopbackRequest === true,
+      };
       delete mutableBody[ANALYTICS_CLIENT_PLATFORM_BODY_FIELD];
     }
     if (dispatchToBackground) {
@@ -11061,10 +11417,10 @@ export function createProductionAgentHandler(
     if (admittedQueuedMessage) {
       // A claim admits the persisted queue payload, not extra fields in this request.
       const promotionOptions = admittedQueuedMessage.options ?? {};
-      const promotionMetadata = {
-        ...(admittedQueuedMessage.metadata ?? {}),
-        ...(queuedPromotionRecord(promotionOptions.metadata) ?? {}),
-      };
+      const promotionMetadata = mergeQueuedPromotionMetadata(
+        admittedQueuedMessage.metadata,
+        promotionOptions.metadata,
+      );
       requestMessage = admittedQueuedMessage.text;
       agentKitMessageId = admittedQueuedMessage.id;
       requestDisplayMessage = admittedQueuedMessage.text;
@@ -11156,6 +11512,7 @@ export function createProductionAgentHandler(
               ? requestDisplayMessage
               : requestMessage,
           attachments: requestAttachments,
+          ...submissionExpiryMetadata(requestMetadata),
           ...(typeof queuedMessageId === "string" && queuedMessageId.trim()
             ? { queuedMessageId: queuedMessageId.trim() }
             : {}),
@@ -11299,11 +11656,29 @@ export function createProductionAgentHandler(
       ownerEmail &&
       getRequestContext()?.agentRunAnonymous !== true
     ) {
-      const additionalActions = await options.resolveAdditionalActions({
+      const resolvedAdditionalActions = await options.resolveAdditionalActions({
         event,
         ownerEmail,
         orgId: getRequestOrgId() ?? null,
+        ...(threadId ? { threadId } : {}),
+        ...(typeof requestTurnId === "string" && requestTurnId.trim()
+          ? { requestedTurnId: requestTurnId.trim() }
+          : {}),
+        internalContinuation: Boolean(internalContinuation),
       });
+      const turnAdditionalActionNames = isBackgroundWorker
+        ? readPersistedAdditionalActionNames(body)
+        : undefined;
+      const additionalActions = turnAdditionalActionNames
+        ? pinAdditionalActionsToTurn(
+            resolvedAdditionalActions,
+            turnAdditionalActionNames,
+            resolvedActions,
+          )
+        : resolvedAdditionalActions;
+      if (!isBackgroundWorker) {
+        body.__resolvedAdditionalActionNames = Object.keys(additionalActions);
+      }
       const requestActions = { ...resolvedActions, ...additionalActions };
       if (requestActions[TOOL_SEARCH_ACTION_NAME]) {
         requestActions[TOOL_SEARCH_ACTION_NAME] = createToolSearchEntry(() =>
@@ -11567,7 +11942,7 @@ export function createProductionAgentHandler(
       engine.capabilities.vision === true,
     );
 
-    options.onEngineResolved?.(engine, effectiveModel);
+    options.onEngineResolved?.(engine, effectiveModel, reasoningEffort);
 
     console.log(
       `[agent-chat] resolved engine=${engine.name} model=${effectiveModel} requestModel=${requestModel ?? "(none)"} requestEngine=${requestEngine ?? "(none)"} modelSource=${modelSelectionSource} engineDefault=${engine.defaultModel} effort=${reasoningEffort ?? "unset"} turnId=${requestTurnId ?? "(none)"}`,
@@ -11608,6 +11983,7 @@ export function createProductionAgentHandler(
               ? requestDisplayMessage
               : requestMessage,
           attachments: requestAttachments,
+          ...submissionExpiryMetadata(requestMetadata),
           ...(typeof queuedMessageId === "string" && queuedMessageId.trim()
             ? { queuedMessageId: queuedMessageId.trim() }
             : {}),
@@ -12450,6 +12826,7 @@ export function createProductionAgentHandler(
         threadId: effectiveThreadId,
         turnId: effectiveTurnId,
         toolName: binding.toolName,
+        toolRevision: binding.toolRevision,
         callId: binding.callId,
         approvalKey: binding.approvalKey,
         ...(binding.approvalId ? { approvalId: binding.approvalId } : {}),
@@ -12469,6 +12846,7 @@ export function createProductionAgentHandler(
           ownerEmail,
           orgId: getRequestOrgId() ?? null,
           toolName: binding.toolName,
+          toolRevision: binding.toolRevision,
         });
       },
     };
@@ -12664,6 +13042,7 @@ export function createProductionAgentHandler(
           message: messageToPersist,
           ...(agentKitMessageId ? { agentKitMessageId } : {}),
           attachments: requestAttachments,
+          ...submissionExpiryMetadata(requestMetadata),
           ...(typeof queuedMessageId === "string" && queuedMessageId.trim()
             ? { queuedMessageId: queuedMessageId.trim() }
             : {}),
@@ -13183,9 +13562,26 @@ export function createProductionAgentHandler(
                   `\n</custom-agent-profile>`;
 
                 let responseText = "";
-                const subUsage = await runAgentLoop({
+                // A profile is its own model conversation running beside
+                // others, so it gets its own run context: its model and effort
+                // never stand in for another loop's, and it starts with
+                // nothing read, since the run's reads are what the run's
+                // model saw. New per-conversation fields reset here too.
+                const profileRun: RequestRunContext = {
+                  ...getRequestRunContext(),
+                  model: profile.model ?? model,
+                  reasoningEffort,
+                  toolSearchReads: undefined,
+                  extensionContentReads: undefined,
+                  extensionExcerptReads: undefined,
+                };
+                const profileLoopOpts: Parameters<typeof runAgentLoop>[0] = {
                   engine,
                   model: profile.model ?? model,
+                  onModelSettings: (loopModel, effort) => {
+                    profileRun.model = loopModel;
+                    profileRun.reasoningEffort = effort;
+                  },
                   systemPrompt: profilePrompt,
                   tools: requestTools,
                   availableTools: availableRequestTools,
@@ -13243,7 +13639,11 @@ export function createProductionAgentHandler(
                   ...(resolvedRunSoftTimeoutMs > 0
                     ? { runSoftTimeoutMs: resolvedRunSoftTimeoutMs }
                     : {}),
-                });
+                };
+                const subUsage = await runWithRequestContext(
+                  { ...getRequestContext(), run: profileRun },
+                  () => runAgentLoop(profileLoopOpts),
+                );
                 await control.flushEvents();
 
                 try {
@@ -13385,6 +13785,12 @@ export function createProductionAgentHandler(
         const agentLoopOpts = {
           engine,
           model: effectiveModel,
+          // Custom agent profile loops report into their own run context
+          // copies, so only this loop sets the run's model and effort.
+          onModelSettings: (
+            model: string,
+            effort: ReasoningEffort | undefined,
+          ) => options.onEngineResolved?.(engine, model, effort),
           runId,
           followUpSuggestions: true,
           systemPrompt: requestSystemPrompt,
@@ -13470,17 +13876,80 @@ export function createProductionAgentHandler(
 
         let instrumented = false;
         try {
+          const isRequestToolGone = (name: string) =>
+            !requestActions[name] ||
+            isUnavailableActionEntry(requestActions[name]);
           if (
             exactApprovedToolCall &&
             approvedToolCallsForExecution &&
-            requestActions[exactApprovedToolCall.name]
+            isRequestToolGone(exactApprovedToolCall.name)
           ) {
+            const result = formatToolNoLongerAvailable(
+              exactApprovedToolCall.name,
+            );
+            const input = JSON.parse(
+              JSON.stringify(exactApprovedToolCall.input ?? {}),
+            );
+            send({
+              type: "tool_start",
+              id: exactApprovedToolCall.callId,
+              tool: exactApprovedToolCall.name,
+              input,
+            });
+            send({
+              type: "tool_done",
+              id: exactApprovedToolCall.callId,
+              tool: exactApprovedToolCall.name,
+              input,
+              result,
+              isError: true,
+              completedSideEffect: false,
+            });
+            const stop = approvedToolUnavailableStop(
+              exactApprovedToolCall.name,
+            );
+            send({
+              type: "error",
+              error: stop.message,
+              errorCode: stop.errorCode,
+              recoverable: false,
+            });
+            return;
+          }
+          if (exactApprovedToolCall && approvedToolCallsForExecution) {
+            let pausedResult:
+              | Extract<EngineContentPart, { type: "tool-result" }>
+              | undefined;
+            if (!isBackgroundWorker) {
+              const pausedResults = agentLoopOpts.messages.flatMap((message) =>
+                message.content.filter(
+                  (part) =>
+                    part.type === "tool-result" &&
+                    part.toolCallId === exactApprovedToolCall.callId &&
+                    part.approvalPause === true,
+                ),
+              );
+              if (pausedResults.length !== 1) {
+                send({
+                  type: "error",
+                  error: "The agent run failed.",
+                  errorCode: "approved_tool_call_result_missing",
+                  recoverable: false,
+                });
+                return;
+              }
+              const [candidate] = pausedResults;
+              if (candidate?.type !== "tool-result") {
+                throw new Error("Approved tool result changed unexpectedly.");
+              }
+              pausedResult = candidate;
+            }
             send({
               type: "activity",
               label: `Running approved ${exactApprovedToolCall.name} action`,
               tool: exactApprovedToolCall.name,
             });
-            await executeAgentToolCall({
+            const approvedExecution = await executeAgentToolCall({
               actions: requestActions,
               name: exactApprovedToolCall.name,
               input: exactApprovedToolCall.input,
@@ -13502,7 +13971,27 @@ export function createProductionAgentHandler(
               isToolAlwaysAllowed: approvalHooks.isToolAlwaysAllowed,
               send,
             });
-            return;
+            if (
+              approvedExecution.status === "approval_required" ||
+              (approvedExecution.status === "failed" &&
+                approvedExecution.terminalError)
+            ) {
+              return;
+            }
+            if (isBackgroundWorker) return;
+            if (!pausedResult) {
+              throw new Error("Approved tool result was not validated.");
+            }
+            pausedResult.content = approvedExecution.output;
+            if (approvedExecution.status === "failed") {
+              pausedResult.isError = true;
+            } else {
+              delete pausedResult.isError;
+            }
+            delete pausedResult.approvalPause;
+            delete pausedResult.approvalAskId;
+            delete agentLoopOpts.approvedToolCalls;
+            delete agentLoopOpts.approvedToolCallAskId;
           }
           try {
             const { getObservabilityConfig, instrumentAgentLoop } =

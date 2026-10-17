@@ -11,6 +11,8 @@ import { z } from "zod";
 
 import {
   FILTER_TYPES,
+  filterPresetIssues,
+  MAX_FILTER_OPTIONS,
   MULTI_SELECT_EMPTY,
   normalizeMultiSelectValue,
 } from "../app/pages/adhoc/sql-dashboard/filter-vars";
@@ -18,6 +20,11 @@ import {
   interpolate,
   interpolateDashboardPanelSql,
 } from "../app/pages/adhoc/sql-dashboard/interpolate";
+import {
+  MAX_PANEL_HEIGHT,
+  MIN_PANEL_HEIGHT,
+  PANEL_HEIGHT_UNIT_PX,
+} from "../app/pages/adhoc/sql-dashboard/types";
 import { dryRunQuery } from "../server/lib/bigquery";
 import {
   dashboardNoopReceipt,
@@ -48,6 +55,7 @@ import { FirstPartyAnalyticsUnsupportedSqlError } from "../server/lib/first-part
 import { validateFirstPartyAnalyticsSqlForScope } from "../server/lib/first-party-analytics.js";
 import { normalizeDashboardConfig } from "../shared/dashboard-config-normalization";
 import { DASHBOARD_SQL_VALIDATION_TIMEOUT_MS } from "../shared/dashboard-report-timeouts.js";
+import { dashboardAnnotationsIssue } from "../shared/key-dates";
 import { panelLabel, stableStringify } from "../shared/panel-render-contract";
 import {
   applyPanelOrder,
@@ -283,6 +291,8 @@ function collectDashboardConfigIssues(
       );
     }
   }
+  const annotationsIssue = dashboardAnnotationsIssue(config.annotations);
+  if (annotationsIssue) return dashboardIssue(annotationsIssue);
   const filters = config.filters;
   if (filters !== undefined && !Array.isArray(filters)) {
     return dashboardIssue("config.filters must be an array");
@@ -307,9 +317,9 @@ function collectDashboardConfigIssues(
         );
       }
       // The read path (isDashboardFilter) rejects more than 100 options, so a save that passes here would make the dashboard unreadable.
-      if (Array.isArray(f.options) && f.options.length > 100) {
+      if (Array.isArray(f.options) && f.options.length > MAX_FILTER_OPTIONS) {
         return dashboardIssue(
-          `config.filters[${i}].options can have at most 100 entries`,
+          `config.filters[${i}].options can have at most ${MAX_FILTER_OPTIONS} entries`,
         );
       }
       // isDashboardFilter rejects these shapes for every filter type, so a save that passes here would drop the whole filter set on read.
@@ -366,6 +376,33 @@ function collectDashboardConfigIssues(
               `config.filters[${i}].default names "${unknown}", which is not one of its options`,
             );
           }
+        }
+      }
+      // isDashboardFilter rejects a non-boolean customRange, so a save that passes here would drop the whole filter set on read.
+      if (
+        f.customRange !== undefined &&
+        (typeof f.customRange !== "boolean" || f.type !== "select")
+      ) {
+        return dashboardIssue(
+          `config.filters[${i}].customRange must be a boolean, and only select filters take it`,
+        );
+      }
+      if (f.presets !== undefined) {
+        // isDashboardFilter rejects a malformed preset, so a save that passes here would drop the whole filter set on read.
+        if (f.type !== "multi-select" || !Array.isArray(f.presets)) {
+          return dashboardIssue(
+            `config.filters[${i}].presets must be an array, and only multi-select filters take presets`,
+          );
+        }
+        const optionValues = new Set(
+          options.map((option) => (option as { value: string }).value),
+        );
+        const issues = filterPresetIssues(f.presets, optionValues);
+        const j = issues.findIndex((issue) => issue !== null);
+        if (j !== -1) {
+          return dashboardIssue(
+            `config.filters[${i}].presets[${j}] ${issues[j]}`,
+          );
         }
       }
       if (seen.has(id)) continue;
@@ -450,6 +487,24 @@ function collectDashboardConfigIssues(
           `${field} is ${v === undefined ? "missing" : JSON.stringify(v)}; set ${field} to a non-empty string.`,
         );
       }
+    }
+    if (isSection && p.height !== undefined) {
+      issue(
+        "height",
+        `height is ${JSON.stringify(p.height)}; section panels do not support height; remove height.`,
+      );
+    } else if (
+      p.height !== undefined &&
+      (typeof p.height !== "number" ||
+        !Number.isFinite(p.height) ||
+        p.height < MIN_PANEL_HEIGHT ||
+        p.height > MAX_PANEL_HEIGHT ||
+        Math.floor(p.height) !== p.height)
+    ) {
+      issue(
+        "height",
+        `height is ${JSON.stringify(p.height)}; set height to an integer ${MIN_PANEL_HEIGHT}-${MAX_PANEL_HEIGHT} (each unit is ${PANEL_HEIGHT_UNIT_PX}px).`,
+      );
     }
     if (
       !isSection &&
@@ -543,6 +598,141 @@ function firstPartyScope() {
 
 export interface ValidatePanelSqlOptions {
   signal?: AbortSignal;
+}
+
+function isDashboardRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function panelSqlValidationInput(
+  panel: Record<string, unknown>,
+): Record<string, unknown> {
+  const config = isDashboardRecord(panel.config) ? panel.config : {};
+  return {
+    sql: panel.sql,
+    source: panel.source,
+    chartType: panel.chartType,
+    timeScope: config.timeScope,
+  };
+}
+
+export function changedPanelIdsForSqlValidation(
+  config: Record<string, unknown>,
+  baseline: Record<string, unknown> | null,
+): ReadonlySet<string> | undefined {
+  if (!baseline) return undefined;
+  if (
+    stableStringify(config.filters) !== stableStringify(baseline.filters) ||
+    stableStringify(config.variables) !== stableStringify(baseline.variables)
+  ) {
+    return undefined;
+  }
+
+  const previousPanels = Array.isArray(baseline.panels)
+    ? baseline.panels.filter(isDashboardRecord)
+    : [];
+  const nextPanels = Array.isArray(config.panels)
+    ? config.panels.filter(isDashboardRecord)
+    : [];
+  const previousById = new Map<string, Record<string, unknown>>();
+  for (const panel of previousPanels) {
+    if (typeof panel.id === "string") {
+      previousById.set(panel.id, panel);
+    }
+  }
+  const changedPanelIds = new Set<string>();
+  for (const panel of nextPanels) {
+    if (typeof panel.id !== "string") return undefined;
+    const previous = previousById.get(panel.id);
+    if (
+      !previous ||
+      stableStringify(panelSqlValidationInput(panel)) !==
+        stableStringify(panelSqlValidationInput(previous))
+    ) {
+      changedPanelIds.add(panel.id);
+    }
+  }
+  return changedPanelIds;
+}
+
+function panelTimeScopeValidationInput(
+  panel: Record<string, unknown>,
+): Record<string, unknown> {
+  const config = isDashboardRecord(panel.config) ? panel.config : {};
+  return {
+    ...panelSqlValidationInput(panel),
+    title: panel.title,
+    description: config.description,
+  };
+}
+
+export function changedPanelIdsForTimeScopeValidation(
+  config: Record<string, unknown>,
+  baseline: Record<string, unknown> | null,
+): ReadonlySet<string> | undefined {
+  if (!baseline) return undefined;
+  if (
+    stableStringify(config.filters) !== stableStringify(baseline.filters) ||
+    stableStringify(config.variables) !== stableStringify(baseline.variables)
+  ) {
+    return undefined;
+  }
+
+  const previousPanels = Array.isArray(baseline.panels)
+    ? baseline.panels.filter(isDashboardRecord)
+    : [];
+  const nextPanels = Array.isArray(config.panels)
+    ? config.panels.filter(isDashboardRecord)
+    : [];
+  const previousById = new Map<string, Record<string, unknown>>();
+  for (const panel of previousPanels) {
+    if (typeof panel.id === "string") {
+      previousById.set(panel.id, panel);
+    }
+  }
+
+  const changedPanelIds = new Set<string>();
+  for (const panel of nextPanels) {
+    if (typeof panel.id !== "string") return undefined;
+    const previous = previousById.get(panel.id);
+    if (
+      !previous ||
+      stableStringify(panelTimeScopeValidationInput(panel)) !==
+        stableStringify(panelTimeScopeValidationInput(previous))
+    ) {
+      changedPanelIds.add(panel.id);
+    }
+  }
+  return changedPanelIds;
+}
+
+export function validateChangedPanelTimeScopes(
+  config: Record<string, unknown>,
+  baseline: Record<string, unknown> | null,
+): string | null {
+  const panelIds = changedPanelIdsForTimeScopeValidation(config, baseline);
+  const panels = config.panels;
+  if (!Array.isArray(panels)) return null;
+
+  for (let index = 0; index < panels.length; index += 1) {
+    const panel = panels[index];
+    if (!isDashboardRecord(panel)) continue;
+    if (panelIds && (typeof panel.id !== "string" || !panelIds.has(panel.id))) {
+      continue;
+    }
+    if (
+      panel.source !== "first-party" ||
+      panel.chartType === "section" ||
+      panel.chartType === "extension" ||
+      typeof panel.sql !== "string" ||
+      !panel.sql.trim()
+    ) {
+      continue;
+    }
+    const error = validateFirstPartyDashboardTimeScope(panel, config, index);
+    if (error) return error;
+  }
+  return null;
 }
 
 export async function validatePanelSql(
@@ -819,9 +1009,9 @@ export { isAgentCaller };
 export default defineAction({
   description:
     "Save or replace a SQL dashboard full config (scope-aware) atomically in ONE call. " +
-    "For existing dashboard panel/layout edits, use `mutate-dashboard` instead; it has the typed `dashboard.*` API for moves, inserts, deletes, duplicates, SQL/title/config edits, and bulk edits without JSON-pointer index math. " +
+    "For existing dashboard panel/layout edits, use `mutate-dashboard` instead; it has the typed `dashboard.*` API for moves, inserts, deletes, duplicates, SQL/title/width/height/config edits, and bulk edits without JSON-pointer index math. " +
     "Use this action when creating a brand-new dashboard from a complete config, for the UI full-config save path, or for an explicitly requested low-level JSON-pointer compatibility edit. " +
-    "Do not use `ops` or `panelOrder` for ordinary agent edits like moving charts, adding panels to an existing dashboard, changing widths, or updating panel config; call `mutate-dashboard` once with the full edit script. " +
+    "Do not use `ops` or `panelOrder` for ordinary agent edits like moving charts, adding panels to an existing dashboard, changing widths or heights, or updating panel config; call `mutate-dashboard` once with the full edit script. " +
     "When this action is appropriate, provide only one of `ops`, `panelOrder`, or `config`; `config` replaces the whole dashboard config. " +
     "First-party event panels must bind to a declared dashboard time filter with `{{timeRange}}` or date-range variables. Intentional fixed-window, cohort-history, and all-time exceptions must be explicit in `panel.config.timeScope`; unbounded first-party SQL is rejected at save time. " +
     "The result is compact by default: `panelCount`, `appliedOps`, `panelOrder`, `firstPanelIds`, and `summary`. Set `returnConfig: true` only when you truly need the full config in the tool result. " +
@@ -878,6 +1068,10 @@ export default defineAction({
       height: 680,
     }),
   },
+  // Only `ops` edits by array index, which a replay shifts. `config` replaces
+  // the whole config and `panelOrder` moves listed ids to the front, so both
+  // reach the same end state when re-run; a call naming no mode fails first.
+  retrySafe: (input) => input.ops === undefined,
   run: async (args, actionContext) => {
     const dashboardId = resolveDashboardId(args);
     const modeCount = [args.ops, args.panelOrder, args.config].filter(
@@ -905,8 +1099,22 @@ export default defineAction({
       assertValidDashboardConfig(args.config, {
         baseline: before ? before.config : null,
       });
-      const sqlError = await validatePanelSql(args.config);
-      if (sqlError) fail(sqlError);
+      const timeScopeError = validateChangedPanelTimeScopes(
+        args.config,
+        before ? before.config : null,
+      );
+      if (timeScopeError) fail(timeScopeError);
+      const panelIdsToValidate = changedPanelIdsForSqlValidation(
+        args.config,
+        before ? before.config : null,
+      );
+      if (!panelIdsToValidate || panelIdsToValidate.size > 0) {
+        const sqlError = await validatePanelSql(
+          args.config,
+          panelIdsToValidate,
+        );
+        if (sqlError) fail(sqlError);
+      }
       const verdict = agentCaller
         ? await verifyPanelWrite({
             base: before ? before.config : null,
@@ -966,17 +1174,28 @@ export default defineAction({
       );
       const panelCount = countPanels(args.config);
       trackDashboardSaved(dashboardId, args.config, actionContext);
-      return dashboardResult(
-        dashboardId,
-        args.config,
-        0,
-        `Replaced dashboard "${dashboardId}"; it now has ${panelCount} panel(s).`,
-        [],
-        args.returnConfig === true,
-        saved.updatedAt,
-        verdict,
-        agentCaller ? `Saved dashboard "${dashboardId}"` : undefined,
-      );
+      return {
+        ...dashboardResult(
+          dashboardId,
+          args.config,
+          0,
+          `Replaced dashboard "${dashboardId}"; it now has ${panelCount} panel(s).`,
+          [],
+          args.returnConfig === true,
+          saved.updatedAt,
+          verdict,
+          agentCaller ? `Saved dashboard "${dashboardId}"` : undefined,
+        ),
+        // The page's save toast undoes this save by restoring this revision,
+        // and names the change history records on it.
+        ...(outcome.revisionId ? { revisionId: outcome.revisionId } : {}),
+        ...(outcome.changeSummary
+          ? {
+              changes: outcome.changeSummary.changes,
+              omittedChanges: outcome.changeSummary.omitted,
+            }
+          : {}),
+      };
     }
 
     if (args.panelOrder) {
@@ -1064,6 +1283,8 @@ export default defineAction({
         }
 
         assertValidDashboardConfig(root, { baseline });
+        const timeScopeError = validateChangedPanelTimeScopes(root, baseline);
+        if (timeScopeError) fail(timeScopeError);
         if (args.ops!.some((op) => opCanChangePanelSql(op as JsonOp))) {
           const sqlError = await validatePanelSql(root);
           if (sqlError) fail(sqlError);

@@ -30,6 +30,7 @@
 import { createCanvasGestureController } from "@agent-native/toolkit/canvas-interactions";
 import { originalPositionFor, TraceMap } from "@jridgewell/trace-mapping";
 
+import { relativePositionContainingBlockDirection } from "../../../../shared/relative-position-containing-block";
 import {
   isAutoLayoutDisplay,
   marginHandlesApply,
@@ -6918,6 +6919,12 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
           position: parentStyles.position,
         }
       : undefined;
+    var relativeContainingBlockDirection =
+      cs.position === "relative"
+        ? relativePositionContainingBlockDirection(el, (ancestor) =>
+            window.getComputedStyle(ancestor),
+          )
+        : undefined;
     var capabilities = sourceBacked
       ? [
           {
@@ -7020,6 +7027,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       parentDisplay: parentDisplay,
       parentAutoLayout: parentAutoLayout,
       parentLayout: parentLayout,
+      relativeContainingBlockDirection: relativeContainingBlockDirection,
       editCapabilities: capabilities,
       confidence: capabilities.reduce(function (best, item) {
         return Math.max(best, item.confidence || 0);
@@ -12024,27 +12032,11 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     return overlay;
   }
 
-  function positionMultiSelectionBounds(): void {
-    var members: Element[] = [];
-    if (selectedEl && document.documentElement.contains(selectedEl)) {
-      members.push(selectedEl);
-    }
-    passiveSelectionEls.forEach(function (el) {
-      if (el && document.documentElement.contains(el)) members.push(el);
+  function selectionBoundsFromElements(elements: Element[]) {
+    var rects = elements.filter(hasLayoutBox).map(function (el) {
+      return el.getBoundingClientRect();
     });
-    setSelectionOverlayResizeChromeVisible(
-      !readOnly && !activeTextEditEl && members.length < 2,
-    );
-    var laidOutMembers = members.filter(hasLayoutBox);
-    if (laidOutMembers.length === 0 || selectionChromeHidden) {
-      if (multiSelectionBoundsOverlay) {
-        multiSelectionBoundsOverlay.style.display = "none";
-      }
-      return;
-    }
-    var rects = laidOutMembers.map(function (el) {
-      return (el as HTMLElement).getBoundingClientRect();
-    });
+    if (rects.length === 0) return null;
     var left = Math.min.apply(
       null,
       rects.map(function (r) {
@@ -12069,6 +12061,41 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         return r.bottom;
       }),
     );
+    return {
+      left: left,
+      top: top,
+      right: right,
+      bottom: bottom,
+      width: Math.max(0, right - left),
+      height: Math.max(0, bottom - top),
+    };
+  }
+
+  function positionMultiSelectionBounds(): void {
+    var members: Element[] = [];
+    if (selectedEl && document.documentElement.contains(selectedEl)) {
+      members.push(selectedEl);
+    }
+    passiveSelectionEls.forEach(function (el) {
+      if (el && document.documentElement.contains(el)) members.push(el);
+    });
+    setSelectionOverlayResizeChromeVisible(
+      !readOnly && !activeTextEditEl && members.length < 2,
+    );
+    var laidOutMembers = members.filter(hasLayoutBox);
+    if (laidOutMembers.length === 0 || selectionChromeHidden) {
+      if (multiSelectionBoundsOverlay) {
+        multiSelectionBoundsOverlay.style.display = "none";
+      }
+      return;
+    }
+    var bounds = selectionBoundsFromElements(laidOutMembers);
+    if (!bounds) return;
+    var left = bounds.left;
+    var top = bounds.top;
+    var right = bounds.right;
+    var bottom = bounds.bottom;
+    if (selectedEl) showSizeBadge(selectedEl);
     if (designCanvasBoardSurface && selectedEl) {
       window.parent.postMessage(
         {
@@ -14498,7 +14525,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     if (activeTextEditEl && !exitStaleTextEditSession()) return;
     clearActiveMarqueeSelection();
     var events = dragEventNames(e);
-    var additive = Boolean(e && (e.metaKey || e.ctrlKey || e.shiftKey));
+    var additive = Boolean(e && e.shiftKey);
     function flushMarqueeMove() {
       var session = activeMarqueeSelection;
       if (!session) return;
@@ -18379,6 +18406,26 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     return cs.position === "absolute" || cs.position === "fixed";
   }
 
+  // No in-flow children to stack against, so a drop keeps its release point.
+  function isFreeformDropContainer(el: Element): boolean {
+    if (isAutoLayoutElement(el)) return false;
+    var hasChild = false;
+    for (var i = 0; i < el.children.length; i += 1) {
+      var child = el.children[i]!;
+      if (isOverlayElement(child)) continue;
+      var childStyle = window.getComputedStyle(child);
+      if (childStyle.display === "none") continue;
+      if (
+        childStyle.position !== "absolute" &&
+        childStyle.position !== "fixed"
+      ) {
+        return false;
+      }
+      hasChild = true;
+    }
+    return hasChild || window.getComputedStyle(el).position !== "static";
+  }
+
   function hasAbsolutePositionedChild(el: Element): boolean {
     var kids = el.children;
     for (var i = 0; i < kids.length; i += 1) {
@@ -19087,8 +19134,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       var childTag = (child.tagName || "").toLowerCase();
       if (
         BRIDGE_LEAF_TAGS.indexOf(childTag) === -1 &&
-        !INLINE_TEXT_TAGS.has(childTag) &&
-        BRIDGE_INTERACTIVE_LEAF_TAGS.indexOf(childTag) === -1
+        !INLINE_TEXT_TAGS.has(childTag)
       ) {
         return false;
       }
@@ -22802,8 +22848,11 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
 
   function showSizeBadge(el) {
     if (!el || dragChromeSuppressed) return hideSizeBadge();
-    var rect = el.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0) return hideSizeBadge();
+    var members = [el].concat(passiveSelectionEls).filter(function (member) {
+      return document.documentElement.contains(member);
+    });
+    var rect = selectionBoundsFromElements(members);
+    if (!rect || rect.width <= 0 || rect.height <= 0) return hideSizeBadge();
     var scale = chromeLineScale();
     var key =
       rect.left +
@@ -24318,12 +24367,16 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         container.parentElement === document.body &&
         containerPrimitive !== "frame"
       ) {
-        return nearestChildInsertionTarget(
+        var besideContainer = nearestChildInsertionTarget(
           document.body,
           pointerX,
           pointerY,
           excluded,
         );
+        if (besideContainer && isFreeformDropContainer(document.body)) {
+          besideContainer.dropMode = "absolute-container";
+        }
+        return besideContainer;
       }
       return null;
     }
@@ -24759,6 +24812,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       cancelMoveDrag();
     }
     function onUp(ev) {
+      onMove(ev);
       var controllerEnd = bridgeMoveController.pointerUp(
         bridgeGesturePointer(ev),
       );

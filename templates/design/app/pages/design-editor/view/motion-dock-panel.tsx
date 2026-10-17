@@ -1,4 +1,5 @@
 import type { MotionNativeStyleInstance } from "@shared/motion-native-style";
+import { withMotionTrackIdsFromExisting } from "@shared/motion-timeline";
 
 import { MotionDock } from "@/components/design/MotionDock";
 import { projectMotionLayerVisibility } from "@/pages/design-editor/motion-layer-visibility";
@@ -72,8 +73,10 @@ export function renderMotionDockPanel({
     handleMotionAudioClipsChange,
     handleMotionPlaybackModeChange,
     handleMotionDurationChange,
+    handleMotionNativeStyleChange,
     motionLivePlayheadRef,
     motionControlsWritable,
+    motionSourceReadUnavailableReason,
     markMotionTracksDirty,
   } = editorContentAndComponents;
   const canWriteMotion = canEditDesign && motionControlsWritable;
@@ -98,22 +101,15 @@ export function renderMotionDockPanel({
     index: number,
   ) => {
     if (!canWriteMotion) return;
-    setMotionNativeStyles((current) => {
-      const previous = current[index];
-      if (
-        !previous ||
-        previous.styleKey !== instance.styleKey ||
-        previous.targetNodeId !== instance.targetNodeId ||
-        (previous.sourceInstanceId !== undefined &&
-          instance.sourceInstanceId !== previous.sourceInstanceId)
-      ) {
-        return current;
-      }
-      const next = [...current];
-      next[index] = instance;
-      return next;
+    handleMotionNativeStyleChange(instance, {
+      key: `${index}:${instance.styleKey}:${instance.targetNodeId}`,
+      styleKey: instance.styleKey,
+      targetNodeId: instance.targetNodeId,
+      index,
+      ...(instance.sourceInstanceId
+        ? { sourceInstanceId: instance.sourceInstanceId }
+        : {}),
     });
-    markMotionTracksDirty();
   };
   const removeMotionNativeStyle = (
     instance: MotionNativeStyleInstance,
@@ -148,13 +144,16 @@ export function renderMotionDockPanel({
       activeFile &&
       motionDockMounted ? (
         <MotionDock
-          tracks={[
-            ...motionTracks,
-            ...motionTextDocumentAsDockTracks(
-              motionTextDocument,
-              activeCodeLayerProjection,
-            ),
-          ]}
+          tracks={withMotionTrackIdsFromExisting(
+            [
+              ...motionTracks,
+              ...motionTextDocumentAsDockTracks(
+                motionTextDocument,
+                activeCodeLayerProjection,
+              ),
+            ],
+            motionTracks,
+          )}
           nativeStyles={motionNativeStyles}
           audioClips={motionAudioClips}
           onAudioClipsChange={
@@ -226,6 +225,7 @@ export function renderMotionDockPanel({
             )
           }
           readOnly={!canWriteMotion}
+          sourceReadUnavailableReason={motionSourceReadUnavailableReason}
           applying={motionAutosavePending}
         />
       ) : null}

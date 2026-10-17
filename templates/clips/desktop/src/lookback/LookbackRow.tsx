@@ -1,7 +1,7 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { IconChevronDown, IconHistory } from "@tabler/icons-react";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
-import { type FormEvent, useRef, useState } from "react";
+import { type FormEvent, useId, useRef, useState } from "react";
 
 import {
   lookbackLabel,
@@ -12,6 +12,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
@@ -48,6 +49,7 @@ export interface LookbackRowProps {
   disabled?: boolean;
   onSecondsChange: (seconds: number) => void;
   onTurnOnRewind: () => void;
+  onTurnOffRewind: () => void;
   openUrl?: (url: string) => Promise<void>;
 }
 
@@ -58,9 +60,11 @@ export function LookbackRow({
   disabled = false,
   onSecondsChange,
   onTurnOnRewind,
+  onTurnOffRewind,
   openUrl = openExternal,
 }: LookbackRowProps) {
   const t = useT();
+  const noneExplanationId = useId();
   const { open, onOpenChange } = useRowMenu();
   const [customOpen, setCustomOpen] = useState(false);
   const [rewindOffOpen, setRewindOffOpen] = useState(false);
@@ -74,7 +78,9 @@ export function LookbackRow({
 
   const shownSeconds = rewindOn ? seconds : 0;
   const valueLabel =
-    shownSeconds > 0 ? lookbackLabel(shownSeconds) : t("lookbackContext.off");
+    shownSeconds > 0
+      ? lookbackLabel(shownSeconds)
+      : t(rewindOn ? "lookbackContext.none" : "lookbackContext.off");
   const customErrorText = customError
     ? {
         empty: t("lookbackContext.customErrorEmpty"),
@@ -153,8 +159,8 @@ export function LookbackRow({
           value={String(shownSeconds)}
           onValueChange={(value) => onSecondsChange(Number(value))}
         >
-          <DropdownMenuRadioItem value="0">
-            {t("lookbackContext.off")}
+          <DropdownMenuRadioItem value="0" aria-describedby={noneExplanationId}>
+            {t("lookbackContext.none")}
           </DropdownMenuRadioItem>
           {SCREEN_HISTORY_PRESETS.map((preset) => (
             <DropdownMenuRadioItem key={preset} value={String(preset)}>
@@ -172,9 +178,23 @@ export function LookbackRow({
             </>
           ) : null}
         </DropdownMenuRadioGroup>
+        <DropdownMenuLabel
+          id={noneExplanationId}
+          className={
+            shownSeconds === 0
+              ? "whitespace-normal text-start font-normal leading-4"
+              : "sr-only"
+          }
+        >
+          {t("lookbackContext.noneExplanation")}
+        </DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuItem inset onSelect={openCustom}>
           {t("lookbackContext.custom")}
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem inset onSelect={onTurnOffRewind}>
+          {t("lookbackContext.turnOffRewind")}
         </DropdownMenuItem>
         <DropdownMenuItem inset onSelect={openHelp}>
           {t("lookbackContext.whatIsThis")}

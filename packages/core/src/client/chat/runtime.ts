@@ -11,6 +11,7 @@ import type {
   AgentChatStructuredMessage,
 } from "../../agent/types.js";
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
+import { RUN_NOT_STARTED_METADATA_KEY } from "../../shared/agent-chat-run-not-started.js";
 import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
 import {
   agentEngineStatusUrlForChatApi,
@@ -140,6 +141,7 @@ export interface AgentChatRuntimeMessage<
   readonly role: AgentChatRuntimeRole;
   readonly content: readonly TContentPart[];
   readonly createdAt?: string;
+  readonly status?: "streaming" | "complete" | "error";
   readonly metadata?: AgentChatRuntimeMetadata;
 }
 
@@ -444,6 +446,8 @@ export interface AgentChatRuntimeApprovalRequestEvent extends AgentChatRuntimeEv
   readonly message: string;
   readonly input?: unknown;
   readonly allowPersistentApproval?: false;
+  /** The server's approval row, when the agent-native store created one. */
+  readonly askId?: string;
 }
 
 export interface AgentChatRuntimeApprovalResolvedEvent extends AgentChatRuntimeEventBase<"approval-resolved"> {
@@ -775,6 +779,11 @@ export interface AgentChatRuntimeSubscribeInput {
   readonly abortSignal?: AbortSignal;
 }
 
+export interface AgentChatRuntimeReadRunStateInput extends AgentChatRuntimeSubscribeInput {
+  /** Include the durable request id when checking whether a restored request is pending. */
+  readonly includePendingConnectionRequest?: boolean;
+}
+
 export interface AgentChatRuntimeResumeInput extends AgentChatRuntimeSubscribeInput {
   readonly prompt?: string;
 }
@@ -837,7 +846,9 @@ export interface AgentChatRuntime<
    * that provides it owns run outcome: a closed `subscribe` stream is then only
    * a connection fact. Rejects when the record cannot be read.
    */
-  readRunState?(input: AgentChatRuntimeSubscribeInput): Promise<ServerRunState>;
+  readRunState?(
+    input: AgentChatRuntimeReadRunStateInput,
+  ): Promise<ServerRunState>;
   cancel?(
     input: AgentChatRuntimeCancelInput,
   ): Promise<AgentChatRuntimeCancelResult>;
@@ -1830,6 +1841,40 @@ function isSyntheticToolHistoryOmissionMessage(
   );
 }
 
+function isUnstartedNativeHistoryMessage(
+  message: AgentChatRuntimeMessage,
+): boolean {
+  if (message.role === "user" && message.status === "error") return true;
+  if (message.role !== "user" && message.role !== "assistant") return false;
+  const custom = asRecord(asRecord(message.metadata)?.custom);
+  return custom?.[RUN_NOT_STARTED_METADATA_KEY] === true;
+}
+
+function nativeHistorySourceMessages(
+  messages: readonly AgentChatRuntimeMessage[] | undefined,
+  currentPrompt: string,
+): AgentChatRuntimeMessage[] {
+  const source = messages ?? [];
+  let currentPromptMessageIndex: number | undefined;
+  for (let index = source.length - 1; index >= 0; index--) {
+    const message = source[index]!;
+    if (isSyntheticToolHistoryOmissionMessage(message)) continue;
+    if (message.role !== "user") continue;
+    if (!currentPrompt.trim()) {
+      currentPromptMessageIndex = index;
+    } else {
+      const match = runtimeMessageTextMatches(message, currentPrompt);
+      if (match.matches || !match.complete) currentPromptMessageIndex = index;
+    }
+    break;
+  }
+  return source.filter(
+    (message, index) =>
+      index === currentPromptMessageIndex ||
+      !isUnstartedNativeHistoryMessage(message),
+  );
+}
+
 function equivalentRuntimeContent(left: unknown, right: unknown): boolean {
   let remaining = 4096;
   const leftAncestors = new WeakSet<object>();
@@ -1882,7 +1927,7 @@ function priorNativeHistoryMessages(
   messages: readonly AgentChatRuntimeMessage[] | undefined,
   currentPrompt: string,
 ) {
-  const source = messages ?? [];
+  const source = nativeHistorySourceMessages(messages, currentPrompt);
   let currentPromptMessageIndex: number | undefined;
   for (let index = source.length - 1; index >= 0; index--) {
     const message = source[index]!;
@@ -3288,6 +3333,7 @@ function nativeStructuredHistoryFromMessages(
   approvedToolCallAskIds: readonly string[] = [],
 ): AgentChatStructuredMessage[] | undefined {
   const structuredHistory: AgentChatStructuredMessage[] = [];
+  const historyMessages = nativeHistorySourceMessages(messages, currentPrompt);
   const approvedToolCallSet = new Set(approvedToolCalls);
   const approvedToolCallAskIdSet = new Set(approvedToolCallAskIds);
   const callCandidates: StructuredToolHistoryCandidate[] = [];
@@ -3299,7 +3345,7 @@ function nativeStructuredHistoryFromMessages(
   let toolHistoryPosition = 0;
   let hasToolHistory = false;
   const sources = boundedStructuredHistorySources(
-    messages,
+    historyMessages,
     currentPrompt,
     supplementalMessages,
     currentAttachmentUrls,
@@ -3310,7 +3356,7 @@ function nativeStructuredHistoryFromMessages(
     approvedToolCallAskIds,
   );
   const boundaryResultsToOmit = boundaryToolResultPartsToOmit(
-    messages,
+    historyMessages,
     supplementalMessages,
     sources,
     supplementalToolHistoryOmitted,
@@ -4171,6 +4217,7 @@ function mapAgentNativeEvent(
         ...(ev.allowPersistentApproval === false
           ? { allowPersistentApproval: false }
           : {}),
+        ...(ev.askId ? { askId: ev.askId } : {}),
       },
     ];
   }
@@ -5126,7 +5173,7 @@ export function createAgentNativeChatRuntime(
   });
 
   const readRunState = async (
-    input: AgentChatRuntimeSubscribeInput,
+    input: AgentChatRuntimeReadRunStateInput,
   ): Promise<ServerRunState> => {
     // Asking again cannot change these answers, so they are not retryable.
     const unreadable = (message: string, status?: number) =>
@@ -5144,6 +5191,9 @@ export function createAgentNativeChatRuntime(
     const query = new URLSearchParams({ threadId });
     if (input.runId) query.set("runId", input.runId);
     if (input.turnId) query.set("turnId", input.turnId);
+    if (input.includePendingConnectionRequest) {
+      query.set("includePendingConnectionRequest", "true");
+    }
     const headers = await resolveHeaders(options.headers, input);
     headers.set("x-agent-native-surface", options.surface ?? "app");
     const response = await runtimeFetch(
@@ -5155,7 +5205,14 @@ export function createAgentNativeChatRuntime(
         signal: input.abortSignal,
       },
     );
-    if (response.status === 404) return { status: "missing" };
+    if (response.status === 404) {
+      return {
+        status: "missing",
+        ...(input.includePendingConnectionRequest
+          ? { pendingConnectionRequestId: null }
+          : {}),
+      };
+    }
     if (!response.ok) throw await readHttpRuntimeError(response);
     let body: unknown;
     try {
@@ -5181,6 +5238,27 @@ export function createAgentNativeChatRuntime(
         response.status,
       );
     }
+    const pendingConnectionRequestId = value?.pendingConnectionRequestId;
+    if (
+      input.includePendingConnectionRequest &&
+      (!value || !Object.hasOwn(value, "pendingConnectionRequestId"))
+    ) {
+      throw unreadable(
+        "Agent chat run state is unreadable (pending connection request was not returned).",
+        response.status,
+      );
+    }
+    if (
+      pendingConnectionRequestId !== undefined &&
+      pendingConnectionRequestId !== null &&
+      (typeof pendingConnectionRequestId !== "string" ||
+        !pendingConnectionRequestId.trim())
+    ) {
+      throw unreadable(
+        "Agent chat run state is unreadable (pending connection request ID is invalid).",
+        response.status,
+      );
+    }
     return {
       status,
       runId,
@@ -5196,6 +5274,9 @@ export function createAgentNativeChatRuntime(
         : {}),
       terminalReason:
         typeof value?.terminalReason === "string" ? value.terminalReason : null,
+      ...(pendingConnectionRequestId === undefined
+        ? {}
+        : { pendingConnectionRequestId }),
     };
   };
 

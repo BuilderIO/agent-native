@@ -1,8 +1,24 @@
-import { resolvePanelEvents } from "@shared/panel-events";
-import { useState, type ReactNode } from "react";
+import {
+  formatPanelEventDate,
+  formatPanelEventWhen,
+  groupPanelEvents,
+  resolvePanelEvents,
+  type PanelEventGroup,
+} from "@shared/panel-events";
+import { useMemo, type ReactNode } from "react";
 import { ReferenceLine } from "recharts";
 
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "@/components/ui/hover-card";
+
+import { useChartHoverCardOpen } from "./chart-hover-card";
+
 const DEFAULT_EVENT_COLOR = "hsl(var(--foreground))";
+/** How far a marker's hover target reaches from its x, the widest part of it. */
+const MARKER_REACH = 11;
 
 interface MarkerViewBox {
   x?: number;
@@ -12,99 +28,143 @@ interface MarkerViewBox {
 
 function EventMarkerBadge({
   viewBox,
+  group,
   color,
-  label,
-  date,
   onHoverChange,
 }: {
   viewBox?: MarkerViewBox;
+  group: PanelEventGroup;
   color: string;
-  label: string;
-  date: string;
   onHoverChange?: (hovered: boolean) => void;
 }) {
-  const [hovered, setHoveredState] = useState(false);
-  const setHovered = (value: boolean) => {
-    setHoveredState(value);
-    onHoverChange?.(value);
-  };
+  const [open, setOpen] = useChartHoverCardOpen(onHoverChange);
   if (viewBox?.x == null || viewBox.y == null || viewBox.height == null) {
     return null;
   }
   const cx = viewBox.x;
   const cy = viewBox.y + viewBox.height;
-  const boxWidth = Math.max(label.length * 7.4, 80) + 24;
+  const headerDate = group.events[0].date;
   return (
-    <g
-      style={{ cursor: "default" }}
-      onMouseOver={() => setHovered(true)}
-      onMouseMove={(e) => {
-        e.stopPropagation();
-        setHovered(true);
-      }}
-      onMouseLeave={() => setHovered(false)}
-    >
-      <circle cx={cx} cy={cy} r={11} fill="transparent" />
-      <circle
-        cx={cx}
-        cy={cy}
-        r={6}
-        fill={color}
-        stroke="hsl(var(--background))"
-        strokeWidth={2}
-      />
-      {hovered && (
-        <g pointerEvents="none">
-          <rect
-            x={cx - boxWidth / 2}
-            y={cy - 64}
-            width={boxWidth}
-            height={44}
-            rx={6}
-            fill="hsl(var(--popover))"
-            stroke="hsl(var(--border))"
+    // The card renders in a portal: drawn inside the SVG it was clipped at
+    // the chart's edges and painted under series dots.
+    <HoverCard open={open} onOpenChange={setOpen} openDelay={0} closeDelay={80}>
+      <HoverCardTrigger asChild>
+        <g
+          data-event-marker=""
+          style={{ cursor: "default" }}
+          onMouseMove={(e) => e.stopPropagation()}
+        >
+          <circle cx={cx} cy={cy} r={11} fill="transparent" />
+          {group.events.length > 1 && (
+            <circle
+              cx={cx}
+              cy={cy}
+              r={9}
+              fill="none"
+              stroke={color}
+              strokeOpacity={0.45}
+              strokeWidth={1.5}
+            />
+          )}
+          <circle
+            cx={cx}
+            cy={cy}
+            r={6}
+            fill={color}
+            stroke="hsl(var(--background))"
+            strokeWidth={2}
           />
-          <text
-            x={cx}
-            y={cy - 44}
-            textAnchor="middle"
-            fontSize={12}
-            fontWeight={600}
-            fill="hsl(var(--popover-foreground))"
-          >
-            {label}
-          </text>
-          <text
-            x={cx}
-            y={cy - 28}
-            textAnchor="middle"
-            fontSize={11}
-            fill="hsl(var(--muted-foreground))"
-          >
-            {date}
-          </text>
         </g>
-      )}
-    </g>
+      </HoverCardTrigger>
+      {/* Markers sit on the x-axis, so the card opens up over the chart, as a
+          data note's opens down from its pill. */}
+      <HoverCardContent
+        side="top"
+        collisionPadding={8}
+        className="w-auto max-w-72 p-2.5 text-xs"
+      >
+        <div className="mb-1.5 text-[11px] text-muted-foreground">
+          {formatPanelEventDate(headerDate)}
+        </div>
+        <ul className="space-y-1">
+          {group.events.map((event, index) => {
+            const when = formatPanelEventWhen(event, headerDate);
+            return (
+              <li
+                key={`${event.date}-${event.time ?? ""}-${index}`}
+                className="flex items-center gap-2"
+              >
+                <span
+                  className="size-2 shrink-0 rounded-full"
+                  style={{ background: event.color ?? DEFAULT_EVENT_COLOR }}
+                />
+                <span className="font-medium text-popover-foreground">
+                  {event.label}
+                </span>
+                {when && (
+                  <span className="ml-auto pl-3 tabular-nums text-muted-foreground">
+                    {when}
+                  </span>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      </HoverCardContent>
+    </HoverCard>
   );
 }
 
-export function renderEventMarkers(
+/**
+ * A chart's markers, worked out again only when its events, rows, or x key
+ * change: a chart renders again on every hover.
+ */
+export function useEventMarkerGroups(
   events: unknown,
   rows: Record<string, unknown>[],
   xKey: string,
+): PanelEventGroup[] {
+  return useMemo(
+    () =>
+      groupPanelEvents(
+        resolvePanelEvents(
+          events,
+          rows.map((row) => row[xKey]),
+        ),
+      ),
+    [events, rows, xKey],
+  );
+}
+
+/**
+ * Padding for a date x-axis with a marker on its first or last value. A line
+ * or area chart puts those values on the plot's edges, and a bar sits only
+ * half its width in, so a marker there would hang off the plot: clipped by the
+ * chart on the right, over the y-axis labels on the left.
+ */
+export function useEventMarkerAxisPadding(
+  groups: readonly PanelEventGroup[],
+  rows: readonly Record<string, unknown>[],
+  xKey: string,
+): { left: number; right: number } {
+  const first = rows[0]?.[xKey];
+  const last = rows[rows.length - 1]?.[xKey];
+  const left = groups.some((group) => group.x === first) ? MARKER_REACH : 0;
+  const right = groups.some((group) => group.x === last) ? MARKER_REACH : 0;
+  return useMemo(() => ({ left, right }), [left, right]);
+}
+
+export function renderEventMarkers(
+  groups: readonly PanelEventGroup[],
   yAxisId?: string,
   onHoverChange?: (hovered: boolean) => void,
 ): ReactNode[] {
-  return resolvePanelEvents(
-    events,
-    rows.map((row) => row[xKey]),
-  ).map((event) => {
-    const color = event.color ?? DEFAULT_EVENT_COLOR;
+  return groups.map((group) => {
+    const color = group.events[0].color ?? DEFAULT_EVENT_COLOR;
     return (
       <ReferenceLine
-        key={`event-${event.date}-${event.label}`}
-        x={event.x}
+        key={`event-${group.x}`}
+        x={group.x}
         yAxisId={yAxisId}
         stroke={color}
         strokeOpacity={0.35}
@@ -112,9 +172,8 @@ export function renderEventMarkers(
         ifOverflow="visible"
         label={
           <EventMarkerBadge
+            group={group}
             color={color}
-            label={event.label}
-            date={event.date}
             onHoverChange={onHoverChange}
           />
         }

@@ -408,8 +408,28 @@ function isRequestUnderAppBasePath(event: H3Event): boolean {
 
 export type OAuthRedirectUriOptions = {
   allowRootCallback?: boolean;
+  /**
+   * Keep the callback under the app's own mount instead of the shared
+   * workspace root callback. Use for providers that register the redirect
+   * URI per flow (e.g. MCP dynamic client registration): the callback then
+   * lands on the app that started the flow without a root relay, which
+   * cannot recover the app id from an opaque state.
+   */
+  appScopedCallback?: boolean;
   useNetlifyPreviewGoogleOAuthRelay?: boolean;
 };
+
+function usesRootOAuthCallback(
+  pathname: string,
+  options: OAuthRedirectUriOptions,
+): boolean {
+  return (
+    !options.appScopedCallback &&
+    (isWorkspaceOAuthCallbackRelayEnabled() ||
+      options.allowRootCallback === true) &&
+    isFrameworkOAuthCallbackPath(pathname)
+  );
+}
 
 function getDefaultOAuthRedirectUrl(
   event: H3Event,
@@ -417,10 +437,7 @@ function getDefaultOAuthRedirectUrl(
   options: OAuthRedirectUriOptions = {},
 ): string {
   const cleanPath = path.startsWith("/") ? path : `/${path}`;
-  if (
-    (isWorkspaceOAuthCallbackRelayEnabled() || options.allowRootCallback) &&
-    isFrameworkOAuthCallbackPath(cleanPath)
-  ) {
+  if (usesRootOAuthCallback(cleanPath, options)) {
     return `${getOrigin(event)}${publicFrameworkPath(cleanPath)}`;
   }
   const basePath = isRequestUnderAppBasePath(event) ? getAppBasePath() : "";
@@ -489,9 +506,7 @@ export function isAllowedOAuthRedirectUri(
     basePath && isRequestUnderAppBasePath(event)
       ? [
           `${basePath}/_agent-native/`,
-          ...((isWorkspaceOAuthCallbackRelayEnabled() ||
-            options.allowRootCallback) &&
-          isFrameworkOAuthCallbackPath(pathname)
+          ...(usesRootOAuthCallback(pathname, options)
             ? ["/_agent-native/"]
             : []),
         ]

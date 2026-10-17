@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
   existsSync,
+  fstatSync,
   mkdirSync,
   openSync,
   readdirSync,
@@ -30,14 +31,21 @@ import {
   formatAuthoringFuzzCleanupIssue,
   formatAuthoringFuzzUnavailable,
   isExpectedCleanupNavigationError as isExpectedCleanupNavigationRequestError,
+  isExpectedCleanupRecoveryPageBrowserSessionError,
+  cleanupRecoveryClaimRequestAgeMs,
+  isPotentialCleanupRecoveryPageBrowserSessionError,
+  isWithinCleanupRecoveryClaimCorrelationWindow,
   isFirefoxBrowserSessionConsoleError,
   lineNavigationKeys,
   normalizeFirefoxBrowserSessionConsoleError,
   recordCleanupRequestOutcome,
+  retiredBrowserSessionPollConsoleGraceMs,
   retryAuthoringFuzzScratchDeckLookup,
   runAuthoringFuzz,
+  shouldRetainCleanupRecoveryClaimEvidence,
   type AuthoringFuzzPersistence,
 } from "./authoring-fuzz.ts";
+import { devServerListeningUrl } from "./dev-server-url.ts";
 import {
   CHROME_SELECTOR,
   installInPageHelpers,
@@ -596,6 +604,8 @@ async function startServer(): Promise<{
   const port = await freePort();
   const logPath = path.join(outRoot, "server.log");
   const log = openSync(logPath, "a");
+  // The log is appended across runs; only this server's banner counts.
+  const logStart = fstatSync(log).size;
   // Scratch PGlite from claude-launch, wiped when the launcher exits.
   const child: ChildProcess = spawn(
     "pnpm",
@@ -653,11 +663,26 @@ async function startServer(): Promise<{
       }
     }
   };
-  const base = `http://localhost:${port}`;
+  let base: string | undefined;
   const deadline = Date.now() + 240_000;
   while (Date.now() < deadline) {
     if (exited !== null) {
       throw new CouldNotRun(`dev server exited with ${exited}; see ${logPath}`);
+    }
+    // --port is only a request: the server moves to the next free port when it
+    // loses the bind, so poll the URL it prints rather than the one we asked for.
+    base ??= devServerListeningUrl(
+      readFileSync(logPath).subarray(logStart).toString("utf8"),
+    );
+    if (!base) {
+      await sleep(1000);
+      continue;
+    }
+    if (!LOCAL_HOSTS.has(new URL(base).hostname)) {
+      await stop();
+      throw new CouldNotRun(
+        `dev server listens on ${base}, not localhost; refusing (this harness writes decks)`,
+      );
     }
     try {
       const controller = new AbortController();
@@ -677,7 +702,9 @@ async function startServer(): Promise<{
   }
   await stop();
   throw new CouldNotRun(
-    `dev server did not answer on ${base} within 240s; see ${logPath}`,
+    base
+      ? `dev server did not answer on ${base} within 240s; see ${logPath}`
+      : `dev server (requested port ${port}) never printed its listening URL within 240s; see ${logPath}`,
   );
 }
 
@@ -846,10 +873,9 @@ async function settle(page: Page) {
       style.textContent = css;
       document.head.appendChild(style);
     }
-    // The renderer injects a webfont stylesheet per slide font, and a face
-    // starts loading only once text using it lays out, so `fonts.ready` can
-    // resolve before the slide's font was even requested (display=swap then
-    // paints the fallback). A failed font request can also leave it pending.
+    // The renderer injects a webfont stylesheet per slide font. Load only
+    // faces used by visible canvas text; unrelated registered faces may stay
+    // unloaded and keep the global FontFaceSet in `loading` indefinitely.
     const frame = () =>
       new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
     const stylesheetState = () => {
@@ -864,11 +890,152 @@ async function settle(page: Page) {
       );
       return { failed, pending };
     };
+    const fontStretchKeywords = [
+      { value: 50, keyword: "ultra-condensed" },
+      { value: 62.5, keyword: "extra-condensed" },
+      { value: 75, keyword: "condensed" },
+      { value: 87.5, keyword: "semi-condensed" },
+      { value: 100, keyword: "normal" },
+      { value: 112.5, keyword: "semi-expanded" },
+      { value: 125, keyword: "expanded" },
+      { value: 150, keyword: "extra-expanded" },
+      { value: 200, keyword: "ultra-expanded" },
+    ] as const;
+    const fontStretchToken = (value: string) => {
+      const normalized = value.trim().toLowerCase();
+      if (fontStretchKeywords.some(({ keyword }) => keyword === normalized)) {
+        return normalized === "normal" ? "" : normalized;
+      }
+      const percentage = Number.parseFloat(normalized);
+      if (!normalized.endsWith("%") || !Number.isFinite(percentage)) return "";
+      const nearest = fontStretchKeywords.reduce((best, option) =>
+        Math.abs(option.value - percentage) < Math.abs(best.value - percentage)
+          ? option
+          : best,
+      );
+      return nearest.keyword === "normal" ? "" : nearest.keyword;
+    };
+    const usedFontSpecs = () => {
+      const specs = new Map<string, { font: string; text: string }>();
+      for (const block of Array.from(
+        document.querySelectorAll<HTMLElement>(
+          '[data-main-slide-canvas="true"] [data-slide-text-block="true"]',
+        ),
+      )) {
+        const rect = block.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) continue;
+        const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+          const textNode = node as Text;
+          const text = textNode.data;
+          const element = textNode.parentElement;
+          if (!element || !text.trim()) continue;
+          const style = getComputedStyle(element);
+          if (
+            style.display === "none" ||
+            style.visibility === "hidden" ||
+            style.visibility === "collapse"
+          ) {
+            continue;
+          }
+          const range = document.createRange();
+          range.selectNodeContents(textNode);
+          const textRect = range.getBoundingClientRect();
+          if (textRect.width <= 0 || textRect.height <= 0) continue;
+          // `FontFaceSet.load` accepts stretch keywords, not computed percentages.
+          const font = [
+            style.fontStyle === "normal" ? "" : style.fontStyle,
+            style.fontVariant === "normal" ? "" : style.fontVariant,
+            style.fontWeight === "400" ? "" : style.fontWeight,
+            fontStretchToken(style.fontStretch),
+            style.fontSize,
+            style.fontFamily,
+          ]
+            .filter(Boolean)
+            .join(" ");
+          const existing = specs.get(font);
+          specs.set(font, {
+            font,
+            text: existing ? `${existing.text} ${text}` : text,
+          });
+        }
+      }
+      return Array.from(specs, ([key, spec]) => ({ ...spec, key }));
+    };
+    const fontRequests = new Map<
+      string,
+      {
+        status: "loading" | "loaded" | "failed";
+        promise: Promise<void>;
+        loadedFaces: number;
+      }
+    >();
+    const failedFonts: string[] = [];
+    let stylesheetSignature = "";
+    let stylesheetEpoch = 0;
+    const currentStylesheetSignature = () =>
+      Array.from(
+        document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]'),
+      )
+        .map(
+          (link) =>
+            `${link.href}:${link.sheet ? "loaded" : "pending"}:${link.dataset.editFidelityLoadError ?? ""}`,
+        )
+        .sort()
+        .join("\n");
+    const requestUsedFonts = () => {
+      const signature = currentStylesheetSignature();
+      if (signature !== stylesheetSignature) {
+        fontRequests.clear();
+        failedFonts.length = 0;
+        stylesheetSignature = signature;
+        stylesheetEpoch += 1;
+      }
+      const requestEpoch = stylesheetEpoch;
+      for (const spec of usedFontSpecs()) {
+        if (fontRequests.has(spec.key)) continue;
+        const request: {
+          status: "loading" | "loaded" | "failed";
+          promise: Promise<void>;
+          loadedFaces: number;
+        } = { status: "loading", promise: Promise.resolve(), loadedFaces: 0 };
+        request.promise = document.fonts.load(spec.font, spec.text).then(
+          (faces) => {
+            request.status = "loaded";
+            request.loadedFaces = faces.length;
+          },
+          (error: unknown) => {
+            request.status = "failed";
+            if (requestEpoch === stylesheetEpoch) {
+              failedFonts.push(`${spec.font}: ${String(error)}`);
+            }
+          },
+        );
+        fontRequests.set(spec.key, request);
+      }
+    };
+    const waitForStylesheet = (link: HTMLLinkElement) =>
+      new Promise<void>((resolve) => {
+        const finish = () => {
+          link.removeEventListener("load", finish);
+          link.removeEventListener("error", finish);
+          resolve();
+        };
+        link.addEventListener("load", finish, { once: true });
+        link.addEventListener("error", finish, { once: true });
+      });
     const currentState = (settled: boolean) => {
       const stylesheets = stylesheetState();
       return {
         settled,
         fonts: document.fonts.status,
+        usedFonts: usedFontSpecs().map((spec) => ({
+          font: spec.font,
+          requestStatus: fontRequests.get(spec.key)?.status ?? "not-needed",
+          loadedFaces: fontRequests.get(spec.key)?.loadedFaces ?? 0,
+          textLength: spec.text.length,
+        })),
+        failedFonts,
         pendingFontFaces: Array.from(document.fonts)
           .filter((font) => font.status !== "loaded")
           .slice(0, 10)
@@ -884,19 +1051,26 @@ async function settle(page: Page) {
     await frame();
     let ready = false;
     for (let i = 0; i < 20; i++) {
+      let stylesheets = stylesheetState();
+      if (stylesheets.failed.length > 0) return currentState(false);
+      if (stylesheets.pending.length === 0) requestUsedFonts();
       await Promise.race([
-        document.fonts.ready,
+        Promise.all([
+          ...[...fontRequests.values()].map((request) => request.promise),
+          ...stylesheets.pending.map(waitForStylesheet),
+        ]),
         new Promise((resolve) => setTimeout(resolve, 500)),
       ]);
       await frame();
-      const stylesheets = stylesheetState();
-      if (stylesheets.failed.length > 0) {
-        return currentState(false);
-      }
-      if (
-        stylesheets.pending.length === 0 &&
-        document.fonts.status === "loaded"
-      ) {
+      stylesheets = stylesheetState();
+      if (stylesheets.failed.length > 0) return currentState(false);
+      if (stylesheets.pending.length > 0) continue;
+      requestUsedFonts();
+      if (failedFonts.length > 0) return currentState(false);
+      const fontsReady = usedFontSpecs().every(
+        (spec) => fontRequests.get(spec.key)?.status === "loaded",
+      );
+      if (stylesheets.pending.length === 0 && fontsReady) {
         ready = true;
         break;
       }
@@ -931,14 +1105,17 @@ async function settle(page: Page) {
     return {
       ...finalState,
       settled:
-        finalState.fonts === "loaded" &&
         finalState.pendingStylesheets === 0 &&
-        finalState.failedStylesheets.length === 0,
+        finalState.failedStylesheets.length === 0 &&
+        finalState.failedFonts.length === 0 &&
+        usedFontSpecs().every(
+          (spec) => fontRequests.get(spec.key)?.status === "loaded",
+        ),
     };
   }, MASK_CSS);
   if (!settleState.settled) {
     throw new CouldNotRun(
-      `slide fonts or stylesheets did not settle (font status: ${settleState.fonts}; pending font faces: ${settleState.pendingFontFaces.join(", ") || "none"}; pending stylesheets: ${settleState.pendingStylesheets}; failed stylesheets: ${settleState.failedStylesheets.join(", ") || "none"})`,
+      `slide fonts or stylesheets did not settle (font status: ${settleState.fonts}; visible slide font checks: ${JSON.stringify(settleState.usedFonts)}; failed fonts: ${settleState.failedFonts.join(", ") || "none"}; pending font faces: ${settleState.pendingFontFaces.join(", ") || "none"}; pending stylesheets: ${settleState.pendingStylesheets}; failed stylesheets: ${settleState.failedStylesheets.join(", ") || "none"})`,
     );
   }
   // Autofit measures after paint; give it one more beat.
@@ -2951,6 +3128,8 @@ async function runAuthoringParityQa(
     })),
     { id: "authoring-list-ul", kind: "ul-flow" as const },
     { id: "authoring-list-ol", kind: "ol-flow" as const },
+    { id: "authoring-list-ul-enter-exit", kind: "ul-enter-exit" as const },
+    { id: "authoring-list-ol-enter-exit", kind: "ol-enter-exit" as const },
     { id: "authoring-list-styled", kind: "styled-flow" as const },
     {
       id: "authoring-list-boundary-delete",
@@ -2986,14 +3165,14 @@ async function runAuthoringParityQa(
   const created = await action(page, "create-deck", {
     title: `[edit-fidelity] authoring parity ${Date.now()}`,
     slides: cases.map((test) => {
-      if (test.kind === "ul-flow") {
+      if (test.kind === "ul-flow" || test.kind === "ul-enter-exit") {
         return {
           id: test.id,
           content:
             '<div class="fmd-slide"><ul style="list-style-type: disc"><li><p>Alpha</p></li></ul></div>',
         };
       }
-      if (test.kind === "ol-flow") {
+      if (test.kind === "ol-flow" || test.kind === "ol-enter-exit") {
         return {
           id: test.id,
           content:
@@ -3267,6 +3446,16 @@ async function runAuthoringParityQa(
         tailInBullet: authoredListText.some((value) => value.includes("Tail")),
         retainedSourceText: text.includes("Alpha"),
         hasTypedText: text.includes("Tail"),
+        markerFontSizesMatchText: bulletRows.every((row) => {
+          const marker = row.firstElementChild;
+          const text = row.lastElementChild;
+          return (
+            marker instanceof HTMLElement &&
+            text instanceof HTMLElement &&
+            getComputedStyle(marker).fontSize ===
+              getComputedStyle(text).fontSize
+          );
+        }),
         html: root.innerHTML,
       };
     });
@@ -3274,7 +3463,8 @@ async function runAuthoringParityQa(
       state.bulletCount === 0 ||
       !state.tailInBullet ||
       !state.retainedSourceText ||
-      !state.hasTypedText
+      !state.hasTypedText ||
+      !state.markerFontSizesMatchText
     ) {
       throw new Error(
         `bullet shortcut did not create a new bullet containing the inserted text: ${JSON.stringify(state)}`,
@@ -3616,6 +3806,16 @@ async function runAuthoringParityQa(
             );
           }
         });
+      } else if (
+        test.kind === "ul-enter-exit" ||
+        test.kind === "ol-enter-exit"
+      ) {
+        await editor.press(lineEndKey);
+        await editor.press("Enter");
+        await editor.press("Enter");
+        await editor.pressSequentially("Plain");
+        await assertPlainLine(editor);
+        await finish(index, async () => {});
       } else if (test.kind === "ul-flow" || test.kind === "ol-flow") {
         await editor.press(lineEndKey);
         await editor.press("Enter");
@@ -3635,7 +3835,7 @@ async function runAuthoringParityQa(
           }
           await editor.press(lineEndKey);
           await editor.press("Enter");
-          await editor.press("Enter");
+          await editor.press("Backspace");
           await editor.pressSequentially("Plain");
           await assertPlainLine(editor);
         } else {
@@ -3654,7 +3854,7 @@ async function runAuthoringParityQa(
           }
           await editor.press(lineEndKey);
           await editor.press("Enter");
-          await editor.press("Enter");
+          await editor.press("Backspace");
           await editor.pressSequentially("Plain");
           await assertPlainLine(editor);
         }
@@ -5407,7 +5607,20 @@ async function runAuthoringFuzzQa(
       { page: Page; startedAt: number }
     >();
     const cleanupRequestFinishedAt = new WeakMap<any, number>();
+    const cleanupClaimSequenceByRequest = new WeakMap<any, number>();
+    const failedCleanupBrowserSessionClaims: Array<{
+      page: Page;
+      url: string;
+      pathname: string;
+      method: string;
+      startedAt: number;
+      failedAt: number;
+      sameOrigin: boolean;
+      sequence: number;
+    }> = [];
+    let cleanupClaimSequence = 0;
     let cleanupNavigationStarted = false;
+    let cleanupNavigationPage: Page | null = null;
     let cleanupNavigationCompetingClaimStarted = false;
     let cleanupNavigationCompetingRegistrationStarted = false;
     const cleanupNavigationCompetingRequestUrls = new Set<string>();
@@ -5439,6 +5652,10 @@ async function runAuthoringFuzzQa(
     const trackCleanupRequests = (target: Page) => {
       if (cleanupRequestTrackingPages.has(target)) return;
       const onRequest = (request: any) => {
+        if (isBrowserSessionClaimRequest(request)) {
+          cleanupClaimSequence += 1;
+          cleanupClaimSequenceByRequest.set(request, cleanupClaimSequence);
+        }
         if (cleanupNavigationStarted && isBrowserSessionRequest(request)) {
           cleanupNavigationCompetingRequestUrls.add(request.url());
           if (isBrowserSessionClaimRequest(request)) {
@@ -5463,6 +5680,20 @@ async function runAuthoringFuzzQa(
         cleanupRequestStartTimes.delete(request);
       };
       const onRequestFailed = (request: any) => {
+        const started = cleanupRequestStartTimes.get(request);
+        if (started && isBrowserSessionClaimRequest(request)) {
+          const requestUrl = new URL(request.url());
+          failedCleanupBrowserSessionClaims.push({
+            page: target,
+            url: request.url(),
+            pathname: requestUrl.pathname,
+            method: request.method(),
+            startedAt: started.startedAt,
+            failedAt: Date.now(),
+            sameOrigin: requestUrl.origin === new URL(base).origin,
+            sequence: cleanupClaimSequenceByRequest.get(request) ?? 0,
+          });
+        }
         recordCleanupRequestOutcome(
           cleanupRequestFinishedAt,
           request,
@@ -5480,6 +5711,7 @@ async function runAuthoringFuzzQa(
         onRequestFailed,
       });
     };
+    trackCleanupRequests(stableCleanupPage);
     const scratchTitle = `[edit-fidelity] authoring fuzz ${seed} ${randomUUID()}`;
     try {
       const activePage = await runSetupAsCouldNotRun(
@@ -5648,8 +5880,17 @@ async function runAuthoringFuzzQa(
       }
     } finally {
       const cleanupErrors: string[] = [];
-      const pendingCleanupConsoleInspections = new Set<Promise<void>>();
+      const pendingCleanupErrorInspections = new Set<Promise<void>>();
+      const pendingRecoveryPageErrors = new Set<{ at: number }>();
       const monitoredPages = new Set<Page>();
+      const cleanupPageListeners = new Map<
+        Page,
+        {
+          onConsole: (message: any) => void;
+          onPageError: (error: Error) => void;
+          onResponse: (response: { status(): number; url(): string }) => void;
+        }
+      >();
       const recoveryPages = new Set<Page>();
       let cleanupNavigationCandidates: Array<{
         request: any;
@@ -5705,15 +5946,76 @@ async function runAuthoringFuzzQa(
           },
         );
       };
-      const isExpectedCleanupNavigationError = (
-        message: string,
-        candidates = getCleanupNavigationCandidates(),
-        navigationStarted = cleanupNavigationStarted,
+      const navigationCandidatesFor = (target: Page) =>
+        target === cleanupNavigationPage
+          ? getCleanupNavigationCandidates()
+          : [];
+      const pruneFailedCleanupBrowserSessionClaims = (now = Date.now()) => {
+        const pendingPageErrorAts = Array.from(
+          pendingRecoveryPageErrors,
+          ({ at }) => at,
+        );
+        for (
+          let index = failedCleanupBrowserSessionClaims.length - 1;
+          index >= 0;
+          index -= 1
+        ) {
+          if (
+            !shouldRetainCleanupRecoveryClaimEvidence(
+              failedCleanupBrowserSessionClaims[index].failedAt,
+              now,
+              pendingPageErrorAts,
+            )
+          ) {
+            failedCleanupBrowserSessionClaims.splice(index, 1);
+          }
+        }
+      };
+      const recoveryPollCandidatesFor = (
+        target: Page,
+        pageErrorAt = Date.now(),
+        now = Date.now(),
       ) => {
-        return isExpectedCleanupNavigationRequestError(
-          message,
-          candidates,
-          navigationStarted,
+        pruneFailedCleanupBrowserSessionClaims(now);
+        return failedCleanupBrowserSessionClaims
+          .filter(
+            (candidate) =>
+              candidate.page === target &&
+              isWithinCleanupRecoveryClaimCorrelationWindow(
+                candidate.failedAt,
+                pageErrorAt,
+              ),
+          )
+          .map((candidate) => ({
+            url: candidate.url,
+            pathname: candidate.pathname,
+            method: candidate.method,
+            requestAgeMs: cleanupRecoveryClaimRequestAgeMs(
+              candidate.startedAt,
+              pageErrorAt,
+            ),
+            failureOffsetMs: candidate.failedAt - pageErrorAt,
+            sameOrigin: candidate.sameOrigin,
+            competingClaimStartedAfterFailure:
+              cleanupClaimSequence > candidate.sequence,
+          }));
+      };
+      const isExpectedCleanupNavigationError = (
+        target: Page,
+        message: string,
+        recoveryPageErrorAt = Date.now(),
+      ) => {
+        return (
+          isExpectedCleanupNavigationRequestError(
+            message,
+            navigationCandidatesFor(target),
+            cleanupNavigationStarted && target === cleanupNavigationPage,
+          ) ||
+          (target !== page &&
+            isExpectedCleanupRecoveryPageBrowserSessionError(
+              message,
+              recoveryPollCandidatesFor(target, recoveryPageErrorAt),
+            ))
         );
       };
       if (authoringSucceeded && page && !page.isClosed()) {
@@ -5728,55 +6030,82 @@ async function runAuthoringFuzzQa(
           );
         }
       }
-      const onConsole = (message: any) => {
-        if (message.type() === "error") {
+      const monitorCleanupPage = (target: Page) => {
+        if (!authoringSucceeded || monitoredPages.has(target)) return;
+        trackCleanupRequests(target);
+        const onConsole = (message: any) => {
+          if (message.type() !== "error") return;
           const text = message.text();
-          if (
-            !cleanupNavigationStarted ||
-            !isFirefoxBrowserSessionConsoleError(text)
-          ) {
-            if (isExpectedCleanupNavigationError(text)) return;
-            cleanupErrors.push(`console: ${text}`);
+          const shouldIgnore = (normalized: string) =>
+            isExpectedCleanupNavigationError(target, normalized);
+          if (!isFirefoxBrowserSessionConsoleError(text)) {
+            if (!shouldIgnore(text)) cleanupErrors.push(`console: ${text}`);
             return;
           }
-          const candidatesAtEvent = getCleanupNavigationCandidates();
-          const navigationStartedAtEvent = cleanupNavigationStarted;
           let inspection: Promise<void>;
           inspection = normalizeFirefoxBrowserSessionConsoleError(message)
             .then((normalized) => {
-              if (
-                isExpectedCleanupNavigationError(
-                  normalized,
-                  candidatesAtEvent,
-                  navigationStartedAtEvent,
-                )
-              ) {
-                return;
-              }
-              cleanupErrors.push(`console: ${normalized}`);
+              if (!shouldIgnore(normalized))
+                cleanupErrors.push(`console: ${normalized}`);
             })
             .catch((error: unknown) => {
               cleanupErrors.push(`console: ${text} (${String(error)})`);
             })
-            .finally(() => pendingCleanupConsoleInspections.delete(inspection));
-          pendingCleanupConsoleInspections.add(inspection);
-        }
-      };
-      const onPageError = (error: Error) => {
-        if (isExpectedCleanupNavigationError(error.message)) return;
-        cleanupErrors.push(`pageerror: ${error.stack ?? String(error)}`);
-      };
-      const onResponse = (response: { status(): number; url(): string }) => {
-        if (response.status() >= 400) {
-          cleanupErrors.push(`HTTP ${response.status()} ${response.url()}`);
-        }
-      };
-      const monitorCleanupPage = (target: Page) => {
-        if (!authoringSucceeded || monitoredPages.has(target)) return;
-        trackCleanupRequests(target);
+            .finally(() => pendingCleanupErrorInspections.delete(inspection));
+          pendingCleanupErrorInspections.add(inspection);
+        };
+        const onPageError = (error: Error) => {
+          const pageErrorAt = Date.now();
+          if (
+            isPotentialCleanupRecoveryPageBrowserSessionError(error.message)
+          ) {
+            const pendingPageError = { at: pageErrorAt };
+            pendingRecoveryPageErrors.add(pendingPageError);
+            let inspection: Promise<void>;
+            inspection = new Promise<void>((resolve) =>
+              setTimeout(resolve, retiredBrowserSessionPollConsoleGraceMs),
+            )
+              .then(() => {
+                if (
+                  !isExpectedCleanupNavigationError(
+                    target,
+                    error.message,
+                    pageErrorAt,
+                  )
+                ) {
+                  cleanupErrors.push(
+                    `pageerror: ${error.stack ?? String(error)}`,
+                  );
+                }
+              })
+              .finally(() => {
+                pendingRecoveryPageErrors.delete(pendingPageError);
+                pruneFailedCleanupBrowserSessionClaims();
+                pendingCleanupErrorInspections.delete(inspection);
+              });
+            pendingCleanupErrorInspections.add(inspection);
+            return;
+          }
+          if (
+            isExpectedCleanupNavigationError(target, error.message, pageErrorAt)
+          ) {
+            return;
+          }
+          cleanupErrors.push(`pageerror: ${error.stack ?? String(error)}`);
+        };
+        const onResponse = (response: { status(): number; url(): string }) => {
+          if (response.status() >= 400) {
+            cleanupErrors.push(`HTTP ${response.status()} ${response.url()}`);
+          }
+        };
         target.on("console", onConsole);
         target.on("pageerror", onPageError);
         target.on("response", onResponse);
+        cleanupPageListeners.set(target, {
+          onConsole,
+          onPageError,
+          onResponse,
+        });
         monitoredPages.add(target);
       };
       const getCleanupPage = async (): Promise<Page> => {
@@ -5936,6 +6265,7 @@ async function runAuthoringFuzzQa(
               cleanupUrl.origin !== homeUrl.origin ||
               cleanupUrl.pathname !== homeUrl.pathname
             ) {
+              cleanupNavigationPage = cleanupPage;
               cleanupNavigationStarted = true;
               await cleanupPage.goto(`${base}/home`, {
                 waitUntil: "domcontentloaded",
@@ -5955,9 +6285,11 @@ async function runAuthoringFuzzQa(
       } finally {
         for (const monitoredPage of monitoredPages) {
           if (monitoredPage.isClosed()) continue;
-          monitoredPage.off("console", onConsole);
-          monitoredPage.off("pageerror", onPageError);
-          monitoredPage.off("response", onResponse);
+          const listeners = cleanupPageListeners.get(monitoredPage);
+          if (!listeners) continue;
+          monitoredPage.off("console", listeners.onConsole);
+          monitoredPage.off("pageerror", listeners.onPageError);
+          monitoredPage.off("response", listeners.onResponse);
         }
         for (const [trackedPage, listeners] of cleanupRequestTrackingPages) {
           if (trackedPage.isClosed()) continue;
@@ -5974,8 +6306,8 @@ async function runAuthoringFuzzQa(
           recordCleanupFailure(label, error, target);
         }
       };
-      while (pendingCleanupConsoleInspections.size) {
-        await Promise.all([...pendingCleanupConsoleInspections]);
+      while (pendingCleanupErrorInspections.size) {
+        await Promise.all([...pendingCleanupErrorInspections]);
       }
       cleanupNavigationCandidates = [];
       if (page) await closePage(page, "could not close authoring page");

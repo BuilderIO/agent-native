@@ -681,34 +681,41 @@ describe("markdown prefix autoformat", () => {
     document.body.innerHTML = "";
   });
 
-  it("converts a leading '- ' into a bullet row nested inside the block", () => {
-    document.body.innerHTML =
-      '<div class="slide-content"><div style="font-size: 28px;">- </div></div>';
-    const root = document.querySelector(".slide-content") as HTMLElement;
-    const el = root.firstElementChild as HTMLElement;
-    const textNode = el.firstChild as Text;
-    placeCaret(textNode, textNode.length);
+  it.each(["- ", "* "])(
+    "converts a leading %j into a bullet row nested inside the block at the current font size",
+    (prefix) => {
+      document.body.innerHTML = `<div class="slide-content"><div style="font-size: 28px;">${prefix}</div></div>`;
+      const root = document.querySelector(".slide-content") as HTMLElement;
+      const el = root.firstElementChild as HTMLElement;
+      const textNode = el.firstChild as Text;
+      placeCaret(textNode, textNode.length);
 
-    expect(convertMarkdownPrefixToBullet(el)).toBe(true);
-    expect(el.style.display).toBe("flex");
-    expect(el.style.flexDirection).toBe("column");
-    expect(el.children.length).toBe(1);
+      expect(convertMarkdownPrefixToBullet(el)).toBe(true);
+      expect(el.style.display).toBe("flex");
+      expect(el.style.flexDirection).toBe("column");
+      expect(el.children.length).toBe(1);
 
-    const row = el.children[0] as HTMLElement;
-    expect(isBulletRow(row)).toBe(true);
-    expect(isBulletList(el)).toBe(true);
-    expect(row.children[0].textContent).toBe("\u25CF");
-    expect((row.children[1].textContent ?? "").replace(/\u200B/g, "")).toBe("");
+      const row = el.children[0] as HTMLElement;
+      expect(isBulletRow(row)).toBe(true);
+      expect(isBulletList(el)).toBe(true);
+      expect(row.children[0].textContent).toBe("\u25CF");
+      expect((row.children[1].textContent ?? "").replace(/\u200B/g, "")).toBe(
+        "",
+      );
+      expect(getComputedStyle(row.children[0] as HTMLElement).fontSize).toBe(
+        getComputedStyle(row.children[1] as HTMLElement).fontSize,
+      );
 
-    const sel = window.getSelection();
-    const anchor = sel?.anchorNode;
-    const landedInTextSpan =
-      anchor === row.children[1] || anchor?.parentElement === row.children[1];
-    const landedInMarker =
-      anchor === row.children[0] || anchor?.parentElement === row.children[0];
-    expect(landedInTextSpan).toBe(true);
-    expect(landedInMarker).toBe(false);
-  });
+      const sel = window.getSelection();
+      const anchor = sel?.anchorNode;
+      const landedInTextSpan =
+        anchor === row.children[1] || anchor?.parentElement === row.children[1];
+      const landedInMarker =
+        anchor === row.children[0] || anchor?.parentElement === row.children[0];
+      expect(landedInTextSpan).toBe(true);
+      expect(landedInMarker).toBe(false);
+    },
+  );
 
   it("converts a dash prefix when the browser stores its space as NBSP", () => {
     document.body.innerHTML =

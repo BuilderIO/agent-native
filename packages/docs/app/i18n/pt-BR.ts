@@ -1,6 +1,88 @@
-import enUS from "./en-US";
+import type { PluralLocaleMessages } from "./en-US";
 
 const ptBR = {
+  campaign: {
+    recipes: "Receitas",
+    waysToUse: "Formas de usar",
+    recipeWhen: "Quando",
+    recipeNextTime: "Da próxima vez:",
+    howOften: "Com que frequência",
+    worksWith: "Funciona com:",
+    nextJobs: "O que fazer a seguir",
+    filterRole: "Função",
+    filterAll: "Todas",
+    filterEngineering: "Engenharia",
+    filterProduct: "Produto",
+    filterDesign: "Design",
+    filterMarketing: "Marketing",
+    filterRevops: "RevOps",
+    filterSales: "Vendas",
+    filterFounders: "Fundadores",
+    filterFinance: "Finanças",
+    filterOften: "Com que frequência",
+    filterAny: "Qualquer",
+    filterDaily: "Diariamente",
+    filterWeekly: "Semanalmente",
+    filterPerProject: "Por projeto ou lançamento",
+    filterOccasional: "Ocasionalmente",
+    filterEmpty: "Nenhum caso de uso corresponde a esses filtros.",
+    filterClear: "Limpar filtros",
+    browseArticles:
+      "Ou explore os {{articles}} para encontrar modelos e tutoriais.",
+    articlesLink: "artigos",
+    whatItReplaces: "O que substitui",
+    whatYouUse: "O que você usa",
+    usedFor: "Para",
+    whereItBreaks: "Onde falha",
+    updatedDate: "Atualizado em {{date}}",
+    publishedDate: "Publicado em {{date}}",
+    allArticles: "Todos os artigos",
+    useCases: "Casos de uso",
+    useCasesDescription: "Páginas para tarefas recorrentes, por app",
+    useCasesTitle:
+      "Trabalho recorrente, feito com um app Agent-Native e seu agente de IA",
+    useCasesIntro:
+      "Escolha o trabalho que você faz repetidamente, ou explore os {{articles}} para encontrar modelos e tutoriais.",
+    nextEyebrow: "A seguir",
+    frequencyLabel: "Com que frequência: {{text}}",
+    articles: "Artigos",
+    articlesIntro:
+      "Respostas práticas sobre trabalho recorrente com agentes de IA. Para ver páginas que explicam uma tarefa específica passo a passo, explore os {{useCases}}.",
+    useCasesLink: "casos de uso",
+    articleCount_one: "{{count}} artigo",
+    articleCount_many: "{{count}} de artigos",
+    articleCount_other: "{{count}} artigos",
+    moreOnTopic: "Mais sobre {{topic}}",
+    oldWay: "A forma antiga",
+    newWay: "A nova forma",
+    alternative: "Uma alternativa de código aberto a {{names}}",
+    usedBefore: "Usava antes: {{names}}",
+    faqs: "Perguntas frequentes",
+    faqTitle: "Respostas a perguntas frequentes",
+    goDeeper: "Saiba mais",
+    copyPage: "Copiar página",
+    copyLink: "Copiar link",
+    copied: "Copiado",
+    copyFailed: "Não foi possível copiar. Tente novamente.",
+    breadcrumb: "Caminho de navegação",
+    readTime_one: "{{count}} min de leitura",
+    readTime_many: "{{count}} min de leitura",
+    readTime_other: "{{count}} min de leitura",
+    partOf: "Parte de:",
+    relatedResources: "Recursos relacionados",
+    moreArticles: "Mais artigos de {{category}}",
+    genericMore: "Mais artigos",
+    showMore: "Mostrar mais artigos",
+    allTopics: "Todos os tópicos",
+    topics: {
+      clips:
+        "Gravações de tela, reuniões e ditado que seu agente de IA pode usar",
+      design: "Protótipos interativos com seu agente de IA",
+      slides: "Apresentações alinhadas à marca com seu agente de IA",
+      plans: "Planos visuais e resumos para seu agente de programação com IA",
+      analytics: "Perguntas em linguagem natural, gráficos e painéis",
+    },
+  },
   agentChat: {
     setup: {
       providerStatusUnavailable:
@@ -2536,6 +2618,7 @@ const ptBR = {
     advancedRuntime: "Avançado: estender o runtime",
     templatesSection: "Apps",
     gettingStarted: "Primeiros passos",
+    createWithAgent: "Criar com um agente",
     gettingStartedActions: "Add an Action",
     gettingStartedPages: "Add a Page",
     whatIsAgentNative: "O que é Agent-Native?",
@@ -2639,6 +2722,7 @@ const ptBR = {
     auditLog: "Log de auditoria",
     doctorCodeChecks: "Doctor (verificações de código)",
     observability: "Observabilidade",
+    recorder: "Gravador",
     observationalMemory: "Memória observacional",
     ciEvalGate: "Gate de evals no CI",
     usingYourAgentOverview: "Visão geral",
@@ -2766,6 +2850,6 @@ const ptBR = {
     docsComponents: "Docs Components",
     formsDevelopers: "Guia do desenvolvedor",
   },
-} satisfies typeof enUS;
+} satisfies PluralLocaleMessages;
 
 export default ptBR;

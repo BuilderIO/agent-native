@@ -1,4 +1,3 @@
-import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   createOnboardingCorrelationId,
@@ -10,9 +9,8 @@ import {
   useBuilderConnectFlow,
   type BuilderConnectionScope,
 } from "@agent-native/toolkit/app/settings";
-import { readFileUploadStatus } from "@shared/file-upload-status";
 import { IconLoader2 } from "@tabler/icons-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { StorageStatusRetry } from "@/components/recorder/storage-status-retry";
 import { useStorageSetupHref } from "@/components/settings/settings-links";
@@ -24,6 +22,10 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  fetchVideoStorageStatus,
+  type VideoStorageStatus,
+} from "@/hooks/use-video-storage-status";
 
 // A cancelled account creation can still finish on the server, and its late
 // success should finish this card's setup; a connection made long after the
@@ -49,18 +51,21 @@ function trackStorageStep(
 }
 
 export interface StorageSetupCardProps {
-  onConfigured: () => void | Promise<void>;
+  onConfigured: (status?: VideoStorageStatus) => void | Promise<void>;
   onSkip?: () => void;
   title?: string;
   description?: string;
+  showBuilderStorageOffer?: boolean;
   connectedDescription?: string;
   connectSource?: string;
   connectFlow?: string;
   /**
-   * Open the S3 settings form in a new tab so the page holding an unsaved
-   * recording never navigates away.
+   * The recording waiting on storage, so each step event can be tied to it:
+   * the local id of a copy recorded without storage, or the server id of a
+   * row waiting to finish. Omit both where no recording exists yet.
    */
-  openSettingsInNewTab?: boolean;
+  recordingAttemptId?: string;
+  outputId?: string;
 }
 
 export function StorageSetupCard({
@@ -68,10 +73,12 @@ export function StorageSetupCard({
   onSkip,
   title = "Connect storage",
   description,
+  showBuilderStorageOffer = true,
   connectedDescription = "You're all set. Starting recorder...",
   connectSource = "clips_file_upload_storage_setup_card",
   connectFlow = "file_upload",
-  openSettingsInNewTab = false,
+  recordingAttemptId,
+  outputId,
 }: StorageSetupCardProps) {
   const t = useT();
   const storageSetupHref = useStorageSetupHref();
@@ -93,6 +100,17 @@ export function StorageSetupCard({
   const connectRequestedRef = useRef(false);
   const connectIntentExpiresAtRef = useRef<number | null>(null);
   const [stepViewId] = useState(createOnboardingCorrelationId);
+  const stepProperties = useMemo(
+    () => ({
+      flow: connectSource,
+      step_view_id: stepViewId,
+      ...(recordingAttemptId
+        ? { recording_attempt_id: recordingAttemptId }
+        : {}),
+      ...(outputId ? { output_id: outputId } : {}),
+    }),
+    [connectSource, stepViewId, recordingAttemptId, outputId],
+  );
 
   const clearConfiguredTimeout = useCallback(() => {
     if (configuredTimeoutRef.current !== null) {
@@ -147,42 +165,27 @@ export function StorageSetupCard({
         Math.max(10_000, 2000 * 4),
       );
       try {
-        const r = await fetch(
-          new URL(
-            agentNativePath("/_agent-native/file-upload/status"),
-            window.location.origin,
-          ).toString(),
-          { signal: controller.signal },
-        );
-        if (!r.ok) {
-          stop();
-          setConnecting(false);
-          setStatusIssue("unavailable");
-          return;
-        }
-        const status = await readFileUploadStatus(r);
+        const status = await fetchVideoStorageStatus({
+          signal: controller.signal,
+          timeoutMs: 10_000,
+        });
         if (!mountedRef.current) {
           stop();
           return;
         }
-        if (status.state === "configured") {
+        if (status.configured) {
           stop();
           setConnecting(false);
           setConnected(true);
           trackStorageStep("onboarding_step_completed", {
-            flow: connectSource,
-            step_view_id: stepViewId,
+            ...stepProperties,
             method_id: "builder",
           });
           clearConfiguredTimeout();
           configuredTimeoutRef.current = setTimeout(() => {
             configuredTimeoutRef.current = null;
-            if (mountedRef.current) void onConfigured();
+            if (mountedRef.current) void onConfigured(status);
           }, 800);
-        } else if (status.state === "unavailable") {
-          stop();
-          setConnecting(false);
-          setStatusIssue("unavailable");
         } else if (status.builderReauthorizationRequired) {
           stop();
           setConnecting(false);
@@ -207,9 +210,8 @@ export function StorageSetupCard({
     document.addEventListener("visibilitychange", visibilityHandlerRef.current);
   }, [
     clearConfiguredTimeout,
-    connectSource,
     onConfigured,
-    stepViewId,
+    stepProperties,
     stopVisibilityHandler,
     t,
   ]);
@@ -271,8 +273,7 @@ export function StorageSetupCard({
       connectIntentExpiresAtRef.current = null;
       setStatusIssue(null);
       trackStorageStep("onboarding_method_clicked", {
-        flow: connectSource,
-        step_view_id: stepViewId,
+        ...stepProperties,
         method_id: "builder",
       });
       builderConnect.start({
@@ -280,7 +281,7 @@ export function StorageSetupCard({
         scope: builderConnectionScope,
       });
     },
-    [builderConnectionScope, builderConnect.start, connectSource, stepViewId],
+    [builderConnectionScope, builderConnect.start, stepProperties],
   );
   const handleBuilderCancel = useCallback(() => {
     connectIntentExpiresAtRef.current =
@@ -290,11 +291,10 @@ export function StorageSetupCard({
   const handleSkip = useCallback(() => {
     clearConfiguredTimeout();
     trackStorageStep("onboarding_step_skipped", {
-      flow: connectSource,
-      step_view_id: stepViewId,
+      ...stepProperties,
     });
     onSkip?.();
-  }, [clearConfiguredTimeout, connectSource, onSkip, stepViewId]);
+  }, [clearConfiguredTimeout, onSkip, stepProperties]);
   const builderConnectErrorMessage = builderConnect.error
     ? builderConnect.errorKind === "launch"
       ? t("storageSetup.builderConnectPopupError")
@@ -311,10 +311,9 @@ export function StorageSetupCard({
 
   useEffect(() => {
     trackStorageStep("onboarding_step_viewed", {
-      flow: connectSource,
-      step_view_id: stepViewId,
+      ...stepProperties,
     });
-  }, [connectSource, stepViewId]);
+  }, [stepProperties]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -334,9 +333,16 @@ export function StorageSetupCard({
       <div>
         <h2 className="text-lg font-semibold">{title}</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          {connected
-            ? connectedDescription
-            : (description ?? t("storageSetup.description"))}
+          {connected ? (
+            connectedDescription
+          ) : (
+            <>
+              {description ?? t("storageSetup.description")}
+              {showBuilderStorageOffer
+                ? ` ${t("storageSetup.builderStorageOffer")}`
+                : null}
+            </>
+          )}
         </p>
       </div>
 
@@ -371,18 +377,16 @@ export function StorageSetupCard({
             <Button asChild variant="secondary" className="w-full">
               <a
                 href={storageSetupHref}
+                target="_blank"
+                rel="noopener noreferrer"
                 onClick={() =>
                   trackStorageStep("onboarding_method_clicked", {
-                    flow: connectSource,
-                    step_view_id: stepViewId,
+                    ...stepProperties,
                     method_id: "s3",
                   })
                 }
-                {...(openSettingsInNewTab
-                  ? { target: "_blank", rel: "noopener noreferrer" }
-                  : {})}
               >
-                {t("settings.s3Title")}
+                {t("storageSetup.customKeys")}
               </a>
             </Button>
           </>

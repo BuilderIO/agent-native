@@ -1,14 +1,30 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { ClipsActionError, ClipsActionTimeoutError } from "../lib/clips-action";
 import {
   getRecordingContextItem,
+  isTerminalRecordingContextRequestFailure,
   listPendingRecordingContext,
+  LOOKBACK_ACTION_TIMEOUT_MS,
+  removeRecordingContext,
   requestRecordingContext,
+  requestRecordingContextOnce,
+  settleRecordingContextRequest,
+  visitPendingRecordingContextPage,
+  type PendingRecordingContextPage,
+  type RecordingContextItem,
 } from "./context-api";
+import {
+  settlePendingLookbackContextAfterStop,
+  type PendingLookbackContext,
+} from "./pending-lookback-context";
 
 const target = { serverUrl: "https://clips.example.test", authToken: "" };
 
-function stubFetch(body: unknown = { items: [] }, status = 200) {
+function stubFetch(
+  body: unknown = { items: [], nextCursor: null },
+  status = 200,
+) {
   const fetchMock = vi.fn(
     async (_url: string, _init?: RequestInit) =>
       new Response(JSON.stringify(body), {
@@ -22,10 +38,11 @@ function stubFetch(body: unknown = { items: [] }, status = 200) {
 
 describe("requestRecordingContext", () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
-  it("sends the capturing device's id with the request", async () => {
+  it("sends the capturing device and audio details with the request", async () => {
     const fetchMock = stubFetch({ id: "ctx1" });
 
     await requestRecordingContext(target, {
@@ -33,6 +50,8 @@ describe("requestRecordingContext", () => {
       seconds: 30,
       endedAt: "2026-10-09T10:00:00.000Z",
       deviceId: "device-1",
+      includeMicrophone: true,
+      includeSystemAudio: false,
     });
 
     const [url, init] = fetchMock.mock.calls[0] ?? [];
@@ -44,12 +63,278 @@ describe("requestRecordingContext", () => {
       seconds: 30,
       endedAt: "2026-10-09T10:00:00.000Z",
       deviceId: "device-1",
+      includeMicrophone: true,
+      includeSystemAudio: false,
+    });
+  });
+
+  it("keeps its context until a successful-stop request retry succeeds", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: "Temporary failure" }), {
+          status: 503,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: "ctx1" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const requestInput = {
+      recordingId: "rec1",
+      seconds: 30,
+      endedAt: "2026-10-09T10:00:00.000Z",
+      deviceId: "device-1",
+    };
+    const item = settleRecordingContextRequest(
+      requestRecordingContext(target, requestInput),
+      "rec1",
+      vi.fn(),
+      vi.fn(),
+    );
+    const contexts = new Map<string, PendingLookbackContext>([
+      [
+        "rec1",
+        {
+          recordingId: "rec1",
+          request: requestInput,
+          target,
+          account: "owner@example.test",
+          item,
+        },
+      ],
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await settlePendingLookbackContextAfterStop(
+      contexts,
+      "rec1",
+      true,
+      vi.fn(),
+    );
+    expect(contexts.has("rec1")).toBe(true);
+    await vi.advanceTimersByTimeAsync(999);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+
+    await expect(item).resolves.toMatchObject({ id: "ctx1" });
+    expect(contexts.has("rec1")).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("bounds temporary retries so failed-stop cleanup can recover on a later poll", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ error: "Temporary failure" }), {
+          status: 503,
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const request = requestRecordingContext(target, {
+      recordingId: "rec1",
+      seconds: 30,
+      endedAt: "2026-10-09T10:00:00.000Z",
+      deviceId: "device-1",
+    });
+    const rejected = expect(request).rejects.toMatchObject({ status: 503 });
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    await rejected;
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps cleanup retries bounded to the caller's persisted schedule", async () => {
+    const fetchMock = stubFetch({ error: "Temporary failure" }, 503);
+
+    await expect(
+      requestRecordingContextOnce(target, {
+        recordingId: "rec1",
+        seconds: 30,
+        endedAt: "2026-10-09T10:00:00.000Z",
+        deviceId: "device-1",
+      }),
+    ).rejects.toMatchObject({ status: 503 });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+});
+
+describe("settleRecordingContextRequest", () => {
+  it("keeps the origin while the request is pending and after it succeeds", async () => {
+    let resolve!: (value: {
+      includeMicrophone: boolean;
+      includeSystemAudio: boolean;
+    }) => void;
+    const request = new Promise<{
+      includeMicrophone: boolean;
+      includeSystemAudio: boolean;
+    }>((res) => {
+      resolve = res;
+    });
+    const forgetOrigin = vi.fn();
+    const onError = vi.fn();
+    const settled = settleRecordingContextRequest(
+      request,
+      "rec1",
+      forgetOrigin,
+      onError,
+    );
+
+    expect(forgetOrigin).not.toHaveBeenCalled();
+    resolve({ includeMicrophone: true, includeSystemAudio: false });
+
+    await expect(settled).resolves.toEqual({
+      includeMicrophone: true,
+      includeSystemAudio: false,
+    });
+    expect(forgetOrigin).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["recording_context_invalid_window", 400],
+    ["recording_unavailable", 404],
+  ])(
+    "forgets the origin after terminal request failure %s",
+    async (code, status) => {
+      const forgetOrigin = vi.fn();
+      const onError = vi.fn();
+      const error = new ClipsActionError(
+        "terminal request failure",
+        status,
+        code,
+      );
+
+      await expect(
+        settleRecordingContextRequest(
+          Promise.reject(error),
+          "rec1",
+          forgetOrigin,
+          onError,
+        ),
+      ).resolves.toBeNull();
+
+      expect(forgetOrigin).toHaveBeenCalledExactlyOnceWith("rec1");
+      expect(onError).toHaveBeenCalledExactlyOnceWith(error);
+    },
+  );
+
+  it("does not turn a retryable request failure into an absent item", async () => {
+    const forgetOrigin = vi.fn();
+    const onError = vi.fn();
+    const error = new ClipsActionError("temporary server failure", 503);
+
+    await expect(
+      settleRecordingContextRequest(
+        Promise.reject(error),
+        "rec1",
+        forgetOrigin,
+        onError,
+      ),
+    ).rejects.toBe(error);
+
+    expect(forgetOrigin).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledExactlyOnceWith(error);
+  });
+
+  it("forgets the origin after a permanent non-terminal request failure", async () => {
+    const forgetOrigin = vi.fn();
+    const onError = vi.fn();
+    const error = new ClipsActionError("not allowed", 403);
+
+    await expect(
+      settleRecordingContextRequest(
+        Promise.reject(error),
+        "rec1",
+        forgetOrigin,
+        onError,
+      ),
+    ).resolves.toBeNull();
+
+    expect(forgetOrigin).toHaveBeenCalledExactlyOnceWith("rec1");
+    expect(onError).toHaveBeenCalledExactlyOnceWith(error);
+  });
+});
+
+describe("isTerminalRecordingContextRequestFailure", () => {
+  it("requires the matching typed status and error code", () => {
+    expect(
+      isTerminalRecordingContextRequestFailure(
+        new ClipsActionError(
+          "invalid window",
+          400,
+          "recording_context_invalid_window",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      isTerminalRecordingContextRequestFailure(
+        new ClipsActionError("gone", 404, "recording_unavailable"),
+      ),
+    ).toBe(true);
+    expect(
+      isTerminalRecordingContextRequestFailure(
+        new ClipsActionError("forbidden", 403, "recording_forbidden"),
+      ),
+    ).toBe(false);
+    expect(isTerminalRecordingContextRequestFailure(new Error("offline"))).toBe(
+      false,
+    );
+  });
+});
+
+describe("removeRecordingContext", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("sends the context item id to the removal action", async () => {
+    const fetchMock = stubFetch({ id: "ctx1" });
+
+    await removeRecordingContext(target, "ctx1");
+
+    const [url, init] = fetchMock.mock.calls[0] ?? [];
+    expect(new URL(String(url)).pathname).toBe(
+      "/_agent-native/actions/remove-recording-context",
+    );
+    expect(JSON.parse(String(init?.body))).toEqual({ id: "ctx1" });
+  });
+
+  it("treats only the typed missing-context response as already removed", async () => {
+    stubFetch(
+      {
+        error: "This screen history context was not found.",
+        errorCode: "recording_context_not_found",
+      },
+      404,
+    );
+
+    await expect(removeRecordingContext(target, "ctx1")).resolves.toBeNull();
+  });
+
+  it("keeps untyped 404 failures distinguishable from an absent context", async () => {
+    stubFetch({ error: "Not found." }, 404);
+
+    await expect(removeRecordingContext(target, "ctx1")).rejects.toMatchObject({
+      status: 404,
+      code: undefined,
     });
   });
 });
 
 describe("listPendingRecordingContext", () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -61,7 +346,7 @@ describe("listPendingRecordingContext", () => {
         deviceId: "device-1",
         excludeIds: ["ctx1", "ctx2"],
       }),
-    ).resolves.toEqual([]);
+    ).resolves.toEqual({ items: [], nextCursor: null });
 
     const url = new URL(String(fetchMock.mock.calls[0]?.[0]));
     expect(url.pathname).toBe(
@@ -88,6 +373,129 @@ describe("listPendingRecordingContext", () => {
 
     const url = new URL(String(fetchMock.mock.calls[0]?.[0]));
     expect(url.searchParams.has("excludeIds")).toBe(false);
+  });
+
+  it("continues after a stable item cursor", async () => {
+    const fetchMock = stubFetch({
+      items: [],
+      nextCursor: {
+        afterCreatedAt: "2026-10-15T12:00:00.000Z",
+        afterId: "ctx25",
+      },
+    });
+
+    await expect(
+      listPendingRecordingContext(target, {
+        deviceId: "device-1",
+        cursor: {
+          afterCreatedAt: "2026-10-15T11:59:00.000Z",
+          afterId: "ctx10",
+        },
+      }),
+    ).resolves.toEqual({
+      items: [],
+      nextCursor: {
+        afterCreatedAt: "2026-10-15T12:00:00.000Z",
+        afterId: "ctx25",
+      },
+    });
+
+    const url = new URL(String(fetchMock.mock.calls[0]?.[0]));
+    expect(url.searchParams.get("afterCreatedAt")).toBe(
+      "2026-10-15T11:59:00.000Z",
+    );
+    expect(url.searchParams.get("afterId")).toBe("ctx10");
+  });
+
+  it("times out a stalled pending-context action so polling can retry", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn(
+      (_url: string, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () => reject(init.signal?.reason),
+            { once: true },
+          );
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const request = listPendingRecordingContext(target, {
+      deviceId: "device-1",
+    });
+    const rejected = expect(request).rejects.toBeInstanceOf(
+      ClipsActionTimeoutError,
+    );
+
+    await vi.advanceTimersByTimeAsync(LOOKBACK_ACTION_TIMEOUT_MS);
+
+    await rejected;
+    expect(fetchMock.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+  });
+});
+
+describe("visitPendingRecordingContextPage", () => {
+  it("returns the next cursor only after every item is inspected", () => {
+    const previousCursor = {
+      afterCreatedAt: "2026-10-15T11:59:00.000Z",
+      afterId: "ctx10",
+    };
+    const page: PendingRecordingContextPage = {
+      items: [{ id: "ctx1" }, { id: "ctx2" }] as RecordingContextItem[],
+      nextCursor: {
+        afterCreatedAt: "2026-10-15T12:00:00.000Z",
+        afterId: "ctx25",
+      },
+    };
+    let cursor = previousCursor;
+
+    expect(() => {
+      cursor = visitPendingRecordingContextPage(page, (item) => {
+        if (item.id === "ctx2") throw new Error("local storage unreadable");
+      })!;
+    }).toThrow("local storage unreadable");
+
+    expect(cursor).toBe(previousCursor);
+  });
+
+  it("returns the page cursor after every item is inspected", () => {
+    const page = {
+      items: [{ id: "ctx1" }] as RecordingContextItem[],
+      nextCursor: {
+        afterCreatedAt: "2026-10-15T12:00:00.000Z",
+        afterId: "ctx25",
+      },
+    } satisfies PendingRecordingContextPage;
+
+    expect(visitPendingRecordingContextPage(page, () => {})).toEqual(
+      page.nextCursor,
+    );
+  });
+
+  it("continues page traversal when one item's origin lookup fails", () => {
+    const page = {
+      items: [{ id: "ctx1" }, { id: "ctx2" }, { id: "ctx3" }],
+      nextCursor: {
+        afterCreatedAt: "2026-10-15T12:00:00.000Z",
+        afterId: "ctx25",
+      },
+    } satisfies PendingRecordingContextPage;
+    const originReads: string[] = [];
+    const errors: Array<{ error: unknown; itemId: string }> = [];
+    const unreadableOrigin = new Error("local storage unreadable");
+
+    const cursor = visitPendingRecordingContextPage(
+      page,
+      (item) => {
+        originReads.push(item.id);
+        if (item.id === "ctx2") throw unreadableOrigin;
+      },
+      (error, item) => errors.push({ error, itemId: item.id }),
+    );
+
+    expect(originReads).toEqual(["ctx1", "ctx2", "ctx3"]);
+    expect(errors).toEqual([{ error: unreadableOrigin, itemId: "ctx2" }]);
+    expect(cursor).toEqual(page.nextCursor);
   });
 });
 

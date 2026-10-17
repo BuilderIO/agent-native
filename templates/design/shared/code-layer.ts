@@ -1456,7 +1456,10 @@ function attributeRecord(
 ): Record<string, string | true> {
   const record: Record<string, string | true> = {};
   for (const attr of element.attributes) {
-    record[attr.lowerName] = attr.value;
+    record[attr.lowerName] =
+      typeof attr.value === "string"
+        ? decodeBasicHtmlEntities(attr.value)
+        : attr.value;
   }
   return record;
 }
@@ -1465,7 +1468,7 @@ function dataAttributeRecord(element: ParsedElement): Record<string, string> {
   const record: Record<string, string> = {};
   for (const attr of element.attributes) {
     if (attr.lowerName.startsWith("data-") && typeof attr.value === "string") {
-      record[attr.lowerName] = attr.value;
+      record[attr.lowerName] = decodeBasicHtmlEntities(attr.value);
     }
   }
   return record;
@@ -4091,7 +4094,13 @@ export function buildCodeLayerTree(
         : undefined;
     const treeNode = treeById.get(node.id);
     if (!parent || !treeNode || parent.id === treeNode.id) continue;
-    if (parent.type === "text" && INLINE_TEXT_TAGS.has(node.tag)) continue;
+    if (
+      parent.type === "text" &&
+      INLINE_TEXT_TAGS.has(node.tag) &&
+      node.layerNameSource !== "attribute"
+    ) {
+      continue;
+    }
     const childIds = childIdsByParentId.get(parent.id) ?? new Set<string>();
     if (childIds.has(treeNode.id)) continue;
     childIds.add(treeNode.id);
@@ -8607,7 +8616,8 @@ function applyWrapNodes(
     return frag;
   });
 
-  const autoLayoutStyle = "display: flex; flex-direction: column; gap: 8px";
+  const autoLayoutStyle =
+    "display: flex; flex-direction: column; align-items: flex-start; gap: 8px";
   const autoLayoutOrigin = autoLayout
     ? (targetGeometry ?? computeAbsoluteUnionOrigin(targetElements))
     : null;

@@ -3,6 +3,14 @@
 All notable user-facing changes to Agent-Native Mail are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-14
+
+### Fixed
+
+- Inbox previews show apostrophes, quotes and ampersands as text instead of HTML codes.
+- Allowing automations to send no longer lets them delete mail or change Gmail settings without approval.
+- Automations that add a Gmail label no longer wait for send approval that never arrives.
+
 ## 2026-10-09
 
 ### Improved

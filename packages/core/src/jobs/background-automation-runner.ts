@@ -74,6 +74,7 @@ import { automationRecoveryMessagesForLocale } from "../localization/automation-
 import { queryOrgMembers } from "../org/context.js";
 import {
   organizationIdFromResourceOwner,
+  SHARED_OWNER,
   type Resource,
 } from "../resources/store.js";
 import { captureError } from "../server/capture-error.js";
@@ -345,6 +346,22 @@ export async function resolveBackgroundAutomationIdentity(
     ) ??
     automation.meta.orgId ??
     undefined;
+  if (
+    !orgId &&
+    automation.resource.owner !== "__shared__" &&
+    !organizationIdFromResourceOwner(automation.resource.owner)
+  ) {
+    const resolved = await resolveAutomationExecutionIdentity(
+      automation.resource.owner,
+      automation.meta,
+    );
+    if (!resolved.ok) return resolved;
+    const validity = await validateAutomationRunIdentity(
+      resolved.identity.userEmail,
+    );
+    if (!validity.ok) return validity;
+    return resolved;
+  }
   const validity = await validateAutomationRunIdentity(userEmail, orgId);
   return validity.ok
     ? {
@@ -352,6 +369,9 @@ export async function resolveBackgroundAutomationIdentity(
         identity: {
           userEmail,
           orgId,
+          ...(!orgId && automation.resource.owner === SHARED_OWNER
+            ? { defaultAgentEngineScope: "deployment" as const }
+            : {}),
           eventOwner: userEmail.toLowerCase(),
         },
       }
@@ -975,7 +995,12 @@ async function resolveBackgroundAutomationModel(
  * paused for `missing_credentials` as soon as the credential exists.
  */
 export async function checkBackgroundAutomationCredentials(
-  identity: { ownerEmail: string; orgId?: string },
+  identity: {
+    ownerEmail: string;
+    orgId?: string;
+    orgScope?: "personal";
+    defaultAgentEngineScope?: "deployment";
+  },
   deps: BackgroundAutomationDeps,
   automationModel?: string,
 ): Promise<
@@ -984,7 +1009,16 @@ export async function checkBackgroundAutomationCredentials(
 > {
   try {
     const { engine, model } = await runWithRequestContext(
-      { userEmail: identity.ownerEmail, orgId: identity.orgId },
+      {
+        userEmail: identity.ownerEmail,
+        orgId: identity.orgId,
+        ...(identity.orgScope === "personal"
+          ? { orgScope: "personal" as const }
+          : {}),
+        ...(identity.defaultAgentEngineScope === "deployment"
+          ? { defaultAgentEngineScope: "deployment" as const }
+          : {}),
+      },
       async () => {
         const engine = await resolveUsableBackgroundEngine(
           identity,

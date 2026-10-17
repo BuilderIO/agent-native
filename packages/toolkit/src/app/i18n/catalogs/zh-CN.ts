@@ -197,6 +197,10 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.keySummary": "嵌入向量",
   "onboarding.capability.embeddings.why":
     "嵌入向量可以改进语义搜索。没有嵌入向量时，关键词搜索仍然有效。",
+  "onboarding.capability.webSearch.label": "网页搜索",
+  "onboarding.capability.webSearch.keySummary": "由 Builder 管理的网页搜索",
+  "onboarding.capability.webSearch.why":
+    "搜索网页上的最新公开信息。Builder 管理的搜索使用随附的 Builder AI 积分，因此无需单独的搜索 API 密钥。",
   "onboarding.capability.systemOne.why":
     "Jev 是一个可选的决策模型，可在代理首次请求模型前帮助选择相关工具和技能。",
   "onboarding.capability.assetsImageGeneration.label": "图像生成",
@@ -633,6 +637,9 @@ const messages: ToolkitAgentChatTranslation = {
     "模型提供方认为该请求格式有误并予以拒绝，因此未重试。请重试，若问题持续出现，请开始新的对话。",
   "errorMessages.requestTooLarge":
     "此请求超出了服务器大小限制（HTTP 413）。请开始新聊天，或移除较大的附件或引用后重试。",
+  "errorMessages.capabilityUnavailable": "暂时无法发送你的消息。请稍后重试。",
+  "errorMessages.capabilityUnsupported":
+    "此应用目前无法安全地重试已保存的提示。请先更新应用，然后重试。",
   "errorMessages.runInterrupted": "智能体在完成前停止了。",
   "errorMessages.runFailed": "智能体运行失败。",
   "errorMessages.runUnverified":
@@ -2402,6 +2409,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.search.appDefaultModel": "应用默认模型",
   "settingsShell.search.backgroundAgents": "后台智能体",
   "settingsShell.search.browserAutomation": "浏览器自动化",
+  "settingsShell.search.webSearch": "网页搜索",
   "settingsShell.search.connectedAgents": "已连接的智能体",
   "settingsShell.search.database": "数据库",
   "settingsShell.search.defaultModel": "默认模型",
@@ -2525,6 +2533,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.whyDesignSystem": "让生成的幻灯片和设计符合品牌规范。",
   "settingsInfra.whyBackground": "在生产环境中修改代码。",
   "settingsInfra.whyBrowser": "让智能体在生产环境中使用浏览器。",
+  "settingsInfra.whyWebSearch": "查找最新的公开信息和官方文档。",
   "settingsInfra.provider": "提供商",
   "settingsInfra.keyOrg": "使用组织的 {{provider}} 密钥。",
   "settingsInfra.manageKey": "管理密钥",
@@ -2822,6 +2831,15 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsSubAgents.connectTitle": "连接 {{name}}",
   "settingsSubAgents.close": "关闭",
   "observability.insights.rawTrace": "原始追踪（所有 span 及其输入和输出）",
+  "reportProblem.menuItem": "报告问题",
+  "reportProblem.title_other": "要附上应用在过去 {{count}} 秒内的操作记录吗？",
+  "reportProblem.noEvents": "暂时还没有记录。",
+  "reportProblem.send": "发送给智能体",
+  "reportProblem.copy": "复制问题报告",
+  "reportProblem.attaching": "正在附加…",
+  "reportProblem.notAttached": "报告未能附加。",
+  "reportProblem.agentMessage":
+    "应用出了问题。请根据附带的问题报告解释发生了什么。",
 };
 
 export default messages;

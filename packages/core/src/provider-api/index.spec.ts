@@ -138,6 +138,7 @@ vi.mock("../db/ddl-guard.js", () => ({
 const {
   createProviderApiRuntime,
   getProviderApiConfig,
+  isValidProviderApiBaseUrl,
   resolveProviderApiOAuthAccessToken,
 } = await import("./index.js");
 const { createGitHubRepoFilesAction } =
@@ -148,6 +149,27 @@ const credentialContext = {
   userEmail: "ada@example.com",
   orgId: "org-1",
 };
+
+describe("provider API base URL validation", () => {
+  it.each([
+    ["https://api.gong.io/v2", true],
+    ["https://api.gong.io/v2/", true],
+    ["https://us-88601.api.gong.io/v2", true],
+    ["https://company-17.api.gong.io/v2", true],
+    ["https://api.gong.io", false],
+    ["https://api.gong.io/v1", false],
+    ["https://api.gong.io/v2/calls", false],
+    ["https://nested.us-88601.api.gong.io/v2", false],
+    ["http://us-88601.api.gong.io/v2", false],
+    ["https://attacker.example/v2", false],
+    ["https://user:secret@api.gong.io/v2", false],
+    ["https://api.gong.io:8443/v2", false],
+    ["https://api.gong.io/v2?redirect=elsewhere", false],
+    ["not a URL", false],
+  ])("validates Gong base URL %s", (value, expected) => {
+    expect(isValidProviderApiBaseUrl("gong", value)).toBe(expected);
+  });
+});
 
 describe("provider API runtime", () => {
   beforeEach(() => {
@@ -910,6 +932,46 @@ describe("provider API runtime", () => {
       string
     >;
     expect(headers).not.toHaveProperty("Authorization");
+  });
+
+  it("drops method-override headers so a GET cannot be tunneled to a write", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    fetchMock.mockImplementation(
+      async () =>
+        new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    resolveCredential.mockImplementation(async (key: string) =>
+      key === "CLAY_PUBLIC_API_KEY" ? "clay-test-example-key" : null,
+    );
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["clay"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    await runtime.executeRequest({
+      provider: "clay",
+      path: "/me",
+      headers: {
+        "X-HTTP-Method-Override": "DELETE",
+        "x-http-method": "DELETE",
+        "X-Method-Override": "DELETE",
+        "X-Request-Id": "keep-me",
+      },
+    });
+
+    const headers = (fetchMock.mock.calls.at(-1)?.[1]?.headers ?? {}) as Record<
+      string,
+      string
+    >;
+    const names = Object.keys(headers).map((name) => name.toLowerCase());
+    expect(names).not.toContain("x-http-method-override");
+    expect(names).not.toContain("x-http-method");
+    expect(names).not.toContain("x-method-override");
+    expect(names).toContain("x-request-id");
   });
 
   it("prefers Figma OAuth and falls back to a scoped PAT", async () => {
@@ -2610,6 +2672,74 @@ describe("provider API runtime", () => {
     );
   });
 
+  it("documents Brain-compatible Gong account-call queries with complete CRM context", () => {
+    const gong = getProviderApiConfig("gong");
+    const extensiveExample = gong.examples?.find(
+      (example) => example.path === "/calls/extensive",
+    );
+    const accountRecipe = gong.corpusRecipes?.find(
+      (recipe) =>
+        recipe.label === "Find Gong calls for an account with CRM context",
+    );
+
+    expect(extensiveExample?.body).toMatchObject({
+      filter: {
+        fromDateTime: "<start-iso-date-time>",
+        toDateTime: "<end-iso-date-time>",
+      },
+      contentSelector: {
+        context: "Extended",
+        contextTiming: ["TimeOfCall"],
+        exposedFields: {
+          parties: true,
+          content: { brief: true, keyPoints: true },
+        },
+      },
+    });
+    expect(accountRecipe).toMatchObject({
+      request: {
+        method: "POST",
+        path: "/calls/extensive",
+        body: {
+          filter: {
+            fromDateTime: "<start-iso-date-time>",
+            toDateTime: "<end-iso-date-time>",
+          },
+          contentSelector: {
+            context: "Extended",
+            contextTiming: ["TimeOfCall"],
+            exposedFields: {
+              parties: true,
+              content: { brief: true, keyPoints: true },
+            },
+          },
+        },
+      },
+      pagination: {
+        itemsPath: "calls",
+        nextCursorPath: "records.cursor",
+        cursorBodyPath: "cursor",
+        maxPages: 200,
+      },
+    });
+
+    const guidance = [
+      ...(gong.notes ?? []),
+      ...(accountRecipe?.workflow ?? []),
+    ].join(" ");
+    expect(guidance).toContain("organization's Gong credentials");
+    expect(guidance).toContain("personal Gong seat");
+    expect(accountRecipe?.workflow.join(" ")).toContain("providerFetchAll");
+    expect(guidance).toContain("customer versus prospect");
+    expect(guidance).toContain("unclassified");
+    expect(guidance).toContain("truncated");
+    expect(accountRecipe?.workflow.join(" ")).toContain("hasMore");
+    expect(accountRecipe?.workflow.join(" ")).toContain("stoppedReason");
+    expect(JSON.stringify(gong.corpusRecipes)).not.toContain(
+      "provider-corpus-job",
+    );
+  });
+
   it("refreshes Salesforce OAuth before calling the connection instance", async () => {
     resolveSecret.mockImplementation(async (key: string) =>
       key === "SALESFORCE_CLIENT_ID"
@@ -3671,6 +3801,90 @@ describe("provider API runtime", () => {
     );
   });
 
+  it("allows a regional Gong API base URL and sends Basic Auth to it", async () => {
+    resolveCredential.mockImplementation(async (key: string) => {
+      if (key === "GONG_API_BASE") {
+        return "https://us-88601.api.gong.io/v2";
+      }
+      return key === "GONG_ACCESS_KEY" || key === "GONG_ACCESS_SECRET"
+        ? `${key.toLowerCase()}-test-value`
+        : null;
+    });
+    const fetchMock = vi.mocked(globalThis.fetch);
+    const runtime = createProviderApiRuntime({
+      appId: "brain",
+      providerIds: ["gong"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    await runtime.executeRequest({ provider: "gong", path: "/calls" });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://us-88601.api.gong.io/v2/calls",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: expect.stringMatching(/^Basic /),
+        }),
+      }),
+    );
+  });
+
+  it("keeps Gong Basic Auth on the configured tenant host", async () => {
+    resolveCredential.mockImplementation(async (key: string) =>
+      key === "GONG_API_BASE"
+        ? "https://company-17.api.gong.io/v2"
+        : "gong-test-value",
+    );
+    const fetchMock = vi.mocked(globalThis.fetch);
+    const runtime = createProviderApiRuntime({
+      appId: "brain",
+      providerIds: ["gong"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    await expect(
+      runtime.executeRequest({
+        provider: "gong",
+        path: "https://company-18.api.gong.io/v2/calls",
+      }),
+    ).rejects.toThrow(/configured provider host/);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(resolveCredential.mock.calls.map(([key]) => key)).toEqual([
+      "GONG_API_BASE",
+    ]);
+  });
+
+  it.each([
+    "https://attacker.example/v2",
+    "https://nested.us-88601.api.gong.io/v2",
+    "http://us-88601.api.gong.io/v2",
+  ])(
+    "rejects an unsafe Gong API base URL before sending Basic Auth: %s",
+    async (baseUrl) => {
+      resolveCredential.mockImplementation(async (key: string) => {
+        if (key === "GONG_API_BASE") return baseUrl;
+        return key === "GONG_ACCESS_KEY" || key === "GONG_ACCESS_SECRET"
+          ? `${key.toLowerCase()}-test-value`
+          : null;
+      });
+      const fetchMock = vi.mocked(globalThis.fetch);
+      const runtime = createProviderApiRuntime({
+        appId: "brain",
+        providerIds: ["gong"],
+        getCredentialContext: () => credentialContext,
+      });
+
+      await expect(
+        runtime.executeRequest({ provider: "gong", path: "/calls" }),
+      ).rejects.toThrow(/configured provider host/);
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(resolveCredential.mock.calls.map(([key]) => key)).toEqual([
+        "GONG_API_BASE",
+      ]);
+    },
+  );
+
   it("extracts provider docs HTML into compact markdown content", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(
@@ -4130,6 +4344,90 @@ describe("provider API runtime", () => {
       response: { status: 200, json: { results: [{ id: "deal-1" }] } },
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("tells the caller a truncated response is incomplete and how to recover", async () => {
+    resolveCredential.mockResolvedValue("hubspot-token");
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ results: "x".repeat(5_000) }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["hubspot"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    const result = (await runtime.executeRequest({
+      provider: "hubspot",
+      path: "/crm/v3/objects/deals",
+      maxBytes: 1_000,
+    })) as { response: { truncated: boolean }; guidance: string };
+
+    expect(result.response.truncated).toBe(true);
+    expect(result.guidance).toContain("This response is incomplete");
+    expect(result.guidance).toContain("server-side filter");
+    expect(result.guidance).not.toContain("Prefer this escape hatch");
+  });
+
+  it("refuses to save a truncated response to a file as complete", async () => {
+    resolveCredential.mockResolvedValue("hubspot-token");
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValueOnce(
+      new Response("x".repeat(21 * 1024 * 1024), {
+        status: 200,
+        headers: { "content-type": "text/plain" },
+      }),
+    );
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["hubspot"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    await expect(
+      runtime.executeRequest({
+        provider: "hubspot",
+        path: "/crm/v3/objects/deals",
+        saveToFile: "analysis/deals.txt",
+      }),
+    ).rejects.toThrow(/would persist an incomplete file/);
+  });
+
+  it("fails fetchAllPages loudly when a page is cut at the size limit", async () => {
+    resolveCredential.mockResolvedValue("hubspot-token");
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ results: "x".repeat(5_000) }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["hubspot"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    await expect(
+      runtime.executeRequest({
+        provider: "hubspot",
+        path: "/crm/v3/objects/deals",
+        maxBytes: 1_000,
+        fetchAllPages: {
+          cursorPath: "paging.next.after",
+          cursorParam: "after",
+          itemsPath: "results",
+          maxPages: 2,
+        },
+      }),
+    ).rejects.toThrow(/cut at the response size limit/);
   });
 
   it("deduplicates identical concurrent GET provider requests", async () => {

@@ -207,6 +207,10 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.keySummary": "임베딩",
   "onboarding.capability.embeddings.why":
     "임베딩은 의미 검색을 개선합니다. 임베딩 없이도 키워드 검색은 작동합니다.",
+  "onboarding.capability.webSearch.label": "웹 검색",
+  "onboarding.capability.webSearch.keySummary": "Builder 관리 웹 검색",
+  "onboarding.capability.webSearch.why":
+    "웹의 최신 공개 자료를 검색합니다. Builder 관리 검색은 포함된 Builder AI 크레딧을 사용하므로 별도의 검색 API 키가 필요하지 않습니다.",
   "onboarding.capability.systemOne.why":
     "Jev는 에이전트의 첫 모델 요청 전에 관련 도구와 스킬을 선택하도록 돕는 선택형 의사결정 모델입니다.",
   "onboarding.capability.assetsImageGeneration.label": "이미지 생성",
@@ -667,6 +671,10 @@ const messages: ToolkitAgentChatTranslation = {
     "모델 제공업체가 이 요청을 잘못된 형식으로 거부하여 재시도하지 않았습니다. 다시 시도하거나 문제가 계속되면 새 채팅을 시작하세요.",
   "errorMessages.requestTooLarge":
     "이 요청은 서버 크기 제한을 초과했습니다(HTTP 413). 새 채팅을 시작하거나 큰 첨부 파일 또는 참조를 제거한 뒤 다시 시도하세요.",
+  "errorMessages.capabilityUnavailable":
+    "지금은 메시지를 보낼 수 없습니다. 잠시 후 다시 시도해 주세요.",
+  "errorMessages.capabilityUnsupported":
+    "이 앱은 저장된 프롬프트를 아직 안전하게 다시 시도할 수 없습니다. 앱을 업데이트한 뒤 다시 시도하세요.",
   "errorMessages.runInterrupted": "에이전트가 완료하기 전에 중지되었습니다.",
   "errorMessages.runFailed": "에이전트 실행이 실패했습니다.",
   "errorMessages.runUnverified":
@@ -2594,6 +2602,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.search.appDefaultModel": "앱 기본 모델",
   "settingsShell.search.backgroundAgents": "백그라운드 에이전트",
   "settingsShell.search.browserAutomation": "브라우저 자동화",
+  "settingsShell.search.webSearch": "웹 검색",
   "settingsShell.search.connectedAgents": "연결된 에이전트",
   "settingsShell.search.database": "데이터베이스",
   "settingsShell.search.defaultModel": "기본 모델",
@@ -2728,6 +2737,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.whyBackground": "프로덕션에서 코드를 변경합니다.",
   "settingsInfra.whyBrowser":
     "에이전트가 프로덕션에서 브라우저를 사용할 수 있게 합니다.",
+  "settingsInfra.whyWebSearch": "최신 공개 정보와 공식 문서를 찾습니다.",
   "settingsInfra.provider": "제공업체",
   "settingsInfra.keyOrg": "조직의 {{provider}} 키를 사용합니다.",
   "settingsInfra.manageKey": "키 관리",
@@ -3056,6 +3066,16 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsSubAgents.connectTitle": "{{name}} 연결",
   "settingsSubAgents.close": "닫기",
   "observability.insights.rawTrace": "원시 트레이스 (모든 스팬과 입력/출력)",
+  "reportProblem.menuItem": "문제 신고",
+  "reportProblem.title_other":
+    "최근 {{count}}초 동안 앱이 한 작업을 첨부할까요?",
+  "reportProblem.noEvents": "아직 기록된 내용이 없습니다.",
+  "reportProblem.send": "에이전트에게 보내기",
+  "reportProblem.copy": "문제 보고서 복사",
+  "reportProblem.attaching": "첨부하는 중…",
+  "reportProblem.notAttached": "보고서가 첨부되지 않았습니다.",
+  "reportProblem.agentMessage":
+    "앱에 문제가 생겼습니다. 첨부된 문제 보고서를 바탕으로 무슨 일이 있었는지 설명해 주세요.",
 };
 
 export default messages;

@@ -1,8 +1,9 @@
 name: CI
 
 on:
+  # No `branches` filter: a stacked PR targets its parent PR's branch, and the
+  # required checks must report on it too.
   pull_request:
-    branches: [main]
 
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
@@ -33,6 +34,7 @@ jobs:
       trusted_acceptance: ${{ steps.scope.outputs.trusted_acceptance }}
       scaffold: ${{ steps.scope.outputs.scaffold }}
       builder_code_starter_scaffold: ${{ steps.scope.outputs.builder_code_starter_scaffold }}
+      deploy_paths: ${{ steps.scope.outputs.deploy_paths }}
       ssr_boot: ${{ steps.scope.outputs.ssr_boot }}
       ssr_boot_apps: ${{ steps.scope.outputs.ssr_boot_apps }}
       guards: ${{ steps.scope.outputs.guards }}
@@ -44,6 +46,7 @@ jobs:
       design_canvas_broad_workflows: ${{ steps.scope.outputs.design_canvas_broad_workflows }}
       pre_auth_session_replay_e2e: ${{ steps.scope.outputs.pre_auth_session_replay_e2e }}
       design_canvas_e2e_specs: ${{ steps.scope.outputs.design_canvas_e2e_specs }}
+      design_canvas_e2e_diagnostic_specs: ${{ steps.scope.outputs.design_canvas_e2e_diagnostic_specs }}
       agentkit_acceptance: ${{ steps.scope.outputs.agentkit_acceptance }}
       slides_chat_e2e: ${{ steps.scope.outputs.slides_chat_e2e }}
       slides_authoring_e2e: ${{ steps.scope.outputs.slides_authoring_e2e }}
@@ -64,7 +67,11 @@ jobs:
           node-version: "22"
 
       - name: Test change scope classifier
-        run: node --experimental-strip-types --test scripts/ci-change-scope.test.ts scripts/ci-build-workspaces.test.ts
+        run: >-
+          node --experimental-strip-types --test
+          scripts/ci-change-scope.test.ts
+          scripts/ci-change-scope-renames.test.ts
+          scripts/ci-build-workspaces.test.ts
 
       - name: Test fast-test lane planner
         run: node --experimental-strip-types --test scripts/ci-test-lanes.test.ts
@@ -500,7 +507,7 @@ jobs:
               grep='a newer layer selection survives failed Screen deletion settlement|Shift-picking a Screen extends the Delete selection in All screens|Shift-marquee adds a hit Screen to the existing Delete selection|a newer Screen pick survives failed Screen deletion settlement|a newer sidebar Screen selection survives failed Screen deletion settlement|Select All Screens survives failed Screen deletion settlement'
               ;;
             screen-history-3)
-              grep='deleting a selected child layer keeps its owning Screen|marquee selection persists and deletes Screens after a prior layer selection|deep-select marquee over a Screen deletes only the child|Shift-marqueeing child layers preserves an explicit Screen elsewhere for Delete|Shift-marquee reselecting an owner Screen makes Delete target the Screen'
+              grep='deleting a selected child layer keeps its owning Screen|marquee selection persists and deletes Screens after a prior layer selection|deep-select marquee over a Screen deletes only the child|Shift-marqueeing child layers preserves an explicit Screen elsewhere for Delete|Shift-marquee reselecting an owner Screen makes Delete target the Screen|deleting two selected Screens is one undo step that restores both with their content, position and order'
               ;;
             *)
               echo "::error::Unknown Screen-history shard: ${{ matrix.shard }}"
@@ -752,7 +759,7 @@ jobs:
   design-canvas-changed-spec-diagnostics:
     name: Design changed-spec diagnostics (${{ matrix.shard }})
     needs: change-scope
-    if: needs.change-scope.outputs.design_canvas_e2e_specs != '[]'
+    if: needs.change-scope.outputs.design_canvas_e2e_specs != '[]' && needs.change-scope.outputs.design_canvas_e2e_diagnostic_specs != '[]'
     runs-on: ubuntu-latest
     timeout-minutes: 19
     strategy:
@@ -836,7 +843,7 @@ jobs:
         timeout-minutes: 15
         env:
           E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
-          DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_specs }}
+          DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_diagnostic_specs }}
           E2E_LOG_TEST_PROGRESS: "1"
           PW_TEST_DEBUG_REPORTERS: "1"
         run: |
@@ -1988,3 +1995,16 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - uses: ./.github/actions/standalone-chat-acceptance
+
+  deploy-paths:
+    name: Deploy paths
+    needs: change-scope
+    # Run when selected, and also when change-scope did not succeed so the
+    # check fails closed instead of reporting "skipped".
+    if: ${{ !cancelled() && (needs.change-scope.result != 'success' || needs.change-scope.outputs.deploy_paths == 'true') }}
+    permissions:
+      contents: read
+      packages: read
+    uses: ./.github/workflows/deploy-paths.yml
+    with:
+      source: local

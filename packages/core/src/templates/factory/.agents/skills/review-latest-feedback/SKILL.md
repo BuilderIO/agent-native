@@ -28,6 +28,9 @@ reply after verification. Follow
 
 ## Slack channels
 
+For Slack reads and writes, use the connected integration only; never use
+computer use (browser, screenshots, or UI automation).
+
 Default channels: `#product-agent-native-feedback` (`C0ATH3CCZT4`),
 `#qa-agent-native` (`C0C4U4XRT6X`), and
 `#dev-agent-native-feedback` (`C0AJ5QV0J03`). Apply the full workflow to each:
@@ -48,10 +51,9 @@ work, post one status reply with task link and remaining scope.
 
 ## Phase 0: claim what you are taking
 
-Resolve known duplicate clusters before claiming. For an eligible item, add
-`👀` before investigation and never remove it. Do not resume items excluded by
-the Slack ownership gate. Post **In progress** only when work continues beyond
-this run.
+Resolve duplicate clusters before claiming. Add `👀` before investigating an
+eligible item. Do not resume items excluded by the Slack ownership gate. Post
+**In progress** only if work continues beyond this run.
 
 **Fix defects or ask directly for the exact reporter-only fact or action
 needed to unblock the next step.** If reporter input gates progress, state the
@@ -69,15 +71,13 @@ doesn't close a separate defect. Tie each reaction to the scope it marks.
 
 ### Reaction gate
 
-`👀` is claim history; `✅` requires **Fixed** after Phase 2 bars. Check each
-reported symptom separately. For partial fixes, pair `✅` for verified scope
-with `🎫` for any distinct unfinished scope that needs a human to take
-ownership or act, whether or not a ticket exists. Link a verified ticket and
-name its owner/action; without one, keep the handoff explicit in the reply and
-ledger and say that an owner or ticket still needs to be assigned. Do not
-create or promise a ticket without authorization. No `🎫` for fixed scope,
-routine rollout, optional checks, subjective/out-of-scope, or unapproved work.
-**Shipped**/**Live verified** alone don't earn `✅`. Never remove reactions.
+Follow the reply reference for reaction status. Keep `👀` permanently; never
+remove or clean up any reaction on a feedback item. Add `✅` only when accepted
+scope is complete and verified, and `🎫` only for distinct unfinished scope
+needing an action or owner. Pair them by symptom for partial fixes. Link
+verified tickets and name owners/actions; never create a ticket without
+authorization. No `🎫` for fixed scope, routine rollout, optional checks, or
+subjective, out-of-scope, or unapproved work.
 Follow the reply reference before marking an item replied.
 
 Before recording an evidence limit or asking, try to reproduce the defect from
@@ -104,7 +104,8 @@ For eligible items, use one disposition per row; record it in the recap and, if
 unstated, in the thread or linked work. Do not inspect gated items for status.
 For clusters, post one owner status with each source permalink and
 **Clustered**; do not mark duplicate non-owners separately. Give a distinct
-question or update its own reaction and reply.
+question or update its own reaction and reply. If a duplicate is discovered
+after claiming, use the reply reference's late-duplicate path.
 
 - **Terminal (keep this workflow's eye):** **Fixed**, **Shipped**, **Live
   verified**, **Open - no question**, **Resolved elsewhere**, **Skipped**,
@@ -126,8 +127,8 @@ record source, target, owner, exact action, and verification. Don't reopen
 closed fixes.
 **Clustered** closes one row but retains it.
 
-Enumerate channel parents newest backward through `next_cursor` until older
-than 5 days. Check reactions first; skip marked messages.
+Enumerate channel parents newest-first for five days. For a permalink plus
+newer scope, follow the [checked inventory procedure](references/channel-inventory.md).
 
 **`slack_search` can rank and truncate.** Use channel reads to enumerate parents
 and put their count in the recap. Sort targeted searches oldest-first and follow
@@ -291,7 +292,8 @@ question-budget rules. Subjective UX proposals remain review-only as above.
 Build the smallest eligible endorsed version, name Sid or Alice, and state
 requested versus actual behavior in the recap. Add `👀` before investigation or
 delegation and read it back. Keep it evidence-limited until Phase 2's four bars
-hold; then use **Shipped**, adding `✅` only if it meets **Fixed**.
+hold; then use **Shipped** and add `✅` once the accepted improvement is
+delivered and verified.
 
 Don't search `has::eyes:`; use the owner or handoff path above.
 
@@ -337,6 +339,11 @@ configured. Use it as the Sentry fallback when rate-limited. Do not query
 correlation. Apply the same local-first rule. Fix worthwhile repo-owned failures
 at their boundary; record external, deployment, or unclear issues without
 inventing a fix.
+
+### Chat run health
+
+Run outcomes never reach Sentry; follow
+[`chat-run-health.md`](references/chat-run-health.md).
 
 ### Deployment, release, and publish failures
 
@@ -456,35 +463,32 @@ instruction or prompt exception.
 
 ## Phase 3: reply
 
-Thank issue reporters for opening it and Slack reporters for sharing. While
-work continues, name the concrete action and owner. If reporter input blocks a
-fix, ask the direct question and say why the answer matters. Never send
-**Open**/**pending** with only a symptom or evidence description. For
-inaccessible artifacts, ask for the required access grant or share setting;
-don't request a new link when the current one works. Follow
-`address-feedback-with-replies`. End Slack replies with
-`this was sent from a bot.`.
+Thank issue reporters for opening issues and Slack reporters for sharing.
+Before posting, inspect the full thread and follow the one-reply gate in
+`address-feedback-with-replies` and the [Slack reply reference](references/slack-reaction-replies.md):
+send one concise disposition covering done, remaining, and next action/owner.
+Do not reply again to announce merge, publication, or live beta; answer direct
+reporter follow-ups. End Slack replies with `this was sent from a bot.`.
 
-Short replies: say the change, limits, and next step. Link merged PRs and say
-they're merged. Keep hashes, branches, CI, publisher, and run details in recap.
-Beta fixes follow reference for timing and live status; state other availability
-plainly.
+Never send **Open**/**pending** or a symptom recap. Ask for reporter input only
+when it changes the next step; never request supplied evidence or internal
+access. Keep hashes, branches, CI, publisher, and run details in the recap.
 
-Share only new or useful information.
+Keep publisher and beta checks in the internal recap after the disposition;
+they do not trigger a second reporter reply.
 
 ### After a PR merges
 
-Follow [`slack-reaction-replies.md`](references/slack-reaction-replies.md) for
-post-merge beta ETAs and package replies.
+Track publisher state and beta verification in the internal recap. Do not send
+a routine post-merge reporter reply; answer only a direct reporter follow-up.
 
 For a fixed behavior with a ticketed handoff, state the done behavior and
 remaining action/owner/ticket separately; don't imply the fixed scope is open.
 Don't promise a ticket until created and assigned. Ask one targeted question if
-needed. Do not reopen Slack in later runs to reply.
+needed.
 
 - **Fixed** / **Shipped** / **Live verified** meet Phase 2 bars. Recorded live
-  observations may be silent; merged Slack fixes still get the reply above.
-  **Shipped** is for upvoted improvements.
+  observations may be silent. **Shipped** is for upvoted improvements.
 - **In progress** — name continuing work and its owner; ask nothing.
 - **A question** — follow the rules below.
 
@@ -569,7 +573,7 @@ Upvoted items in scope: N (built: N)
 
 | Tracker/source or workflow run | Reporter/owner | Status | Repro or failed step | Pre/post/recovery | Run/SHA/target/version/artifact/runtime proof | Locales | Handoff (action/owner/ticket) | Reply proof | Reactions |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 18 / [thread](...) or [workflow run](...) | ... | <disposition> | steps; expected/actual or failed job/step | before/after/recovery run | source/tests/build/run/SHA/target/version/URL | updated/N/A/pending | none or action/owner/[ticket](...) | [reply](...) or blocker | 👀 claim; ✅ Fixed; 🎫 human handoff needed |
+| 18 / [thread](...) or [workflow run](...) | ... | <disposition> | steps; expected/actual or failed job/step | before/after/recovery run | source/tests/build/run/SHA/target/version/URL | updated/N/A/pending | none or action/owner/[ticket](...) | [reply](...) or blocker | 👀 claimed; ✅ completed and verified; 🎫 follow-up action/owner needed |
 
 Sibling sweep: <fingerprint> - N hits, M fixed, K triaged
 Tracker: <sheet/export and bounded range> - N rows enumerated, N ledgers complete

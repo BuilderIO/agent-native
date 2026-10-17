@@ -34,7 +34,9 @@ import { setActiveOrgId } from "./active-org.js";
 import { __resetDomainMatchCacheForTests } from "./auto-join-domain.js";
 import {
   getOrgContext,
+  hasOrgScopeResolutionUnavailable,
   resolveOrgIdForEmail,
+  resolveOrgScopeForEmail,
   resolveActiveOrgIdForStorageCredential,
   resolveOrgIdForEmailViaEvent,
   createOrganization,
@@ -43,7 +45,9 @@ import {
   getOrgA2ASecret,
   getA2ASecretByDomain,
   resolveA2AOrganizationCredentialsByDomain,
+  resolveA2AOrganizationMetadataByDomain,
   isSoleOrgDomain,
+  lookupOrgByDomain,
   listOrgMembershipsForEvent,
   markActiveOrgSelectionChanged,
   resolveOrgByDomain,
@@ -101,6 +105,19 @@ describe("getOrgContext", () => {
     const ctx = await getOrgContext(EVENT);
     expect(ctx).toEqual({ email: "", orgId: null, orgName: null, role: null });
     expect(mockExecute).not.toHaveBeenCalled();
+  });
+
+  it("marks a swallowed membership read failure as unavailable org scope", async () => {
+    mockGetSession.mockResolvedValue({ email: "a@b.com" });
+    mockExecute.mockRejectedValueOnce(
+      new Error('relation "org_members" does not exist'),
+    );
+
+    await expect(getOrgContext(EVENT)).resolves.toMatchObject({
+      email: "a@b.com",
+      orgId: null,
+    });
+    expect(hasOrgScopeResolutionUnavailable(EVENT)).toBe(true);
   });
 
   it("resolves a verified service identity for an existing unlinked org", async () => {
@@ -491,7 +508,7 @@ describe("getOrgContext", () => {
 
     const calls = mockExecute.mock.calls.map((c) => c[0]);
     expect(calls[1].sql).toContain("LOWER(o.allowed_domain)");
-    expect(calls[1].args).toEqual(["builder.io", "existing@builder.io"]);
+    expect(calls[1].args).toEqual(["existing@builder.io", "builder.io"]);
     expect(calls[2].sql).toContain("INSERT INTO org_members");
     expect(calls.some((c) => c.sql.includes("INSERT INTO organizations"))).toBe(
       false,
@@ -1147,6 +1164,22 @@ describe("resolveOrgIdForEmail", () => {
     expect(await resolveOrgIdForEmail("nobody@b.com")).toBeNull();
   });
 
+  it("confirms personal scope when the membership query succeeds without rows", async () => {
+    queueSelect([]);
+    await expect(resolveOrgScopeForEmail("nobody@b.com")).resolves.toEqual({
+      status: "personal",
+    });
+  });
+
+  it("keeps scope unknown when the membership query is unavailable", async () => {
+    mockExecute.mockRejectedValueOnce(
+      new Error('relation "org_members" does not exist'),
+    );
+    await expect(resolveOrgScopeForEmail("nobody@b.com")).resolves.toEqual({
+      status: "unknown",
+    });
+  });
+
   it("returns the single membership when no active-org preference exists", async () => {
     queueSelect([{ org_id: "only" }]);
     expect(await resolveOrgIdForEmail("a@b.com")).toBe("only");
@@ -1575,6 +1608,33 @@ describe("domain & A2A secret lookups (A2A receiving-side scoping)", () => {
     await expect(getA2ASecretByDomain("acme.com")).rejects.toThrow("boom");
   });
 
+  it("does not resolve a secret or organization when a domain is ambiguous", async () => {
+    const duplicateRows = [{ id: "org1" }, { id: "org2" }];
+    queueSelect(
+      duplicateRows,
+      duplicateRows,
+      duplicateRows,
+      duplicateRows,
+      duplicateRows,
+    );
+
+    await expect(getA2ASecretByDomain("acme.com")).resolves.toBeNull();
+    await expect(lookupOrgByDomain("acme.com")).resolves.toEqual({
+      status: "ambiguous",
+    });
+    await expect(resolveOrgByDomain("acme.com")).resolves.toBeNull();
+    await expect(
+      resolveA2AOrganizationMetadataByDomain("acme.com"),
+    ).resolves.toBeNull();
+    await expect(
+      resolveA2AOrganizationCredentialsByDomain("acme.com"),
+    ).resolves.toBeNull();
+    expect(mockExecute.mock.calls).toHaveLength(5);
+    expect(
+      mockExecute.mock.calls.every(([query]) => query.sql.includes("LIMIT 2")),
+    ).toBe(true);
+  });
+
   it("resolves org credentials with normalized domain and preserves lookup failures", async () => {
     queueSelect([
       { id: "org1", allowed_domain: "Acme.COM", a2a_secret: " secret " },
@@ -1619,8 +1679,8 @@ describe("domain & A2A secret lookups (A2A receiving-side scoping)", () => {
     expect(await resolveOrgByDomain("nope.com")).toBeNull();
   });
 
-  it("resolveOrgByDomain returns null on DB error", async () => {
+  it("preserves domain lookup failures", async () => {
     mockExecute.mockRejectedValueOnce(new Error("boom"));
-    expect(await resolveOrgByDomain("acme.com")).toBeNull();
+    await expect(resolveOrgByDomain("acme.com")).rejects.toThrow("boom");
   });
 });

@@ -5,7 +5,11 @@ import {
   assertByteIdenticalHtml,
   assertShortcutMarkupAdded,
   assertSlideIsScaled,
+  requireUndoHistoryStats,
   AUTHORING_FUZZ_STYLE_PROPERTIES,
+  authoringFuzzPrecedingListMergePreservesIdentity,
+  authoringFuzzListTagForOperation,
+  authoringFuzzSlashArrowDownCount,
   createRetiredBrowserSessionErrorCorrelator,
   browserSessionNavigationRequestIdentity,
   browserSessionIdAfterRequest,
@@ -39,10 +43,16 @@ import {
   isExpectedSaveReloadWatchedRequestAbort as isExpectedSaveReloadAbort,
   isExpectedSaveReloadWatchedRequestCorsConsoleError,
   isExpectedCleanupBrowserSessionPollConsoleError,
+  isExpectedCleanupRecoveryPageBrowserSessionError,
+  cleanupRecoveryClaimRequestAgeMs,
+  isPotentialCleanupRecoveryPageBrowserSessionError,
+  isWithinCleanupRecoveryClaimCorrelationWindow,
+  shouldRetainCleanupRecoveryClaimEvidence,
   isExpectedCleanupNavigationError,
   isExpectedWatchedRequestCorsError,
   isFirefoxBrowserSessionConsoleError,
   normalizeFirefoxBrowserSessionConsoleError,
+  retiredBrowserSessionPollConsoleGraceMs,
   uniquePendingBrowserSessionId,
   lineNavigationKeys,
   outsideAuthoringChangesFor,
@@ -891,6 +901,30 @@ it("requires byte-identical HTML for undo and redo snapshots", () => {
   ).toThrow("undo-all did not restore byte-identical HTML");
 });
 
+it("requires undo-history diagnostics before the history replay gate", () => {
+  expect(() => requireUndoHistoryStats(null)).toThrow(
+    "authoring fuzz could not inspect undo history before undo-all",
+  );
+  expect(() => requireUndoHistoryStats({})).toThrow(
+    "authoring fuzz could not inspect undo history before undo-all",
+  );
+  expect(() => requireUndoHistoryStats({ initialStateEvicted: true })).toThrow(
+    "undo history evicted the original state before undo-all",
+  );
+  expect(requireUndoHistoryStats({ initialStateEvicted: false })).toMatchObject(
+    { initialStateEvicted: false },
+  );
+});
+
+it("navigates slash choices from the menu's current active command", () => {
+  expect(authoringFuzzSlashArrowDownCount("paragraph", "heading1")).toBe(1);
+  expect(authoringFuzzSlashArrowDownCount("heading1", "paragraph")).toBe(7);
+  expect(authoringFuzzSlashArrowDownCount("quote", "quote")).toBe(0);
+  expect(() => authoringFuzzSlashArrowDownCount(null, "paragraph")).toThrow(
+    "slash menu did not expose its active command",
+  );
+});
+
 it("creates reproducible authoring plans with full command coverage", () => {
   const first = createAuthoringFuzzPlan(42, 500);
   expect(first).toEqual(createAuthoringFuzzPlan(42, 500));
@@ -946,6 +980,71 @@ it("creates reproducible authoring plans with full command coverage", () => {
     createAuthoringFuzzPlan(Number.MAX_SAFE_INTEGER + 1, 500),
   ).toThrow("safe integer");
   expect(() => createAuthoringFuzzPlan(42, 0)).toThrow("positive integer");
+});
+
+it("classifies only semantic list commands for adjacent-list merge checks", () => {
+  expect(authoringFuzzListTagForOperation({ kind: "list", value: "ul" })).toBe(
+    "UL",
+  );
+  expect(authoringFuzzListTagForOperation({ kind: "list", value: "ol" })).toBe(
+    "OL",
+  );
+  expect(
+    authoringFuzzListTagForOperation({ kind: "list", value: "styled" }),
+  ).toBeNull();
+  expect(
+    authoringFuzzListTagForOperation({
+      kind: "slash",
+      value: "bulletList",
+      result: "bullet list",
+    }),
+  ).toBe("UL");
+  expect(
+    authoringFuzzListTagForOperation({
+      kind: "slash",
+      value: "orderedList",
+      result: "numbered list",
+    }),
+  ).toBe("OL");
+  expect(
+    authoringFuzzListTagForOperation({
+      kind: "slash",
+      value: "paragraph",
+      result: "paragraph",
+    }),
+  ).toBeNull();
+  expect(
+    authoringFuzzListTagForOperation({
+      kind: "shortcut",
+      value: "1. ",
+      result: "ordered",
+    }),
+  ).toBe("OL");
+  expect(
+    authoringFuzzListTagForOperation({
+      kind: "shortcut",
+      value: "- ",
+      result: "bullet",
+    }),
+  ).toBeNull();
+});
+
+it("requires an adjacent-list merge to carry a preceding list id forward", () => {
+  expect(
+    authoringFuzzPrecedingListMergePreservesIdentity(
+      "source-list",
+      "source-list",
+    ),
+  ).toBe(true);
+  expect(
+    authoringFuzzPrecedingListMergePreservesIdentity("source-list", null),
+  ).toBe(false);
+  expect(
+    authoringFuzzPrecedingListMergePreservesIdentity(
+      "source-list",
+      "other-list",
+    ),
+  ).toBe(false);
 });
 
 it("runs vertical caret fidelity in the committed absolute profile", () => {
@@ -1599,6 +1698,183 @@ it("ignores the browser-session poll warning only for a canceled cleanup claim",
   ).toBe(false);
 });
 
+it("filters only a correlated failed browser-session claim on a cleanup recovery page", () => {
+  expect(
+    isPotentialCleanupRecoveryPageBrowserSessionError(
+      "Fetch API cannot load http://localhost:45715/_agent-native/browser-sessions/session-id/requests/claim due to access control checks.",
+    ),
+  ).toBe(true);
+  expect(
+    isPotentialCleanupRecoveryPageBrowserSessionError(
+      "Fetch API cannot load http://localhost:45715/_agent-native/actions/delete-deck due to access control checks.",
+    ),
+  ).toBe(false);
+  expect(
+    isPotentialCleanupRecoveryPageBrowserSessionError("TypeError: Load failed"),
+  ).toBe(false);
+
+  const candidate = {
+    url: "http://localhost:45715/_agent-native/browser-sessions/session-id/requests/claim",
+    pathname: "/_agent-native/browser-sessions/session-id/requests/claim",
+    method: "POST",
+    requestAgeMs: 100,
+    failureOffsetMs: 20,
+    sameOrigin: true,
+    competingClaimStartedAfterFailure: false,
+  };
+
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError(
+      "[Agent-Native browser session] poll failed: TypeError: Load failed",
+      [candidate],
+    ),
+  ).toBe(true);
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError(
+      "Fetch API cannot load http://localhost:45715/_agent-native/browser-sessions/session-id/requests/claim due to access control checks.",
+      [candidate],
+    ),
+  ).toBe(true);
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError(
+      "[Agent-Native browser session] poll failed: TypeError: Load failed",
+      [{ ...candidate, sameOrigin: false }],
+    ),
+  ).toBe(true);
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError(
+      "Fetch API cannot load http://localhost:45715/_agent-native/browser-sessions/session-id/requests/claim due to access control checks.",
+      [{ ...candidate, sameOrigin: false }],
+    ),
+  ).toBe(true);
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError("TypeError: Load failed", [
+      candidate,
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError(
+      "TypeError: Failed to fetch",
+      [candidate],
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError(
+      "NetworkError when attempting to fetch resource.",
+      [candidate],
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError("TypeError: Load failed", [
+      { ...candidate, sameOrigin: false },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError("TypeError: Load failed", [
+      { ...candidate, competingClaimStartedAfterFailure: true },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError("TypeError: Load failed", [
+      { ...candidate, failureOffsetMs: 251 },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError("TypeError: Load failed", [
+      { ...candidate, failureOffsetMs: -251 },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError("TypeError: Load failed", [
+      { ...candidate, pathname: "/_agent-native/actions/delete-deck" },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError(
+      "Fetch API cannot load http://localhost:45715/_agent-native/actions/delete-deck due to access control checks.",
+      [candidate],
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError("TypeError: Load failed", [
+      candidate,
+      { ...candidate, requestAgeMs: 110 },
+    ]),
+  ).toBe(false);
+});
+
+it("measures cleanup recovery request age at the page-error event", () => {
+  const requestStartedAt = 100;
+  const pageErrorAt = 200;
+  const delayedInspectionAt = pageErrorAt + 10_000;
+  const requestAgeMs = cleanupRecoveryClaimRequestAgeMs(
+    requestStartedAt,
+    pageErrorAt,
+  );
+
+  expect(delayedInspectionAt - requestStartedAt).toBeGreaterThan(9_000);
+  expect(requestAgeMs).toBe(100);
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError(
+      "[Agent-Native browser session] poll failed: TypeError: Load failed",
+      [
+        {
+          url: "http://localhost:45715/_agent-native/browser-sessions/session-id/requests/claim",
+          pathname: "/_agent-native/browser-sessions/session-id/requests/claim",
+          method: "POST",
+          requestAgeMs,
+          failureOffsetMs: 0,
+          sameOrigin: true,
+          competingClaimStartedAfterFailure: false,
+        },
+      ],
+    ),
+  ).toBe(true);
+});
+
+it("retains cleanup claim evidence through delayed page-error inspection", () => {
+  const failedAt = 100;
+  const graceMs = retiredBrowserSessionPollConsoleGraceMs;
+  const lastCorrelatedPageErrorAt = failedAt + graceMs;
+  const delayedInspectionAt = lastCorrelatedPageErrorAt + graceMs;
+  const lateInspectionAt = delayedInspectionAt + 10_000;
+
+  expect(
+    isWithinCleanupRecoveryClaimCorrelationWindow(
+      lastCorrelatedPageErrorAt,
+      failedAt,
+    ),
+  ).toBe(true);
+  expect(
+    isWithinCleanupRecoveryClaimCorrelationWindow(
+      lastCorrelatedPageErrorAt + 1,
+      failedAt,
+    ),
+  ).toBe(false);
+  expect(
+    shouldRetainCleanupRecoveryClaimEvidence(
+      failedAt,
+      failedAt + graceMs + 1,
+      [],
+    ),
+  ).toBe(true);
+  expect(
+    shouldRetainCleanupRecoveryClaimEvidence(failedAt, lateInspectionAt, [
+      lastCorrelatedPageErrorAt,
+    ]),
+  ).toBe(true);
+  expect(
+    shouldRetainCleanupRecoveryClaimEvidence(failedAt, delayedInspectionAt, []),
+  ).toBe(true);
+  expect(
+    shouldRetainCleanupRecoveryClaimEvidence(
+      failedAt,
+      delayedInspectionAt + 1,
+      [],
+    ),
+  ).toBe(false);
+});
+
 it("ignores browser-session poll or heartbeat errors only for matching canceled reload requests", () => {
   const claimCandidate = {
     url: "http://localhost:45715/_agent-native/browser-sessions/session-id/requests/claim",
@@ -1927,6 +2203,221 @@ it("matches only outgoing browser-session requests canceled by the slide reload"
       failedClaim,
     ]),
   ).toBe(false);
+});
+
+it("accepts Firefox's retired-session warning when the request finished during the reload", () => {
+  const pollWarning =
+    "[Agent-Native browser session] poll failed: TypeError: NetworkError when attempting to fetch resource.";
+  const heartbeatWarning =
+    "[Agent-Native browser session] heartbeat failed: TypeError: NetworkError when attempting to fetch resource.";
+  // Firefox reports the claim as finished (no requestfailed) while the retired
+  // page's fetch still rejects as the document is torn down.
+  const finishedClaim = {
+    url: "http://localhost/_agent-native/browser-sessions/retired-session-id/requests/claim",
+    pathname:
+      "/_agent-native/browser-sessions/retired-session-id/requests/claim",
+    method: "POST",
+    ageMs: 62,
+    settledAgeMs: 61,
+    sameOrigin: true,
+    responseStatus: 200,
+    requestFinishedSuccessfully: true,
+    requestStartedDuringNavigation: true,
+    requestStartedBeforeReloadCommit: true,
+    outgoingNavigationAbort: false,
+    outgoingRequestKind: "poll" as const,
+    requestSessionId: "retired-session-id",
+    retiredSessionId: "retired-session-id",
+    competingSameTypeRequest: false,
+  };
+  const finishedRegistration = {
+    ...finishedClaim,
+    url: "http://localhost/_agent-native/browser-sessions",
+    pathname: "/_agent-native/browser-sessions",
+    outgoingRequestKind: "heartbeat" as const,
+  };
+  const expected = (
+    message: string,
+    candidates: Parameters<
+      typeof isExpectedSaveReloadBrowserSessionConsoleError
+    >[2],
+    phase = "save/reload",
+  ) =>
+    isExpectedSaveReloadBrowserSessionConsoleError(message, phase, candidates);
+
+  expect(expected(pollWarning, [finishedClaim])).toBe(true);
+  expect(expected(heartbeatWarning, [finishedRegistration])).toBe(true);
+  // Boundaries: the status range and the settle window are half-open.
+  for (const override of [
+    { responseStatus: 200 },
+    { responseStatus: 299 },
+    { settledAgeMs: 0 },
+    { settledAgeMs: 999 },
+  ]) {
+    expect(
+      expected(pollWarning, [{ ...finishedClaim, ...override }]),
+      JSON.stringify(override),
+    ).toBe(true);
+  }
+
+  expect(expected(pollWarning, [finishedClaim], "step 12")).toBe(false);
+  expect(expected(pollWarning, [finishedRegistration])).toBe(false);
+  expect(expected(heartbeatWarning, [finishedClaim])).toBe(false);
+  for (const override of [
+    { requestSessionId: "new-session-id" },
+    { requestSessionId: null, retiredSessionId: null },
+    { requestStartedDuringNavigation: false },
+    // A tab that keeps its session id across the reload: the new document's
+    // request carries the retired id but started after the commit.
+    { requestStartedBeforeReloadCommit: false },
+    { requestStartedBeforeReloadCommit: undefined },
+    { requestFinishedSuccessfully: false },
+    { sameOrigin: false },
+    { responseStatus: undefined },
+    { responseStatus: 199 },
+    { responseStatus: 300 },
+    { responseStatus: 500 },
+    { settledAgeMs: -1 },
+    { settledAgeMs: undefined },
+    { settledAgeMs: 1_000 },
+    { competingSameTypeRequest: true },
+  ]) {
+    expect(
+      expected(pollWarning, [{ ...finishedClaim, ...override }]),
+      JSON.stringify(override),
+    ).toBe(false);
+  }
+
+  // Ages are read after the grace wait, so that delay shifts both bounds: the
+  // request settled by the warning and within one second before it.
+  const readLate = (settledAgeMs: number, evaluationDelayMs: number) =>
+    isExpectedSaveReloadBrowserSessionConsoleError(
+      pollWarning,
+      "save/reload",
+      [{ ...finishedClaim, settledAgeMs }],
+      evaluationDelayMs,
+    );
+  expect(readLate(1_000, 0)).toBe(false);
+  expect(readLate(1_299, 300)).toBe(true);
+  expect(readLate(1_300, 300)).toBe(false);
+  // Settled at the warning counts; settled after it, while the grace wait was
+  // still running, does not.
+  expect(readLate(300, 300)).toBe(true);
+  expect(readLate(299, 300)).toBe(false);
+  expect(readLate(0, 300)).toBe(false);
+  expect(readLate(-1, 0)).toBe(false);
+  // The CI run this fixes: the claim settled 61 ms before the warning arrived
+  // and the candidates were read 302 ms after it (250 ms grace plus Firefox
+  // normalization).
+  expect(readLate(61 + 302, 302)).toBe(true);
+
+  // The retired page polls every 500 ms until the reloaded document commits, so
+  // a slow commit leaves several finished requests; any one excuses the warning.
+  const earlierFinishedClaim = {
+    ...finishedClaim,
+    ageMs: 540,
+    settledAgeMs: 539,
+  };
+  expect(expected(pollWarning, [earlierFinishedClaim, finishedClaim])).toBe(
+    true,
+  );
+  // A request that was already in flight when the reload began cannot belong to
+  // the reloaded document, so it needs no commit-time flag.
+  const pendingAtReload = {
+    ...finishedClaim,
+    requestWasPendingAtNavigation: true,
+    requestStartedDuringNavigation: false,
+    requestStartedBeforeReloadCommit: false,
+  };
+  expect(expected(pollWarning, [pendingAtReload])).toBe(true);
+  expect(
+    expected(pollWarning, [
+      { ...pendingAtReload, requestFinishedSuccessfully: false },
+    ]),
+  ).toBe(false);
+  // Other traffic in the map (the failing run also had a stuck module GET) is
+  // not mistaken for the request, and does not hide it.
+  const pendingModuleGet = {
+    url: "http://localhost/@fs/repo/packages/core/src/demo/redact.ts",
+    pathname: "/@fs/repo/packages/core/src/demo/redact.ts",
+    method: "GET",
+    ageMs: 207_243,
+    sameOrigin: true,
+    requestWasPendingAtNavigation: true,
+    outgoingNavigationAbort: false,
+  };
+  expect(expected(pollWarning, [pendingModuleGet, finishedClaim])).toBe(true);
+  expect(expected(pollWarning, [pendingModuleGet])).toBe(false);
+  expect(expected(pollWarning, [])).toBe(false);
+
+  // Failed requests stay attributed one-to-one: a single one is authoritative
+  // and two are ambiguous, whatever finished alongside them.
+  const abortedClaim = {
+    ...finishedClaim,
+    requestFinishedSuccessfully: false,
+    settledAgeMs: undefined,
+    responseStatus: undefined,
+    outgoingNavigationAbort: true,
+    outgoingAbortWarningAgeMs: 150,
+  };
+  expect(expected(pollWarning, [abortedClaim])).toBe(true);
+  expect(expected(pollWarning, [abortedClaim, finishedClaim])).toBe(true);
+  expect(expected(pollWarning, [abortedClaim, abortedClaim])).toBe(false);
+  expect(
+    expected(pollWarning, [abortedClaim, abortedClaim, finishedClaim]),
+  ).toBe(false);
+});
+
+it("measures the finished-request window from the warning, not from when it was evaluated", async () => {
+  vi.useFakeTimers();
+  try {
+    const warning =
+      "[Agent-Native browser session] poll failed: TypeError: NetworkError when attempting to fetch resource.";
+    const finishedClaim = {
+      url: "http://localhost/_agent-native/browser-sessions/retired-session-id/requests/claim",
+      pathname:
+        "/_agent-native/browser-sessions/retired-session-id/requests/claim",
+      method: "POST",
+      ageMs: 1_200,
+      sameOrigin: true,
+      responseStatus: 200,
+      requestFinishedSuccessfully: true,
+      requestStartedDuringNavigation: true,
+      requestStartedBeforeReloadCommit: true,
+      outgoingNavigationAbort: false,
+      outgoingRequestKind: "poll" as const,
+      requestSessionId: "retired-session-id",
+      retiredSessionId: "retired-session-id",
+      competingSameTypeRequest: false,
+    };
+    // settledAgeMs is what the candidates report when they are read, i.e. after
+    // the 250 ms grace wait the wrapper adds.
+    const run = async (settledAgeMs: number, warnedAt?: number) => {
+      const result = isExpectedSaveReloadBrowserSessionConsoleErrorAfterGrace(
+        warning,
+        "save/reload",
+        () => [{ ...finishedClaim, settledAgeMs }],
+        warnedAt,
+      );
+      await vi.advanceTimersByTimeAsync(250);
+      return result;
+    };
+
+    expect(await run(1_249)).toBe(true);
+    expect(await run(1_250)).toBe(false);
+    // Reported age equal to the grace wait means it settled at the warning; any
+    // less means it settled afterwards, so it cannot be the cause.
+    expect(await run(250)).toBe(true);
+    expect(await run(249)).toBe(false);
+    // Time spent before the wrapper ran (Firefox normalizes the message first)
+    // counts too when the caller passes the warning's own timestamp.
+    expect(await run(1_349, Date.now() - 100)).toBe(true);
+    expect(await run(1_350, Date.now() - 100)).toBe(false);
+    expect(await run(350, Date.now() - 100)).toBe(true);
+    expect(await run(349, Date.now() - 100)).toBe(false);
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 it("correlates Firefox reload warnings whether request failure arrives first or second", async () => {

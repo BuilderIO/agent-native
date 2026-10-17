@@ -18,7 +18,8 @@ import {
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
-import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
+import { defineStore } from "../db/store-registry.js";
+import { fromMigrationEntries } from "../db/versioned-store-migrations.js";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -30,6 +31,10 @@ import {
   workspaceUserGroupsIncludeUser,
 } from "./groups.js";
 import { notifyWorkspaceConnectionLifecycle } from "./lifecycle.js";
+import {
+  WORKSPACE_CONNECTIONS_MIGRATIONS,
+  WORKSPACE_CONNECTIONS_MIGRATIONS_TABLE,
+} from "./migrations.js";
 
 export type WorkspaceConnectionStatus =
   | "connected"
@@ -327,8 +332,6 @@ export interface WorkspaceConnectionProviderCatalogForApp {
   };
 }
 
-let _initPromise: Promise<void> | undefined;
-
 function workspaceConnectionsTable(): string {
   return "public.workspace_connections";
 }
@@ -337,13 +340,16 @@ function workspaceConnectionGrantsTable(): string {
   return "public.workspace_connection_grants";
 }
 
-export async function ensureWorkspaceConnectionsTable(): Promise<void> {
-  if (!_initPromise) {
-    const _initPromiseWithRequestDbPoolScope = (async () => {
-      const table = workspaceConnectionsTable();
-      const grantsTable = workspaceConnectionGrantsTable();
+export const workspaceConnectionsStore = defineStore({
+  id: "workspace_connections",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const table = workspaceConnectionsTable();
+        const grantsTable = workspaceConnectionGrantsTable();
 
-      const createConnectionsSql = `
+        const createConnectionsSql = `
           CREATE TABLE IF NOT EXISTS ${table} (
             id TEXT PRIMARY KEY,
             provider TEXT NOT NULL DEFAULT '',
@@ -366,7 +372,7 @@ export async function ensureWorkspaceConnectionsTable(): Promise<void> {
             last_error TEXT
           )
         `;
-      const createGrantsSql = `
+        const createGrantsSql = `
           CREATE TABLE IF NOT EXISTS ${grantsTable} (
             id TEXT PRIMARY KEY,
             connection_id TEXT NOT NULL DEFAULT '',
@@ -384,7 +390,6 @@ export async function ensureWorkspaceConnectionsTable(): Promise<void> {
           )
         `;
 
-      {
         await ensureTableExists("workspace_connections", createConnectionsSql);
         await ensureColumnExists(
           "workspace_connections",
@@ -558,15 +563,17 @@ export async function ensureWorkspaceConnectionsTable(): Promise<void> {
           "idx_workspace_connection_grants_updated_at",
           `CREATE INDEX IF NOT EXISTS idx_workspace_connection_grants_updated_at ON ${grantsTable} (updated_at)`,
         );
-        return;
-      }
-    })().catch((err) => {
-      _initPromise = undefined;
-      throw err;
-    });
-    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
-  }
-  return _initPromise;
+      },
+    },
+    ...fromMigrationEntries(
+      WORKSPACE_CONNECTIONS_MIGRATIONS_TABLE,
+      WORKSPACE_CONNECTIONS_MIGRATIONS.filter((entry) => entry.version <= 7),
+    ),
+  ],
+});
+
+export function ensureWorkspaceConnectionsTable(): Promise<void> {
+  return workspaceConnectionsStore.ready();
 }
 
 function requireWorkspaceConnectionScope(): {
