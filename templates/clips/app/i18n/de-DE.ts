@@ -1,5 +1,23 @@
 const messages = {
   meetingAsk: { resizeOrDismissAnswers: "Antworten anpassen oder schließen" },
+  meetingBrowserConfirmation:
+    "Clips erkennt Mikrofonaktivität in diesem Browser, kann aber nicht feststellen, welcher Tab an der Besprechung teilnimmt.",
+  meetingReplacement: {
+    title: "Meeting-Notizen benötigen deine Aufmerksamkeit",
+    description:
+      "Die Notizen des vorherigen Meetings konnten nicht gespeichert werden. Kopiere sie, bevor du dieses Meeting startest.",
+    copyAndStart: "Notizen kopieren und starten",
+    actionFailed:
+      "Die Meeting-Wiederherstellung konnte nicht fortgesetzt werden. Versuche es erneut.",
+  },
+  quitRecovery: {
+    title: "Clips beendet die Besprechung noch",
+    body: "Clips hat diese Besprechung noch nicht beendet und gespeichert. Wenn du jetzt beendest, kann das neueste Transkript verloren gehen.",
+    keepOpen: "Clips geöffnet lassen",
+    quitAnyway: "Trotzdem beenden",
+    actionFailed:
+      "Clips konnte den Wiederherstellungsstatus nicht ändern. Versuche es erneut.",
+  },
   lookbackContext: {
     includeLast: "Letzte einbeziehen",
     whatIsThis: "Was ist das?",
