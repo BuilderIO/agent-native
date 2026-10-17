@@ -234,14 +234,48 @@ export default defineAction({
         now,
       });
     };
+    const settleResolvedClaim = () =>
+      db.transaction(async (tx) => {
+        const [claim] = await tx
+          .select({ chatContext: schema.documentVersions.chatContext })
+          .from(schema.documentVersions)
+          .where(
+            and(
+              eq(schema.documentVersions.id, claimId),
+              eq(schema.documentVersions.ownerEmail, userEmail),
+              eq(schema.documentVersions.documentId, claimDocumentId),
+            ),
+          )
+          .limit(1);
+        if (!claim?.chatContext) conflict("The recovery claim was lost.");
+        const payload = durableClaimPayload.parse(
+          JSON.parse(claim.chatContext),
+        );
+        if (payload.status !== "resolved")
+          conflict("The recovery claim was lost.");
+        await settleClaimGeneration(tx, payload);
+      });
+    // Recovery locks rows in one order, page, claim, settlement, draft, so a
+    // choice, its retry and the tab's own draft writes can't deadlock.
     const claimExactDraft = async () => {
-      return db.transaction(async (tx) => {
+      const claimed = await db.transaction(async (tx) => {
         const [currentDocument] = await tx
           .select()
           .from(schema.documents)
           .where(eq(schema.documents.id, args.documentId))
           .for("update")
           .limit(1);
+        await tx
+          .select({ id: schema.documentVersions.id })
+          .from(schema.documentVersions)
+          .where(
+            and(
+              eq(schema.documentVersions.id, claimId),
+              eq(schema.documentVersions.ownerEmail, userEmail),
+              eq(schema.documentVersions.documentId, claimDocumentId),
+            ),
+          )
+          .for("update");
         const [draft] = await tx
           .select()
           .from(schema.documentPreviewDrafts)
@@ -275,7 +309,6 @@ export default defineAction({
             conflict("This draft was already resolved with another choice.");
           }
           if (payload.status === "resolved") {
-            await settleClaimGeneration(tx, payload);
             return { status: "resolved" as const };
           }
           const expectedUpdatedAt =
@@ -399,7 +432,6 @@ export default defineAction({
               .returning({ id: schema.documentPreviewDrafts.id });
             if (deleted.length !== 1)
               conflict("The saved draft changed during recovery.");
-            await settleClaimGeneration(tx, payload);
             return { status: "resolved" as const };
           }
           if (payload.draftId !== draft.id)
@@ -432,6 +464,10 @@ export default defineAction({
           conflict("The saved draft changed during recovery.");
         return { status: "claimed" as const, draft, acquired: true };
       });
+      // Settle after releasing the draft row: draft writes lock the
+      // settlement row before the draft row.
+      if (claimed.status === "resolved") await settleResolvedClaim();
+      return claimed;
     };
     const settleAndResolveClaim = async (
       tx: ClaimTransaction,
@@ -459,6 +495,16 @@ export default defineAction({
     };
     const acquireClaim = async () =>
       db.transaction(async (tx) => {
+        const [currentDocument] = await tx
+          .select({
+            updatedAt: schema.documents.updatedAt,
+            title: schema.documents.title,
+            content: schema.documents.content,
+          })
+          .from(schema.documents)
+          .where(eq(schema.documents.id, args.documentId))
+          .for("update")
+          .limit(1);
         const [claim] = await tx
           .select()
           .from(schema.documentVersions)
@@ -481,16 +527,6 @@ export default defineAction({
           await settleClaimGeneration(tx, payload);
           return false;
         }
-        const [currentDocument] = await tx
-          .select({
-            updatedAt: schema.documents.updatedAt,
-            title: schema.documents.title,
-            content: schema.documents.content,
-          })
-          .from(schema.documents)
-          .where(eq(schema.documents.id, args.documentId))
-          .for("update")
-          .limit(1);
         if (
           !currentDocument ||
           (currentDocument.updatedAt !== args.expectedDocumentUpdatedAt &&
@@ -566,8 +602,7 @@ export default defineAction({
       });
     const markClaimResolved = async () => {
       await db.transaction(async (tx) => {
-        // Lock the claim before the settlement row, in acquireClaim's order,
-        // so a retry finishing the same claim can't deadlock with this one.
+        // The claim before the settlement row, in recovery's lock order.
         const [claim] = await tx
           .select({ chatContext: schema.documentVersions.chatContext })
           .from(schema.documentVersions)
