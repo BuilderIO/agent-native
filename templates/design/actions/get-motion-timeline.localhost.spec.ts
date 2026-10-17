@@ -401,7 +401,7 @@ describe("get-motion-timeline localhost React source", () => {
     mocks.setDesignData({
       sourceType: "localhost",
       connectionId: "connection-1",
-      screenMetadata: {
+      localhostScreens: {
         "screen-1": { sourceFile: "app/routes/home.tsx" },
       },
     });
@@ -873,7 +873,7 @@ describe("get-motion-timeline localhost React source", () => {
     mocks.setDesignData({
       sourceType: "localhost",
       connectionId: "connection-1",
-      screenMetadata: { [sourceRef]: { sourceType: "inline" } },
+      screenMetadata: { [sourceRef]: { sourceFile: "app/routes/home.tsx" } },
     });
     mocks.setTimelineRows([
       {

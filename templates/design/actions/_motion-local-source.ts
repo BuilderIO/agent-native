@@ -172,32 +172,9 @@ export function isMotionLocalhostScreen(
   designData: unknown,
   screenId: string,
 ): boolean {
-  const data = parseDesignData(designData);
-  if (designScreenSourceTypeFromData(data, screenId) === "localhost") {
-    return true;
-  }
-
-  const screenMetadata = isRecord(data.screenMetadata)
-    ? data.screenMetadata[screenId]
-    : undefined;
-  const legacyMetadata = isRecord(data.localhostScreens)
-    ? data.localhostScreens[screenId]
-    : undefined;
-  const records = [screenMetadata, legacyMetadata].filter(isRecord);
-  if (
-    records.some(
-      (record) =>
-        record.sourceType !== undefined && record.sourceType !== "localhost",
-    )
-  ) {
-    return false;
-  }
-
-  return records.some(
-    (record) =>
-      record.sourceType === undefined &&
-      typeof record.sourceFile === "string" &&
-      record.sourceFile.trim().length > 0,
+  return (
+    designScreenSourceTypeFromData(parseDesignData(designData), screenId) ===
+    "localhost"
   );
 }
 
