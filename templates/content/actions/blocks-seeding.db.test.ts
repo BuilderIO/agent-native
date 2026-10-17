@@ -1043,6 +1043,54 @@ describe("database Blocks field identity sidecar", () => {
     expect(attempts[0]?.blocks[0]?.id).not.toBe(attempts[1]?.blocks[0]?.id);
   });
 
+  it("refuses a Blocks value for a row page in Trash", async () => {
+    const { databaseId } = await createDatabaseRow();
+    const db = getDb();
+    const now = new Date().toISOString();
+    const propertyId = await propertyUtils.seedDefaultBlocksField({
+      databaseId,
+      ownerEmail: OWNER,
+      orgId: null,
+      now,
+    });
+    const rowDocumentId = `trashed_row_${counter}`;
+    await db.insert(schema.documents).values({
+      id: rowDocumentId,
+      ownerEmail: OWNER,
+      title: "Trashed row",
+      content: "Before",
+      trashedAt: now,
+      trashRootId: rowDocumentId,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.contentDatabaseItems).values({
+      id: `item_trashed_${counter}`,
+      ownerEmail: OWNER,
+      databaseId,
+      documentId: rowDocumentId,
+      position: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        setDocumentPropertyAction.run({
+          documentId: rowDocumentId,
+          databaseId,
+          propertyId,
+          value: "After",
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "DOCUMENT_NOT_FOUND" });
+    const [rowDocument] = await db
+      .select({ content: schema.documents.content })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, rowDocumentId));
+    expect(rowDocument.content).toBe("Before");
+  });
+
   it("revisions every primary membership and cleans up only the removed database", async () => {
     const first = await createDatabaseRow();
     const second = await createDatabaseRow();
