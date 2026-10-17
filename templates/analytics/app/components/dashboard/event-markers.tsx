@@ -170,7 +170,7 @@ export function renderEventMarkers(
     return (
       <ReferenceLine
         key={`event-${group.x}`}
-        x={group.x}
+        x={group.xValue}
         yAxisId={yAxisId}
         stroke={color}
         strokeOpacity={0.35}

@@ -64,7 +64,11 @@ describe("resolvePanelEvents", () => {
       timestamps,
     );
     expect(xInstant(timestamps[2])).toBe(timestamps[2]);
-    expect(event).toMatchObject({ index: 2, x: String(timestamps[2]) });
+    expect(event).toMatchObject({
+      index: 2,
+      x: String(timestamps[2]),
+      xValue: timestamps[2],
+    });
   });
 
   it("skips rows whose x is not a date and keeps their row positions", () => {

@@ -4,6 +4,7 @@ import { isSafeSvgHexColor } from "./svg-color";
 export interface ResolvedPanelEvent {
   index: number;
   x: string;
+  xValue: string | number;
   date: string;
   time?: string;
   timeZone?: string;
@@ -15,6 +16,7 @@ export interface ResolvedPanelEvent {
 export interface PanelEventGroup {
   index: number;
   x: string;
+  xValue: string | number;
   events: ResolvedPanelEvent[];
 }
 
@@ -438,9 +440,12 @@ export function resolvePanelEvents(
     const best = rowFor(event);
     if (best < 0) continue;
     const { row } = rows[best];
+    const xValue = xValues[row];
+    if (typeof xValue !== "string" && typeof xValue !== "number") continue;
     resolved.push({
       index: row,
-      x: String(xValues[row]),
+      x: String(xValue),
+      xValue,
       date: event.date,
       ...(event.time ? { time: event.time } : {}),
       ...(event.timeZone ? { timeZone: event.timeZone } : {}),
@@ -463,6 +468,7 @@ export function groupPanelEvents(
       groups.set(event.index, {
         index: event.index,
         x: event.x,
+        xValue: event.xValue,
         events: [event],
       });
   }

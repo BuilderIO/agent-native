@@ -259,6 +259,17 @@ describe("SqlChart key-date markers", () => {
     expect(output?.getAttribute("data-right-padding")).toBe("11");
   });
 
+  it("renders event markers against numeric x-axis values", async () => {
+    mocks.rows = [12, 13, 14].map((day, index) => ({
+      day: Date.UTC(2026, 9, day),
+      people: 100 + index * 10,
+    }));
+    await act(async () => {
+      root.render(<SqlChart panel={panel("line")} />);
+    });
+    expect(container.querySelectorAll("[data-event-marker]")).toHaveLength(2);
+  });
+
   const cardRows = (card: Element | null) =>
     [...(card?.querySelectorAll("li") ?? [])].map((row) => row.textContent);
 
