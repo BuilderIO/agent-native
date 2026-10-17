@@ -279,6 +279,10 @@ export async function movePageToSpace(args: {
               .set({ ownerEmail: userEmail })
               .where(inArray(table.documentId, idGroup));
           }
+          await tx
+            .update(schema.documentBodyIntents)
+            .set({ ownerEmail: userEmail, orgId: orgId ?? "" })
+            .where(inArray(schema.documentBodyIntents.documentId, idGroup));
           if (fromFilesPropertyIds.length > 0) {
             await tx
               .delete(schema.documentPropertyValues)
