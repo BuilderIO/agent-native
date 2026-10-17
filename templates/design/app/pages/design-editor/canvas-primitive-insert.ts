@@ -885,6 +885,7 @@ export function appendCanvasPrimitiveToHtml(
         paintedSurface?.kind === "known"
           ? resolveDestinationBackgroundLightnessOrNull([
               {
+                // guard:allow-raw-color — This RGB value feeds luminance parsing for arbitrary user-painted surfaces, not UI styling.
                 color: `rgb(${paintedSurface.color.r} ${paintedSurface.color.g} ${paintedSurface.color.b})`,
               },
             ])
