@@ -17,6 +17,8 @@ const storedRows = vi.hoisted(() => ({
   unwritable: false,
   /** Runs once a read finishes, as another server's write landing after it. */
   afterRead: null as null | (() => Promise<void>),
+  /** Runs once a reader's write lands, before its request resumes. */
+  afterWrite: null as null | (() => Promise<void>),
 }));
 vi.mock("./awareness-store.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./awareness-store.js")>();
@@ -36,7 +38,11 @@ vi.mock("./awareness-store.js", async (importOriginal) => {
       ...args: Parameters<typeof actual.replaceReaderAwarenessRow>
     ) => {
       if (storedRows.unwritable) throw new Error("Presence store unavailable");
-      return actual.replaceReaderAwarenessRow(...args);
+      const replaced = await actual.replaceReaderAwarenessRow(...args);
+      const afterWrite = storedRows.afterWrite;
+      storedRows.afterWrite = null;
+      if (replaced) await afterWrite?.();
+      return replaced;
     },
   };
 });
@@ -291,6 +297,7 @@ describe("postAwareness handler", () => {
       storedRows.unreadable = false;
       storedRows.unwritable = false;
       storedRows.afterRead = null;
+      storedRows.afterWrite = null;
     });
 
     it("cannot replace or clear a writer's entry", async () => {
@@ -410,6 +417,40 @@ describe("postAwareness handler", () => {
       )) as { states: Array<{ clientId: number; state: string }> };
       expect(res.states).toContainEqual({ clientId: 7, state: writer });
     });
+
+    it.each([
+      { action: "replace", state: reader },
+      { action: "clear", state: null },
+    ])(
+      "keeps a writer that posts here while its $action is on its way",
+      async ({ action, state }) => {
+        const docId = `reader-overtaken-${action}`;
+        storedRows.afterWrite = async () => {
+          mockReadBody.mockResolvedValue({ clientId: 7, state: writer });
+          await postAwareness(event({ docId }));
+        };
+        const broadcasts: Array<Array<{ clientId: number; state: string }>> =
+          [];
+        const listener = (change: {
+          docId: string;
+          states: Array<{ clientId: number; state: string }>;
+        }) => {
+          if (change.docId === docId) broadcasts.push(change.states);
+        };
+        getAwarenessEmitter().on("awareness-change", listener);
+        try {
+          expect((await post(docId, 7, state)).status).toBe(200);
+        } finally {
+          getAwarenessEmitter().off("awareness-change", listener);
+        }
+
+        expect(getDocAwareness(docId).get(7)?.state).toBe(writer);
+        expect(broadcasts.at(-1)).toContainEqual({
+          clientId: 7,
+          state: writer,
+        });
+      },
+    );
 
     it("is refused, changing nothing, while its presence cannot be saved", async () => {
       storedRows.unwritable = true;

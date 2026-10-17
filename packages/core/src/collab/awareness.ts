@@ -309,8 +309,9 @@ async function writeReaderPresence(
     }
     const cleared = mergeAwarenessRows(docId, map, rows, Date.now());
     const row = rows.find((stored) => stored.clientId === clientId) ?? null;
+    const judged = map.get(clientId);
     if (
-      !readerMayReplace(map.get(clientId)) ||
+      !readerMayReplace(judged) ||
       (!cleared.has(clientId) && !readerMayReplace(row))
     ) {
       return BELONGS_TO_ANOTHER;
@@ -328,6 +329,16 @@ async function writeReaderPresence(
       return { status: 503, error: "Presence could not be saved" };
     }
     if (!replaced) continue;
+    // A writer's post on this server, or a later one under this id, can set
+    // the entry while the write is on its way. It is newer, so it stays.
+    const current = map.get(clientId);
+    if (
+      current &&
+      current !== judged &&
+      (!readerMayReplace(current) || current.lastSeen > lastSeen)
+    ) {
+      return null;
+    }
     // No clear is remembered: it would hide, and delete, an entry a writer
     // on another server stores under this id stamped before it.
     if (state === null) {
