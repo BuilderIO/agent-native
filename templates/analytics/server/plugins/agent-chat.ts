@@ -1137,7 +1137,7 @@ const MONTH_NAME_PATTERN =
   "(?:january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec)";
 
 const NATURAL_DATE_RANGE_PATTERN = new RegExp(
-  String.raw`\b(?:(?:from|between|compare|compared\s+to)\s+)?(${MONTH_NAME_PATTERN})\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+((?:19|20)\d{2}))?\s+(?:to|through|until|and|against)\s+(?:(${MONTH_NAME_PATTERN})\s+)?(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+((?:19|20)\d{2}))?\b`,
+  String.raw`\b(?:(?:from|between|compare|compared\s+to)\s+)?(${MONTH_NAME_PATTERN})\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+((?:19|20)\d{2}))?\s+(?:to|through|until|and|against)\s+(?:(${MONTH_NAME_PATTERN})\s+(\d{1,2})|(\d{1,2})\s+(${MONTH_NAME_PATTERN}))(?:st|nd|rd|th)?(?:,?\s+((?:19|20)\d{2}))?\b`,
   "i",
 );
 
@@ -1196,11 +1196,12 @@ function requestedNamedDateRanges(
     );
     const startDay = Number(match[2]);
     const startYearText = match[3];
-    const endMonth = match[4]
-      ? monthIndexes.get(match[4].slice(0, 3).toLowerCase())
+    const endMonthName = match[4] ?? match[7];
+    const endMonth = endMonthName
+      ? monthIndexes.get(endMonthName.slice(0, 3).toLowerCase())
       : startMonth;
-    const endDay = Number(match[5]);
-    const endYearText = match[6];
+    const endDay = Number(match[5] ?? match[6]);
+    const endYearText = match[8];
     if (startMonth === undefined || endMonth === undefined) return [];
 
     let startYear: number;
