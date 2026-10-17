@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   rows: [] as Array<Array<Record<string, unknown>>>,
+  lockRows: [] as Array<Record<string, unknown>>,
   update: vi.fn(),
   insert: vi.fn(),
   track: vi.fn(),
@@ -14,11 +15,15 @@ const mockDb = {
     from: vi.fn(() => ({
       where: vi.fn(() => ({
         limit: vi.fn(async () => mocks.rows.shift() ?? []),
+        for: vi.fn(async () => mocks.lockRows),
       })),
     })),
   })),
   update: (...args: unknown[]) => mocks.update(...args),
   insert: (...args: unknown[]) => mocks.insert(...args),
+  transaction: vi.fn(async (run: (tx: typeof mockDb) => Promise<unknown>) =>
+    run(mockDb),
+  ),
 };
 
 vi.mock("@agent-native/core", () => ({
@@ -50,10 +55,12 @@ vi.mock("../server/db/index.js", () => ({
   schema: {
     recordings: {
       id: "recordings.id",
+      mediaUpdatedAt: "recordings.mediaUpdatedAt",
       title: "recordings.title",
       titleSource: "recordings.titleSource",
       description: "recordings.description",
       status: "recordings.status",
+      durationMs: "recordings.durationMs",
     },
     recordingTranscripts: {
       recordingId: "recordingTranscripts.recordingId",
@@ -88,17 +95,30 @@ function insertValues(written = [{ recordingId: "rec-1" }]) {
   }));
 }
 
+function recordingRow(extra: Record<string, unknown> = {}) {
+  return {
+    mediaUpdatedAt: "media-1",
+    status: "ready",
+    title: "Clip",
+    titleSource: "user",
+    description: "x",
+    durationMs: 1200,
+    ...extra,
+  };
+}
+
 describe("save-browser-transcript", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.rows = [];
+    mocks.lockRows = [{ id: "rec-1" }];
   });
 
   it("asserts editor access on the recording before mutating", async () => {
     const { assertAccess } = await import("@agent-native/core/sharing");
     const values = insertValues();
     mocks.insert.mockReturnValue({ values });
-    mocks.rows = [[], [{ status: "ready", title: "Clip", description: "x" }]];
+    mocks.rows = [[recordingRow()], []];
 
     await saveBrowserTranscript.run({
       recordingId: "rec-1",
@@ -110,10 +130,7 @@ describe("save-browser-transcript", () => {
   });
 
   it("attributes transcript completion to the recording owner without request context", async () => {
-    mocks.rows = [
-      [],
-      [{ status: "ready", title: "Clip", description: "x", durationMs: 1200 }],
-    ];
+    mocks.rows = [[recordingRow()], []];
     mocks.insert.mockReturnValue({ values: insertValues() });
 
     await saveBrowserTranscript.run({
@@ -135,6 +152,7 @@ describe("save-browser-transcript", () => {
 
   it("does not overwrite a pending cloud transcription with an empty native result", async () => {
     mocks.rows = [
+      [recordingRow()],
       [
         {
           recordingId: "rec-1",
@@ -162,7 +180,7 @@ describe("save-browser-transcript", () => {
   });
 
   it("does not create a failed row before recording finalization", async () => {
-    mocks.rows = [[]];
+    mocks.rows = [[recordingRow()], []];
 
     const result = await saveBrowserTranscript.run({
       recordingId: "rec-1",
@@ -184,7 +202,7 @@ describe("save-browser-transcript", () => {
   it("keeps a truncated capture out of 'ready' so the cloud fallback still runs", async () => {
     const values = insertValues();
     mocks.insert.mockReturnValue({ values });
-    mocks.rows = [[], [{ status: "ready", title: "Clip", description: "x" }]];
+    mocks.rows = [[recordingRow()], []];
     vi.mocked(dispatchPostFinalizeJob).mockResolvedValue(undefined);
 
     const result = await saveBrowserTranscript.run({
@@ -213,7 +231,7 @@ describe("save-browser-transcript", () => {
     async (source, expectedSpeakerSource) => {
       const values = insertValues();
       mocks.insert.mockReturnValue({ values });
-      mocks.rows = [[], [{ status: "ready", title: "Clip", description: "x" }]];
+      mocks.rows = [[recordingRow()], []];
 
       await saveBrowserTranscript.run({
         recordingId: "rec-1",
@@ -234,7 +252,7 @@ describe("save-browser-transcript", () => {
   it("round-trips a caller-supplied diarized speaker into segmentsJson", async () => {
     const values = insertValues();
     mocks.insert.mockReturnValue({ values });
-    mocks.rows = [[], [{ status: "ready", title: "Clip", description: "x" }]];
+    mocks.rows = [[recordingRow()], []];
 
     await saveBrowserTranscript.run({
       recordingId: "rec-1",
@@ -263,7 +281,7 @@ describe("save-browser-transcript", () => {
   it("leaves synthesized segments source-less for whisper (mixed mic + system)", async () => {
     const values = insertValues();
     mocks.insert.mockReturnValue({ values });
-    mocks.rows = [[], [{ status: "ready", title: "Clip", description: "x" }]];
+    mocks.rows = [[recordingRow()], []];
 
     await saveBrowserTranscript.run({
       recordingId: "rec-1",
@@ -287,6 +305,7 @@ describe("save-browser-transcript", () => {
       })),
     });
     mocks.rows = [
+      [recordingRow()],
       [{ recordingId: "rec-1", status: "pending", segmentsJson: "[]" }],
       [{ source: "imported" }],
     ];
@@ -309,7 +328,7 @@ describe("save-browser-transcript", () => {
   it("keeps an import that creates the row just before the first insert", async () => {
     const values = insertValues([]);
     mocks.insert.mockReturnValue({ values });
-    mocks.rows = [[], [{ source: "imported" }]];
+    mocks.rows = [[recordingRow()], [], [{ source: "imported" }]];
 
     const result = await saveBrowserTranscript.run({
       recordingId: "rec-1",
@@ -329,6 +348,7 @@ describe("save-browser-transcript", () => {
       })),
     });
     mocks.rows = [
+      [recordingRow()],
       [{ recordingId: "rec-1", status: "pending", segmentsJson: "[]" }],
       [],
     ];
@@ -340,5 +360,23 @@ describe("save-browser-transcript", () => {
         source: "web-speech",
       }),
     ).rejects.toThrow("was removed while saving");
+  });
+
+  it("does not save a transcript if Rewind changed the media before the row lock", async () => {
+    const values = insertValues();
+    mocks.insert.mockReturnValue({ values });
+    mocks.rows = [[recordingRow()], []];
+    mocks.lockRows = [];
+
+    await expect(
+      saveBrowserTranscript.run({
+        recordingId: "rec-1",
+        fullText: "Native words.",
+        source: "web-speech",
+      }),
+    ).rejects.toMatchObject({ errorCode: "recording_media_changed" });
+
+    expect(mocks.insert).not.toHaveBeenCalled();
+    expect(mocks.update).not.toHaveBeenCalled();
   });
 });

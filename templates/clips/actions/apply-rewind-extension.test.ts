@@ -393,6 +393,25 @@ describe("apply-rewind-extension", () => {
     expect(JSON.parse(stored.chaptersJson)).toEqual([intro]);
   });
 
+  it("marks a failed transaction so the request can be retried", async () => {
+    const transaction = mockDb.transaction;
+    mockDb.transaction = async () => {
+      throw new Error("database unavailable");
+    };
+    try {
+      await expect(action.run(args)).rejects.toThrow("database unavailable");
+    } finally {
+      mockDb.transaction = transaction;
+    }
+
+    expect(stored.request).toMatchObject({
+      status: "failed",
+      error: "database unavailable",
+    });
+    expect(stored.preRollTrashed).toBe(false);
+    expect(JSON.parse(stored.chaptersJson)).toEqual([intro]);
+  });
+
   it("asks for the thumbnail again when a retry finds the shift already made", async () => {
     mockDispatch.mockRejectedValueOnce(new Error("queue down"));
     await expect(action.run(args)).rejects.toThrow("queue down");

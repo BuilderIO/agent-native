@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   compareAndSetAppState,
   readAppState,
@@ -29,7 +29,10 @@ export default defineAction({
     const key = rewindExtensionKey(args.recordingId);
     let current = (await readAppState(key)) as RewindExtensionRequest | null;
     if (!current || current.requestId !== args.requestId) {
-      throw new Error("Rewind extension request is no longer current.");
+      fail("Rewind extension request is no longer current.", {
+        errorCode: "rewind_request_changed",
+        statusCode: 409,
+      });
     }
     for (let attempt = 0; attempt < 4; attempt++) {
       if (
@@ -55,10 +58,16 @@ export default defineAction({
       if (await compareAndSetAppState(key, current, next)) return next;
       const latest = (await readAppState(key)) as RewindExtensionRequest | null;
       if (!latest || latest.requestId !== args.requestId) {
-        throw new Error("Rewind extension request is no longer current.");
+        fail("Rewind extension request is no longer current.", {
+          errorCode: "rewind_request_changed",
+          statusCode: 409,
+        });
       }
       current = latest;
     }
-    throw new Error("Rewind extension request kept changing. Try again.");
+    fail("Rewind extension request kept changing. Try again.", {
+      errorCode: "rewind_request_changed",
+      statusCode: 409,
+    });
   },
 });

@@ -76,6 +76,24 @@ export default defineAction({
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();
     const now = new Date().toISOString();
+    const [recording] = await db
+      .select({
+        mediaUpdatedAt: schema.recordings.mediaUpdatedAt,
+        title: schema.recordings.title,
+        titleSource: schema.recordings.titleSource,
+        description: schema.recordings.description,
+        status: schema.recordings.status,
+        durationMs: schema.recordings.durationMs,
+      })
+      .from(schema.recordings)
+      .where(eq(schema.recordings.id, args.recordingId))
+      .limit(1);
+    if (!recording) {
+      fail(`Recording not found: ${args.recordingId}`, {
+        errorCode: "recording_not_found",
+        statusCode: 404,
+      });
+    }
     const fullText = args.fullText.trim();
     const failureReason = args.failureReason?.trim() || "";
     const segmentsJson =
@@ -164,28 +182,49 @@ export default defineAction({
     };
     // An import can land after the read above; the guarded write then
     // changes no row.
-    const written = current
-      ? await db
-          .update(t)
-          .set(set)
-          .where(
-            and(eq(t.recordingId, args.recordingId), notImportedTranscript()),
-          )
-          .returning({ recordingId: t.recordingId })
-      : await db
-          .insert(t)
-          .values({
-            ...set,
-            recordingId: args.recordingId,
-            language: "en",
-            createdAt: now,
-          })
-          .onConflictDoUpdate({
-            target: t.recordingId,
-            set,
-            setWhere: notImportedTranscript(),
-          })
-          .returning({ recordingId: t.recordingId });
+    const written = await db.transaction(async (tx) => {
+      const [locked] = await tx
+        .select({ id: schema.recordings.id })
+        .from(schema.recordings)
+        .where(
+          and(
+            eq(schema.recordings.id, args.recordingId),
+            eq(schema.recordings.mediaUpdatedAt, recording.mediaUpdatedAt),
+          ),
+        )
+        .for("update");
+      if (!locked) {
+        fail(
+          "The Clip media changed while the transcript was being saved. Try again.",
+          {
+            errorCode: "recording_media_changed",
+            statusCode: 409,
+          },
+        );
+      }
+      return current
+        ? tx
+            .update(t)
+            .set(set)
+            .where(
+              and(eq(t.recordingId, args.recordingId), notImportedTranscript()),
+            )
+            .returning({ recordingId: t.recordingId })
+        : tx
+            .insert(t)
+            .values({
+              ...set,
+              recordingId: args.recordingId,
+              language: "en",
+              createdAt: now,
+            })
+            .onConflictDoUpdate({
+              target: t.recordingId,
+              set,
+              setWhere: notImportedTranscript(),
+            })
+            .returning({ recordingId: t.recordingId });
+    });
     if (written.length === 0) {
       const [row] = await db
         .select({ source: t.source })
@@ -210,18 +249,6 @@ export default defineAction({
       await finalizeEndedMeetingsForRecording(db, args.recordingId);
     }
 
-    const [rec] = await db
-      .select({
-        title: schema.recordings.title,
-        titleSource: schema.recordings.titleSource,
-        description: schema.recordings.description,
-        status: schema.recordings.status,
-        durationMs: schema.recordings.durationMs,
-      })
-      .from(schema.recordings)
-      .where(eq(schema.recordings.id, args.recordingId))
-      .limit(1);
-
     if (!hasReadyTranscript && savedStatus === "ready") {
       track(
         "recording_completed",
@@ -231,7 +258,7 @@ export default defineAction({
           recording_attempt_id: args.recordingId,
           output_id: args.recordingId,
           output_type: "clip",
-          duration_s: Math.round((rec?.durationMs ?? 0) / 1000),
+          duration_s: Math.round((recording.durationMs ?? 0) / 1000),
           has_transcript: true,
           transcription_source: args.source ?? "native",
         },
@@ -241,12 +268,13 @@ export default defineAction({
       );
     }
 
-    const titleQueued = !!(
-      rec && isAutoTitleReplaceable(rec.title, rec.titleSource)
+    const titleQueued = isAutoTitleReplaceable(
+      recording.title,
+      recording.titleSource,
     );
-    const summaryQueued = Boolean(rec && !rec.description?.trim());
+    const summaryQueued = !recording.description?.trim();
     if (
-      rec?.status === "ready" &&
+      recording.status === "ready" &&
       (truncated || titleQueued || summaryQueued)
     ) {
       await dispatchPostFinalizeJob({

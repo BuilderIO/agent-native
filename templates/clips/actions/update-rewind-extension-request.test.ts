@@ -8,6 +8,9 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (action: unknown) => action,
+  fail: (message: string, options: Record<string, unknown>) => {
+    throw Object.assign(new Error(message), options);
+  },
 }));
 vi.mock("@agent-native/core/application-state", () => ({
   readAppState: vi.fn(async () => mocks.current),
