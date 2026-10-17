@@ -523,12 +523,18 @@ export default defineAction({
         classifyPlans(transactionSnapshot);
         // The pages' Files memberships, then the pages, each by id, as a save
         // takes them: the writes below update pages before the memberships.
+        const existingPageIds = plans
+          .filter((plan) => !plan.conflict && plan.existing)
+          .map((plan) => plan.id);
         const writtenPageIds = [
-          ...plans
-            .filter((plan) => !plan.conflict && plan.existing)
-            .map((plan) => plan.id),
+          ...existingPageIds,
           ...missingRows.map((row) => row.documentId),
         ];
+        // Add a missing Files membership before locking any page. A page has
+        // one per Files database, so once this transaction holds or inserts
+        // it, a concurrent insert waits on this one; if it were added after
+        // the pages, the later membership lock would wait on its writer.
+        await ensureDocumentsFilesMembership(tx, existingPageIds, now);
         if (writtenPageIds.length > 0) {
           const memberships = await tx
             .select({ id: schema.contentDatabaseItems.id })

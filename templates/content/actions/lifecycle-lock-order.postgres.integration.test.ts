@@ -99,6 +99,7 @@ let rowMutation: typeof import("./_database-row-mutation.js");
 let deleteDocumentProperty: typeof import("./delete-document-property.js").default;
 let replaceHistoricalIconIfUnchanged: typeof import("../scripts/historical-icon-apply.js").replaceHistoricalIconIfUnchanged;
 let syncLocalFolder: typeof import("./sync-local-folder-source.js").default;
+let contentFilesItemId: typeof import("./_content-files.js").contentFilesItemId;
 let processBuilderBodyHydrationQueue: typeof import("./_database-source-utils.js").processBuilderBodyHydrationQueue;
 
 beforeAll(async () => {
@@ -160,6 +161,7 @@ beforeAll(async () => {
   ({ replaceHistoricalIconIfUnchanged } =
     await import("../scripts/historical-icon-apply.js"));
   syncLocalFolder = (await import("./sync-local-folder-source.js")).default;
+  ({ contentFilesItemId } = await import("./_content-files.js"));
   ({ processBuilderBodyHydrationQueue } =
     await import("./_database-source-utils.js"));
   await (await import("../server/plugins/db.js")).default(undefined as any);
@@ -475,12 +477,13 @@ async function waitUntilWaiting(pid: number) {
  * page, starts the writer, and once it waits on the page starts a save that
  * locks the memberships, then the page. Released, the page goes to the
  * writer first, so a writer that then waits for a membership deadlocks
- * with the save.
+ * with the save. `beforeSave` runs first in the save's transaction.
  */
 async function raceSaveThroughPage<T>(args: {
   page: string;
   memberships: string[];
   run: () => Promise<T>;
+  beforeSave?: (tx: Db) => Promise<unknown>;
   whileWaiting?: () => Promise<void>;
 }) {
   const gate = await holdRow({ label: "page", kind: "page", id: args.page });
@@ -502,6 +505,7 @@ async function raceSaveThroughPage<T>(args: {
     save = getDb().transaction(async (transaction) => {
       const tx = transaction as unknown as Db;
       saving(await backendPid(tx));
+      await args.beforeSave?.(tx);
       await lockDatabaseMemberships(tx, args.memberships);
       await touchPage(tx, args.page);
     });
@@ -2356,6 +2360,9 @@ describe.skipIf(!POSTGRES_URL)(
           return { rows: seed.rows, run: await addPrimaryBlocksProperty(seed) };
         });
         expect(report.violations).toEqual([]);
+        // The pages' UPDATE scans their primary key, which the test databases
+        // sort as COLLATE "C" does, so this can't tell whether the page lock
+        // that sorts them is there.
         expect(report.waitedOn).toEqual(COLLECTION_ROWS);
       });
 
@@ -2684,6 +2691,34 @@ describe.skipIf(!POSTGRES_URL)(
           );
         }
       });
+    });
+
+    it("local-folder sync doesn't deadlock with a save that adds the page's Files membership first", async () => {
+      const seed = await seedLocalFolderPage();
+      await getDb()
+        .delete(schema.contentDatabaseItems)
+        .where(eq(schema.contentDatabaseItems.id, seed.ids.filesItem));
+      const membership = contentFilesItemId(seed.ids.files, seed.ids.page);
+      const result = await raceSaveThroughPage({
+        page: seed.ids.page,
+        memberships: [membership],
+        run: seed.sync,
+        // Files reconciliation's insert, which sync would otherwise find
+        // only after it holds the page.
+        beforeSave: (tx) =>
+          tx
+            .insert(schema.contentDatabaseItems)
+            .values(itemValues(membership, seed.ids.files, seed.ids.page, 0))
+            .onConflictDoNothing(),
+      });
+      expect(result.failures).toEqual([]);
+      expect((await readPage(seed.ids.page)).content).toContain("New body.");
+      expect(
+        await getDb()
+          .select({ id: schema.contentDatabaseItems.id })
+          .from(schema.contentDatabaseItems)
+          .where(eq(schema.contentDatabaseItems.documentId, seed.ids.page)),
+      ).toEqual([{ id: membership }]);
     });
 
     it.each([
