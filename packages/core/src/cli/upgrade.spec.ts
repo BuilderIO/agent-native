@@ -1452,6 +1452,40 @@ describe("runUpgrade", () => {
       ).toBe(olderWorkspaceYaml);
     });
 
+    it("does not treat packages outside a workspace glob as members", async () => {
+      const workspaceYaml = [
+        'packages: ["apps/*-web"]',
+        "minimumReleaseAge: 1440",
+        "minimumReleaseAgeExclude:",
+        '  - "@agent-native/core"',
+        "",
+      ].join("\n");
+      const root = makeTempProject({
+        kind: "workspace",
+        rootPkg: { name: "other-workspace", private: true },
+        workspaceYaml,
+        workspaces: {
+          "apps/site-web": { name: "site-web" },
+          "apps/internal": {
+            name: "internal",
+            dependencies: { "@agent-native/core": "latest" },
+          },
+        },
+      });
+      const project = detectUpgradeProject(root)!;
+
+      expect(
+        project.packageFiles.map((file) => path.relative(root, file)),
+      ).toEqual(["package.json", "apps/site-web/package.json"]);
+
+      const { io, out } = captureIo();
+      expect(await runUpgrade(["--cwd", root, ...skipArgs], io)).toBe(0);
+      expect(out.join("\n")).not.toContain("release-age");
+      expect(
+        fs.readFileSync(path.join(root, "pnpm-workspace.yaml"), "utf-8"),
+      ).toBe(workspaceYaml);
+    });
+
     it("updates a workspace whose only @agent-native dependency is in a member app", async () => {
       const root = makeTempProject({
         kind: "workspace",
@@ -1505,6 +1539,89 @@ describe("runUpgrade", () => {
       expect(
         fs.readFileSync(path.join(root, "pnpm-workspace.yaml"), "utf-8"),
       ).toContain('  - "@agent-native/*"');
+    });
+
+    it("adds the exclude for a non-optional peer-only dependency", async () => {
+      const root = makeTempProject({
+        kind: "workspace",
+        rootPkg: {
+          name: "old-workspace",
+          private: true,
+          peerDependencies: { "@agent-native/core": "^0.209.0" },
+        },
+        workspaceYaml: olderWorkspaceYaml,
+      });
+      const { io, out } = captureIo();
+
+      expect(await runUpgrade(["--cwd", root, ...skipArgs], io)).toBe(0);
+
+      expect(out.join("\n")).toContain("[ok] release-age");
+      expect(
+        fs.readFileSync(path.join(root, "pnpm-workspace.yaml"), "utf-8"),
+      ).toContain('  - "@agent-native/*"');
+    });
+
+    it("does not add the exclude for an optional peer-only dependency", async () => {
+      const root = makeTempProject({
+        kind: "workspace",
+        rootPkg: {
+          name: "old-workspace",
+          private: true,
+          peerDependencies: { "@agent-native/core": "^0.209.0" },
+          peerDependenciesMeta: { "@agent-native/core": { optional: true } },
+        },
+        workspaceYaml: olderWorkspaceYaml,
+      });
+      const { io, out } = captureIo();
+
+      expect(await runUpgrade(["--cwd", root, ...skipArgs], io)).toBe(0);
+
+      expect(out.join("\n")).not.toContain("release-age");
+      expect(
+        fs.readFileSync(path.join(root, "pnpm-workspace.yaml"), "utf-8"),
+      ).toBe(olderWorkspaceYaml);
+    });
+
+    it("blocks when a listed member manifest cannot be inspected", async () => {
+      const root = makeTempProject({
+        kind: "workspace",
+        rootPkg: { name: "other-workspace", private: true },
+        workspaceYaml: olderWorkspaceYaml,
+        apps: {
+          web: {
+            name: "web",
+            dependencies: { "@agent-native/core": "latest" },
+          },
+        },
+      });
+      const packagePath = path.join(root, "apps", "web", "package.json");
+      const workspacePath = path.join(root, "pnpm-workspace.yaml");
+      const workspaceBefore = fs.readFileSync(workspacePath, "utf-8");
+      const statSync = fs.statSync;
+      vi.spyOn(fs, "statSync").mockImplementation(((
+        file: fs.PathLike,
+        options?: unknown,
+      ) => {
+        if (path.resolve(String(file)) === packagePath) {
+          throw Object.assign(new Error("EACCES: permission denied, stat"), {
+            code: "EACCES",
+          });
+        }
+        return statSync(file, options as never);
+      }) as typeof fs.statSync);
+      const { io, err, out } = captureIo();
+
+      expect(await runUpgrade(["--cwd", root, ...skipArgs, "--json"], io)).toBe(
+        1,
+      );
+
+      expect(JSON.parse(err.join("\n"))).toMatchObject({
+        ok: false,
+        doctor: { workspaceDiscoveryError: "EACCES: permission denied, stat" },
+        steps: [{ id: "doctor", status: "failed" }],
+      });
+      expect(out).toEqual([]);
+      expect(fs.readFileSync(workspacePath, "utf-8")).toBe(workspaceBefore);
     });
 
     it("updates the workspace root's file when run from a member app", async () => {

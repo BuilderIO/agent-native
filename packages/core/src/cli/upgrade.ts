@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import dotenv from "dotenv";
+import { minimatch } from "minimatch";
 
 import {
   isMigrationManifestActive,
@@ -56,6 +57,7 @@ export interface PackageJsonLike {
   devDependencies?: Record<string, string>;
   optionalDependencies?: Record<string, string>;
   peerDependencies?: Record<string, string>;
+  peerDependenciesMeta?: Record<string, { optional?: boolean }>;
   pnpm?: {
     overrides?: Record<string, string>;
     patchedDependencies?: Record<string, string>;
@@ -686,11 +688,18 @@ function findNearestPnpmWorkspaceFile(projectRoot: string): string | null {
 function dependsOnAgentNative(project: UpgradeProject): boolean {
   return project.packageFiles.some((file) => {
     const read = readJsonFile(file);
-    return (
-      read.ok &&
+    if (!read.ok) return false;
+    if (
       PINNABLE_SECTIONS.some((section) =>
         Object.keys(read.value[section] ?? {}).some(isAgentNativePackageName),
       )
+    ) {
+      return true;
+    }
+    return Object.keys(read.value.peerDependencies ?? {}).some(
+      (name) =>
+        isAgentNativePackageName(name) &&
+        read.value.peerDependenciesMeta?.[name]?.optional !== true,
     );
   });
 }
@@ -844,38 +853,59 @@ function packageFilesForWorkspacePattern(
 ): string[] {
   const normalized = pattern.replace(/\\/g, "/").replace(/\/+$/g, "");
   if (!normalized || normalized.includes("node_modules")) return [];
-  if (normalized.endsWith("/**")) {
-    return collectPackageFilesRecursive(
-      path.join(root, normalized.slice(0, -3)),
-    );
-  }
   if (normalized.endsWith("/*")) {
     const base = path.join(root, normalized.slice(0, -2));
-    if (!fs.existsSync(base)) return [];
+    if (!workspacePathExists(base)) return [];
     return fs
       .readdirSync(base, { withFileTypes: true })
       .filter((entry) => entry.isDirectory())
       .map((entry) => path.join(base, entry.name, "package.json"))
-      .filter((file) => fs.existsSync(file));
+      .filter(workspacePathExists);
   }
-  if (normalized.includes("*")) {
-    return collectPackageFilesRecursive(
-      path.join(root, normalized.split("*")[0]),
+  const wildcardIndex = normalized.search(/[?*[{]/u);
+  if (wildcardIndex !== -1) {
+    const literalPrefix = normalized.slice(0, wildcardIndex);
+    const prefixSlash = literalPrefix.lastIndexOf("/");
+    const scanRoot = path.join(
+      root,
+      prefixSlash === -1 ? "" : literalPrefix.slice(0, prefixSlash),
+    );
+    const manifestPattern = `${normalized}/package.json`;
+    return collectPackageFilesRecursive(scanRoot).filter((file) =>
+      minimatch(
+        path.relative(root, file).split(path.sep).join("/"),
+        manifestPattern,
+        { dot: true },
+      ),
     );
   }
   const file = path.join(root, normalized, "package.json");
-  return fs.existsSync(file) ? [file] : [];
+  return workspacePathExists(file) ? [file] : [];
+}
+
+function workspacePathExists(filePath: string): boolean {
+  try {
+    fs.statSync(filePath);
+    return true;
+  } catch (error) {
+    const code =
+      error && typeof error === "object" && "code" in error
+        ? error.code
+        : undefined;
+    if (code === "ENOENT" || code === "ENOTDIR") return false;
+    throw error;
+  }
 }
 
 function collectPackageFilesRecursive(dir: string): string[] {
-  if (!fs.existsSync(dir)) return [];
+  if (!workspacePathExists(dir)) return [];
   const files: string[] = [];
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     if (entry.name === "node_modules" || entry.name === ".git") continue;
     const child = path.join(dir, entry.name);
     const pkg = path.join(child, "package.json");
-    if (fs.existsSync(pkg)) files.push(pkg);
+    if (workspacePathExists(pkg)) files.push(pkg);
     files.push(...collectPackageFilesRecursive(child));
   }
   return files;
