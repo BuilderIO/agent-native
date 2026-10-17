@@ -426,6 +426,108 @@ function paintedSurfaceAtPoint(
       ? "translucent"
       : null;
   };
+  const svgPaintAtPoint = (
+    element: Element,
+    style: CSSStyleDeclaration,
+  ): string | "unmeasured" | null => {
+    if (element.namespaceURI !== "http://www.w3.org/2000/svg") return null;
+    const tagName = element.localName.toLowerCase();
+    if (["image", "use", "foreignobject"].includes(tagName)) {
+      return "unmeasured";
+    }
+    if (
+      ![
+        "circle",
+        "ellipse",
+        "line",
+        "path",
+        "polygon",
+        "polyline",
+        "rect",
+        "text",
+        "tspan",
+      ].includes(tagName)
+    ) {
+      return null;
+    }
+
+    const readProperty = (property: string, fallback: string): string => {
+      const computedValue = style.getPropertyValue(property).trim();
+      if (computedValue && !["inherit", "unset"].includes(computedValue)) {
+        return computedValue;
+      }
+      for (
+        let ancestor: Element | null = element;
+        ancestor?.namespaceURI === "http://www.w3.org/2000/svg";
+        ancestor = ancestor.parentElement
+      ) {
+        const inlineValue = (ancestor as SVGElement).style
+          .getPropertyValue(property)
+          .trim();
+        const authoredValue =
+          inlineValue || ancestor.getAttribute(property)?.trim() || "";
+        if (authoredValue && !["inherit", "unset"].includes(authoredValue)) {
+          return authoredValue;
+        }
+      }
+      return fallback;
+    };
+    const opacityFor = (property: string): number | null => {
+      const value = readProperty(property, "1").trim();
+      const parsed = value.endsWith("%")
+        ? Number(value.slice(0, -1)) / 100
+        : Number(value);
+      return Number.isFinite(parsed) ? Math.min(1, Math.max(0, parsed)) : null;
+    };
+    const paintFor = (
+      paint: string,
+      opacity: number | null,
+    ): { r: number; g: number; b: number; a: number } | "unmeasured" | null => {
+      if (paint.trim().toLowerCase() === "none") return null;
+      if (opacity === null) return "unmeasured";
+      if (opacity === 0) return null;
+      const normalizedPaint = paint.trim().toLowerCase();
+      if (
+        normalizedPaint.startsWith("url(") ||
+        normalizedPaint.startsWith("context-")
+      ) {
+        return "unmeasured";
+      }
+      const color =
+        normalizedPaint === "currentcolor"
+          ? readProperty("color", "black")
+          : paint;
+      const parsed = parseCssColorExtended(color);
+      return parsed ? { ...parsed, a: parsed.a * opacity } : "unmeasured";
+    };
+    const fill = paintFor(
+      readProperty("fill", "black"),
+      opacityFor("fill-opacity"),
+    );
+    const stroke = paintFor(
+      readProperty("stroke", "none"),
+      opacityFor("stroke-opacity"),
+    );
+    if (fill === "unmeasured" || stroke === "unmeasured") {
+      return "unmeasured";
+    }
+    if (!fill) {
+      return stroke
+        ? `rgb(${stroke.r} ${stroke.g} ${stroke.b} / ${stroke.a})`
+        : null;
+    }
+    if (!stroke) return `rgb(${fill.r} ${fill.g} ${fill.b} / ${fill.a})`;
+    if (
+      fill.a === 1 &&
+      stroke.a === 1 &&
+      fill.r === stroke.r &&
+      fill.g === stroke.g &&
+      fill.b === stroke.b
+    ) {
+      return `rgb(${fill.r} ${fill.g} ${fill.b})`;
+    }
+    return "unmeasured";
+  };
   const compositePaintStack = (
     colorsFromFrontToBack: ReadonlyArray<string | null>,
   ):
@@ -505,10 +607,12 @@ function paintedSurfaceAtPoint(
     liveView &&
     typeof liveDocument.elementsFromPoint === "function"
   ) {
+    const sampleX = x - liveView.scrollX;
+    const sampleY = y - liveView.scrollY;
     const hits = elementsFromPointIncludingPointerTransparent(
       liveDocument,
-      x - liveView.scrollX,
-      y - liveView.scrollY,
+      sampleX,
+      sampleY,
     );
     const hitSet = new Set(hits);
     const colors: string[] = [];
@@ -544,6 +648,15 @@ function paintedSurfaceAtPoint(
         const foreground = parseCssColorExtended(style.backgroundColor);
         if (foreground?.a === 1) opaqueForeground = true;
       }
+      const svgPaint = svgPaintAtPoint(hit, style);
+      if (svgPaint === "unmeasured") {
+        return { kind: "unknown", reason: "unmeasured" };
+      }
+      if (svgPaint) {
+        colors.push(svgPaint);
+        const foreground = parseCssColorExtended(svgPaint);
+        if (foreground?.a === 1) opaqueForeground = true;
+      }
       for (
         let element = hit.parentElement;
         element;
@@ -561,6 +674,16 @@ function paintedSurfaceAtPoint(
           (element !== liveDocument.body &&
             element !== liveDocument.documentElement);
         const style = liveView.getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+        if (
+          style.visibility !== "visible" ||
+          sampleX < rect.left ||
+          sampleY < rect.top ||
+          sampleX > rect.right ||
+          sampleY > rect.bottom
+        ) {
+          continue;
+        }
         const unknownPaint = hasUnknownPaint(style, includesBackgroundImage);
         if (unknownPaint) return { kind: "unknown", reason: unknownPaint };
         if (includesBackgroundImage) {
@@ -1048,8 +1171,9 @@ export function appendCanvasPrimitiveToHtml(
         sampledSurfaceIsLight !== surfaceIsLight;
       const preserveInheritedTextColor =
         paintedSurface?.kind === "unknown" &&
-        (paintedSurface.reason === "background-image" ||
-          paintedSurface.reason === "translucent" ||
+        (paintedSurface.reason === "translucent" ||
+          (paintedSurface.reason === "background-image" &&
+            options?.isBoardTarget !== true) ||
           (surfaceIsLight === null && options?.isBoardTarget !== true));
       const resolvedTextColor =
         primitive.fill ??

@@ -3989,24 +3989,26 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     if (
       selectionContainerScope &&
       document.documentElement.contains(selectionContainerScope) &&
+      selectionContainerScope !== selectedEl &&
       selectionContainerScope.contains(selectedEl)
     ) {
       return null;
     }
-    if (!isGeneratedGroupWrapper(selectedEl)) return null;
+    if (!hasSelectableLayerChildren(selectedEl)) return null;
     var target = selectionTargetForHit(hit, true);
     return target && target !== selectedEl && selectedEl.contains(target)
       ? selectedEl
       : null;
   }
 
-  function clickThroughSelectionTarget(
-    hit: Element | null,
-    ev: MouseEvent,
-    repeatedClick?: boolean,
-  ): Element | null {
-    if (repeatedClick ?? ev.detail > 1) return null;
-    if (!selectedEl || !document.documentElement.contains(selectedEl)) {
+  function clickThroughSelectionTarget(hit: Element | null): Element | null {
+    if (
+      !selectedEl ||
+      !document.documentElement.contains(selectedEl) ||
+      !selectionContainerScope ||
+      selectionContainerScope === selectedEl ||
+      !selectionContainerScope.contains(selectedEl)
+    ) {
       return null;
     }
     if (hostSelectedEl === selectedEl) return null;
@@ -8114,25 +8116,8 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
   } | null = null;
   var suppressNextShieldClick = false;
   var suppressNextShieldClickTimer: ReturnType<typeof setTimeout> | null = null;
-  var shieldPointerClickCount = 0;
-  var lastShieldPointerDownAt = 0;
-  var lastShieldPointerDownPoint: { x: number; y: number } | null = null;
-  var lastShieldPointerDownTarget: Element | null = null;
-  var lastShieldPointerDownModifiers: {
-    altKey: boolean;
-    ctrlKey: boolean;
-    metaKey: boolean;
-    shiftKey: boolean;
-  } | null = null;
   var lastShieldModifierCyclePoint: { x: number; y: number } | null = null;
   var lastShieldModifierCycleTarget: Element | null = null;
-  function resetShieldPointerClickState() {
-    shieldPointerClickCount = 0;
-    lastShieldPointerDownAt = 0;
-    lastShieldPointerDownPoint = null;
-    lastShieldPointerDownTarget = null;
-    lastShieldPointerDownModifiers = null;
-  }
   function resetShieldModifierCycleState() {
     lastShieldModifierCyclePoint = null;
     lastShieldModifierCycleTarget = null;
@@ -27294,47 +27279,6 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     if (activeTextEditEl && !exitStaleTextEditSession()) return;
     var events = dragEventNames(e);
     var hit = elementFromEditorPoint(e.clientX, e.clientY);
-    if (
-      e.type === "pointerdown" &&
-      e.pointerType === "mouse" &&
-      e.button === 0
-    ) {
-      var now = Date.now();
-      var hitSelectionTarget = selectionTargetForHit(hit, true);
-      var pointerDownModifiers = {
-        altKey: Boolean(e.altKey),
-        ctrlKey: Boolean(e.ctrlKey),
-        metaKey: Boolean(e.metaKey),
-        shiftKey: Boolean(e.shiftKey),
-      };
-      var sameModifiers = Boolean(
-        lastShieldPointerDownModifiers &&
-        lastShieldPointerDownModifiers.altKey === pointerDownModifiers.altKey &&
-        lastShieldPointerDownModifiers.ctrlKey ===
-          pointerDownModifiers.ctrlKey &&
-        lastShieldPointerDownModifiers.metaKey ===
-          pointerDownModifiers.metaKey &&
-        lastShieldPointerDownModifiers.shiftKey ===
-          pointerDownModifiers.shiftKey,
-      );
-      var sameClickPoint = Boolean(
-        sameModifiers &&
-        lastShieldPointerDownTarget === hitSelectionTarget &&
-        lastShieldPointerDownPoint &&
-        now - lastShieldPointerDownAt < 500 &&
-        Math.hypot(
-          e.clientX - lastShieldPointerDownPoint.x,
-          e.clientY - lastShieldPointerDownPoint.y,
-        ) <= 4,
-      );
-      shieldPointerClickCount = sameClickPoint
-        ? shieldPointerClickCount + 1
-        : 1;
-      lastShieldPointerDownAt = now;
-      lastShieldPointerDownPoint = { x: e.clientX, y: e.clientY };
-      lastShieldPointerDownTarget = hitSelectionTarget;
-      lastShieldPointerDownModifiers = pointerDownModifiers;
-    }
     var hitTarget = selectionTargetForHit(hit);
     var startsOnContainerBackground = isContainerBackgroundHit(hitTarget, hit);
     if (
@@ -27488,18 +27432,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
           e.clientY - lastShieldModifierCyclePoint.y,
         ) <= 4,
       );
-      var isMousePointerUp = Boolean(
-        ev && ev.type === "pointerup" && ev.pointerType === "mouse",
-      );
-      var repeatedClick = Boolean(
-        ev &&
-        (ev.detail > 1 || (isMousePointerUp && shieldPointerClickCount > 1)),
-      );
-      if (ev && ev.type === "pointerup" && !isMousePointerUp) {
-        resetShieldPointerClickState();
-      }
       if (didStartDrag) {
-        resetShieldPointerClickState();
         resetShieldModifierCycleState();
         return;
       }
@@ -27518,7 +27451,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
               plainClickSelectionTarget(hit)
             : (!readOnly && !e.shiftKey
                 ? selectedContainerForPlainClick(hit, ev) ||
-                  clickThroughSelectionTarget(hit, ev, repeatedClick)
+                  clickThroughSelectionTarget(hit)
                 : null) || containerFirstSelectionTarget(hit);
       var preservesNestedHit = Boolean(
         isModifierCycleClick &&
@@ -28402,10 +28335,6 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
   ) {
     if (activeTextEditEl && e.target && activeTextEditEl.contains(e.target))
       return;
-    if (!textEditingEnabled && !forceTextEditing) {
-      stopNativeInteraction(e);
-      return;
-    }
     stopNativeInteraction(e);
     if (pendingBeginTextEdit) {
       var supersededPendingNodeId = pendingBeginTextEdit.nodeId;
@@ -28470,6 +28399,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       }
       return;
     }
+    if (!textEditingEnabled && !forceTextEditing) return;
     if (
       !programmaticFlag &&
       isTemplateCloneElement(target) &&

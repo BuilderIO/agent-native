@@ -567,6 +567,31 @@ describe("text takes its colour from what it lands on", () => {
     return styleOf(html ?? "", "t");
   };
 
+  const textColorOnSvgPaint = (shape: string, underlay = ""): string => {
+    const content = `<!doctype html><html><body>${underlay}<svg xmlns="http://www.w3.org/2000/svg">${shape}</svg></body></html>`;
+    const liveDocument = new DOMParser().parseFromString(content, "text/html");
+    const svgPaint = liveDocument.querySelector("[data-svg-paint]");
+    if (!svgPaint) throw new Error("SVG paint fixture is missing its target");
+    Object.defineProperty(liveDocument, "elementsFromPoint", {
+      value: () => [
+        svgPaint,
+        ...Array.from(liveDocument.querySelectorAll("[data-underlay]")),
+      ],
+    });
+
+    const html = appendCanvasPrimitiveToHtml(
+      content,
+      {
+        kind: "text",
+        nodeId: "t",
+        geometry: { x: 10, y: 10, width: 120, height: 24 },
+        text: "on the board",
+      },
+      { isBoardTarget: true, boardBackground: "#111111", liveDocument },
+    );
+    return styleOf(html ?? "", "t");
+  };
+
   it("is not white when dropped into a white frame on the board", () => {
     const withFrame =
       appendCanvasPrimitiveToHtml(
@@ -795,10 +820,51 @@ describe("text takes its colour from what it lands on", () => {
     ).toMatch(/color:\s*#000000/i);
   });
 
-  it("preserves inherited text color when a surface has a background image", () => {
+  it("uses the dark-board fallback when a surface has a background image", () => {
     expect(
       textColorOnBoard(["linear-gradient(90deg, #ffffff, #111111)"], "#111111"),
-    ).toMatch(/color:\s*currentcolor/i);
+    ).toMatch(/color:\s*#ffffff/i);
+  });
+
+  it("samples a supported SVG fill when choosing text color", () => {
+    expect(
+      textColorOnSvgPaint(
+        '<rect data-svg-paint="" fill="#ffffff" width="100" height="100"/>',
+      ),
+    ).toMatch(/color:\s*#000000/i);
+  });
+
+  it("resolves inherited currentColor for an SVG fill", () => {
+    expect(
+      textColorOnSvgPaint(
+        '<g style="color:#ffffff"><rect data-svg-paint="" fill="currentColor" width="100" height="100"/></g>',
+      ),
+    ).toMatch(/color:\s*#000000/i);
+  });
+
+  it("composites SVG fill opacity over the board", () => {
+    expect(
+      textColorOnSvgPaint(
+        '<rect data-svg-paint="" fill="#ffffff" fill-opacity=".5" width="100" height="100"/>',
+      ),
+    ).toMatch(/color:\s*#000000/i);
+  });
+
+  it("samples a supported SVG stroke when choosing text color", () => {
+    expect(
+      textColorOnSvgPaint(
+        '<line data-svg-paint="" fill="none" stroke="#ffffff" stroke-width="12" x1="0" y1="0" x2="100" y2="100"/>',
+      ),
+    ).toMatch(/color:\s*#000000/i);
+  });
+
+  it("uses the board fallback for an unsupported SVG paint server", () => {
+    expect(
+      textColorOnSvgPaint(
+        '<rect data-svg-paint="" fill="url(#wash)" width="100" height="100"/>',
+        '<div data-underlay="" style="background:#ffffff;width:100px;height:100px"></div>',
+      ),
+    ).toMatch(/color:\s*#ffffff/i);
   });
 
   it("keeps inherited text color when a surface is translucent", () => {
@@ -852,6 +918,47 @@ describe("text takes its colour from what it lands on", () => {
     );
 
     expect(styleOf(html ?? "", "t")).toMatch(/color:\s*#000000/i);
+  });
+
+  it("does not sample an opaque ancestor outside its box for an overflowing child", () => {
+    const content = `<!doctype html><html><body>
+      <div class="card" style="position:absolute;left:0;top:0;width:20px;height:20px;background:#ffffff">
+        <div class="overflow" style="position:absolute;left:30px;top:30px;width:20px;height:20px"></div>
+      </div>
+    </body></html>`;
+    const liveDocument = new DOMParser().parseFromString(content, "text/html");
+    const card = liveDocument.querySelector<HTMLElement>(".card")!;
+    const overflow = liveDocument.querySelector<HTMLElement>(".overflow")!;
+    Object.defineProperty(card, "getBoundingClientRect", {
+      value: () => ({
+        left: 0,
+        top: 0,
+        right: 20,
+        bottom: 20,
+        width: 20,
+        height: 20,
+      }),
+    });
+    Object.defineProperty(liveDocument, "elementsFromPoint", {
+      value: () => [overflow],
+    });
+
+    const html = appendCanvasPrimitiveToHtml(
+      content,
+      {
+        kind: "text",
+        nodeId: "t",
+        geometry: { x: 30, y: 30, width: 120, height: 24 },
+        text: "on the board outside the card",
+      },
+      {
+        isBoardTarget: true,
+        boardBackground: "#111111",
+        liveDocument,
+      },
+    );
+
+    expect(styleOf(html ?? "", "t")).toMatch(/color:\s*#ffffff/i);
   });
 
   it("treats a pointer-transparent painted overlay as an unknown surface", () => {

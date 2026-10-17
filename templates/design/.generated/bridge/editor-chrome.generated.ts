@@ -3831,16 +3831,15 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!ev || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey || !hit || !selectedEl || !document.documentElement.contains(selectedEl)) {
         return null;
       }
-      if (selectionContainerScope && document.documentElement.contains(selectionContainerScope) && selectionContainerScope.contains(selectedEl)) {
+      if (selectionContainerScope && document.documentElement.contains(selectionContainerScope) && selectionContainerScope !== selectedEl && selectionContainerScope.contains(selectedEl)) {
         return null;
       }
-      if (!isGeneratedGroupWrapper(selectedEl)) return null;
+      if (!hasSelectableLayerChildren(selectedEl)) return null;
       var target = selectionTargetForHit(hit, true);
       return target && target !== selectedEl && selectedEl.contains(target) ? selectedEl : null;
     }
-    function clickThroughSelectionTarget(hit, ev, repeatedClick) {
-      if (repeatedClick ?? ev.detail > 1) return null;
-      if (!selectedEl || !document.documentElement.contains(selectedEl)) {
+    function clickThroughSelectionTarget(hit) {
+      if (!selectedEl || !document.documentElement.contains(selectedEl) || !selectionContainerScope || selectionContainerScope === selectedEl || !selectionContainerScope.contains(selectedEl)) {
         return null;
       }
       if (hostSelectedEl === selectedEl) return null;
@@ -6828,20 +6827,8 @@ export const editorChromeBridgeScript: string = `"use strict";
     var pendingShieldDrag = null;
     var suppressNextShieldClick = false;
     var suppressNextShieldClickTimer = null;
-    var shieldPointerClickCount = 0;
-    var lastShieldPointerDownAt = 0;
-    var lastShieldPointerDownPoint = null;
-    var lastShieldPointerDownTarget = null;
-    var lastShieldPointerDownModifiers = null;
     var lastShieldModifierCyclePoint = null;
     var lastShieldModifierCycleTarget = null;
-    function resetShieldPointerClickState() {
-      shieldPointerClickCount = 0;
-      lastShieldPointerDownAt = 0;
-      lastShieldPointerDownPoint = null;
-      lastShieldPointerDownTarget = null;
-      lastShieldPointerDownModifiers = null;
-    }
     function resetShieldModifierCycleState() {
       lastShieldModifierCyclePoint = null;
       lastShieldModifierCycleTarget = null;
@@ -21215,30 +21202,6 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (activeTextEditEl && !exitStaleTextEditSession()) return;
       var events = dragEventNames(e);
       var hit = elementFromEditorPoint(e.clientX, e.clientY);
-      if (e.type === "pointerdown" && e.pointerType === "mouse" && e.button === 0) {
-        var now = Date.now();
-        var hitSelectionTarget = selectionTargetForHit(hit, true);
-        var pointerDownModifiers = {
-          altKey: Boolean(e.altKey),
-          ctrlKey: Boolean(e.ctrlKey),
-          metaKey: Boolean(e.metaKey),
-          shiftKey: Boolean(e.shiftKey)
-        };
-        var sameModifiers = Boolean(
-          lastShieldPointerDownModifiers && lastShieldPointerDownModifiers.altKey === pointerDownModifiers.altKey && lastShieldPointerDownModifiers.ctrlKey === pointerDownModifiers.ctrlKey && lastShieldPointerDownModifiers.metaKey === pointerDownModifiers.metaKey && lastShieldPointerDownModifiers.shiftKey === pointerDownModifiers.shiftKey
-        );
-        var sameClickPoint = Boolean(
-          sameModifiers && lastShieldPointerDownTarget === hitSelectionTarget && lastShieldPointerDownPoint && now - lastShieldPointerDownAt < 500 && Math.hypot(
-            e.clientX - lastShieldPointerDownPoint.x,
-            e.clientY - lastShieldPointerDownPoint.y
-          ) <= 4
-        );
-        shieldPointerClickCount = sameClickPoint ? shieldPointerClickCount + 1 : 1;
-        lastShieldPointerDownAt = now;
-        lastShieldPointerDownPoint = { x: e.clientX, y: e.clientY };
-        lastShieldPointerDownTarget = hitSelectionTarget;
-        lastShieldPointerDownModifiers = pointerDownModifiers;
-      }
       var hitTarget = selectionTargetForHit(hit);
       var startsOnContainerBackground = isContainerBackgroundHit(hitTarget, hit);
       if (!hit || hit === document.body || hit === document.documentElement || isBoardRootMarqueeSurface(hitTarget) || startsOnContainerBackground) {
@@ -21348,17 +21311,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             e.clientY - lastShieldModifierCyclePoint.y
           ) <= 4
         );
-        var isMousePointerUp = Boolean(
-          ev && ev.type === "pointerup" && ev.pointerType === "mouse"
-        );
-        var repeatedClick = Boolean(
-          ev && (ev.detail > 1 || isMousePointerUp && shieldPointerClickCount > 1)
-        );
-        if (ev && ev.type === "pointerup" && !isMousePointerUp) {
-          resetShieldPointerClickState();
-        }
         if (didStartDrag) {
-          resetShieldPointerClickState();
           resetShieldModifierCycleState();
           return;
         }
@@ -21367,7 +21320,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         if (ev) stopNativeInteraction(ev);
         var cycledEl = isModifierCycleClick ? stackCycleTarget(e.clientX, e.clientY, selectedEl) : null;
-        var primaryClickTarget = !readOnly && (e.metaKey || e.ctrlKey) ? modifierClickSelectionTarget(hit) : !designCanvasBoardSurface ? selectedContainerForPlainClick(hit, ev) || plainClickSelectionTarget(hit) : (!readOnly && !e.shiftKey ? selectedContainerForPlainClick(hit, ev) || clickThroughSelectionTarget(hit, ev, repeatedClick) : null) || containerFirstSelectionTarget(hit);
+        var primaryClickTarget = !readOnly && (e.metaKey || e.ctrlKey) ? modifierClickSelectionTarget(hit) : !designCanvasBoardSurface ? selectedContainerForPlainClick(hit, ev) || plainClickSelectionTarget(hit) : (!readOnly && !e.shiftKey ? selectedContainerForPlainClick(hit, ev) || clickThroughSelectionTarget(hit) : null) || containerFirstSelectionTarget(hit);
         var preservesNestedHit = Boolean(
           isModifierCycleClick && !continuesModifierCycle && selectedEl && hit && selectedEl.contains(hit) && primaryClickTarget && primaryClickTarget !== selectedEl
         );
@@ -22081,10 +22034,6 @@ export const editorChromeBridgeScript: string = `"use strict";
     function beginTextEditingFromEvent(e, forceTextEditing, resumeBookmark) {
       if (activeTextEditEl && e.target && activeTextEditEl.contains(e.target))
         return;
-      if (!textEditingEnabled && !forceTextEditing) {
-        stopNativeInteraction(e);
-        return;
-      }
       stopNativeInteraction(e);
       if (pendingBeginTextEdit) {
         var supersededPendingNodeId = pendingBeginTextEdit.nodeId;
@@ -22124,6 +22073,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         return;
       }
+      if (!textEditingEnabled && !forceTextEditing) return;
       if (!programmaticFlag && isTemplateCloneElement(target) && !(target.getAttribute && target.getAttribute("x-text"))) {
         showRejectedDragBadge(
           "Can't edit repeated items directly",
