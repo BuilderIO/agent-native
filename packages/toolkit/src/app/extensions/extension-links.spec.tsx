@@ -234,7 +234,7 @@ describe("useExternalExtensionLinks", () => {
     expect(hostPorts).toHaveLength(1);
   });
 
-  it("accepts a same-nonce retry until the child acknowledges the channel", async () => {
+  it("rejects a same-nonce hello before the child acknowledges the channel", async () => {
     const hostPorts: MessagePort[] = [];
     const frame = await connectFrame(
       (port) => {
@@ -249,15 +249,8 @@ describe("useExternalExtensionLinks", () => {
     ports.add(retry.port1);
     ports.add(retry.port2);
     retry.port1.start();
-    const retryReady = new Promise<void>((resolve) => {
-      retry.port1.addEventListener("message", function onMessage(event) {
-        if (event.data?.type !== EXTENSION_LINK_CHANNEL_READY_MESSAGE_TYPE) {
-          return;
-        }
-        retry.port1.removeEventListener("message", onMessage);
-        resolve();
-      });
-    });
+    const retryReady = vi.fn();
+    retry.port1.addEventListener("message", retryReady);
     act(() => {
       window.dispatchEvent(
         new MessageEvent("message", {
@@ -271,35 +264,47 @@ describe("useExternalExtensionLinks", () => {
         }),
       );
     });
-    await retryReady;
-    expect(hostPorts).toHaveLength(2);
+    expect(hostPorts).toHaveLength(1);
+    expect(retryReady).not.toHaveBeenCalled();
+  });
 
-    act(() => {
-      retry.port1.postMessage({
-        type: EXTENSION_LINK_CHANNEL_ACK_MESSAGE_TYPE,
-      });
+  it("routes nonce-authenticated links while the port is not ready", async () => {
+    await act(async () => {
+      root.render(<LinkFrame />);
     });
     await vi.waitFor(() => {
-      expect(frame.iframe.getAttribute("data-link-channel-ready")).toBe("true");
+      expect(
+        container.querySelector("iframe")?.getAttribute("srcdoc"),
+      ).toContain("data-link-nonce=");
     });
 
-    const replay = new MessageChannel();
-    ports.add(replay.port1);
-    ports.add(replay.port2);
+    const iframe = container.querySelector("iframe") as HTMLIFrameElement;
+    const nonce =
+      iframe.getAttribute("srcdoc")?.match(/data-link-nonce="([^"]+)"/)?.[1] ??
+      "";
+    const href = "https://example.com/early-click";
+    vi.stubGlobal("navigator", {
+      ...navigator,
+      userActivation: { isActive: true },
+    });
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+
     act(() => {
       window.dispatchEvent(
         new MessageEvent("message", {
           data: {
-            type: EXTENSION_LINK_CHANNEL_HELLO_MESSAGE_TYPE,
-            nonce: frame.nonce,
+            type: EXTENSION_OPEN_EXTERNAL_LINK_MESSAGE_TYPE,
+            href,
+            nonce,
           },
           origin: "null",
-          source: frame.iframe.contentWindow,
-          ports: [replay.port2],
+          source: iframe.contentWindow,
+          ports: [],
         }),
       );
     });
-    expect(hostPorts).toHaveLength(2);
+
+    expect(open).toHaveBeenCalledWith(href, "_blank", "noopener,noreferrer");
   });
 
   it("reconnects the acknowledged channel after a BFCache restore", async () => {

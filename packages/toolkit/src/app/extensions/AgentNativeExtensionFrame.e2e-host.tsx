@@ -12,6 +12,8 @@ import {
 const extensionContent = `
 <a id="external-metric-link" href="https://external.example.test/metric">Open metric</a>
 <a id="same-origin-app-link" href="/__extension-e2e-app-target">Open app route</a>
+<a id="prevented-external-link" href="https://external.example.test/prevented">Prevent external navigation</a>
+<a id="prevented-same-origin-link" href="/__extension-e2e-app-target">Prevent same-origin navigation</a>
 <a id="same-origin-named-link" href="/__extension-e2e-app-popup" target="report">Open report</a>
 <a id="same-origin-extension-render-link" href="/_agent-native/extensions/unsafe-extension/render">Open extension render route</a>
 <a id="same-origin-extension-render-new-context-link" href="/_agent-native/extensions/unsafe-extension/r%65nder" target="_blank">Open encoded extension render route</a>
@@ -24,6 +26,12 @@ const extensionContent = `
 <div id="status">pending</div>
 <pre id="results"></pre>
 <script>
+  document.getElementById('prevented-external-link').addEventListener('click', function(event) {
+    event.preventDefault();
+  });
+  document.getElementById('prevented-same-origin-link').addEventListener('click', function(event) {
+    event.preventDefault();
+  });
   document.getElementById('try-top-navigation').addEventListener('click', function() {
     window.__agentNativeExtensionHostPort.postMessage({
       type: 'agent-native-extension.open-external-link',

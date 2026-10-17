@@ -31,6 +31,7 @@ function loadShell(
     secureRandom?: boolean;
     linkNonce?: string;
     linkChannelReady?: boolean;
+    hostParent?: boolean;
     url?: string;
   } = {},
 ) {
@@ -40,10 +41,10 @@ function loadShell(
     Record<"click" | "auxclick", (event: any) => void>
   > = {};
   const linkHandlerCapture: Partial<Record<"click" | "auxclick", boolean>> = {};
-  const legacyLinkHandlers: Partial<
+  const closedShadowLinkHandlers: Partial<
     Record<"click" | "auxclick", (event: any) => void>
   > = {};
-  const closedShadowLinkHandlers: Partial<
+  const legacyLinkHandlers: Partial<
     Record<"click" | "auxclick", (event: any) => void>
   > = {};
   const dom = new JSDOM(
@@ -77,6 +78,7 @@ function loadShell(
           }
           start() {}
         }
+        const postTestPortMessage = TestMessagePort.prototype.postMessage;
         window.MessagePort = TestMessagePort;
         window.MessageChannel = class {
           port1 = new TestMessagePort();
@@ -86,7 +88,7 @@ function loadShell(
             this.port2.peer = this.port1;
           }
         };
-        (window as any).postMessage = (
+        const postToParent = (
           message: unknown,
           _targetOrigin?: string,
           transfer?: TestMessagePort[],
@@ -96,12 +98,21 @@ function loadShell(
             (message as any)?.type === EXTENSION_LINK_CHANNEL_HELLO_MESSAGE_TYPE
           ) {
             if (options.linkChannelReady !== false) {
-              transfer?.[0]?.postMessage({
-                type: EXTENSION_LINK_CHANNEL_READY_MESSAGE_TYPE,
-              });
+              if (transfer?.[0]) {
+                postTestPortMessage.call(transfer[0], {
+                  type: EXTENSION_LINK_CHANNEL_READY_MESSAGE_TYPE,
+                });
+              }
             }
           }
         };
+        (window as any).postMessage = postToParent;
+        if (options.hostParent) {
+          Object.defineProperty(window, "parent", {
+            configurable: true,
+            value: { postMessage: postToParent },
+          });
+        }
         const addWindowEventListener = window.addEventListener.bind(window);
         window.addEventListener = (
           type: string,
@@ -194,6 +205,13 @@ function loadShell(
         (message) =>
           message?.type === EXTENSION_OPEN_EXTERNAL_LINK_MESSAGE_TYPE,
       ),
+    fallbackLinkRequests: () =>
+      posted.filter(
+        (message) =>
+          message?.nonce === options.linkNonce &&
+          (message?.type === EXTENSION_OPEN_EXTERNAL_LINK_MESSAGE_TYPE ||
+            message?.type === EXTENSION_NAVIGATE_SAME_ORIGIN_MESSAGE_TYPE),
+      ),
     sameOriginNavigations: () =>
       portPosted.filter(
         (message) =>
@@ -220,7 +238,12 @@ function loadShell(
       init: Record<string, unknown> = {},
       type: "click" | "auxclick" = "click",
     ) {
-      return invokeLinkHandler(linkHandlers[type], target, init, type);
+      return invokeLinkHandlerWithObservers(
+        linkHandlers[type],
+        target,
+        init,
+        type,
+      );
     },
     clickTrustedLegacy(
       target: Element,
@@ -234,7 +257,7 @@ function loadShell(
       init: Record<string, unknown> = {},
       type: "click" | "auxclick" = "click",
     ) {
-      return invokeLinkHandler(
+      return invokeLinkHandlerWithObservers(
         closedShadowLinkHandlers[type],
         target,
         init,
@@ -278,6 +301,201 @@ function loadShell(
     });
     return defaultPrevented;
   }
+
+  function invokeLinkHandlerWithObservers(
+    handler: ((event: any) => void) | undefined,
+    target: Element,
+    init: Record<string, unknown>,
+    type: "click" | "auxclick",
+  ) {
+    if (!handler) throw new Error(`Missing ${type} extension link handler`);
+    const realPath: EventTarget[] = [];
+    let current: Node | null = target;
+    while (current) {
+      realPath.push(current);
+      current =
+        current instanceof window.ShadowRoot
+          ? current.host
+          : current.parentNode;
+    }
+    let defaultPrevented = false;
+    let cancelBubble = false;
+    let currentTarget: EventTarget | null = null;
+    let eventPhase = 0;
+    const observers: Array<{
+      target: EventTarget;
+      listener: (event: any) => void;
+      capture: boolean;
+    }> = [];
+    const path = realPath.map((node) => {
+      const wrapper: any = {
+        nodeType: (node as Node).nodeType,
+        localName: (node as Element).localName,
+        tagName: (node as Element).tagName,
+        hasAttribute: (name: string) => (node as Element).hasAttribute(name),
+        getAttribute: (name: string) => (node as Element).getAttribute(name),
+        hasAttributeNS: (namespace: string, name: string) =>
+          (node as Element).hasAttributeNS(namespace, name),
+        getAttributeNS: (namespace: string, name: string) =>
+          (node as Element).getAttributeNS(namespace, name),
+        addEventListener(
+          eventType: string,
+          listener: (event: any) => void,
+          listenerOptions?: AddEventListenerOptions | boolean,
+        ) {
+          if (eventType !== type) return;
+          observers.push({
+            target: wrapper,
+            listener,
+            capture:
+              typeof listenerOptions === "boolean"
+                ? listenerOptions
+                : (listenerOptions?.capture ?? false),
+          });
+        },
+        removeEventListener(
+          eventType: string,
+          listener: (event: any) => void,
+          listenerOptions?: AddEventListenerOptions | boolean,
+        ) {
+          const capture =
+            typeof listenerOptions === "boolean"
+              ? listenerOptions
+              : (listenerOptions?.capture ?? false);
+          const index = observers.findIndex(
+            (observer) =>
+              observer.target === wrapper &&
+              observer.listener === listener &&
+              observer.capture === capture,
+          );
+          if (index >= 0) observers.splice(index, 1);
+        },
+      };
+      return wrapper;
+    });
+    path.push(window as EventTarget);
+    const originalWindowAddEventListener = window.addEventListener;
+    const originalWindowRemoveEventListener = window.removeEventListener;
+    window.addEventListener = (
+      eventType: string,
+      listener: (event: any) => void,
+      listenerOptions?: AddEventListenerOptions | boolean,
+    ) => {
+      if (eventType === type) {
+        observers.push({
+          target: window,
+          listener,
+          capture:
+            typeof listenerOptions === "boolean"
+              ? listenerOptions
+              : (listenerOptions?.capture ?? false),
+        });
+      } else {
+        originalWindowAddEventListener.call(
+          window,
+          eventType,
+          listener,
+          listenerOptions,
+        );
+      }
+    };
+    window.removeEventListener = (
+      eventType: string,
+      listener: (event: any) => void,
+      listenerOptions?: EventListenerOptions | boolean,
+    ) => {
+      const capture =
+        typeof listenerOptions === "boolean"
+          ? listenerOptions
+          : (listenerOptions?.capture ?? false);
+      const index = observers.findIndex(
+        (observer) =>
+          observer.target === window &&
+          observer.listener === listener &&
+          observer.capture === capture,
+      );
+      if (eventType === type && index >= 0) {
+        observers.splice(index, 1);
+      } else {
+        originalWindowRemoveEventListener.call(
+          window,
+          eventType,
+          listener,
+          listenerOptions,
+        );
+      }
+    };
+    const event = {
+      type,
+      button: init.button ?? 0,
+      altKey: init.altKey ?? false,
+      metaKey: init.metaKey ?? false,
+      ctrlKey: init.ctrlKey ?? false,
+      shiftKey: init.shiftKey ?? false,
+      get defaultPrevented() {
+        return defaultPrevented;
+      },
+      isTrusted: true,
+      target,
+      composedPath: () => path,
+      get currentTarget() {
+        return currentTarget;
+      },
+      get eventPhase() {
+        return eventPhase;
+      },
+      get cancelBubble() {
+        return cancelBubble;
+      },
+      preventDefault() {
+        defaultPrevented = true;
+      },
+      stopPropagation() {
+        cancelBubble = true;
+      },
+    };
+    try {
+      handler.call(window, event);
+
+      if (observers.length > 0) {
+        for (let index = path.length - 1; index >= 0; index -= 1) {
+          currentTarget = path[index] as EventTarget;
+          eventPhase = 1;
+          observers
+            .filter(
+              (observer) =>
+                observer.target === currentTarget && observer.capture,
+            )
+            .forEach((observer) => observer.listener(event));
+        }
+        for (const pathTarget of path) {
+          currentTarget = pathTarget as EventTarget;
+          eventPhase = currentTarget === target ? 2 : 3;
+          const element = realPath[path.indexOf(pathTarget)] as
+            | Element
+            | undefined;
+          if (
+            element?.nodeType === 1 &&
+            type === "click" &&
+            typeof (element as any).onclick === "function"
+          ) {
+            (element as any).onclick.call(element, event);
+          }
+          observers
+            .filter(
+              (observer) =>
+                observer.target === currentTarget && !observer.capture,
+            )
+            .forEach((observer) => observer.listener(event));
+          if (cancelBubble) break;
+        }
+      }
+    } finally {
+      window.addEventListener = originalWindowAddEventListener;
+      window.removeEventListener = originalWindowRemoveEventListener;
+    }
+    return defaultPrevented;
+  }
 }
 
 const LINKS = `
@@ -302,6 +520,40 @@ describe("extension shell link routing", () => {
   it("announces a hex token with the binding", () => {
     const shell = loadShell(LINKS);
     expect(shell.binding.openUrlToken).toMatch(/^[0-9a-f]{32}$/);
+  });
+
+  it("keeps the link port out of extension-controlled channel globals", () => {
+    const shell = loadShell(
+      `<script>
+        window.__capturedLinkPorts = [];
+        var OriginalMessageChannel = window.MessageChannel;
+        window.MessageChannel = function() {
+          var channel = new OriginalMessageChannel();
+          window.__capturedLinkPorts.push({ name: "MessageChannel", port: channel.port1 });
+          return channel;
+        };
+        ["addEventListener", "postMessage", "start", "close"].forEach(function(name) {
+          var original = window.MessagePort.prototype[name];
+          window.MessagePort.prototype[name] = function() {
+            window.__capturedLinkPorts.push({ name: name, port: this });
+            return original.apply(this, arguments);
+          };
+        });
+      </script>
+      <a id="external" href="https://example.com/private-port">external</a>`,
+      { linkNonce: "frame-link-nonce" },
+    );
+
+    expect((shell.window as any).__capturedLinkPorts).toEqual([]);
+    expect(
+      shell.clickTrusted(shell.window.document.getElementById("external")),
+    ).toBe(true);
+    expect(shell.linkRequests()).toEqual([
+      {
+        type: EXTENSION_OPEN_EXTERNAL_LINK_MESSAGE_TYPE,
+        href: "https://example.com/private-port",
+      },
+    ]);
   });
 
   it("leaves links native until the host says it opens them", () => {
@@ -352,13 +604,15 @@ describe("extension shell link routing", () => {
     );
   });
 
-  it("routes links during capture before ancestor handlers can stop propagation", () => {
+  it("routes links after uncancelled handlers even when an ancestor stops propagation", () => {
     const shell = loadShell(
       '<div id="card"><a href="https://example.com/card"><span>go</span></a></div>',
       { linkNonce: "frame-link-nonce" },
     );
 
     expect(shell.linkHandlerUsesCapture("click")).toBe(true);
+    shell.window.document.getElementById("card").onclick = (event) =>
+      event.stopPropagation();
     expect(
       shell.clickTrusted(shell.window.document.querySelector("#card a span")),
     ).toBe(true);
@@ -368,6 +622,24 @@ describe("extension shell link routing", () => {
         href: "https://example.com/card",
       },
     ]);
+  });
+
+  it("honors extension preventDefault handlers before routing links", () => {
+    const shell = loadShell(
+      `<a id="external" href="https://example.com/prevented" target="_blank"
+          onclick="window.externalSawDefaultPrevented = event.defaultPrevented; event.preventDefault()">external</a>
+        <a id="sameOrigin" href="/dashboard/prevented"
+          onclick="window.sameOriginSawDefaultPrevented = event.defaultPrevented; event.preventDefault()">same origin</a>`,
+      { linkNonce: "frame-link-nonce" },
+    );
+    const $ = (id: string) => shell.window.document.getElementById(id);
+
+    expect(shell.clickTrusted($("external"))).toBe(true);
+    expect(shell.clickTrusted($("sameOrigin"))).toBe(true);
+    expect((shell.window as any).externalSawDefaultPrevented).toBe(false);
+    expect((shell.window as any).sameOriginSawDefaultPrevented).toBe(false);
+    expect(shell.linkRequests()).toEqual([]);
+    expect(shell.sameOriginNavigations()).toEqual([]);
   });
 
   it("routes trusted link activation from closed shadow roots", () => {
@@ -488,7 +760,7 @@ describe("extension shell link routing", () => {
     ).toBe(true);
   });
 
-  it("leaves same-origin and external download links native", () => {
+  it("routes cross-origin download links through the host", () => {
     const shell = loadShell(
       `<a id="sameOrigin" href="/export.csv" download>same-origin download</a>
         <a id="external" href="https://files.example.com/export.csv" download>external download</a>`,
@@ -497,9 +769,14 @@ describe("extension shell link routing", () => {
     const $ = (id: string) => shell.window.document.getElementById(id);
 
     expect(shell.clickTrusted($("sameOrigin"))).toBe(false);
-    expect(shell.clickTrusted($("external"))).toBe(false);
+    expect(shell.clickTrusted($("external"))).toBe(true);
     expect(shell.sameOriginNavigations()).toEqual([]);
-    expect(shell.linkRequests()).toEqual([]);
+    expect(shell.linkRequests()).toEqual([
+      {
+        type: EXTENSION_OPEN_EXTERNAL_LINK_MESSAGE_TYPE,
+        href: "https://files.example.com/export.csv",
+      },
+    ]);
   });
 
   it("reconnects link routing after a BFCache restore", () => {
@@ -571,19 +848,36 @@ describe("extension shell link routing", () => {
     expect(shell.linkRequests()).toEqual([]);
   });
 
-  it("leaves nonce bridge links native until the host channel is ready", () => {
+  it("routes nonce bridge links through the host while the channel connects", () => {
     const shell = loadShell(
       `<a id="external" href="https://example.com/metric">external</a>
         <a id="sameOrigin" href="/dashboard/next">same origin</a>`,
-      { linkNonce: "frame-link-nonce", linkChannelReady: false },
+      {
+        linkNonce: "frame-link-nonce",
+        linkChannelReady: false,
+        hostParent: true,
+      },
     );
 
     expect(
       shell.clickTrusted(shell.window.document.getElementById("external")),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       shell.clickTrusted(shell.window.document.getElementById("sameOrigin")),
-    ).toBe(false);
+    ).toBe(true);
+    expect(shell.fallbackLinkRequests()).toEqual([
+      {
+        type: EXTENSION_OPEN_EXTERNAL_LINK_MESSAGE_TYPE,
+        href: "https://example.com/metric",
+        nonce: "frame-link-nonce",
+      },
+      {
+        type: EXTENSION_NAVIGATE_SAME_ORIGIN_MESSAGE_TYPE,
+        href: "https://analytics.example/dashboard/next",
+        target: "_self",
+        nonce: "frame-link-nonce",
+      },
+    ]);
     expect(shell.linkRequests()).toEqual([]);
     expect(shell.sameOriginNavigations()).toEqual([]);
   });
@@ -596,6 +890,7 @@ describe("extension shell link routing", () => {
         <a id="sameOrigin" href="https://analytics.example/plain">same origin</a>
         <a id="sameOriginBlank" href="https://analytics.example/blank" target="_blank">same origin blank</a>
         <a id="sameOriginNamed" href="https://analytics.example/report" target="report">same origin named</a>
+        <a id="externalAlt" href="https://example.com/save-link">external alt</a>
         <a id="sameOriginMiddle" href="https://analytics.example/middle">same origin middle</a>`,
       { linkNonce: "frame-link-nonce" },
     );
@@ -608,6 +903,7 @@ describe("extension shell link routing", () => {
       true,
     );
     expect(shell.clickTrusted($("sameOrigin"))).toBe(true);
+    expect(shell.clickTrusted($("externalAlt"), { altKey: true })).toBe(false);
     expect(shell.clickTrusted($("sameOriginBlank"))).toBe(true);
     expect(shell.clickTrusted($("sameOriginNamed"))).toBe(true);
     expect(

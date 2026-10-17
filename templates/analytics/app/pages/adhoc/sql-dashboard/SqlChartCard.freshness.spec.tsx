@@ -21,12 +21,16 @@ const mocks = vi.hoisted(() => ({
   }>,
 }));
 
-vi.mock("@agent-native/core/client/hooks", () => ({
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
   useActionMutation: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useSession: () => ({ session: mocks.session, status: mocks.sessionStatus }),
 }));
 
-vi.mock("@agent-native/core/client/agent-chat", () => ({
+vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/agent-chat")
+  >()),
   sendToAgentChat: vi.fn(),
 }));
 

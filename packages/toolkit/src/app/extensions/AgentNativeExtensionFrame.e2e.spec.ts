@@ -433,6 +433,13 @@ describe("AgentNativeExtensionFrame browser links", () => {
     expect(page.url()).toBe(serverUrl(server));
     await metricPopup.close();
 
+    const pageCount = page.context().pages().length;
+    await extensionFrame.locator("#prevented-external-link").click();
+    await extensionFrame.locator("#prevented-same-origin-link").click();
+    await page.waitForTimeout(100);
+    expect(page.context().pages()).toHaveLength(pageCount);
+    expect(page.url()).toBe(serverUrl(server));
+
     const svgPopupPromise = page.context().waitForEvent("page");
     await extensionFrame.locator("#svg-metric-link").click();
     const svgPopup = await svgPopupPromise;

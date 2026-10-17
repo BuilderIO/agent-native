@@ -125,6 +125,12 @@ function connectExternalExtensionLinks(
       return;
     }
     if (message?.type === EXTENSION_NAVIGATE_SAME_ORIGIN_MESSAGE_TYPE) {
+      if (
+        typeof navigator.userActivation !== "undefined" &&
+        !navigator.userActivation.isActive
+      ) {
+        return;
+      }
       navigateSameOriginExtensionLink(message.href);
       return;
     }
@@ -196,23 +202,51 @@ function connectExternalExtensionLinks(
       return;
     }
 
-    const message = event.data as { type?: unknown; nonce?: unknown };
+    const message = event.data as {
+      type?: unknown;
+      nonce?: unknown;
+      href?: unknown;
+      openInNewContext?: unknown;
+    };
+
+    if (
+      event.ports.length === 0 &&
+      message.nonce === nonce &&
+      !handshakeAcknowledged
+    ) {
+      if (message.type === EXTENSION_NAVIGATE_SAME_ORIGIN_MESSAGE_TYPE) {
+        if (
+          typeof navigator.userActivation === "undefined" ||
+          navigator.userActivation.isActive
+        ) {
+          navigateSameOriginExtensionLink(message.href);
+        }
+      } else if (message.type === EXTENSION_OPEN_EXTERNAL_LINK_MESSAGE_TYPE) {
+        openExternalExtensionLink(
+          message.href,
+          message.openInNewContext === true,
+        );
+      }
+      return;
+    }
 
     if (
       message.type !== EXTENSION_LINK_CHANNEL_HELLO_MESSAGE_TYPE ||
       message.nonce !== nonce ||
       event.ports.length !== 1 ||
-      (acceptedNonceRef.current === nonce && handshakeAcknowledged)
+      acceptedNonceRef.current === nonce
     ) {
       for (const port of event.ports) port.close();
       return;
     }
 
     acceptedNonceRef.current = nonce;
-    if (recoveryTimer) {
-      clearTimeout(recoveryTimer);
+    if (recoveryTimer) clearTimeout(recoveryTimer);
+    recoveryTimer = setTimeout(() => {
       recoveryTimer = null;
-    } else if (!initialFrameLoadObserved) {
+      if (!handshakeAcknowledged) recover();
+    }, 2500);
+    if (!initialFrameLoadObserved) {
       handshakeBeforeFrameLoad = true;
     }
     recoveryAttemptedRef.current = false;

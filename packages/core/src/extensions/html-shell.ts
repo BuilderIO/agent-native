@@ -180,7 +180,13 @@ export function buildExtensionExternalLinkTargetBootstrap(
   return `<script${nonceAttribute}>
     (function() {
       var sendExternalLink = null;
-      var portPostMessage = MessagePort.prototype.postMessage;
+      var NativeMessageChannel = window.MessageChannel;
+      var messagePortPrototype = window.MessagePort && window.MessagePort.prototype;
+      var eventTargetPrototype = window.EventTarget && window.EventTarget.prototype;
+      var portAddEventListener = messagePortPrototype && messagePortPrototype.addEventListener || eventTargetPrototype && eventTargetPrototype.addEventListener;
+      var portPostMessage = messagePortPrototype && messagePortPrototype.postMessage;
+      var portClose = messagePortPrototype && messagePortPrototype.close;
+      var portStart = messagePortPrototype && messagePortPrototype.start;
       var parentWindow = window.parent;
       var parentPostMessage = parentWindow.postMessage.bind(parentWindow);
       var bootstrapScript = document.currentScript;
@@ -216,23 +222,23 @@ export function buildExtensionExternalLinkTargetBootstrap(
       if (bootstrapScript) bootstrapScript.remove();
 
       function sendLinkChannelRequest() {
-        if (!linkNonce || sendExternalLink || handshakePendingPort || handshakeAttempts >= 20) return;
+        if (!linkNonce || !NativeMessageChannel || sendExternalLink || handshakePendingPort || handshakeAttempts >= 20) return;
 
         pendingPorts.forEach(function(port) {
-          port.close();
+          portClose.call(port);
         });
         pendingPorts = [];
         handshakeAttempts += 1;
-        var channel = new MessageChannel();
+        var channel = new NativeMessageChannel();
         var childPort = channel.port1;
         handshakePendingPort = childPort;
-        childPort.addEventListener('message', function(event) {
+        portAddEventListener.call(childPort, 'message', function(event) {
           if (
             event.data &&
             event.data.type === ${JSON.stringify(EXTENSION_LINK_CHANNEL_HOST_PORT_MESSAGE_TYPE)} &&
             event.ports.length === 1
           ) {
-            if (activeHostPort) activeHostPort.close();
+            if (activeHostPort) portClose.call(activeHostPort);
             activeHostPort = event.ports[0];
             window.__agentNativeExtensionHostPort = activeHostPort;
             window.dispatchEvent(new Event('agent-native-extension-host-port-ready'));
@@ -248,14 +254,14 @@ export function buildExtensionExternalLinkTargetBootstrap(
           if (handshakeTimer) clearInterval(handshakeTimer);
           handshakeTimer = null;
           pendingPorts.forEach(function(port) {
-            if (port !== childPort) port.close();
+            if (port !== childPort) portClose.call(port);
           });
           pendingPorts = [childPort];
           portPostMessage.call(childPort, {
             type: ${JSON.stringify(EXTENSION_LINK_CHANNEL_ACK_MESSAGE_TYPE)}
           });
         });
-        childPort.start();
+        portStart.call(childPort);
         pendingPorts.push(childPort);
         parentPostMessage({
           type: ${JSON.stringify(EXTENSION_LINK_CHANNEL_HELLO_MESSAGE_TYPE)},
@@ -265,7 +271,7 @@ export function buildExtensionExternalLinkTargetBootstrap(
           if (handshakePendingPort !== childPort) return;
           handshakePendingPort = null;
           pendingPorts = pendingPorts.filter(function(port) { return port !== childPort; });
-          childPort.close();
+          portClose.call(childPort);
           sendLinkChannelRequest();
         }, 500);
       }
@@ -293,13 +299,13 @@ export function buildExtensionExternalLinkTargetBootstrap(
         handshakeRetryTimer = null;
         handshakePendingPort = null;
         var activeChildWasPending = activeChildPort && pendingPorts.indexOf(activeChildPort) !== -1;
-        pendingPorts.forEach(function(port) { port.close(); });
+        pendingPorts.forEach(function(port) { portClose.call(port); });
         pendingPorts = [];
-        if (activeChildPort && !activeChildWasPending) activeChildPort.close();
+        if (activeChildPort && !activeChildWasPending) portClose.call(activeChildPort);
         activeChildPort = null;
         sendExternalLink = null;
         handshakeAttempts = 0;
-        if (activeHostPort) activeHostPort.close();
+        if (activeHostPort) portClose.call(activeHostPort);
         activeHostPort = null;
         window.__agentNativeExtensionHostPort = null;
       });
@@ -339,16 +345,87 @@ export function buildExtensionExternalLinkTargetBootstrap(
           (event.metaKey || event.ctrlKey || event.shiftKey || /^_blank$/i.test(target) || namedTarget);
       }
 
+      var routedLinkEvents = new WeakSet();
+
+      function routeExternalLinkAfterHandlers(event, request) {
+        var path = typeof event.composedPath === 'function'
+          ? event.composedPath()
+          : [event.target];
+        var targets = [];
+        for (var i = 0; i < path.length; i += 1) {
+          var target = path[i];
+          if (
+            target &&
+            typeof target.addEventListener === 'function' &&
+            targets.indexOf(target) === -1
+          ) targets.push(target);
+        }
+        if (targets.indexOf(window) === -1) targets.push(window);
+
+        var finished = false;
+        function cleanup() {
+          targets.forEach(function(target) {
+            target.removeEventListener(event.type, observeCapture, true);
+            target.removeEventListener(event.type, observeBubble, false);
+          });
+        }
+        function finish(shouldRoute) {
+          if (finished) return;
+          finished = true;
+          cleanup();
+          if (!shouldRoute || event.defaultPrevented) return;
+          if (!sendExternalLink && parentWindow === window) return;
+          event.preventDefault();
+          if (sendExternalLink) {
+            sendExternalLink(request);
+            return;
+          }
+          var fallbackRequest = {
+            type: request.type,
+            href: request.href,
+            nonce: linkNonce
+          };
+          if (request.target) fallbackRequest.target = request.target;
+          if (request.openInNewContext) fallbackRequest.openInNewContext = true;
+          parentPostMessage(fallbackRequest, '*');
+        }
+        function observe(isCapture) {
+          if (event.defaultPrevented) {
+            finish(false);
+          } else if (
+            event.cancelBubble &&
+            (!isCapture || event.currentTarget !== event.target)
+          ) {
+            finish(true);
+          } else if (
+            !isCapture &&
+            event.currentTarget === window &&
+            event.eventPhase === Event.BUBBLING_PHASE
+          ) {
+            finish(true);
+          }
+        }
+        function observeCapture() { observe(true); }
+        function observeBubble() { observe(false); }
+
+        targets.forEach(function(target) {
+          target.addEventListener(event.type, observeCapture, true);
+          target.addEventListener(event.type, observeBubble, false);
+        });
+        setTimeout(function() { finish(false); }, 0);
+      }
+
       function routeExternalLink(event) {
         if (!event.isTrusted) return;
         if (!linkNonce) return;
         if (event.defaultPrevented) return;
+        if (routedLinkEvents.has(event)) return;
         if (event.type === 'click' && event.button !== 0) return;
         if (event.type === 'auxclick' && event.button !== 1) return;
         if (event.type !== 'click' && event.type !== 'auxclick') return;
         var link = linkFromEvent(event);
         if (!link) return;
-        if (link.hasAttribute('download')) return;
+        if (event.type === 'click' && event.altKey) return;
         var href = link.getAttribute('href');
         if (href === null) href = link.getAttributeNS('http://www.w3.org/1999/xlink', 'href');
         if (href === null) href = link.getAttribute('xlink:href');
@@ -361,13 +438,13 @@ export function buildExtensionExternalLinkTargetBootstrap(
         }
         if (destination.protocol !== 'http:' && destination.protocol !== 'https:') return;
         var sameOrigin = destination.origin === new URL(document.baseURI).origin;
+        if (link.hasAttribute('download') && sameOrigin) return;
         var target = linkTarget(link);
         var openInNewContext = opensNewContext(event, link);
         if (sameOrigin && !openInNewContext) {
-          if (event.altKey || href.trim().charAt(0) === '#') return;
-          if (!sendExternalLink) return;
-          event.preventDefault();
-          sendExternalLink({
+          if (href.trim().charAt(0) === '#') return;
+          routedLinkEvents.add(event);
+          routeExternalLinkAfterHandlers(event, {
             type: ${JSON.stringify(EXTENSION_NAVIGATE_SAME_ORIGIN_MESSAGE_TYPE)},
             href: destination.href,
             target: target || '_self'
@@ -375,14 +452,13 @@ export function buildExtensionExternalLinkTargetBootstrap(
           return;
         }
 
-        if (!sendExternalLink) return;
-        event.preventDefault();
         var request = {
           type: ${JSON.stringify(EXTENSION_OPEN_EXTERNAL_LINK_MESSAGE_TYPE)},
           href: destination.href
         };
         if (openInNewContext) request.openInNewContext = true;
-        sendExternalLink(request);
+        routedLinkEvents.add(event);
+        routeExternalLinkAfterHandlers(event, request);
       }
 
       if (linkNonce && typeof Element !== 'undefined' && Element.prototype.attachShadow) {
