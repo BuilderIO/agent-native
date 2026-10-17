@@ -365,3 +365,5 @@ For resources that execute code or carry elevated trust (like extensions), set `
 ## 共享聊天记录
 
 `@agent-native/toolkit/app/chat/ownership-history` 提供 `useOwnershipChatHistory()` 和 `OwnershipChatHistoryRail`，用于分别显示自己的聊天和共享聊天的侧边栏。共享行会显示所有者和访问依据。每个分区独立分页，刷新失败时仍保留已加载的行和本地更改。
+
+活动的空草稿在等待首次保存期间仍可选择和运行。确认已保存之前，应隐藏置顶、重命名和归档操作，适配器也会拒绝强行调用这些回调。`ownDraftRows` 会提供自有草稿的持久化来源信息，服务器列表中已确认归属的行仍保留常规操作。对于自定义 `OwnDraftRow` 值，仅当确认服务器已保存该行且当前用户拥有该行时，才将可选字段 `persisted?: boolean` 设为 `true`。不要根据消息数量或活动 ID 推断是否已保存。角色、隐私以及活动草稿是否为空是彼此独立的信息。

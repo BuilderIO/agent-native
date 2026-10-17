@@ -102,6 +102,15 @@ type Override = {
 
 const OVERRIDE_FIELDS = ["title", "pinned", "hidden"] as const;
 
+function isPersistedOwner(row: ChatThreadListRow | OwnDraftRow | undefined) {
+  return (
+    !!row &&
+    ("accessBasis" in row
+      ? row.accessBasis === "owner"
+      : row.persisted === true)
+  );
+}
+
 // Accepted writes outlive views, including a replacement mount for this resource.
 const writeTails = new Map<string, Promise<void>>();
 
@@ -425,7 +434,7 @@ export function useOwnershipChatHistory(
     value: OverrideValues[Field],
     persist: () => Promise<boolean>,
   ) => {
-    if (!enabled || !current() || !findMine(id)) return false;
+    if (!enabled || !current() || !isPersistedOwner(findMine(id))) return false;
     const view = generation.view;
     const permitted = () => current() && generation.view === view;
     const token = ++tokenRef.current;
@@ -577,7 +586,9 @@ export function useOwnershipChatHistory(
     const decorated = decorateItem?.(item, effectiveRow, { section }) ?? item;
     return section === "shared"
       ? { ...decorated, pinned: false, hideActions: true }
-      : decorated;
+      : isPersistedOwner(row)
+        ? decorated
+        : { ...decorated, hideActions: true };
   };
   const visibleMine = mineRows.filter(
     (row) => !projectedIntent(overrides.get(row.id)?.hidden)?.value,

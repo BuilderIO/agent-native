@@ -365,3 +365,5 @@ For resources that execute code or carry elevated trust (like extensions), set `
 ## 공유 채팅 기록
 
 `@agent-native/toolkit/app/chat/ownership-history`는 내 채팅과 공유된 채팅을 별도 섹션으로 표시하는 사이드바용 `useOwnershipChatHistory()`와 `OwnershipChatHistoryRail`을 제공합니다. 공유 행에는 소유자와 접근 근거가 표시됩니다. 각 섹션은 독립적으로 페이지를 불러오며 새로고침이 실패해도 로드된 행과 로컬 변경을 유지합니다.
+
+활성 상태인 빈 초안은 첫 저장을 기다리는 동안에도 선택하고 실행할 수 있습니다. 저장이 확인될 때까지 고정, 이름 변경, 보관 작업을 숨기고, 어댑터는 해당 콜백을 강제로 호출해도 거부합니다. `ownDraftRows`는 소유한 초안의 저장 출처 정보를 제공하며, 서버 목록에서 소유가 확인된 행은 일반 작업을 계속 사용할 수 있습니다. 사용자 지정 `OwnDraftRow` 값에서는 서버에 저장되었고 현재 사용자가 소유한다는 점이 확인된 행에만 선택 필드 `persisted?: boolean`를 `true`로 설정합니다. 메시지 수나 활성 ID로 저장 여부를 추론하지 마세요. 역할, 개인정보 보호, 활성 초안이 비어 있다는 점은 각각 별개의 정보입니다.

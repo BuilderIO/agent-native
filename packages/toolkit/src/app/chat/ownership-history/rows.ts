@@ -11,6 +11,7 @@ export interface OwnDraftRow {
   messageCount: number;
   createdAt: number;
   updatedAt: number;
+  persisted?: boolean;
 }
 
 export interface OwnDraftRowsOptions {
@@ -49,6 +50,7 @@ export function ownDraftRows({
       messageCount: thread.messageCount,
       createdAt: thread.createdAt,
       updatedAt: thread.updatedAt,
+      persisted: owned,
     });
   }
   for (const [id, startedAt] of observedThreadStarts ?? []) {
@@ -59,6 +61,7 @@ export function ownDraftRows({
       messageCount: 0,
       createdAt: startedAt,
       updatedAt: startedAt,
+      persisted: false,
     });
   }
   return rows;
@@ -132,6 +135,7 @@ export function ownDraftToHistoryItem(
     title,
     titleText: title,
     accessBasis: "owner",
+    hideActions: row.persisted !== true,
     timestamp:
       row.id === options.activeId
         ? undefined

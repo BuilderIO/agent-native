@@ -51,6 +51,47 @@ const t = (key: string, options?: Record<string, unknown>) =>
   `${key}${options?.name ? `:${options.name}` : ""}`;
 
 describe("ownership history row boundary", () => {
+  it("draft persistence: only explicit server ownership supplies persistence proof", () => {
+    const local = (id: string, messageCount = 0): ChatThreadSummary => ({
+      id,
+      title: "",
+      preview: "",
+      messageCount,
+      createdAt: 1,
+      updatedAt: 1,
+      scope: null,
+    });
+    const rows = ownDraftRows({
+      threads: [
+        row("saved-empty", { messageCount: 0 }),
+        row("saved-started"),
+        local("active-new"),
+        local("started-new", 3),
+        local("observed-new"),
+        row("empty-owner", { ownerEmail: "" }),
+        row("shared", { accessBasis: "direct" }),
+        row("organization", { accessBasis: "organization" }),
+      ],
+      isNewThread: () => true,
+      activeId: "saved-empty",
+      observedThreadStarts: new Map([
+        ["active-new", 2],
+        ["observed-new", 2],
+        ["synthesized-new", 2],
+        ["shared", 2],
+        ["organization", 2],
+      ]),
+    });
+    expect(rows.map(({ id, persisted }) => [id, persisted])).toEqual([
+      ["saved-empty", true],
+      ["saved-started", true],
+      ["active-new", false],
+      ["started-new", false],
+      ["observed-new", false],
+      ["synthesized-new", false],
+    ]);
+  });
+
   it("opts proven active blank owners and new local rows in without relaxing ownership", () => {
     const local = (id: string): ChatThreadSummary => ({
       id,
@@ -203,6 +244,7 @@ describe("ownership history row boundary", () => {
       messageCount: 0,
       createdAt: 5,
       updatedAt: 5,
+      persisted: false,
     });
     expect(result.every((item) => !("accessBasis" in item))).toBe(true);
   });
@@ -616,6 +658,246 @@ describe("ownership history adapter", () => {
     expect(mine[0].title).toBe("Original");
     expect(onMutationFailed).toHaveBeenCalledExactlyOnceWith("rename", "owned");
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    "active-empty",
+    "started",
+    "observed",
+    "synthesized",
+    "manual-unknown",
+  ] as const)(
+    "draft persistence: %s stays selectable with its running title and no actions after decoration",
+    async (source) => {
+      renderRail = true;
+      const local = {
+        id: "draft",
+        title: "",
+        preview: "",
+        messageCount: source === "started" ? 3 : 0,
+        createdAt: 1,
+        updatedAt: 1,
+      };
+      const localMineRows =
+        source === "manual-unknown"
+          ? [local]
+          : ownDraftRows({
+              threads:
+                source === "synthesized" ? [] : [{ ...local, scope: null }],
+              isNewThread: () => true,
+              activeId: source === "active-empty" ? "draft" : null,
+              observedThreadStarts:
+                source === "observed" || source === "synthesized"
+                  ? new Map([["draft", 1]])
+                  : undefined,
+            });
+      const mutation = vi.fn(async () => false);
+      await render({
+        activeId: "draft",
+        localMineRows,
+        mutations: { pin: mutation, rename: mutation, archive: mutation },
+        decorateItem: (item) => ({
+          ...item,
+          hideActions: false,
+          title: <span data-testid="running-draft">Working draft</span>,
+        }),
+      });
+      expect(latest.findMine("draft")).toBe(localMineRows[0]);
+      expect(
+        container.querySelector('[data-testid="running-draft"]')?.textContent,
+      ).toBe("Working draft");
+      await act(async () => {
+        container
+          .querySelector<HTMLButtonElement>(".an-chat-history-row__button")!
+          .click();
+      });
+      expect(selected).toHaveBeenCalledExactlyOnceWith("draft");
+      expect(item("draft")?.hideActions).toBe(true);
+      expect(
+        container.querySelector('button[aria-haspopup="menu"]'),
+      ).toBeNull();
+      expect(mutation).not.toHaveBeenCalled();
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it("draft persistence: unconfirmed direct pin rename and archive calls do not persist or report failures", async () => {
+    const localMineRows = ownDraftRows({
+      threads: [
+        {
+          id: "started",
+          title: "Started",
+          preview: "",
+          messageCount: 4,
+          createdAt: 1,
+          updatedAt: 1,
+          scope: null,
+        },
+      ],
+      isNewThread: () => true,
+      observedThreadStarts: new Map([["observed", 2]]),
+    });
+    localMineRows.push({
+      id: "manual",
+      title: "Manual",
+      messageCount: 9,
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    const pin = vi.fn(async () => false);
+    const rename = vi.fn(async () => false);
+    const archive = vi.fn(async () => false);
+    const onMutationFailed = vi.fn();
+    await render({
+      localMineRows,
+      mutations: { pin, rename, archive },
+      onMutationFailed,
+    });
+    const originalTitles = new Map(
+      localMineRows.map(({ id }) => [id, item(id)?.titleText]),
+    );
+    for (const { id } of localMineRows) {
+      await act(async () => {
+        expect(await latest.listProps.onTogglePin!(id)).toBe(false);
+        expect(await latest.listProps.onRename!(id, "Changed")).toBe(false);
+        expect(await latest.listProps.onDelete!(id)).toBe(false);
+      });
+      expect(latest.findMine(id)).toBeDefined();
+      expect(item(id)).toMatchObject({
+        titleText: originalTitles.get(id),
+        pinned: false,
+      });
+    }
+    expect(pin).not.toHaveBeenCalled();
+    expect(rename).not.toHaveBeenCalled();
+    expect(archive).not.toHaveBeenCalled();
+    expect(onMutationFailed).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(["server-list", "owned-fallback"] as const)(
+    "draft persistence: a saved empty %s keeps working owner actions",
+    async (source) => {
+      renderRail = true;
+      let stored = row("saved", { title: "", messageCount: 0, pinnedAt: null });
+      mine = source === "server-list" ? [stored] : [];
+      const localMineRows =
+        source === "owned-fallback"
+          ? ownDraftRows({
+              threads: [stored],
+              isNewThread: () => false,
+              activeId: "saved",
+            })
+          : [];
+      const pin = vi.fn(async (_id: string, pinned: boolean) => {
+        stored = { ...stored, pinnedAt: pinned ? 2 : null };
+        mine = [stored];
+        return true;
+      });
+      const rename = vi.fn(async (_id: string, title: string) => {
+        stored = { ...stored, title };
+        mine = [stored];
+        return true;
+      });
+      const archive = vi.fn(async () => {
+        mine = [];
+        return true;
+      });
+      const options = {
+        activeId: "saved",
+        pinned: true,
+        localMineRows,
+        mutations: { pin, rename, archive },
+      };
+      await render(options);
+      expect(item("saved")?.hideActions).not.toBe(true);
+      expect(
+        container.querySelector('button[aria-haspopup="menu"]'),
+      ).not.toBeNull();
+      await act(async () => {
+        expect(await latest.listProps.onTogglePin!("saved")).toBe(true);
+      });
+      expect(stored.pinnedAt).toBe(2);
+      expect(latest.mineRows).toEqual([stored]);
+      await render({ ...options, localMineRows: [] });
+      await act(async () => {
+        expect(await latest.listProps.onRename!("saved", "Saved title")).toBe(
+          true,
+        );
+      });
+      expect(stored.title).toBe("Saved title");
+      expect(stored.messageCount).toBe(0);
+      await act(async () => {
+        expect(await latest.listProps.onDelete!("saved")).toBe(true);
+      });
+      expect(item("saved")).toBeUndefined();
+      expect(pin).toHaveBeenCalledExactlyOnceWith("saved", true);
+      expect(rename).toHaveBeenCalledExactlyOnceWith("saved", "Saved title");
+      expect(archive).toHaveBeenCalledExactlyOnceWith("saved");
+      expect(fetchMock).toHaveBeenCalledTimes(8);
+    },
+  );
+
+  it("draft persistence: the first authoritative owner row enables actions for the same selected draft id", async () => {
+    renderRail = true;
+    shared = [row("shared", { accessBasis: "direct" })];
+    const localMineRows = ownDraftRows({
+      threads: [
+        {
+          id: "draft",
+          title: "",
+          preview: "",
+          messageCount: 0,
+          createdAt: 1,
+          updatedAt: 1,
+          scope: null,
+        },
+      ],
+      isNewThread: () => true,
+      activeId: "draft",
+    });
+    const pin = vi.fn(async (_id: string, pinned: boolean) => {
+      mine = [
+        row("draft", {
+          title: "Saved server title",
+          messageCount: 0,
+          pinnedAt: pinned ? 2 : null,
+        }),
+      ];
+      return true;
+    });
+    const onMutationFailed = vi.fn();
+    await render({
+      activeId: "draft",
+      pinned: true,
+      localMineRows,
+      mutations: { pin },
+      onMutationFailed,
+      decorateItem: (item) => ({ ...item, hideActions: false }),
+    });
+    expect(item("draft")?.hideActions).toBe(true);
+    expect(item("shared")?.hideActions).toBe(true);
+    mine = [row("draft", { title: "Saved server title", messageCount: 0 })];
+    await act(async () => {
+      await latest.refresh();
+    });
+    expect(latest.findMine("draft")).toEqual(mine[0]);
+    expect(section("mine").items.map((item) => item.id)).toEqual(["draft"]);
+    expect(item("draft")?.titleText).toBe("Saved server title");
+    expect(item("draft")?.hideActions).not.toBe(true);
+    expect(
+      container.querySelectorAll('button[aria-haspopup="menu"]'),
+    ).toHaveLength(1);
+    expect(section("shared").items.map((item) => item.id)).toEqual(["shared"]);
+    expect(item("shared")?.hideActions).toBe(true);
+    expect(selected).not.toHaveBeenCalled();
+    await act(async () => {
+      expect(await latest.listProps.onTogglePin!("draft")).toBe(true);
+    });
+    expect(pin).toHaveBeenCalledExactlyOnceWith("draft", true);
+    expect(mine[0].pinnedAt).toBe(2);
+    expect(onMutationFailed).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(6);
   });
 
   it("retains the decorated rename after persistence when authoritative refresh fails", async () => {
