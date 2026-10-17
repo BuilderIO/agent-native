@@ -840,6 +840,7 @@ export default {
     bigQueryHealthUnavailable:
       "Não foi possível verificar a pressão do Analytics primário. Recarregue antes de trocar o backend.",
     analyticsEventCount: "Eventos observados",
+    analyticsRecentEventCount: "Eventos observados (últimos 30 dias)",
     slowQueries24h: "Consultas lentas (24 h)",
     maxQueryDuration: "Tempo máximo da consulta",
     defaultKeyName: "Modelos hospedados",

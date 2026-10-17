@@ -17,6 +17,9 @@ import {
 import type { AnalyticsScope } from "./first-party-analytics.js";
 import { resolveBigQueryOAuthCredential } from "./provider-credentials.js";
 
+const FIRST_PARTY_ANALYTICS_HEALTH_WINDOW_DAYS = 30;
+const FIRST_PARTY_ANALYTICS_HEALTH_MAX_BYTES_BILLED = 100_000_000;
+
 export const FIRST_PARTY_ANALYTICS_PRESSURE_THRESHOLDS = {
   slowQueryMs: 5_000,
   recommendEventCount: 1_000_000,
@@ -97,11 +100,22 @@ export interface FirstPartyAnalyticsHealth {
   >;
   observedAt: string;
   metrics: {
-    eventCount: number;
-    dailyRollupRows: number;
+    coverage:
+      | { kind: "all_time" }
+      | { kind: "recent_window"; startDate: string; endDate: string }
+      | {
+          kind: "unavailable";
+          reason: "maximum_bytes_billed" | "health_read_failed";
+        };
+    eventCount: number | null;
+    dailyRollupRows: number | null;
     firstEventDate: string | null;
+    firstEventDateUnavailableReason:
+      | "bounded_bigquery_read"
+      | "health_unavailable"
+      | null;
     lastEventDate: string | null;
-    spanDays: number;
+    spanDays: number | null;
     slowQueryCount24h: number;
     timeoutCount24h: number;
     errorCount24h: number;
@@ -370,12 +384,19 @@ export async function getFirstPartyAnalyticsHealth(
   const pressure = schema.analyticsQueryPressureDaily;
   const db = getDb() as any;
   const backend = await getFirstPartyAnalyticsBackend(scope);
+  const startDate = new Date(
+    now.getTime() - (FIRST_PARTY_ANALYTICS_HEALTH_WINDOW_DAYS - 1) * 86_400_000,
+  )
+    .toISOString()
+    .slice(0, 10);
 
   const rollupRowsPromise =
     backend.sink === "bigquery"
-      ? getFirstPartyAnalyticsBigQueryMetrics(scope, backend.table).then(
-          (metrics) => [metrics],
-        )
+      ? getFirstPartyAnalyticsBigQueryMetrics(scope, backend.table, {
+          startDate,
+          endDate: today,
+          maxBytesBilled: FIRST_PARTY_ANALYTICS_HEALTH_MAX_BYTES_BILLED,
+        }).then((metrics) => [metrics])
       : db
           .select({
             eventCount: sql<number>`coalesce(sum(${rollups.eventCount}), 0)`,
@@ -437,7 +458,9 @@ export async function getFirstPartyAnalyticsHealth(
   const eventCount = finiteNumber(rollup.eventCount);
   const dailyRollupRows = finiteNumber(rollup.dailyRollupRows);
   const firstEventDate =
-    typeof rollup.firstEventDate === "string" ? rollup.firstEventDate : null;
+    backend.sink !== "bigquery" && typeof rollup.firstEventDate === "string"
+      ? rollup.firstEventDate
+      : null;
   const lastEventDate =
     typeof rollup.lastEventDate === "string" ? rollup.lastEventDate : null;
   const slowQueryCount24h = pressureRows.reduce(
@@ -511,11 +534,20 @@ export async function getFirstPartyAnalyticsHealth(
     reasons,
     observedAt: nowIso(),
     metrics: {
+      coverage:
+        backend.sink === "bigquery"
+          ? { kind: "recent_window", startDate, endDate: today }
+          : { kind: "all_time" },
       eventCount,
       dailyRollupRows,
       firstEventDate,
+      firstEventDateUnavailableReason:
+        backend.sink === "bigquery" ? "bounded_bigquery_read" : null,
       lastEventDate,
-      spanDays: dateSpanDays(firstEventDate, lastEventDate),
+      spanDays:
+        backend.sink === "bigquery"
+          ? null
+          : dateSpanDays(firstEventDate, lastEventDate),
       slowQueryCount24h,
       timeoutCount24h,
       errorCount24h,
@@ -527,7 +559,9 @@ export async function getFirstPartyAnalyticsHealth(
   };
 }
 
-export function unavailableFirstPartyAnalyticsHealth(): FirstPartyAnalyticsHealth {
+export function unavailableFirstPartyAnalyticsHealth(
+  reason: "maximum_bytes_billed" | "health_read_failed" = "health_read_failed",
+): FirstPartyAnalyticsHealth {
   const externalBackends = EXTERNAL_BACKEND_DEFINITIONS.map((definition) => ({
     id: definition.id,
     label: definition.label,
@@ -549,11 +583,13 @@ export function unavailableFirstPartyAnalyticsHealth(): FirstPartyAnalyticsHealt
     reasons: [],
     observedAt: nowIso(),
     metrics: {
-      eventCount: 0,
-      dailyRollupRows: 0,
+      coverage: { kind: "unavailable", reason },
+      eventCount: null,
+      dailyRollupRows: null,
       firstEventDate: null,
+      firstEventDateUnavailableReason: "health_unavailable",
       lastEventDate: null,
-      spanDays: 0,
+      spanDays: null,
       slowQueryCount24h: 0,
       timeoutCount24h: 0,
       errorCount24h: 0,
