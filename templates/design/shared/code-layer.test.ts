@@ -3550,6 +3550,24 @@ describe("autoLayout", () => {
     ).toBeUndefined();
   });
 
+  it.each(["[align-items:center]", "lg:[align-items:center]"])(
+    "preserves arbitrary-property alignment utility %s when enabling auto-layout",
+    (utility) => {
+      const patch = applyVisualEdit(
+        `<div data-agent-native-node-id="box" class="${utility}"><span>A</span></div>`,
+        {
+          kind: "autoLayout",
+          targetId: "box",
+          enabled: true,
+        },
+      );
+
+      expect(patch.result.status).toBe("applied");
+      expect(patch.content).toContain(`class="${utility}"`);
+      expect(patch.content).not.toContain("align-items: flex-start");
+    },
+  );
+
   it("preserves an alignment supplied by a matching stylesheet rule", () => {
     const patch = applyVisualEdit(
       `<style>.stack { align-items: center; }</style><div data-agent-native-node-id="box" class="stack"><span>A</span></div>`,

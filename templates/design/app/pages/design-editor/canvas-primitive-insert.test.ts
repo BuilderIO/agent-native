@@ -26,6 +26,7 @@ import {
 } from "./canvas-primitive-insert";
 import { writeBackVectorEditedPenPath } from "./clone-and-pen-edit";
 import { cssStyleAliases, parseInlineStyleAttribute } from "./code-layer-state";
+import { destinationBackgroundLightness } from "./cross-screen-text-color";
 
 describe("blankScreenHtml", () => {
   const html = blankScreenHtml("Screen 1");
@@ -681,6 +682,70 @@ describe("text takes its colour from what it lands on", () => {
     expect(text?.style.position).toBe("relative");
   });
 
+  it("keeps the flow host stylesheet paint separate from the cursor child", () => {
+    const content = `<!doctype html><html><head><title>S</title></head><body>
+      <div data-agent-native-node-id="host" data-an-primitive="frame" class="host" style="position:absolute;left:100px;top:100px;width:300px;height:200px">
+        <div class="dark-child" style="position:absolute;left:20px;top:20px;width:100px;height:80px"></div>
+      </div>
+    </body></html>`;
+    const liveDocument = new DOMParser().parseFromString(
+      `<!doctype html><html><head><style>
+        .host { background: #ffffff; }
+        .dark-child { background: #111111; }
+      </style></head><body>
+        <div data-agent-native-node-id="host" data-an-primitive="frame" class="host">
+          <div class="dark-child"></div>
+        </div>
+      </body></html>`,
+      "text/html",
+    );
+    expect(
+      liveDocument.defaultView?.getComputedStyle(
+        liveDocument.querySelector('[data-agent-native-node-id="host"]')!,
+      ).backgroundColor,
+    ).toBe("#ffffff");
+    expect(
+      liveDocument.defaultView?.getComputedStyle(
+        liveDocument.querySelector(".dark-child")!,
+      ).backgroundColor,
+    ).toBe("#111111");
+    const sourceDocument = new DOMParser().parseFromString(
+      content,
+      "text/html",
+    );
+    expect(
+      destinationBackgroundLightness(
+        sourceDocument.querySelector('[data-agent-native-node-id="host"]')!,
+        liveDocument,
+      ),
+    ).toBe(true);
+    const html =
+      appendCanvasPrimitiveToHtml(
+        content,
+        {
+          kind: "text",
+          nodeId: "t",
+          geometry: { x: 130, y: 130, width: 120, height: 24 },
+          text: "append to the host",
+        },
+        {
+          positioning: "flow",
+          isBoardTarget: true,
+          boardBackground: "#111111",
+          liveDocument,
+        },
+      ) ?? "";
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const text = doc.querySelector<HTMLElement>(
+      '[data-agent-native-node-id="t"]',
+    );
+
+    expect(styleOf(html, "t")).toMatch(/color:\s*#000000/i);
+    expect(text?.parentElement?.getAttribute("data-agent-native-node-id")).toBe(
+      "host",
+    );
+  });
+
   it("uses class-based dark surfaces when live computed paint is unavailable", () => {
     const content =
       "<!doctype html><html><head><title>S</title></head>" +
@@ -696,6 +761,23 @@ describe("text takes its colour from what it lands on", () => {
       }) ?? "";
 
     expect(styleOf(html, "t")).toMatch(/color:\s*#ffffff/i);
+  });
+
+  it("does not treat the fallback color as measured stylesheet paint", () => {
+    const content = `<!doctype html><html><head><style>
+      .dark-surface { background: #111111; color: #ffffff; }
+    </style></head><body>
+      <div class="dark-surface" style="position:absolute;left:20px;top:150px;width:280px;height:300px"></div>
+    </body></html>`;
+    const html =
+      appendCanvasPrimitiveToHtml(content, {
+        kind: "text",
+        nodeId: "t",
+        geometry: { x: 60, y: 260, width: 120, height: 24 },
+        text: "on a stylesheet-painted dark surface",
+      }) ?? "";
+
+    expect(styleOf(html, "t")).toMatch(/color:\s*currentcolor/i);
   });
 
   it("composites a translucent surface over the surface below it", () => {

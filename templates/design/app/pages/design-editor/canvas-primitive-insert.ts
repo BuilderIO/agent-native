@@ -345,9 +345,14 @@ function paintedSurfaceAtPoint(
   liveDocument?: Document | null,
   includeDocumentBackground = false,
   fallbackBackground: string | null = null,
+  fallbackIsMeasured = false,
+  sampleElement?: Element | null,
 ):
   | { kind: "known"; color: Rgb }
-  | { kind: "unknown"; reason: "background-image" | "translucent" }
+  | {
+      kind: "unknown";
+      reason: "background-image" | "translucent" | "unmeasured";
+    }
   | null {
   const hasUnknownPaint = (
     style: CSSStyleDeclaration,
@@ -377,10 +382,23 @@ function paintedSurfaceAtPoint(
   };
   const compositePaintStack = (
     colorsFromFrontToBack: ReadonlyArray<string | null>,
-  ): { kind: "known"; color: Rgb } | null => {
+  ):
+    | { kind: "known"; color: Rgb }
+    | { kind: "unknown"; reason: "unmeasured" }
+    | null => {
     const fallback = fallbackBackground
       ? parseCssColorExtended(fallbackBackground)
       : null;
+    const hasMeasuredPaint = colorsFromFrontToBack.some((paint) => {
+      const foreground = paint ? parseCssColorExtended(paint) : null;
+      return foreground !== null && foreground.a > 0;
+    });
+    if (
+      !hasMeasuredPaint &&
+      (!fallbackIsMeasured || !fallback || fallback.a < 1)
+    ) {
+      return { kind: "unknown", reason: "unmeasured" };
+    }
     let background: Rgb | null = fallback?.a === 1 ? fallback : null;
     for (let index = colorsFromFrontToBack.length - 1; index >= 0; index -= 1) {
       const paint = colorsFromFrontToBack[index];
@@ -395,6 +413,47 @@ function paintedSurfaceAtPoint(
     return background ? { kind: "known", color: background } : null;
   };
   const liveView = liveDocument?.defaultView;
+  if (sampleElement) {
+    if (!liveDocument || !liveView) {
+      return { kind: "unknown", reason: "unmeasured" };
+    }
+    const nodeId = sampleElement.getAttribute("data-agent-native-node-id");
+    const liveSampleElement =
+      sampleElement === root.ownerDocument?.body
+        ? liveDocument.body
+        : sampleElement === root.ownerDocument?.documentElement
+          ? liveDocument.documentElement
+          : nodeId
+            ? liveDocument.querySelector(
+                `[data-agent-native-node-id="${CSS.escape(nodeId)}"]`,
+              )
+            : null;
+    if (!liveSampleElement) {
+      return { kind: "unknown", reason: "unmeasured" };
+    }
+    const colors: string[] = [];
+    for (
+      let element: Element | null = liveSampleElement;
+      element;
+      element = element.parentElement
+    ) {
+      const includesBackgroundImage =
+        includeDocumentBackground ||
+        (element !== liveDocument.body &&
+          element !== liveDocument.documentElement);
+      const style = liveView.getComputedStyle(element);
+      const unknownPaint = hasUnknownPaint(style, includesBackgroundImage);
+      if (unknownPaint) return { kind: "unknown", reason: unknownPaint };
+      if (
+        includeDocumentBackground ||
+        (element !== liveDocument.body &&
+          element !== liveDocument.documentElement)
+      ) {
+        colors.push(style.backgroundColor);
+      }
+    }
+    return compositePaintStack(colors);
+  }
   if (
     liveDocument &&
     liveView &&
@@ -865,23 +924,29 @@ export function appendCanvasPrimitiveToHtml(
         ? hostOrBody
         : topmostBoxContaining(hostOrBody, left, top);
       const measuredIsLight = boxUnderText
-        ? destinationBackgroundLightness(boxUnderText)
+        ? destinationBackgroundLightness(boxUnderText, options?.liveDocument)
         : options?.isBoardTarget === true && hostOrBody === doc.body
           ? null
-          : destinationBackgroundLightness(hostOrBody);
+          : destinationBackgroundLightness(hostOrBody, options?.liveDocument);
       const surfaceIsLight = measuredIsLight ?? boardSurfaceIsLight;
-      const paintedSurface = usesFlowPositioning
-        ? null
-        : paintedSurfaceAtPoint(
-            doc.body,
-            left,
-            top,
-            options?.liveDocument,
-            options?.isBoardTarget !== true,
-            options?.isBoardTarget === true
-              ? (options.boardBackground ?? null)
-              : defaultCanvasFrameFill(),
-          );
+      const canSampleFlowHost = usesFlowPositioning && options?.liveDocument;
+      const paintedSurface =
+        usesFlowPositioning && !canSampleFlowHost
+          ? null
+          : paintedSurfaceAtPoint(
+              doc.body,
+              left,
+              top,
+              options?.liveDocument,
+              options?.isBoardTarget !== true,
+              options?.isBoardTarget === true
+                ? (options.boardBackground ?? null)
+                : defaultCanvasFrameFill(),
+              options?.isBoardTarget === true &&
+                options.boardBackground !== null &&
+                options.boardBackground !== undefined,
+              usesFlowPositioning ? boxUnderText : null,
+            );
       const autoTextNeedsLightFill =
         surfaceIsLight === null
           ? options?.isBoardTarget === true

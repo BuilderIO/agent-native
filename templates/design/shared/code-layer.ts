@@ -10418,7 +10418,11 @@ function isCrossAxisAlignmentProperty(property: string): boolean {
 
 function hasCrossAxisAlignmentUtilityClass(element: ParsedElement): boolean {
   return classList(element).some((className) => {
-    const utility = className.split(":").at(-1)?.replace(/^!/, "");
+    if (/(?:^|:)!?\[(?:align-items|place-items):/i.test(className)) {
+      return true;
+    }
+    const variants = className.split(":");
+    const utility = variants[variants.length - 1]?.replace(/^!/, "");
     return utility?.startsWith("items-") || utility?.startsWith("place-items-");
   });
 }

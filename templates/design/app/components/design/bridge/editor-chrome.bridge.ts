@@ -27469,7 +27469,8 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       var cycleTarget =
         cycledEl &&
         (!(cycledEl.contains && cycledEl.contains(hit)) ||
-          (cycledEl !== selectedEl &&
+          (primaryClickTarget === selectedEl &&
+            cycledEl !== selectedEl &&
             selectedEl &&
             cycledEl.contains(selectedEl)))
           ? cycledEl
