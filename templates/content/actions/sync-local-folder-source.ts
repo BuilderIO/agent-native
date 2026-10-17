@@ -8,7 +8,10 @@ import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
+import {
+  assertLegacyBodyWriter,
+  lockLegacyBodyWrites,
+} from "../server/lib/document-body-revision.js";
 import {
   syncPrivateCalloutReferences,
   syncPrivateIconReference,
@@ -488,7 +491,22 @@ export default defineAction({
     };
     classifyPlans(initialSnapshot);
 
-    if (!dryRun) {
+    if (dryRun) {
+      // The sync refuses as a whole when it would write a body to a page that
+      // takes body writes through its live copy, so its preview does too.
+      for (const plan of plans) {
+        if (
+          plan.existing &&
+          plan.applyIncoming &&
+          !plan.conflict &&
+          plan.existing.content !== plan.file.content
+        ) {
+          await assertLegacyBodyWriter(plan.id, {
+            operation: "sync-local-folder-source",
+          });
+        }
+      }
+    } else {
       await db.transaction(async (tx: any) => {
         const claimedSources = await tx
           .update(schema.contentDatabaseSources)
@@ -660,14 +678,20 @@ export default defineAction({
                 updatedAt: now,
               })
               .onConflictDoNothing();
+            const legacy = plan.applyIncoming
+              ? await lockLegacyBodyWrites(tx, [plan.id], {
+                  operation: "sync-local-folder-source",
+                  content: plan.file.content,
+                })
+              : undefined;
             const reboundDocuments = await tx
               .update(schema.documents)
               .set({
-                ...(plan.applyIncoming
+                ...(legacy
                   ? {
                       title: plan.file.title,
                       content: plan.file.content,
-                      bodyRevision: bodyRevisionForContent(plan.file.content),
+                      bodyRevision: legacy.bodyRevision(plan.file.content),
                       description:
                         plan.file.description ?? plan.existing.description,
                       icon: plan.file.icon ?? plan.existing.icon,

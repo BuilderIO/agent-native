@@ -10,7 +10,7 @@ import { and, eq, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
+import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
 import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
@@ -176,13 +176,17 @@ export default defineAction({
 
     if (existing) {
       await db.transaction(async (tx) => {
+        const legacy = await lockLegacyBodyWrites(tx, [existing.id], {
+          operation: "share-local-file-document",
+          content: localDocument.content,
+        });
         await tx
           .update(schema.documents)
           .set({
             spaceId: existing.spaceId ?? targetSpaceId,
             title: localDocument.title,
             content: localDocument.content,
-            bodyRevision: bodyRevisionForContent(localDocument.content),
+            bodyRevision: legacy.bodyRevision(localDocument.content),
             icon: copiedIcon,
             isFavorite: localDocument.isFavorite ? 1 : 0,
             hideFromSearch: localDocument.hideFromSearch ? 1 : 0,

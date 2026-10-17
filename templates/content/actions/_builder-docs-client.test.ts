@@ -1,6 +1,7 @@
 import { resolveBuilderCredential } from "@agent-native/core/server";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { documents } from "../server/db/schema.js";
 import { BUILDER_CMS_SAFE_WRITE_MODEL } from "../shared/api.js";
 import {
   BUILDER_DOCS_MDX_SOURCE_MODE,
@@ -48,6 +49,8 @@ const builderWriteMock = vi.hoisted(() => ({
   })),
 }));
 
+const liveCopyPages = vi.hoisted(() => new Set<string>());
+
 let documentResource: Record<string, unknown> | null = null;
 let sidecarRows: Array<{
   path: string;
@@ -57,8 +60,22 @@ let sidecarRows: Array<{
 
 const fakeDb = {
   select: () => ({
-    from: () => ({
-      where: async () => sidecarRows,
+    from: (table: unknown) => ({
+      where: () => ({
+        // The body-write lock reads the page's body once it has locked it.
+        then: (...args: Parameters<Promise<unknown>["then"]>) =>
+          Promise.resolve(
+            table === documents
+              ? documentResource
+                ? [documentResource]
+                : []
+              : sidecarRows,
+          ).then(...args),
+        // Only the body-write lock orders its read, and it reads the page.
+        orderBy: () => ({
+          for: async () => (documentResource ? [documentResource] : []),
+        }),
+      }),
     }),
   }),
   update: () => ({
@@ -94,6 +111,7 @@ const fakeDb = {
       }
     },
   }),
+  transaction: async (run: (tx: unknown) => Promise<unknown>) => run(fakeDb),
 };
 
 vi.mock("../server/db/index.js", async () => {
@@ -145,6 +163,34 @@ vi.mock("./_builder-cms-write-client.js", () => ({
   executeBuilderCmsWrite: builderWriteMock.executeBuilderCmsWrite,
 }));
 
+vi.mock("./_content-spaces.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./_content-spaces.js")>();
+  return {
+    ...actual,
+    provisionContentSpaces: async (_db: unknown, email: string) => ({
+      spaceIds: [actual.personalContentSpaceId(email)],
+    }),
+  };
+});
+
+vi.mock("./_content-files.js", () => ({
+  ensureDocumentFilesMembership: async () => {},
+}));
+
+vi.mock("../server/lib/live-body-writer.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../server/lib/live-body-writer.js")
+  >()),
+  isLiveBodyWriterPage: async (documentId: string) =>
+    liveCopyPages.has(documentId),
+  liveBodyWriterGatesForRows: async (rows: Array<{ id: string }>) =>
+    rows.map((row) =>
+      liveCopyPages.has(row.id)
+        ? { writePath: "live_copy" }
+        : { writePath: "legacy", reason: "not_switched" },
+    ),
+}));
+
 let resolveBuilderDocsSource: typeof import("./_builder-docs-client.js").resolveBuilderDocsSource;
 let pullBuilderDocIntoContent: typeof import("./_builder-docs-client.js").pullBuilderDocIntoContent;
 let readFullBuilderDocsEntry: typeof import("./_builder-docs-client.js").readFullBuilderDocsEntry;
@@ -193,6 +239,7 @@ beforeAll(async () => {
 beforeEach(() => {
   documentResource = null;
   sidecarRows = [];
+  liveCopyPages.clear();
   requestContextMock.orgId = null;
   requestContextMock.userEmail = "owner@example.com";
   vi.clearAllMocks();
@@ -257,6 +304,49 @@ function mcpFetchForEntries(entries: BuilderContentEntry[]) {
       },
     });
   });
+}
+
+async function seedPushableBuilderDocument() {
+  resolveBuilderCredentialMock.mockImplementation(async (key: string) =>
+    key === "BUILDER_PRIVATE_KEY" ? "private-key" : null,
+  );
+  const safeEntry = {
+    ...entry,
+    model: BUILDER_CMS_SAFE_WRITE_MODEL,
+    data: {
+      ...entry.data,
+      handle: "db-builder-doc",
+    },
+  };
+  const bundle = await builderEntryToMdxBundle(safeEntry);
+  const sidecars = Object.fromEntries(
+    Object.entries(bundle.files).filter(
+      ([path]) => path.includes("/.raw/") && path.endsWith(".json"),
+    ),
+  );
+  documentResource = {
+    id: bundle.mdx.documentId,
+    ownerEmail: "owner@example.com",
+    orgId: null,
+    title: bundle.mdx.title,
+    content: bundle.mdx.body.replace("DB backed text.", "Local pushed text."),
+    bodyRevision: 4,
+    sourceMode: BUILDER_DOCS_MDX_SOURCE_MODE,
+    sourceKind: builderSourceKindForModel(safeEntry.model),
+    sourcePath: bundle.mdx.path,
+    sourceRootPath: builderSourceRootPath({
+      entryId: safeEntry.id,
+      sourceHash: bundle.mdx.metadata.sourceHash,
+      blocksHash: bundle.mdx.metadata.blocksHash,
+    }),
+    sourceUpdatedAt: bundle.mdx.metadata.lastUpdated,
+  };
+  sidecarRows = Object.entries(sidecars).map(([path, content]) => ({
+    path,
+    content,
+    contentHash: stableHash(content),
+  }));
+  return { safeEntry, bundle };
 }
 
 describe("Builder docs list and conflict safety", () => {
@@ -463,44 +553,7 @@ describe("Builder docs DB-backed source", () => {
   });
 
   it("refreshes DB metadata and sidecars after a successful document push", async () => {
-    resolveBuilderCredentialMock.mockImplementation(async (key: string) =>
-      key === "BUILDER_PRIVATE_KEY" ? "private-key" : null,
-    );
-    const safeEntry = {
-      ...entry,
-      model: BUILDER_CMS_SAFE_WRITE_MODEL,
-      data: {
-        ...entry.data,
-        handle: "db-builder-doc",
-      },
-    };
-    const bundle = await builderEntryToMdxBundle(safeEntry);
-    const sidecars = Object.fromEntries(
-      Object.entries(bundle.files).filter(
-        ([path]) => path.includes("/.raw/") && path.endsWith(".json"),
-      ),
-    );
-    documentResource = {
-      id: bundle.mdx.documentId,
-      ownerEmail: "owner@example.com",
-      orgId: null,
-      title: bundle.mdx.title,
-      content: bundle.mdx.body.replace("DB backed text.", "Local pushed text."),
-      sourceMode: BUILDER_DOCS_MDX_SOURCE_MODE,
-      sourceKind: builderSourceKindForModel(safeEntry.model),
-      sourcePath: bundle.mdx.path,
-      sourceRootPath: builderSourceRootPath({
-        entryId: safeEntry.id,
-        sourceHash: bundle.mdx.metadata.sourceHash,
-        blocksHash: bundle.mdx.metadata.blocksHash,
-      }),
-      sourceUpdatedAt: bundle.mdx.metadata.lastUpdated,
-    };
-    sidecarRows = Object.entries(sidecars).map(([path, content]) => ({
-      path,
-      content,
-      contentHash: stableHash(content),
-    }));
+    const { safeEntry, bundle } = await seedPushableBuilderDocument();
 
     const pushedEntry = JSON.parse(
       JSON.stringify(safeEntry),
@@ -545,6 +598,7 @@ describe("Builder docs DB-backed source", () => {
     expect(result.refreshedDocument?.metadata.lastUpdated).toBe(
       "1700000000003",
     );
+    expect(result).not.toHaveProperty("refreshRefused");
     expect(sidecarRows.length).toBeGreaterThan(0);
     expect(appStateMock.writeAppState).toHaveBeenCalledWith(
       "refresh-signal",
@@ -659,5 +713,178 @@ describe("Builder docs DB-backed source", () => {
     expect(first.documentId).not.toBe(second.documentId);
     expect(first.bundle.mdx.documentId).toBe(first.documentId);
     expect(second.bundle.mdx.documentId).toBe(second.documentId);
+  });
+});
+
+describe("Builder docs on a page that takes body writes through its live copy", () => {
+  it("refuses a pull into the existing page and leaves it as it was", async () => {
+    resolveBuilderCredentialMock.mockImplementation(async (key: string) =>
+      key === "BUILDER_PRIVATE_KEY" ? "private-key" : null,
+    );
+    const { documentId } = await pullBuilderDocIntoContent({
+      model: "docs-content",
+      entryId: entry.id,
+      dryRun: true,
+      fetchImpl: mcpFetchForEntry(entry) as typeof fetch,
+    });
+    documentResource = {
+      id: documentId,
+      ownerEmail: "owner@example.com",
+      orgId: null,
+      title: "Local title",
+      content: "Local body",
+      bodyRevision: 4,
+    };
+    const page = { ...documentResource };
+    liveCopyPages.add(documentId);
+
+    await expect(
+      pullBuilderDocIntoContent({
+        model: "docs-content",
+        entryId: entry.id,
+        fetchImpl: mcpFetchForEntry(entry) as typeof fetch,
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+      statusCode: 409,
+      details: { documentId, operation: "pull-builder-doc" },
+    });
+
+    expect(documentResource).toEqual(page);
+    expect(sidecarRows).toEqual([]);
+    expect(appStateMock.writeAppState).not.toHaveBeenCalled();
+  });
+
+  it("applies a pull that leaves the body as it is, so its title and source still land", async () => {
+    resolveBuilderCredentialMock.mockImplementation(async (key: string) =>
+      key === "BUILDER_PRIVATE_KEY" ? "private-key" : null,
+    );
+    const { documentId, bundle } = await pullBuilderDocIntoContent({
+      model: "docs-content",
+      entryId: entry.id,
+      dryRun: true,
+      fetchImpl: mcpFetchForEntry(entry) as typeof fetch,
+    });
+    documentResource = {
+      id: documentId,
+      ownerEmail: "owner@example.com",
+      orgId: null,
+      title: "Local title",
+      content: bundle.mdx.body,
+      bodyRevision: 4,
+    };
+    liveCopyPages.add(documentId);
+
+    await pullBuilderDocIntoContent({
+      model: "docs-content",
+      entryId: entry.id,
+      fetchImpl: mcpFetchForEntry(entry) as typeof fetch,
+    });
+
+    expect(documentResource).toMatchObject({
+      title: bundle.mdx.title,
+      content: bundle.mdx.body,
+      sourceUpdatedAt: bundle.mdx.metadata.lastUpdated,
+    });
+    expect(sidecarRows.length).toBeGreaterThan(0);
+  });
+
+  it("reports a push that Builder took while the page took its live copy, and keeps the page and its sidecars", async () => {
+    const { safeEntry, bundle } = await seedPushableBuilderDocument();
+    const page = { ...documentResource };
+    const sidecars = [...sidecarRows];
+    const pushedEntry = JSON.parse(
+      JSON.stringify(safeEntry),
+    ) as BuilderContentEntry;
+    pushedEntry.lastUpdated = "1700000000003";
+    const [firstBlock] = pushedEntry.data.blocks as Array<
+      Record<string, unknown>
+    >;
+    firstBlock.component = {
+      name: "Text",
+      options: { text: "<p>Builder's copy of the pushed text.</p>" },
+    };
+    builderWriteMock.executeBuilderCmsWrite.mockImplementationOnce(async () => {
+      liveCopyPages.add(bundle.mdx.documentId);
+      return {
+        ok: true,
+        status: 200,
+        entryId: "builder-entry-db",
+        responseBody: { id: "builder-entry-db" },
+      };
+    });
+
+    const result = await pushBuilderDocsSource({
+      documentId: bundle.mdx.documentId,
+      dryRun: false,
+      fetchImpl: mcpFetchForEntries([safeEntry, pushedEntry]) as typeof fetch,
+    });
+
+    expect(result.executed).toBe(true);
+    expect(result.refreshedDocument).toBeNull();
+    expect(result).toMatchObject({
+      refreshRefused: {
+        errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+        documentId: bundle.mdx.documentId,
+      },
+    });
+    expect(documentResource).toEqual(page);
+    expect(sidecarRows).toEqual(sidecars);
+    expect(appStateMock.writeAppState).not.toHaveBeenCalled();
+  });
+
+  it("refuses a live push before it writes to Builder", async () => {
+    const { safeEntry, bundle } = await seedPushableBuilderDocument();
+    const page = { ...documentResource };
+    const sidecars = [...sidecarRows];
+    liveCopyPages.add(bundle.mdx.documentId);
+
+    await expect(
+      pushBuilderDocsSource({
+        documentId: bundle.mdx.documentId,
+        dryRun: false,
+        fetchImpl: mcpFetchForEntry(safeEntry) as typeof fetch,
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+      statusCode: 409,
+      details: {
+        documentId: bundle.mdx.documentId,
+        operation: "push-builder-doc",
+      },
+    });
+
+    expect(builderWriteMock.executeBuilderCmsWrite).not.toHaveBeenCalled();
+    expect(documentResource).toEqual(page);
+    expect(sidecarRows).toEqual(sidecars);
+    expect(appStateMock.writeAppState).not.toHaveBeenCalled();
+  });
+
+  it("still previews a dry-run push", async () => {
+    const { safeEntry, bundle } = await seedPushableBuilderDocument();
+    const page = { ...documentResource };
+    liveCopyPages.add(bundle.mdx.documentId);
+
+    const result = await pushBuilderDocsSource({
+      documentId: bundle.mdx.documentId,
+      dryRun: true,
+      fetchImpl: mcpFetchForEntry(safeEntry) as typeof fetch,
+    });
+
+    expect(result).toMatchObject({
+      dryRun: true,
+      executed: false,
+      check: { ok: true },
+      request: {
+        method: "PATCH",
+        body: {
+          data: {
+            blocksString: expect.stringContaining("Local pushed text."),
+          },
+        },
+      },
+    });
+    expect(builderWriteMock.executeBuilderCmsWrite).not.toHaveBeenCalled();
+    expect(documentResource).toEqual(page);
   });
 });

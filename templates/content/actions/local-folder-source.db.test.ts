@@ -4,8 +4,15 @@ import { join } from "node:path";
 
 import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
-import { and, eq } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { and, asc, eq } from "drizzle-orm";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+
+vi.mock("@agent-native/creative-context/server", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/creative-context/server")
+  >()),
+  getGenerationCreativeContext: vi.fn(async () => null),
+}));
 
 const TEST_DB_PATH = join(
   tmpdir(),
@@ -26,6 +33,10 @@ let getContentDatabase: typeof import("./get-content-database.js").default;
 let provisionContentSpaces: typeof import("./_content-spaces.js").provisionContentSpaces;
 let organizationContentSpaceId: typeof import("./_content-spaces.js").organizationContentSpaceId;
 let shareLocalFileDocument: typeof import("./share-local-file-document.js").default;
+let editDocument: typeof import("./edit-document.js").default;
+let putPageOnLiveCopy: typeof import("../server/test-support/live-copy-page.js").putPageOnLiveCopy;
+let liveCopyVersionOf: typeof import("../server/test-support/live-copy-page.js").liveCopyVersionOf;
+let turnLiveCopyFlagsOff: typeof import("../server/test-support/live-copy-page.js").turnLiveCopyFlagsOff;
 
 beforeAll(async () => {
   process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
@@ -60,11 +71,66 @@ beforeAll(async () => {
     await import("./_content-spaces.js"));
   shareLocalFileDocument = (await import("./share-local-file-document.js"))
     .default;
+  editDocument = (await import("./edit-document.js")).default;
+  ({ putPageOnLiveCopy, liveCopyVersionOf, turnLiveCopyFlagsOff } =
+    await import("../server/test-support/live-copy-page.js"));
 }, 60000);
 
 afterAll(() => {
   rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
+
+async function pageBodyState(documentId: string) {
+  const [page] = await getDb()
+    .select()
+    .from(schema.documents)
+    .where(eq(schema.documents.id, documentId));
+  const history = await getDb()
+    .select({ content: schema.documentVersions.content })
+    .from(schema.documentVersions)
+    .where(eq(schema.documentVersions.documentId, documentId))
+    .orderBy(asc(schema.documentVersions.createdAt));
+  return {
+    page,
+    history: history.map((version: { content: string }) => version.content),
+    liveCopyVersion: await liveCopyVersionOf(documentId),
+  };
+}
+
+async function folderSourceState(connection: {
+  sourceId: string;
+  spaceId: string;
+}) {
+  const db = getDb();
+  return {
+    source: await db
+      .select()
+      .from(schema.contentDatabaseSources)
+      .where(eq(schema.contentDatabaseSources.id, connection.sourceId)),
+    rows: await db
+      .select()
+      .from(schema.contentDatabaseSourceRows)
+      .where(eq(schema.contentDatabaseSourceRows.sourceId, connection.sourceId))
+      .orderBy(asc(schema.contentDatabaseSourceRows.id)),
+    changeSets: await db
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(
+        eq(
+          schema.contentDatabaseSourceChangeSets.sourceId,
+          connection.sourceId,
+        ),
+      )
+      .orderBy(asc(schema.contentDatabaseSourceChangeSets.id)),
+    pageIds: (
+      await db
+        .select({ id: schema.documents.id })
+        .from(schema.documents)
+        .where(eq(schema.documents.spaceId, connection.spaceId))
+        .orderBy(asc(schema.documents.id))
+    ).map((page: { id: string }) => page.id),
+  };
+}
 
 describe("local-folder Content source", () => {
   it("creates a shareable copy of a synced local-folder file for its owner", async () => {
@@ -1700,5 +1766,557 @@ describe("local-folder Content source", () => {
         sourceRootPath: null,
       }),
     ]);
+  });
+
+  it("refuses a sync that would write a body to a page that takes body writes through its live copy", async () => {
+    const connection = await runWithRequestContext({ userEmail: OWNER }, () =>
+      connectLocalFolder.run({
+        connectionId: "desktop-folder-live-copy-sync",
+        label: "Live copy sync",
+        createSourceBackedSpace: true,
+        truthPolicy: "source_primary",
+      }),
+    );
+    const first = await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: connection.sourceId,
+        files: { "live.md": "Baseline body." },
+      }),
+    );
+    const documentId = first.created[0]!.id;
+    await putPageOnLiveCopy(documentId);
+    const before = await pageBodyState(documentId);
+    const sourceBefore = await folderSourceState(connection);
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        syncLocalFolder.run({
+          sourceId: connection.sourceId,
+          // Sync applies files in path order, so this page is created in the
+          // transaction before live.md is refused.
+          files: {
+            "another.md": "A page the refused sync would create.",
+            "live.md": "Incoming folder edit.",
+          },
+        }),
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+      statusCode: 409,
+      details: { documentId, operation: "sync-local-folder-source" },
+    });
+    expect(await pageBodyState(documentId)).toEqual(before);
+    expect(before.page.content).toBe("Baseline body.");
+    expect(await folderSourceState(connection)).toEqual(sourceBefore);
+  });
+
+  it("refuses a dry run of a sync that would write a body to a page that takes body writes through its live copy, and still previews a title-only one", async () => {
+    const connection = await runWithRequestContext({ userEmail: OWNER }, () =>
+      connectLocalFolder.run({
+        connectionId: "desktop-folder-live-copy-dry-run",
+        label: "Live copy dry run",
+        createSourceBackedSpace: true,
+        truthPolicy: "source_primary",
+      }),
+    );
+    const first = await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: connection.sourceId,
+        files: { "live.md": "---\ntitle: Baseline title\n---\nBaseline body." },
+      }),
+    );
+    const documentId = first.created[0]!.id;
+    await putPageOnLiveCopy(documentId);
+    const before = await pageBodyState(documentId);
+    const sourceBefore = await folderSourceState(connection);
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        syncLocalFolder.run({
+          sourceId: connection.sourceId,
+          dryRun: true,
+          files: { "live.md": "---\ntitle: Baseline title\n---\nFolder edit." },
+        }),
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+      statusCode: 409,
+      details: { documentId, operation: "sync-local-folder-source" },
+    });
+    const preview = await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: connection.sourceId,
+        dryRun: true,
+        files: { "live.md": "---\ntitle: Folder title\n---\nBaseline body." },
+      }),
+    );
+
+    expect(preview.updated).toEqual([
+      expect.objectContaining({ id: documentId, title: "Folder title" }),
+    ]);
+    expect(await pageBodyState(documentId)).toEqual(before);
+    expect(await folderSourceState(connection)).toEqual(sourceBefore);
+  });
+
+  it("applies a sync that changes only the title of a page that takes body writes through its live copy", async () => {
+    const connection = await runWithRequestContext({ userEmail: OWNER }, () =>
+      connectLocalFolder.run({
+        connectionId: "desktop-folder-live-copy-title",
+        label: "Live copy title",
+        createSourceBackedSpace: true,
+        truthPolicy: "source_primary",
+      }),
+    );
+    const first = await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: connection.sourceId,
+        files: { "live.md": "---\ntitle: Baseline title\n---\nBaseline body." },
+      }),
+    );
+    const documentId = first.created[0]!.id;
+    await putPageOnLiveCopy(documentId);
+    const before = await pageBodyState(documentId);
+
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: connection.sourceId,
+        files: { "live.md": "---\ntitle: Folder title\n---\nBaseline body." },
+      }),
+    );
+
+    expect(result.updated).toEqual([
+      expect.objectContaining({ id: documentId, path: "live.md" }),
+    ]);
+    const after = await pageBodyState(documentId);
+    expect(after.page).toMatchObject({
+      title: "Folder title",
+      content: before.page.content,
+      bodyRevision: before.page.bodyRevision,
+    });
+    expect(after.liveCopyVersion).toBe(before.liveCopyVersion);
+  });
+
+  it("takes a sync's body write to a switched page as before while the live-copy flags are off (SF-11)", async () => {
+    const connection = await runWithRequestContext({ userEmail: OWNER }, () =>
+      connectLocalFolder.run({
+        connectionId: "desktop-folder-live-copy-flags-off",
+        label: "Live copy flags off",
+        createSourceBackedSpace: true,
+        truthPolicy: "source_primary",
+      }),
+    );
+    const first = await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: connection.sourceId,
+        files: { "live.md": "Baseline body." },
+      }),
+    );
+    const documentId = first.created[0]!.id;
+    await putPageOnLiveCopy(documentId);
+    await turnLiveCopyFlagsOff();
+    const before = await pageBodyState(documentId);
+
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: connection.sourceId,
+        files: { "live.md": "Incoming folder edit." },
+      }),
+    );
+
+    expect(result.updated).toEqual([
+      expect.objectContaining({ id: documentId, path: "live.md" }),
+    ]);
+    expect(await pageBodyState(documentId)).toEqual({
+      page: expect.objectContaining({
+        content: "Incoming folder edit.",
+        bodyRevision: before.page.bodyRevision + 1,
+      }),
+      history: [...before.history, "Baseline body."],
+      liveCopyVersion: before.liveCopyVersion,
+    });
+  });
+
+  it("refuses accepting a folder revision onto a page that takes body writes through its live copy", async () => {
+    const connection = await runWithRequestContext({ userEmail: OWNER }, () =>
+      connectLocalFolder.run({
+        connectionId: "desktop-folder-live-copy-resolve",
+        label: "Live copy resolve",
+        createSourceBackedSpace: true,
+        truthPolicy: "source_primary",
+      }),
+    );
+    const first = await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: connection.sourceId,
+        files: { "resolve.md": "Baseline." },
+      }),
+    );
+    const documentId = first.created[0]!.id;
+    await getDb()
+      .update(schema.documents)
+      .set({ content: "Content edit.", updatedAt: new Date().toISOString() })
+      .where(eq(schema.documents.id, documentId));
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: connection.sourceId,
+        files: { "resolve.md": "Folder edit." },
+      }),
+    );
+    const [changeSet] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(
+        and(
+          eq(
+            schema.contentDatabaseSourceChangeSets.sourceId,
+            connection.sourceId,
+          ),
+          eq(schema.contentDatabaseSourceChangeSets.documentId, documentId),
+        ),
+      );
+    await putPageOnLiveCopy(documentId);
+    const before = await pageBodyState(documentId);
+    const sourceBefore = await folderSourceState(connection);
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        resolveLocalFolderConflict.run({
+          changeSetId: changeSet.id,
+          decision: "accept_source",
+          sourceContent: "Folder edit.",
+        }),
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+      statusCode: 409,
+      details: { documentId, operation: "resolve-local-folder-conflict" },
+    });
+    expect(await pageBodyState(documentId)).toEqual(before);
+    expect(before.page.content).toBe("Content edit.");
+    const sourceAfter = await folderSourceState(connection);
+    expect(sourceAfter).toEqual(sourceBefore);
+    expect(sourceAfter.changeSets).toEqual([
+      expect.objectContaining({ id: changeSet.id, state: "proposed" }),
+    ]);
+  });
+
+  it("accepts a folder revision that changes only the title of a page that takes body writes through its live copy", async () => {
+    const connection = await runWithRequestContext({ userEmail: OWNER }, () =>
+      connectLocalFolder.run({
+        connectionId: "desktop-folder-live-copy-resolve-title",
+        label: "Live copy resolve title",
+        createSourceBackedSpace: true,
+        truthPolicy: "source_primary",
+      }),
+    );
+    const first = await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: connection.sourceId,
+        files: { "resolve.md": "---\ntitle: Baseline title\n---\nBody." },
+      }),
+    );
+    const documentId = first.created[0]!.id;
+    await getDb()
+      .update(schema.documents)
+      .set({ title: "Content title", updatedAt: new Date().toISOString() })
+      .where(eq(schema.documents.id, documentId));
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: connection.sourceId,
+        files: { "resolve.md": "---\ntitle: Folder title\n---\nBody." },
+      }),
+    );
+    const [changeSet] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(
+        and(
+          eq(
+            schema.contentDatabaseSourceChangeSets.sourceId,
+            connection.sourceId,
+          ),
+          eq(schema.contentDatabaseSourceChangeSets.documentId, documentId),
+        ),
+      );
+    await putPageOnLiveCopy(documentId);
+    const before = await pageBodyState(documentId);
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      resolveLocalFolderConflict.run({
+        changeSetId: changeSet.id,
+        decision: "accept_source",
+        sourceContent: "Body.",
+      }),
+    );
+
+    const after = await pageBodyState(documentId);
+    expect(after.page).toMatchObject({
+      title: "Folder title",
+      content: "Body.",
+      bodyRevision: before.page.bodyRevision,
+    });
+    expect(after.liveCopyVersion).toBe(before.liveCopyVersion);
+    expect((await folderSourceState(connection)).changeSets).toEqual([
+      expect.objectContaining({ id: changeSet.id, state: "applied" }),
+    ]);
+  });
+
+  it("refuses re-sharing over a copy that takes body writes through its live copy", async () => {
+    const id = "content_local_file_share_live_copy";
+    const now = new Date().toISOString();
+    await getDb().insert(schema.documents).values({
+      id,
+      ownerEmail: OWNER,
+      title: "Synced note on a live copy",
+      content: "Original body",
+      sourceMode: "local-files",
+      sourceKind: "file",
+      sourcePath: "notes/live-copy.md",
+      sourceRootPath: "qa-live-copy-folder-source",
+      visibility: "private",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const copy = await runWithRequestContext({ userEmail: OWNER }, () =>
+      shareLocalFileDocument.run({ id }),
+    );
+    await putPageOnLiveCopy(copy.id);
+    await getDb()
+      .update(schema.documents)
+      .set({ content: "Updated body" })
+      .where(eq(schema.documents.id, id));
+    const before = await pageBodyState(copy.id);
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        shareLocalFileDocument.run({ id }),
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+      statusCode: 409,
+      details: { documentId: copy.id, operation: "share-local-file-document" },
+    });
+    expect(await pageBodyState(copy.id)).toEqual(before);
+    expect(before.page.content).toBe("Original body");
+  });
+
+  it("re-shares a renamed file over a copy that takes body writes through its live copy when the body is the same", async () => {
+    const id = "content_local_file_share_live_copy_title";
+    const now = new Date().toISOString();
+    await getDb().insert(schema.documents).values({
+      id,
+      ownerEmail: OWNER,
+      title: "Synced note on a live copy",
+      content: "Original body",
+      sourceMode: "local-files",
+      sourceKind: "file",
+      sourcePath: "notes/live-copy-title.md",
+      sourceRootPath: "qa-live-copy-folder-source",
+      visibility: "private",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const copy = await runWithRequestContext({ userEmail: OWNER }, () =>
+      shareLocalFileDocument.run({ id }),
+    );
+    await putPageOnLiveCopy(copy.id);
+    await getDb()
+      .update(schema.documents)
+      .set({ title: "Renamed note" })
+      .where(eq(schema.documents.id, id));
+    const before = await pageBodyState(copy.id);
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      shareLocalFileDocument.run({ id }),
+    );
+
+    const after = await pageBodyState(copy.id);
+    expect(after.page).toMatchObject({
+      title: "Renamed note",
+      content: "Original body",
+      bodyRevision: before.page.bodyRevision,
+    });
+    expect(after.liveCopyVersion).toBe(before.liveCopyVersion);
+  });
+
+  describe("an edit to a linked file whose page takes body writes through its live copy", () => {
+    async function linkedFilePage(id: string) {
+      const now = new Date().toISOString();
+      await getDb()
+        .insert(schema.documents)
+        .values({
+          id,
+          ownerEmail: OWNER,
+          title: "Linked note",
+          content: "alpha beta",
+          sourceMode: "local-files",
+          sourceKind: "file",
+          sourcePath: `notes/${id}.md`,
+          visibility: "private",
+          createdAt: now,
+          updatedAt: now,
+        });
+    }
+    const edit = (id: string) =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        editDocument.run(
+          { id, find: "alpha", replace: "omega", reuseLabels: [] },
+          { caller: "frontend", userEmail: OWNER },
+        ),
+      );
+
+    it("refuses before it writes the file", async () => {
+      const id = "linked_file_edit_live_copy";
+      await linkedFilePage(id);
+      await putPageOnLiveCopy(id);
+      const before = await pageBodyState(id);
+      const linkedLocal = await import("./_linked-local-document-edit.js");
+      const sourceWrite = vi.spyOn(
+        linkedLocal,
+        "editLinkedLocalDocumentThroughBrowser",
+      );
+      try {
+        await expect(edit(id)).rejects.toMatchObject({
+          errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+          statusCode: 409,
+          details: { documentId: id, operation: "edit-document" },
+        });
+        expect(sourceWrite).not.toHaveBeenCalled();
+        expect(await pageBodyState(id)).toEqual(before);
+      } finally {
+        sourceWrite.mockRestore();
+      }
+    });
+
+    it("refuses, and names the file that took the edit, when the page takes its live copy while the file is written", async () => {
+      const id = "linked_file_edit_live_copy_mid_write";
+      await linkedFilePage(id);
+      const linkedLocal = await import("./_linked-local-document-edit.js");
+      let before: Awaited<ReturnType<typeof pageBodyState>> | undefined;
+      const sourceWrite = vi
+        .spyOn(linkedLocal, "editLinkedLocalDocumentThroughBrowser")
+        .mockImplementationOnce(async () => {
+          await putPageOnLiveCopy(id);
+          before = await pageBodyState(id);
+          return {
+            status: "persisted",
+            content: "omega beta",
+            title: "Linked note",
+            path: `notes/${id}.md`,
+            runtime: "browser",
+          };
+        });
+      try {
+        await expect(edit(id)).rejects.toMatchObject({
+          errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+          statusCode: 409,
+          details: {
+            documentId: id,
+            operation: "edit-document",
+            sourcePath: `notes/${id}.md`,
+          },
+        });
+        expect(sourceWrite).toHaveBeenCalledTimes(1);
+        expect(before?.page.content).toBe("alpha beta");
+        expect(await pageBodyState(id)).toEqual(before);
+      } finally {
+        sourceWrite.mockRestore();
+      }
+    });
+
+    it.each([
+      ["source_primary", "refuses it"],
+      ["reviewed_bidirectional", "refuses it"],
+      ["database_primary", "holds it for review"],
+    ] as const)(
+      "after that refusal, a %s folder's next sync of the edited file %s, and a retry refuses before the file write",
+      async (policy) => {
+        const connection = await runWithRequestContext(
+          { userEmail: OWNER },
+          () =>
+            connectLocalFolder.run({
+              connectionId: `desktop-folder-linked-edit-${policy}`,
+              label: `Linked edit ${policy}`,
+              createSourceBackedSpace: true,
+              truthPolicy: policy,
+            }),
+        );
+        const first = await runWithRequestContext({ userEmail: OWNER }, () =>
+          syncLocalFolder.run({
+            sourceId: connection.sourceId,
+            files: { "edited.md": "Baseline body." },
+          }),
+        );
+        const id = first.created[0]!.id;
+        const linkedLocal = await import("./_linked-local-document-edit.js");
+        const sourceWrite = vi
+          .spyOn(linkedLocal, "editLinkedLocalDocumentThroughBrowser")
+          .mockImplementationOnce(async () => {
+            await putPageOnLiveCopy(id);
+            return {
+              status: "persisted",
+              content: "Edited body.",
+              title: "edited",
+              path: "edited.md",
+              runtime: "browser",
+            };
+          });
+        const editBody = () =>
+          runWithRequestContext({ userEmail: OWNER }, () =>
+            editDocument.run(
+              { id, find: "Baseline", replace: "Edited", reuseLabels: [] },
+              { caller: "frontend", userEmail: OWNER },
+            ),
+          );
+        try {
+          await expect(editBody()).rejects.toMatchObject({
+            errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+            details: { sourcePath: "edited.md" },
+          });
+          const before = await pageBodyState(id);
+          const sourceBefore = await folderSourceState(connection);
+          const nextSync = runWithRequestContext({ userEmail: OWNER }, () =>
+            syncLocalFolder.run({
+              sourceId: connection.sourceId,
+              files: { "edited.md": "Edited body." },
+            }),
+          );
+          if (policy !== "database_primary") {
+            await expect(nextSync).rejects.toMatchObject({
+              errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+              details: {
+                documentId: id,
+                operation: "sync-local-folder-source",
+              },
+            });
+            expect(await folderSourceState(connection)).toEqual(sourceBefore);
+          } else {
+            await nextSync;
+            const { changeSets } = await folderSourceState(connection);
+            expect(changeSets).toEqual(
+              sourceBefore.changeSets.concat([
+                expect.objectContaining({
+                  documentId: id,
+                  kind: "body_update",
+                  direction: "incoming",
+                  state: "proposed",
+                }),
+              ]),
+            );
+          }
+          expect(await pageBodyState(id)).toEqual(before);
+          expect(before.page.content).toBe("Baseline body.");
+
+          await expect(editBody()).rejects.toMatchObject({
+            errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+            details: { documentId: id, operation: "edit-document" },
+          });
+          expect(sourceWrite).toHaveBeenCalledTimes(1);
+          expect(await pageBodyState(id)).toEqual(before);
+        } finally {
+          sourceWrite.mockRestore();
+        }
+      },
+    );
   });
 });

@@ -3,7 +3,7 @@ import { rmSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { serializeIconValue } from "@agent-native/core/icons";
-import { eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
@@ -28,6 +28,9 @@ let getDb: typeof import("../server/db/index.js").getDb;
 let schema: typeof import("../server/db/schema.js");
 let replace: typeof import("./historical-icon-apply.js").replaceHistoricalIconIfUnchanged;
 let openReceipts: typeof import("./historical-icon-apply.js").openHistoricalIconReceipts;
+let putPageOnLiveCopy: typeof import("../server/test-support/live-copy-page.js").putPageOnLiveCopy;
+let liveCopyVersionOf: typeof import("../server/test-support/live-copy-page.js").liveCopyVersionOf;
+let turnLiveCopyFlagsOff: typeof import("../server/test-support/live-copy-page.js").turnLiveCopyFlagsOff;
 const ownerEmail = "owner@example.com";
 const oldRaw = JSON.stringify({
   version: 1,
@@ -49,6 +52,8 @@ beforeAll(async () => {
     await import("./historical-icon-apply.js"));
   ({ openHistoricalIconReceipts: openReceipts } =
     await import("./historical-icon-apply.js"));
+  ({ putPageOnLiveCopy, liveCopyVersionOf, turnLiveCopyFlagsOff } =
+    await import("../server/test-support/live-copy-page.js"));
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as never);
 }, 60000);
@@ -58,6 +63,47 @@ afterAll(() => {
     rmSync(databasePath, { recursive: true, force: true });
   }
 });
+
+async function calloutPageOnLiveCopy(documentId: string) {
+  const content = `<callout icon="${oldRaw.replace(/"/g, "&quot;")}">\n\tOn a live copy\n</callout>`;
+  await getDb().insert(schema.documents).values({
+    id: documentId,
+    title: "Live copy callout",
+    content,
+    ownerEmail,
+    orgId: null,
+  });
+  await putPageOnLiveCopy(documentId);
+  const reference: IconReference = {
+    table: "documents",
+    rowId: documentId,
+    path: "content.callouts[0].icon",
+    raw: oldRaw,
+    ownerEmail,
+    orgId: null,
+    contentRaw: content,
+    calloutIndex: 0,
+  };
+  return reference;
+}
+
+async function pageBodyState(documentId: string) {
+  const db = getDb();
+  const [page] = await db
+    .select()
+    .from(schema.documents)
+    .where(eq(schema.documents.id, documentId));
+  const history = await db
+    .select({ content: schema.documentVersions.content })
+    .from(schema.documentVersions)
+    .where(eq(schema.documentVersions.documentId, documentId))
+    .orderBy(asc(schema.documentVersions.createdAt));
+  return {
+    page,
+    history: history.map((version) => version.content),
+    liveCopyVersion: await liveCopyVersionOf(documentId),
+  };
+}
 
 describe("historical icon CAS and reference index", () => {
   it("migrates sibling live callouts atomically without changing fenced examples or unrelated body bytes", async () => {
@@ -182,6 +228,45 @@ describe("historical icon CAS and reference index", () => {
         .from(schema.privateIconReferences)
         .where(eq(schema.privateIconReferences.documentId, documentId)),
     ).toEqual([]);
+  });
+
+  it("refuses a callout icon migration on a page that takes body writes through its live copy", async () => {
+    const documentId = "historical-callout-live-copy";
+    const reference = await calloutPageOnLiveCopy(documentId);
+    const before = await pageBodyState(documentId);
+
+    await expect(replace(reference, newRaw)).rejects.toMatchObject({
+      errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+      statusCode: 409,
+      details: { documentId, operation: "historical-icon-apply" },
+    });
+    expect(await pageBodyState(documentId)).toEqual(before);
+    expect(before.page.content).toBe(reference.contentRaw);
+    expect(
+      await getDb()
+        .select()
+        .from(schema.privateIconReferences)
+        .where(eq(schema.privateIconReferences.documentId, documentId)),
+    ).toEqual([]);
+  });
+
+  it("migrates a switched page's callout icon as before while the live-copy flags are off (SF-11)", async () => {
+    const documentId = "historical-callout-live-copy-flags-off";
+    const reference = await calloutPageOnLiveCopy(documentId);
+    await turnLiveCopyFlagsOff();
+    const before = await pageBodyState(documentId);
+
+    expect(await replace(reference, newRaw)).toBe(true);
+
+    const after = await pageBodyState(documentId);
+    expect(after.page.content).toBe(
+      reference.contentRaw!.replace(
+        oldRaw.replace(/"/g, "&quot;"),
+        newRaw.replace(/"/g, "&quot;"),
+      ),
+    );
+    expect(after.page.bodyRevision).toBe(before.page.bodyRevision + 1);
+    expect(after.liveCopyVersion).toBe(before.liveCopyVersion);
   });
 
   it("replaces a current document icon and indexes it in the same transaction", async () => {

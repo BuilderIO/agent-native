@@ -435,6 +435,16 @@ export async function migrateHistoricalIconUrls(
         });
       }
     } catch (error) {
+      if (
+        (error as { errorCode?: unknown } | null)?.errorCode ===
+        "LIVE_BODY_WRITER_UNSUPPORTED"
+      ) {
+        report.deferred.push({
+          reference: key,
+          reason: "page takes body writes through its live copy",
+        });
+        continue;
+      }
       report.deferred.push({
         reference: key,
         reason:

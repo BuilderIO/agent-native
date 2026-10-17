@@ -3252,6 +3252,127 @@ describe("a browser save to a switched page's body", () => {
   });
 });
 
+describe("a SQL body write to a switched page", () => {
+  /** Everything a SQL body write could change on page `id`. */
+  async function bodyState(id: string) {
+    return {
+      page: await page(id),
+      liveCopy: await collabVersion(id),
+      history: await history(id),
+    };
+  }
+
+  async function cliUpdate(id: string, content: string) {
+    const action = (await import("../../actions/update-document.js")).default;
+    return asOwner(async () =>
+      action.run(
+        { id, content } as never,
+        { caller: "cli", userEmail: OWNER } as never,
+      ),
+    );
+  }
+
+  async function agentEdit(
+    id: string,
+    base: { bodyRevision: number; content: string },
+  ) {
+    const action = (await import("../../actions/edit-document.js")).default;
+    const { documentRevisionToken } =
+      await import("../../actions/_document-edit-mutation.js");
+    return asOwner(async () =>
+      action.run(
+        {
+          id,
+          baseRevision: documentRevisionToken(base.bodyRevision, base.content),
+          idempotencyKey: `${id}-edit`,
+          edits: [{ find: "there", replace: "world" }],
+        } as never,
+        { caller: "mcp", userEmail: OWNER } as never,
+      ),
+    ) as Promise<{ receipt: { outcome: string } }>;
+  }
+
+  async function editorEdit(id: string) {
+    const action = (await import("../../actions/edit-document.js")).default;
+    return asOwner(async () =>
+      action.run(
+        { id, find: "there", replace: "world" } as never,
+        { caller: "frontend", userEmail: OWNER } as never,
+      ),
+    );
+  }
+
+  it("refuses update-document's body from outside the editor, and names edit-document", async () => {
+    await switchedPage("cli-update", "Hello there");
+    const before = await bodyState("cli-update");
+
+    await expect(cliUpdate("cli-update", "Hello world")).rejects.toMatchObject({
+      errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+      statusCode: 409,
+      details: { documentId: "cli-update", operation: "update-document" },
+      message: expect.stringMatching(
+        /Retrying won't change that\. Write the body with edit-document\.$/,
+      ),
+    });
+
+    expect(await bodyState("cli-update")).toEqual(before);
+    expect(await gateFor("cli-update")).toEqual({ writePath: "live_copy" });
+  });
+
+  it("takes update-document's body from outside the editor once the page's flags are off (SF-11)", async () => {
+    await switchedPage("cli-update-off", "Hello there");
+    await setFlags(false);
+
+    await cliUpdate("cli-update-off", "Hello world");
+
+    expect((await page("cli-update-off")).content).toBe("Hello world");
+  });
+
+  it("refuses an agent's legacy edit whose page took its live copy before it committed, and its retry takes the copy", async () => {
+    await switchedPage("agent-race", "Hello there");
+    await setFlags(false);
+    const loaded = await page("agent-race");
+    const before = await bodyState("agent-race");
+    afterWritePathRead.current = () => setFlags(true);
+    try {
+      await expect(agentEdit("agent-race", loaded)).rejects.toMatchObject({
+        errorCode: "LIVE_BODY_WRITE_PATH_CHANGED",
+        statusCode: 409,
+      });
+    } finally {
+      afterWritePathRead.current = null;
+    }
+    expect(await bodyState("agent-race")).toEqual(before);
+
+    const retried = await agentEdit("agent-race", loaded);
+
+    expect(retried.receipt.outcome).toBe("applied");
+    expect((await page("agent-race")).content).toBe("Hello world");
+    expect(await gateFor("agent-race")).toEqual({ writePath: "live_copy" });
+  });
+
+  it("refuses an editor's legacy edit whose page took its live copy before it committed, and its retry takes the copy", async () => {
+    await switchedPage("editor-race", "Hello there");
+    await setFlags(false);
+    const before = await bodyState("editor-race");
+    afterWritePathRead.current = () => setFlags(true);
+    try {
+      await expect(editorEdit("editor-race")).rejects.toMatchObject({
+        errorCode: "LIVE_BODY_WRITE_PATH_CHANGED",
+        statusCode: 409,
+      });
+    } finally {
+      afterWritePathRead.current = null;
+    }
+    expect(await bodyState("editor-race")).toEqual(before);
+
+    await editorEdit("editor-race");
+
+    expect((await page("editor-race")).content).toBe("Hello world");
+    expect(await gateFor("editor-race")).toEqual({ writePath: "live_copy" });
+  });
+});
+
 describe("with the gate off (SF-11)", () => {
   it("keeps an unswitched page on main's collab path", async () => {
     await insertPage("legacy", "Hello there");

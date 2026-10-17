@@ -5,7 +5,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
+import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
 import { withoutDatabaseColumnPresentation } from "../shared/database-table-columns.js";
 import {
   isBlocksPropertyType,
@@ -196,12 +196,17 @@ export default defineAction({
             )
             .map((item) => item.documentId);
           if (documentsWithoutSurvivingPrimary.length > 0) {
+            const legacy = await lockLegacyBodyWrites(
+              tx,
+              documentsWithoutSurvivingPrimary,
+              { operation: "delete-document-property", content: "" },
+            );
             const now = new Date().toISOString();
             await tx
               .update(schema.documents)
               .set({
                 content: "",
-                bodyRevision: bodyRevisionForContent(""),
+                bodyRevision: legacy.bodyRevision(""),
                 updatedAt: now,
               })
               .where(

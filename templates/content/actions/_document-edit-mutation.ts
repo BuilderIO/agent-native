@@ -19,6 +19,7 @@ import {
   readDocumentBodyIntents,
   recordDocumentBodyIntent,
 } from "../server/lib/document-body-intents.js";
+import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
 import { rebuildDocumentBodyBase } from "../server/lib/document-body-steps.js";
 import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
 import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
@@ -616,6 +617,12 @@ async function performDocumentBodyMutation(
           tx,
           args.documentId,
         );
+        // The page may have switched since the gate above chose this path.
+        await lockLegacyBodyWrites(tx, [args.documentId], {
+          operation: "edit-document",
+          routed: true,
+          content: null,
+        });
         const updated = await tx
           .update(schema.documents)
           .set({
