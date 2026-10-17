@@ -1219,3 +1219,29 @@ test("exact-identity reactivation repairs every baseline suppression kind", () =
 function isSuppressedRegistration(registration) {
   return registration.suppressionKind != null || registration.modifier != null;
 }
+
+test("fixme reasons must be actual nonempty comments", () => {
+  const root = mkdtempSync(join(tmpdir(), "e2e-quarantine-comment-reason-"));
+  const e2e = join(root, "templates/design/e2e");
+  mkdirSync(e2e, { recursive: true });
+  try {
+    for (const [prefix, explained] of [
+      ["const value = 2\n * 3;", false],
+      ["//", false],
+      ["/**/", false],
+      ["/* The browser behavior still fails. */", true],
+      ["/**\n * The browser behavior still fails.\n */", true],
+      ["// The browser behavior still fails.\n", true],
+    ] as const) {
+      writeFileSync(
+        join(e2e, "reason.spec.ts"),
+        `${prefix}\ntest.fixme("quarantined behavior", () => {});`,
+      );
+      const result = inspectCurrentFiles(root);
+      assert.equal(result.fixmeCount, 1);
+      assert.equal(result.unexplained.length, explained ? 0 : 1, prefix);
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

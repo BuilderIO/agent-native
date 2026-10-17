@@ -19,6 +19,7 @@ import {
   DESIGN_E2E_REGRESSION_PINS,
   DESIGN_E2E_REGRESSION_SHARDS,
   findDesignE2ERegressionPinCoverageViolations,
+  findDesignE2ESuppressionCallSites,
   findDesignE2ETestRegistrations,
   findDesignE2ETestLine,
   parseDesignE2ERegressionPins,
@@ -764,6 +765,59 @@ test("only Playwright and Design rails imports contribute test aliases", () => {
       lexicalShadowDoesNotReplaceTheValidImport,
     ).map(({ title }) => title),
     ["valid imported test"],
+  );
+});
+
+test("static CommonJS test aliases preserve Playwright and node:test origins", () => {
+  const source = [
+    'const { test: nodeTest } = require("node:test");',
+    'nodeTest.skip(true, "ordinary node skip");',
+    'const { test: pw } = require("@playwright/test");',
+    'pw("pinned behavior", () => {});',
+    'pw("runtime suppression", () => { pw.fixme(true, "disabled"); });',
+  ].join("\n");
+  const registrations = findDesignE2ETestRegistrations(source, "fixture.cjs");
+
+  assert.deepEqual(
+    registrations.map(({ title, line }) => [title, line]),
+    [
+      ["pinned behavior", 4],
+      ["runtime suppression", 5],
+    ],
+  );
+  assert.equal(findDesignE2ETestLine(source, "pinned behavior"), 4);
+  assert.throws(
+    () => findDesignE2ETestLine(source, "runtime suppression"),
+    /must run without/,
+  );
+  assert.deepEqual(
+    findDesignE2ESuppressionCallSites(source, "fixture.cjs").map(
+      ({ modifier, line }) => [modifier, line],
+    ),
+    [["fixme", 5]],
+  );
+
+  const namespaceAlias = [
+    'const playwright = require("@playwright/test");',
+    'playwright.test("namespace behavior", () => {});',
+  ].join("\n");
+  assert.equal(
+    findDesignE2ETestRegistrations(namespaceAlias, "fixture.cjs")[0]?.title,
+    "namespace behavior",
+  );
+
+  const unknownSource = [
+    'const { test: runnerTest } = require("unrelated-runner");',
+    'runnerTest.fixme(true, "unknown source");',
+    'test("pinned behavior", () => {});',
+  ].join("\n");
+  assert.throws(
+    () => findDesignE2ETestLine(unknownSource, "pinned behavior"),
+    /Unable to inspect unsupported Playwright modifier invocation/,
+  );
+  assert.throws(
+    () => findDesignE2ESuppressionCallSites(unknownSource, "fixture.cjs"),
+    /unsupported dynamic Playwright test modifier callsite/,
   );
 });
 
@@ -1554,6 +1608,43 @@ test("runtime skip, fixme, and fail annotations reject a pinned test body", () =
         "pinned behavior",
       ),
     /Unable to inspect conditional test\.fixme/,
+  );
+});
+
+test("conditional Playwright test receivers retain suppression coverage", () => {
+  const knownAlias = [
+    'import { test } from "@playwright/test";',
+    'test("pinned behavior", () => {',
+    '  (enabled ? test : test).fixme(true, "conditional alias");',
+    "});",
+  ].join("\n");
+
+  assert.throws(
+    () => findDesignE2ETestLine(knownAlias, "pinned behavior"),
+    /must run without/,
+  );
+  assert.deepEqual(
+    findDesignE2ESuppressionCallSites(knownAlias).map(({ modifier, line }) => [
+      modifier,
+      line,
+    ]),
+    [["fixme", 3]],
+  );
+
+  const ambiguousAlias = [
+    'import { test } from "@playwright/test";',
+    'test("pinned behavior", () => {',
+    '  (enabled ? test : otherApi).fixme(true, "ambiguous alias");',
+    "});",
+  ].join("\n");
+
+  assert.throws(
+    () => findDesignE2ETestLine(ambiguousAlias, "pinned behavior"),
+    /Unable to inspect unsupported Playwright modifier invocation/,
+  );
+  assert.throws(
+    () => findDesignE2ESuppressionCallSites(ambiguousAlias),
+    /unsupported dynamic Playwright test modifier callsite/,
   );
 });
 

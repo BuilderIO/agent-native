@@ -561,15 +561,21 @@ function isDesignCanvasE2eSpecPath(path: string): boolean {
 function isDesignCanvasE2eSupportPath(path: string): boolean {
   return (
     path.startsWith("templates/design/e2e/") &&
-    /\.(?:[cm]?ts|tsx)$/u.test(path) &&
+    DESIGN_CANVAS_E2E_SOURCE_EXTENSIONS.some((extension) =>
+      path.endsWith(extension),
+    ) &&
     !/\.(?:spec|test)\.[cm]?[jt]sx?$/u.test(path) &&
     !DESIGN_CANVAS_PIN_ATTESTATION_FILES.has(path)
   );
 }
 
-function tokenizeE2eSource(source: string): E2eSourceToken[] {
+function tokenizeE2eSource(source: string): {
+  tokens: E2eSourceToken[];
+  uncertain: boolean;
+} {
   const tokens: E2eSourceToken[] = [];
   let index = 0;
+  let uncertain = false;
 
   while (index < source.length) {
     const character = source[index];
@@ -598,10 +604,10 @@ function tokenizeE2eSource(source: string): E2eSourceToken[] {
       const quote = character;
       index += 1;
       let value = "";
-      let uncertain = false;
+      let stringUncertain = false;
       while (index < source.length && source[index] !== quote) {
         if (source[index] === "\\" && index + 1 < source.length) {
-          uncertain = true;
+          stringUncertain = true;
           value += source[index + 1];
           index += 2;
         } else {
@@ -610,14 +616,20 @@ function tokenizeE2eSource(source: string): E2eSourceToken[] {
             source[index] === "$" &&
             source[index + 1] === "{"
           ) {
-            uncertain = true;
+            stringUncertain = true;
           }
           value += source[index];
           index += 1;
         }
       }
-      index = Math.min(source.length, index + 1);
-      tokens.push({ kind: "string", value, uncertain });
+      const terminated = index < source.length;
+      if (terminated) index += 1;
+      else uncertain = true;
+      tokens.push({
+        kind: "string",
+        value,
+        uncertain: stringUncertain || !terminated,
+      });
       continue;
     }
     if (/[A-Za-z_$]/u.test(character)) {
@@ -634,16 +646,17 @@ function tokenizeE2eSource(source: string): E2eSourceToken[] {
     index += 1;
   }
 
-  return tokens;
+  return { tokens, uncertain };
 }
 
 function moduleSpecifiersInE2eSource(source: string): {
   specifiers: string[];
   uncertain: boolean;
 } {
-  const tokens = tokenizeE2eSource(source);
+  const tokenization = tokenizeE2eSource(source);
+  const tokens = tokenization.tokens;
   const specifiers = new Set<string>();
-  let uncertain = false;
+  let uncertain = tokenization.uncertain;
 
   for (let index = 0; index < tokens.length; index += 1) {
     const token = tokens[index];
@@ -651,7 +664,7 @@ function moduleSpecifiersInE2eSource(source: string): {
 
     if (token.value === "require" && tokens[index + 1]?.value === "(") {
       const argument = tokens[index + 2];
-      if (argument?.kind === "string") {
+      if (argument?.kind === "string" && tokens[index + 3]?.value === ")") {
         specifiers.add(argument.value);
         uncertain ||= Boolean(argument.uncertain);
       } else {
@@ -665,7 +678,7 @@ function moduleSpecifiersInE2eSource(source: string): {
       if (next?.value === ".") continue;
       if (next?.value === "(") {
         const argument = tokens[index + 2];
-        if (argument?.kind === "string") {
+        if (argument?.kind === "string" && tokens[index + 3]?.value === ")") {
           specifiers.add(argument.value);
           uncertain ||= Boolean(argument.uncertain);
         } else {

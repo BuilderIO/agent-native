@@ -4,6 +4,8 @@ import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import ts from "typescript";
+
 import {
   findDesignE2ESuppressionCallSites,
   findDesignE2ETestRegistrations,
@@ -734,7 +736,28 @@ export function inspectCurrentFiles(cwd) {
       path.join(cwd, E2E_DIR, ...name.split("/")),
       "utf8",
     );
-    const lines = source.split("\n");
+    const reasonStarts = new Set();
+    const parsed = ts.createSourceFile(
+      name,
+      source,
+      ts.ScriptTarget.Latest,
+      true,
+    );
+    function collectReasons(node) {
+      const start = node.getStart(parsed);
+      for (const range of ts.getLeadingCommentRanges(source, node.pos) ?? []) {
+        if (!source.slice(range.end, start).trim()) {
+          const text = source
+            .slice(range.pos, range.end)
+            .replace(/^\/\/|^\/\*|\*\/$/g, "")
+            .replace(/^[ \t]*\*/gm, "")
+            .trim();
+          if (text) reasonStarts.add(start);
+        }
+      }
+      ts.forEachChild(node, collectReasons);
+    }
+    collectReasons(parsed);
     for (const callSite of findDesignE2ESuppressionCallSites(
       source,
       `${E2E_DIR}/${name}`,
@@ -744,10 +767,7 @@ export function inspectCurrentFiles(cwd) {
         continue;
       }
       fixmeCount += 1;
-      let cursor = callSite.line - 2;
-      while (cursor >= 0 && lines[cursor].trim() === "") cursor -= 1;
-      const above = cursor >= 0 ? lines[cursor].trim() : "";
-      if (!above.startsWith("//") && !above.startsWith("*")) {
+      if (!reasonStarts.has(callSite.start)) {
         unexplained.push(`${E2E_DIR}/${name}:${callSite.line}`);
       }
     }

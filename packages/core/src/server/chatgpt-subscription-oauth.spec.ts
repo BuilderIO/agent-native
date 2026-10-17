@@ -8,9 +8,9 @@ import {
   CHATGPT_SUBSCRIPTION_SCOPES,
 } from "../agent/chatgpt-subscription-contract.js";
 import { CHATGPT_SUBSCRIPTION_LAB } from "../labs/core-labs.js";
-import { _resetLabRegistryForTests, registerLabs } from "../labs/registry.js";
 
 const mocks = vi.hoisted(() => ({
+  getLabDefinition: vi.fn(),
   getUserLabEnabled: vi.fn(),
   getSetting: vi.fn(),
   getUserSetting: vi.fn(),
@@ -21,6 +21,12 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../labs/store.js", () => mocks);
+// Lab registration lives on globalThis; pin the registered/unregistered
+// boundary here instead of sharing that process-global map with other specs.
+vi.mock("../labs/registry.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../labs/registry.js")>()),
+  getLabDefinition: mocks.getLabDefinition,
+}));
 // Account reads hit the settings and OAuth tables, which a fresh test database
 // does not have. Each read defaults to "no account"; a test that seeds an
 // account must set the mock itself. The unresolved-scope test asserts that the
@@ -63,14 +69,15 @@ const NONCE = "fresh-test-nonce";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.getLabDefinition.mockImplementation((key: string) =>
+    key === CHATGPT_SUBSCRIPTION_LAB.key ? CHATGPT_SUBSCRIPTION_LAB : null,
+  );
   mocks.getUserLabEnabled.mockResolvedValue(false);
   mocks.getSetting.mockResolvedValue(null);
   mocks.getUserSetting.mockResolvedValue(null);
   mocks.listOAuthAccountsByOwner.mockResolvedValue([]);
   mocks.mutateSetting.mockResolvedValue({});
   mocks.readOAuthCredentialState.mockResolvedValue({ kind: "missing" });
-  _resetLabRegistryForTests();
-  registerLabs([CHATGPT_SUBSCRIPTION_LAB]);
 });
 
 function expectEmptyStorageFixtureUsed(): void {
@@ -244,7 +251,7 @@ describe("ChatGPT subscription OAuth contract", () => {
   });
 
   it("reports unsupported when the app did not register the ChatGPT lab", async () => {
-    _resetLabRegistryForTests();
+    mocks.getLabDefinition.mockReturnValue(null);
 
     await runWithRequestContext(
       {

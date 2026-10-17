@@ -31,8 +31,31 @@ async function enableDesignSystemWorkflows(page: Page) {
   return () => setFlagRules(page, { mode, emails, orgIds, percentage });
 }
 
-/** Answers only the Builder plan lookup inside the editor's batched reads as an Enterprise plan. */
+/** Answers the Builder plan lookup as Enterprise for both its first GET and batched refetches. */
 async function grantBuilderCodeIndexing(page: Page) {
+  const enterpriseTierLimit = {
+    status: "ok",
+    plan: "enterprise",
+    current: 0,
+    max: null,
+    atMax: false,
+    codeIndexingAllowed: true,
+    upgradeUrl: null,
+  };
+
+  await page.route(
+    "**/_agent-native/actions/get-design-system-tier-limit**",
+    async (route) => {
+      if (route.request().method() !== "GET") {
+        await route.continue();
+        return;
+      }
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify(enterpriseTierLimit),
+      });
+    },
+  );
   await page.route(
     "**/_agent-native/actions/get-actions-batch**",
     async (route) => {
@@ -43,15 +66,7 @@ async function grantBuilderCodeIndexing(page: Page) {
       const json = (await response.json()) as { results: { body: unknown }[] };
       requests.forEach((request, index) => {
         if (request.action !== "get-design-system-tier-limit") return;
-        json.results[index]!.body = {
-          status: "ok",
-          plan: "enterprise",
-          current: 0,
-          max: null,
-          atMax: false,
-          codeIndexingAllowed: true,
-          upgradeUrl: null,
-        };
+        json.results[index]!.body = enterpriseTierLimit;
       });
       await route.fulfill({ response, json });
     },

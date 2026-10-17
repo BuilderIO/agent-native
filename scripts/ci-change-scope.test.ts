@@ -909,6 +909,42 @@ test("routes CSS style helper changes to its exact importing specs", () => {
   }
 });
 
+test("routes JavaScript helper changes to their exact importing specs", () => {
+  const fixtureRoot = mkdtempSync(
+    join(tmpdir(), "ci-change-scope-design-javascript-helpers-"),
+  );
+  const helpers = [
+    ["shared-helper.js", "javascript-consumer.spec.ts"],
+    ["shared-helper.jsx", "jsx-consumer.spec.ts"],
+    ["shared-helper.mjs", "module-consumer.spec.ts"],
+    ["shared-helper.cjs", "commonjs-consumer.spec.ts"],
+  ] as const;
+  const writeSource = (path: string, source: string) => {
+    const destination = join(fixtureRoot, path);
+    mkdirSync(dirname(destination), { recursive: true });
+    writeFileSync(destination, source);
+  };
+
+  try {
+    for (const [helper, spec] of helpers) {
+      writeSource(`templates/design/e2e/${helper}`, "export {};");
+      writeSource(`templates/design/e2e/${spec}`, `import "./${helper}";\n`);
+    }
+
+    const scope = classifyChangedPaths(
+      helpers.map(([helper]) => `templates/design/e2e/${helper}`),
+      [],
+      fixtureRoot,
+    );
+    assert.deepEqual(
+      scope.designCanvasE2eSpecs,
+      helpers.map(([, spec]) => `templates/design/e2e/${spec}`).sort(),
+    );
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
 test("traces Design E2E helper imports and literal dynamic imports", () => {
   const fixtureRoot = mkdtempSync(
     join(tmpdir(), "ci-change-scope-design-import-graph-"),
@@ -1054,6 +1090,92 @@ test("falls back to all eligible specs when a dynamic import is computed", () =>
       "templates/design/e2e/static-consumer.spec.ts",
       "templates/design/e2e/unrelated.test.tsx",
     ]);
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("falls back when import and require arguments start with a literal", () => {
+  const fixtureRoot = mkdtempSync(
+    join(tmpdir(), "ci-change-scope-design-literal-prefix-import-"),
+  );
+  const writeSource = (path: string, source: string) => {
+    const destination = join(fixtureRoot, path);
+    mkdirSync(dirname(destination), { recursive: true });
+    writeFileSync(destination, source);
+  };
+  const helperPath = "templates/design/e2e/computed-helper.ts";
+  const consumers = [
+    [
+      "templates/design/e2e/computed-import-consumer.spec.ts",
+      'void import("./computed-helper" + helperName);\n',
+    ],
+    [
+      "templates/design/e2e/computed-require-consumer.spec.ts",
+      'require("./computed-helper" + helperName);\n',
+    ],
+  ] as const;
+  const expectedSpecs = [
+    ...consumers.map(([path]) => path),
+    "templates/design/e2e/static-consumer.spec.ts",
+    "templates/design/e2e/unrelated.test.tsx",
+  ].sort();
+
+  try {
+    writeSource(helperPath, "export const helper = true;\n");
+    writeSource(
+      "templates/design/e2e/static-consumer.spec.ts",
+      'import "./computed-helper";\n',
+    );
+    writeSource("templates/design/e2e/unrelated.test.tsx", "export {};\n");
+
+    for (const [consumerPath, source] of consumers) {
+      for (const [path] of consumers) {
+        writeSource(path, path === consumerPath ? source : "export {};\n");
+      }
+      const scope = classifyChangedPaths([helperPath], [], fixtureRoot);
+      assert.deepEqual(scope.designCanvasE2eSpecs, expectedSpecs);
+    }
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("falls back when apostrophes can hide imports in regex and JSX source", () => {
+  const fixtureRoot = mkdtempSync(
+    join(tmpdir(), "ci-change-scope-design-unterminated-token-"),
+  );
+  const writeSource = (path: string, source: string) => {
+    const destination = join(fixtureRoot, path);
+    mkdirSync(dirname(destination), { recursive: true });
+    writeFileSync(destination, source);
+  };
+  const helperPath = "templates/design/e2e/shared-helper.ts";
+  const expectedSpecs = [
+    "templates/design/e2e/jsx-consumer.spec.tsx",
+    "templates/design/e2e/regex-consumer.spec.ts",
+    "templates/design/e2e/static-consumer.spec.ts",
+    "templates/design/e2e/unrelated.test.tsx",
+  ];
+
+  try {
+    writeSource(helperPath, "export const helper = true;\n");
+    writeSource(
+      "templates/design/e2e/static-consumer.spec.ts",
+      'import "./shared-helper";\n',
+    );
+    writeSource(
+      "templates/design/e2e/regex-consumer.spec.ts",
+      'const matcher = /\'/;\nimport "./shared-helper";\n',
+    );
+    writeSource(
+      "templates/design/e2e/jsx-consumer.spec.tsx",
+      'const view = <span>it\'s ready</span>;\nimport "./shared-helper";\n',
+    );
+    writeSource("templates/design/e2e/unrelated.test.tsx", "export {};\n");
+
+    const scope = classifyChangedPaths([helperPath], [], fixtureRoot);
+    assert.deepEqual(scope.designCanvasE2eSpecs, expectedSpecs);
   } finally {
     rmSync(fixtureRoot, { recursive: true, force: true });
   }
