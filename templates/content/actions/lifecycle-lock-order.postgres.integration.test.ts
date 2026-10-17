@@ -3014,6 +3014,12 @@ title: "Other renamed"
         holding(await backendPid(tx));
         await released;
       });
+      const pid = await Promise.race([
+        holderPid,
+        holder.then(() => {
+          throw new Error("The holder ended before it held its row.");
+        }),
+      ]);
       let settled = false;
       const imported = asOwner(() =>
         importContentSource.run({
@@ -3033,9 +3039,7 @@ isFavorite: true
       );
       let pageHeld: boolean;
       try {
-        expect(await waitUntilBlockedBy(await holderPid, () => settled)).toBe(
-          true,
-        );
+        expect(await waitUntilBlockedBy(pid, () => settled)).toBe(true);
         pageHeld = await isRowLocked({
           label: "new page",
           kind: "page",
