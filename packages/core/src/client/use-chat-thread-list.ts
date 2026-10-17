@@ -258,8 +258,8 @@ export function useChatThreadList(
   }, [pageSize, request, session, update]);
 
   useEffect(() => {
-    if (enabled) void replace(pageSize);
-  }, [enabled, pageSize, replace]);
+    void refresh();
+  }, [refresh]);
 
   useEffect(() => {
     if (!enabled || typeof window === "undefined") return;
