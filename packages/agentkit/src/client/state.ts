@@ -670,12 +670,9 @@ function settleRunItems(
     }
   }
   let runs = thread.runs;
-  let seenSettlingRun = false;
+  const settlingRunOrder = timestampOrder(thread.runs[runId]?.startedAt);
   for (const run of Object.values(thread.runs)) {
-    if (run.id === runId) {
-      seenSettlingRun = true;
-      continue;
-    }
+    if (run.id === runId) continue;
     if (isTerminalRunStatus(run.status)) continue;
     if (run.activeMessageId || run.inheritedMessageId) {
       if (run.activeMessageId) messageIds.delete(run.activeMessageId);
@@ -684,8 +681,11 @@ function settleRunItems(
     }
     const foldedMessageId =
       thread.runs[runId]?.activeMessageId ?? activeMessageId;
+    const runOrder = timestampOrder(run.startedAt);
     if (
-      !seenSettlingRun ||
+      (settlingRunOrder.kind === "known" &&
+        runOrder.kind === "known" &&
+        runOrder.value < settlingRunOrder.value) ||
       !foldedMessageId ||
       !messageIds.has(foldedMessageId)
     ) {

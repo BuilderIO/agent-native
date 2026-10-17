@@ -404,6 +404,35 @@ describe("AgentKit lifecycle projections", () => {
     ]);
   });
 
+  it("keeps an unprojected continuation regardless of run-map order", () => {
+    let thread = [
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "message.delta",
+        messageId: "assistant-shared",
+        text: "Partial",
+      }),
+    ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+    thread = {
+      ...thread,
+      runs: {
+        "run-2": { id: "run-2", status: "running", lastSequence: 0 },
+        ...thread.runs,
+      },
+      activeRunIds: [...thread.activeRunIds, "run-2"],
+    };
+
+    thread = reduceAgentEvent(thread, event(3, { type: "run.completed" }));
+
+    expect(thread.runs["run-2"]).toMatchObject({
+      status: "running",
+      inheritedMessageId: "assistant-shared",
+    });
+    expect(thread.messages).toEqual([
+      expect.objectContaining({ id: "assistant-shared", status: "streaming" }),
+    ]);
+  });
+
   it("does not record a continuation that never writes as the shared reply's author", () => {
     let thread = [
       event(1, { type: "run.started" }),
