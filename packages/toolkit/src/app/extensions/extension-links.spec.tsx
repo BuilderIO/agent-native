@@ -27,6 +27,7 @@ import {
 
 import {
   extensionFrameUrlWithLinkNonce,
+  isExtensionApiPath,
   useExternalExtensionLinks,
 } from "./extension-links.js";
 
@@ -53,6 +54,16 @@ function LinkFrame({
     />
   );
 }
+
+describe("isExtensionApiPath", () => {
+  it("rejects extension API namespaces when path segments are encoded", () => {
+    expect(isExtensionApiPath("/%5Fagent-native/extensions/ext/render")).toBe(
+      true,
+    );
+    expect(isExtensionApiPath("/_agent-native/%74ools/ext/render")).toBe(true);
+    expect(isExtensionApiPath("/dashboards/example")).toBe(false);
+  });
+});
 
 describe("useExternalExtensionLinks", () => {
   let container: HTMLDivElement;

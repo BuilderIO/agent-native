@@ -138,6 +138,11 @@ describe("safeDashboardLinkHref", () => {
     });
     try {
       expect(
+        safeDashboardLinkHref(
+          "https://agent-native.local/_agent-native/tools/ext/render",
+        ),
+      ).toBe("https://agent-native.local/_agent-native/tools/ext/render");
+      expect(
         safeDashboardLinkHref("/_agent-native/extensions/ext/render"),
       ).toBeNull();
       expect(
