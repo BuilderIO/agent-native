@@ -1,3 +1,4 @@
+import { ActionContractError } from "@agent-native/core/action";
 import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
@@ -186,10 +187,16 @@ export async function resolveDatabaseRowsForBatch(
   };
 }
 
+/**
+ * Pass `heldMembershipIds` when the caller locked the collection's
+ * memberships before any page: a membership outside that set was added since,
+ * and locking it now would come after pages the caller holds.
+ */
 export async function renumberDatabaseRows(
   db: ReturnType<typeof getDb>,
   database: typeof schema.contentDatabases.$inferSelect,
   now: string,
+  heldMembershipIds?: ReadonlySet<string>,
 ) {
   // Trashed rows keep their slot: renumbering only the visible rows lets a
   // visible row take a trashed row's number, and the restored row then sorts
@@ -207,6 +214,11 @@ export async function renumberDatabaseRows(
       asc(schema.contentDatabaseItems.id),
     );
   if (rows.length === 0) return;
+  if (heldMembershipIds && rows.some((row) => !heldMembershipIds.has(row.id)))
+    throw new ActionContractError(
+      "Database memberships changed before the operation completed.",
+      { errorCode: "DATABASE_MEMBERSHIPS_CHANGED", statusCode: 409 },
+    );
 
   const itemIds = rows.map((row) => row.id);
   const documentIds = rows.map((row) => row.documentId);

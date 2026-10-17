@@ -10,14 +10,29 @@ export async function lockDatabaseMemberships(db: any, itemIds: string[]) {
   if (uniqueItemIds.length === 0) return;
   const lockedIds = new Set<string>();
   for (const itemIdChunk of chunks(uniqueItemIds, 90)) {
-    // ORDER BY puts the row locks in id order; an UPDATE would take them in
-    // whatever order its scan visits the rows.
+    // The sub-select takes the row locks in id order; an UPDATE alone would
+    // take them in whatever order its scan visits the rows. It stays an
+    // UPDATE for its ROW EXCLUSIVE table lock: suggestion acceptance locks a
+    // page, then refuses with `LOCK TABLE ... SHARE ROW EXCLUSIVE NOWAIT`
+    // while anyone may hold a membership, and a locking SELECT's ROW SHARE
+    // doesn't conflict with that.
     const lockedRows = await db
-      .select({ id: schema.contentDatabaseItems.id })
-      .from(schema.contentDatabaseItems)
-      .where(inArray(schema.contentDatabaseItems.id, itemIdChunk))
-      .orderBy(sql`${schema.contentDatabaseItems.id} COLLATE "C"`)
-      .for("no key update");
+      .update(schema.contentDatabaseItems)
+      .set({
+        updatedAt: sql`${schema.contentDatabaseItems.updatedAt}`,
+      })
+      .where(
+        inArray(
+          schema.contentDatabaseItems.id,
+          db
+            .select({ id: schema.contentDatabaseItems.id })
+            .from(schema.contentDatabaseItems)
+            .where(inArray(schema.contentDatabaseItems.id, itemIdChunk))
+            .orderBy(sql`${schema.contentDatabaseItems.id} COLLATE "C"`)
+            .for("no key update"),
+        ),
+      )
+      .returning({ id: schema.contentDatabaseItems.id });
     for (const row of lockedRows) lockedIds.add(row.id);
   }
   if (lockedIds.size !== uniqueItemIds.length) {
