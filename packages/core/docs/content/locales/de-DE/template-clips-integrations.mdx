@@ -29,11 +29,12 @@ Fügen Sie einen öffentlichen Clips-Freigabelink in einen Agenten ein, oder ver
 
 Die meisten Agenten, die Bilder ansehen können, erledigen das von selbst, darunter ChatGPT, Claude Code, Cursor und Codex. Einige reine Text-Chats können das Transkript lesen, aber nicht die Frames, öffnen Sie den Clip für diese in einem bildfähigen Agenten.
 
-| Endpunkt                                          | Was Agenten erhalten                                                                                                        |
-| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `/api/agent-context.json?id=<recordingId>`        | Clip-Metadaten, Transkriptstatus, Kapitel, CTAs, empfohlene Frames und Links zu den Transkript-/Frame-APIs                  |
-| `/api/agent-transcript.json?id=<recordingId>`     | Transkriptsegmente mit Zeitstempel, mit `startMs`, `endMs`, lesbaren Zeitstempeln, Text und optionalen Quellenbezeichnungen |
-| `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` | Ein aus dem Video extrahierter JPEG-Frame zu einem Zeitstempel des Originalvideos                                           |
+| Endpunkt                                                                 | Was Agenten erhalten                                                                                                                                      |
+| ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/api/agent-context.json?id=<recordingId>`                               | Clip-Metadaten, Transkriptstatus, Kapitel, CTAs, empfohlene Frames und Links zu den Transkript-/Frame-APIs                                                |
+| `/api/agent-transcript.json?id=<recordingId>`                            | Transkriptsegmente mit Zeitstempel, mit `startMs`, `endMs`, lesbaren Zeitstempeln, Text und optionalen Quellenbezeichnungen                               |
+| `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>`                        | Ein aus dem Video extrahierter JPEG-Frame zu einem Zeitstempel des Originalvideos                                                                         |
+| `/api/agent-frames.jpg?id=<recordingId>&startMs=<ms>&endMs=<ms>&fps=<n>` | Ein JPEG-Kontaktabzug mit bis zu 36 aufeinanderfolgenden Frames aus einem Zeitraum, um eine Animation oder einen Übergang in einem einzigen Bild zu sehen |
 
 Die Endpunkte folgen denselben öffentlichen/Passwort-/Ablaufregeln wie die Freigabeseite, oder akzeptieren das gescopte `agent_access`-Token von einem temporären Agentenlink. Passwortgeschützte Clips erfordern das Passwort einmalig; erfolgreiche Antworten geben kurzlebige tokenisierte Links zurück, damit nachgeschaltete Agenten das Klartext-Passwort nicht benötigen.
 
@@ -101,6 +102,50 @@ Gibt Clip-Metadaten, Transkriptstatus, Kapitel, CTAs, empfohlene Frames und Link
     "description": "image/jpeg frame"
   }
 ]}>
+
+</Endpoint>
+
+<Endpoint id="doc-block-clips-agent-frames" title="Kontaktabzug für einen Zeitraum" method="GET" path="/api/agent-frames.jpg" summary="Aufeinanderfolgende Frames aus einem Zeitraum in einem JPEG-Kontaktabzug" params={[
+  {
+    "name": "id",
+    "in": "query",
+    "type": "string",
+    "required": true,
+    "description": "Recording id"
+  },
+  {
+    "name": "startMs",
+    "in": "query",
+    "type": "integer",
+    "required": true,
+    "description": "Time of the first frame in milliseconds"
+  },
+  {
+    "name": "endMs",
+    "in": "query",
+    "type": "integer",
+    "required": false,
+    "description": "End of the range in milliseconds (exclusive); without it, the sheet holds 36 frames from startMs"
+  },
+  {
+    "name": "fps",
+    "in": "query",
+    "type": "number",
+    "required": false,
+    "description": "Frames per second, up to 60; without it, the video's own frame rate"
+  }
+]} responses={[
+  {
+    "status": "200",
+    "description": "image/jpeg sheet read left to right, then top to bottom; the X-Clips-Frame-Sheet-Times header lists each cell's time"
+  },
+  {
+    "status": "400",
+    "description": "failureKind=request when the range needs more than 36 frames or spans more than 60 seconds; nextStep names a request that fits"
+  }
+]}>
+
+Zelle _i_ zeigt den Frame, der bei `startMs + i × 1000 / fps` zu sehen ist. Ohne `fps` erscheint jeder Frame des Videos.
 
 </Endpoint>
 

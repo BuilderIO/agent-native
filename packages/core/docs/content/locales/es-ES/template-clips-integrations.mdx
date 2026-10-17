@@ -29,11 +29,12 @@ Pega un enlace público para compartir de Clips en un agente, o usa **Share → 
 
 La mayoría de los agentes que pueden ver imágenes gestionan esto por su cuenta, incluidos ChatGPT, Claude Code, Cursor y Codex. Algunos chats de solo texto pueden leer la transcripción pero no los fotogramas, así que abre el clip en un agente con capacidad de imagen para esos casos.
 
-| Endpoint                                          | What agents get                                                                                                                          |
-| ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `/api/agent-context.json?id=<recordingId>`        | Metadatos del clip, estado de la transcripción, capítulos, CTA, fotogramas recomendados y enlaces a las API de transcripción/fotograma   |
-| `/api/agent-transcript.json?id=<recordingId>`     | Segmentos de transcripción con marca de tiempo con `startMs`, `endMs`, marcas de tiempo legibles, texto y etiquetas de origen opcionales |
-| `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` | Un fotograma JPEG extraído del vídeo en una marca de tiempo del vídeo original                                                           |
+| Endpoint                                                                 | What agents get                                                                                                                             |
+| ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/api/agent-context.json?id=<recordingId>`                               | Metadatos del clip, estado de la transcripción, capítulos, CTA, fotogramas recomendados y enlaces a las API de transcripción/fotograma      |
+| `/api/agent-transcript.json?id=<recordingId>`                            | Segmentos de transcripción con marca de tiempo con `startMs`, `endMs`, marcas de tiempo legibles, texto y etiquetas de origen opcionales    |
+| `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>`                        | Un fotograma JPEG extraído del vídeo en una marca de tiempo del vídeo original                                                              |
+| `/api/agent-frames.jpg?id=<recordingId>&startMs=<ms>&endMs=<ms>&fps=<n>` | Una hoja de contactos JPEG con hasta 36 fotogramas consecutivos de un intervalo, para ver una animación o una transición en una sola imagen |
 
 Los endpoints siguen las mismas reglas de público/contraseña/caducidad que la página para compartir, o aceptan el token limitado `agent_access` de un enlace de agente temporal. Los clips protegidos con contraseña la requieren una vez; las respuestas exitosas devuelven enlaces tokenizados de corta duración para que los agentes siguientes no necesiten la contraseña en texto plano.
 
@@ -101,6 +102,50 @@ Devuelve los metadatos del clip, el estado de la transcripción, los capítulos,
     "description": "fotograma image/jpeg"
   }
 ]}>
+
+</Endpoint>
+
+<Endpoint id="doc-block-clips-agent-frames" title="Hoja de contactos de un intervalo" method="GET" path="/api/agent-frames.jpg" summary="Fotogramas consecutivos de un intervalo en una sola hoja de contactos JPEG" params={[
+  {
+    "name": "id",
+    "in": "query",
+    "type": "string",
+    "required": true,
+    "description": "Recording id"
+  },
+  {
+    "name": "startMs",
+    "in": "query",
+    "type": "integer",
+    "required": true,
+    "description": "Time of the first frame in milliseconds"
+  },
+  {
+    "name": "endMs",
+    "in": "query",
+    "type": "integer",
+    "required": false,
+    "description": "End of the range in milliseconds (exclusive); without it, the sheet holds 36 frames from startMs"
+  },
+  {
+    "name": "fps",
+    "in": "query",
+    "type": "number",
+    "required": false,
+    "description": "Frames per second, up to 60; without it, the video's own frame rate"
+  }
+]} responses={[
+  {
+    "status": "200",
+    "description": "image/jpeg sheet read left to right, then top to bottom; the X-Clips-Frame-Sheet-Times header lists each cell's time"
+  },
+  {
+    "status": "400",
+    "description": "failureKind=request when the range needs more than 36 frames or spans more than 60 seconds; nextStep names a request that fits"
+  }
+]}>
+
+La celda _i_ muestra el fotograma en pantalla en `startMs + i × 1000 / fps`. Sin `fps`, aparece cada fotograma del vídeo.
 
 </Endpoint>
 

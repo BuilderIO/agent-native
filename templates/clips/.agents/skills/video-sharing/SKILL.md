@@ -201,7 +201,14 @@ context instead of stopping at the share page or transcript preview:
 2. Fetch `apis.transcript` for the complete transcript. Fetch each
    `recommendedFrames[].url` as an image and inspect the returned pixels; when
    more visual context is needed, request `apis.frame.urlTemplate` with an
-   `atMs` timestamp.
+   `atMs` timestamp. To watch motion (an animation, a transition, a cursor
+   path), request `apis.frames.urlTemplate` with `startMs`, `endMs` and `fps`:
+   one JPEG contact sheet of up to 36 consecutive frames from a range of at
+   most 60 seconds. Cells read left to right, then top to bottom; cell `i`
+   shows the frame on screen at `startMs + i * 1000 / fps`. Without `fps` the
+   sheet uses the video's own frame rate, and without `endMs` it fills the
+   sheet from `startMs`. A `failureKind: request` response names a request
+   that fits in `nextStep`.
 3. On an error, inspect the JSON `failureKind`, `error`, and `nextStep`. If a
    context or transcript request has `failureKind: access`, explain that the
    link does not grant access. For a private clip, ask its owner to open the
@@ -227,6 +234,7 @@ video bytes:
 | `/api/agent-context.json?id=<recordingId>`        | Clip metadata, transcript summary, recommended frames, and API discovery links                               |
 | `/api/agent-transcript.json?id=<recordingId>`     | Timestamped transcript segments with `startMs`, `endMs`, `timestamp`, `range`, `text`, and optional `source`; add `maxSegments` to page and continue with the returned `nextStartIndex` |
 | `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` | JPEG frame extracted from the video at the requested original-video timestamp                                |
+| `/api/agent-frames.jpg?id=<recordingId>&startMs=<ms>&endMs=<ms>&fps=<n>` | One JPEG contact sheet of up to 36 consecutive frames from a range; the `X-Clips-Frame-Sheet-Fps`, `-Grid` and `-Times` headers describe the cells |
 
 These endpoints follow the same access model as `/api/public-recording`, plus a
 temporary agent-link path:
@@ -355,7 +363,7 @@ Events feeding this live in `recording_events`. The `/api/view-event` route rece
 
 An **agent view** is an outside agent reading a clip through its public agent
 APIs — `/api/agent-context.json`, `/api/agent-transcript.json`,
-`/api/agent-frame.jpg`. Those routes are agent-only surfaces (a human watching a
+`/api/agent-frame.jpg`, `/api/agent-frames.jpg`. Those routes are agent-only surfaces (a human watching a
 clip never hits them), so a request on one is the signal.
 
 - **Table:** `recording_agent_views` — one row per `(recordingId, agentKey, viewSessionId)`.

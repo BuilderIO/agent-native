@@ -29,11 +29,12 @@ description: "クリップが Dispatch や他のアプリとどのように連�
 
 画像を見られるほとんどのエージェント (ChatGPT、Claude Code、Cursor、Codex を含む) は、これを自分だけで処理できます。いくつかのテキストのみのチャットはトランスクリプトを読み取れますが、フレームは読み取れません。その場合は、画像に対応したエージェントでクリップを開いてください。
 
-| Endpoint                                          | What agents get                                                                                                                          |
-| ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `/api/agent-context.json?id=<recordingId>`        | クリップのメタデータ、トランスクリプトのステータス、チャプター、CTA、推奨フレーム、トランスクリプト/フレーム API へのリンク              |
-| `/api/agent-transcript.json?id=<recordingId>`     | `startMs`、`endMs`、読み取り可能なタイムスタンプ、テキスト、オプションのソース ラベルを含むタイムスタンプ付きトランスクリプト セグメント |
-| `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` | 元の動画のタイムスタンプでビデオから抽出された JPEG フレーム                                                                             |
+| Endpoint                                                                 | What agents get                                                                                                                          |
+| ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `/api/agent-context.json?id=<recordingId>`                               | クリップのメタデータ、トランスクリプトのステータス、チャプター、CTA、推奨フレーム、トランスクリプト/フレーム API へのリンク              |
+| `/api/agent-transcript.json?id=<recordingId>`                            | `startMs`、`endMs`、読み取り可能なタイムスタンプ、テキスト、オプションのソース ラベルを含むタイムスタンプ付きトランスクリプト セグメント |
+| `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>`                        | 元の動画のタイムスタンプでビデオから抽出された JPEG フレーム                                                                             |
+| `/api/agent-frames.jpg?id=<recordingId>&startMs=<ms>&endMs=<ms>&fps=<n>` | 時間範囲から最大 36 枚の連続フレームを並べた JPEG コンタクトシート。アニメーションやトランジションを 1 枚の画像で確認できます            |
 
 これらのエンドポイントは、共有ページと同じ公開/パスワード/有効期限のルールに従うか、一時的なエージェント リンクからのスコープ付き `agent_access` トークンを受け付けます。パスワードで保護されたクリップは 1 回だけパスワードを求められます。成功した応答は有効期間の短いトークン付きリンクを返すため、下流のエージェントは平文のパスワードを必要としません。
 
@@ -101,6 +102,50 @@ Returns clip metadata, transcript status, chapters, CTAs, recommended frames, an
     "description": "image/jpeg frame"
   }
 ]}>
+
+</Endpoint>
+
+<Endpoint id="doc-block-clips-agent-frames" title="時間範囲のコンタクトシート" method="GET" path="/api/agent-frames.jpg" summary="時間範囲の連続フレームを 1 枚の JPEG コンタクトシートにまとめたもの" params={[
+  {
+    "name": "id",
+    "in": "query",
+    "type": "string",
+    "required": true,
+    "description": "Recording id"
+  },
+  {
+    "name": "startMs",
+    "in": "query",
+    "type": "integer",
+    "required": true,
+    "description": "Time of the first frame in milliseconds"
+  },
+  {
+    "name": "endMs",
+    "in": "query",
+    "type": "integer",
+    "required": false,
+    "description": "End of the range in milliseconds (exclusive); without it, the sheet holds 36 frames from startMs"
+  },
+  {
+    "name": "fps",
+    "in": "query",
+    "type": "number",
+    "required": false,
+    "description": "Frames per second, up to 60; without it, the video's own frame rate"
+  }
+]} responses={[
+  {
+    "status": "200",
+    "description": "image/jpeg sheet read left to right, then top to bottom; the X-Clips-Frame-Sheet-Times header lists each cell's time"
+  },
+  {
+    "status": "400",
+    "description": "failureKind=request when the range needs more than 36 frames or spans more than 60 seconds; nextStep names a request that fits"
+  }
+]}>
+
+セル _i_ には `startMs + i × 1000 / fps` の時点で表示されているフレームが入ります。`fps` を省略すると、動画のすべてのフレームが並びます。
 
 </Endpoint>
 

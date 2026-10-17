@@ -54,11 +54,12 @@ Claude Code, Cursor, और Codex शामिल हैं। कुछ टे�
 पढ़ सकते हैं लेकिन फ़्रेम नहीं, तो उनके लिए क्लिप को किसी इमेज-कैपेबल एजेंट में
 खोलें।
 
-| एंडपॉइंट                                          | एजेंटों को क्या मिलता है                                                                                                |
-| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `/api/agent-context.json?id=<recordingId>`        | क्लिप मेटाडेटा, ट्रांसक्रिप्ट स्टेटस, अध्याय, CTA, अनुशंसित फ़्रेम, और ट्रांसक्रिप्ट/फ़्रेम APIs के लिंक                |
-| `/api/agent-transcript.json?id=<recordingId>`     | `startMs`, `endMs`, पढ़ने-योग्य टाइमस्टैम्प, टेक्स्ट, और वैकल्पिक सोर्स लेबल के साथ टाइमस्टैम्प्ड ट्रांसक्रिप्ट सेगमेंट |
-| `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` | मूल-वीडियो टाइमस्टैम्प पर वीडियो से निकाला गया एक JPEG फ़्रेम                                                           |
+| एंडपॉइंट                                                                 | एजेंटों को क्या मिलता है                                                                                                   |
+| ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| `/api/agent-context.json?id=<recordingId>`                               | क्लिप मेटाडेटा, ट्रांसक्रिप्ट स्टेटस, अध्याय, CTA, अनुशंसित फ़्रेम, और ट्रांसक्रिप्ट/फ़्रेम APIs के लिंक                   |
+| `/api/agent-transcript.json?id=<recordingId>`                            | `startMs`, `endMs`, पढ़ने-योग्य टाइमस्टैम्प, टेक्स्ट, और वैकल्पिक सोर्स लेबल के साथ टाइमस्टैम्प्ड ट्रांसक्रिप्ट सेगमेंट    |
+| `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>`                        | मूल-वीडियो टाइमस्टैम्प पर वीडियो से निकाला गया एक JPEG फ़्रेम                                                              |
+| `/api/agent-frames.jpg?id=<recordingId>&startMs=<ms>&endMs=<ms>&fps=<n>` | किसी समय सीमा के अधिकतम 36 लगातार फ़्रेम वाली एक JPEG कॉन्टैक्ट शीट, ताकि कोई एनिमेशन या ट्रांज़िशन एक ही इमेज में दिख सके |
 
 ये एंडपॉइंट शेयर पेज जैसे ही सार्वजनिक/पासवर्ड/एक्सपायरी नियम फॉलो करते हैं, या
 किसी टेम्परेरी एजेंट लिंक से स्कोप्ड `agent_access` टोकन एक्सेप्ट करते हैं।
@@ -133,6 +134,50 @@ Claude Code, Cursor, और Codex शामिल हैं। कुछ टे�
     "description": "image/jpeg frame"
   }
 ]}>
+
+</Endpoint>
+
+<Endpoint id="doc-block-clips-agent-frames" title="समय सीमा की कॉन्टैक्ट शीट" method="GET" path="/api/agent-frames.jpg" summary="किसी समय सीमा के लगातार फ़्रेम एक JPEG कॉन्टैक्ट शीट में" params={[
+  {
+    "name": "id",
+    "in": "query",
+    "type": "string",
+    "required": true,
+    "description": "Recording id"
+  },
+  {
+    "name": "startMs",
+    "in": "query",
+    "type": "integer",
+    "required": true,
+    "description": "Time of the first frame in milliseconds"
+  },
+  {
+    "name": "endMs",
+    "in": "query",
+    "type": "integer",
+    "required": false,
+    "description": "End of the range in milliseconds (exclusive); without it, the sheet holds 36 frames from startMs"
+  },
+  {
+    "name": "fps",
+    "in": "query",
+    "type": "number",
+    "required": false,
+    "description": "Frames per second, up to 60; without it, the video's own frame rate"
+  }
+]} responses={[
+  {
+    "status": "200",
+    "description": "image/jpeg sheet read left to right, then top to bottom; the X-Clips-Frame-Sheet-Times header lists each cell's time"
+  },
+  {
+    "status": "400",
+    "description": "failureKind=request when the range needs more than 36 frames or spans more than 60 seconds; nextStep names a request that fits"
+  }
+]}>
+
+सेल _i_ में वह फ़्रेम होता है जो `startMs + i × 1000 / fps` पर स्क्रीन पर था। `fps` छोड़ देने पर वीडियो का हर फ़्रेम दिखता है।
 
 </Endpoint>
 

@@ -5,11 +5,13 @@ import { useEffect } from "react";
 import {
   AGENT_CONTEXT_ENDPOINT,
   AGENT_FRAME_ENDPOINT,
+  AGENT_FRAME_SHEET_ENDPOINT,
   AGENT_TRANSCRIPT_ENDPOINT,
   CLIPS_WEBMCP_TOOL_DEFINITIONS,
   CLIPS_WEBMCP_MAX_TRANSCRIPT_SEGMENTS,
   CLIPS_WEBMCP_TOOL_NAMES,
   formatAgentTimestamp,
+  MAX_AGENT_FRAME_SHEET_FPS,
   nextAgentTranscriptStartMs,
   safeMs,
 } from "../../../shared/agent-context";
@@ -154,12 +156,13 @@ function compactApis(
     context: { method: "GET", url: contextUrl },
     transcript: { method: "GET", url: transcriptUrl },
   };
-  const frame = optionalRecord(apis?.frame);
-  if (frame) {
-    const query = optionalRecord(frame.query);
-    result.frame = {
-      method: boundedString(frame.method, 16) ?? "GET",
-      urlTemplate: boundedString(frame.urlTemplate, MAX_WEBMCP_URL_CHARS),
+  for (const key of ["frame", "frames"] as const) {
+    const api = optionalRecord(apis?.[key]);
+    if (!api) continue;
+    const query = optionalRecord(api.query);
+    result[key] = {
+      method: boundedString(api.method, 16) ?? "GET",
+      urlTemplate: boundedString(api.urlTemplate, MAX_WEBMCP_URL_CHARS),
       ...(query
         ? {
             query: Object.fromEntries(
@@ -302,6 +305,52 @@ function parseFrameInput(input: unknown): number {
   return safeMs(value.atMs);
 }
 
+function parseFrameSheetInput(input: unknown): {
+  startMs: number;
+  endMs?: number;
+  fps?: number;
+} {
+  const value = requiredRecord(input, "Frame sheet input");
+  for (const key of Object.keys(value)) {
+    if (!["startMs", "endMs", "fps"].includes(key)) {
+      throw new Error(`Frame sheet input has an unexpected field: ${key}`);
+    }
+  }
+  const readMs = (key: "startMs" | "endMs") => {
+    const raw = value[key];
+    if (raw === undefined) return undefined;
+    if (typeof raw !== "number" || !Number.isFinite(raw) || raw < 0) {
+      throw new Error(`Frame sheet input ${key} must be a non-negative number`);
+    }
+    return safeMs(raw);
+  };
+  const startMs = readMs("startMs");
+  if (startMs === undefined) {
+    throw new Error("Frame sheet input startMs is required");
+  }
+  const endMs = readMs("endMs");
+  if (endMs !== undefined && endMs <= startMs) {
+    throw new Error("Frame sheet input endMs must be greater than startMs");
+  }
+  const fps = value.fps;
+  if (
+    fps !== undefined &&
+    (typeof fps !== "number" ||
+      !Number.isFinite(fps) ||
+      fps <= 0 ||
+      fps > MAX_AGENT_FRAME_SHEET_FPS)
+  ) {
+    throw new Error(
+      `Frame sheet input fps must be above 0 and at most ${MAX_AGENT_FRAME_SHEET_FPS}`,
+    );
+  }
+  return {
+    startMs,
+    ...(endMs !== undefined ? { endMs } : {}),
+    ...(typeof fps === "number" ? { fps } : {}),
+  };
+}
+
 function transcriptSegment(value: unknown, index: number) {
   const segment = requiredRecord(value, `Transcript segment ${index}`);
   const startMs = numberValue(segment.startMs);
@@ -351,6 +400,7 @@ export function createClipAgentWebMcpActions({
     CLIPS_WEBMCP_TOOL_NAMES.transcript,
   );
   const frameDefinition = clipToolDefinition(CLIPS_WEBMCP_TOOL_NAMES.frame);
+  const framesDefinition = clipToolDefinition(CLIPS_WEBMCP_TOOL_NAMES.frames);
   const contextAction = defineClientAction({
     name: contextDefinition.name,
     title: contextDefinition.title,
@@ -584,10 +634,58 @@ export function createClipAgentWebMcpActions({
     },
   });
 
+  const framesAction = defineClientAction({
+    name: framesDefinition.name,
+    title: framesDefinition.title,
+    description: framesDefinition.description,
+    schema: framesDefinition.inputSchema,
+    readOnly: true,
+    untrustedContentHint: true,
+    run: async (input, runtime) => {
+      if (!agentContextUrl)
+        throw new Error("Clip agent context is unavailable");
+      const { startMs, endMs, fps } = parseFrameSheetInput(input);
+      const payload = await fetchAgentJson(agentContextUrl, runtime.signal);
+      if (!optionalRecord(payload.apis)?.frames) {
+        const status = stringValue(optionalRecord(payload.clip)?.status);
+        if (status === "uploading" || status === "processing") {
+          throw new Error("Clip is not ready for frame extraction yet");
+        }
+        throw new Error(
+          "Frame sheets are only available for videos. Use clips-get-frame for a single frame or the picture.",
+        );
+      }
+
+      const imageUrl = buildRelatedAgentUrl(
+        agentContextUrl,
+        AGENT_FRAME_SHEET_ENDPOINT,
+        {
+          startMs: String(startMs),
+          ...(endMs !== undefined ? { endMs: String(endMs) } : {}),
+          ...(fps !== undefined ? { fps: String(fps) } : {}),
+        },
+      );
+      return {
+        type: "image",
+        clipId: recordingId,
+        startMs,
+        ...(endMs !== undefined ? { endMs } : {}),
+        ...(fps !== undefined ? { fps } : {}),
+        imageUrl,
+        mimeType: "image/jpeg",
+        sourceUrl: imageUrl,
+        instructions:
+          "Fetch the exact imageUrl as an image: one contact sheet of consecutive frames. Cells read left to right, then top to bottom; cell i shows the frame on screen at startMs + i * 1000 / fps. Without fps, the sheet uses the video's own frame rate, given with each cell's time in the X-Clips-Frame-Sheet-Fps and X-Clips-Frame-Sheet-Times response headers. For any non-2xx response, inspect the JSON failureKind, error, and nextStep. If failureKind=request, the range or fps was out of bounds; follow nextStep, which names a request that fits. Other failure kinds mean the same as for clips-get-frame.",
+      };
+    },
+  });
+
   return [
     contextAction,
     transcriptAction,
-    ...(recordingStatus === "ready" && frameAvailable ? [frameAction] : []),
+    ...(recordingStatus === "ready" && frameAvailable
+      ? [frameAction, framesAction]
+      : []),
   ];
 }
 
