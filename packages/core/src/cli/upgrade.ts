@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import dotenv from "dotenv";
+import { minimatch } from "minimatch";
 
 import {
   isMigrationManifestActive,
@@ -13,9 +14,19 @@ import {
   type MigrationDependencyCondition,
 } from "../package-lifecycle/migration-manifest.js";
 import { loadOptionalPeer } from "../shared/optional-peer.js";
+import { writeTextFileAtomically } from "./atomic-json-file.js";
 import type { MigrationCodemodResult } from "./migration-codemod.js";
+import {
+  addMinimumReleaseAgeExclude,
+  pnpmWorkspacePackagePatterns,
+  pnpmWorkspaceListsProject,
+} from "./workspace-yaml.js";
 
 const AGENT_NATIVE_SCOPE = "@agent-native/";
+// New workspaces exclude every first-party package from pnpm's release-age
+// gate; older ones only excluded core, so same-day dependencies of a fresh
+// core release failed to install.
+const AGENT_NATIVE_RELEASE_AGE_EXCLUDE = '"@agent-native/*"';
 const PINNABLE_VERSION = "latest";
 const PINNABLE_SECTIONS = [
   "dependencies",
@@ -46,6 +57,7 @@ export interface PackageJsonLike {
   devDependencies?: Record<string, string>;
   optionalDependencies?: Record<string, string>;
   peerDependencies?: Record<string, string>;
+  peerDependenciesMeta?: Record<string, { optional?: boolean }>;
   pnpm?: {
     overrides?: Record<string, string>;
     patchedDependencies?: Record<string, string>;
@@ -97,6 +109,7 @@ export interface UpgradeProject {
   root: string;
   kind: "standalone" | "workspace";
   packageFiles: string[];
+  workspaceDiscoveryError?: string;
 }
 
 export interface UpgradeDoctorReport {
@@ -104,6 +117,7 @@ export interface UpgradeDoctorReport {
   findings: FrameworkOverrideFinding[];
   bumps: AgentNativeDepBump[];
   unreadable: string[];
+  workspaceDiscoveryError: string | null;
   installedCoreVersion: string | null;
   cliCoreVersion: string | null;
   scaffoldStaleHint: boolean;
@@ -655,6 +669,100 @@ function applyBumps(pkg: PackageJsonLike, bumps: AgentNativeDepBump[]): void {
   }
 }
 
+// pnpm reads the nearest pnpm-workspace.yaml at or above the directory it runs
+// in, so an upgrade started from a member app still installs under the
+// workspace root's release-age settings.
+function findNearestPnpmWorkspaceFile(projectRoot: string): string | null {
+  let dir = projectRoot;
+  while (true) {
+    const file = path.join(dir, "pnpm-workspace.yaml");
+    if (fs.existsSync(file)) return file;
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
+// Only a project that installs @agent-native/* packages needs the exclusion;
+// any other pnpm workspace keeps its release-age gate as configured.
+function dependsOnAgentNative(project: UpgradeProject): boolean {
+  return project.packageFiles.some((file) => {
+    const read = readJsonFile(file);
+    if (!read.ok) return false;
+    if (
+      PINNABLE_SECTIONS.some((section) =>
+        Object.keys(read.value[section] ?? {}).some(isAgentNativePackageName),
+      )
+    ) {
+      return true;
+    }
+    return Object.keys(read.value.peerDependencies ?? {}).some(
+      (name) =>
+        isAgentNativePackageName(name) &&
+        read.value.peerDependenciesMeta?.[name]?.optional !== true,
+    );
+  });
+}
+
+function alignReleaseAgeExclude(
+  project: UpgradeProject,
+  dryRun: boolean,
+): UpgradeRunResult["steps"][number] | null {
+  if (detectPackageManager(project.root) !== "pnpm") return null;
+  if (!dependsOnAgentNative(project)) return null;
+  const file = findNearestPnpmWorkspaceFile(project.root);
+  if (!file) return null;
+  const displayFile = relativeTo(project.root, file);
+  const failed = (error: unknown): UpgradeRunResult["steps"][number] => ({
+    id: "release-age",
+    status: "failed",
+    detail: `Could not update ${displayFile} (${error instanceof Error ? error.message : String(error)}). Add ${AGENT_NATIVE_RELEASE_AGE_EXCLUDE} to minimumReleaseAgeExclude by hand, then re-run upgrade.`,
+  });
+  let current: string;
+  let updated: string;
+  try {
+    current = fs.readFileSync(file, "utf-8");
+    // An ancestor's file only counts when that workspace lists the project;
+    // an unrelated parent is left alone.
+    const workspaceRoot = path.dirname(file);
+    if (
+      workspaceRoot !== project.root &&
+      !pnpmWorkspaceListsProject(
+        current,
+        path.relative(workspaceRoot, project.root).split(path.sep).join("/"),
+      )
+    ) {
+      return null;
+    }
+    updated = addMinimumReleaseAgeExclude(
+      current,
+      AGENT_NATIVE_RELEASE_AGE_EXCLUDE,
+    );
+  } catch (error) {
+    return failed(error);
+  }
+  if (updated === current) return null;
+  if (dryRun) {
+    return {
+      id: "release-age",
+      status: "planned",
+      detail: `Add ${AGENT_NATIVE_RELEASE_AGE_EXCLUDE} to minimumReleaseAgeExclude in ${displayFile}`,
+    };
+  }
+  try {
+    // Write through a symlinked workspace file so the link keeps pointing at
+    // the shared file instead of being replaced by a copy.
+    writeTextFileAtomically(fs.realpathSync(file), updated);
+  } catch (error) {
+    return failed(error);
+  }
+  return {
+    id: "release-age",
+    status: "ok",
+    detail: `Added ${AGENT_NATIVE_RELEASE_AGE_EXCLUDE} to minimumReleaseAgeExclude in ${displayFile}`,
+  };
+}
+
 export function detectUpgradeProject(cwd: string): UpgradeProject | null {
   const start = path.resolve(cwd);
   let dir = start;
@@ -673,17 +781,24 @@ export function detectUpgradeProject(cwd: string): UpgradeProject | null {
       const unreadable = !read.ok && read.reason === "unreadable";
       if (hasCore || isWorkspace || unreadable) {
         const packageFiles = [pkgPath];
-        if (hasWorkspaceYaml) {
-          packageFiles.push(...workspacePackageFiles(dir, workspaceYaml));
-        } else if (workspacePatterns.length > 0) {
-          packageFiles.push(
-            ...workspacePackageFilesForPatterns(dir, workspacePatterns),
-          );
+        let workspaceDiscoveryError: string | undefined;
+        try {
+          if (hasWorkspaceYaml) {
+            packageFiles.push(...workspacePackageFiles(dir, workspaceYaml));
+          } else if (workspacePatterns.length > 0) {
+            packageFiles.push(
+              ...workspacePackageFilesForPatterns(dir, workspacePatterns),
+            );
+          }
+        } catch (error) {
+          workspaceDiscoveryError =
+            error instanceof Error ? error.message : String(error);
         }
         return {
           root: dir,
           kind: isWorkspace ? "workspace" : "standalone",
           packageFiles: Array.from(new Set(packageFiles)),
+          workspaceDiscoveryError,
         };
       }
     }
@@ -727,28 +842,8 @@ function workspacePackageFilesForPatterns(
 }
 
 function parseWorkspacePackagePatterns(workspaceYaml: string): string[] {
-  let text = "";
-  try {
-    text = fs.readFileSync(workspaceYaml, "utf-8");
-  } catch {
-    return ["apps/*", "packages/*"];
-  }
-  const patterns: string[] = [];
-  let inPackages = false;
-  for (const line of text.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    if (/^[A-Za-z0-9_-]+:/.test(trimmed)) {
-      inPackages = trimmed === "packages:";
-      continue;
-    }
-    if (!inPackages || !trimmed.startsWith("-")) continue;
-    const pattern = trimmed
-      .slice(1)
-      .trim()
-      .replace(/^['"]|['"]$/g, "");
-    if (pattern) patterns.push(pattern);
-  }
+  const text = fs.readFileSync(workspaceYaml, "utf-8");
+  const patterns = pnpmWorkspacePackagePatterns(text);
   return patterns.length ? patterns : ["apps/*", "packages/*"];
 }
 
@@ -758,38 +853,59 @@ function packageFilesForWorkspacePattern(
 ): string[] {
   const normalized = pattern.replace(/\\/g, "/").replace(/\/+$/g, "");
   if (!normalized || normalized.includes("node_modules")) return [];
-  if (normalized.endsWith("/**")) {
-    return collectPackageFilesRecursive(
-      path.join(root, normalized.slice(0, -3)),
-    );
-  }
   if (normalized.endsWith("/*")) {
     const base = path.join(root, normalized.slice(0, -2));
-    if (!fs.existsSync(base)) return [];
+    if (!workspacePathExists(base)) return [];
     return fs
       .readdirSync(base, { withFileTypes: true })
       .filter((entry) => entry.isDirectory())
       .map((entry) => path.join(base, entry.name, "package.json"))
-      .filter((file) => fs.existsSync(file));
+      .filter(workspacePathExists);
   }
-  if (normalized.includes("*")) {
-    return collectPackageFilesRecursive(
-      path.join(root, normalized.split("*")[0]),
+  const wildcardIndex = normalized.search(/[?*[{]/u);
+  if (wildcardIndex !== -1) {
+    const literalPrefix = normalized.slice(0, wildcardIndex);
+    const prefixSlash = literalPrefix.lastIndexOf("/");
+    const scanRoot = path.join(
+      root,
+      prefixSlash === -1 ? "" : literalPrefix.slice(0, prefixSlash),
+    );
+    const manifestPattern = `${normalized}/package.json`;
+    return collectPackageFilesRecursive(scanRoot).filter((file) =>
+      minimatch(
+        path.relative(root, file).split(path.sep).join("/"),
+        manifestPattern,
+        { dot: true },
+      ),
     );
   }
   const file = path.join(root, normalized, "package.json");
-  return fs.existsSync(file) ? [file] : [];
+  return workspacePathExists(file) ? [file] : [];
+}
+
+function workspacePathExists(filePath: string): boolean {
+  try {
+    fs.statSync(filePath);
+    return true;
+  } catch (error) {
+    const code =
+      error && typeof error === "object" && "code" in error
+        ? error.code
+        : undefined;
+    if (code === "ENOENT" || code === "ENOTDIR") return false;
+    throw error;
+  }
 }
 
 function collectPackageFilesRecursive(dir: string): string[] {
-  if (!fs.existsSync(dir)) return [];
+  if (!workspacePathExists(dir)) return [];
   const files: string[] = [];
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     if (entry.name === "node_modules" || entry.name === ".git") continue;
     const child = path.join(dir, entry.name);
     const pkg = path.join(child, "package.json");
-    if (fs.existsSync(pkg)) files.push(pkg);
+    if (workspacePathExists(pkg)) files.push(pkg);
     files.push(...collectPackageFilesRecursive(child));
   }
   return files;
@@ -929,6 +1045,7 @@ export function buildUpgradeDoctorReport(
     findings,
     bumps,
     unreadable,
+    workspaceDiscoveryError: project.workspaceDiscoveryError ?? null,
     installedCoreVersion,
     cliCoreVersion,
     scaffoldStaleHint: skillsUpdateScript || bumps.length > 0,
@@ -956,6 +1073,10 @@ function formatDoctorHuman(report: UpgradeDoctorReport): string {
     for (const entry of report.unreadable) {
       lines.push(`  - ${entry}`);
     }
+  }
+  if (report.workspaceDiscoveryError) {
+    lines.push("Workspace package discovery failed (members not checked):");
+    lines.push(`  - ${report.workspaceDiscoveryError}`);
   }
   if (report.findings.length === 0) {
     lines.push("Framework overrides/patches: none");
@@ -1026,13 +1147,15 @@ export async function runUpgrade(
 
   const doctor = buildUpgradeDoctorReport(project);
   const doctorOk =
-    doctor.findings.length === 0 && doctor.unreadable.length === 0;
+    doctor.findings.length === 0 &&
+    doctor.unreadable.length === 0 &&
+    doctor.workspaceDiscoveryError === null;
   if (opts.command === "check") {
     if (opts.json) {
       io.log(JSON.stringify({ ok: doctorOk, doctor }, null, 2));
     } else {
       io.log(formatDoctorHuman(doctor));
-      if (doctor.findings.length > 0) {
+      if (doctor.findings.length > 0 || doctor.workspaceDiscoveryError) {
         io.err("");
         io.err(FAILURE_GUIDANCE);
       }
@@ -1054,6 +1177,19 @@ export async function runUpgrade(
     result.ok = false;
     result.exitCode = 1;
     result.message = `Blocked: these package.json files could not be parsed, so their overrides and @agent-native/* specs were never checked: ${doctor.unreadable.join("; ")}`;
+    result.steps.push({
+      id: "doctor",
+      status: "failed",
+      detail: result.message,
+    });
+    emitResult(io, opts, result);
+    return result.exitCode;
+  }
+
+  if (doctor.workspaceDiscoveryError) {
+    result.ok = false;
+    result.exitCode = 1;
+    result.message = `Blocked: workspace packages could not be enumerated, so their overrides and @agent-native/* specs were never checked: ${doctor.workspaceDiscoveryError}`;
     result.steps.push({
       id: "doctor",
       status: "failed",
@@ -1093,6 +1229,20 @@ export async function runUpgrade(
         ? "Continuing with --force despite framework overrides/patches"
         : "No framework overrides/patches",
   });
+
+  // Before any manifest edit: if the exclusion cannot be written, the install
+  // would hit the same release-age gate, so stop with the workspace untouched.
+  const releaseAgeStep = alignReleaseAgeExclude(project, dryRun);
+  if (releaseAgeStep) {
+    result.steps.push(releaseAgeStep);
+    if (releaseAgeStep.status === "failed") {
+      result.ok = false;
+      result.exitCode = 1;
+      result.message = releaseAgeStep.detail ?? "";
+      emitResult(io, opts, result);
+      return result.exitCode;
+    }
+  }
 
   let dependencyAdditions: UpgradeDependencyAddition[];
   try {
