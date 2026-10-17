@@ -71,6 +71,20 @@ describe("resolvePanelEvents", () => {
     });
   });
 
+  it("keeps saved events with legacy CSS colors and uses the default color", () => {
+    const resolved = resolvePanelEvents(
+      ["red", "hsl(210 70% 50%)"].map((color) => ({
+        date: "2026-10-14",
+        label: "Launch",
+        color,
+      })),
+      days,
+    );
+
+    expect(resolved).toHaveLength(2);
+    expect(resolved.map(({ color }) => color)).toEqual([undefined, undefined]);
+  });
+
   it("skips rows whose x is not a date and keeps their row positions", () => {
     const [event] = resolvePanelEvents(
       [{ date: "2026-10-14", label: "Launch" }],

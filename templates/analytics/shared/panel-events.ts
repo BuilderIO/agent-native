@@ -436,8 +436,14 @@ export function resolvePanelEvents(
     if (typeof date !== "string") continue;
     const day = Date.parse(date);
     if (Number.isNaN(day) || day < earliest || day > latest) continue;
-    if (!isValidPanelEvent(event)) continue;
-    const best = rowFor(event);
+    // Older saved events can contain CSS colors accepted before hex validation.
+    // Keep the event visible and let the marker use its default for those values.
+    const safeColor = isSafeSvgHexColor(event?.color)
+      ? event.color.trim()
+      : undefined;
+    const renderableEvent = { ...event, color: safeColor };
+    if (!isValidPanelEvent(renderableEvent)) continue;
+    const best = rowFor(renderableEvent);
     if (best < 0) continue;
     const { row } = rows[best];
     const xValue = xValues[row];
@@ -446,11 +452,13 @@ export function resolvePanelEvents(
       index: row,
       x: String(xValue),
       xValue,
-      date: event.date,
-      ...(event.time ? { time: event.time } : {}),
-      ...(event.timeZone ? { timeZone: event.timeZone } : {}),
-      label: event.label,
-      ...(event.color ? { color: event.color } : {}),
+      date: renderableEvent.date,
+      ...(renderableEvent.time ? { time: renderableEvent.time } : {}),
+      ...(renderableEvent.timeZone
+        ? { timeZone: renderableEvent.timeZone }
+        : {}),
+      label: renderableEvent.label,
+      ...(renderableEvent.color ? { color: renderableEvent.color } : {}),
     });
   }
   return resolved;
