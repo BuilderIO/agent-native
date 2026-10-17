@@ -6,6 +6,10 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  PANELS_INTRODUCED_TO_BIGQUERY_DASHBOARDS,
+  repairKnownFirstPartyDashboardQueries,
+} from "./canonical-first-party-dashboard-repair";
+import {
   cloneDashboardConfig,
   dashboardCatalogEntries,
   getDashboardCatalogEntry,
@@ -255,6 +259,29 @@ describe("dashboard catalog", () => {
       expect(panel.source).toBe("first-party");
       expect(() => validateFirstPartyAnalyticsSql(panel.sql)).not.toThrow();
     }
+  });
+
+  it("marks the A/B panels delivered on a fresh seeded dashboard", () => {
+    const config = cloneDashboardConfig(
+      getDashboardCatalogEntry("first-party-template-traffic")!,
+    ) as unknown as { introducedPanels?: string[]; panels: { id: string }[] };
+    expect(config.introducedPanels).toEqual(
+      PANELS_INTRODUCED_TO_BIGQUERY_DASHBOARDS,
+    );
+
+    const withoutPanel = {
+      ...config,
+      panels: config.panels.filter((p) => p.id !== "onboarding-ab-comparison"),
+    };
+    const repaired = repairKnownFirstPartyDashboardQueries(
+      "agent-native-templates-first-party",
+      withoutPanel,
+    );
+    expect(
+      (repaired.config.panels as { id: string }[]).some(
+        (p) => p.id === "onboarding-ab-comparison",
+      ),
+    ).toBe(false);
   });
 
   it("ships the onboarding panels with catalog SQL and columns", () => {
