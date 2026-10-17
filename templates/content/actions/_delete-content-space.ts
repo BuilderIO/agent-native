@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
+import { cleanupBuilderPrivatePayload } from "./_builder-cms-blob-custody.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
 import {
   deleteDocumentRootsRecursive,
@@ -11,7 +12,8 @@ type Db = ReturnType<typeof getDb>;
 const MAX_DELETE_SCOPE_ATTEMPTS = 3;
 
 async function deleteUserContentSpaceOnce(db: Db, spaceId: string) {
-  return db.transaction(async (tx) => {
+  const deletedBlobReferences = new Set<string>();
+  const result = await db.transaction(async (tx) => {
     const scopedDb = tx as unknown as Db;
     const access = await resolveContentSpaceAccess(spaceId, "editor", {
       db: scopedDb,
@@ -53,6 +55,7 @@ async function deleteUserContentSpaceOnce(db: Db, spaceId: string) {
       scopedDb,
       [mapping.documentId, filesDatabase.documentId],
       access.space.ownerEmail,
+      deletedBlobReferences,
     );
 
     const remainingDocuments = await scopedDb
@@ -79,6 +82,10 @@ async function deleteUserContentSpaceOnce(db: Db, spaceId: string) {
       deletedDocuments: deletedDocuments.length,
     };
   });
+  for (const reference of deletedBlobReferences) {
+    await cleanupBuilderPrivatePayload(reference, "deleted workspace source");
+  }
+  return result;
 }
 
 export async function deleteUserContentSpace(db: Db, spaceId: string) {

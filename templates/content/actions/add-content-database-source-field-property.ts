@@ -391,15 +391,23 @@ export default defineAction({
       throw new Error("The title source field is already mapped to Name.");
     }
 
-    let federationRole: string | null = null;
+    let sourceMetadata: {
+      builderSpacePublicKey?: unknown;
+      connectionId?: unknown;
+      federation?: { role?: unknown };
+    } = {};
     try {
-      const parsed = JSON.parse(source.metadataJson ?? "{}") as {
-        federation?: { role?: string };
-      };
-      federationRole = parsed.federation?.role ?? null;
+      const parsed = JSON.parse(source.metadataJson ?? "{}") as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        sourceMetadata = parsed as typeof sourceMetadata;
+      }
     } catch {
-      federationRole = null;
+      sourceMetadata = {};
     }
+    const federationRole =
+      typeof sourceMetadata.federation?.role === "string"
+        ? sourceMetadata.federation.role
+        : null;
     const isSecondary = federationRole === "secondary";
 
     const materializeProperty = (
@@ -674,9 +682,18 @@ export default defineAction({
 
       const builderRead = await readBuilderCmsContentEntries({
         model: source.sourceTable,
+        expectedSourceSpace:
+          typeof sourceMetadata.builderSpacePublicKey === "string"
+            ? sourceMetadata.builderSpacePublicKey
+            : undefined,
+        expectedSourceConnectionId:
+          typeof sourceMetadata.connectionId === "string"
+            ? sourceMetadata.connectionId
+            : undefined,
         fieldPaths: [field.sourceFieldKey],
         limit: Math.max(BUILDER_FIELD_REFRESH_MINIMUM_LIMIT, error.rowCount),
         offset: 0,
+        requireBoundOAuth: true,
       });
       if (builderRead.state !== "live") {
         throw new Error(

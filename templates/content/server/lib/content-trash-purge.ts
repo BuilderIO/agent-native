@@ -25,6 +25,7 @@ import {
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
+import { cleanupBuilderPrivatePayload } from "../../actions/_builder-cms-blob-custody.js";
 import { contentTrashPredicates } from "../../actions/_content-trash-query.js";
 import {
   deleteTrashedDocumentSubtree,
@@ -141,6 +142,7 @@ export async function processContentTrashPurge(operationId: string) {
   if (!claimed)
     return { accepted: false, reason: "already-claimed-or-terminal" };
 
+  const deletedBlobReferences = new Set<string>();
   try {
     const batchResult = await db.transaction(
       async (tx) => {
@@ -260,6 +262,7 @@ export async function processContentTrashPurge(operationId: string) {
               transactionDb,
               unit.rootDocumentId,
               unit.ownerEmail,
+              deletedBlobReferences,
               frozen,
               frozen[0]?.expectedScopeFingerprint,
             );
@@ -316,6 +319,9 @@ export async function processContentTrashPurge(operationId: string) {
     );
     claimed.blockedCount += batchResult.blockedDelta;
     claimed.deletedCount += batchResult.deletedDelta;
+    for (const reference of deletedBlobReferences) {
+      await cleanupBuilderPrivatePayload(reference, "deleted document source");
+    }
   } catch (error) {
     if (error instanceof ContentTrashPurgeLeaseLostError) throw error;
     const message = error instanceof Error ? error.message : String(error);

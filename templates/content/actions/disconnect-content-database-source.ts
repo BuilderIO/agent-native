@@ -1,6 +1,6 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -8,6 +8,13 @@ import type {
   ContentDatabaseResponse,
   DisconnectContentDatabaseSourceRequest,
 } from "../shared/api.js";
+import {
+  builderExecutionPayloadReference,
+  cleanupBuilderPrivatePayload,
+  enqueueBuilderPrivatePayloadCleanup,
+  isBuilderPrivatePayloadBoundToSource,
+} from "./_builder-cms-blob-custody.js";
+import { isBuilderExecutionClaimStale } from "./_builder-cms-execution-lease.js";
 import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import {
   getExistingSource,
@@ -17,6 +24,7 @@ import { getContentDatabaseResponse } from "./_database-utils.js";
 
 async function deleteSourceRecords(databaseId: string, sourceId: string) {
   const db = getDb();
+  const deletedBlobReferences = new Set<string>();
   await db.transaction(async (tx) => {
     await lockContentDatabaseMutation(
       tx as unknown as ReturnType<typeof getDb>,
@@ -32,12 +40,67 @@ async function deleteSourceRecords(databaseId: string, sourceId: string) {
         ),
       );
     if (!source) return;
+    const candidateExecutions = await tx
+      .select({
+        id: schema.contentDatabaseSourceExecutions.id,
+        state: schema.contentDatabaseSourceExecutions.state,
+        updatedAt: schema.contentDatabaseSourceExecutions.updatedAt,
+      })
+      .from(schema.contentDatabaseSourceExecutions)
+      .where(
+        and(
+          eq(schema.contentDatabaseSourceExecutions.sourceId, sourceId),
+          inArray(schema.contentDatabaseSourceExecutions.state, [
+            "running",
+            "response_received",
+            "reconciliation_required",
+          ]),
+        ),
+      );
+    const now = new Date().toISOString();
+    const activeExecutions = candidateExecutions.filter(
+      (execution) =>
+        execution.state !== "running" ||
+        !isBuilderExecutionClaimStale(execution.updatedAt, now),
+    );
+    if (activeExecutions.length > 0) {
+      fail(
+        "Cannot disconnect this source while a Builder execution is running or awaiting reconciliation.",
+        { errorCode: "builder_execution_running", statusCode: 409 },
+      );
+    }
     await tx
       .delete(schema.contentDatabaseBodyHydrationQueue)
       .where(eq(schema.contentDatabaseBodyHydrationQueue.sourceId, sourceId));
     await tx
+      .delete(schema.contentDatabaseSourceExecutionClaims)
+      .where(
+        eq(schema.contentDatabaseSourceExecutionClaims.sourceId, sourceId),
+      );
+    const deletedExecutions = await tx
       .delete(schema.contentDatabaseSourceExecutions)
-      .where(eq(schema.contentDatabaseSourceExecutions.sourceId, sourceId));
+      .where(eq(schema.contentDatabaseSourceExecutions.sourceId, sourceId))
+      .returning({
+        ownerEmail: schema.contentDatabaseSourceExecutions.ownerEmail,
+        payloadJson: schema.contentDatabaseSourceExecutions.payloadJson,
+      });
+    for (const row of deletedExecutions) {
+      const reference = builderExecutionPayloadReference(row.payloadJson);
+      if (
+        reference &&
+        isBuilderPrivatePayloadBoundToSource(
+          reference,
+          row.ownerEmail,
+          sourceId,
+        )
+      ) {
+        deletedBlobReferences.add(reference);
+        await enqueueBuilderPrivatePayloadCleanup(
+          tx as unknown as ReturnType<typeof getDb>,
+          reference,
+        );
+      }
+    }
     await tx
       .delete(schema.contentDatabaseSourceChangeReviews)
       .where(eq(schema.contentDatabaseSourceChangeReviews.sourceId, sourceId));
@@ -54,6 +117,9 @@ async function deleteSourceRecords(databaseId: string, sourceId: string) {
       .delete(schema.contentDatabaseSources)
       .where(eq(schema.contentDatabaseSources.id, sourceId));
   });
+  for (const reference of deletedBlobReferences) {
+    await cleanupBuilderPrivatePayload(reference, "disconnected source");
+  }
 }
 
 export default defineAction({

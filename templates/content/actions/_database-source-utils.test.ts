@@ -1,3 +1,4 @@
+import { ActionContractError } from "@agent-native/core/action";
 import { describe, expect, it } from "vitest";
 
 import type {
@@ -17,6 +18,7 @@ import {
 } from "./_builder-cms-source-adapter";
 import { resolveBuilderCmsWriteEffect } from "./_builder-cms-write-adapter";
 import {
+  assertBuilderCmsContinuationIdentity,
   buildBuilderLocalOutboundChangeSets,
   builderBodyChangeForLocalContent,
   builderBodyChangeForSourceSnapshotDocument,
@@ -24,6 +26,7 @@ import {
   builderBodyHydrationPriorityForRequest,
   builderBodyHydrationAttemptIsTerminal,
   builderBodyHydrationNextAttemptAt,
+  builderBodyHydrationFailureEvidence,
   builderBodyNeedsSourceComponentWrite,
   knownBuilderReviewDocumentIds,
   builderSourcePropertyAssignments,
@@ -38,6 +41,7 @@ import {
   builderCmsEntryAlreadyRepresented,
   builderCmsSourceContinuationIsCurrent,
   builderExecutionIsProvablyLocallyBlockedUnsent,
+  hydrateSnapshotExecutionRows,
   canRefreshLocallyBlockedBuilderReview,
   buildMockBodyChange,
   buildMockFieldChange,
@@ -61,6 +65,64 @@ import {
   sortBuilderBodyHydrationQueueForProcessing,
 } from "./_database-source-utils";
 import { serializeBodyHydration } from "./_database-utils";
+
+describe("Builder body hydration failure evidence", () => {
+  it.each([
+    ["builder_source_binding_required", 409],
+    ["builder_connection_required", 412],
+  ])("keeps %s retryable", (errorCode, statusCode) => {
+    const evidence = builderBodyHydrationFailureEvidence(
+      new ActionContractError("Builder source binding is unavailable.", {
+        errorCode,
+        statusCode,
+      }),
+    );
+
+    expect(evidence).toMatchObject({
+      retryable: true,
+      providerStatus: errorCode,
+    });
+  });
+
+  it("keeps unrelated conflicts terminal", () => {
+    const evidence = builderBodyHydrationFailureEvidence(
+      new ActionContractError("The read cursor is stale.", {
+        errorCode: "builder_source_continuation_mismatch",
+        statusCode: 409,
+      }),
+    );
+
+    expect(evidence.retryable).toBe(false);
+  });
+});
+
+describe("Builder execution snapshot payload hydration", () => {
+  it("bounds concurrent reads and isolates unavailable payloads", async () => {
+    const rows = Array.from({ length: 9 }, (_, index) => ({
+      id: `execution-${index}`,
+      payloadJson: `payload-${index}`,
+    })) as unknown as Parameters<typeof hydrateSnapshotExecutionRows>[0];
+    let inFlight = 0;
+    let maximumInFlight = 0;
+
+    const hydrated = await hydrateSnapshotExecutionRows(rows, async (row) => {
+      inFlight += 1;
+      maximumInFlight = Math.max(maximumInFlight, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      inFlight -= 1;
+      if (row.id === "execution-3") throw new Error("payload unavailable");
+      return row;
+    });
+
+    expect(maximumInFlight).toBe(4);
+    expect(hydrated).toHaveLength(rows.length);
+    expect(hydrated[3]).toMatchObject({
+      payloadJson: JSON.stringify({ unavailable: true }),
+      payloadUnavailable: true,
+    });
+    expect(hydrated.filter((row) => row.payloadUnavailable)).toHaveLength(1);
+  });
+});
 
 function property(
   type: DocumentProperty["definition"]["type"],
@@ -106,6 +168,31 @@ function item(id: string, title: string): ContentDatabaseItem {
 }
 
 describe("database source helpers", () => {
+  it("rejects saved continuation identity drift and cross-page overlap", () => {
+    expect(() =>
+      assertBuilderCmsContinuationIdentity({
+        continueOffset: 1,
+        activeReadSourceRowIds: ["entry-1", "entry-2"],
+      }),
+    ).toThrow(/exceeds its saved provider offset/);
+    expect(() =>
+      assertBuilderCmsContinuationIdentity({
+        continueOffset: 2,
+        activeReadSourceRowIds: ["entry-1", "entry-2"],
+        entries: [{ id: "entry-2" }, { id: "entry-3" }],
+      }),
+    ).toThrow(/repeated an entry from an earlier page/);
+  });
+
+  it("accepts a provider offset beyond the normalized source row count", () => {
+    expect(() =>
+      assertBuilderCmsContinuationIdentity({
+        continueOffset: 2,
+        activeReadSourceRowIds: ["entry-1"],
+      }),
+    ).not.toThrow();
+  });
+
   it("page-scopes primary Builder rows without truncating secondary federation", () => {
     expect(
       sourceSnapshotPageDocumentIds({
@@ -405,6 +492,8 @@ describe("database source helpers", () => {
             hasMore: true,
             partial: true,
             readMode: "builder-api",
+            sourceSpacePublicKey: "selected-space-key",
+            sourceConnectionId: "builder-oauth-connection-1",
           },
           sourceFetchState: "fetching",
         }),
@@ -420,6 +509,8 @@ describe("database source helpers", () => {
       lastReadHasMore: true,
       lastReadNextOffset: 100,
       sourceFetchState: "fetching",
+      builderSpacePublicKey: "selected-space-key",
+      connectionId: "builder-oauth-connection-1",
     });
   });
 

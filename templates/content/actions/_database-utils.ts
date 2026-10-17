@@ -54,6 +54,12 @@ import {
   type DocumentPropertyType,
 } from "../shared/properties.js";
 import { deleteBlocksFieldIdentity } from "./_blocks-field-identity.js";
+import {
+  builderExecutionPayloadReference,
+  cleanupBuilderPrivatePayload,
+  enqueueBuilderPrivatePayloadCleanup,
+  isBuilderPrivatePayloadBoundToSource,
+} from "./_builder-cms-blob-custody.js";
 import { favoriteDocumentIds } from "./_content-favorites.js";
 import {
   listContentOrganizationMemberships,
@@ -1639,15 +1645,40 @@ export async function deleteDatabaseDataForDocument(
       .select({ id: schema.contentDatabaseSources.id })
       .from(schema.contentDatabaseSources)
       .where(eq(schema.contentDatabaseSources.databaseId, database.id));
+    const deletedBlobReferences = new Set<string>();
     for (const source of sources) {
       await db
         .delete(schema.contentDatabaseBodyHydrationQueue)
         .where(
           eq(schema.contentDatabaseBodyHydrationQueue.sourceId, source.id),
         );
-      await db
-        .delete(schema.contentDatabaseSourceExecutions)
-        .where(eq(schema.contentDatabaseSourceExecutions.sourceId, source.id));
+      await db.transaction(async (tx) => {
+        const deletedExecutions = await tx
+          .delete(schema.contentDatabaseSourceExecutions)
+          .where(eq(schema.contentDatabaseSourceExecutions.sourceId, source.id))
+          .returning({
+            ownerEmail: schema.contentDatabaseSourceExecutions.ownerEmail,
+            payloadJson: schema.contentDatabaseSourceExecutions.payloadJson,
+            sourceId: schema.contentDatabaseSourceExecutions.sourceId,
+          });
+        for (const row of deletedExecutions) {
+          const reference = builderExecutionPayloadReference(row.payloadJson);
+          if (
+            reference &&
+            isBuilderPrivatePayloadBoundToSource(
+              reference,
+              row.ownerEmail,
+              row.sourceId,
+            )
+          ) {
+            deletedBlobReferences.add(reference);
+            await enqueueBuilderPrivatePayloadCleanup(
+              tx as unknown as ReturnType<typeof getDb>,
+              reference,
+            );
+          }
+        }
+      });
       await db
         .delete(schema.contentDatabaseSourceChangeReviews)
         .where(
@@ -1662,6 +1693,9 @@ export async function deleteDatabaseDataForDocument(
       await db
         .delete(schema.contentDatabaseSourceFields)
         .where(eq(schema.contentDatabaseSourceFields.sourceId, source.id));
+    }
+    for (const reference of deletedBlobReferences) {
+      await cleanupBuilderPrivatePayload(reference, "deleted database source");
     }
     await db
       .delete(schema.contentDatabaseSources)

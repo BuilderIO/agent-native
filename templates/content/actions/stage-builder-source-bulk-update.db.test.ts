@@ -7,6 +7,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { BUILDER_CMS_FIXTURE_ROW_PROVENANCE } from "./_builder-cms-source-adapter";
+import { registerMemoryPrivateBlobProvider } from "./_builder-private-blob.test-fixture";
 
 const TEST_DB_PATH = join(
   tmpdir(),
@@ -14,6 +15,7 @@ const TEST_DB_PATH = join(
 );
 
 const OWNER = "owner@example.com";
+const privateBlobs = registerMemoryPrivateBlobProvider();
 
 let getDb: () => any;
 let schema: typeof import("../server/db/schema.js");
@@ -33,6 +35,7 @@ beforeAll(async () => {
 }, 60000);
 
 afterAll(() => {
+  privateBlobs.unregister();
   rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
