@@ -1459,6 +1459,11 @@ export const runContentMigrations = runMigrations(
       sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS author_effort TEXT;
         ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS submission_thread_id TEXT`,
     },
+    {
+      version: 122,
+      name: "content-preview-draft-base-content-hash",
+      sql: `ALTER TABLE document_preview_drafts ADD COLUMN IF NOT EXISTS base_content_hash TEXT`,
+    },
   ],
   { table: "content_migrations" },
 );

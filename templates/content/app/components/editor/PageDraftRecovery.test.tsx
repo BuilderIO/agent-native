@@ -10,6 +10,7 @@ const state = vi.hoisted(() => ({
     content: string;
     version: number;
     baseDocumentUpdatedAt: string | null;
+    baseContentHash?: string | null;
     loadedContentWasEmpty: number;
     editorSessionId: string | null;
     editGeneration: number | null;
@@ -97,6 +98,7 @@ describe("Page draft recovery", () => {
     canEdit: true,
     updatedAt: "v2",
     revision: "saved-body-revision",
+    contentHash: "sha256:saved-body",
   } as Document;
   const render = () =>
     root.render(
@@ -158,6 +160,7 @@ describe("Page draft recovery", () => {
       content: "Draft body",
       version: 3,
       baseDocumentUpdatedAt: "v2",
+      baseContentHash: "sha256:saved-body",
       loadedContentWasEmpty: 0,
       editorSessionId: "tab:page",
       editGeneration: 4,
@@ -184,6 +187,7 @@ describe("Page draft recovery", () => {
       content: "Draft body",
       version: 3,
       baseDocumentUpdatedAt: "v2",
+      baseContentHash: "sha256:saved-body",
       loadedContentWasEmpty: 0,
       editorSessionId: "tab:page",
       editGeneration: 4,
@@ -210,6 +214,7 @@ describe("Page draft recovery", () => {
       content: "Discarded draft body",
       version: 3,
       baseDocumentUpdatedAt: "v2",
+      baseContentHash: "sha256:saved-body",
       loadedContentWasEmpty: 0,
       editorSessionId: "tab:page",
       editGeneration: 4,
@@ -257,6 +262,37 @@ describe("Page draft recovery", () => {
       container.querySelector('[role="status"]')?.textContent ?? "",
     ).not.toContain("editor.previewDraftConflict");
   });
+
+  it.each([
+    [
+      "was written on another body at the page's timestamp",
+      "sha256:other-body",
+    ],
+    ["cannot name the body it was written on", null],
+  ])(
+    "preserves a draft in History when it %s",
+    async (_case, baseContentHash) => {
+      state.draft = {
+        title: "Draft",
+        content: "Draft body",
+        version: 3,
+        baseDocumentUpdatedAt: "v2",
+        baseContentHash,
+        loadedContentWasEmpty: 0,
+        editorSessionId: "tab:page",
+        editGeneration: 4,
+      };
+      await act(async () => render());
+      expect(state.update).not.toHaveBeenCalled();
+      expect(state.resolve).toHaveBeenCalledWith(
+        expect.objectContaining({
+          choice: "use_saved",
+          expectedDraftContent: "Draft body",
+          expectedDocumentUpdatedAt: "v2",
+        }),
+      );
+    },
+  );
 
   it("discards a newer-base draft the saved page already holds", async () => {
     state.draft = {

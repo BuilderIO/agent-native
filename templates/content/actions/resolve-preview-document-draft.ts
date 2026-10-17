@@ -276,6 +276,7 @@ export default defineAction({
               title: claim.title,
               content: claim.content,
               baseDocumentUpdatedAt: payload.baseDocumentUpdatedAt,
+              baseContentHash: null,
               loadedContentWasEmpty: payload.loadedContentWasEmpty,
               deferredReason: payload.deferredReason,
               editorSessionId: payload.editorSessionId ?? null,

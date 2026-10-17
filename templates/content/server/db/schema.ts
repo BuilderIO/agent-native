@@ -196,6 +196,7 @@ export const documentPreviewDrafts = table(
     title: text("title").notNull(),
     content: text("content").notNull(),
     baseDocumentUpdatedAt: text("base_document_updated_at"),
+    baseContentHash: text("base_content_hash"),
     loadedContentWasEmpty: integer("loaded_content_was_empty")
       .notNull()
       .default(0),

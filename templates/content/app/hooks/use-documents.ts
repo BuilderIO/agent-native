@@ -703,15 +703,48 @@ export function removeCreatedDocumentNavigation(
   }
 }
 
+// A save that sends no body still answers with the page's current body
+// revision, hash and timestamp. If another writer moved the body since the
+// cache read it, those name a body the cache does not hold: beside the cached
+// body they make every later save's base invalid and stamp a draft with a body
+// it was not written on. The cache keeps its body and the fields that go with
+// it until a fresh read brings the new body.
+export function documentUpdateMovedBody(
+  data: Pick<DocumentUpdateResponse, "bodyRevision">,
+  variables: Pick<DocumentUpdateRequestWithCas, "content">,
+  cachedBodyRevisions: readonly (number | undefined)[],
+): boolean {
+  return (
+    variables.content === undefined &&
+    cachedBodyRevisions.some((revision) => revision !== data.bodyRevision)
+  );
+}
+
+function cachedDocumentBodyRevisions(
+  queryClient: Pick<QueryClient, "getQueriesData">,
+  documentId: string,
+): Array<number | undefined> {
+  return queryClient
+    .getQueriesData<Document>(documentQueryFilter(documentId))
+    .flatMap(([, cached]) =>
+      cached && typeof cached === "object" ? [cached.bodyRevision] : [],
+    );
+}
+
 export function documentUpdateSuccessPatch(
   data: DocumentUpdateResponse,
   variables: DocumentUpdateRequestWithCas,
+  bodyMovedElsewhere = false,
 ): PageOwnedDocumentCachePatch {
   return {
-    updatedAt: data.updatedAt,
-    revision: data.revision,
-    bodyRevision: data.bodyRevision,
-    contentHash: data.contentHash,
+    ...(bodyMovedElsewhere
+      ? {}
+      : {
+          updatedAt: data.updatedAt,
+          revision: data.revision,
+          bodyRevision: data.bodyRevision,
+          contentHash: data.contentHash,
+        }),
     ...(variables.title !== undefined ? { title: data.title } : {}),
     ...(variables.content !== undefined ? { content: data.content } : {}),
     ...(variables.description !== undefined
@@ -987,6 +1020,7 @@ export interface PreviewDocumentDraftRecord {
   title: string;
   content: string;
   baseDocumentUpdatedAt: string | null;
+  baseContentHash?: string | null;
   loadedContentWasEmpty: number;
   deferredReason: string | null;
   editorSessionId: string | null;
@@ -1100,6 +1134,7 @@ export function useUpdatePreviewDocumentDraft() {
           title: string;
           content: string;
           baseDocumentUpdatedAt: string | null;
+          baseContentHash: string | null;
           loadedContentWasEmpty: boolean;
           deferredReason: "hydration" | "conflict" | null;
           editorSessionId?: string;
@@ -1545,11 +1580,18 @@ export function useUpdateDocument(options?: { saveOrigin?: "recovery" }) {
           return;
         }
 
+        const bodyMovedElsewhere = documentUpdateMovedBody(
+          data,
+          variables,
+          cachedDocumentBodyRevisions(queryClient, variables.id),
+        );
         patchDocumentCaches(
           queryClient,
           variables.id,
-          documentUpdateSuccessPatch(data, variables),
+          documentUpdateSuccessPatch(data, variables, bodyMovedElsewhere),
         );
+        if (bodyMovedElsewhere)
+          void queryClient.invalidateQueries(documentQueryFilter(variables.id));
         if (variables.title !== undefined) {
           invalidateContentQueries(queryClient, [
             contentDatabaseConstrainedQueryFilter(),
