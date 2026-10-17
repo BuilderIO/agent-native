@@ -3,7 +3,6 @@ export {
   getOAuthTokenSnapshot,
   OAuthAccountOwnedByOtherUserError,
   saveOAuthTokens,
-  withOAuthTokenRefreshLock,
   replaceOAuthTokensIfRevision,
   deleteOAuthTokens,
   deleteOAuthTokensIfRevision,
@@ -16,6 +15,7 @@ export {
 export {
   readOAuthCredentialState,
   resolveOAuthCredentialAccess,
+  resolveOAuthTokenBundleAccess,
   markOAuthReconnectRequired,
   revokeOAuthCredential,
   saveOAuthCredential,

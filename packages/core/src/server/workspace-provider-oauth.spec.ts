@@ -668,6 +668,124 @@ describe("workspace provider OAuth", () => {
     );
   });
 
+  it("preserves existing app access when reconnecting the same Sigma identity", async () => {
+    const email = "requester@example.com";
+    const apiBaseUrl = "https://api.eu.aws.sigmacomputing.com";
+    const accountId = scopedOAuthAccountId(
+      "sigma",
+      email,
+      "sigma-org-1:sigma-user-1",
+    );
+    defineAppConfig({
+      app: { id: "analytics-secondary", workspaceId: "analytics-secondary" },
+    });
+    const redirectUri =
+      "https://example.test/_agent-native/connections/oauth/sigma/callback";
+    const flow: WorkspaceProviderOAuthFlow = {
+      provider: "sigma",
+      flowId: "sigma-callback-flow-secondary-app",
+      verifier: "sigma-verifier-secondary-app",
+      redirectUri,
+      owner: email,
+      orgId: "org-1",
+      appId: "analytics-secondary",
+      scope: "user",
+      sigmaApiBaseUrl: apiBaseUrl,
+      sigmaAuthorizationUrl: `${apiBaseUrl}/mcp/authorize`,
+      sigmaTokenUrl: `${apiBaseUrl}/mcp/token`,
+      sigmaOAuthClientId: "sigma-dynamic-client",
+      sigmaTokenEndpointAuthMethod: "none",
+      expiresAt: Date.now() + 60_000,
+    };
+    vi.stubEnv("BETTER_AUTH_SECRET", "test-only-oauth-secret");
+    callbackMocks.getSession.mockResolvedValue({ email });
+    callbackMocks.getOrgContext.mockResolvedValue({
+      orgId: "org-1",
+      email,
+      role: "member",
+    });
+    callbackMocks.listWorkspaceConnections.mockResolvedValue([
+      {
+        id: "sigma-connection-existing",
+        provider: "sigma",
+        accountId,
+        allowedUsers: [email],
+        allowedApps: ["analytics"],
+        scopes: ["api:access"],
+        config: { credentialMode: "oauth" },
+      },
+    ]);
+    callbackMocks.upsertWorkspaceConnection.mockResolvedValue({
+      id: "sigma-connection-existing",
+    } as never);
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              access_token: "sigma-access-token",
+              refresh_token: "sigma-refresh-token",
+              expires_in: 3600,
+              scope: "api:access",
+            }),
+            { status: 200 },
+          ),
+        )
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              userId: "sigma-user-1",
+              organizationId: "sigma-org-1",
+              email,
+            }),
+            { status: 200 },
+          ),
+        ),
+    );
+    const state = encodeOAuthState({
+      redirectUri,
+      owner: email,
+      orgId: "org-1",
+      app: "analytics-secondary",
+      scope: "user",
+      provider: "sigma",
+      flowId: flow.flowId,
+    });
+    const callbackUrl = new URL(redirectUri);
+    callbackUrl.searchParams.set("code", "sigma-code");
+    callbackUrl.searchParams.set("state", state);
+    const event = {
+      req: new Request(callbackUrl, {
+        headers: {
+          cookie: `an_workspace_oauth_sigma=${encodeURIComponent(
+            encryptSecretValue(JSON.stringify(flow)),
+          )}`,
+        },
+      }),
+      res: { status: 200, headers: new Headers() },
+    } as never;
+
+    await handleWorkspaceProviderOAuthCallback(event, "sigma");
+
+    expect(callbackMocks.upsertWorkspaceConnection).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "sigma-connection-existing",
+        accountId,
+        allowedApps: ["analytics", "analytics-secondary"],
+        allowedUsers: [email],
+      }),
+    );
+    expect(callbackMocks.upsertWorkspaceConnectionGrant).toHaveBeenCalledWith(
+      expect.objectContaining({
+        connectionId: "sigma-connection-existing",
+        appId: "analytics-secondary",
+        provider: "sigma",
+      }),
+    );
+  });
+
   it("rejects a Sigma OAuth callback bound to another app", async () => {
     const email = "requester@example.com";
     const redirectUri =

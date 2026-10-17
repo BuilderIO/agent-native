@@ -680,7 +680,9 @@ export async function handleWorkspaceProviderOAuthCallback(
           scopes,
           allowedApps:
             providerId === "sigma"
-              ? [flow.appId]
+              ? mergeWorkspaceOAuthValues(existing?.allowedApps ?? [], [
+                  flow.appId,
+                ])
               : (existing?.allowedApps ??
                 (flow.scope === "app" ? [flow.appId] : [])),
           allowedUsers:

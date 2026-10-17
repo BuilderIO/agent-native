@@ -74,14 +74,8 @@ const isBlockedExtensionUrlWithDns = vi.fn();
 const createSsrfSafeDispatcher = vi.fn();
 const listOAuthAccountsByOwner = vi.fn();
 const saveOAuthTokens = vi.fn();
-const withOAuthTokenRefreshLock = vi.fn(
-  async (
-    _provider: string,
-    _accountId: string,
-    _owner: string,
-    run: () => Promise<unknown>,
-  ) => run(),
-);
+const resolveOAuthTokenBundleAccess = vi.fn();
+let tokenBundleRefreshTail = Promise.resolve();
 const deleteOAuthTokens = vi.fn();
 const resolveWorkspaceConnectionForApp = vi.fn();
 const resolveWorkspaceConnectionCredentialForApp = vi.fn();
@@ -103,8 +97,8 @@ vi.mock("../extensions/url-safety.js", () => ({
 vi.mock("../oauth-tokens/index.js", () => ({
   deleteOAuthTokens,
   listOAuthAccountsByOwner,
+  resolveOAuthTokenBundleAccess,
   saveOAuthTokens,
-  withOAuthTokenRefreshLock,
 }));
 
 vi.mock("../workspace-connections/store.js", async (importOriginal) => ({
@@ -193,9 +187,55 @@ describe("provider API runtime", () => {
     listOAuthAccountsByOwner.mockReset();
     listOAuthAccountsByOwner.mockResolvedValue([]);
     saveOAuthTokens.mockReset();
-    withOAuthTokenRefreshLock.mockReset();
-    withOAuthTokenRefreshLock.mockImplementation(
-      async (_provider, _accountId, _owner, run) => run(),
+    tokenBundleRefreshTail = Promise.resolve();
+    resolveOAuthTokenBundleAccess.mockReset();
+    resolveOAuthTokenBundleAccess.mockImplementation(
+      async (
+        identity: { provider: string; accountId: string },
+        options: {
+          storageOwner: string;
+          shouldRefresh: (
+            tokens: Record<string, unknown>,
+            now: number,
+          ) => boolean;
+          refresh: (
+            tokens: Record<string, unknown>,
+          ) => Promise<Record<string, unknown>>;
+        },
+      ) => {
+        const previous = tokenBundleRefreshTail;
+        let release!: () => void;
+        tokenBundleRefreshTail = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        await previous;
+        try {
+          const account = (
+            await listOAuthAccountsByOwner(
+              identity.provider,
+              options.storageOwner,
+            )
+          ).find(
+            (candidate: { accountId: string }) =>
+              candidate.accountId === identity.accountId,
+          );
+          const tokens = account?.tokens as Record<string, unknown> | undefined;
+          if (!tokens || typeof tokens.access_token !== "string") {
+            throw new Error("OAuth token bundle is no longer available.");
+          }
+          if (!options.shouldRefresh(tokens, Date.now())) return tokens;
+          const refreshed = await options.refresh(tokens);
+          await saveOAuthTokens(
+            identity.provider,
+            identity.accountId,
+            refreshed,
+            options.storageOwner,
+          );
+          return refreshed;
+        } finally {
+          release();
+        }
+      },
     );
     deleteOAuthTokens.mockReset();
     resolveWorkspaceConnectionForApp.mockReset();
@@ -529,22 +569,6 @@ describe("provider API runtime", () => {
       },
     );
 
-    let lockTail = Promise.resolve();
-    withOAuthTokenRefreshLock.mockImplementation(
-      async (_provider, _accountId, _owner, run) => {
-        const previous = lockTail;
-        let release!: () => void;
-        lockTail = new Promise<void>((resolve) => {
-          release = resolve;
-        });
-        await previous;
-        try {
-          return await run();
-        } finally {
-          release();
-        }
-      },
-    );
     const fetchMock = vi
       .spyOn(globalThis, "fetch")
       .mockImplementation(async (input: RequestInfo | URL) => {
