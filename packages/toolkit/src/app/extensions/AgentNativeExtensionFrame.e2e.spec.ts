@@ -72,7 +72,7 @@ async function startHostServer(): Promise<ViteDevServer> {
             res.setHeader("Content-Type", "text/html");
             res.end(
               buildExtensionHtml(
-                '<a id="route-external-link" href="https://external.example.test/route-metric">Open route metric</a><form action="/__extension-e2e-route"><button id="route-external-form" type="submit" formaction="https://external.example.test/form-submit">Submit external form</button></form>',
+                '<a id="route-external-link" href="https://external.example.test/route-metric" onclick="event.stopImmediatePropagation()">Open route metric</a><form action="/__extension-e2e-route"><button id="route-external-form" type="submit" formaction="https://external.example.test/form-submit">Submit external form</button></form>',
                 ":root{}",
                 false,
                 "route-extension",

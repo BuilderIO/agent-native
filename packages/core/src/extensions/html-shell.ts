@@ -224,10 +224,6 @@ export function buildExtensionExternalLinkTargetBootstrap(
       function sendLinkChannelRequest() {
         if (!linkNonce || !NativeMessageChannel || sendExternalLink || handshakePendingPort || handshakeAttempts >= 20) return;
 
-        pendingPorts.forEach(function(port) {
-          portClose.call(port);
-        });
-        pendingPorts = [];
         handshakeAttempts += 1;
         var channel = new NativeMessageChannel();
         var childPort = channel.port1;
@@ -245,7 +241,7 @@ export function buildExtensionExternalLinkTargetBootstrap(
             return;
           }
           if (!event.data || event.data.type !== ${JSON.stringify(EXTENSION_LINK_CHANNEL_READY_MESSAGE_TYPE)}) return;
-          if (handshakePendingPort !== childPort) return;
+          if (pendingPorts.indexOf(childPort) === -1) return;
           if (handshakeRetryTimer) clearTimeout(handshakeRetryTimer);
           handshakeRetryTimer = null;
           handshakePendingPort = null;
@@ -270,8 +266,14 @@ export function buildExtensionExternalLinkTargetBootstrap(
         handshakeRetryTimer = setTimeout(function() {
           if (handshakePendingPort !== childPort) return;
           handshakePendingPort = null;
-          pendingPorts = pendingPorts.filter(function(port) { return port !== childPort; });
-          portClose.call(childPort);
+          handshakeRetryTimer = null;
+          if (handshakeAttempts >= 20) {
+            if (handshakeTimer) clearInterval(handshakeTimer);
+            handshakeTimer = null;
+            pendingPorts.forEach(function(port) { portClose.call(port); });
+            pendingPorts = [];
+            return;
+          }
           sendLinkChannelRequest();
         }, 500);
       }
@@ -363,6 +365,78 @@ export function buildExtensionExternalLinkTargetBootstrap(
         if (targets.indexOf(window) === -1) targets.push(window);
 
         var finished = false;
+        var handlerPrevented = false;
+        var routerPrevented = false;
+        var settingRouterPrevented = false;
+        var originalPreventDefault = event.preventDefault;
+        var originalStopPropagation = event.stopPropagation;
+        var originalStopImmediatePropagation = event.stopImmediatePropagation;
+        var defaultPreventedDescriptor = Object.getOwnPropertyDescriptor(event, 'defaultPrevented');
+        var preventDefaultDescriptor = Object.getOwnPropertyDescriptor(event, 'preventDefault');
+        var stopPropagationDescriptor = Object.getOwnPropertyDescriptor(event, 'stopPropagation');
+        var stopImmediatePropagationDescriptor = Object.getOwnPropertyDescriptor(event, 'stopImmediatePropagation');
+        var defaultPreventedGetter = null;
+        var eventPrototype = event;
+        while (!defaultPreventedGetter && eventPrototype) {
+          var defaultPreventedCandidate = Object.getOwnPropertyDescriptor(eventPrototype, 'defaultPrevented');
+          if (defaultPreventedCandidate && defaultPreventedCandidate.get) {
+            defaultPreventedGetter = defaultPreventedCandidate.get;
+          }
+          eventPrototype = Object.getPrototypeOf(eventPrototype);
+        }
+        function restoreEventMethod(name, descriptor) {
+          if (descriptor) {
+            Object.defineProperty(event, name, descriptor);
+          } else {
+            delete event[name];
+          }
+        }
+        function restoreEventMethods() {
+          restoreEventMethod('defaultPrevented', defaultPreventedDescriptor);
+          restoreEventMethod('preventDefault', preventDefaultDescriptor);
+          restoreEventMethod('stopPropagation', stopPropagationDescriptor);
+          restoreEventMethod('stopImmediatePropagation', stopImmediatePropagationDescriptor);
+        }
+        Object.defineProperty(event, 'defaultPrevented', {
+          configurable: true,
+          get: function() {
+            if (routerPrevented) return handlerPrevented;
+            return handlerPrevented || (defaultPreventedGetter && defaultPreventedGetter.call(event));
+          }
+        });
+        Object.defineProperty(event, 'preventDefault', {
+          configurable: true,
+          value: function() {
+            if (!settingRouterPrevented) handlerPrevented = true;
+            return originalPreventDefault.call(event);
+          }
+        });
+        function preventDefaultForStoppedEvent() {
+          if (handlerPrevented || routerPrevented) return;
+          // Stopping propagation leaves the anchor's native action enabled unless canceled now.
+          routerPrevented = true;
+          settingRouterPrevented = true;
+          try {
+            originalPreventDefault.call(event);
+          } finally {
+            settingRouterPrevented = false;
+          }
+          queueMicrotask(function() { finish(event.cancelBubble); });
+        }
+        Object.defineProperty(event, 'stopPropagation', {
+          configurable: true,
+          value: function() {
+            originalStopPropagation.call(event);
+            preventDefaultForStoppedEvent();
+          }
+        });
+        Object.defineProperty(event, 'stopImmediatePropagation', {
+          configurable: true,
+          value: function() {
+            originalStopImmediatePropagation.call(event);
+            preventDefaultForStoppedEvent();
+          }
+        });
         function cleanup() {
           targets.forEach(function(target) {
             target.removeEventListener(event.type, observeCapture, true);
@@ -373,7 +447,12 @@ export function buildExtensionExternalLinkTargetBootstrap(
           if (finished) return;
           finished = true;
           cleanup();
-          if (!shouldRoute || event.defaultPrevented) return;
+          restoreEventMethods();
+          if (
+            !shouldRoute ||
+            handlerPrevented ||
+            (!routerPrevented && defaultPreventedGetter && defaultPreventedGetter.call(event))
+          ) return;
           if (!sendExternalLink && parentWindow === window) return;
           event.preventDefault();
           if (sendExternalLink) {
@@ -390,6 +469,7 @@ export function buildExtensionExternalLinkTargetBootstrap(
           parentPostMessage(fallbackRequest, '*');
         }
         function observe(isCapture) {
+          if (routerPrevented) return;
           if (event.defaultPrevented) {
             finish(false);
           } else if (
@@ -412,7 +492,7 @@ export function buildExtensionExternalLinkTargetBootstrap(
           target.addEventListener(event.type, observeCapture, true);
           target.addEventListener(event.type, observeBubble, false);
         });
-        setTimeout(function() { finish(false); }, 0);
+        setTimeout(function() { finish(event.cancelBubble); }, 0);
       }
 
       function routeExternalLink(event) {
