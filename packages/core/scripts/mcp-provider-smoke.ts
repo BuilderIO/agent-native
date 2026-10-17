@@ -36,8 +36,14 @@
  * - `unreachable`: the request failed before a provider answered; this says
  *   nothing about the schemas.
  *
- * Only `accepted` counts as passing. Results and pinned model ids land in
- * `.tmp/mcp-provider-smoke/`, with credential-shaped strings redacted.
+ * Only `accepted` counts as passing. The run exits 0 when every check was
+ * accepted, 1 when any check ended in another outcome but `unreachable`, and
+ * 2 when it could not check what was asked: an app it does not know, an app
+ * named in `--apps` with none of the `--modes`, a catalog with no tools, no
+ * catalog or provider check at all, or a provider that never answered. A run
+ * that inspected nothing is never reported as a pass. Results and pinned
+ * model ids land in `.tmp/mcp-provider-smoke/`, with credential-shaped
+ * strings redacted.
  *
  * The deterministic counterpart is each template's
  * `server/mcp-provider-schemas.spec.ts`, which checks the same catalogs against
@@ -187,7 +193,7 @@ async function loadCatalogs(app: string, only?: McpCatalogMode[]) {
       if (only && !only.includes(mode)) continue;
       catalogs.push({ mode, tools: await template.listCatalog(mode) });
     }
-    return { catalogs, actions: template.actions };
+    return { modes: template.modes, catalogs, actions: template.actions };
   } finally {
     await vite.close();
   }
@@ -402,10 +408,31 @@ async function main() {
   const tally = Object.fromEntries(
     OUTCOME_ORDER.map((outcome) => [outcome, 0]),
   ) as Record<Outcome, number>;
+  const couldNotRun: string[] = [];
+  let selected = 0;
 
-  for (const app of flags.apps ?? templateApps()) {
-    const { catalogs, actions } = await loadCatalogs(app, flags.modes);
+  const known = templateApps();
+  for (const app of flags.apps ?? []) {
+    if (!known.includes(app)) {
+      couldNotRun.push(`"${app}" is not a template app with actions`);
+    }
+  }
+  for (const app of (flags.apps ?? known).filter((app) =>
+    known.includes(app),
+  )) {
+    const { modes, catalogs, actions } = await loadCatalogs(app, flags.modes);
+    if (catalogs.length === 0) {
+      const reason = `${app} has no ${flags.modes?.join(" or ") ?? "MCP"} catalog; it advertises ${modes.join(", ") || "none"}`;
+      // Every template is in the default list, so only a named app must match.
+      if (flags.apps) couldNotRun.push(reason);
+      else console.log(`Skipped: ${reason}`);
+    }
     for (const { mode, tools } of catalogs) {
+      selected++;
+      if (tools.length === 0) {
+        couldNotRun.push(`${app} ${mode} lists no tools`);
+        continue;
+      }
       const force = forcedTool(tools, actions);
       const slices = chunks(tools, CHUNK_SIZE);
       if (flags.dryRun) {
@@ -511,17 +538,31 @@ async function main() {
     }
   }
 
+  if (selected === 0) couldNotRun.push("no catalog matched the selection");
+  else if (!flags.dryRun && results.length === 0) {
+    couldNotRun.push("no provider check ran");
+  }
+  if (tally.unreachable > 0) {
+    couldNotRun.push(`${tally.unreachable} check(s) never reached a provider`);
+  }
+  for (const reason of couldNotRun) console.log(`Could not run: ${reason}`);
+  const failed = results.length - tally.accepted - tally.unreachable;
+  process.exitCode = failed > 0 ? 1 : couldNotRun.length > 0 ? 2 : 0;
   if (flags.dryRun) return;
+
   mkdirSync(outDir, { recursive: true });
   const outFile = path.join(outDir, `${runDate.replace(/[:.]/g, "-")}.json`);
   writeFileSync(
     outFile,
-    JSON.stringify({ runDate, providers: PROVIDERS, tally, results }, null, 2),
+    JSON.stringify(
+      { runDate, providers: PROVIDERS, tally, couldNotRun, results },
+      null,
+      2,
+    ),
   );
   console.log(
     `\n${results.length} checks: ${OUTCOME_ORDER.map((outcome) => `${tally[outcome]} ${outcome}`).join(", ")}. Results: ${outFile}`,
   );
-  if (results.length !== tally.accepted) process.exitCode = 1;
 }
 
 await main();
