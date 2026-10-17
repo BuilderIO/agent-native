@@ -694,18 +694,20 @@ export const AgentNativeExtensionFrame = forwardRef<
     storageScopeAllowlist,
   ]);
 
+  if (!linkNonce) return null;
+
   return (
     <iframe
       {...iframeProps}
       {...{ [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }}
-      key={`${extensionFrameKey}-${linkNonce ?? "no-link-nonce"}`}
+      key={`${extensionFrameKey}-${linkNonce}`}
       ref={(node) => {
         iframeRef.current = node;
         setForwardedRef(forwardedRef, node);
         bridgeRef.current?.setTargetWindow(node?.contentWindow ?? null);
       }}
       title={title ?? extension.name}
-      srcDoc={linkNonce ? srcDoc : undefined}
+      srcDoc={srcDoc}
       sandbox={sandboxValue}
       allow={allow}
       referrerPolicy={referrerPolicy}
