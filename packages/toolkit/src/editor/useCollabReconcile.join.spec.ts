@@ -374,6 +374,17 @@ function makeTabs({
         "remote",
       ]);
     },
+    /**
+     * A presence list reaches C that leaves the collaborator out, as an older
+     * answer or an event from a server that does not know it does.
+     */
+    omitFromC: (clientId: number) => {
+      awareness.C.getStates().delete(clientId);
+      awareness.C.emit("change", [
+        { added: [], updated: [], removed: [clientId] },
+        "remote",
+      ]);
+    },
     /** A presence answer reaches C that it cannot read. */
     refusePresenceToC: () => {
       refusedPresence += 1;
@@ -768,6 +779,25 @@ describe("useCollabReconcile: a tab joining a live doc mid-save", () => {
       await act(async () => vi.advanceTimersByTimeAsync(10_000));
       expect(tabs.joinFailed("C")).toBe(false);
       expect(tabs.counts()).toEqual({ A: 1, B: 1, C: 1 });
+    } finally {
+      tabs.dispose();
+    }
+  });
+
+  it("keeps the doc when a presence list that leaves out the collaborator holding it arrives while it catches up", async () => {
+    const tabs = makeTabs({ ids: { A: 5, B: 6, C: 3 } });
+    tabs.holdCatchUp();
+    vi.useFakeTimers();
+    try {
+      await openCWhileASaves(tabs);
+      expect(heldRevision(tabs.awareness.B)).toBe(STORED.revision);
+      await act(async () => tabs.discoverPeers());
+      act(() => tabs.omitFromC(6));
+      await act(async () => tabs.releaseCatchUp());
+      await act(async () => vi.advanceTimersByTimeAsync(10_000));
+      expect(tabs.joinFailed("C")).toBe(false);
+      expect(tabs.counts()).toEqual({ A: 1, B: 1, C: 1 });
+      expect(heldRevision(tabs.awareness.C)).toBe(STORED.revision);
     } finally {
       tabs.dispose();
     }

@@ -68,9 +68,11 @@ export interface UseCollaborativeDocResult {
    * Exchanges presence with the server once, outside the poll a hidden tab
    * skips. Resolves `ready` after the collaborators' awareness states are
    * applied, so a caller can learn who else holds the document before acting.
-   * Its `current()` turns false once a presence answer this client could not
-   * read arrives after the exchange was sent: that answer may name a
-   * collaborator the discovery did not.
+   * Every later answer or event replaces them as it arrives, an older or
+   * partial one included, so a caller that must not lose a collaborator keeps
+   * what it saw. Its `current()` turns false once a presence answer this
+   * client could not read arrives after the exchange was sent: that answer
+   * may name a collaborator the discovery did not.
    */
   discoverPeers: () => Promise<CollabPeerDiscoveryResult>;
   /**
@@ -291,11 +293,6 @@ class CollabDocConnection {
   private updateAbortController: AbortController | null = null;
   private updateHandlerAttached = false;
 
-  /** Presence exchanges sent, and the latest whose answer was applied. */
-  private awarenessExchangesSent = 0;
-  private awarenessExchangeApplied = 0;
-  /** When the server read the newest presence list applied. */
-  private awarenessListAppliedAt = -Infinity;
   /**
    * Presence answers this client did not get or could not read, and events
    * it refused as unreadable: any of them may name a collaborator it does not
@@ -774,49 +771,26 @@ class CollabDocConnection {
   /**
    * Throws when the request fails or any of the answer is unreadable, changing
    * nothing: an answer replaces the collaborators this client knows, and one
-   * applied without an unreadable collaborator would also outrank an older,
-   * complete answer. False when there was nothing to exchange.
+   * applied without an unreadable collaborator would remove that collaborator.
+   * False when there was nothing to exchange.
    */
   private async exchangeAwareness({
     signal,
   }: { signal?: AbortSignal } = {}): Promise<boolean> {
     const localState = this.awareness.getLocalState();
     if (!localState || this.disposed) return false;
-    const exchange = ++this.awarenessExchangesSent;
-    let list: RemoteAwarenessList;
+    let remoteStates: RemoteAwarenessSnapshot[];
     try {
-      list = await this.requestAwareness(localState, signal);
+      remoteStates = await this.requestAwareness(localState, signal);
     } catch (error) {
       this.awarenessGaps++;
       throw error;
     }
     if (this.disposed) return false;
-    this.applyAwarenessList(list, exchange);
-    return true;
-  }
-
-  /**
-   * Replaces the collaborators this client knows with a presence answer's or
-   * event's list, unless it is older than one already applied: answers and
-   * events arrive on separate connections, and an older list would remove
-   * collaborators a newer one reported. A list from a server that sends no
-   * read time is ordered as before, an answer by when it was sent and an
-   * event as it arrives.
-   */
-  private applyAwarenessList(list: RemoteAwarenessList, exchange?: number) {
-    if (
-      list.at === null
-        ? exchange !== undefined && exchange < this.awarenessExchangeApplied
-        : list.at < this.awarenessListAppliedAt
-    ) {
-      return;
-    }
-    if (list.at !== null) this.awarenessListAppliedAt = list.at;
-    if (exchange !== undefined) this.awarenessExchangeApplied = exchange;
     const changes = reconcileRemoteAwarenessStates(
       this.awareness.getStates() as Map<number, unknown>,
       this.ydoc.clientID,
-      list.states,
+      remoteStates,
     );
     if (
       changes.added.length ||
@@ -825,12 +799,13 @@ class CollabDocConnection {
     ) {
       this.awareness.emit("change", [changes, "remote"]);
     }
+    return true;
   }
 
   private async requestAwareness(
     localState: unknown,
     signal: AbortSignal | undefined,
-  ): Promise<RemoteAwarenessList> {
+  ): Promise<RemoteAwarenessSnapshot[]> {
     const response = await fetch(`${this.baseUrl}/${this.docId}/awareness`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -843,17 +818,17 @@ class CollabDocConnection {
     if (!response.ok) {
       throw new Error(`Awareness request failed: HTTP ${response.status}`);
     }
-    let answer: { states?: unknown; at?: unknown } | null;
+    let answer: { states?: unknown } | null;
     try {
-      answer = (await response.json()) as typeof answer;
+      answer = (await response.json()) as { states?: unknown } | null;
     } catch {
       throw new Error("Awareness response is unreadable");
     }
-    const list = readRemoteAwarenessList(answer);
-    if (!list) {
+    const remoteStates = readRemoteAwarenessStates(answer?.states);
+    if (!remoteStates) {
       throw new Error("Awareness response has an unreadable state");
     }
-    return list;
+    return remoteStates;
   }
 
   flushUpdates = async (): Promise<boolean> => {
@@ -1325,33 +1300,25 @@ class CollabDocConnection {
     ) {
       return;
     }
-    const list = readRemoteAwarenessList({ states: data.states, at: data.at });
-    if (!list) {
+    // An event replaces the collaborators this client knows, as an answer does.
+    const remoteStates = readRemoteAwarenessStates(data.states);
+    if (!remoteStates) {
       this.awarenessGaps++;
       return;
     }
-    this.applyAwarenessList(list);
+    const changes = reconcileRemoteAwarenessStates(
+      this.awareness.getStates() as Map<number, unknown>,
+      this.ydoc.clientID,
+      remoteStates,
+    );
+    if (
+      changes.added.length ||
+      changes.updated.length ||
+      changes.removed.length
+    ) {
+      this.awareness.emit("change", [changes, "remote"]);
+    }
   }
-}
-
-interface RemoteAwarenessList {
-  states: RemoteAwarenessSnapshot[];
-  /** When the server read the list, or null from a server that sends none. */
-  at: number | null;
-}
-
-/**
- * A presence answer's or event's list, or null when any of it is unreadable,
- * its read time included.
- */
-function readRemoteAwarenessList(
-  payload: { states?: unknown; at?: unknown } | null | undefined,
-): RemoteAwarenessList | null {
-  const states = readRemoteAwarenessStates(payload?.states);
-  if (!states) return null;
-  const at = payload?.at;
-  if (at === undefined) return { states, at: null };
-  return typeof at === "number" && Number.isFinite(at) ? { states, at } : null;
 }
 
 /**

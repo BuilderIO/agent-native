@@ -109,14 +109,13 @@ function isCurrent(discovery: CollabPeerDiscoveryResult | null): boolean {
   return discovery?.status === "ready" && discovery.current();
 }
 
-function awarenessEvent(docId: string, states: unknown, at?: unknown) {
+function awarenessEvent(docId: string, states: unknown) {
   return {
     data: JSON.stringify({
       source: "awareness",
       type: "awareness-change",
       docId,
       ...(states === undefined ? {} : { states }),
-      ...(at === undefined ? {} : { at }),
     }),
   };
 }
@@ -1120,7 +1119,7 @@ describe("useCollaborativeDoc connection registry", () => {
     },
   );
 
-  it("keeps a collaborator discovery learned when an older poll's presence answer arrives after it", async () => {
+  it("applies discovery's presence answer though a poll's sent after it answered first", async () => {
     const { mock: fallback } = makeFetchMock();
     const peer = { user: { name: "Peer" }, reconciledRevision: "body:1:abc" };
     const answers: Array<
@@ -1140,7 +1139,7 @@ describe("useCollaborativeDoc connection registry", () => {
     let result: UseCollaborativeDocResult | undefined;
     mount(
       <Probe
-        docId="doc-discover-ordered"
+        docId="doc-discover-answers-late"
         onResult={(next) => (result = next)}
         user={{ name: "Local", email: "local@example.com", color: "c" }}
       />,
@@ -1148,29 +1147,33 @@ describe("useCollaborativeDoc connection registry", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2500);
     });
-    // The poll's presence request waits; discovery's goes out after it.
     expect(answers).toHaveLength(1);
+    await act(async () => {
+      answers[0]!([]);
+      await vi.advanceTimersByTimeAsync(0);
+    });
     let discovery: Awaited<ReturnType<typeof result.discoverPeers>> | null =
       null;
     const discovering = result!.discoverPeers().then((next) => {
       discovery = next;
     });
     await act(async () => {
+      await vi.advanceTimersByTimeAsync(2500);
+    });
+    // Discovery's presence request waits; the next poll's goes out after it.
+    expect(answers).toHaveLength(3);
+
+    await act(async () => {
+      answers[2]!([]);
       await vi.advanceTimersByTimeAsync(0);
     });
-    expect(answers).toHaveLength(2);
-
     await act(async () => {
       answers[1]!([{ clientId: 77, state: JSON.stringify(peer) }]);
       await discovering;
     });
+
     expect(discovery).toMatchObject({ status: "ready" });
     expect(isCurrent(discovery)).toBe(true);
-    await act(async () => {
-      answers[0]!([]);
-      await vi.advanceTimersByTimeAsync(0);
-    });
-
     expect(result!.awareness!.getStates().get(77)).toEqual(peer);
   });
 
@@ -1181,10 +1184,6 @@ describe("useCollaborativeDoc connection registry", () => {
         Response.json({ states: [{ clientId: 77, state: "{broken" }] }),
     },
     { answer: "is not JSON", response: () => new Response("{broken") },
-    {
-      answer: "has an unreadable read time",
-      response: () => Response.json({ states: [], at: "soon" }),
-    },
     {
       answer: "is an HTTP error",
       response: () => new Response(null, { status: 503 }),
@@ -1277,16 +1276,9 @@ describe("useCollaborativeDoc connection registry", () => {
       answer: "a state that is not an object",
       states: [{ clientId: 77, state: "null" }],
     },
-    {
-      answer: "an unreadable read time",
-      states: [
-        { clientId: 76, state: JSON.stringify({ user: { name: "Ok" } }) },
-      ],
-      at: "soon",
-    },
   ])(
     "keeps the collaborators it knows when a presence event lists $answer",
-    async ({ states, at }) => {
+    async ({ states }) => {
       const { mock } = makeFetchMock();
       vi.stubGlobal("fetch", mock);
       let result: UseCollaborativeDocResult | undefined;
@@ -1307,76 +1299,12 @@ describe("useCollaborativeDoc connection registry", () => {
       result!.awareness!.getStates().set(77, peer);
 
       await act(async () => {
-        source!.onmessage?.(awarenessEvent("doc-event-unreadable", states, at));
+        source!.onmessage?.(awarenessEvent("doc-event-unreadable", states));
         await vi.advanceTimersByTimeAsync(0);
       });
 
       expect(result!.awareness!.getStates().get(77)).toEqual(peer);
       expect(result!.awareness!.getStates().has(76)).toBe(false);
-    },
-  );
-
-  it.each([
-    { first: "a presence event", then: "an older answer" },
-    { first: "an answer", then: "an older presence event" },
-  ])(
-    "keeps a collaborator $first reports when $then arrives after it",
-    async ({ first }) => {
-      const { mock: fallback } = makeFetchMock();
-      const docId = `doc-ordered-${first === "an answer" ? "answer" : "event"}`;
-      const peer = {
-        user: { name: "Peer" },
-        canFlushDocument: true,
-        reconciledRevision: "body:2:c",
-      };
-      const listed = [{ clientId: 77, state: JSON.stringify(peer) }];
-      const answers: Array<(body: unknown) => void> = [];
-      vi.stubGlobal(
-        "fetch",
-        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-          if (String(input).includes("/awareness") && init?.method === "POST") {
-            return new Promise<Response>((resolve) => {
-              answers.push((body) => resolve(Response.json(body)));
-            });
-          }
-          return fallback(input);
-        }),
-      );
-      let result: UseCollaborativeDocResult | undefined;
-      mount(
-        <Probe
-          docId={docId}
-          onResult={(next) => (result = next)}
-          user={{ name: "Local", email: "local@example.com", color: "c" }}
-        />,
-      );
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(0);
-        await vi.advanceTimersByTimeAsync(200);
-      });
-      const source = FakeEventSource.instances.at(-1);
-      source!.onopen?.();
-      const discovering = result!.discoverPeers();
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(0);
-      });
-      const answer = answers.at(-1)!;
-
-      await act(async () => {
-        if (first === "an answer") {
-          answer({ states: listed, at: 200 });
-          await discovering;
-          source!.onmessage?.(awarenessEvent(docId, [], 100));
-        } else {
-          source!.onmessage?.(awarenessEvent(docId, listed, 200));
-          answer({ states: [], at: 100 });
-          await discovering;
-        }
-        await vi.advanceTimersByTimeAsync(0);
-      });
-
-      await expect(discovering).resolves.toMatchObject({ status: "ready" });
-      expect(result!.awareness!.getStates().get(77)).toEqual(peer);
     },
   );
 

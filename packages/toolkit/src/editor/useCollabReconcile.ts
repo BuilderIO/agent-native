@@ -78,7 +78,7 @@ const JOIN_READ_ONLY = new PluginKey("collabJoinReadOnly");
 /** Evidence for one stored revision; a revision that moves needs its own. */
 type JoinEvidence = { ydoc: YDoc; revision: string } & (
   | { status: "pending" }
-  | { status: "ready"; peers: Map<number, unknown>; current: () => boolean }
+  | { status: "ready"; claims: Set<string>; current: () => boolean }
   | { status: "failed"; error: unknown }
 );
 
@@ -99,43 +99,19 @@ function heldRevisionClaim(state: unknown): string | null {
   return typeof revision === "string" ? revision : null;
 }
 
-function heldRevisionsMatch(
-  first: Map<number, unknown>,
-  second: Map<number, unknown>,
-  localClientId: number,
-): boolean {
-  for (const clientId of new Set([...first.keys(), ...second.keys()])) {
-    if (clientId === localClientId || clientId === AGENT_CLIENT_ID) continue;
-    if (
-      heldRevisionClaim(first.get(clientId)) !==
-      heldRevisionClaim(second.get(clientId))
-    )
-      return false;
-  }
-  return true;
-}
-
-function peerHoldsRevision(
-  peers: Map<number, unknown>,
-  localClientId: number,
+function claimsHoldRevision(
+  claims: Set<string>,
   revision: string,
   compareContentRevisions:
     | ((first: string, second: string) => number | null)
     | undefined,
 ): boolean {
-  let held = false;
-  peers.forEach((state, clientId) => {
-    if (held || clientId === localClientId || clientId === AGENT_CLIENT_ID)
-      return;
-    const peerRevision = heldRevisionClaim(state);
-    if (peerRevision === null) return;
+  for (const claim of claims) {
     const order =
-      peerRevision === revision
-        ? 0
-        : compareContentRevisions?.(peerRevision, revision);
-    if (typeof order === "number" && order >= 0) held = true;
-  });
-  return held;
+      claim === revision ? 0 : compareContentRevisions?.(claim, revision);
+    if (typeof order === "number" && order >= 0) return true;
+  }
+  return false;
 }
 
 export interface UseCollabReconcileOptions {
@@ -407,10 +383,10 @@ export function useCollabReconcile({
   const requestCollabSyncRef = useRef(requestCollabSync);
   requestCollabSyncRef.current = requestCollabSync;
   // Evidence for a client joining a live doc that differs from the stored
-  // body: the revisions collaborators reported when it learned who else is
-  // open, and the doc as the server has it after that, which holds every
+  // body: the revisions collaborators reported by the time it learned who else
+  // is open, and the doc as the server has it after that, which holds every
   // update behind those reports. A report that arrives during the catch-up is
-  // not covered by it, so a changed report means catching up again.
+  // not covered by it, so a new report means catching up again.
   const [joinEvidence, setJoinEvidence] = useState<JoinEvidence | null>(null);
   // The gates read this, not the state: an update can arrive between a join
   // starting and the render that shows it.
@@ -447,6 +423,41 @@ export function useCollabReconcile({
     editor.unregisterPlugin(JOIN_READ_ONLY);
     editor.setEditable(editableRef.current, false);
   };
+  // Every revision a collaborator reported holding since this client started
+  // joining its doc. The live doc keeps the updates behind a report, so a
+  // presence list that later leaves the collaborator out, an older or partial
+  // one included, does not take the report back. Recorded on every change, so
+  // none is missed between two reads.
+  const joinClaimsRef = useRef<{
+    ydoc: YDoc;
+    awareness: Awareness;
+    claims: Set<string>;
+    record: () => void;
+  } | null>(null);
+  const readJoinClaims = (doc: YDoc, target: Awareness) => {
+    let current = joinClaimsRef.current;
+    if (current?.ydoc !== doc || current.awareness !== target) {
+      stopJoinClaims();
+      const claims = new Set<string>();
+      const record = () => {
+        target.getStates().forEach((state, clientId) => {
+          if (clientId === doc.clientID || clientId === AGENT_CLIENT_ID) return;
+          const claim = heldRevisionClaim(state);
+          if (claim !== null) claims.add(claim);
+        });
+      };
+      target.on("change", record);
+      current = { ydoc: doc, awareness: target, claims, record };
+      joinClaimsRef.current = current;
+    }
+    current.record();
+    return current.claims;
+  };
+  const stopJoinClaims = () => {
+    const current = joinClaimsRef.current;
+    current?.awareness.off("change", current.record);
+    joinClaimsRef.current = null;
+  };
   const joinEvidenceRequestRef = useRef<{
     ydoc: YDoc;
     revision: string;
@@ -474,6 +485,7 @@ export function useCollabReconcile({
     )
       return;
     current?.cancel();
+    readJoinClaims(doc, target);
     let settled = false;
     let retry: ReturnType<typeof setTimeout> | undefined;
     let unapplied: ReturnType<typeof setTimeout> | undefined;
@@ -548,23 +560,23 @@ export function useCollabReconcile({
         return fail(discovered.error ?? new Error("Peer discovery failed"));
       if (discovered.status === "ready") {
         const current = discovered.current ?? (() => true);
-        let peers = new Map(target.getStates());
+        let claims = new Set(readJoinClaims(doc, target));
         while (current()) {
           const synced = await catchUp();
           if (settled) return;
           if (synced.status === "failed")
             return fail(new Error("Catching up with the server failed"));
           if (synced.status !== "synced" || !current()) break;
-          const latest = new Map(target.getStates());
-          if (heldRevisionsMatch(peers, latest, doc.clientID))
+          const latest = readJoinClaims(doc, target);
+          if (latest.size === claims.size)
             return settle({
               ydoc: doc,
               revision,
               status: "ready",
-              peers,
+              claims,
               current,
             });
-          peers = latest;
+          claims = new Set(latest);
         }
       }
       // Not connected yet: ask again until the watchdog gives up.
@@ -575,7 +587,13 @@ export function useCollabReconcile({
     };
     void attempt().catch(fail);
   };
-  useEffect(() => () => joinEvidenceRequestRef.current?.cancel(), []);
+  useEffect(
+    () => () => {
+      joinEvidenceRequestRef.current?.cancel();
+      stopJoinClaims();
+    },
+    [],
+  );
   // The doc holds the stored body, adopted or applied, so it may be saved.
   const finishJoin = () => {
     if (joinEvidenceRef.current?.ydoc !== ydoc) return;
@@ -583,12 +601,12 @@ export function useCollabReconcile({
     joinEvidenceRequestRef.current = null;
     joinBodyDeadlineRef.current = null;
     putJoinEvidence(null);
+    stopJoinClaims();
     releaseJoinReadOnly();
   };
   // Evidence a joining doc may act on: ready, about this revision, still
-  // current, and still what collaborators report. A report made since, even one
-  // that landed before anything listened, is not covered by its catch-up, so it
-  // catches up again.
+  // current, and holding every report collaborators made. A report made since
+  // is not covered by its catch-up, so it catches up again.
   const currentJoinEvidence = (doc: YDoc, revision: string) => {
     const evidence = joinEvidenceRef.current;
     const target = heldRevisionAwarenessRef.current;
@@ -601,11 +619,7 @@ export function useCollabReconcile({
       return null;
     if (
       evidence.current() &&
-      heldRevisionsMatch(
-        evidence.peers,
-        new Map(target.getStates()),
-        doc.clientID,
-      )
+      readJoinClaims(doc, target).size === evidence.claims.size
     )
       return evidence;
     joinEvidenceRequestRef.current?.cancel();
@@ -1429,9 +1443,8 @@ export function useCollabReconcile({
         joinedOn = currentJoinEvidence(ydoc!, contentRevision);
         if (!joinedOn) return;
         if (
-          peerHoldsRevision(
-            joinedOn.peers,
-            ydoc!.clientID,
+          claimsHoldRevision(
+            joinedOn.claims,
             contentRevision,
             compareContentRevisions,
           )

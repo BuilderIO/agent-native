@@ -31,11 +31,6 @@ export interface AwarenessChangeEvent {
   type: "awareness-change";
   docId: string;
   states: Array<{ clientId: number; state: string }>;
-  /**
-   * When the server read `states`. Events and presence answers reach a client
-   * on separate connections, so it orders them by this.
-   */
-  at: number;
   owner?: string;
   orgId?: string;
   resourceType?: string;
@@ -105,19 +100,10 @@ export function rememberAwarenessScope(
   pruneAwarenessScopes(now);
 }
 
-/**
- * When a presence list is read. Monotonic, so a server clock stepping back
- * cannot order a newer list before an older one.
- */
-function awarenessListTime(): number {
-  return performance.timeOrigin + performance.now();
-}
-
 export function emitAwarenessChange(
   docId: string,
   states: Array<{ clientId: number; state: string }>,
   scope?: AwarenessScope,
-  at: number = awarenessListTime(),
 ): void {
   rememberAwarenessScope(docId, scope);
   pruneAwarenessScopes(Date.now());
@@ -127,7 +113,6 @@ export function emitAwarenessChange(
     type: "awareness-change",
     docId,
     states,
-    at,
     ...(resolvedScope.owner && { owner: resolvedScope.owner }),
     ...(resolvedScope.orgId && { orgId: resolvedScope.orgId }),
     ...(resolvedScope.resourceType && {
@@ -164,6 +149,33 @@ export function rememberAwarenessClear(
   if (prev == null || clearedAt > prev) {
     _awarenessClearTombstones.set(key, clearedAt);
   }
+}
+
+// The clears requests applied to this server's memory, counted in the order
+// they landed. A reader's write still on its way when one lands must not bring
+// the entry back, and a cleared entry leaves nothing to compare it against.
+let _awarenessMemoryClearCount = 0;
+const _awarenessMemoryClears = new Map<string, { count: number; at: number }>();
+
+function rememberMemoryClear(docId: string, clientId: number): void {
+  const now = Date.now();
+  for (const [key, clear] of _awarenessMemoryClears) {
+    if (now - clear.at > CLEAR_TOMBSTONE_TTL)
+      _awarenessMemoryClears.delete(key);
+  }
+  _awarenessMemoryClears.set(awarenessKey(docId, clientId), {
+    count: ++_awarenessMemoryClearCount,
+    at: now,
+  });
+}
+
+function clearedFromMemorySince(
+  docId: string,
+  clientId: number,
+  count: number,
+): boolean {
+  const clear = _awarenessMemoryClears.get(awarenessKey(docId, clientId));
+  return clear !== undefined && clear.count > count;
 }
 
 export function forgetAwarenessClear(docId: string, clientId: number): void {
@@ -325,6 +337,7 @@ async function writeReaderPresence(
     const cleared = mergeAwarenessRows(docId, map, rows, Date.now());
     const row = rows.find((stored) => stored.clientId === clientId) ?? null;
     const judged = map.get(clientId);
+    const clearsJudged = _awarenessMemoryClearCount;
     if (
       !readerMayReplace(judged) ||
       (!cleared.has(clientId) && !readerMayReplace(row))
@@ -345,12 +358,14 @@ async function writeReaderPresence(
     }
     if (!replaced) continue;
     // A writer's post on this server, or a later one under this id, can set
-    // the entry while the write is on its way. It is newer, so it stays.
+    // the entry while the write is on its way, and a clear can remove it. Each
+    // is newer, so it stays.
     const current = map.get(clientId);
     if (
-      current &&
-      current !== judged &&
-      (!readerMayReplace(current) || current.lastSeen > lastSeen)
+      (current &&
+        current !== judged &&
+        (!readerMayReplace(current) || current.lastSeen > lastSeen)) ||
+      clearedFromMemorySince(docId, clientId, clearsJudged)
     ) {
       return null;
     }
@@ -358,6 +373,7 @@ async function writeReaderPresence(
     // on another server stores under this id stamped before it.
     if (state === null) {
       map.delete(clientId);
+      rememberMemoryClear(docId, clientId);
     } else {
       forgetAwarenessClear(docId, clientId);
       map.set(clientId, { clientId, state, lastSeen });
@@ -424,6 +440,7 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
   } else if (storedState === null) {
     const clearedAt = Date.now();
     map.delete(clientId);
+    rememberMemoryClear(docId, clientId);
     rememberAwarenessClear(docId, clientId, clearedAt);
     void deleteAwarenessRow(docId, clientId, clearedAt);
   } else {
@@ -450,7 +467,6 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
   cleanExpired(map);
   pruneIfEmpty(docId, map);
 
-  const at = awarenessListTime();
   const allStates: Array<{ clientId: number; state: string }> = [];
   const otherStates: Array<{ clientId: number; state: string }> = [];
   for (const [id, entry] of map) {
@@ -467,10 +483,9 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
       ...(session?.email ? { owner: session.email } : {}),
       ...(session?.orgId ? { orgId: session.orgId } : {}),
     },
-    at,
   );
 
-  return { states: otherStates, at };
+  return { states: otherStates };
 });
 
 export const getActiveUsers = defineEventHandler(async (event: H3Event) => {

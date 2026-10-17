@@ -199,35 +199,6 @@ describe("postAwareness handler", () => {
     expect(res.states).toEqual([{ clientId: 99, state: "other-state" }]);
   });
 
-  it("stamps its answer and its event with when it read the list", async () => {
-    const events: Array<{ docId: string; at: number }> = [];
-    const listener = (change: { docId: string; at: number }) => {
-      if (change.docId === "post-stamped-doc") events.push(change);
-    };
-    getAwarenessEmitter().on("awareness-change", listener);
-    const answers: Array<{ at: number }> = [];
-    try {
-      for (const clientId of [5, 6]) {
-        mockReadBody.mockResolvedValue({
-          clientId,
-          state: JSON.stringify({ user: { name: "Me" } }),
-        });
-        answers.push(
-          (await postAwareness(event({ docId: "post-stamped-doc" }))) as {
-            at: number;
-          },
-        );
-      }
-    } finally {
-      getAwarenessEmitter().off("awareness-change", listener);
-    }
-
-    expect(events.map((change) => change.at)).toEqual(
-      answers.map((answer) => answer.at),
-    );
-    expect(answers[1]!.at).toBeGreaterThan(answers[0]!.at);
-  });
-
   it("refuses an editor's state that is not a JSON object", async () => {
     const map = getDocAwareness("writer-unreadable-doc");
     for (const state of ["{broken", "null", "[]", "7"]) {
@@ -478,6 +449,50 @@ describe("postAwareness handler", () => {
           clientId: 7,
           state: writer,
         });
+      },
+    );
+
+    it.each([
+      { clearedBy: "itself", readOnly: true },
+      { clearedBy: "an editor", readOnly: false },
+    ])(
+      "stays cleared when $clearedBy clears it while its write is on its way",
+      async ({ readOnly }) => {
+        const docId = `reader-cleared-${readOnly ? "by-reader" : "by-editor"}`;
+        // Another tab keeps the document's presence here.
+        getDocAwareness(docId).set(8, {
+          clientId: 8,
+          state: reader,
+          lastSeen: Date.now(),
+        });
+        expect((await post(docId, 7, reader)).status).toBe(200);
+        storedRows.afterWrite = async () => {
+          mockReadBody.mockResolvedValue({ clientId: 7, state: null });
+          await postAwareness({
+            ...event({ docId }),
+            context: { _collabAwarenessReadOnly: readOnly },
+          });
+        };
+        const broadcasts: Array<Array<{ clientId: number; state: string }>> =
+          [];
+        const listener = (change: {
+          docId: string;
+          states: Array<{ clientId: number; state: string }>;
+        }) => {
+          if (change.docId === docId) broadcasts.push(change.states);
+        };
+        getAwarenessEmitter().on("awareness-change", listener);
+        try {
+          expect((await post(docId, 7, reader)).status).toBe(200);
+        } finally {
+          getAwarenessEmitter().off("awareness-change", listener);
+        }
+
+        expect(await storedState(docId, 7)).toBeUndefined();
+        expect(getDocAwareness(docId).has(7)).toBe(false);
+        expect(broadcasts.at(-1)?.some((listed) => listed.clientId === 7)).toBe(
+          false,
+        );
       },
     );
 
