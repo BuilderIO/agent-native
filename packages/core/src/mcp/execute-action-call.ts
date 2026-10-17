@@ -1,3 +1,5 @@
+import { decodeHTML } from "entities/decode";
+
 import { isActionContractError, type ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import {
@@ -103,73 +105,114 @@ export function isEmbedStartUrl(value: string): boolean {
   }
 }
 
-const EMBED_START_ROUTE = "_agent-native/embed/start";
+/** The embed start route's last two segments, letters only. */
+const EMBED_START_LETTERS = "embedstart";
 const MAX_DECODE_ROUNDS = 8;
 
-const ESCAPE =
-  /%([0-9a-f]{2})|&#x([0-9a-f]{1,6});?|&#([0-9]{1,7});?|&(sol|bsol|lowbar|period|amp);|\\u\{([0-9a-f]{1,6})\}|\\u([0-9a-f]{4})|\\x([0-9a-f]{2})/gi;
-
-const NAMED_REFERENCES: Record<string, string> = {
-  sol: "/",
-  bsol: "\\",
-  lowbar: "_",
-  period: ".",
-  amp: "&",
+const PERCENT_ESCAPE = /%([0-9a-f]{2})/gi;
+// Every JavaScript string escape, which covers every JSON one. A `\u` or `\x`
+// without its hex digits is not an escape, and stays for a later layer.
+const STRING_ESCAPE =
+  /\\(?:u\{([0-9a-f]{1,6})\}|u([0-9a-f]{4})|x([0-9a-f]{2})|([0-3][0-7]{0,2}|[4-7][0-7]?)|([^ux]))/gi;
+const SINGLE_CHARACTER_ESCAPES: Record<string, string> = {
+  b: "\b",
+  f: "\f",
+  n: "\n",
+  r: "\r",
+  t: "\t",
+  v: "\v",
 };
+const LINE_SEPARATOR = /^[\p{Zl}\p{Zp}]$/u;
 
-/** Removes one layer of URL, HTML and JavaScript string escaping. */
-function unescapeOnce(text: string): string {
+/**
+ * Removes one layer of escaping. Decoding a percent or HTML escape never takes
+ * away a character a path reads, so those go first. Decoding a JavaScript
+ * escape can take away a backslash a path reads as a slash, so a JavaScript
+ * layer goes only once nothing else is left, after the text has been read
+ * with it in place.
+ */
+function decodeOnce(text: string): string {
+  const revealed = decodeHTML(
+    text.replace(PERCENT_ESCAPE, (_, hex: string) =>
+      String.fromCharCode(Number.parseInt(hex, 16)),
+    ),
+  );
+  if (revealed !== text) return revealed;
   return text.replace(
-    ESCAPE,
-    (match, percent, hexRef, decimalRef, named, braced, unicode, hex) => {
-      if (named !== undefined) return NAMED_REFERENCES[named.toLowerCase()];
+    STRING_ESCAPE,
+    (match, braced, unicode, hex, octal, single: string | undefined) => {
+      if (single !== undefined) {
+        if (LINE_SEPARATOR.test(single)) return "";
+        return SINGLE_CHARACTER_ESCAPES[single] ?? single;
+      }
       const code =
-        decimalRef !== undefined
-          ? Number.parseInt(decimalRef, 10)
-          : Number.parseInt(percent ?? hexRef ?? braced ?? unicode ?? hex, 16);
+        octal !== undefined
+          ? Number.parseInt(octal, 8)
+          : Number.parseInt(braced ?? unicode ?? hex, 16);
       return code <= 0x10ffff ? String.fromCodePoint(code) : match;
     },
   );
 }
 
-/**
- * Both readings of a path, so neither a `..` after the route nor one inside
- * it hides it: the segments as written, and the segments a browser resolves.
- */
-function pathReadings(text: string): string[] {
-  const segments = text
-    .replace(/[\t\n\r]/g, "")
-    .replace(/\\/g, "/")
-    .toLowerCase()
-    .split("/")
-    .filter((segment) => segment !== "");
-  const resolved: string[] = [];
-  for (const segment of segments) {
-    if (segment === ".") continue;
-    if (segment === ".." && resolved.length > 0) resolved.pop();
-    else resolved.push(segment);
-  }
-  return [segments.join("/"), resolved.join("/")];
+// What is left of an escape once decoding stops: an HTML reference or a
+// backslash escape that no decoder above reads.
+const UNREAD_ESCAPE =
+  /&[a-z0-9#]+;|\\(?:u\{[0-9a-f]*\}|u[0-9a-f]{4}|x[0-9a-f]{2}|[0-7]{1,3}|[\s\S])/g;
+const NOT_LETTER_OR_DIGIT = /[^\p{L}\p{N}]+/gu;
+const DOT_SEGMENT = /^(?:\.|%2e)$/i;
+const DOUBLE_DOT_SEGMENT = /^(?:\.|%2e){2}$/i;
+
+/** The path a browser resolves from each run of `text` up to a `?` or `#`. */
+function resolvedPaths(text: string): string {
+  return text
+    .split(/[?#]/)
+    .map((run) => {
+      const resolved: string[] = [];
+      for (const segment of run.replace(/\\/g, "/").split("/")) {
+        if (DOUBLE_DOT_SEGMENT.test(segment)) resolved.pop();
+        else if (!DOT_SEGMENT.test(segment)) resolved.push(segment);
+      }
+      return resolved.join("/");
+    })
+    .join("?");
 }
 
 /**
- * The sanitized path's credential test. `isEmbedStartUrl` reads only a URL's
- * own path, so the embed start route in a query, a fragment or a URL nested
- * in another one gets past it. This looks for the route anywhere in the
- * string, under every layer of percent, HTML and JavaScript escaping.
+ * The letters and digits of `text`, as written and with its paths resolved,
+ * each read two ways. The exact reading only folds case, so its paths resolve
+ * as a browser's do. The loose reading also folds compatibility forms such as
+ * full-width letters and drops every escape still in the text, so an escape
+ * nothing here decodes cannot keep the letters on either side of it apart.
+ */
+function readings(text: string): string[] {
+  const exact = text.toLowerCase();
+  const loose = text.normalize("NFKC").toLowerCase().replace(UNREAD_ESCAPE, "");
+  return (loose === exact ? [exact] : [exact, loose])
+    .flatMap((variant) =>
+      // Resolving changes a path's letters only through `..` or `%2e`.
+      /\.\.|%2e/.test(variant) ? [variant, resolvedPaths(variant)] : [variant],
+    )
+    .map((reading) => reading.replace(NOT_LETTER_OR_DIGIT, ""));
+}
+
+/**
+ * The sanitized path's credential test: whether `embed/start` can be read
+ * anywhere in a string, under any layering of percent, JavaScript string and
+ * HTML escaping. It is loose on purpose. Any string whose letters run
+ * `embedstart` counts, prose about an embed start included, because a missed
+ * credential costs more than a hidden sentence.
  */
 function mentionsEmbedStartRoute(text: string): boolean {
-  if (isEmbedStartUrl(text)) return true;
   let current = text;
   for (let round = 0; round < MAX_DECODE_ROUNDS; round += 1) {
+    // A URL parser drops these anywhere in a URL before reading anything else.
+    current = current.replace(/[\t\n\r]/g, "");
     if (
-      pathReadings(current).some((reading) =>
-        reading.includes(EMBED_START_ROUTE),
-      )
+      readings(current).some((reading) => reading.includes(EMBED_START_LETTERS))
     ) {
       return true;
     }
-    const decoded = unescapeOnce(current);
+    const decoded = decodeOnce(current);
     if (decoded === current) return false;
     current = decoded;
   }

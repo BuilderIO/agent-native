@@ -357,7 +357,7 @@ describe("executeMcpActionCall", () => {
     });
   });
 
-  it("refuses a service principal outside its grant before the action is looked up or run", async () => {
+  it("refuses a service principal that is outside its grant, inactive or unverifiable before the action is looked up or run", async () => {
     const denial = vi.mocked(recordServicePrincipalDenial);
     denial.mockClear();
     const run = vi.fn(async () => ({ ok: true }));
@@ -391,18 +391,20 @@ describe("executeMcpActionCall", () => {
     expect(logged).toHaveBeenCalledTimes(1);
     logged.mockRestore();
 
-    vi.mocked(assertServicePrincipalMayRun).mockRejectedValueOnce(
-      new ServicePrincipalRefusedError(
-        "service_principal_unavailable",
-        "Status unavailable.",
-      ),
-    );
-    await expect(execute(callable, "write")).resolves.toEqual({
-      status: "failed",
-      stage: "authorization",
-      message: "Status unavailable.",
-      errorCode: "service_principal_unavailable",
-    });
+    for (const [code, message] of [
+      ["service_principal_inactive", "Service principal is suspended."],
+      ["service_principal_unavailable", "Status unavailable."],
+    ] as const) {
+      vi.mocked(assertServicePrincipalMayRun).mockRejectedValueOnce(
+        new ServicePrincipalRefusedError(code, message),
+      );
+      await expect(execute(callable, "write")).resolves.toEqual({
+        status: "failed",
+        stage: "authorization",
+        message,
+        errorCode: code,
+      });
+    }
     expect(run).not.toHaveBeenCalled();
   });
 
@@ -499,8 +501,33 @@ describe("executeMcpActionCall sanitizing", () => {
     `https://redirect.example/?next=${EMBED_START.replaceAll("/", "\\u002f")}`,
   ];
 
-  it("redacts an embed start URL nested anywhere in a string, key or message", async () => {
-    for (const nested of nestedEmbedStarts) {
+  // The embed start URL spelled with escapes a decoder resolves, with
+  // characters a URL parser drops, or with forms a reader folds back into it.
+  const disguisedEmbedStarts = [
+    EMBED_START.replace("_", "&UnderBar;"),
+    EMBED_START.replace("_agent", "_ag&Tab;ent"),
+    EMBED_START.replace("_agent", "_ag&NewLine;ent"),
+    ...["\t", "\n", "\r"].map((control) =>
+      JSON.stringify({
+        next: EMBED_START.replace("_agent", `_ag${control}ent`),
+      }),
+    ),
+    EMBED_START.replace("embed", "em&Tab;bed"),
+    JSON.stringify({ next: EMBED_START.replace("start", "st\nart") }),
+    EMBED_START.replace("/start", "/x/.&Tab;./start"),
+    EMBED_START.replace("/start", "/x/\\.\\./start"),
+    JSON.stringify({
+      next: EMBED_START.replace("/start", "/x/.\t./start"),
+    }).replaceAll("/", "\\/"),
+    `https://redirect.example/?next=${encodeURIComponent(EMBED_START.replace("/start", "/a%2Fb/%2e%2e/start"))}`,
+    `https://redirect.example/?next=${encodeURIComponent(EMBED_START).replaceAll("%", "&percnt;")}`,
+    EMBED_START.replace("embed", `em${String.fromCodePoint(0x200b)}bed`),
+    EMBED_START.replace("embed/start", "ｅｍｂｅｄ／ｓｔａｒｔ"),
+    EMBED_START.replace("embed", "em&bogus;bed"),
+  ];
+
+  it("redacts an embed start URL nested or disguised anywhere in a string, key or message", async () => {
+    for (const nested of [...nestedEmbedStarts, ...disguisedEmbedStarts]) {
       const callable = {
         value: entry({
           readOnly: true,
@@ -555,7 +582,8 @@ describe("executeMcpActionCall sanitizing", () => {
       next: `https://redirect.example/?next=${encodeURIComponent("https://mail.agent-native.com/inbox")}`,
       support: {
         ticket: "SUP-12",
-        url: "https://support.example/_agent-native/embed#start",
+        url: "https://support.example/_agent-native/embed?step=1#started-guide",
+        note: "Embedded charts &amp; start-up tips",
       },
     };
     await expect(
@@ -564,6 +592,30 @@ describe("executeMcpActionCall sanitizing", () => {
         "read",
       ),
     ).resolves.toEqual({ status: "completed", value, reportedError: false });
+  });
+
+  it("treats any mention of embed start as a credential, even outside a URL", async () => {
+    for (const mention of [
+      "https://support.example/_agent-native/embed#start",
+      "Embed start failed; retry.",
+    ]) {
+      await expect(
+        execute(
+          {
+            read: entry({
+              readOnly: true,
+              run: async () => ({ mention, ticket: "SUP-12", keep: "me" }),
+            }),
+          },
+          "read",
+        ),
+        mention,
+      ).resolves.toEqual({
+        status: "completed",
+        value: { keep: "me" },
+        reportedError: false,
+      });
+    }
   });
 
   it("keeps __proto__ keys from JSON and freezes everything under them", async () => {
