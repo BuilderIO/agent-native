@@ -245,6 +245,79 @@ export async function enqueueBuilderPrivatePayloadCleanup(
     .onConflictDoNothing();
 }
 
+async function drainBuilderPrivatePayloadCleanupQueue(args: {
+  db: ReturnType<typeof getDb>;
+  label: string;
+  priorityReference?: string;
+  deadlineAt?: number;
+  signal?: AbortSignal;
+}) {
+  const cleanupQueue = schema.contentDatabaseBuilderBlobCleanup;
+
+  let pending: Array<{ blobReference: string }>;
+  try {
+    const backlog = await args.db
+      .select({ blobReference: cleanupQueue.blobReference })
+      .from(cleanupQueue)
+      .orderBy(asc(cleanupQueue.createdAt))
+      .limit(BUILDER_PRIVATE_PAYLOAD_CLEANUP_BATCH_SIZE);
+    pending = [
+      ...(args.priorityReference
+        ? [{ blobReference: args.priorityReference }]
+        : []),
+      ...backlog.filter(
+        (item) => item.blobReference !== args.priorityReference,
+      ),
+    ].slice(0, BUILDER_PRIVATE_PAYLOAD_CLEANUP_BATCH_SIZE);
+  } catch (error) {
+    console.error(
+      `[builder-private-payload] ${args.label} cleanup queue could not be read`,
+      error,
+    );
+    return;
+  }
+
+  for (const queued of pending) {
+    if (
+      args.signal?.aborted ||
+      (args.deadlineAt !== undefined && Date.now() >= args.deadlineAt)
+    ) {
+      return;
+    }
+    try {
+      const deleted = await deleteBuilderPrivatePayload(queued.blobReference);
+      if (!deleted) {
+        console.error(
+          `[builder-private-payload] ${args.label} cleanup was declined; retry retained`,
+        );
+        continue;
+      }
+      await args.db
+        .delete(cleanupQueue)
+        .where(eq(cleanupQueue.blobReference, queued.blobReference));
+    } catch (error) {
+      console.error(
+        `[builder-private-payload] ${args.label} cleanup remains queued`,
+        error,
+      );
+    }
+  }
+}
+
+export async function drainBuilderPrivatePayloadCleanup(
+  args: {
+    deadlineAt?: number;
+    signal?: AbortSignal;
+  } = {},
+) {
+  await drainBuilderPrivatePayloadCleanupQueue({
+    db: getDb(),
+    label: "scheduled",
+    deadlineAt: args.deadlineAt,
+    signal: args.signal,
+  });
+}
+
 export async function cleanupBuilderPrivatePayload(
   reference: unknown,
   label: string,
@@ -252,47 +325,12 @@ export async function cleanupBuilderPrivatePayload(
   if (!isBuilderPrivatePayloadReference(reference)) return;
   const blobReference = reference as string;
   const db = getDb();
-  const cleanupQueue = schema.contentDatabaseBuilderBlobCleanup;
   await enqueueBuilderPrivatePayloadCleanup(db, blobReference);
-
-  let pending: Array<{ blobReference: string }>;
-  try {
-    const backlog = await db
-      .select({ blobReference: cleanupQueue.blobReference })
-      .from(cleanupQueue)
-      .orderBy(asc(cleanupQueue.createdAt))
-      .limit(BUILDER_PRIVATE_PAYLOAD_CLEANUP_BATCH_SIZE);
-    pending = [
-      { blobReference },
-      ...backlog.filter((item) => item.blobReference !== blobReference),
-    ].slice(0, BUILDER_PRIVATE_PAYLOAD_CLEANUP_BATCH_SIZE);
-  } catch (error) {
-    console.error(
-      `[builder-private-payload] ${label} cleanup queue could not be read`,
-      error,
-    );
-    return;
-  }
-
-  for (const queued of pending) {
-    try {
-      const deleted = await deleteBuilderPrivatePayload(queued.blobReference);
-      if (!deleted) {
-        console.error(
-          `[builder-private-payload] ${label} cleanup was declined; retry retained`,
-        );
-        continue;
-      }
-      await db
-        .delete(cleanupQueue)
-        .where(eq(cleanupQueue.blobReference, queued.blobReference));
-    } catch (error) {
-      console.error(
-        `[builder-private-payload] ${label} cleanup remains queued`,
-        error,
-      );
-    }
-  }
+  await drainBuilderPrivatePayloadCleanupQueue({
+    db,
+    label,
+    priorityReference: blobReference,
+  });
 }
 
 export function isBuilderPrivatePayloadReference(value: unknown) {

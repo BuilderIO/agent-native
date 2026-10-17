@@ -997,7 +997,15 @@ class BuilderBodyHydrationError extends Error {
   }
 }
 
-function builderBodyHydrationFailureEvidence(error: unknown) {
+const RETRYABLE_BUILDER_SOURCE_BINDING_ERRORS = new Set([
+  "builder_connection_required",
+  "builder_source_binding_invalid",
+  "builder_source_binding_required",
+  "builder_source_connection_mismatch",
+  "builder_source_space_mismatch",
+]);
+
+export function builderBodyHydrationFailureEvidence(error: unknown) {
   if (
     error instanceof BuilderCmsContentEntryReadError ||
     error instanceof BuilderBodyHydrationError
@@ -1020,7 +1028,10 @@ function builderBodyHydrationFailureEvidence(error: unknown) {
             ? ("access_denied" as const)
             : ("transient_read_failure" as const),
       providerStatus: error.errorCode,
-      retryable: error.statusCode === 424 || error.statusCode >= 500,
+      retryable:
+        RETRYABLE_BUILDER_SOURCE_BINDING_ERRORS.has(error.errorCode) ||
+        error.statusCode === 424 ||
+        error.statusCode >= 500,
       message: error.message,
     };
   }

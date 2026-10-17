@@ -69,6 +69,11 @@ describe("builderExecutionAffectedRows", () => {
   it("preserves a PostgreSQL zero-row fence", () => {
     expect(builderExecutionAffectedRows({ rowCount: 0 })).toBe(0);
   });
+
+  it("treats a missing mutation result as a zero-row fence", () => {
+    expect(builderExecutionAffectedRows(null)).toBe(0);
+    expect(builderExecutionAffectedRows(undefined)).toBe(0);
+  });
 });
 
 describe("builderExecutionConflict", () => {

@@ -22,6 +22,10 @@ import {
   storeBuilderExecutionPayload,
 } from "./_builder-cms-blob-custody.js";
 import {
+  builderExecutionStaleBefore,
+  isBuilderExecutionClaimStale,
+} from "./_builder-cms-execution-lease.js";
+import {
   lookupBuilderCmsSafeModelIntent,
   type BuilderCmsIntentMatch,
 } from "./_builder-cms-intent-lookup.js";
@@ -197,7 +201,6 @@ export interface ExecuteBuilderSourceExecutionDeps {
   }>;
 }
 
-const RUNNING_EXECUTION_TIMEOUT_MS = 10 * 60 * 1000;
 const BUILDER_LIVE_PREFLIGHT_TIMEOUT_MS = 60 * 1000;
 const BUILDER_RESPONSE_CHECKPOINT_FAILURE =
   "Builder accepted the write, but its response could not be saved for reconciliation. Do not retry this execution; inspect the live Builder entry before preparing another write.";
@@ -255,14 +258,11 @@ function executablePushMode(
 }
 
 function staleRunningCutoff(now: string) {
-  const timestamp = Date.parse(now);
-  return new Date(
-    (Number.isFinite(timestamp) ? timestamp : Date.now()) -
-      RUNNING_EXECUTION_TIMEOUT_MS,
-  ).toISOString();
+  return builderExecutionStaleBefore(now);
 }
 
 export function builderExecutionAffectedRows(result: unknown) {
+  if (!result || typeof result !== "object") return 0;
   return (
     (
       result as {
@@ -296,9 +296,7 @@ function isReclaimableRunningExecution(
     execution.state !== "reconciliation_required"
   )
     return true;
-  const updatedAt = Date.parse(execution.updatedAt);
-  if (!Number.isFinite(updatedAt)) return false;
-  return updatedAt < Date.parse(staleRunningCutoff(now));
+  return isBuilderExecutionClaimStale(execution.updatedAt, now);
 }
 
 function executionResponsePayload(args: {

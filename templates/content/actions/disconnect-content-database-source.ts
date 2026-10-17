@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
@@ -14,6 +14,7 @@ import {
   enqueueBuilderPrivatePayloadCleanup,
   isBuilderPrivatePayloadBoundToSource,
 } from "./_builder-cms-blob-custody.js";
+import { isBuilderExecutionClaimStale } from "./_builder-cms-execution-lease.js";
 import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import {
   getExistingSource,
@@ -39,8 +40,12 @@ async function deleteSourceRecords(databaseId: string, sourceId: string) {
         ),
       );
     if (!source) return;
-    const activeExecutions = await tx
-      .select({ id: schema.contentDatabaseSourceExecutions.id })
+    const candidateExecutions = await tx
+      .select({
+        id: schema.contentDatabaseSourceExecutions.id,
+        state: schema.contentDatabaseSourceExecutions.state,
+        updatedAt: schema.contentDatabaseSourceExecutions.updatedAt,
+      })
       .from(schema.contentDatabaseSourceExecutions)
       .where(
         and(
@@ -52,14 +57,26 @@ async function deleteSourceRecords(databaseId: string, sourceId: string) {
           ]),
         ),
       );
+    const now = new Date().toISOString();
+    const activeExecutions = candidateExecutions.filter(
+      (execution) =>
+        execution.state !== "running" ||
+        !isBuilderExecutionClaimStale(execution.updatedAt, now),
+    );
     if (activeExecutions.length > 0) {
-      throw new Error(
+      fail(
         "Cannot disconnect this source while a Builder execution is running or awaiting reconciliation.",
+        { errorCode: "builder_execution_running", statusCode: 409 },
       );
     }
     await tx
       .delete(schema.contentDatabaseBodyHydrationQueue)
       .where(eq(schema.contentDatabaseBodyHydrationQueue.sourceId, sourceId));
+    await tx
+      .delete(schema.contentDatabaseSourceExecutionClaims)
+      .where(
+        eq(schema.contentDatabaseSourceExecutionClaims.sourceId, sourceId),
+      );
     const deletedExecutions = await tx
       .delete(schema.contentDatabaseSourceExecutions)
       .where(eq(schema.contentDatabaseSourceExecutions.sourceId, sourceId))

@@ -2,7 +2,10 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { runWithRequestContext } from "@agent-native/core/server";
+import {
+  runRecurringSweepHandlers,
+  runWithRequestContext,
+} from "@agent-native/core/server";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
@@ -85,6 +88,7 @@ let validateExecution: typeof import("./validate-builder-source-execution.js").d
 let disconnectSource: typeof import("./disconnect-content-database-source.js").default;
 let realExecutionDeps: typeof import("./execute-builder-source-execution.js").realExecutionDeps;
 let cleanupBuilderPrivatePayload: typeof import("./_builder-cms-blob-custody.js").cleanupBuilderPrivatePayload;
+let unregisterBuilderPayloadCleanupSweep: () => void;
 let getContentDatabaseSourceSnapshot: typeof import("./_database-source-utils.js").getContentDatabaseSourceSnapshot;
 let getContentDatabaseSourceSnapshotForWrite: typeof import("./_database-source-utils.js").getContentDatabaseSourceSnapshotForWrite;
 let builderReviewSourceValueTextProjection: typeof import("./_database-source-utils.js").builderReviewSourceValueTextProjection;
@@ -109,6 +113,9 @@ beforeAll(async () => {
   cleanupBuilderPrivatePayload = (
     await import("./_builder-cms-blob-custody.js")
   ).cleanupBuilderPrivatePayload;
+  unregisterBuilderPayloadCleanupSweep = (
+    await import("../server/plugins/builder-private-payload-cleanup.js")
+  ).registerBuilderPrivatePayloadCleanupSweep();
   ({
     builderReviewSourceValueTextProjection,
     getContentDatabaseSourceSnapshot,
@@ -117,6 +124,7 @@ beforeAll(async () => {
 }, 60000);
 
 afterAll(() => {
+  unregisterBuilderPayloadCleanupSweep?.();
   privateBlobs.unregister();
   rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
@@ -586,7 +594,7 @@ describe("Builder source review execution gates", () => {
     });
     const executionId = `active-disconnect-${counter}`;
     const idempotencyKey = `builder-cms:${seeded.sourceId}:${seeded.changeSetId}:autosave`;
-    const now = "2026-06-29T16:01:00.000Z";
+    const now = new Date().toISOString();
     await getDb()
       .insert(schema.contentDatabaseSourceExecutions)
       .values({
@@ -638,6 +646,72 @@ describe("Builder source review execution gates", () => {
       state: "running",
       attemptToken: "active-attempt",
     });
+  });
+
+  it("allows disconnect after a running execution claim lease expires", async () => {
+    const seeded = await seedBuilderSource({
+      sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
+      changeSetState: "approved",
+    });
+    const executionId = `stale-disconnect-${counter}`;
+    const idempotencyKey = `builder-cms:${seeded.sourceId}:${seeded.changeSetId}:autosave`;
+    const staleAt = new Date(Date.now() - 11 * 60 * 1000).toISOString();
+    await getDb()
+      .insert(schema.contentDatabaseSourceExecutions)
+      .values({
+        id: executionId,
+        ownerEmail: OWNER,
+        sourceId: seeded.sourceId,
+        changeSetId: seeded.changeSetId,
+        adapter: "builder-cms",
+        pushMode: "autosave",
+        state: "running",
+        idempotencyKey,
+        summary: "Stale running claim.",
+        payloadJson: JSON.stringify({ request: { method: "PATCH" } }),
+        attemptToken: "stale-attempt",
+        lastError: null,
+        createdAt: staleAt,
+        updatedAt: staleAt,
+      });
+    await getDb()
+      .insert(schema.contentDatabaseSourceExecutionClaims)
+      .values({
+        id: `stale-disconnect-claim-${counter}`,
+        ownerEmail: OWNER,
+        sourceId: seeded.sourceId,
+        idempotencyKey,
+        executionId,
+        createdAt: staleAt,
+      });
+
+    await asOwner(() =>
+      disconnectSource.run({
+        databaseId: seeded.databaseId,
+        sourceId: seeded.sourceId,
+      } as any),
+    );
+
+    const [source] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSources)
+      .where(eq(schema.contentDatabaseSources.id, seeded.sourceId));
+    const [execution] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceExecutions)
+      .where(eq(schema.contentDatabaseSourceExecutions.id, executionId));
+    const claims = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceExecutionClaims)
+      .where(
+        eq(
+          schema.contentDatabaseSourceExecutionClaims.sourceId,
+          seeded.sourceId,
+        ),
+      );
+    expect(source).toBeUndefined();
+    expect(execution).toBeUndefined();
+    expect(claims).toHaveLength(0);
   });
 
   it("gives a refreshed body a new revision instead of rewriting an approved blocked gate", async () => {
@@ -1532,8 +1606,11 @@ describe("Builder source review execution gates", () => {
     expect(queued).toHaveLength(1);
     expect(privateBlobs.blobs.has(blobId)).toBe(true);
 
-    await asOwner(() =>
-      cleanupBuilderPrivatePayload(blobReference, "test cleanup retry"),
+    const sweep = await runRecurringSweepHandlers({
+      deadlineAt: Date.now() + 5_000,
+    });
+    expect(sweep.failed).not.toContain(
+      "content-builder-private-payload-cleanup",
     );
 
     const retried = await getDb()

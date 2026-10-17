@@ -1,3 +1,4 @@
+import { ActionContractError } from "@agent-native/core/action";
 import { describe, expect, it } from "vitest";
 
 import type {
@@ -25,6 +26,7 @@ import {
   builderBodyHydrationPriorityForRequest,
   builderBodyHydrationAttemptIsTerminal,
   builderBodyHydrationNextAttemptAt,
+  builderBodyHydrationFailureEvidence,
   builderBodyNeedsSourceComponentWrite,
   knownBuilderReviewDocumentIds,
   builderSourcePropertyAssignments,
@@ -63,6 +65,36 @@ import {
   sortBuilderBodyHydrationQueueForProcessing,
 } from "./_database-source-utils";
 import { serializeBodyHydration } from "./_database-utils";
+
+describe("Builder body hydration failure evidence", () => {
+  it.each([
+    ["builder_source_binding_required", 409],
+    ["builder_connection_required", 412],
+  ])("keeps %s retryable", (errorCode, statusCode) => {
+    const evidence = builderBodyHydrationFailureEvidence(
+      new ActionContractError("Builder source binding is unavailable.", {
+        errorCode,
+        statusCode,
+      }),
+    );
+
+    expect(evidence).toMatchObject({
+      retryable: true,
+      providerStatus: errorCode,
+    });
+  });
+
+  it("keeps unrelated conflicts terminal", () => {
+    const evidence = builderBodyHydrationFailureEvidence(
+      new ActionContractError("The read cursor is stale.", {
+        errorCode: "builder_source_continuation_mismatch",
+        statusCode: 409,
+      }),
+    );
+
+    expect(evidence.retryable).toBe(false);
+  });
+});
 
 describe("Builder execution snapshot payload hydration", () => {
   it("bounds concurrent reads and isolates unavailable payloads", async () => {
