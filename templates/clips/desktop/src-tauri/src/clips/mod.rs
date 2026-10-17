@@ -8,7 +8,7 @@ use std::process::Command;
 #[cfg(target_os = "macos")]
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
 use tauri::{
@@ -427,6 +427,175 @@ static BUBBLE_DRAGGING: AtomicBool = AtomicBool::new(false);
 
 pub fn is_bubble_dragging() -> bool {
     BUBBLE_DRAGGING.load(Ordering::SeqCst)
+}
+
+// Click-through for the transparent parts of the bubble while the person
+// cut-out is on. The bubble sends a coarse alpha grid over its window; this
+// loop follows the cursor and only accepts mouse events over set cells.
+const BUBBLE_HOVER_EVENT: &str = "clips:bubble-hover";
+const BUBBLE_HIT_TRACK_INTERVAL: Duration = Duration::from_millis(16);
+const BUBBLE_HIT_MASK_MAX_CELLS: u32 = 1 << 16;
+static BUBBLE_HIT_GENERATION: AtomicU64 = AtomicU64::new(0);
+/// Wakes the tracking loop before its next poll.
+static BUBBLE_HIT_RECHECK: tokio::sync::Notify = tokio::sync::Notify::const_new();
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct BubbleHitMask {
+    cols: u32,
+    rows: u32,
+    /// Row-major cells, least significant bit first.
+    bits: Vec<u8>,
+}
+
+impl BubbleHitMask {
+    fn validate(&self) -> Result<(), String> {
+        let cells = self.cols.saturating_mul(self.rows);
+        if self.cols == 0 || self.rows == 0 || cells > BUBBLE_HIT_MASK_MAX_CELLS {
+            return Err(format!(
+                "invalid bubble hit mask {}x{}",
+                self.cols, self.rows
+            ));
+        }
+        if self.bits.len() < cells.div_ceil(8) as usize {
+            return Err("bubble hit mask is shorter than its grid".to_string());
+        }
+        Ok(())
+    }
+
+    fn contains_fraction(&self, fx: f64, fy: f64) -> bool {
+        if !(0.0..1.0).contains(&fx) || !(0.0..1.0).contains(&fy) {
+            return false;
+        }
+        let col = ((fx * self.cols as f64) as u32).min(self.cols - 1);
+        let row = ((fy * self.rows as f64) as u32).min(self.rows - 1);
+        let index = (row * self.cols + col) as usize;
+        self.bits
+            .get(index / 8)
+            .is_some_and(|byte| byte & (1 << (index % 8)) != 0)
+    }
+}
+
+fn bubble_hit_mask() -> &'static Mutex<Option<Arc<BubbleHitMask>>> {
+    static MASK: OnceLock<Mutex<Option<Arc<BubbleHitMask>>>> = OnceLock::new();
+    MASK.get_or_init(|| Mutex::new(None))
+}
+
+/// Cursor position as a fraction of the window, or `None` outside it.
+fn cursor_fraction_in_window(
+    cursor: (f64, f64),
+    position: (i32, i32),
+    size: (u32, u32),
+) -> Option<(f64, f64)> {
+    if size.0 == 0 || size.1 == 0 {
+        return None;
+    }
+    let fx = (cursor.0 - position.0 as f64) / size.0 as f64;
+    let fy = (cursor.1 - position.1 as f64) / size.1 as f64;
+    ((0.0..1.0).contains(&fx) && (0.0..1.0).contains(&fy)).then_some((fx, fy))
+}
+
+fn cursor_over_bubble_hit_mask(window: &WebviewWindow, mask: &BubbleHitMask) -> bool {
+    let (Ok(c), Ok(p), Ok(s)) = (
+        window.cursor_position(),
+        window.outer_position(),
+        window.outer_size(),
+    ) else {
+        // Fail open: an unreadable cursor must not make the bubble unclickable.
+        return true;
+    };
+    cursor_fraction_in_window((c.x, c.y), (p.x, p.y), (s.width, s.height))
+        .is_some_and(|(fx, fy)| mask.contains_fraction(fx, fy))
+}
+
+fn same_mask(a: Option<&Arc<BubbleHitMask>>, b: Option<&Arc<BubbleHitMask>>) -> bool {
+    match (a, b) {
+        (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+        (None, None) => true,
+        _ => false,
+    }
+}
+
+fn start_bubble_hit_tracking(app: &AppHandle, generation: u64) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let mut prev_interactive: Option<bool> = None;
+        loop {
+            // Copy the mask out so the cursor and window queries run unlocked.
+            let (win, mask) = {
+                let mut slot = bubble_hit_mask().lock().unwrap_or_else(|e| e.into_inner());
+                if BUBBLE_HIT_GENERATION.load(Ordering::SeqCst) != generation {
+                    break;
+                }
+                let Some(win) = app.get_webview_window(BUBBLE_LABEL) else {
+                    // The bubble closed; a new one sends its own mask.
+                    *slot = None;
+                    BUBBLE_HIT_GENERATION.fetch_add(1, Ordering::SeqCst);
+                    break;
+                };
+                (win, slot.clone())
+            };
+            let interactive = is_bubble_dragging()
+                || mask
+                    .as_deref()
+                    .is_none_or(|mask| cursor_over_bubble_hit_mask(&win, mask));
+            if prev_interactive != Some(interactive) {
+                {
+                    // Rechecked under the lock so a concurrent disable always wins.
+                    let slot = bubble_hit_mask().lock().unwrap_or_else(|e| e.into_inner());
+                    if BUBBLE_HIT_GENERATION.load(Ordering::SeqCst) != generation {
+                        break;
+                    }
+                    // A newer mask replaced the snapshot; recompute against it.
+                    if !same_mask(slot.as_ref(), mask.as_ref()) {
+                        continue;
+                    }
+                    let _ = win.set_ignore_cursor_events(!interactive);
+                }
+                prev_interactive = Some(interactive);
+                let _ = app.emit_to(BUBBLE_LABEL, BUBBLE_HOVER_EVENT, interactive);
+            }
+            tokio::select! {
+                _ = tokio::time::sleep(BUBBLE_HIT_TRACK_INTERVAL) => {}
+                _ = BUBBLE_HIT_RECHECK.notified() => {}
+            }
+        }
+    });
+}
+
+/// Updates click-through now instead of at the next poll. The bubble calls
+/// this when the pointer moves onto a transparent cell, so a click there
+/// passes through instead of landing on the still-interactive window.
+#[tauri::command]
+pub fn recheck_bubble_hit() {
+    BUBBLE_HIT_RECHECK.notify_one();
+}
+
+/// Sets the cut-out hit mask, or clears it (`None`) to make the whole
+/// bubble window interactive again.
+#[tauri::command]
+pub async fn set_bubble_hit_mask(
+    app: AppHandle,
+    mask: Option<BubbleHitMask>,
+) -> Result<(), String> {
+    if let Some(mask) = &mask {
+        mask.validate()?;
+    }
+    let mut slot = bubble_hit_mask().lock().unwrap_or_else(|e| e.into_inner());
+    match (slot.is_some(), mask.is_some()) {
+        (false, true) => {
+            let generation = BUBBLE_HIT_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+            start_bubble_hit_tracking(&app, generation);
+        }
+        (true, false) => {
+            BUBBLE_HIT_GENERATION.fetch_add(1, Ordering::SeqCst);
+            if let Some(win) = app.get_webview_window(BUBBLE_LABEL) {
+                let _ = win.set_ignore_cursor_events(false);
+            }
+        }
+        _ => {}
+    }
+    *slot = mask.map(Arc::new);
+    Ok(())
 }
 
 struct BubbleDragAnchor {
@@ -2475,14 +2644,86 @@ mod tests {
         bubble_position_for_target_scale, bubble_position_preserving_visible_center,
         bubble_saved_window_size, bubble_scale_factor_for_monitors, bubble_size_for_name,
         bubble_visible_center, bubble_window_center, bubble_window_size_for_scale,
-        clamp_popover_logical_size, commit_bubble_size_transaction,
+        clamp_popover_logical_size, commit_bubble_size_transaction, cursor_fraction_in_window,
         legacy_bubble_window_size_for_scale, migrate_legacy_bubble_position,
-        overlay_labels_to_hide, restore_bubble_position_preference_at,
+        overlay_labels_to_hide, restore_bubble_position_preference_at, same_mask,
         snapshot_bubble_position_preference_at, strip_trailing_period_for_messaging,
-        text_insertion_strategy, BubblePositionPreference, TextInsertionStrategy, BUBBLE_LABEL,
-        BUBBLE_POSITION_GEOMETRY_VERSION, FINALIZING_LABEL,
+        text_insertion_strategy, BubbleHitMask, BubblePositionPreference, TextInsertionStrategy,
+        BUBBLE_LABEL, BUBBLE_POSITION_GEOMETRY_VERSION, FINALIZING_LABEL,
     };
     use tauri::PhysicalSize;
+
+    #[test]
+    fn same_mask_compares_snapshot_identity() {
+        let mask = || BubbleHitMask {
+            cols: 1,
+            rows: 1,
+            bits: vec![1],
+        };
+        let current = std::sync::Arc::new(mask());
+        let snapshot = current.clone();
+        let replacement = std::sync::Arc::new(mask());
+        assert!(same_mask(Some(&current), Some(&snapshot)));
+        assert!(!same_mask(Some(&replacement), Some(&snapshot)));
+        assert!(!same_mask(None, Some(&snapshot)));
+        assert!(same_mask(None, None));
+    }
+
+    #[test]
+    fn bubble_hit_mask_maps_fractions_to_packed_cells() {
+        // 3x2 grid with cells (2,0) and (0,1) set: bits 2 and 3.
+        let mask = BubbleHitMask {
+            cols: 3,
+            rows: 2,
+            bits: vec![0b0000_1100],
+        };
+        assert!(mask.validate().is_ok());
+        assert!(mask.contains_fraction(0.9, 0.1));
+        assert!(mask.contains_fraction(0.1, 0.9));
+        assert!(!mask.contains_fraction(0.1, 0.1));
+        assert!(!mask.contains_fraction(0.5, 0.9));
+        assert!(!mask.contains_fraction(1.0, 0.1));
+        assert!(!mask.contains_fraction(-0.01, 0.1));
+    }
+
+    #[test]
+    fn bubble_hit_mask_rejects_malformed_grids() {
+        let short = BubbleHitMask {
+            cols: 4,
+            rows: 4,
+            bits: vec![0xff],
+        };
+        assert!(short.validate().is_err());
+        let empty = BubbleHitMask {
+            cols: 0,
+            rows: 4,
+            bits: vec![],
+        };
+        assert!(empty.validate().is_err());
+        let huge = BubbleHitMask {
+            cols: 1 << 12,
+            rows: 1 << 12,
+            bits: vec![0; 1 << 21],
+        };
+        assert!(huge.validate().is_err());
+    }
+
+    #[test]
+    fn cursor_fraction_is_relative_to_the_window() {
+        assert_eq!(
+            cursor_fraction_in_window((150.0, 260.0), (100, 200), (200, 120)),
+            Some((0.25, 0.5))
+        );
+        assert_eq!(
+            cursor_fraction_in_window((99.0, 260.0), (100, 200), (200, 120)),
+            None
+        );
+        assert_eq!(
+            cursor_fraction_in_window((300.0, 260.0), (100, 200), (200, 120)),
+            None
+        );
+        assert_eq!(cursor_fraction_in_window((0.0, 0.0), (0, 0), (0, 0)), None);
+    }
 
     #[test]
     fn bubble_position_preference_snapshot_restores_exact_file_state() {
@@ -2917,6 +3158,14 @@ fn read_clipboard() -> Option<String> {
         return None;
     }
     String::from_utf8(out.stdout).ok()
+}
+
+/// True when the camera bubble holds focus, for example after a click on one
+/// of its controls.
+pub fn bubble_is_focused(app: &AppHandle) -> bool {
+    app.get_webview_window(BUBBLE_LABEL)
+        .and_then(|window| window.is_focused().ok())
+        .unwrap_or(false)
 }
 
 #[cfg(target_os = "macos")]
