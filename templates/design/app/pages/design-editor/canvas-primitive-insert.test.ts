@@ -733,6 +733,47 @@ describe("text takes its colour from what it lands on", () => {
     expect(text?.style.position).toBe("relative");
   });
 
+  it("keeps inherited text color when a positioned child can cover appended flow text", () => {
+    const content = `<!doctype html><html><body>
+      <div data-agent-native-node-id="host" data-an-primitive="frame" style="position:absolute;left:100px;top:100px;width:300px;height:200px;background:#111111">
+        <div class="overlay" style="position:absolute;inset:0;width:300px;height:200px;background:#ffffff"></div>
+      </div>
+    </body></html>`;
+    const liveDocument = new DOMParser().parseFromString(content, "text/html");
+    const liveHost = liveDocument.querySelector<HTMLElement>(
+      '[data-agent-native-node-id="host"]',
+    )!;
+    const overlay = liveDocument.querySelector<HTMLElement>(".overlay")!;
+    const coveredRect = {
+      left: 100,
+      top: 100,
+      right: 400,
+      bottom: 300,
+      width: 300,
+      height: 200,
+    };
+    Object.defineProperty(liveHost, "getBoundingClientRect", {
+      value: () => coveredRect,
+    });
+    Object.defineProperty(overlay, "getBoundingClientRect", {
+      value: () => coveredRect,
+    });
+
+    const html =
+      appendCanvasPrimitiveToHtml(
+        content,
+        {
+          kind: "text",
+          nodeId: "t",
+          geometry: { x: 130, y: 130, width: 120, height: 24 },
+          text: "append to the host",
+        },
+        { positioning: "flow", liveDocument },
+      ) ?? "";
+
+    expect(styleOf(html, "t")).toMatch(/color:\s*currentcolor/i);
+  });
+
   it("keeps the flow host stylesheet paint separate from the cursor child", () => {
     const content = `<!doctype html><html><head><title>S</title></head><body>
       <div data-agent-native-node-id="host" data-an-primitive="frame" class="host" style="position:absolute;left:100px;top:100px;width:300px;height:200px">
@@ -816,7 +857,7 @@ describe("text takes its colour from what it lands on", () => {
 
   it("uses class-based light surfaces over a dark board without a live preview", () => {
     const content = `<!doctype html><html><body>
-      <div class="bg-white" style="position:absolute;left:20px;top:150px;width:280px;height:300px"></div>
+      <div class="p-4 bg-white" style="position:absolute;left:20px;top:150px;width:280px;height:300px"></div>
     </body></html>`;
     const parsed = new DOMParser().parseFromString(content, "text/html");
     expect(
@@ -836,6 +877,23 @@ describe("text takes its colour from what it lands on", () => {
 
     expect(styleOf(html, "t")).toMatch(/color:\s*#000000/i);
   });
+
+  it.each([
+    ["p-4 bg-white", true],
+    ["p-4 bg-slate-900", false],
+  ])(
+    "recognizes a class background utility after earlier class tokens (%s)",
+    (className, isLight) => {
+      const parsed = new DOMParser().parseFromString(
+        `<div class="${className}"></div>`,
+        "text/html",
+      );
+
+      expect(destinationBackgroundLightness(parsed.querySelector("div")!)).toBe(
+        isLight,
+      );
+    },
+  );
 
   it("uses a dark fill for translucent dark-class paint when no board is measured", () => {
     const content = `<!doctype html><html><body>

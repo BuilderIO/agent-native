@@ -89,9 +89,9 @@ export function resolveDestinationBackgroundLightness(
 }
 
 const DARK_BACKGROUND_CLASS_RE =
-  /(?:^|:)bg-(?:black|(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-(?:800|900|950))\b/;
+  /(?:^|[\s:])!?bg-(?:black|(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-(?:800|900|950))\b/;
 const LIGHT_BACKGROUND_CLASS_RE =
-  /(?:^|:)bg-(?:white|(?:slate|gray|zinc|neutral|stone)-(?:50|100|200|300|400))\b/;
+  /(?:^|[\s:])!?bg-(?:white|(?:slate|gray|zinc|neutral|stone)-(?:50|100|200|300|400))\b/;
 
 function elementBackgroundClassHint(element: Element): "dark" | "light" | null {
   const className =

@@ -397,7 +397,11 @@ function paintedSurfaceAtPoint(
   | { kind: "known"; color: Rgb }
   | {
       kind: "unknown";
-      reason: "background-image" | "translucent" | "unmeasured";
+      reason:
+        | "background-image"
+        | "flow-overlap"
+        | "translucent"
+        | "unmeasured";
     }
   | null {
   const isZeroOpacity = (style: CSSStyleDeclaration): boolean => {
@@ -604,6 +608,32 @@ function paintedSurfaceAtPoint(
             : null;
     if (!liveSampleElement) {
       return { kind: "unknown", reason: "unmeasured" };
+    }
+    const hostRect = liveSampleElement.getBoundingClientRect();
+    const hasOverlappingPositionedDescendant = Array.from(
+      liveSampleElement.querySelectorAll("*"),
+    ).some((descendant) => {
+      const style = liveView.getComputedStyle(descendant);
+      if (
+        !["absolute", "fixed"].includes(style.position) ||
+        ["none", "hidden", "collapse"].includes(style.display) ||
+        ["hidden", "collapse"].includes(style.visibility) ||
+        hasZeroOpacityAncestor(descendant)
+      ) {
+        return false;
+      }
+      const rect = descendant.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return false;
+      if (hostRect.width <= 0 || hostRect.height <= 0) return true;
+      if (rect.right <= hostRect.left) return false;
+      if (rect.left >= hostRect.right) return false;
+      if (rect.bottom <= hostRect.top) return false;
+      return rect.top < hostRect.bottom;
+    });
+    // A flow insertion appends after existing children, where positioned
+    // descendants can paint over it without inheriting the host's surface.
+    if (hasOverlappingPositionedDescendant) {
+      return { kind: "unknown", reason: "flow-overlap" };
     }
     const colors: string[] = [];
     for (
@@ -1215,6 +1245,7 @@ export function appendCanvasPrimitiveToHtml(
           !(boardSurfaceIsLight === null && measuredIsLight !== null)) ||
           (paintedSurface.reason === "background-image" &&
             options?.isBoardTarget !== true) ||
+          paintedSurface.reason === "flow-overlap" ||
           (surfaceIsLight === null && options?.isBoardTarget !== true));
       const resolvedTextColor =
         primitive.fill ??
