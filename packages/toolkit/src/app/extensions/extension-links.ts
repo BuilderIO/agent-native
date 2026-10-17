@@ -1,4 +1,5 @@
 import { openMcpAppHostLink } from "@agent-native/core/client/agent-chat";
+import { agentNativePath } from "@agent-native/core/client/api-path";
 import { isEmbedMcpChatBridgeActive } from "@agent-native/core/client/host";
 import {
   EXTENSION_LINK_CHANNEL_ACK_MESSAGE_TYPE,
@@ -273,6 +274,13 @@ function openExternalExtensionLink(
   }
 
   if (
+    destination.origin === window.location.origin &&
+    isExtensionApiPath(destination.pathname)
+  ) {
+    return false;
+  }
+
+  if (
     typeof navigator.userActivation !== "undefined" &&
     !navigator.userActivation.isActive
   ) {
@@ -320,6 +328,9 @@ function navigateSameOriginExtensionLink(value: unknown): boolean {
     return false;
   }
 
+  // The extensions API serves user-authored HTML at its /render endpoint.
+  if (isExtensionApiPath(destination.pathname)) return false;
+
   if (
     typeof navigator.userActivation !== "undefined" &&
     !navigator.userActivation.isActive
@@ -329,6 +340,16 @@ function navigateSameOriginExtensionLink(value: unknown): boolean {
 
   window.location.assign(destination.href);
   return true;
+}
+
+function isExtensionApiPath(pathname: string): boolean {
+  const extensionsPath = new URL(
+    agentNativePath("/_agent-native/extensions"),
+    window.location.href,
+  ).pathname.replace(/\/+$/, "");
+  return (
+    pathname === extensionsPath || pathname.startsWith(`${extensionsPath}/`)
+  );
 }
 
 function reserveExternalLinkFallbackWindow(): Window | null {

@@ -827,6 +827,7 @@ export async function getChatGPTSubscriptionStatus(
   const localLoopback = currentRequestIsLocalLoopback();
   const labEnabled = await chatGPTSubscriptionLabEnabled(email);
   if (!labEnabled) {
+    const accounts = await accountSummaries(email);
     return {
       supported: false,
       localLoopback,
@@ -836,7 +837,7 @@ export async function getChatGPTSubscriptionStatus(
       accountId: null,
       activeAccountId: null,
       activeAccount: null,
-      accounts: [],
+      accounts,
       legacyRegistrationCleanupAvailable: false,
     };
   }

@@ -102,6 +102,15 @@ async function startHostServer(): Promise<ViteDevServer> {
               );
             },
           );
+          devServer.middlewares.use(
+            "/_agent-native/extensions/unsafe-extension/render",
+            (_req, res) => {
+              res.setHeader("Content-Type", "text/html");
+              res.end(
+                '<!doctype html><script>document.documentElement.dataset.unsafeExtensionLoaded="true"</script>',
+              );
+            },
+          );
         },
       },
     ],
@@ -546,6 +555,33 @@ describe("AgentNativeExtensionFrame browser links", () => {
       const extensionFrame = page
         .frameLocator('iframe[sandbox*="allow-scripts"]')
         .first();
+
+      let extensionRenderNavigations = 0;
+      page.on("request", (request) => {
+        if (
+          request.isNavigationRequest() &&
+          request.frame() === page.mainFrame() &&
+          new URL(request.url()).pathname ===
+            "/_agent-native/extensions/unsafe-extension/render"
+        ) {
+          extensionRenderNavigations += 1;
+        }
+      });
+      const hostUrl = page.url();
+      const hostPageCount = page.context().pages().length;
+      await extensionFrame
+        .locator("#same-origin-extension-render-link")
+        .click();
+      await extensionFrame
+        .locator("#same-origin-extension-render-new-context-link")
+        .click();
+      await page.waitForTimeout(100);
+      expect(extensionRenderNavigations).toBe(0);
+      expect(page.url()).toBe(hostUrl);
+      expect(page.context().pages()).toHaveLength(hostPageCount);
+      expect(
+        await page.locator("html").getAttribute("data-unsafe-extension-loaded"),
+      ).toBeNull();
 
       const popupPromise = page.context().waitForEvent("page");
       await extensionFrame.locator("#same-origin-named-link").click();

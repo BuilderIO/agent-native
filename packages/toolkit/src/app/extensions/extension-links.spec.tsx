@@ -452,6 +452,19 @@ describe("useExternalExtensionLinks", () => {
     expect(open).toHaveBeenCalledWith(href, "_blank", "noopener,noreferrer");
   });
 
+  it("does not open extension API routes outside their iframe sandbox", async () => {
+    const href = new URL(
+      "/_agent-native/extensions/ext-1/render",
+      window.location.href,
+    ).href;
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+
+    await sendExternalLink(href, { openInNewContext: true });
+
+    expect(open).not.toHaveBeenCalled();
+    expect(chatMocks.openMcpAppHostLink).not.toHaveBeenCalled();
+  });
+
   it("routes explicitly opened same-origin links through the MCP host", async () => {
     const href = new URL("/dashboards/metric", window.location.href).href;
     embedState.active = true;
