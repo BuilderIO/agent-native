@@ -645,6 +645,7 @@ export default {
     notConnected: "未接続",
     needsReauth: "再認証が必要",
     error: "エラー",
+    unknown: "不明",
     indexNotImported: "生成されたインデックスはまだインポートされていません。",
     indexUnreadable:
       "保存されたインデックスを読み取れません。有効なインデックスをアップロードしてください。",
@@ -1231,6 +1232,8 @@ export default {
     addEventToSeeResults: "イベントを追加し、選択して結果を確認します",
     queryError: "Query error: {{message}}",
     noDataReturned: "データが返されませんでした",
+    incompleteResultsWarning:
+      "この結果は不完全な可能性があります。行やソースデータの欠落により合計値が変わる場合があります。",
     rowsRange: "{{start}}-{{end}} of {{total}}",
     filterBy: "フィルター条件",
     pickPropertyToFilter: "フィルタリングするプロパティを選択してください",

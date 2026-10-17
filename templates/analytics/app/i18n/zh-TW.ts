@@ -600,6 +600,7 @@ export default {
     notConnected: "未連線",
     needsReauth: "需要重新授權",
     error: "錯誤",
+    unknown: "未知",
     indexNotImported: "尚未匯入產生的索引。",
     indexUnreadable: "無法讀取已儲存的索引。請上傳有效的索引。",
     indexReadFailed: "無法載入索引狀態。",
@@ -1243,6 +1244,8 @@ export default {
     addEventToSeeResults: "新增事件並選取它以檢視結果",
     queryError: "查詢錯誤：{{message}}",
     noDataReturned: "未傳回資料",
+    incompleteResultsWarning:
+      "此結果可能不完整。缺少的資料列或來源資料可能會影響總計。",
     rowsRange: "{{total}} 筆中的 {{start}}-{{end}}",
     filterBy: "過濾依據",
     pickPropertyToFilter: "選取要過濾的屬性",

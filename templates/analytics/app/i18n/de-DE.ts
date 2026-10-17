@@ -660,6 +660,7 @@ export default {
     notConnected: "Nicht verbunden",
     needsReauth: "Erneute Authentifizierung erforderlich",
     error: "Fehler",
+    unknown: "Unbekannt",
     indexNotImported: "Es wurde kein generierter Index importiert.",
     indexUnreadable:
       "Der gespeicherte Index konnte nicht gelesen werden. Lade einen gültigen Index hoch.",
@@ -1263,6 +1264,8 @@ export default {
       "Fügen Sie ein Ereignis hinzu und wählen Sie es aus, um Ergebnisse anzuzeigen",
     queryError: "Query error: {{message}}",
     noDataReturned: "Es wurden keine Daten zurückgegeben",
+    incompleteResultsWarning:
+      "Dieses Ergebnis ist möglicherweise unvollständig. Fehlende Zeilen oder Quelldaten können Summen beeinflussen.",
     rowsRange: "{{start}}-{{end}} of {{total}}",
     filterBy: "Filtern nach",
     pickPropertyToFilter: "Wählen Sie eine Eigenschaft zum Filtern aus",
