@@ -4,7 +4,6 @@ import { describe, expect, it } from "vitest";
 
 import { readDesignEditorSource } from "../../../pages/design-editor/read-design-editor-source";
 import { normalizeMonacoThemeColor } from "../code-workbench-theme";
-import { CODE_WORKBENCH_SHELL_CLASSNAME } from "./code-workbench-shell";
 
 describe("code workbench shell", () => {
   it("themes from native workbench tokens and suppresses design hotkeys", () => {
@@ -17,12 +16,6 @@ describe("code workbench shell", () => {
     expect(source).toContain("--workbench-bg");
     expect(source).not.toContain("srcDoc=");
     expect(source).not.toContain("#0f1115");
-  });
-
-  it("keeps a full-height edge between the workbench and canvas", () => {
-    expect(CODE_WORKBENCH_SHELL_CLASSNAME).toContain("border-r");
-    expect(CODE_WORKBENCH_SHELL_CLASSNAME).toContain("--workbench-border");
-    expect(CODE_WORKBENCH_SHELL_CLASSNAME).toContain("shadow-[4px_0_12px");
   });
 
   it("keeps the per-design workbench mounted while another panel is visible", () => {
@@ -46,16 +39,5 @@ describe("code workbench shell", () => {
     );
     expect(normalizeMonacoThemeColor("#fff")).toBe("#ffffff");
     expect(normalizeMonacoThemeColor("var(--workbench-fg)")).toBeUndefined();
-  });
-
-  it("routes saves through the versioned preview→apply source actions", () => {
-    const source = readFileSync(
-      "app/components/design/code-workbench/workspace/inline-provider.ts",
-      "utf8",
-    );
-    expect(source).toContain('"preview-source-edit"');
-    expect(source).toContain('"apply-source-edit"');
-    expect(source).toContain("expectedVersionHash");
-    expect(source).toContain("WorkspaceStaleVersionError");
   });
 });

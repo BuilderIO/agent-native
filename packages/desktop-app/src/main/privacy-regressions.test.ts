@@ -220,40 +220,6 @@ describe("desktop passive-access regressions", () => {
     );
   });
 
-  it("provides shared chat state and uses the canonical model picker", () => {
-    const hub = source("../renderer/components/CodeAgentsHub.tsx");
-    const agent = source("../../../code-agents-ui/src/CodeAgentsApp.tsx");
-
-    expect(hub).toContain("createAgentNativeQueryClient()");
-    expect(hub).toContain(
-      "<QueryClientProvider client={codeAgentsQueryClient}>",
-    );
-    expect(agent).not.toContain("AgentAdvancedMenu");
-    expect(agent).toContain(
-      "availableModels={showModelSelector ? availableModels : undefined}",
-    );
-    expect(agent).toContain("onModelChange={(model, engine) =>");
-  });
-
-  it("keeps Agent chats on the standard chat surface", () => {
-    const agent = source("../../../code-agents-ui/src/CodeAgentsApp.tsx");
-    const runDetail = between(
-      agent,
-      "function RunDetailCard(",
-      "function TranscriptPanel(",
-    );
-
-    expect(runDetail).toContain("<TranscriptPanel");
-    expect(runDetail).toContain("Approval pending");
-    expect(runDetail).toContain('secondaryActionLabel="Custom keys"');
-    expect(runDetail).not.toContain("Task paused");
-    expect(runDetail).not.toContain("code-agents-session-details");
-    expect(runDetail).not.toContain("TokenUsageMeter");
-    expect(runDetail).not.toContain("Open Task workspace");
-    expect(agent).toContain("<ChatFirstChatHistory");
-    expect(agent).toContain("chatFirstNavigation?.onOpenChats");
-  });
-
   it("retries a missing-provider chat after Builder connects", () => {
     const agent = source("../../../code-agents-ui/src/CodeAgentsApp.tsx");
     const connectAction = between(

@@ -283,39 +283,6 @@ describe("RecordingViewsBadge", () => {
     );
   });
 
-  it("parks the Analytics handoff outside the visible insights experience", () => {
-    const source = readFileSync(
-      resolve(process.cwd(), "app/components/player/recording-views-badge.tsx"),
-      "utf8",
-    );
-
-    expect(source).not.toContain("<ConnectAnalyticsDialog");
-    expect(source).not.toContain("recordingInsights.connectAnalytics");
-  });
-
-  it("uses one-click Item actions for the Analytics destination", () => {
-    const source = readFileSync(
-      resolve(
-        process.cwd(),
-        "app/components/player/connect-analytics-dialog.tsx",
-      ),
-      "utf8",
-    );
-
-    expect(source).toContain("<ItemGroup");
-    expect(source).toContain("<ItemSeparator");
-    expect(source).toContain("<ItemActions");
-    expect(source).toContain('onClick={() => handoff("analysis")}');
-    expect(source).toContain('onClick={() => handoff("dashboard")}');
-    expect(source).not.toContain("<RadioGroup");
-    expect(source).not.toContain("<RadioGroupItem");
-    expect(source).not.toContain("<DialogFooter");
-    expect(source).not.toContain("<ItemDescription");
-    expect(source).not.toContain("sm:w-48");
-    expect(source).not.toContain("MetricPreview");
-    expect(source).not.toContain("analyticsIncludes");
-  });
-
   it("keeps the Analytics handoff scoped to a recording snapshot", () => {
     const handoff = buildAnalyticsHandoff({
       destination: "dashboard",

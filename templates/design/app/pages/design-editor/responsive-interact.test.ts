@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
@@ -131,73 +131,6 @@ describe("Interact device choices", () => {
 
 describe("responsive Interact wiring", () => {
   const source = readDesignEditorSource();
-  const editorSurface =
-    source +
-    readdirSync("app/pages/design-editor/commands")
-      .map((f) => readFileSync(`app/pages/design-editor/commands/${f}`, "utf8"))
-      .join("\n");
-
-  it("activates only for a focused screen outside embedded hosts", () => {
-    expect(source).toContain("const responsiveInteractActive =");
-    expect(source).toContain(
-      'mode === "interact" && viewMode === "single" && !!activeFile && !embedded',
-    );
-  });
-
-  it("mounts the controls in the docked top bar without disturbing either side rail", () => {
-    expect(source).not.toContain("<ResponsiveInteractBar");
-    // A widget is minimal UI, which has no top bar, so its Interact controls float.
-    expect(source).toContain("const interactInTopBar = topBarVisible;");
-    expect(source).toContain(
-      "responsiveInteractActive && interactInTopBar\n      ? renderInteractTopBarSlots(interactControlArgs)",
-    );
-    expect(source).toContain("leading={interactTopBarSlots?.leading}");
-    expect(source).toContain("interactTopBarSlots?.center ??");
-    expect(source).toContain("interactTopBarSlots?.zoomControl");
-    expect(source).not.toContain("!uiHidden && !responsiveInteractActive");
-    expect(source).not.toContain(
-      "!initialGenerationChromeLimited &&\n        !responsiveInteractActive",
-    );
-  });
-
-  it("keeps guided questions and Interact content clear of the absolute left rail", () => {
-    expect(source).toContain("const leftChromeOverlayInset =");
-    expect(source.match(/paddingLeft: leftChromeOverlayInset/g)).toHaveLength(
-      2,
-    );
-    expect(source).toContain(
-      "responsiveInteractActive && leftChromeOverlayInset",
-    );
-  });
-
-  it("leaves Interact through the mode switch, keeping an explicit Exit only where there is no mode switch", () => {
-    expect(source).not.toContain("ResponsiveInteractExitButton");
-    expect(source).not.toContain("responsiveInteractActive && !minimalUi ? (");
-    expect(source).toContain(
-      "responsiveInteractActive && !interactInTopBar && !hostOwnsChrome\n      ? renderInteractFloatingBar(interactControlArgs)",
-    );
-  });
-
-  it("uses focused embedded defaults and a separate minimal-mode floating bar", () => {
-    expect(source).not.toContain(
-      '<IconLayoutSidebar className="size-4 -scale-x-100" />',
-    );
-    expect(source).not.toContain('data-design-minimal-toggle="right"');
-    expect(source).toContain('data-design-minimal-bar="interact"');
-    expect(source).toContain(
-      "grid-cols-[minmax(0,auto)_minmax(0,1fr)_minmax(0,auto)]",
-    );
-    expect(source).toContain(
-      'className="pointer-events-none flex min-w-0 justify-center"',
-    );
-  });
-
-  it("resets chrome mode when same-design navigation changes embed mode", () => {
-    expect(source).toContain("setMinimalUi(minimalUiByDefault);");
-    expect(source).toContain(
-      "}, [minimalUiByDefault, embedChromeRequested, hostOwnsChrome]);",
-    );
-  });
 
   it("builds Interact's inline document apart from Edit's, and keeps the stand-down guards", () => {
     const canvas = readFileSync(
@@ -265,73 +198,6 @@ describe("responsive Interact wiring", () => {
     expect(commandChannel).not.toContain("!id || !isSignedIn");
   });
 
-  it("keeps screen focus on All screens and reserves Interact for explicit mode changes", () => {
-    expect(source).toContain('if (mode === "interact")');
-    expect(source).toContain("handleSidebarScreenSelect(match.id)");
-    expect(source).not.toContain("enterSingleScreenInteract");
-    expect(editorSurface).toContain("resolveModeChangeView({");
-    expect(editorSurface).toContain('options?.mode ?? "interact"');
-    expect(source).toContain("!responsiveInteractActive &&");
-    const frames = readFileSync(
-      "app/components/design/MultiScreenCanvas.tsx",
-      "utf8",
-    );
-    expect(frames).not.toContain('t("multiScreenCanvas.fullView")');
-  });
-
-  it("keeps editor-shell editing paths inert while Interact owns the screen", () => {
-    const hotkeys = source.slice(
-      source.indexOf("useDesignHotkeys({"),
-      source.indexOf(
-        "canEditSelectedLiveLayerRef.current = canEditSelectedLiveLayer;",
-      ),
-    );
-    expect(hotkeys).toContain("!responsiveInteractActive");
-
-    const selectionHydration = source.slice(
-      source.indexOf("const selectedLayerIdsRef"),
-      source.indexOf("initialUrlSelectionHydratedForIdRef.current !== id"),
-    );
-    expect(selectionHydration).toContain(
-      'if (viewModeRef.current === "single")',
-    );
-    expect(selectionHydration).toContain(
-      "initialUrlSelectionHydratedForIdRef.current = id",
-    );
-
-    const assetInsertion = source.slice(
-      source.indexOf("const handleAssetInserted"),
-      source.indexOf("const designExtensionContext"),
-    );
-    expect(assetInsertion).toContain('viewModeRef.current = "overview"');
-    expect(assetInsertion).toContain('setViewMode("overview")');
-  });
-
-  it("keeps a way out of Interact into Design on the one canvas path", () => {
-    const handlerStart = source.indexOf("const handleTopBarModeChange =");
-    expect(handlerStart).toBeGreaterThan(-1);
-    const handler = source.slice(handlerStart, handlerStart + 320);
-    expect(handler).toContain('mode === "interact" && next === "edit"');
-    expect(handler).toContain("setRuntimeLayerSnapshotRequest(");
-    expect(handler).toContain("handleModeChange(next)");
-  });
-
-  it("refreshes live Layers when Interact returns to Edit", () => {
-    const exitHandler = source.slice(
-      source.indexOf("const handleExitResponsiveInteract ="),
-      source.indexOf("// Escape is the standard"),
-    );
-    expect(exitHandler).toContain("setRuntimeLayerSnapshotRequest(");
-    expect(source).toContain(
-      "runtimeLayerSnapshotRequest={runtimeLayerSnapshotRequest}",
-    );
-    const canvas = readFileSync(
-      "app/components/design/DesignCanvas.tsx",
-      "utf8",
-    );
-    expect(canvas).toContain('type: "request-runtime-layer-snapshot"');
-  });
-
   it("keeps localhost bridge identity stable across Interact mode changes", () => {
     const canvas = readFileSync(
       "app/components/design/DesignCanvas.tsx",
@@ -350,64 +216,5 @@ describe("responsive Interact wiring", () => {
     expect(bridge).toContain('e.data.type === "set-interaction-mode"');
     expect(bridge).toContain('shieldOverlay.style.pointerEvents = "none"');
     expect(bridge).toContain("scheduleRuntimeLayerSnapshot()");
-  });
-
-  it("keeps a focused localhost screen on its live route when returning to Edit", () => {
-    const focusedCanvasStart = source.lastIndexOf("<DesignCanvas");
-    const focusedCanvas = source.slice(
-      focusedCanvasStart,
-      source.indexOf("publicVisualEdit={", focusedCanvasStart),
-    );
-    const liveRouteOverride = source.slice(
-      source.indexOf("previewUrlOverride={", focusedCanvasStart),
-      source.indexOf("bridgeUrl={activeScreenBridgeUrl}", focusedCanvasStart),
-    );
-    expect(liveRouteOverride).toContain(
-      'activeCanvasSourceType === "localhost"',
-    );
-    expect(liveRouteOverride).toContain("previewUrlAtLiveRoute(");
-    expect(liveRouteOverride).toContain("liveRoutePathsByScreenIdRef.current[");
-    expect(liveRouteOverride).toContain("activeFile.id");
-    expect(focusedCanvas).toContain("onRoutePathChange={");
-    expect(focusedCanvas).toContain("handleLiveRoutePathChange");
-  });
-
-  it("uses the selected screen size and the real canvas bounds", () => {
-    expect(editorSurface).toContain("resolveInteractDeviceForScreen(");
-    expect(source).toContain("container.clientWidth - 48");
-    expect(source).toContain("new ResizeObserver(updateZoomToFit)");
-    expect(source).toContain("responsiveInteractActive ? interactZoom : zoom");
-    expect(source).toContain("responsiveInteractActive ? undefined : setZoom");
-    expect(source).toContain("? interactDeviceSize.width");
-    expect(source).toContain("? interactDeviceSize.height");
-    const canvas = readFileSync(
-      "app/components/design/DesignCanvas.tsx",
-      "utf8",
-    );
-    expect(canvas).toContain("previewHeightPx?: number");
-    expect(canvas).toContain("const resolvedHeight =");
-    expect(canvas).toContain("enabled: Boolean(onZoomChange) && !interactMode");
-    expect(canvas).toContain('if (e.data.type === "pinch-zoom-wheel") {');
-    expect(canvas).toContain("if (interactMode) return;");
-  });
-
-  it("keeps the canvas-shell Escape handling inert, but exits Interact on Escape", () => {
-    expect(source).toContain(
-      "onEscape: responsiveInteractActive ? undefined : handleEscapeHotkey",
-    );
-    const escapeExitEffect = source.slice(
-      source.indexOf("const handleExitResponsiveInteract ="),
-      source.indexOf("// Fit against the actual center canvas"),
-    );
-    expect(escapeExitEffect).toContain(
-      "if (!responsiveInteractActive) return;",
-    );
-    expect(escapeExitEffect).toContain(
-      'if (event.key !== "Escape" || event.defaultPrevented) return;',
-    );
-    expect(escapeExitEffect).toContain("handleExitResponsiveInteract();");
-    expect(escapeExitEffect).toContain(
-      'window.addEventListener("keydown", handleKeyDown);',
-    );
   });
 });

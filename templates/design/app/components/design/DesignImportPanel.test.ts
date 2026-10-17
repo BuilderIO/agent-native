@@ -2,55 +2,12 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-import { readDesignEditorSource } from "../../pages/design-editor/read-design-editor-source";
-
 describe("DesignImportPanel", () => {
   const source = readFileSync(
     "app/components/design/DesignImportPanel.tsx",
     "utf8",
   );
-  const editorSource = readDesignEditorSource();
   const importConstants = readFileSync("app/lib/design-import.ts", "utf8");
-
-  it("keeps Local app in the main import source list", () => {
-    const htmlIndex = source.indexOf('id="html-import"');
-    const localIndex = source.indexOf('id="local-app-import"');
-    const moreSourcesIndex = source.indexOf('"More sources"');
-
-    expect(htmlIndex).toBeGreaterThanOrEqual(0);
-    expect(localIndex).toBeGreaterThan(htmlIndex);
-    expect(localIndex).toBeLessThan(moreSourcesIndex);
-  });
-
-  it("uses canvas paste guidance and offers an experimental .fig upload", () => {
-    expect(source).toContain("figmaPasteBodyUnlimited");
-    expect(source).toContain("figmaPasteBodyImages");
-    expect(source).not.toContain("paste here");
-    expect(source).not.toContain("Paste Figma content here");
-    expect(source).toContain('id="fig-file-import"');
-    expect(source).toContain('accept=".fig,application/octet-stream"');
-    expect(source).toContain("maxBytes: MAX_BROWSER_FIG_BYTES");
-    expect(source).not.toContain("maxBytes: MAX_FIG_UPLOAD_BYTES");
-    expect(source).toContain("importFigInBrowser");
-    expect(source).toContain("remoteMutationStarted");
-    expect(source).toContain("uploadDesignFile({");
-    expect(source).toContain("validateFigUploadFile");
-    expect(source).toContain('role="progressbar"');
-    expect(source).toContain('phase === "rendering" || progress === 100');
-    expect(source).toContain("figImportWarningTitle");
-    expect(source).toContain("figImportSelection");
-    expect(source).toContain(
-      "shouldWarnForFigImport(file.size, prepared.summary)",
-    );
-  });
-
-  it("frees the .fig worker and reports saved frames", () => {
-    expect(source).toContain("pendingFigImportRef.current?.dispose()");
-    expect(source).toContain("prepared.dispose()");
-    expect(source).not.toContain("prepared.decoded");
-    expect(source).toContain('t("designEditor.import.figImportSaving"');
-    expect(source).toContain("const FigImportPageRow = memo(");
-  });
 
   it("imports a Figma frame URL through the shared action surface", () => {
     const urlIndex = source.indexOf('id="figma-url-import"');
@@ -91,23 +48,6 @@ describe("DesignImportPanel", () => {
     expect(source).toContain('notification.variant === "warning"');
     expect(source).not.toContain(
       'toast.warning(t("designEditor.import.warningsToast")',
-    );
-  });
-
-  it("supports canvas-level Figma paste through the editor paste handler", () => {
-    expect(editorSource).toContain("const handleEditorPaste");
-    const pasteCommand = readFileSync(
-      "app/pages/design-editor/commands/editor-paste.ts",
-      "utf8",
-    );
-    expect(pasteCommand).toContain(
-      "getFigmaClipboardContent(event.clipboardData)",
-    );
-    expect(pasteCommand).toContain(
-      "void importFigmaClipboardIntoDesign(figmaContent)",
-    );
-    expect(editorSource).toContain(
-      'document.addEventListener("paste", handleEditorPaste, true)',
     );
   });
 

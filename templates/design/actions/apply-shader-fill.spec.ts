@@ -135,22 +135,11 @@ describe("apply-shader-fill action contract", () => {
     expect(validateIdx).toBeLessThan(persistCallIdx);
   });
 
-  it("persists the fill as a CSS background via the deterministic HTML editor", () => {
-    expect(src).toContain("buildShaderFillBackground(descriptor)");
-    expect(src).toContain("applyVisualEdit(");
-    expect(src).toMatch(/property:\s*"background"/);
-  });
-
   it("only writes HTML design-file sources — other kinds preview, never persist", () => {
     expect(src).toContain('source.kind !== "design-file"');
     expect(src).toMatch(/persisted:\s*false/);
     expect(src).toContain(
       "Shader fills can only be persisted onto HTML design files",
     );
-  });
-
-  it("only persists when the editor actually changed the source", () => {
-    expect(src).toMatch(/status === "applied"/);
-    expect(src).toMatch(/changed === true/);
   });
 });

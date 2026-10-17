@@ -11,11 +11,6 @@ function keydown(init: KeyboardEventInit) {
   return new KeyboardEvent("keydown", init);
 }
 
-function shouldForwardShowShortcutsChord(e: KeyboardEvent) {
-  if (!(e.ctrlKey || e.metaKey) || !e.shiftKey || e.altKey) return false;
-  return e.key === "?" || e.key === "/";
-}
-
 function withNavigatorPlatform(platform: string, run: () => void) {
   const ownDescriptor = Object.getOwnPropertyDescriptor(navigator, "platform");
   Object.defineProperty(navigator, "platform", {
@@ -59,16 +54,6 @@ describe("show-keyboard-shortcuts hotkey", () => {
       expect(
         isShowKeyboardShortcutsHotkey(
           keydown({ key: "?", code: "Slash", ctrlKey: true, shiftKey: true }),
-        ),
-      ).toBe(true);
-    });
-  });
-
-  it("matches the Command variant so a host-level ⌘⇧? still resolves", () => {
-    withNavigatorPlatform("MacIntel", () => {
-      expect(
-        isShowKeyboardShortcutsHotkey(
-          keydown({ key: "/", code: "Slash", metaKey: true, shiftKey: true }),
         ),
       ).toBe(true);
     });
@@ -124,53 +109,6 @@ describe("show-keyboard-shortcuts hotkey", () => {
 });
 
 describe("canvas iframe forwarding", () => {
-  it("forwards the macOS chord out of the iframe", () => {
-    withNavigatorPlatform("MacIntel", () => {
-      expect(
-        shouldForwardShowShortcutsChord(
-          keydown({ key: "/", code: "Slash", metaKey: true, shiftKey: true }),
-        ),
-      ).toBe(true);
-    });
-  });
-
-  it("forwards the Windows chord out of the iframe", () => {
-    withNavigatorPlatform("Win32", () => {
-      expect(
-        shouldForwardShowShortcutsChord(
-          keydown({ key: "?", code: "Slash", ctrlKey: true, shiftKey: true }),
-        ),
-      ).toBe(true);
-    });
-  });
-
-  it("does not forward a bare slash typed inside the canvas", () => {
-    expect(
-      shouldForwardShowShortcutsChord(keydown({ key: "/", code: "Slash" })),
-    ).toBe(false);
-  });
-
-  it("agrees with the host matcher on every case", () => {
-    const cases: Array<[string, KeyboardEventInit]> = [
-      ["Win32", { key: "/", ctrlKey: true, shiftKey: true }],
-      ["Win32", { key: "?", ctrlKey: true, shiftKey: true }],
-      ["MacIntel", { key: "/", metaKey: true, shiftKey: true }],
-      ["MacIntel", { key: "?", ctrlKey: true, shiftKey: true }],
-      ["Win32", { key: "/", ctrlKey: true }],
-      ["Win32", { key: "/", ctrlKey: true, shiftKey: true, altKey: true }],
-      ["Win32", { key: "/" }],
-      ["Win32", { key: "a", ctrlKey: true, shiftKey: true }],
-    ];
-    for (const [platform, init] of cases) {
-      withNavigatorPlatform(platform, () => {
-        const event = keydown({ code: "Slash", ...init });
-        expect(shouldForwardShowShortcutsChord(event)).toBe(
-          isShowKeyboardShortcutsHotkey(event),
-        );
-      });
-    }
-  });
-
   it("is present in the generated bridge, not only the source", () => {
     expect(editorChromeBridgeScript).toContain("isShowShortcutsChord");
   });

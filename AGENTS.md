@@ -19,6 +19,7 @@ A few entry points:
 - `writing-agent-instructions` — before editing instructions, skills, or tool/action descriptions.
 - `verifying-changes` — exercise the broken path before calling a fix done.
 - `adding-tests-and-ci` — before adding tests, CI jobs, or workflow triggers.
+- `test-audit` — before writing, reviewing, or pruning tests.
 - `reporting-progress` — during long runs and before asking for status.
 - `concurrent-agents` — before shared-checkout work.
 - `ship` — guarded shipping; beta/docs deploy automatically, other production promotion is manual.

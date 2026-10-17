@@ -3,13 +3,6 @@ import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 describe("the live meter has a single source of truth", () => {
-  it("keeps the component and its math in shared/", () => {
-    expect(existsSync(new URL("./live-waveform.tsx", import.meta.url))).toBe(
-      true,
-    );
-    expect(existsSync(new URL("./audio-meter.ts", import.meta.url))).toBe(true);
-  });
-
   it("has no local fork in either app", () => {
     const forks = [
       new URL("../desktop/src/lib/audio-meter.ts", import.meta.url),

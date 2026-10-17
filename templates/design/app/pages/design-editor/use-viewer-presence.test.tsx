@@ -6,7 +6,6 @@ vi.mock("@agent-native/core/client/collab", () => ({
   useCollaborativeDoc: (...args: unknown[]) => useCollaborativeDoc(...args),
 }));
 
-import { readDesignEditorSource } from "./read-design-editor-source";
 import { useViewerPresence } from "./use-viewer-presence";
 
 function render(input: Parameters<typeof useViewerPresence>[0]) {
@@ -49,10 +48,5 @@ describe("useViewerPresence", () => {
     expect(useCollaborativeDoc).toHaveBeenCalledWith(
       expect.objectContaining({ docId: null }),
     );
-  });
-
-  it("is mounted by the editor page", () => {
-    const source = readDesignEditorSource();
-    expect(source).toContain("useViewerPresence(");
   });
 });

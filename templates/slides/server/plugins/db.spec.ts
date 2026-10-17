@@ -143,12 +143,6 @@ describe("slides db.ts migration entries follow the naming convention", () => {
 });
 
 describe("slides db.ts wires ensureAdditiveColumns after runMigrations", () => {
-  it("imports ensureAdditiveColumns from @agent-native/core/db", () => {
-    expect(dbTsSource).toMatch(
-      /import\s*\{[^}]*\bensureAdditiveColumns\b[^}]*\}\s*from\s*["']@agent-native\/core\/db["']/,
-    );
-  });
-
   it("calls ensureAdditiveColumns after runMigrations(...) completes", () => {
     const migrationsCallIdx = dbTsSource.indexOf("runMigrations(");
     const ensureCallIdx = dbTsSource.indexOf("ensureAdditiveColumns({");

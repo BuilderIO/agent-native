@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { AGENT_CLIENT_ID } from "./agent-identity.js";
 import {
@@ -241,71 +241,5 @@ describe("usePresence — derivation logic", () => {
     expect(other.user.name).toBe("AI Assistant");
     expect(other.user.email).toBe("agent@system");
     expect(other.user.color).toBe("#00B5FF");
-  });
-});
-
-describe("awareness fast-path throttle", () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
-  afterEach(() => {
-    vi.useRealTimers();
-    vi.restoreAllMocks();
-  });
-
-  it("coalesces multiple calls within 150ms into a single POST", async () => {
-    const fetchSpy = vi.fn().mockResolvedValue({ ok: true } as Response);
-    vi.stubGlobal("fetch", fetchSpy);
-
-    const timers = new Map<string, ReturnType<typeof setTimeout>>();
-    const throttledPush = (key: string, run: () => void) => {
-      if (timers.has(key)) return;
-      const t = setTimeout(() => {
-        timers.delete(key);
-        run();
-      }, 150);
-      timers.set(key, t);
-    };
-
-    let callCount = 0;
-    throttledPush("doc1::42", () => {
-      callCount++;
-    });
-    throttledPush("doc1::42", () => {
-      callCount++;
-    });
-    throttledPush("doc1::42", () => {
-      callCount++;
-    });
-
-    expect(callCount).toBe(0);
-
-    vi.advanceTimersByTime(200);
-    expect(callCount).toBe(1);
-  });
-
-  it("fires separate calls for different doc/client keys", async () => {
-    const timers = new Map<string, ReturnType<typeof setTimeout>>();
-    const throttledPush = (key: string, run: () => void) => {
-      if (timers.has(key)) return;
-      const t = setTimeout(() => {
-        timers.delete(key);
-        run();
-      }, 150);
-      timers.set(key, t);
-    };
-
-    let count1 = 0;
-    let count2 = 0;
-    throttledPush("doc1::1", () => {
-      count1++;
-    });
-    throttledPush("doc1::2", () => {
-      count2++;
-    });
-
-    vi.advanceTimersByTime(200);
-    expect(count1).toBe(1);
-    expect(count2).toBe(1);
   });
 });

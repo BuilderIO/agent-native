@@ -15,7 +15,6 @@ const mocks = vi.hoisted(() => ({
   designSystems: [] as Array<Record<string, unknown>>,
   designSystemsLoading: false,
   designSystemsError: false,
-  submitDesignSystemWaitlist: vi.fn(),
   submitDesignSystemsWaitlist: vi.fn(),
   headerActions: null as unknown,
   queries: vi.fn(),
@@ -96,7 +95,6 @@ vi.mock("@/lib/builder-design-system-upload", () => ({
   pollDecodeJobStatus: vi.fn(),
 }));
 vi.mock("@/lib/design-system-waitlist", () => ({
-  submitDesignSystemWaitlist: mocks.submitDesignSystemWaitlist,
   submitDesignSystemsWaitlist: mocks.submitDesignSystemsWaitlist,
 }));
 
@@ -137,7 +135,6 @@ beforeEach(() => {
   mocks.designSystemsLoading = false;
   mocks.designSystemsError = false;
   mocks.uploadAndIndexFigmaFiles.mockReset();
-  mocks.submitDesignSystemWaitlist.mockReset();
   mocks.submitDesignSystemsWaitlist.mockReset();
   mocks.headerActions = null;
   container = document.createElement("div");

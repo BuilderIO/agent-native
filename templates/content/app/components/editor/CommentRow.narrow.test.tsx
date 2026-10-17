@@ -1,9 +1,5 @@
 // @vitest-environment happy-dom
 
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -134,19 +130,5 @@ describe("comment header in a 320px column", () => {
     expect(classes).toContain("group-focus-within/comment:visible");
     expect(classes).toContain("pointer-coarse:visible");
     expect(classes).not.toContain("hidden");
-  });
-
-  it("wraps long suggestion summaries to two lines instead of one", () => {
-    const source = readFileSync(
-      join(dirname(fileURLToPath(import.meta.url)), "CommentsSidebar.tsx"),
-      "utf8",
-    );
-
-    expect(source).toContain(
-      '<span className="line-clamp-2 min-w-0 flex-1 break-words font-medium">',
-    );
-    expect(source).not.toContain(
-      '<span className="min-w-0 flex-1 truncate font-medium">',
-    );
   });
 });

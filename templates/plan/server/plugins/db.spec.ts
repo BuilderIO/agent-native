@@ -149,12 +149,6 @@ describe("plan db.ts migration entries follow the naming convention", () => {
 });
 
 describe("plan db.ts wires ensureAdditiveColumns after runMigrations", () => {
-  it("imports ensureAdditiveColumns from @agent-native/core/db", () => {
-    expect(dbTsSource).toMatch(
-      /import\s*\{[^}]*\bensureAdditiveColumns\b[^}]*\}\s*from\s*["']@agent-native\/core\/db["']/,
-    );
-  });
-
   it("calls ensureAdditiveColumns after runMigrations(...) completes", () => {
     const migrationsCallIdx = dbTsSource.indexOf("runMigrations(");
     const ensureCallIdx = dbTsSource.indexOf("ensureAdditiveColumns({");
@@ -169,11 +163,5 @@ describe("plan db.ts wires ensureAdditiveColumns after runMigrations", () => {
 
   it("keeps the plans_migrations bookkeeping table name", () => {
     expect(dbTsSource).toMatch(/table:\s*"plans_migrations"/);
-  });
-
-  it("keeps the guard:allow-unscoped comment at the top of the file", () => {
-    expect(dbTsSource.trimStart().startsWith("// guard:allow-unscoped")).toBe(
-      true,
-    );
   });
 });

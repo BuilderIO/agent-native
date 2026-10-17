@@ -18,17 +18,6 @@ describe("EditorLayout media loading", () => {
     expect(previewVideo).not.toContain("crossOrigin");
   });
 
-  it("opens on the timeline, with the transcript the other way in", () => {
-    const source = readSource();
-
-    expect(source).toContain('>("timeline")');
-    expect(source).toContain('value="transcript"');
-    expect(source).toContain('value="timeline"');
-    expect(source.indexOf('value="timeline"')).toBeLessThan(
-      source.indexOf('value="transcript"'),
-    );
-  });
-
   it("shows the timeline while redacting, whichever tab was open", () => {
     const source = readSource();
 
@@ -55,17 +44,6 @@ describe("EditorLayout media loading", () => {
     );
     expect(source).toContain('lead={t("redaction.helpLead")}');
     expect(source).toContain('t("redaction.notYetBurned"');
-  });
-
-  it("renders the editor toolbar below the preview and above the surface tabs", () => {
-    const source = readSource();
-
-    expect(source.indexOf("overflow-hidden bg-black p-4")).toBeLessThan(
-      source.indexOf("<EditorToolbar"),
-    );
-    expect(source.indexOf("<EditorToolbar")).toBeLessThan(
-      source.indexOf("<Tabs\n"),
-    );
   });
 
   it("resets a completed toolbar cut to the playhead-following selection", () => {

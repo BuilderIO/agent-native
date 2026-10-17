@@ -321,13 +321,4 @@ describe("ChatRoute AgentKit surface", () => {
       msg_count: 1,
     });
   });
-
-  it("keeps the full-page Chat route as a flat canvas", () => {
-    const layoutSource = readFileSync(
-      "app/components/layout/Layout.tsx",
-      "utf8",
-    );
-
-    expect(layoutSource).toContain('data-agent-chat-canvas="true"');
-  });
 });

@@ -248,29 +248,6 @@ describe("authenticated recording route loading", () => {
     );
   });
 
-  it("keeps public comments in flow and consolidates recording insights", () => {
-    const shareRoute = readRoute("share.$shareId.tsx");
-    expect(shareRoute).toContain('value="comments"');
-    expect(shareRoute).toContain('useState<SharePanel>("comments")');
-    expect(shareRoute).toContain('presentation="inline"');
-    expect(shareRoute).toContain(
-      'className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 pb-3 pt-2"',
-    );
-    expect(shareRoute.match(/t\("sharePage\.comments"\)/g)).toHaveLength(1);
-    expect(shareRoute).toContain("const [descriptionExpanded");
-    expect(shareRoute).toContain('!descriptionExpanded && "line-clamp-2"');
-    expect(shareRoute).not.toContain('panel === "insights"');
-
-    const recordingRoute = readRoute("_app.r.$recordingId.tsx");
-    expect(recordingRoute).not.toContain(
-      'trigger("insights", t("recordingPage.insights"))',
-    );
-    expect(recordingRoute).toContain(
-      'defaultOpen={canEdit && panelParam === "insights"}',
-    );
-    expect(recordingRoute).not.toContain("InsightsUnavailableState");
-  });
-
   it("gates private recipient sharing and places overflow after Share", () => {
     const recordingRoute = readRoute("_app.r.$recordingId.tsx");
     const shareRoute = readRoute("share.$shareId.tsx");

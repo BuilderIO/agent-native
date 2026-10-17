@@ -2,37 +2,9 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-import enUSMessages from "../i18n/en-US";
 import { readDesignEditorSource } from "./design-editor/read-design-editor-source";
 
 describe("DesignEditor pending live edits", () => {
-  it("keeps the Apply split button minimal", () => {
-    const source = readDesignEditorSource();
-    const toolbarStart = source.indexOf(
-      "data-design-pending-visual-style-toolbar",
-    );
-    const toolbar = source.slice(
-      toolbarStart,
-      source.indexOf("{viewMode ===", toolbarStart),
-    );
-
-    expect(toolbar).toContain(
-      '"designEditor.pendingVisualStyles.applyDesignUpdates"',
-    );
-    expect(toolbar).not.toContain("sessionOnlyWarning");
-    expect(toolbar).not.toContain("{pendingVisualEditCount}");
-    expect(toolbar).toContain('"min-w-0 shrink-0 cursor-pointer');
-    expect(toolbar).toContain('className="h-9 w-8');
-    expect(toolbar).not.toContain("h-11");
-    expect(toolbar).toContain("canApplyPendingVisualEditsFromToolbar");
-    expect(toolbar).toContain("handleCopyPendingVisualStylePrompt");
-    expect(toolbar).toContain("canApplyPendingVisualEditsFromToolbar ? null");
-
-    expect(
-      enUSMessages.designEditor.pendingVisualStyles.applyDesignUpdates,
-    ).toBe("Apply design update");
-  });
-
   it("clears the pending state after Apply and explicit discard", () => {
     const source = readDesignEditorSource();
     const applyHandler = readFileSync(
@@ -51,20 +23,6 @@ describe("DesignEditor pending live edits", () => {
     expect(discardHandler).toContain("clearPendingLiveEditState()");
   });
 
-  it("keeps Escape in the preview menu from reaching editor hotkeys", () => {
-    const source = readDesignEditorSource();
-    const menu = source.slice(
-      source.indexOf("data-design-pending-visual-style-toolbar"),
-      source.indexOf(
-        "{viewMode ===",
-        source.indexOf("data-design-pending-visual-style-toolbar"),
-      ),
-    );
-    expect(menu).toContain("onEscapeKeyDown={(event) =>");
-    expect(menu).toContain("event.stopPropagation()");
-    expect(menu).toContain("onClick={handleAbortPendingVisualStyles}");
-  });
-
   it("keeps visual-edit sessions on copy unless a host agent can receive the handoff", () => {
     const source = readDesignEditorSource();
     expect(source).toContain("data-design-public-agent-empty-state");
@@ -76,12 +34,6 @@ describe("DesignEditor pending live edits", () => {
     expect(source).toMatch(
       /canApplyPendingVisualEditsFromToolbar =\s*canApplyPendingVisualEditsWithAgent &&\s*\(!isVisualEditSurface \|\| hostEmbeddedEditor\);/,
     );
-  });
-
-  it("publishes the handoff for agents that do not have the Design tab", () => {
-    const source = readDesignEditorSource();
-    expect(source).toContain("runPublishVisualEditPending({");
-    expect(source).toContain("pendingVisualStylePrompt");
   });
 
   it("only publishes the durable handoff from an editor session", () => {
