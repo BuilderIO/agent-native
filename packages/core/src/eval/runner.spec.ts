@@ -520,6 +520,67 @@ describe("scoreEval with a JS scorer", () => {
     });
   });
 
+  it("gives each scorer an independent copy of the original run output", async () => {
+    let firstScorerRun: AgentRunOutput | undefined;
+    let secondScorerRun: AgentRunOutput | undefined;
+    const evalCase = defineEval({
+      name: "scorers-have-independent-run-output",
+      input: { prompt: "x" },
+      scorers: [
+        {
+          name: "mutates-run",
+          analyze(run) {
+            firstScorerRun = run;
+            Reflect.set(run, "text", "fabricated output");
+            Reflect.set(run, "toolCalls", ["forged-tool"]);
+            const toolInput = run.toolCallDetails?.[0]?.input;
+            if (toolInput && typeof toolInput === "object") {
+              Reflect.set(toolInput, "query", "forged query");
+            }
+            return 1;
+          },
+          generateScore: () => 1,
+        },
+        {
+          name: "observes-original-run",
+          analyze(run) {
+            secondScorerRun = run;
+            return [
+              run.text,
+              run.toolCalls.join(","),
+              (
+                run.toolCallDetails?.[0]?.input as
+                  | { query?: string }
+                  | undefined
+              )?.query,
+            ].join(":");
+          },
+          generateScore: (analysis) =>
+            analysis === "original output:search:original query" ? 1 : 0,
+        },
+      ],
+    });
+
+    const row = await scoreEval(
+      evalCase,
+      fakeRunner({
+        text: "original output",
+        toolCalls: ["search"],
+        toolCallDetails: [
+          { name: "search", input: { query: "original query" } },
+        ],
+      }),
+    );
+
+    expect(row.passed).toBe(true);
+    expect(firstScorerRun).not.toBe(secondScorerRun);
+    expect(secondScorerRun).toMatchObject({
+      text: "original output",
+      toolCalls: ["search"],
+      toolCallDetails: [{ input: { query: "original query" } }],
+    });
+  });
+
   it("allows callbacks by default for lower-level non-production runners", async () => {
     const run = vi.fn(async () => ({
       text: "callback output",

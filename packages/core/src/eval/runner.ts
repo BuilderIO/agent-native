@@ -132,9 +132,15 @@ export async function scoreEval(
     unscoreableError !== undefined || isUnscoreableProductionPathOutput(run);
   const scores: ScorerResult[] = [];
   if (!unscoreable) {
+    const scorerInput = structuredClone(run);
     for (const scorer of evalCase.scorers) {
       scores.push(
-        await runScorer(scorer, run, capturedRunner.runner, threshold),
+        await runScorer(
+          scorer,
+          structuredClone(scorerInput),
+          capturedRunner.runner,
+          threshold,
+        ),
       );
     }
   }
