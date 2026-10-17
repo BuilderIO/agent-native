@@ -59,13 +59,20 @@ const NOT_TOOL_NAMES: Record<string, Record<string, string>> = {
     "full-document",
     "built-in",
     "in-app",
+    "App-specific",
   ),
-  analytics: prose("hyphenated prose", "App-specific"),
-  content: prose("hyphenated prose", "App-specific", "revision-guarded"),
+  analytics: prose(
+    "hyphenated prose",
+    "owner-defined",
+    "cross-checks",
+    "window-bounded",
+    "later-activity",
+    "right-censoring",
+  ),
+  content: prose("hyphenated prose", "revision-guarded"),
   design: {
     ...prose(
       "hyphenated prose",
-      "App-specific",
       "new-design",
       "Hand-off",
       "URL-backed",
@@ -78,11 +85,10 @@ const NOT_TOOL_NAMES: Record<string, Record<string, string>> = {
       "next",
     ),
   },
-  forms: prose("hyphenated prose", "App-specific"),
+  forms: prose("hyphenated prose"),
   slides: {
     ...prose(
       "hyphenated prose",
-      "App-specific",
       "Latest-message",
       "re-read",
       "re-reading",
@@ -101,6 +107,10 @@ const NOT_TOOL_NAMES: Record<string, Record<string, string>> = {
       "next",
       "deckStyle",
       "representativeSlideId",
+    ),
+    ...prose(
+      "an operation inside a patch-deck argument, not a tool",
+      "patch-slide",
     ),
   },
 };

@@ -16,6 +16,11 @@ const REMOVED = {
 } as const;
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   description:
     "Trim an owned screen history item to a window inside its original window. The item returns to pending so the desktop re-exports the narrower footage. Only the window changes; the Clip's video does not.",
   schema: z.object({

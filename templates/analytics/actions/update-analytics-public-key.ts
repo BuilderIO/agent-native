@@ -19,6 +19,11 @@ const exactHttpsOrigin = z.string().refine((value) => {
 }, "Use an exact HTTPS origin without a path, query, or fragment.");
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   description:
     "Append exact HTTPS origins to an Analytics public key's replay allowlist. An empty list allows all; adding the first origin restricts replay, so include every app that records. Updates are limited to keys in your organization or owned by you.",
   schema: z.object({

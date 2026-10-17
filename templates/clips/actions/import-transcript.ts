@@ -20,6 +20,11 @@ import {
 import { booleanParam } from "./lib/cli-params.js";
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   description:
     "Import a transcript file for a recording instead of transcribing its audio: WebVTT, SRT, or timestamped text (a 0:21 or [0:21] start on each line or line pair, as copied from YouTube's transcript panel). Stores the file's own timings, labels the transcript as imported, and automatic transcription never replaces it. Importing over a ready transcript fails with transcript_exists; ask the user, then call again with replace: true and replaceImportId set to the error's details.importId. Leaves chapters alone; set those with set-chapters.",
   schema: z.object({

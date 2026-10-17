@@ -10,6 +10,11 @@ import { z } from "zod";
 import { CLIPS_AI_REQUEST_KINDS } from "../shared/ai-request-status.js";
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   description:
     "Remove a queued Clips AI request only when its kind and timestamp still match.",
   schema: z.object({

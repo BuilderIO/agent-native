@@ -64,6 +64,11 @@ async function assertPrivateFootageRecording(
 }
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   description:
     "Record the desktop export for an owned screen history item. 'processing' claims a pending item and may name the footage recording it reserves; 'ready' stores that footage with its duration and must name the same recording; 'failed' stores the error and releases the reservation.",
   schema: z.object({

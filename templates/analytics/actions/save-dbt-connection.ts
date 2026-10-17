@@ -23,6 +23,11 @@ import {
 import { ANALYTICS_APP_ID } from "../server/lib/provider-credentials.js";
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   description:
     "Save the organization's dbt Cloud Semantic Layer connection for Analytics: environment ID and GraphQL URL. The token is not an input; save it first as the org secret DBT_SEMANTIC_LAYER_TOKEN. Requires an organization owner or admin. Replaces the saved environment and URL, keeps the connection's app access, scopes, and groups.",
   schema: z.object({

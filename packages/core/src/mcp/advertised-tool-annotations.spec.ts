@@ -16,33 +16,6 @@ const FIXTURE =
 // an action, so there is no action to declare on.
 const SERVER_DECIDED_TOOLS = new Set(["ask-agent"]);
 
-// Declared `mcpAnnotations` that the default and full catalogs do not
-// advertise yet, because on main only the directory catalog reads them. They
-// are advertised as declared once #6836 ("declared mcpAnnotations win on every
-// catalog") lands; that flips the it.fails below, which is the cue to delete
-// this list and the marker. Keys are "<app>/<tool>".
-const DECLARATION_NOT_ADVERTISED_UNTIL_6836 = new Set([
-  "content/add-database-item",
-  "content/edit-document",
-  "content/update-database-item",
-  "design/edit-design",
-  "design/generate-design",
-  "design/get-design-system",
-  "design/present-design-variants",
-  "slides/create-deck",
-  "slides/get-design-system",
-  "slides/patch-deck",
-  "slides/update-slide",
-]);
-
-// The same for framework tools, which every app that registers them shares, so
-// they are listed by name instead of once per app.
-const FRAMEWORK_DECLARATION_NOT_ADVERTISED_UNTIL_6836 = new Set([
-  "bash",
-  "edit",
-  "write",
-]);
-
 let apps: AppCatalog[] = [];
 
 beforeAll(async () => {
@@ -129,20 +102,6 @@ function declaredMismatches(): Array<{ key: string; frameworkName?: string }> {
     }
   }
   return [...mismatches.values()].sort((a, b) => a.key.localeCompare(b.key));
-}
-
-function isPendingUntil6836({
-  key,
-  frameworkName,
-}: {
-  key: string;
-  frameworkName?: string;
-}): boolean {
-  return (
-    DECLARATION_NOT_ADVERTISED_UNTIL_6836.has(key) ||
-    (frameworkName !== undefined &&
-      FRAMEWORK_DECLARATION_NOT_ADVERTISED_UNTIL_6836.has(frameworkName))
-  );
 }
 
 describe("MCP destructiveHint contract over each app's real catalog", () => {
@@ -244,40 +203,10 @@ describe("MCP destructiveHint contract over each app's real catalog", () => {
     expect(new Set(names).size).toBe(names.length);
   });
 
-  it("advertises the declared hints wherever the derived hints already agree", () => {
+  it("advertises the declared hints on every declared tool", () => {
     expect(
-      declaredMismatches()
-        .filter((mismatch) => !isPendingUntil6836(mismatch))
-        .map(({ key }) => key),
+      declaredMismatches().map(({ key }) => key),
       "A catalog advertises hints that differ from the action's declared mcpAnnotations.",
-    ).toEqual([]);
-  });
-
-  // On main the default and full catalogs derive their hints and ignore the
-  // declaration, so this fails. Once #6836 lands it passes: remove `.fails`
-  // and both DECLARATION_NOT_ADVERTISED_UNTIL_6836 sets together.
-  it.fails("advertises the declared hints on every declared tool (#6836)", () => {
-    expect(declaredMismatches().map(({ key }) => key)).toEqual([]);
-  });
-
-  it("keeps the pending-#6836 lists limited to declarations that still mismatch", () => {
-    const mismatches = declaredMismatches();
-    const mismatchingKeys = new Set(mismatches.map(({ key }) => key));
-    const mismatchingFramework = new Set(
-      mismatches.flatMap(({ frameworkName }) =>
-        frameworkName ? [frameworkName] : [],
-      ),
-    );
-    expect(
-      [
-        ...[...DECLARATION_NOT_ADVERTISED_UNTIL_6836].filter(
-          (key) => !mismatchingKeys.has(key),
-        ),
-        ...[...FRAMEWORK_DECLARATION_NOT_ADVERTISED_UNTIL_6836].filter(
-          (name) => !mismatchingFramework.has(name),
-        ),
-      ],
-      "These now advertise their declaration: remove them from the DECLARATION_NOT_ADVERTISED_UNTIL_6836 lists.",
     ).toEqual([]);
   });
 });
