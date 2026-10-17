@@ -138,10 +138,13 @@ export function isProductionContextAgentRunner(runner: AgentRunner): boolean {
   );
 }
 
-export function isProductionContextAgentRunnerMethod(
-  runAgent: AgentRunner["runAgent"],
+export function hasOriginalProductionContextAgentRunnerMethods(
+  runner: AgentRunner,
 ): boolean {
-  return productionContextRunnerMethods.has(runAgent);
+  return (
+    productionContextRunnerMethods.has(runner.runAgent) &&
+    productionContextAnalyzeMethods.has(runner.analyzeContext)
+  );
 }
 
 function toEngineMessages(input: EvalInput): EngineMessage[] {

@@ -266,9 +266,62 @@ describe("scoreEval with a JS scorer", () => {
     });
 
     await expect(scoreEval(evalCase, overriddenRunner)).rejects.toThrow(
-      "cannot replace their production adapter",
+      "cannot override production runner methods",
     );
     expect(runAgent).not.toHaveBeenCalled();
+  });
+
+  it("rejects a replaced analyzeContext on a production-context runner", async () => {
+    const runner = await createAgentRunner({
+      productionContext: {
+        ...testProductionContext(),
+        productionChatPath: testProductionChatPath(),
+      },
+    });
+    const analyzeContext = vi.fn(() => runner.analyzeContext());
+    const overriddenRunner: AgentRunner = { ...runner, analyzeContext };
+    const analyze = vi.fn((run: { text: string }) => run.text);
+    const evalCase = defineEval({
+      name: "overridden-production-analyze-context",
+      input: { prompt: "find active users" },
+      scorers: [{ name: "context", analyze, generateScore: () => 1 }],
+    });
+
+    await expect(scoreEval(evalCase, overriddenRunner)).rejects.toThrow(
+      "cannot override production runner methods",
+    );
+    expect(analyzeContext).not.toHaveBeenCalled();
+    expect(analyze).not.toHaveBeenCalled();
+  });
+
+  it("isolates output observers from the scored production output", async () => {
+    const runner = await createAgentRunner({
+      productionContext: {
+        ...testProductionContext(),
+        productionChatPath: testProductionChatPath(),
+      },
+    });
+    const onRunOutput = vi.fn((output: AgentRunOutput) => {
+      Reflect.set(output, "text", "fabricated output");
+      Reflect.set(output, "ok", false);
+      if (output.usage) Reflect.set(output.usage, "inputTokens", 100);
+    });
+    const evalCase = defineEval({
+      name: "isolated-production-output-observer",
+      input: { prompt: "find active users" },
+      scorers: [contains("production: find active users")],
+    });
+
+    const row = await scoreEval(evalCase, runner, { onRunOutput });
+
+    expect(row).toMatchObject({
+      status: "passed",
+      passed: true,
+      usage: { inputTokens: 4 },
+    });
+    expect(onRunOutput).toHaveBeenCalledWith(
+      expect.objectContaining({ text: "fabricated output", ok: false }),
+    );
   });
 
   it("passes when a contains scorer is satisfied", async () => {

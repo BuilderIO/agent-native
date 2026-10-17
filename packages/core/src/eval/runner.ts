@@ -11,7 +11,7 @@ import {
   createAgentRunner,
   getUnscoreableProductionPathOutputError,
   isProductionContextAgentRunner,
-  isProductionContextAgentRunnerMethod,
+  hasOriginalProductionContextAgentRunnerMethods,
   isUnscoreableProductionPathOutput,
 } from "./agent-runner.js";
 import { DEFAULT_EVAL_THRESHOLD } from "./define-eval.js";
@@ -92,10 +92,10 @@ export async function scoreEval(
   }
   if (
     isProductionContextAgentRunner(runner) &&
-    !isProductionContextAgentRunnerMethod(runner.runAgent)
+    !hasOriginalProductionContextAgentRunnerMethods(runner)
   ) {
     throw new Error(
-      "Production-path eval runners cannot replace their production adapter.",
+      "Production-path eval runners cannot override production runner methods.",
     );
   }
 
@@ -116,7 +116,7 @@ export async function scoreEval(
     run = await runAgent(evalCase.input);
   }
 
-  opts.onRunOutput?.(run);
+  opts.onRunOutput?.(structuredClone(run));
 
   const unscoreableError = getUnscoreableProductionPathOutputError(run);
   const unscoreable =
