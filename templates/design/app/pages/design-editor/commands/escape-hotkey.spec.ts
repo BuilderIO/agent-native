@@ -18,7 +18,6 @@ function harness(overrides: Partial<EscapeHotkeyArgs> = {}) {
     setHoveredElement: vi.fn(),
     setOverviewSelectedScreenIds: vi.fn(),
     setSelectedLayerIdsState: vi.fn(),
-    setCreatedOverviewLayerSelection: vi.fn(),
     setOverviewClearSelectionRequest: vi.fn(),
   };
   const args: EscapeHotkeyArgs = {

@@ -358,6 +358,7 @@ test.describe("mobile app build", () => {
       ],
     );
     for (const copy of copies) {
+      expect(after.get(copy)?.attrs.style).toBe(original.attrs.style);
       const [title] = childrenOf(after, copy);
       copiedTitles.push(title);
       expect(after.get(title)).toMatchObject({

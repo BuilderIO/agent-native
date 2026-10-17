@@ -566,7 +566,6 @@ import {
   pointsToPath,
   polygonPointsForBox,
   previewDraftPrimitive,
-  removeScreenContentOffsetFromPenPath,
   shapeClosingHandles,
 } from "./multi-screen/draft-primitives";
 import {
