@@ -82,42 +82,74 @@ interface OverrideValues {
 interface FieldIntent<Value> {
   token: number;
   value: Value;
-  settled: boolean;
   mineAtStart: readonly ChatThreadListRow[];
   sharedAtStart: readonly ChatThreadListRow[];
 }
 
+interface FieldState<Value> {
+  latestToken: number;
+  inFlight: ReadonlyMap<number, FieldIntent<Value>>;
+  // A reconciled success remains a watermark until older writes finish.
+  successful?: { intent: FieldIntent<Value>; reconciled: boolean };
+}
+
 type OverrideField = keyof OverrideValues;
 type Override = {
-  [Field in OverrideField]?: FieldIntent<OverrideValues[Field]>;
+  [Field in OverrideField]?: FieldState<OverrideValues[Field]>;
 };
 
 const OVERRIDE_FIELDS = ["title", "pinned", "hidden"] as const;
 
-function settledIntents(rows: ReadonlyMap<string, Override>) {
+function projectedIntent<Value>(state: FieldState<Value> | undefined) {
+  if (!state) return undefined;
+  return (
+    state.inFlight.get(state.latestToken) ??
+    (state.successful?.reconciled ? undefined : state.successful?.intent)
+  );
+}
+
+function successfulIntents(rows: ReadonlyMap<string, Override>) {
   return [...rows].flatMap(([id, override]) =>
     OVERRIDE_FIELDS.flatMap((field) => {
-      const intent = override[field];
-      return intent?.settled ? [{ id, field, intent }] : [];
+      const successful = override[field]?.successful;
+      return successful && !successful.reconciled
+        ? [{ id, field, intent: successful.intent }]
+        : [];
     }),
   );
 }
 
-function withoutIntent(
+function withField<Field extends OverrideField>(
   rows: Map<string, Override>,
   id: string,
-  field: OverrideField,
-  token: number,
+  field: Field,
+  state: FieldState<OverrideValues[Field]>,
 ): Map<string, Override> {
-  const override = rows.get(id);
-  if (override?.[field]?.token !== token) return rows;
-  const remaining = { ...override };
-  delete remaining[field];
+  const remaining = { ...rows.get(id), [field]: state };
+  if (
+    state.inFlight.size === 0 &&
+    (!state.successful || state.successful.reconciled)
+  )
+    delete remaining[field];
   const next = new Map(rows);
   if (OVERRIDE_FIELDS.some((field) => remaining[field]))
     next.set(id, remaining);
   else next.delete(id);
   return next;
+}
+
+function reconcileIntent(
+  rows: Map<string, Override>,
+  id: string,
+  field: OverrideField,
+  token: number,
+): Map<string, Override> {
+  const state = rows.get(id)?.[field];
+  if (state?.successful?.intent.token !== token) return rows;
+  return withField(rows, id, field, {
+    ...state,
+    successful: { ...state.successful, reconciled: true },
+  });
 }
 
 function matches(
@@ -218,6 +250,9 @@ export function useOwnershipChatHistory(
 
   useEffect(() => {
     generation.mounted = true;
+    setOverrideState((state) =>
+      state.generation === generation ? state : { generation, rows: new Map() },
+    );
     return () => {
       generation.mounted = false;
     };
@@ -225,7 +260,7 @@ export function useOwnershipChatHistory(
 
   const refreshWithResults = useCallback(async () => {
     if (!enabled || !current()) return ["disabled", "disabled"] as const;
-    const settled = settledIntents(overridesRef.current);
+    const settled = successfulIntents(overridesRef.current);
     generation.inFlight += 1;
     try {
       const outcomes = await Promise.all([
@@ -240,7 +275,7 @@ export function useOwnershipChatHistory(
         updateOverrides((rows) => {
           let next = rows;
           for (const { id, field, intent } of settled) {
-            next = withoutIntent(next, id, field, intent.token);
+            next = reconcileIntent(next, id, field, intent.token);
           }
           return next;
         });
@@ -279,7 +314,7 @@ export function useOwnershipChatHistory(
 
   useEffect(() => {
     if (mine.error || shared.error) return;
-    const reconciled = settledIntents(overridesRef.current).filter(
+    const reconciled = successfulIntents(overridesRef.current).filter(
       ({ id, field, intent }) =>
         matches(id, field, intent, mine.threads, shared.threads),
     );
@@ -287,7 +322,7 @@ export function useOwnershipChatHistory(
     updateOverrides((rows) => {
       let next = rows;
       for (const { id, field, intent } of reconciled) {
-        next = withoutIntent(next, id, field, intent.token);
+        next = reconcileIntent(next, id, field, intent.token);
       }
       return next;
     });
@@ -315,57 +350,69 @@ export function useOwnershipChatHistory(
   ) => {
     if (!enabled || !current() || !findMine(id)) return false;
     const token = ++tokenRef.current;
-    updateOverrides((rows) =>
-      new Map(rows).set(id, {
-        ...rows.get(id),
-        [field]: {
-          value,
-          token,
-          settled: false,
-          mineAtStart: mine.threads,
-          sharedAtStart: shared.threads,
-        },
-      }),
-    );
+    const intent = {
+      value,
+      token,
+      mineAtStart: mine.threads,
+      sharedAtStart: shared.threads,
+    };
+    updateOverrides((rows) => {
+      const state = rows.get(id)?.[field];
+      return withField(rows, id, field, {
+        ...state,
+        latestToken: token,
+        inFlight: new Map(state?.inFlight).set(token, intent),
+      });
+    });
+    const complete = (succeeded: boolean) => {
+      let isLatest = false;
+      updateOverrides((rows) => {
+        const state = rows.get(id)?.[field];
+        if (!state?.inFlight.has(token))
+          throw new Error("Chat history mutation lost its in-flight intent.");
+        isLatest = state.latestToken === token;
+        const inFlight = new Map(state.inFlight);
+        inFlight.delete(token);
+        const successful =
+          succeeded &&
+          (!state.successful || token > state.successful.intent.token)
+            ? { intent, reconciled: false }
+            : state.successful;
+        return withField(rows, id, field, { ...state, inFlight, successful });
+      });
+      return isLatest;
+    };
     let succeeded: boolean;
     try {
       succeeded = await persist();
     } catch (cause) {
-      if (!current() || overridesRef.current.get(id)?.[field]?.token !== token)
-        return false;
-      updateOverrides((rows) => withoutIntent(rows, id, field, token));
-      latest.current.options.onMutationFailed?.(kind, id, cause);
+      if (!current()) return false;
+      if (complete(false))
+        latest.current.options.onMutationFailed?.(kind, id, cause);
       return false;
     }
     if (!current()) return false;
     if (!succeeded) {
-      if (overridesRef.current.get(id)?.[field]?.token !== token) return false;
-      updateOverrides((rows) => withoutIntent(rows, id, field, token));
-      latest.current.options.onMutationFailed?.(kind, id);
+      if (complete(false)) latest.current.options.onMutationFailed?.(kind, id);
       return false;
     }
-    const pending = overridesRef.current.get(id)?.[field];
-    if (pending?.token !== token) return true;
+    complete(true);
+    const successful = overridesRef.current.get(id)?.[field]?.successful;
     if (
+      successful?.intent.token === token &&
       matches(
         id,
         field,
-        pending,
+        successful.intent,
         latest.current.mine.threads,
         latest.current.shared.threads,
       ) &&
       !latest.current.mine.error &&
       !latest.current.shared.error
     ) {
-      updateOverrides((rows) => withoutIntent(rows, id, field, token));
+      updateOverrides((rows) => reconcileIntent(rows, id, field, token));
       return true;
     }
-    updateOverrides((rows) =>
-      new Map(rows).set(id, {
-        ...rows.get(id),
-        [field]: { ...pending, settled: true },
-      }),
-    );
     // This request starts after persistence; an earlier notification can still
     // be returning the pre-mutation window when the mutation resolves.
     await refreshWithResults();
@@ -378,7 +425,7 @@ export function useOwnershipChatHistory(
       const row = findMine(id);
       if (!row) return false;
       const nextPinned = !(
-        overridesRef.current.get(id)?.pinned?.value ??
+        projectedIntent(overridesRef.current.get(id)?.pinned)?.value ??
         ("pinnedAt" in row && row.pinnedAt != null)
       );
       return mutate("pin", id, "pinned", nextPinned, () =>
@@ -401,21 +448,22 @@ export function useOwnershipChatHistory(
     section: OwnershipChatHistorySection,
   ) => {
     const override = overrides.get(row.id);
-    const effectiveRow = override
-      ? {
-          ...row,
-          ...(override.title === undefined
-            ? {}
-            : { title: override.title.value }),
-          ...(override.pinned === undefined
-            ? {}
-            : {
-                pinnedAt: override.pinned.value
-                  ? (("pinnedAt" in row ? row.pinnedAt : null) ?? Date.now())
-                  : null,
-              }),
-        }
-      : row;
+    const title = projectedIntent(override?.title);
+    const pin = projectedIntent(override?.pinned);
+    const effectiveRow =
+      title || pin
+        ? {
+            ...row,
+            ...(title === undefined ? {} : { title: title.value }),
+            ...(pin === undefined
+              ? {}
+              : {
+                  pinnedAt: pin.value
+                    ? (("pinnedAt" in row ? row.pinnedAt : null) ?? Date.now())
+                    : null,
+                }),
+          }
+        : row;
     const mapped =
       "accessBasis" in effectiveRow
         ? chatThreadToHistoryItem(effectiveRow as ChatThreadListRow, {
@@ -426,9 +474,7 @@ export function useOwnershipChatHistory(
         : ownDraftToHistoryItem(effectiveRow, { t, activeId, locale });
     const item = {
       ...mapped,
-      ...(override?.pinned === undefined
-        ? {}
-        : { pinned: override.pinned.value }),
+      ...(pin === undefined ? {} : { pinned: pin.value }),
     };
     const decorated = decorateItem?.(item, effectiveRow, { section }) ?? item;
     return section === "shared"
@@ -436,22 +482,27 @@ export function useOwnershipChatHistory(
       : decorated;
   };
   const visibleMine = mineRows.filter(
-    (row) => !overrides.get(row.id)?.hidden?.value,
+    (row) => !projectedIntent(overrides.get(row.id)?.hidden)?.value,
   );
   const pinnedRows = pinned
     ? visibleMine.filter(
-        (row) => overrides.get(row.id)?.pinned?.value ?? row.pinnedAt != null,
+        (row) =>
+          projectedIntent(overrides.get(row.id)?.pinned)?.value ??
+          row.pinnedAt != null,
       )
     : [];
   const pinnedIds = new Set(pinnedRows.map((row) => row.id));
   const mineItems = [
     ...drafts
-      .filter((row) => !overrides.get(row.id)?.hidden?.value)
+      .filter((row) => !projectedIntent(overrides.get(row.id)?.hidden)?.value)
       .filter(
         (row) =>
-          (overrides.get(row.id)?.title?.value ?? row.title ?? "").includes(
-            normalizedQuery,
-          ) || (row.preview ?? "").includes(normalizedQuery),
+          (
+            projectedIntent(overrides.get(row.id)?.title)?.value ??
+            row.title ??
+            ""
+          ).includes(normalizedQuery) ||
+          (row.preview ?? "").includes(normalizedQuery),
       )
       .map((row) => mapItem(row, "mine")),
     ...visibleMine
