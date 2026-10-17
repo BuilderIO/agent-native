@@ -20,6 +20,25 @@ vi.mock("./_local-file-documents.js", async (importOriginal) => {
     await importOriginal<typeof import("./_local-file-documents.js")>();
   return { ...original, isContentLocalFileMode: async () => false };
 });
+// Runs once, before the next title save: a move asks for it after it read its
+// subtree and before its transaction.
+const { beforeTitleSave } = vi.hoisted(() => ({
+  beforeTitleSave: { current: null as null | (() => Promise<void>) },
+}));
+vi.mock("./_document-flush.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./_document-flush.js")>();
+  return {
+    ...actual,
+    saveOpenEditorTitles: async (
+      ...args: Parameters<typeof actual.saveOpenEditorTitles>
+    ) => {
+      const hook = beforeTitleSave.current;
+      beforeTitleSave.current = null;
+      await hook?.();
+      return actual.saveOpenEditorTitles(...args);
+    },
+  };
+});
 vi.mock("@agent-native/core/application-state", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("@agent-native/core/application-state")
@@ -589,6 +608,74 @@ describe("moving a page that takes body writes through its live copy", () => {
     );
   });
 
+  it("checks the destination again after its editor saves the title, and refuses a parent gone to Trash meanwhile", async () => {
+    const orgSpaceId = organizationContentSpaceId(ORG_ID);
+    const parent = await as(OWNER, () =>
+      createDocument.run({ title: "Projects", spaceId: orgSpaceId }),
+    );
+    const page = await as(OWNER, () => createDocument.run({ title: "Plan" }));
+    await liveCopy.putPageOnLiveCopy(page.id);
+    await tabs.openEditorTab(page.id, EDITOR, { canFlushTitle: true });
+    const answered = tabs.answerFlushRequest(
+      page.id,
+      EDITOR,
+      { status: "success", scope: "title", saved: true },
+      async () => {
+        await getDb()
+          .update(schema.documents)
+          .set({ trashedAt: new Date().toISOString() })
+          .where(eq(schema.documents.id, parent.id));
+      },
+    );
+
+    await expect(
+      as(OWNER, () =>
+        moveDocument.run({
+          id: page.id,
+          spaceId: orgSpaceId,
+          parentId: parent.id,
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "PARENT_TRASHED" });
+    await answered;
+    expect(await documentRows([page.id])).toEqual([
+      expect.objectContaining({
+        spaceId: personalContentSpaceId(OWNER),
+        parentId: null,
+      }),
+    ]);
+  });
+
+  it("refuses a move to another space when the page reaches the destination another way while its editor saves the title", async () => {
+    const orgSpaceId = organizationContentSpaceId(ORG_ID);
+    const page = await as(OWNER, () => createDocument.run({ title: "Plan" }));
+    await liveCopy.putPageOnLiveCopy(page.id);
+    await tabs.openEditorTab(page.id, EDITOR, { canFlushTitle: true });
+    const answered = tabs.answerFlushRequest(
+      page.id,
+      EDITOR,
+      { status: "success", scope: "title", saved: true },
+      async () => {
+        await getDb()
+          .update(schema.documents)
+          .set({ spaceId: orgSpaceId })
+          .where(eq(schema.documents.id, page.id));
+      },
+    );
+
+    await expect(
+      as(OWNER, () => moveDocument.run({ id: page.id, spaceId: orgSpaceId })),
+    ).rejects.toMatchObject({ errorCode: "PAGE_SUBTREE_CHANGED" });
+    await answered;
+    expect(await documentRows([page.id])).toEqual([
+      expect.objectContaining({
+        spaceId: orgSpaceId,
+        ownerEmail: OWNER,
+        visibility: "private",
+      }),
+    ]);
+  });
+
   it("moves to another space with an open editor too old for the title flush, and says so", async () => {
     const orgSpaceId = organizationContentSpaceId(ORG_ID);
     const page = await as(OWNER, () => createDocument.run({ title: "Plan" }));
@@ -622,6 +709,32 @@ describe("moving a page that takes body writes through its live copy", () => {
 
     expect(moved).toMatchObject({ spaceId: orgSpaceId });
     expect(moved).not.toHaveProperty("titleFlush");
+  });
+
+  // Main's race, kept with the flags off (SF-11) until its own fix lands.
+  it("moves a sub-page that left the page mid-move with it, as main does, once the flags are off (SF-11)", async () => {
+    const orgSpaceId = organizationContentSpaceId(ORG_ID);
+    const page = await as(OWNER, () => createDocument.run({ title: "Plan" }));
+    const child = await as(OWNER, () =>
+      createDocument.run({ title: "Details", parentId: page.id }),
+    );
+    await liveCopy.putPageOnLiveCopy(page.id);
+    await liveCopy.turnLiveCopyFlagsOff();
+    beforeTitleSave.current = async () => {
+      await getDb()
+        .update(schema.documents)
+        .set({ parentId: null })
+        .where(eq(schema.documents.id, child.id));
+    };
+
+    const moved = await as(OWNER, () =>
+      moveDocument.run({ id: page.id, spaceId: orgSpaceId }),
+    );
+
+    expect(moved).toMatchObject({ spaceId: orgSpaceId });
+    expect(await documentRows([child.id])).toEqual([
+      expect.objectContaining({ spaceId: orgSpaceId, parentId: null }),
+    ]);
   });
 });
 

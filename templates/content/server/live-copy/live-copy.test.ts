@@ -3041,7 +3041,14 @@ describe("pull-document on a switched page", () => {
     );
 
     expect(pulled).toMatchObject({ content: "Body" });
-    expect(pulled).not.toHaveProperty("titleFlush");
+    expect(Object.keys(pulled as object)).toEqual([
+      "id",
+      "title",
+      "description",
+      "content",
+      "format",
+      "deepLink",
+    ]);
   });
 });
 

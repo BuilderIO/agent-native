@@ -327,6 +327,30 @@ describe("flushOpenDocumentEditorToSql", () => {
       expect(mocks.appStatePut).not.toHaveBeenCalled();
     });
 
+    it("refuses when an editor advertises the title flush with no user at all", async () => {
+      mocks.loadAwarenessRowsStrict.mockResolvedValue([
+        {
+          clientId: 301,
+          state: JSON.stringify({
+            canFlushDocument: true,
+            canFlushTitle: true,
+            visible: true,
+          }),
+          lastSeen: Date.now(),
+        },
+      ]);
+
+      const error = await refusal(
+        flushOpenDocumentEditorToSql({ documentId: "doc-1" }),
+      );
+
+      expect(error).toMatchObject({
+        errorCode: "OPEN_EDITOR_TITLE_NOT_SAVED",
+        details: { reason: "request_not_delivered" },
+      });
+      expect(mocks.appStatePut).not.toHaveBeenCalled();
+    });
+
     it("refuses when an editor without a session to ask sits beside an old tab without one either", async () => {
       mocks.loadAwarenessRowsStrict.mockResolvedValue([
         titleEditor(" "),

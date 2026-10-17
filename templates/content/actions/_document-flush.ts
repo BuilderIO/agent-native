@@ -106,7 +106,10 @@ function awarenessTitleFlushCandidate(entry: {
 }): { sessionEmail: string | null; canFlushTitle: boolean } | null {
   if (entry.clientId === AGENT_CLIENT_ID) return null;
   const state = parseAwarenessState(entry.state);
-  if (!state || state.visible === false || !state.user) return null;
+  if (!state || state.visible === false) return null;
+  // A tab that advertises the title flush is an editor with or without a
+  // user to ask; main's flush skips any other row without one.
+  if (!state.user && state.canFlushTitle !== true) return null;
   // An editor that can't edit advertises both as false; one too old to know
   // the title flush leaves canFlushTitle out.
   if (state.canFlushTitle === false) return null;
@@ -118,7 +121,7 @@ function awarenessTitleFlushCandidate(entry: {
     return null;
   }
   return {
-    sessionEmail: awarenessSessionEmail(state.user.email),
+    sessionEmail: awarenessSessionEmail(state.user?.email),
     canFlushTitle: state.canFlushTitle === true,
   };
 }

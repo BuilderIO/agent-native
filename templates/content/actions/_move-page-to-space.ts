@@ -1,11 +1,12 @@
 import { ActionContractError } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { and, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
 import { blocksFieldId } from "../shared/blocks-field-identity.js";
 import { reconcileDocuments } from "./_content-files.js";
 import { resolveContentSpaceTarget } from "./_content-space-target.js";
+import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import {
   assertOpenEditorTitlesSaved,
   saveOpenEditorTitles,
@@ -98,6 +99,224 @@ export async function movePageToSpace(args: {
   const userEmail = getRequestUserEmail();
   if (!userEmail) throw new Error("no authenticated user");
   const db = getDb();
+  const planArgs = { db, spaceId, parentId, userEmail };
+
+  let plan = await planSpaceMove({ ...planArgs, root });
+  // The move takes these pages from the editors who lose access with it, so
+  // their open editors save the titles first.
+  const flushed = await saveOpenEditorTitles(plan.ids);
+  const titleFlush = flushed && assertOpenEditorTitlesSaved(flushed);
+  if (flushed) {
+    // That wait can take seconds, so the move reads what it acts on again,
+    // as it would right before moving. A page that joined the subtree
+    // meanwhile had no title saved, and one that left it must not move.
+    const current = (
+      await assertDocumentMutationAccess(root.id, "editor", "id")
+    ).resource as PageSubtreeDocument;
+    if (current.spaceId !== root.spaceId) throw subtreeChanged();
+    const asked = new Set(plan.ids);
+    plan = await planSpaceMove({ ...planArgs, root: current });
+    if (
+      plan.ids.length !== asked.size ||
+      plan.ids.some((id) => !asked.has(id))
+    ) {
+      throw subtreeChanged();
+    }
+  }
+  const {
+    ids,
+    orgId,
+    visibility,
+    parentShares,
+    fromFiles,
+    toFiles,
+    fromFilesPropertyIds,
+  } = plan;
+
+  const now = new Date().toISOString();
+  await withPositionLock(
+    documentsPositionScope(userEmail, parentId),
+    async () => {
+      const [maxPosition] = await db
+        .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
+        .from(schema.documents)
+        .where(
+          parentId
+            ? and(
+                eq(schema.documents.ownerEmail, userEmail),
+                eq(schema.documents.parentId, parentId),
+              )
+            : and(
+                eq(schema.documents.ownerEmail, userEmail),
+                eq(schema.documents.visibility, visibility),
+                orgId
+                  ? eq(schema.documents.orgId, orgId)
+                  : isNull(schema.documents.orgId),
+                isNull(schema.documents.parentId),
+              ),
+        );
+
+      await db.transaction(async (tx) => {
+        if (flushed) await lockMovingPages(tx, ids);
+        const idSet = new Set(ids);
+        for (const idGroup of groups(ids)) {
+          const children: Array<{ id: string }> = await tx
+            .select({ id: schema.documents.id })
+            .from(schema.documents)
+            .where(
+              or(
+                inArray(schema.documents.parentId, idGroup),
+                inArray(schema.documents.trashParentId, idGroup),
+              ),
+            );
+          if (children.some((child) => !idSet.has(child.id))) {
+            throw contractError(
+              "This page changed while it was being moved. Try again.",
+              "PAGE_SUBTREE_CHANGED",
+            );
+          }
+        }
+        for (const idGroup of groups(ids)) {
+          await tx
+            .update(schema.documents)
+            .set({ spaceId, ownerEmail: userEmail, orgId, visibility })
+            .where(inArray(schema.documents.id, idGroup));
+          await tx
+            .delete(schema.documentShares)
+            .where(inArray(schema.documentShares.resourceId, idGroup));
+          for (const table of [
+            schema.documentComments,
+            schema.documentVersions,
+            schema.documentBodySteps,
+            schema.documentBlockFields,
+          ]) {
+            await tx
+              .update(table)
+              .set({ ownerEmail: userEmail })
+              .where(inArray(table.documentId, idGroup));
+          }
+          await tx
+            .update(schema.documentBodyIntents)
+            .set({ ownerEmail: userEmail, orgId: orgId ?? "" })
+            .where(inArray(schema.documentBodyIntents.documentId, idGroup));
+          if (fromFilesPropertyIds.length > 0) {
+            await tx
+              .delete(schema.documentPropertyValues)
+              .where(
+                and(
+                  inArray(schema.documentPropertyValues.documentId, idGroup),
+                  inArray(
+                    schema.documentPropertyValues.propertyId,
+                    fromFilesPropertyIds,
+                  ),
+                ),
+              );
+          }
+          await tx
+            .update(schema.documentPropertyValues)
+            .set({ ownerEmail: userEmail })
+            .where(inArray(schema.documentPropertyValues.documentId, idGroup));
+        }
+        if (parentShares.length > 0) {
+          await tx.insert(schema.documentShares).values(
+            ids.flatMap((id) =>
+              parentShares.map((share) => ({
+                id: nanoid(),
+                resourceId: id,
+                principalType: share.principalType,
+                principalId: share.principalId,
+                role: share.role,
+                createdBy: userEmail,
+                createdAt: now,
+              })),
+            ),
+          );
+        }
+        await tx
+          .update(schema.documents)
+          .set({
+            parentId,
+            position: nextAppendPosition(maxPosition?.max),
+            updatedAt: now,
+          })
+          .where(eq(schema.documents.id, root.id));
+        await rekeyPrimaryBlocksFields({
+          tx,
+          documentIds: ids,
+          fromPropertyId: fromFiles?.primaryBlocksPropertyId ?? null,
+          toPropertyId: toFiles.primaryBlocksPropertyId ?? null,
+          ownerEmail: userEmail,
+          now,
+        });
+        const moved: PageSubtreeDocument[] = [];
+        for (const idGroup of groups(ids)) {
+          moved.push(
+            ...(await tx
+              .select()
+              .from(schema.documents)
+              .where(inArray(schema.documents.id, idGroup))),
+          );
+        }
+        await reconcileDocuments({
+          db: tx as unknown as ContentDb,
+          documents: moved,
+          filesDatabases: fromFiles ? [fromFiles, toFiles] : [toFiles],
+          now,
+        });
+      });
+    },
+  );
+
+  const [document] = await db
+    .select()
+    .from(schema.documents)
+    .where(eq(schema.documents.id, root.id));
+  return { document, movedCount: ids.length, titleFlush };
+}
+
+function subtreeChanged() {
+  return contractError(
+    "This page changed while it was being moved. Try again.",
+    "PAGE_SUBTREE_CHANGED",
+  );
+}
+
+/**
+ * Locks a switched page's moving pages as its body writers do: memberships,
+ * then pages by id, as lockLegacyBodyWrites takes them. The move deletes a
+ * page's Files membership after updating the page, so without this a tab's
+ * commit holding the membership and waiting on the page deadlocks it.
+ */
+async function lockMovingPages(tx: ContentTx, ids: string[]) {
+  const memberships: string[] = [];
+  for (const idGroup of groups(ids)) {
+    const rows: Array<{ id: string }> = await tx
+      .select({ id: schema.contentDatabaseItems.id })
+      .from(schema.contentDatabaseItems)
+      .where(inArray(schema.contentDatabaseItems.documentId, idGroup));
+    memberships.push(...rows.map((row) => row.id));
+  }
+  await lockDatabaseMemberships(tx, memberships);
+  for (const idGroup of groups([...ids].sort())) {
+    // guard:allow-unscoped — locks pages the move already asserted editor access to.
+    await tx
+      .select({ id: schema.documents.id })
+      .from(schema.documents)
+      .where(inArray(schema.documents.id, idGroup))
+      .orderBy(asc(schema.documents.id))
+      .for("update");
+  }
+}
+
+/** Reads and checks everything a move to another space acts on. */
+async function planSpaceMove(args: {
+  db: ContentDb;
+  root: PageSubtreeDocument;
+  spaceId: string;
+  parentId: string | null;
+  userEmail: string;
+}) {
+  const { db, root, spaceId, parentId, userEmail } = args;
 
   await resolveContentSpaceTarget({
     db,
@@ -222,177 +441,13 @@ export async function movePageToSpace(args: {
     }
   }
 
-  // The move takes these pages from the editors who lose access with it, so
-  // their open editors save the titles first.
-  const flushed = await saveOpenEditorTitles(ids);
-  const titleFlush = flushed && assertOpenEditorTitlesSaved(flushed);
-
-  const now = new Date().toISOString();
-  await withPositionLock(
-    documentsPositionScope(userEmail, parentId),
-    async () => {
-      const [maxPosition] = await db
-        .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
-        .from(schema.documents)
-        .where(
-          parentId
-            ? and(
-                eq(schema.documents.ownerEmail, userEmail),
-                eq(schema.documents.parentId, parentId),
-              )
-            : and(
-                eq(schema.documents.ownerEmail, userEmail),
-                eq(schema.documents.visibility, visibility),
-                orgId
-                  ? eq(schema.documents.orgId, orgId)
-                  : isNull(schema.documents.orgId),
-                isNull(schema.documents.parentId),
-              ),
-        );
-
-      await db.transaction(async (tx) => {
-        const idSet = new Set(ids);
-        const inSubtree = (id: string | null) => id !== null && idSet.has(id);
-        for (const idGroup of groups(ids)) {
-          // The subtree was read before the title flush's wait, so a page
-          // moved out of it since must not move with it.
-          const pages: Array<{
-            id: string;
-            parentId: string | null;
-            trashParentId: string | null;
-          }> = await tx
-            .select({
-              id: schema.documents.id,
-              parentId: schema.documents.parentId,
-              trashParentId: schema.documents.trashParentId,
-            })
-            .from(schema.documents)
-            .where(inArray(schema.documents.id, idGroup))
-            .for("update");
-          if (
-            pages.length !== idGroup.length ||
-            pages.some(
-              (page) =>
-                page.id !== root.id &&
-                !inSubtree(page.parentId) &&
-                !inSubtree(page.trashParentId),
-            )
-          ) {
-            throw contractError(
-              "This page changed while it was being moved. Try again.",
-              "PAGE_SUBTREE_CHANGED",
-            );
-          }
-          const children: Array<{ id: string }> = await tx
-            .select({ id: schema.documents.id })
-            .from(schema.documents)
-            .where(
-              or(
-                inArray(schema.documents.parentId, idGroup),
-                inArray(schema.documents.trashParentId, idGroup),
-              ),
-            );
-          if (children.some((child) => !idSet.has(child.id))) {
-            throw contractError(
-              "This page changed while it was being moved. Try again.",
-              "PAGE_SUBTREE_CHANGED",
-            );
-          }
-        }
-        for (const idGroup of groups(ids)) {
-          await tx
-            .update(schema.documents)
-            .set({ spaceId, ownerEmail: userEmail, orgId, visibility })
-            .where(inArray(schema.documents.id, idGroup));
-          await tx
-            .delete(schema.documentShares)
-            .where(inArray(schema.documentShares.resourceId, idGroup));
-          for (const table of [
-            schema.documentComments,
-            schema.documentVersions,
-            schema.documentBodySteps,
-            schema.documentBlockFields,
-          ]) {
-            await tx
-              .update(table)
-              .set({ ownerEmail: userEmail })
-              .where(inArray(table.documentId, idGroup));
-          }
-          await tx
-            .update(schema.documentBodyIntents)
-            .set({ ownerEmail: userEmail, orgId: orgId ?? "" })
-            .where(inArray(schema.documentBodyIntents.documentId, idGroup));
-          if (fromFilesPropertyIds.length > 0) {
-            await tx
-              .delete(schema.documentPropertyValues)
-              .where(
-                and(
-                  inArray(schema.documentPropertyValues.documentId, idGroup),
-                  inArray(
-                    schema.documentPropertyValues.propertyId,
-                    fromFilesPropertyIds,
-                  ),
-                ),
-              );
-          }
-          await tx
-            .update(schema.documentPropertyValues)
-            .set({ ownerEmail: userEmail })
-            .where(inArray(schema.documentPropertyValues.documentId, idGroup));
-        }
-        if (parentShares.length > 0) {
-          await tx.insert(schema.documentShares).values(
-            ids.flatMap((id) =>
-              parentShares.map((share) => ({
-                id: nanoid(),
-                resourceId: id,
-                principalType: share.principalType,
-                principalId: share.principalId,
-                role: share.role,
-                createdBy: userEmail,
-                createdAt: now,
-              })),
-            ),
-          );
-        }
-        await tx
-          .update(schema.documents)
-          .set({
-            parentId,
-            position: nextAppendPosition(maxPosition?.max),
-            updatedAt: now,
-          })
-          .where(eq(schema.documents.id, root.id));
-        await rekeyPrimaryBlocksFields({
-          tx,
-          documentIds: ids,
-          fromPropertyId: fromFiles?.primaryBlocksPropertyId ?? null,
-          toPropertyId: toFiles.primaryBlocksPropertyId ?? null,
-          ownerEmail: userEmail,
-          now,
-        });
-        const moved: PageSubtreeDocument[] = [];
-        for (const idGroup of groups(ids)) {
-          moved.push(
-            ...(await tx
-              .select()
-              .from(schema.documents)
-              .where(inArray(schema.documents.id, idGroup))),
-          );
-        }
-        await reconcileDocuments({
-          db: tx as unknown as ContentDb,
-          documents: moved,
-          filesDatabases: fromFiles ? [fromFiles, toFiles] : [toFiles],
-          now,
-        });
-      });
-    },
-  );
-
-  const [document] = await db
-    .select()
-    .from(schema.documents)
-    .where(eq(schema.documents.id, root.id));
-  return { document, movedCount: ids.length, titleFlush };
+  return {
+    ids,
+    orgId,
+    visibility,
+    parentShares,
+    fromFiles,
+    toFiles,
+    fromFilesPropertyIds,
+  };
 }
