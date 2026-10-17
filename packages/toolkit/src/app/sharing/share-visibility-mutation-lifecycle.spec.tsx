@@ -34,6 +34,7 @@ const transport = vi.hoisted(() => {
     resources: new Map<string, "private" | "org" | "public">(),
     reads: [] as string[],
     pauseReads: false,
+    readFailure: null as Error | null,
     releaseReads: [] as Array<() => void>,
     shared: vi.fn(),
     writes: [] as WriteCall[],
@@ -54,6 +55,7 @@ vi.mock("@agent-native/core/client/use-action", async () => {
           if (name !== "list-resource-shares") return [];
           const id = params.resourceId ?? "doc-1";
           transport.reads.push(id);
+          if (transport.readFailure) throw transport.readFailure;
           const data: ResourceSharesResponse = {
             ownerEmail: "owner@example.test",
             orgId: "org-1",
@@ -160,6 +162,7 @@ interface Surface {
   busy: () => boolean;
   /** The error the UI shows for the share surface; null when clean. */
   error: () => unknown;
+  confirmationError: () => string | null;
 }
 
 interface Env {
@@ -197,6 +200,7 @@ describe.each(surfaces)("%s lifecycle", (_name, createSurface) => {
     transport.resources.clear();
     transport.reads.length = 0;
     transport.pauseReads = false;
+    transport.readFailure = null;
     transport.releaseReads.length = 0;
     transport.shared.mockClear();
     transport.writes.length = 0;
@@ -432,6 +436,139 @@ describe.each(surfaces)("%s lifecycle", (_name, createSurface) => {
   // The dialog releases its physical write lock before its background refetch
   // finishes; the button already waits for that refetch before releasing it.
   if (_name === "ShareDialog visibility.transition.request") {
+    it("reconciles a confirmed write that committed before its response was lost", async () => {
+      await start(() => surface.request("org"));
+      const confirmation = await start(() => surface.confirm());
+      await until(() => transport.writes.length === 1, "the confirmed write");
+      const readsBeforeFailure = transport.reads.length;
+      await drive(() => {
+        transport.server.visibility = "org";
+        transport.writes[0].reject(new Error("save response lost"));
+      });
+      await tick();
+      expect(transport.reads).toHaveLength(readsBeforeFailure + 1);
+      expect(confirmation.status).toBe("resolved");
+      expect(cached("doc-1")?.visibility).toBe("org");
+      expect(surface.value()).toBe("org");
+    });
+
+    it("preserves the confirmed save error when reconciliation also fails", async () => {
+      await start(() => surface.request("org"));
+      await start(() => surface.confirm());
+      await until(() => transport.writes.length === 1, "the confirmed write");
+      const readsBeforeFailure = transport.reads.length;
+      const failure = new Error("save response lost");
+      const readFailure = new Error("share reconciliation unavailable");
+      await drive(() => {
+        transport.server.visibility = "org";
+        transport.readFailure = readFailure;
+        transport.writes[0].reject(failure);
+      });
+      await tick();
+      expect(transport.reads).toHaveLength(readsBeforeFailure + 1);
+      expect(queryClient.getQueryState(cacheKey("doc-1"))?.error).toBe(
+        readFailure,
+      );
+      expect(surface.confirmationError()).toBe(failure.message);
+      expect(surface.busy()).toBe(false);
+    });
+
+    it("preserves the direct save rejection when reconciliation also fails", async () => {
+      const save = await start(() => surface.request("public"));
+      await until(() => transport.writes.length === 1, "the direct write");
+      const readsBeforeFailure = transport.reads.length;
+      const failure = new Error("save response lost");
+      const readFailure = new Error("share reconciliation unavailable");
+      await drive(() => {
+        transport.server.visibility = "public";
+        transport.readFailure = readFailure;
+        transport.writes[0].reject(failure);
+      });
+      await tick();
+      expect(transport.reads).toHaveLength(readsBeforeFailure + 1);
+      expect(save).toMatchObject({ status: "rejected", reason: failure });
+      expect(queryClient.getQueryState(cacheKey("doc-1"))?.error).toBe(
+        readFailure,
+      );
+      expect(surface.error()).toBe(failure.message);
+    });
+
+    it("does not reconcile an obsolete save into a recreated active query", async () => {
+      await start(() => surface.request("org"));
+      await start(() => surface.confirm());
+      await until(() => transport.writes.length === 1, "the confirmed write");
+      const replacement = { ...cached("doc-1")!, visibility: "public" };
+      queryClient.setQueryDefaults(cacheKey("doc-1"), {
+        staleTime: Infinity,
+      });
+      await drive(() => {
+        queryClient.removeQueries({ queryKey: cacheKey("doc-1"), exact: true });
+        queryClient.setQueryData(cacheKey("doc-1"), replacement);
+      });
+      await drive(() => surface.setOpen(false));
+      await drive(() => surface.setOpen(true));
+      const readsBeforeFailure = [...transport.reads];
+      await drive(() => transport.writes[0].reject(new Error("old save lost")));
+      await tick();
+      expect(cached("doc-1")).toEqual(replacement);
+      expect(surface.value()).toBe("public");
+      expect(transport.reads).toEqual(readsBeforeFailure);
+    });
+
+    it("keeps a late A reconciliation separate from B's pending visibility", async () => {
+      await start(() => surface.request("org"));
+      await start(() => surface.confirm());
+      await until(() => transport.writes.length === 1, "A's confirmed write");
+      transport.pauseReads = true;
+      await drive(() => {
+        transport.server.visibility = "org";
+        transport.writes[0].reject(new Error("A save response lost"));
+      });
+      await until(
+        () => transport.releaseReads.length === 1,
+        "A reconciliation",
+      );
+      queryClient.setQueryDefaults(cacheKey("doc-2"), { staleTime: Infinity });
+      queryClient.setQueryData(cacheKey("doc-2"), {
+        ...cached("doc-1"),
+        visibility: "private",
+      });
+      await moveTo("doc-2");
+      const saveB = await start(() => surface.request("public"));
+      await until(() => transport.writes.length === 2, "B's direct write");
+      const snapshotB = cached("doc-2");
+      const readsBeforeCompletion = [...transport.reads];
+      await drive(() => transport.releaseReads[0]());
+      await tick();
+      expect(cached("doc-1")?.visibility).toBe("org");
+      expect(cached("doc-2")).toEqual(snapshotB);
+      expect(surface.value()).toBe("public");
+      expect(surface.error()).toBeNull();
+      expect(surface.busy()).toBe(true);
+      expect(saveB.status).toBe("pending");
+      expect(transport.reads).toEqual(readsBeforeCompletion);
+      transport.pauseReads = false;
+      await drive(() => transport.writes[1].resolve());
+      await tick();
+    });
+
+    it.each(["closed", "unmounted"] as const)(
+      "does not start reconciliation after the dialog is %s",
+      async (state) => {
+        const save = await start(() => surface.request("public"));
+        await until(() => transport.writes.length === 1, "the direct write");
+        if (state === "closed") await drive(() => surface.setOpen(false));
+        else unmount();
+        const readsBeforeFailure = [...transport.reads];
+        await drive(() =>
+          transport.writes[0].reject(new Error("inactive save failed")),
+        );
+        await tick();
+        expect(save.status).toBe("rejected");
+        expect(transport.reads).toEqual(readsBeforeFailure);
+      },
+    );
+
     it("does not clear a newer A override when query removal settles the old background refetch", async () => {
       const initial = cached("doc-1");
       const first = await start(() => surface.request("public"));
@@ -920,6 +1057,7 @@ function buttonSurface(env: Env): Surface {
     cancel: () => live().visibilityTransition.cancel(),
     value: () => live().visibility,
     error: () => live().shareError,
+    confirmationError: () => live().visibilityTransition.error,
     busy: () => live().visibilityTransition.submitting,
   };
 }
@@ -963,6 +1101,7 @@ function dialogSurface(env: Env): Surface {
     cancel: () => live().visibility.transition.cancel(),
     value: () => live().visibility.value,
     error: () => live().error,
+    confirmationError: () => live().visibility.transition.error,
     busy: () => live().visibility.disabled,
   };
 }

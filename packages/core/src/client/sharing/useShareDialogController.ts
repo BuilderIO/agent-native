@@ -272,6 +272,12 @@ export function useShareDialogController({
       } catch (error) {
         mutation.rollback();
         clearVisibilityOverride(resourceKey, token);
+        if (visibilityGuard.isLatest(requestId) && mutation.isCurrent()) {
+          void queryClient.refetchQueries(
+            { queryKey: shareQueryKey, exact: true, type: "active" },
+            { throwOnError: false },
+          );
+        }
         throw error;
       }
       notifyShareChanged(resourceType);
@@ -537,7 +543,7 @@ export function useShareDialogController({
     copiedField,
     copy,
     loading: sharesQuery.isLoading,
-    error: sharesQuery.error ?? mutationError,
+    error: mutationError ?? sharesQuery.error,
     refetch,
     canManage,
     agentReadable: data?.agentReadable === true,

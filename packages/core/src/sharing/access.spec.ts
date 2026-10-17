@@ -86,6 +86,11 @@ async function insertDoc(values: {
 
 let memberSeq = 0;
 async function addOrgMember(memberOrgId: string, email: string) {
+  await pglite.query(
+    `INSERT INTO organizations (id, name, created_by, created_at)
+     VALUES (?, 'QA', ?, 0) ON CONFLICT (id) DO NOTHING`,
+    [memberOrgId, ownerEmail],
+  );
   await pglite
     .prepare(
       `INSERT INTO org_members (id, org_id, email, role, joined_at)
@@ -181,6 +186,94 @@ afterEach(async () => {
 });
 
 describe("shareable resource access helpers", () => {
+  it.each(["viewer", "editor", "admin"] as const)(
+    "checks current membership for explicit organization %s grants while preserving direct admin grants",
+    async (role) => {
+      await addOrgMember(orgId, viewerEmail.toUpperCase());
+      await insertDoc({ id: "org-granted" });
+      await db.insert(docShares).values({
+        id: "organization-grant",
+        resourceId: "org-granted",
+        principalType: "org",
+        principalId: orgId,
+        role,
+        createdBy: ownerEmail,
+        createdAt: "2026-01-01",
+      });
+      const ctx = { userEmail: viewerEmail, orgId };
+      await expect(
+        resolveAccess(resourceType, "org-granted", ctx),
+      ).resolves.toMatchObject({ role });
+      await pglite.exec(
+        "UPDATE org_members SET federation_removal_pending_at = 1",
+      );
+      await expect(
+        resolveAccess(resourceType, "org-granted", ctx),
+      ).resolves.toBeNull();
+      await pglite.exec("DELETE FROM org_members");
+      await expect(
+        resolveAccess(resourceType, "org-granted", ctx),
+      ).resolves.toBeNull();
+      await db.insert(docShares).values({
+        id: "direct-admin",
+        resourceId: "org-granted",
+        principalType: "user",
+        principalId: viewerEmail.toUpperCase(),
+        role: "admin",
+        createdBy: ownerEmail,
+        createdAt: "2026-01-01",
+      });
+      await expect(
+        assertAccess(resourceType, "org-granted", "admin", ctx),
+      ).resolves.toMatchObject({ role: "admin" });
+    },
+  );
+
+  it("keeps membership and org grants on the supplied transaction database", async () => {
+    await addOrgMember(orgId, viewerEmail);
+    await insertDoc({ id: "transaction-org-granted" });
+    await db.insert(docShares).values({
+      id: "transaction-org-grant",
+      resourceId: "transaction-org-granted",
+      principalType: "org",
+      principalId: orgId,
+      role: "editor",
+      createdBy: ownerEmail,
+      createdAt: "2026-01-01",
+    });
+    await pglite.transaction(async (transaction) => {
+      await transaction.execute({
+        sql: "UPDATE org_members SET federation_removal_pending_at = 1",
+      });
+      await expect(
+        resolveAccess(resourceType, "transaction-org-granted", {
+          userEmail: viewerEmail,
+          orgId,
+          transaction,
+        }),
+      ).resolves.toBeNull();
+    });
+  });
+
+  it("keeps missing or unreadable organization metadata as an error", async () => {
+    await addOrgMember(orgId, viewerEmail);
+    await insertDoc({ id: "strict-org", visibility: "org" });
+    await pglite.exec("DELETE FROM organizations");
+    await expect(
+      resolveAccess(resourceType, "strict-org", {
+        userEmail: viewerEmail,
+        orgId,
+      }),
+    ).rejects.toThrow(/organization/i);
+    await pglite.exec("DROP TABLE organizations");
+    await expect(
+      resolveAccess(resourceType, "strict-org", {
+        userEmail: viewerEmail,
+        orgId,
+      }),
+    ).rejects.toThrow();
+  });
+
   it("requires approval only for public or external access changes", async () => {
     await insertDoc({ id: "doc-share-approval" });
     await addOrgMember(orgId, viewerEmail);
