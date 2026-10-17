@@ -249,9 +249,7 @@ describe("scoreEval with a JS scorer", () => {
       scoreEval(evalCase, reconstructedRunnerWithForwarders),
     ).rejects.toThrow("cannot define custom run callbacks");
     await expect(
-      scoreEval(evalCase, reconstructedWithFreshEngine, {
-        productionPath: true,
-      }),
+      scoreEval(evalCase, reconstructedWithFreshEngine),
     ).rejects.toThrow("cannot define custom run callbacks");
     await expect(
       runEvals([evalCase], runner, { persist: false }),
@@ -264,7 +262,13 @@ describe("scoreEval with a JS scorer", () => {
     ).rejects.toThrow("cannot define custom run callbacks");
     await expect(
       runEvals([evalCase], reconstructedWithFreshEngine, {
-        productionPath: true,
+        persist: false,
+      }),
+    ).rejects.toThrow("cannot define custom run callbacks");
+    await expect(
+      runEvalSuite({
+        evals: [evalCase],
+        runner: reconstructedWithFreshEngine,
         persist: false,
       }),
     ).rejects.toThrow("cannot define custom run callbacks");
@@ -607,7 +611,7 @@ describe("scoreEval with a JS scorer", () => {
     const report = await runEvals(
       [uncloneable, following],
       fakeRunner({ text: "ok" }),
-      { persist: false, onRunOutput },
+      { persist: false, onRunOutput, nonProductionPath: true },
     );
 
     expect(report).toMatchObject({ total: 2, passed: 1, failed: 1 });
@@ -627,7 +631,7 @@ describe("scoreEval with a JS scorer", () => {
     expect(onRunOutput).toHaveBeenCalledTimes(1);
   });
 
-  it("allows callbacks by default for lower-level non-production runners", async () => {
+  it("requires an explicit non-production opt-out for lower-level callbacks", async () => {
     const run = vi.fn(async () => ({
       text: "callback output",
       toolCalls: [],
@@ -643,12 +647,29 @@ describe("scoreEval with a JS scorer", () => {
     });
     const runner = fakeRunner({ text: "runner output" });
 
-    const row = await scoreEval(evalCase, runner);
-    const report = await runEvals([evalCase], runner, { persist: false });
+    await expect(scoreEval(evalCase, runner)).rejects.toThrow(
+      "cannot define custom run callbacks",
+    );
+    await expect(
+      runEvals([evalCase], runner, { persist: false }),
+    ).rejects.toThrow("cannot define custom run callbacks");
+
+    const row = await scoreEval(evalCase, runner, { nonProductionPath: true });
+    const report = await runEvals([evalCase], runner, {
+      nonProductionPath: true,
+      persist: false,
+    });
+    const suite = await runEvalSuite({
+      evals: [evalCase],
+      runner,
+      nonProductionPath: true,
+      persist: false,
+    });
 
     expect(row.passed).toBe(true);
     expect(report.results[0]?.passed).toBe(true);
-    expect(run).toHaveBeenCalledTimes(2);
+    expect(suite.report.results[0]?.passed).toBe(true);
+    expect(run).toHaveBeenCalledTimes(3);
     await expect(
       scoreEval(evalCase, runner, { productionPath: true }),
     ).rejects.toThrow("cannot define custom run callbacks");
@@ -1437,6 +1458,8 @@ describe("createAgentRunner over a mocked runAgentLoop (no real model)", () => {
             {
               name: "search",
               input: nestedInput,
+              startedAtEventIndex: 0,
+              completedAtEventIndex: 3,
               completed: true,
               adapterSecret: "unvalidated nested data",
             },
@@ -1469,11 +1492,69 @@ describe("createAgentRunner over a mocked runAgentLoop (no real model)", () => {
     ]) {
       expect(output).not.toHaveProperty("adapterSecret");
       expect(output.toolCallDetails).toEqual([
-        { name: "search", input: nestedInput, completed: true },
+        {
+          name: "search",
+          input: nestedInput,
+          startedAtEventIndex: 0,
+          completedAtEventIndex: 3,
+          completed: true,
+        },
       ]);
       expect(output.toolCallDetails?.[0]).not.toHaveProperty("adapterSecret");
     }
   });
+
+  it.each([
+    ["startedAtEventIndex", -1],
+    ["startedAtEventIndex", 0.5],
+    ["startedAtEventIndex", Number.NaN],
+    ["startedAtEventIndex", Number.POSITIVE_INFINITY],
+    ["startedAtEventIndex", Number.NEGATIVE_INFINITY],
+    ["startedAtEventIndex", Number.MAX_SAFE_INTEGER + 1],
+    ["completedAtEventIndex", -1],
+    ["completedAtEventIndex", 0.5],
+    ["completedAtEventIndex", Number.NaN],
+    ["completedAtEventIndex", Number.POSITIVE_INFINITY],
+    ["completedAtEventIndex", Number.NEGATIVE_INFINITY],
+    ["completedAtEventIndex", Number.MAX_SAFE_INTEGER + 1],
+  ] as const)(
+    "fails closed for malformed production tool-call index %s=%s",
+    async (field, index) => {
+      const productionChatPath = testProductionChatPath();
+      productionChatPath.run = async (args) => {
+        const result = await testProductionChatPath().run(args);
+        return {
+          ...result,
+          output: {
+            ...result.output,
+            toolCallDetails: [{ name: "search", input: {}, [field]: index }],
+          } as never,
+        };
+      };
+      const runner = await createAgentRunner({
+        productionContext: {
+          ...testProductionContext(),
+          productionChatPath,
+        },
+      });
+      const analyze = vi.fn((output: { text: string }) => output.text);
+      const evalCase = defineEval({
+        name: "malformed-production-tool-call-index",
+        input: { prompt: "find active users" },
+        scorers: [{ name: "inspect-output", analyze, generateScore: () => 1 }],
+      });
+
+      const row = await scoreEval(evalCase, runner);
+
+      expect(row).toMatchObject({
+        status: "failed",
+        passed: false,
+        error: "Production chat eval adapter returned malformed run output.",
+        scores: [],
+      });
+      expect(analyze).not.toHaveBeenCalled();
+    },
+  );
 
   it("distinguishes failed agent runs from missing adapter usage", async () => {
     const productionChatPath = testProductionChatPath();

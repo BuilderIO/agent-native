@@ -1265,7 +1265,11 @@ function normalizeProductionPathToolCallDetails(
       typeof detail.name !== "string" ||
       !Object.hasOwn(detail, "input") ||
       optionalNumbers.some(
-        (field) => field !== undefined && typeof field !== "number",
+        (field) =>
+          field !== undefined &&
+          (typeof field !== "number" ||
+            !Number.isSafeInteger(field) ||
+            field < 0),
       ) ||
       [detail.completed, detail.completedSideEffect, detail.isError].some(
         (field) => field !== undefined && typeof field !== "boolean",
