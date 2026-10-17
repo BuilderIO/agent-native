@@ -26,7 +26,7 @@ describe("filesystemActionEntry", () => {
     expect(keyOf({ ...entry })).toBe(keyOf(action));
   });
 
-  it("carries only the scan's fields and no key for a plain module", () => {
+  it("preserves read-only metadata and defaults unknown writes to destructive", () => {
     const run = async () => ({});
     const entry = filesystemActionEntry({
       tool: { description: "Plain", parameters: { type: "object" } },
@@ -36,6 +36,42 @@ describe("filesystemActionEntry", () => {
 
     expect(entry.run).toBe(run);
     expect(keyOf(entry)).toBeUndefined();
-    expect(entry.readOnly).toBeUndefined();
+    expect(entry.readOnly).toBe(true);
+    expect(entry.mcpAnnotations).toEqual({
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: true,
+    });
+  });
+
+  it("preserves explicit MCP annotations from the action module", () => {
+    const mcpAnnotations = {
+      readOnlyHint: false,
+      destructiveHint: false,
+      openWorldHint: true,
+    };
+    const entry = filesystemActionEntry({
+      tool: { description: "Explicit", parameters: { type: "object" } },
+      run: async () => ({}),
+      readOnly: false,
+      mcpAnnotations,
+    });
+
+    expect(entry.readOnly).toBe(false);
+    expect(entry.mcpAnnotations).toBe(mcpAnnotations);
+  });
+
+  it("marks an unannotated filesystem write destructive", () => {
+    const entry = filesystemActionEntry({
+      tool: { description: "Write", parameters: { type: "object" } },
+      run: async () => ({}),
+      readOnly: false,
+    });
+
+    expect(entry.mcpAnnotations).toEqual({
+      readOnlyHint: false,
+      destructiveHint: true,
+      openWorldHint: true,
+    });
   });
 });

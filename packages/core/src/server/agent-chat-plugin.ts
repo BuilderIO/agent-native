@@ -274,7 +274,10 @@ import {
 } from "./auth.js";
 import { captureError } from "./capture-error.js";
 import { chatTitleRequestFromBody, generateChatTitle } from "./chat-title.js";
-import { filesystemActionEntry } from "./filesystem-action-entry.js";
+import {
+  discoveredActionMcpAnnotations,
+  filesystemActionEntry,
+} from "./filesystem-action-entry.js";
 import {
   getH3App,
   markDefaultPluginProvided,
@@ -1610,6 +1613,8 @@ export function createAgentChatPlugin(
               // Fallback: bash-based wrapper for CLI-style scripts
               discoveredActionsAll[name] = {
                 cliWrapper: true,
+                readOnly: false,
+                mcpAnnotations: discoveredActionMcpAnnotations(false),
                 tool: {
                   description: `Run the ${name} action. Use: pnpm action ${name} --arg=value`,
                   parameters: {

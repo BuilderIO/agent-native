@@ -1910,6 +1910,9 @@ jobs:
       - name: Test source-reading tests guard
         run: pnpm test:no-source-reading-tests
 
+      - name: Test legacy MCP hint baseline guard
+        run: pnpm test:no-new-legacy-mcp-hints
+
       - name: Test Neon transfer alert and offline backtest
         run: pnpm test:neon-transfer-alert
 

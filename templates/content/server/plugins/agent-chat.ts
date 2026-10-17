@@ -195,7 +195,7 @@ export default createAgentChatPlugin({
   mcp: {
     externalAgents: { writes: "allowlisted" },
     instructions:
-      "Find documents with list-documents or search-documents; read with get-document (pull-document for raw Markdown). Author and persist content with create-document. For body changes use revision-guarded edit-document; pass initializeContent only when get-document returns an empty body. Use update-document for metadata and browser rewrites. To clean up, delete-document moves a page and its sub-pages to recoverable Trash; list-content-trash and restore-document bring it back. Permanent deletion is not offered over MCP. For provider data use provider-api-catalog → provider-api-docs → provider-api-request.",
+      "Find documents with list-documents or search-documents; read with get-document. Author and persist content with create-document. For body changes use revision-guarded edit-document; pass initializeContent only when get-document returns an empty body. delete-document moves pages and sub-pages to recoverable Trash; use list-content-trash to find a Trash root, then restore-document with that item's exact trashedAt to restore it.",
     directoryProfile: CHATGPT_DIRECTORY_PROFILE,
   },
   anonymousOwner: resolvePublicViewerOwner,

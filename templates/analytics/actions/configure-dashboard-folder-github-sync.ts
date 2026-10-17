@@ -24,6 +24,11 @@ const linkSchema = z.object({
 });
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   description:
     "Link a dashboard folder to a GitHub repo folder for sync, or unlink it by passing link null. " +
     "Linking or unlinking clears each dashboard's sync base, so the next preview starts from scratch. " +
