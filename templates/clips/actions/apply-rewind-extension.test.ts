@@ -410,6 +410,29 @@ describe("apply-rewind-extension", () => {
     });
     expect(stored.preRollTrashed).toBe(false);
     expect(JSON.parse(stored.chaptersJson)).toEqual([intro]);
+
+    await expect(action.run(args)).resolves.toMatchObject({
+      request: { status: "applied" },
+    });
+    expect(JSON.parse(stored.chaptersJson)).toEqual([
+      { ...intro, startMs: 30_000 },
+    ]);
+  });
+
+  it("clears an applying request when its media revision is stale", async () => {
+    stored.request = { ...stored.request!, status: "applying" };
+    stored.mediaUpdatedAt = "media-2";
+
+    await expect(action.run(args)).rejects.toMatchObject({
+      errorCode: "recording_media_changed",
+    });
+
+    expect(stored.request).toMatchObject({
+      status: "failed",
+      error: expect.stringContaining("media changed"),
+    });
+    expect(stored.preRollTrashed).toBe(false);
+    expect(JSON.parse(stored.chaptersJson)).toEqual([intro]);
   });
 
   it("continues an apply after the request was left applying", async () => {

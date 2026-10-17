@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mockSelectRows = vi.hoisted(() => ({
   queue: [] as Array<Array<Record<string, unknown>>>,
   lockedRows: null as Array<Array<Record<string, unknown>>> | null,
+  lockedWhereConditions: [] as unknown[],
 }));
 const mockInsertReturning = vi.hoisted(() =>
   vi.fn(async () => [{ recordingId: "rec_native" }]),
@@ -25,16 +26,21 @@ const mockUpdateSet = vi.hoisted(() =>
 const mockDb = vi.hoisted(() => ({
   select: vi.fn(() => ({
     from: vi.fn(() => {
+      let whereCondition: unknown;
       const queryResult = {
         limit: vi.fn(async () => mockSelectRows.queue.shift() ?? []),
-        for: vi.fn(async () =>
-          mockSelectRows.lockedRows === null
+        for: vi.fn(async () => {
+          mockSelectRows.lockedWhereConditions.push(whereCondition);
+          return mockSelectRows.lockedRows === null
             ? [{ id: "rec_native" }]
-            : (mockSelectRows.lockedRows.shift() ?? []),
-        ),
+            : (mockSelectRows.lockedRows.shift() ?? []);
+        }),
       };
       return {
-        where: vi.fn(() => queryResult),
+        where: vi.fn((condition: unknown) => {
+          whereCondition = condition;
+          return queryResult;
+        }),
         leftJoin: vi.fn(() => ({
           where: vi.fn(() => ({
             limit: vi.fn(async () => {
@@ -485,6 +491,7 @@ describe("requestTranscript regeneration", () => {
     vi.clearAllMocks();
     mockSelectRows.queue = [];
     mockSelectRows.lockedRows = null;
+    mockSelectRows.lockedWhereConditions = [];
     mockResolveHasBuilderGatewayCredential.mockResolvedValue(true);
     mockAssertAccess.mockResolvedValue({ role: "editor" });
     mockPrepareRecordingTranscriptionAudio.mockResolvedValue({
@@ -643,11 +650,7 @@ describe("requestTranscript regeneration", () => {
       [{ mediaUpdatedAt: "media-2" }],
       [{ recordingId: "rec_native" }],
     ];
-    mockSelectRows.lockedRows = [
-      [{ id: "rec_native" }],
-      [],
-      [{ id: "rec_native" }],
-    ];
+    mockSelectRows.lockedRows = [[{ id: "rec_native" }], [], []];
 
     await expect(
       requestTranscript.run({ recordingId: "rec_native" }),
@@ -658,13 +661,15 @@ describe("requestTranscript regeneration", () => {
     expect(
       mockUpdateSet.mock.calls.some(([row]) => (row as any).status === "ready"),
     ).toBe(false);
-    expect(mockUpdateSet).toHaveBeenCalledWith(
-      expect.objectContaining({
-        status: "failed",
-        failureCode: "CLOUD_FAILED",
-        retryCount: 1,
-      }),
-    );
+    expect(
+      mockUpdateSet.mock.calls.some(
+        ([row]) => (row as any).status === "failed",
+      ),
+    ).toBe(false);
+    expect(mockSelectRows.lockedWhereConditions.at(-1)).toContainEqual({
+      column: "recordings.mediaUpdatedAt",
+      value: "media-1",
+    });
   });
 
   it("fails a multi-part recording as CHUNK_FAILED without saving a partial transcript", async () => {

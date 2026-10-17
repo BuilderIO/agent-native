@@ -121,7 +121,7 @@ export default defineAction({
     if (
       !request ||
       request.requestId !== args.requestId ||
-      !["ready", "applying", "applied"].includes(request.status) ||
+      !["ready", "applying", "failed", "applied"].includes(request.status) ||
       request.preRollRecordingId !== args.preRollRecordingId
     ) {
       throw new Error("The Rewind pre-roll request is not ready to apply.");
@@ -237,6 +237,13 @@ export default defineAction({
       return markApplied();
     }
     if (recording.mediaUpdatedAt !== args.expectedMediaUpdatedAt) {
+      if (request.status === "applying") {
+        await restoreRequestAfterFailure(
+          new Error(
+            "The Clip media changed before Rewind could be applied. Try again.",
+          ),
+        );
+      }
       fail(
         "The Clip media changed before Rewind could be applied. Try again.",
         {
@@ -263,7 +270,7 @@ export default defineAction({
       throw new Error("The Rewind upload is not bound to its recording.");
     }
 
-    if (request.status === "ready") {
+    if (["ready", "failed"].includes(request.status)) {
       const applying: RewindExtensionRequest = {
         ...request,
         status: "applying",

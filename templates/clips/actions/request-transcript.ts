@@ -1432,6 +1432,7 @@ const requestTranscriptAction = defineAction({
               failureReason: transcriptFailureMessage("CLOUD_FAILED"),
               failureCode: "CLOUD_FAILED",
               now,
+              mediaUpdatedAt,
               retryCount: currentRetryCount + 1,
             });
             if (kept) return kept;
