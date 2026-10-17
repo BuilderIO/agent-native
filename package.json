@@ -222,7 +222,8 @@
     "guard:beta-e2e-suite": "tsx scripts/guard-beta-e2e-suite.ts",
     "guard:automated-findings": "tsx scripts/guard-automated-findings.ts",
     "template-layer": "tsx scripts/template-layer.ts",
-    "guard:template-layers": "tsx scripts/template-layer.ts check"
+    "guard:template-layers": "tsx scripts/template-layer.ts check",
+    "gen:schema-snapshot": "tsx scripts/gen-schema-snapshot.ts"
   },
   "devDependencies": {
     "@changesets/cli": "2.31.0",

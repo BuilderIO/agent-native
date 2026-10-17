@@ -1,5 +1,22 @@
 const messages = {
   meetingAsk: { resizeOrDismissAnswers: "जवाबों का आकार बदलें या बंद करें" },
+  meetingBrowserConfirmation:
+    "Clips इस ब्राउज़र में माइक्रोफ़ोन गतिविधि देखता है, लेकिन यह नहीं पहचान सकता कि मीटिंग किस टैब में है।",
+  meetingReplacement: {
+    title: "मीटिंग नोट्स पर ध्यान देना ज़रूरी है",
+    description:
+      "पिछली मीटिंग के नोट्स सेव नहीं हो सके। यह मीटिंग शुरू करने से पहले उन्हें कॉपी करें।",
+    copyAndStart: "नोट्स कॉपी करके शुरू करें",
+    actionFailed: "मीटिंग की बहाली जारी नहीं हो सकी। फिर से कोशिश करें।",
+  },
+  quitRecovery: {
+    title: "Clips अभी मीटिंग को पूरा कर रहा है",
+    body: "Clips इस मीटिंग को रोककर सेव करना पूरा नहीं कर पाया है। अभी बंद करने पर सबसे नई ट्रांसक्रिप्ट खो सकती है।",
+    keepOpen: "Clips खुला रखें",
+    quitAnyway: "फिर भी बंद करें",
+    actionFailed:
+      "Clips बंद करने की रिकवरी स्थिति अपडेट नहीं कर सका। फिर से कोशिश करें।",
+  },
   lookbackContext: {
     includeLast: "पिछले शामिल करें",
     whatIsThis: "यह क्या है?",
@@ -1558,6 +1575,9 @@ const messages = {
     disconnected: "माइक्रोफ़ोन डिस्कनेक्ट हो गया।",
   },
   storageSetup: {
+    builderStorageOffer:
+      "Builder.io के मुफ़्त प्लान में वीडियो स्टोरेज शामिल है, जिसे एक क्लिक में सेट अप किया जा सकता है।",
+    customKeys: "कस्टम कुंजियाँ",
     builderConnectPopupError:
       "Builder.io नहीं खुल सका। अगर यह ऐप किसी चैट में एम्बेड है, तो इसे ब्राउज़र टैब में खोलें; अन्यथा फिर कोशिश करें।",
     builderConnectError:
@@ -1577,8 +1597,7 @@ const messages = {
     builderTimeout: "पुष्टि नहीं हो सकी कि Builder.io स्टोरेज तैयार है। फिर कोशिश करें।",
     builderConnected: "Builder.io कनेक्ट है",
     waitingForBuilder: "Builder की प्रतीक्षा...",
-    description:
-      "रिकॉर्ड किए गए वीडियो को Builder.io या S3-संगत स्टोरेज में सहेजें। Builder.io में मुफ़्त होस्टिंग और AI क्रेडिट शामिल हैं।",
+    description: "चुनें कि रिकॉर्ड किए गए वीडियो कहाँ सहेजने हैं।",
     createBuilderAccount: "Builder.io इस्तेमाल करें",
     signInWithBuilderAccount: "Builder.io खाते से साइन इन करें",
     free: "मुफ्त",

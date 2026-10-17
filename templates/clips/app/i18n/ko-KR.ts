@@ -1,5 +1,22 @@
 const messages = {
   meetingAsk: { resizeOrDismissAnswers: "답변 영역 크기 조절 또는 닫기" },
+  meetingBrowserConfirmation:
+    "Clips는 이 브라우저의 마이크 활동을 감지하지만 회의 중인 탭을 구분할 수 없습니다.",
+  meetingReplacement: {
+    title: "회의 메모 확인이 필요합니다",
+    description:
+      "이전 회의의 메모를 저장하지 못했습니다. 이 회의를 시작하기 전에 메모를 복사하세요.",
+    copyAndStart: "메모 복사 후 시작",
+    actionFailed: "회의 복구를 계속하지 못했습니다. 다시 시도하세요.",
+  },
+  quitRecovery: {
+    title: "Clips에서 회의를 마무리하는 중입니다",
+    body: "Clips에서 이 회의를 중지하고 저장하는 작업을 완료하지 못했습니다. 지금 종료하면 최신 대화록이 손실될 수 있습니다.",
+    keepOpen: "Clips 계속 열어 두기",
+    quitAnyway: "그래도 종료",
+    actionFailed:
+      "Clips에서 종료 복구 상태를 업데이트하지 못했습니다. 다시 시도하세요.",
+  },
   lookbackContext: {
     includeLast: "마지막 구간 포함",
     whatIsThis: "이것은 무엇입니까?",
@@ -1579,6 +1596,9 @@ const messages = {
     disconnected: "마이크 연결이 끊어졌습니다.",
   },
   storageSetup: {
+    builderStorageOffer:
+      "Builder.io 무료 요금제에는 동영상 저장 공간이 포함되며 한 번의 클릭으로 설정할 수 있습니다.",
+    customKeys: "맞춤 키",
     builderConnectPopupError:
       "Builder.io를 열 수 없습니다. 이 앱이 채팅에 삽입되어 있다면 브라우저 탭에서 여세요. 그렇지 않다면 다시 시도하세요.",
     builderConnectError:
@@ -1599,8 +1619,7 @@ const messages = {
       "Builder.io 저장소가 준비되었는지 확인하지 못했습니다. 다시 시도하세요.",
     builderConnected: "Builder.io 연결됨",
     waitingForBuilder: "Builder 대기 중...",
-    description:
-      "녹화한 동영상을 Builder.io 또는 S3 호환 스토리지에 저장하세요. Builder.io에는 무료 호스팅과 AI 크레딧이 포함되어 있습니다.",
+    description: "녹화한 동영상을 저장할 위치를 선택하세요.",
     createBuilderAccount: "Builder.io 사용",
     signInWithBuilderAccount: "Builder.io 계정으로 로그인",
     free: "무료",

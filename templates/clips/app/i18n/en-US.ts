@@ -1,5 +1,21 @@
 const messages = {
   meetingAsk: { resizeOrDismissAnswers: "Resize or dismiss answers" },
+  meetingBrowserConfirmation:
+    "Clips sees microphone activity in this browser, but can't tell which tab is in the meeting.",
+  meetingReplacement: {
+    title: "Meeting notes need attention",
+    description:
+      "The previous meeting's notes couldn't be saved. Copy them before starting this meeting.",
+    copyAndStart: "Copy notes and start",
+    actionFailed: "Could not continue meeting recovery. Try again.",
+  },
+  quitRecovery: {
+    title: "Clips is still finishing the meeting",
+    body: "Clips hasn't finished stopping and saving this meeting. The latest transcript may be lost if you quit now.",
+    keepOpen: "Keep Clips open",
+    quitAnyway: "Quit anyway",
+    actionFailed: "Clips couldn't update the quit recovery state. Try again.",
+  },
   lookbackContext: {
     includeLast: "Include last",
     whatIsThis: "What is this?",
@@ -1514,6 +1530,9 @@ const messages = {
     disconnected: "Microphone disconnected.",
   },
   storageSetup: {
+    builderStorageOffer:
+      "Builder.io's free tier includes video storage, with one-click setup.",
+    customKeys: "Custom keys",
     builderConnectPopupError:
       "Builder.io couldn't open. If this app is embedded in a chat, open it in a browser tab; otherwise, try again.",
     builderConnectError:
@@ -1534,8 +1553,7 @@ const messages = {
       "Couldn't confirm that Builder.io storage is ready. Try again.",
     builderConnected: "Builder.io connected",
     waitingForBuilder: "Waiting for Builder...",
-    description:
-      "Store recorded videos with Builder.io or S3-compatible storage. Builder.io includes free hosting and AI credits.",
+    description: "Choose where to store your recorded videos.",
     createBuilderAccount: "Use Builder.io",
     signInWithBuilderAccount: "Sign in with Builder.io account",
     free: "Free",

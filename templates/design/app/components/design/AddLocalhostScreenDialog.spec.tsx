@@ -217,7 +217,7 @@ describe("AddLocalhostScreenDialog localhost route selection", () => {
     expect(container.textContent).not.toContain('Add "/login"');
   });
 
-  it("explains a missing connection before search and waits to show no matches", () => {
+  it("explains missing connections before search and shows route empty state after", () => {
     mocks.connectionResult = {
       data: { connections: [] },
       isFetching: false,

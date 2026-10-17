@@ -62,6 +62,7 @@ import { runWithRequestContext } from "@agent-native/core/server/request-context
 import { and, eq, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 
 import finalizeMeeting from "../../actions/finalize-meeting.js";
+import { PENDING_MEETING_FINALIZATION_STALE_MS } from "../../shared/meeting-finalization.js";
 import { getDb, schema } from "../db/index.js";
 
 const SWEEP_INTERVAL_MS = 5 * 60 * 1000;
@@ -70,7 +71,6 @@ const SCHEDULED_END_GRACE_MS = 20 * 60 * 1000;
 const ADHOC_MAX_SESSION_MS = 4 * 60 * 60 * 1000;
 const TIME_BOUND_INACTIVITY_MS = 5 * 60 * 1000;
 const ADHOC_HARD_CAP_MS = 12 * 60 * 60 * 1000;
-const PENDING_STALE_MS = 2 * 60 * 1000;
 let skippingLogged = false;
 let running = false;
 
@@ -153,7 +153,9 @@ export async function closeOutStaleMeeting(args: {
  * finalize call that completes concurrently.
  */
 async function sweepStalePendingFinalizes(db: ReturnType<typeof getDb>) {
-  const staleBefore = new Date(Date.now() - PENDING_STALE_MS).toISOString();
+  const staleBefore = new Date(
+    Date.now() - PENDING_MEETING_FINALIZATION_STALE_MS,
+  ).toISOString();
   // guard:allow-unscoped — background recovery scans all owners for crash-stranded finalize claims.
   const stuck = await db
     .select({ id: schema.meetings.id, updatedAt: schema.meetings.updatedAt })
@@ -175,6 +177,7 @@ async function sweepStalePendingFinalizes(db: ReturnType<typeof getDb>) {
           and(
             eq(schema.meetings.id, meeting.id),
             eq(schema.meetings.transcriptStatus, "pending"),
+            eq(schema.meetings.updatedAt, meeting.updatedAt),
           ),
         )
         .returning({ id: schema.meetings.id });

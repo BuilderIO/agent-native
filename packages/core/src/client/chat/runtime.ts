@@ -779,6 +779,11 @@ export interface AgentChatRuntimeSubscribeInput {
   readonly abortSignal?: AbortSignal;
 }
 
+export interface AgentChatRuntimeReadRunStateInput extends AgentChatRuntimeSubscribeInput {
+  /** Include the durable request id when checking whether a restored request is pending. */
+  readonly includePendingConnectionRequest?: boolean;
+}
+
 export interface AgentChatRuntimeResumeInput extends AgentChatRuntimeSubscribeInput {
   readonly prompt?: string;
 }
@@ -841,7 +846,9 @@ export interface AgentChatRuntime<
    * that provides it owns run outcome: a closed `subscribe` stream is then only
    * a connection fact. Rejects when the record cannot be read.
    */
-  readRunState?(input: AgentChatRuntimeSubscribeInput): Promise<ServerRunState>;
+  readRunState?(
+    input: AgentChatRuntimeReadRunStateInput,
+  ): Promise<ServerRunState>;
   cancel?(
     input: AgentChatRuntimeCancelInput,
   ): Promise<AgentChatRuntimeCancelResult>;
@@ -5166,7 +5173,7 @@ export function createAgentNativeChatRuntime(
   });
 
   const readRunState = async (
-    input: AgentChatRuntimeSubscribeInput,
+    input: AgentChatRuntimeReadRunStateInput,
   ): Promise<ServerRunState> => {
     // Asking again cannot change these answers, so they are not retryable.
     const unreadable = (message: string, status?: number) =>
@@ -5184,6 +5191,9 @@ export function createAgentNativeChatRuntime(
     const query = new URLSearchParams({ threadId });
     if (input.runId) query.set("runId", input.runId);
     if (input.turnId) query.set("turnId", input.turnId);
+    if (input.includePendingConnectionRequest) {
+      query.set("includePendingConnectionRequest", "true");
+    }
     const headers = await resolveHeaders(options.headers, input);
     headers.set("x-agent-native-surface", options.surface ?? "app");
     const response = await runtimeFetch(
@@ -5195,7 +5205,14 @@ export function createAgentNativeChatRuntime(
         signal: input.abortSignal,
       },
     );
-    if (response.status === 404) return { status: "missing" };
+    if (response.status === 404) {
+      return {
+        status: "missing",
+        ...(input.includePendingConnectionRequest
+          ? { pendingConnectionRequestId: null }
+          : {}),
+      };
+    }
     if (!response.ok) throw await readHttpRuntimeError(response);
     let body: unknown;
     try {
@@ -5221,6 +5238,27 @@ export function createAgentNativeChatRuntime(
         response.status,
       );
     }
+    const pendingConnectionRequestId = value?.pendingConnectionRequestId;
+    if (
+      input.includePendingConnectionRequest &&
+      (!value || !Object.hasOwn(value, "pendingConnectionRequestId"))
+    ) {
+      throw unreadable(
+        "Agent chat run state is unreadable (pending connection request was not returned).",
+        response.status,
+      );
+    }
+    if (
+      pendingConnectionRequestId !== undefined &&
+      pendingConnectionRequestId !== null &&
+      (typeof pendingConnectionRequestId !== "string" ||
+        !pendingConnectionRequestId.trim())
+    ) {
+      throw unreadable(
+        "Agent chat run state is unreadable (pending connection request ID is invalid).",
+        response.status,
+      );
+    }
     return {
       status,
       runId,
@@ -5236,6 +5274,9 @@ export function createAgentNativeChatRuntime(
         : {}),
       terminalReason:
         typeof value?.terminalReason === "string" ? value.terminalReason : null,
+      ...(pendingConnectionRequestId === undefined
+        ? {}
+        : { pendingConnectionRequestId }),
     };
   };
 

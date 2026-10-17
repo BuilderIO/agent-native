@@ -7,6 +7,7 @@ import { ImgPlaceholder } from "./img-placeholder";
 
 interface ContentCardProps {
   title: ReactNode;
+  eyebrow?: ReactNode;
   body?: ReactNode;
   image?: { src: string; alt: string };
   imageLabel?: string;
@@ -20,6 +21,7 @@ interface ContentCardProps {
 
 export function ContentCard({
   title,
+  eyebrow,
   body,
   image,
   imageLabel,
@@ -32,6 +34,7 @@ export function ContentCard({
 }: ContentCardProps) {
   const textBlock = (
     <div className="flex flex-col gap-[var(--spacing-2)] p-[var(--spacing-8)]">
+      {eyebrow ? <div>{eyebrow}</div> : null}
       <h3 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-6)] font-medium leading-[1.15] tracking-[-0.02em] text-[var(--b-text-primary)]">
         {title}
       </h3>

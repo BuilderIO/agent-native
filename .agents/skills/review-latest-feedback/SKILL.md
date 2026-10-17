@@ -13,154 +13,168 @@ metadata:
 
 # Review Latest Feedback
 
-Feedback reactions are permanent history: never remove or clean up a reaction.
-An owned `👀` does not by itself mean work is still open; the current disposition
-and status reply say what remains. Put new workflow `👀`, `✅`, and `🎫`
-reactions on the report root, never on a reply. Classify every in-scope root as
-feedback or administrative; administrative means the post is not user
-feedback, not merely that it came from a bot or duplicates another report.
-Claim each eligible open report that passes the ownership gate with a root
-`👀`, then post one same-actor status in its root thread after the latest human
-reply. For roots already owned by this actor, reuse the current status unless
-new human input, proof, disposition, or next action changes it. Do not reply on
-another actor's owned root, administrative post, or duplicate thread; record
-the ownership or classification reason and link duplicates to their canonical
-report. Read each full thread and every changed status back.
+Four phases, in order. Phase 0 comes before any investigation, not after.
 
-Ensure one root `✅` is present when any named scope passes direct post-change
-proof; that single reaction covers every verified scope in `fixedScopes`. Ensure
-one root `🎫` is present when any named action is accepted; it covers the
-accepted entries in `handoffs` and remains after an accepted action is completed.
-Record completion evidence and set that handoff's status to `completed`; it is
-historical accepted work, not an open follow-up. Remove it from active handoffs
-only if the owner later withdraws, preserving the ticket as a historical mark.
-Do not add duplicate copies of a mark for multiple scopes. An existing `👀` may
-coexist with either mark and remains after work closes. A reply-level mark is
-inventory history, never a root checkoff. A reaction is not a substitute for a
-status reply. Read back the final threads/reactions and pass the inventory
-checker before recap.
+0. **Gate, then claim** every eligible item you intend to tackle with `👀`,
+   before investigating any of it.
+1. **Answer the people who answered you.** Older open questions first.
+2. **Fix** what the evidence actually proves, at the owning boundary.
+3. **Reply** with useful questions, then recap.
 
-Do not target a number or ratio of reactions. Reconcile every owned report root
-and every one of its scopes. In the final pass, reopen **every** report root
-with this actor's marks, including every eye-only root even when eye-only rows
-are a minority: recheck each scope; update/read back the current status when
-its evidence or next action changed; ensure the root has one `✅` whenever at
-least one scope has direct proof; and ensure one `🎫` only when a named human
-accepted a separate action, including one recorded as completed. Preserve all
-existing marks. When every scope closes, record the closed disposition and read back the final status and
-reactions; an existing `👀` is historical, not evidence that work remains open.
-
-`✅` covers each scope that passes direct post-change proof, including while
-its PR is open. Use a focused regression that asserts the reported behavior or
-replay the exact flow on the changed running app/preview; source inspection,
-merge, an unrelated suite, or deploy alone do not qualify. Before merge, call
-the scope **Verified locally** and say merge is pending. `✅` records the
-verified scope; `👀` is retained history and does not say whether work remains
-open. After merge, call the scope **Fixed** when its behavior has direct proof.
-When a report has both verified and unfinished scopes, keep the verified
-scope(s) under **Verified locally** before merge, or use **Partially fixed**
-after merge; include a `✅` for the verified scope(s) and retain `👀` for the
-unfinished scope(s). Do not call the whole report **Fixed** while any reported
-scope or accepted handoff remains open.
-Reserve **Shipped**/**Live verified** for their
-release/runtime evidence. `🎫` records an accepted human action, not a ticket,
-mention, or assignment.
-
-Phase 0 gates and claims eligible work before investigation. Then answer newer
-replies, fix what the evidence proves at its owning boundary, and recap. Follow
-the shared mark lifecycle in
-[`slack-reaction-replies.md`](references/slack-reaction-replies.md).
-
-Before recap, repeat the exact original channel-wide `slack_search_public`
-query for every scoped channel, including its inclusive `scanQuery.after` and
-all other recorded arguments. Follow every `next_cursor` to Slack exhaustion;
-do not stop when a page crosses the cutoff, because later pages can contain
-replies to older roots. Apply `ts >= cutoffTs` when counting the captured
-messages, not as a reason to stop pagination. `oldestQuery` records only a
-separate exclusive `oldest` bound when one was actually passed; it does not
-replace `scanQuery.after`. Replace that channel's old page manifests and rows
-with the new responses. A newest-first delta from a saved high-water mark is
-useful for discovery but cannot certify the complete inventory. Resolve new
-replies to their actual roots and reconcile them before replacing the inventory.
-Then read every marked root thread again after the final channel page, even when
-channel history has no new row: it exposes reply counts, not reply content. Save
-these reads in `threadSnapshots`. The checker requires status after the latest
-human reply and channel/thread reads within 15 minutes; repeat the full bounded
-scan and reread marked roots if stale. See
-[`channel-inventory.md`](references/channel-inventory.md).
+Output is fixes. For every report root this task owns, keep one concise, current same-actor status reply after the latest human message. Reuse it while evidence, disposition, and next action remain current; update it when one changes. Do not post routine progress, merge, or publication announcements. Person-assigned and `:mag:` items get no reply. Follow [`slack-reaction-replies.md`](references/slack-reaction-replies.md).
 
 ## Slack channels and ownership
 
-For each scoped channel, run the exact channel-wide, bot-inclusive
-`slack_search_public` query and exhaust every cursor, even after reaching the
-cutoff. Do not narrow by terms, authors, reactions, or dates; do not use
-`slack_read_channel` as the inventory. A supplied timestamp or permalink is
-the inclusive lower bound. Follow
-[`channel-inventory.md`](references/channel-inventory.md) for pagination,
-root resolution, attachments, and the checker contract.
+For Slack reads and writes, use the connected integration only. Default
+channels are `#product-agent-native-feedback` (`C0ATH3CCZT4`),
+`#qa-agent-native` (`C0C4U4XRT6X`), and
+`#dev-agent-native-feedback` (`C0AJ5QV0J03`). Honor narrower invocation scope.
+Scan five days by default; a supplied timestamp or permalink is the inclusive
+lower bound, even when older. `#dev-agent-native-feedback` is not an exclusion.
 
-Classify every root as feedback or administrative. Read each report's full
-thread and root reactions before claiming it. A different actor's eye plus a
-current open status is owned elsewhere; do not claim or reply there. An eye
-alone is permanent history, not ownership or open status. Leave unclear
-ownership unresolved. Use one actor for this sweep's replies, reactions, and
-read-backs. Put new workflow marks on the report root; legacy reply marks stay
-with their source reply and never check off the root.
+For every scoped channel, run the exact channel-wide, bot-inclusive
+`slack_search_public` query with only `in:<#CHANNEL>` and the recorded lower
+bound. Use no keywords or semantic query; sort newest first and follow every
+cursor to exhaustion, including pages beyond the cutoff. Do not use
+`slack_read_channel` as the inventory. Read every full parent thread and its
+attachments; history rows are not all roots. Record root/reply cursors and
+counts separately. Follow
+[`channel-inventory.md`](references/channel-inventory.md) for the exact query,
+root resolution, attachment handling, and checker contract.
+
+After the inventory, inspect each root's reactions and full thread. A root is
+feedback or administrative; bot authorship or duplication alone does not make
+it administrative. A different task's eye plus its current open status is owned
+elsewhere; only an explicit handoff naming this task and scope transfers
+investigation. An eye by itself is permanent history, not ownership or an open
+state. Claims do not expire. Skip person-assigned threads and another task's
+marks; leave unclear ownership unclaimed. Use the invoking Slack actor for all
+reads, writes, and read-backs.
+
+Only Steve's `:mag:` and `:yes-party:` count (user `U0GCV21HC`). Search
+`hasmy::mag:` / `hasmy::yes-party:` when Steve invokes; otherwise inspect root
+reactions. Exhaust those search cursors. `:mag:` opts out and wins over
+`:yes-party:`; `:yes-party:` authorizes an otherwise review-only item but never
+overrides an assignment or another task's claim. Do not investigate or reply
+on person-assigned work.
 
 ## Phase 0: claim and reconcile
 
-Resolve known duplicates and finish one eligible root at a time. Reconcile
-every report root owned by this actor, especially every eye-only root and
-every root with a checkmark. Keep `👀` as permanent history and state the
-current disposition in a concise, same-actor reply after the latest human
-reply. Update that reply only when evidence, disposition, or next action
-changes; read back the exact message and reaction state.
+Resolve known duplicates before claiming. Add this task's root `👀` before
+investigating an eligible unowned report and read it back. Reconcile every
+root this actor already owns, including eye-only, checkmarked, and ticketed
+roots; do not target a reaction ratio. Keep one concise, current status reply
+by the same actor after the latest human message. Reuse a reply that still
+matches; update it when new human input, evidence, disposition, or next action
+changes. Read back the exact reply and root reactions. Reply-level marks stay
+on their source reply and never check off the root.
 
-Add one root `✅` as soon as any named scope passes direct post-change proof,
-including a partial fix or an open PR. List each proven scope and proof; keep
-unproven scopes open. Add one root `🎫` only for a specific action accepted by
-a named human, and retain it as history if completed. Never remove or duplicate
-workflow marks. The status reply and reactions are both required. See
-[`slack-reaction-replies.md`](references/slack-reaction-replies.md) for
+Split each report into distinct scopes. Add one root `✅` as soon as any named
+bug-fix scope passes direct post-change proof, even when the fix is partial or
+its PR is open. List the verified scope and proof; keep other scopes open. For
+an open PR use **Verified locally** and say merge is pending; use **Fixed**
+after merge and direct proof. Upvoted feature work earns `✅` only when the
+accepted improvement is delivered and verified. Reserve **Shipped** and
+**Live verified** for delivery/runtime proof.
+
+Add one root `🎫` only after a different named person accepts a specific
+separate action in the source thread. Record the exact acceptance and action;
+keep the mark as history when the action completes. A team ping, role, ask
+without acceptance, or inferred owner is not a handoff. Never remove or clean
+up `👀`, `✅`, or `🎫`, including after closure. Explain in the current status
+why an open scope has no `✅` or why no `🎫` applies. The reply and root marks
+are both required; one never substitutes for the other. See
+[`slack-reaction-replies.md`](references/slack-reaction-replies.md) for exact
 ownership, proof, acceptance, reply, and historical-mark rules.
 
 Fix defects or ask only for the reporter fact/action that gates progress.
-Inspect supplied evidence and never ask for details already present. Trace
-symptoms to their owner; one fix does not close a distinct unresolved symptom.
+Inspect supplied evidence and never ask for details already present. Try local
+reproduction and investigate our access, config, and observability first.
+Trace each symptom to its owner; one verified fix does not close another
+scope. For evidence limits, name what was attempted and the exact remaining
+blocker. Use **Skipped** only for non-defects. **Open - no question** is
+ledger-only: state the internal next action and owner.
 
 ## Phase 1: answer the people who answered you
 
-Answer new human replies on every root carrying this actor's `👀`, `✅`, or
-`🎫` before newer reports, including roots with a checkmark; a checkmark never
-hides a new answer. Skip another actor's root or a scope handed to another
-task.
+Answer eligible questions first; the ownership gate excludes prior-run marked
+questions, even if a reporter has since replied.
 
-Use Slack as the ledger. Continue disclosure searches and reply scans from the
-saved cursor; on the first run, use available history. Start a day before the
-cursor because `after:` is date-only. Resolve hits to roots, check ownership,
-and read the full thread. Count only a human reply after the question that
-addresses it and lacks this workflow's disclosure; a newer answer reopens the
-question. See
-[`slack-reaction-replies.md`](references/slack-reaction-replies.md) for the
-queries and cursor details.
+Slack is the ledger; a per-run state file cannot carry state across runs. First,
+exhaust this search to enumerate prior questions and context:
 
-- **Answered:** use the new evidence and try the fix before asking anything
-  else. If the person says it is resolved elsewhere, record that source and
-  close only that scope as **Resolved elsewhere**.
-- **No answer, under four days:** wait without posting again.
-- **No answer after four days:** mark **Abandoned - no answer in 4 days**;
-  preserve existing reactions and carry any remaining internal work in the
-  current status. Do not re-ask.
+```
+slack_search: "this was sent from a bot." in:<#CHANNEL>
+  sort=timestamp sort_dir=asc include_context=true max_context_length=300
+```
 
-For legacy replies without a bot disclosure or eye, search once per connected
-identity and inspect the author and full thread. End every new or edited Slack
-reply with the exact sentence `this was sent from a bot.`; a connector footer
-is not a substitute.
+Keep context and exhaust pages; include human replies regardless of
+punctuation. Open only eligible threads with a human reply.
+
+**The parent is the permalink's `thread_ts`.** `Message_ts` is your own
+reply's timestamp; acting on it targets the wrong message.
+
+Find replies even when their parent is older than the five-day scan. Read this
+channel's prior reply-scan cursor; without one, scan all available history. A
+new reply can belong to an old disclosure, so search all channel messages over
+an overlapping date window instead of cursor-filtering the disclosure search:
+
+```
+slack_search: in:<#CHANNEL> after:<YYYY-MM-DD>
+  sort=timestamp sort_dir=asc
+```
+
+Filter hits by their timestamp, resolve parent `thread_ts`, and check reactions
+first. Skip marked parents without opening threads. Never filter by the older
+parent timestamp; `after:` is date-only, so start a day earlier and exhaust
+pages. Advance the cursor to the greatest processed hit.
+
+Count a question answered only when a person posts after it without this
+workflow's disclosure marker; read the thread to reject partial, unrelated, or
+deferred replies. Count each answer once; only a newer message reopens it.
+Enumerate answered threads before new work and recap the count. Keep unanswered
+**Clarification needed** pending until answered, resolved, or four days old;
+other dispositions do not substitute. Reapply Phase 0 eye/checkmark rules.
+
+Apply the age branches only to unanswered **Clarification needed** threads;
+restore any such thread mistakenly marked **Open - no question**.
+
+- **Someone answered** → highest priority in the run, ahead of every newer
+  report: the evidence you said blocked you now exists. Rebuild it and attempt
+  the fix. Reply **Fixed** only after all four bars pass; otherwise keep the
+  clarification open. Never ask a follow-up before trying the fix.
+  An answer that the issue is already resolved, fixed elsewhere, or not ours —
+  a linked PR, "not a Clips issue" — is still an answer. Close it as
+  **Resolved elsewhere** (terminal, and distinct from **Skipped**, which means
+  out of scope): keep our `👀` and record who resolved it and where. The
+  participant's reply is the status; do not add `✅`.
+- **No answer, posted under 4 days ago** → leave it. Post nothing. A second
+  message is a nag, not a follow-up.
+- **No answer, posted over 4 days ago** → the question failed. Do not remind or
+  re-ask. Keep the `👀`, record **Abandoned - no answer in 4 days** once in the
+  thread without a new question, and carry any still-relevant bug forward as an
+  internal investigation.
+
+Search without `after`, then apply the four-day expiry; disclosure is the
+cross-identity cursor. For legacy replies without disclosure or eyes, run once
+per valid workflow identity:
+
+```
+slack_search: from:<EACH_WORKFLOW_IDENTITY> in:<#CHANNEL>
+  sort=timestamp sort_dir=asc
+```
+
+Classify these hits by clarification wording (for example, `if you can share`),
+not as the discovery cursor. Inspect author and full thread; never re-ask a
+result from either search. Search the disclosure string, not a display name,
+and include it in every reply.
 
 ## Classification rules
 
-Phase 0 applies these to parent-level claim decisions; Phase 2 reapplies them
-after full-thread review.
+Phase 0 applies these from parent-level evidence to decide what to claim.
+Phase 2 reapplies these rules after full-thread review.
+
+Use `## Slack channels` unless the invocation narrows scope.
 
 **Automated diagnostics are feedback.** For Slack, gate before reading.
 Before claiming, use only alert/link metadata. Follow
@@ -177,11 +191,12 @@ or review request, irrelevant bot forward, duplicate, or work outside the
 invocation's ownership.
 
 **Subjective UX proposals need human review.** Adding buttons/chrome or changing
-visibility, placement, emphasis, or discoverability is a proposal, not a
-defect. Check overflow, keyboard, Cmd+K, and contextual surfaces. Recap the ask,
-findings, options, recommendation, and tradeoff; mark **Skipped**. Even an
-upvote routes these to human review. If claimed, reply **Skipped**; keep the eye
-as permanent history and don't ask the reporter to choose.
+visibility, placement, emphasis, or discoverability (including “hard to find”)
+is a product proposal, not a defect. Check overflow, keyboard, Cmd+K, and
+contextual surfaces first. Recap the ask, findings, options, recommendation,
+and tradeoff; mark **Skipped**. A report or `:upvote:` never authorizes automatic
+implementation; only a user-directed task may implement an approved approach.
+If claimed, keep 👀, post **Skipped** once, and don't ask the reporter to choose.
 
 Auto-fix objective defects only: broken behavior/results, misalignment,
 overlap/clipping, illegibility, unusable focus/targets, jank, jitter,
@@ -190,9 +205,10 @@ failures with `text-heavy-ui`. Content remains Alice's unless claimed.
 
 ### `:upvote:` authorizes feature requests
 
-Only an `:upvote:` from **the invoking identity** promotes an otherwise
-out-of-scope feature request into scope. Subjective UX proposals still need
-human review.
+An `:upvote:` from **the invoking identity** - not from anyone else - promotes
+an otherwise out-of-scope item into scope and authorizes the work. Subjective
+UX proposals are the exception: an upvote routes them for human review, not
+implementation by this sweep.
 
 Find them alongside the newest-message scan:
 
@@ -206,14 +222,14 @@ the query also returns ordinary replies and old polls that happen to carry the
 reaction. Take the ones that name a concrete improvement; skip the rest
 without comment.
 
-An upvote waives only the clear-bug bar; ownership, reaction, verification,
-and question-budget rules stay unchanged.
+An upvote endorses an otherwise out-of-scope **feature request** and skips only
+the clear-bug bar; it does not change ownership, reaction, verification, or
+question-budget rules. Subjective UX proposals remain review-only as above.
 Build the smallest eligible endorsed version, name Sid or Alice, and state
 requested versus actual behavior in the recap. Add `👀` before investigation or
-delegation and read it back. Keep new work evidence-limited until Phase 2's
-four bars hold. Lack of an upvote prevents starting new feature work; it does
-not prevent crediting an already-merged matching implementation: verify that
-scope against Phase 2, record it **Fixed**, and add `✅` when its proof passes.
+delegation and read it back. Keep it evidence-limited until Phase 2's four bars
+hold; then use **Shipped** and add `✅` once the accepted improvement is
+delivered and verified.
 
 Don't search `has::eyes:`; use the owner or handoff path above.
 
@@ -224,7 +240,6 @@ deduplicated against Slack. If a source cannot be read, record it as
 query.
 
 <!-- framework-repo-only:start -->
-
 ### CI failures
 
 Run `pnpm ci:red-report`; follow [CI triage](references/ci-red-report.md).
@@ -233,45 +248,11 @@ read artifacts and keep occurrences here, never issue-track them.
 Query failures mean **CI unavailable**, not empty. Deploy/release/publish rows
 follow [`deployment-recovery.md`](references/deployment-recovery.md) and stay
 active through target proof; track source-fix disposition separately.
-
 <!-- framework-repo-only:end -->
 
 ### GitHub issues, Sentry, and Agent-Native Analytics are first-class feedback
 
-Read each issue's body, comments, author, labels, linked PRs. Treat
-prior `fixed`, `shipped`, or `merged` comments as leads; recheck the surface.
-When a fix merges, record **Fixed** and link proof in the recap. Close a GitHub
-issue only when this invocation explicitly authorizes it; otherwise record the
-pending close. Track release/runtime gaps separately.
-
-Before claiming an issue, check comments for handoffs. If someone offers a PR,
-or Steve asks them to, mark **Owned elsewhere**; do not investigate, edit, test,
-ship, reply, or close it. A direct request overrides this.
-
-Fix root causes or ask what's blocking; triage human issues, not automated
-finding mirrors covered by QA rollups. Feature requests and
-subjective feedback need user/`:upvote:` authorization. Ask three questions max;
-re-read before posting/closing.
-
-Query both production Sentry projects - frontend/browser and backend/CLI -
-paginate unresolved issues, and record representative events, releases, and
-fingerprints. Classify each as repo-owned, external/provider,
-deployment/configuration, or unclear. Fix repo-owned failures at the boundary
-and verify locally. Use hosted runtime only when the full symptom cannot be
-reproduced locally and hosted behavior is needed. Track release gaps separately;
-don't hold a merged fix open. Record other external actions; silence or a stale
-release doesn't prove the error is gone.
-
-Query authenticated Agent-Native Analytics error issues in parallel. Use
-`list-error-issues` for unresolved groups, then `get-error-issue` for stacks,
-occurrences, breadcrumbs, tags, and replay links. It captures client exceptions
-and server `captureError()` failures when the server Analytics key/provider is
-configured. Use it as the Sentry fallback when rate-limited. Do not query
-`error_issues` or `error_events` through
-`query-agent-native-analytics`; use that action only for bounded event/LLM
-correlation. Apply the same local-first rule. Fix worthwhile repo-owned failures
-at their boundary; record external, deployment, or unclear issues without
-inventing a fix.
+Follow [`external-feedback-sources.md`](references/external-feedback-sources.md). Close a GitHub issue only when this invocation authorizes it. Never investigate, edit, reply to, or close an issue another person has offered to handle (**Owned elsewhere**), unless the invocation directly asks.
 
 ### Chat run health
 
@@ -300,13 +281,6 @@ Open every screenshot, clip, and linked artifact. The error text in a
 screenshot is usually the whole diagnosis. Track an artifact that is
 permission-gated or expired separately from one that was never provided —
 inaccessible is not absent.
-For Slack, this includes `Files:` attached to both channel messages and thread
-replies. Preserve each file ID/name/MIME type in the inventory, read the file's
-contents, and include attachment-only replies in the latest-human-reply check;
-blank message text does not mean the reply or evidence is absent. If file
-contents cannot be opened, keep the scope unresolved and name the access limit.
-Follow [`channel-inventory.md`](references/channel-inventory.md) for the
-inventory fields and checker contract.
 
 ### Attempt local reproduction before evidence-limiting
 
@@ -403,50 +377,45 @@ instruction or prompt exception.
 
 ## Phase 3: reply
 
-Thank issue reporters for opening it and Slack reporters for sharing. While
-work continues, name the concrete action and owner. If reporter input blocks a
-fix, ask the direct question and say why the answer matters. Never send
-**Open**/**pending** with only a symptom or evidence description. For
-inaccessible artifacts, ask for the required access grant or share setting;
-don't request a new link when the current one works. Follow
-`address-feedback-with-replies`. End Slack replies with
-`this was sent from a bot.`.
+Thank issue reporters for opening issues and Slack reporters for sharing.
+Before posting, inspect the full thread and follow the one-reply gate in
+`address-feedback-with-replies` and the [Slack reply reference](references/slack-reaction-replies.md):
+send one concise disposition covering done, remaining, and next action/owner.
+Do not reply again to announce merge, publication, or live beta; answer direct
+reporter follow-ups. End Slack replies with `this was sent from a bot.`.
 
-Short replies: say the change, limits, and next step. Link merged PRs and say
-they're merged. Keep hashes, branches, CI, publisher, and run details in recap.
-Beta fixes follow reference for timing and live status; state other availability
-plainly.
+Replies are one or two sentences: the change or question, its limit, and the next step. Never explain reactions, ledgers, or tickets. Never send **Open**/**pending** or a symptom recap. Ask for reporter input only when it changes the next step; never request supplied evidence or internal access. Keep hashes, branches, CI, publisher, and run details in the recap.
 
-Share only new or useful information.
+Keep publisher and beta checks in the internal recap after the disposition;
+they do not trigger a second reporter reply.
 
 ### After a PR merges
 
-Follow [`slack-reaction-replies.md`](references/slack-reaction-replies.md) for
-post-merge beta ETAs and package replies.
+Track publisher state and beta verification in the internal recap. Do not send
+a routine post-merge reporter reply; answer only a direct reporter follow-up.
 
 For a fixed behavior with a ticketed handoff, state the done behavior and
 remaining action/owner/ticket separately; don't imply the fixed scope is open.
 Don't promise a ticket until created and assigned. Ask one targeted question if
-needed. Do not reopen Slack in later runs to reply.
+needed.
 
 - **Fixed** / **Shipped** / **Live verified** meet Phase 2 bars. Recorded live
-  observations may be silent; merged Slack fixes still get the reply above.
-  **Shipped** is for upvoted improvements.
+  observations may be silent. **Shipped** is for upvoted improvements.
 - **In progress** — name continuing work and its owner; ask nothing.
 - **A question** — follow the rules below.
 
 Unclaimed scope/noise gets an internal recap row. Cluster duplicates. Before
-replying, apply the Slack ownership gate: stay out of other actors' marks and
-active human work; reconcile your own inherited eyes.
+replying, apply the Slack ownership gate; stay out of marked messages and active
+human work.
 
 ### Ask only answerable questions
 
-Ask one direct question per blocked defect only when its answer changes
-reproduction or unblocks the fix. Keep one pending question per thread and try
-the fix before following up. Never request supplied logs/IDs, internal
-access/config/tooling, subjective choices, or irrelevant details. If a missing
-user-visible link or ID blocks reproduction, ask for it and say where to find
-it; for an inaccessible artifact, request a fresh link.
+Ask one direct question per blocked defect when the answer changes reproduction
+or unblocks the fix; there is no per-run cap. Keep one pending question per
+thread and try the fix before any follow-up. Never request supplied logs/IDs,
+internal access/config/tooling, subjective choices, or irrelevant details. If a
+missing user-visible link or ID blocks reproduction, ask for it and say where
+to find it. For an inaccessible artifact, request a fresh link.
 
 ## Verification and identity
 
@@ -471,27 +440,31 @@ or issue comments.
 
 ## Publishing
 
-Use this worktree's branch and batch fixes with one
+Use this worktree's branch. Batch fixes with one
 `corepack pnpm ship:push -m "<specific fix>"`; each head reruns CI. Sync
-`origin/main` only for PR conflicts; use normal merges on shared branches.
-Behind/pending is not a reason to sync.
+`origin/main` only for GitHub conflicts; prefer normal merges on shared
+branches. Behind/pending never justify syncing.
 
 Use `/ship` for PR ownership, push, and merge checks. Never push to another
-person's PR without exact authorization. Push-only means `ship_mode=ready-only`;
-merge requires separate authorization. Otherwise hand off as pending. Carry
-evidence and dispositions into PRs, referencing only issues they fix. Keep
-source-tested, built, deployed, and live-observed claims separate.
+person's PR without explicit authorization for that exact PR in this request.
+Push-only authorization means `ship_mode=ready-only`; merging requires separate
+authorization for that PR. Without push authorization, hand off as pending.
+Carry feedback evidence and dispositions into PRs; reference only issues the
+PR fixes.
+Keep source-tested, built, deployed, and observed-live claims separate.
 
-Carry tracker row IDs and reproduction ledgers into the PR or release recap;
-tracker status is not shipping evidence. Mark every row independently and link
-source/docs changes to their PR or commit, other dispositions to evidence or
-owner.
+Carry exact tracker row ids and the reproduction ledger into the PR or release
+recap; tracker status is not shipping evidence. Mark each row independently: a
+reaction, checkmark, or "reviewed" cannot cover multiple rows, including
+expected, docs-owned, cross-team, or duplicate items. Link each source/docs
+change to its exact PR or commit, and each non-coding disposition to its
+evidence or owner.
 
-If no fix is verified, say why shipping did not start. Unavailable connectors
-and external failures are not blockers. **Clarification needed** stays open
-with `👀` and no `✅`; it blocks independent fixes only if it could affect the
-PR. Later runs reconcile the eye and new answers without restarting a verified
-scope.
+If no fix is verified, recap why shipping did not start. Unavailable connectors
+and external failures are not shipping blockers.
+While waiting, **Clarification needed** stays open with `👀` and no `✅`; it
+must not block independent fixes unless it could affect a PR change. Later runs
+skip the eye under the ownership gate.
 
 ## Recap
 
@@ -500,25 +473,21 @@ message details.
 
 ```md
 ## Feedback sweep
-
 Start cursors: product [Slack message](...) · QA [Slack message](...) · dev [Slack message](...)
 Reply cursors (reuse next run): product <timestamp> · QA <timestamp> · dev <timestamp>
 Messages: product N · QA N · dev N (total N)
 Deployment cursor: <timestamp> · carried active run IDs/rows: <ids/count>
 Release lanes: N inspected · failed/stale N · target verified N
-Reaction-gated skips: N · claimed N · answered N
+Gated skips (reactions, person-assigned threads, Steve's `:mag:`): N · claimed N · answered N
 Questions asked: N · Dropped at 4 days: N
 Repeats of a prior Fixed claim: N (each with its earlier thread and failed fix)
 Upvoted items in scope: N (built: N)
 
-| Tracker/source or workflow run            | Reporter/owner | Status        | Repro or failed step                      | Pre/post/recovery         | Run/SHA/target/version/artifact/runtime proof | Locales             | Handoff (action/owner/ticket)      | Reply proof             | Reactions                                   |
-| ----------------------------------------- | -------------- | ------------- | ----------------------------------------- | ------------------------- | --------------------------------------------- | ------------------- | ---------------------------------- | ----------------------- | ------------------------------------------- |
-| 18 / [thread](...) or [workflow run](...) | ...            | <disposition> | steps; expected/actual or failed job/step | before/after/recovery run | source/tests/build/run/SHA/target/version/URL | updated/N/A/pending | none or action/owner/[ticket](...) | [reply](...) or blocker | 👀 claim; ✅ Fixed; 🎫 human handoff needed |
-
+| Tracker/source or workflow run | Reporter/owner | Status | Repro or failed step | Pre/post/recovery | Run/SHA/target/version/artifact/runtime proof | Locales | Handoff (action/owner/ticket) | Reply proof | Reactions |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 18 / [thread](...) or [workflow run](...) | ... | <disposition> | steps; expected/actual or failed job/step | before/after/recovery run | source/tests/build/run/SHA/target/version/URL | updated/N/A/pending | none or action/owner/[ticket](...) | [reply](...) or blocker | 👀 claimed; ✅ completed and verified; 🎫 follow-up action/owner needed |
 <!-- framework-repo-only:start -->
-
 | CI fingerprint · N runs · [latest run](...) | N/A | class · disposition | failed job/step | pre/post | test fix/quarantine; deploy target proof | N/A | owner/task record or [QA rollup](...) | N/A | N/A |
-
 <!-- framework-repo-only:end -->
 
 Sibling sweep: <fingerprint> - N hits, M fixed, K triaged

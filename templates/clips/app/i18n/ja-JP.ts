@@ -2,6 +2,23 @@ const messages = {
   meetingAsk: {
     resizeOrDismissAnswers: "回答欄のサイズを変更、または閉じる",
   },
+  meetingBrowserConfirmation:
+    "Clips はこのブラウザのマイク使用を検出しましたが、会議中のタブを特定できません。",
+  meetingReplacement: {
+    title: "会議メモの確認が必要です",
+    description:
+      "前の会議のメモを保存できませんでした。この会議を開始する前にコピーしてください。",
+    copyAndStart: "メモをコピーして開始",
+    actionFailed: "会議の復旧を続行できませんでした。もう一度お試しください。",
+  },
+  quitRecovery: {
+    title: "会議の終了処理中です",
+    body: "Clips は会議を停止して保存する処理を完了していません。今終了すると、最新の文字起こしが失われる可能性があります。",
+    keepOpen: "Clips を開いたままにする",
+    quitAnyway: "終了する",
+    actionFailed:
+      "Clips の終了時の復旧状態を更新できませんでした。もう一度お試しください。",
+  },
   lookbackContext: {
     includeLast: "直前を含める",
     whatIsThis: "これは何ですか？",
@@ -1603,6 +1620,9 @@ const messages = {
     disconnected: "マイクが切断されました。",
   },
   storageSetup: {
+    builderStorageOffer:
+      "Builder.io の無料プランには動画ストレージが含まれ、ワンクリックで設定できます。",
+    customKeys: "カスタムキー",
     builderConnectPopupError:
       "Builder.io を開けませんでした。このアプリがチャットに埋め込まれている場合はブラウザーのタブで開き、それ以外の場合はもう一度お試しください。",
     builderConnectError:
@@ -1623,8 +1643,7 @@ const messages = {
       "Builder.io ストレージの準備ができていることを確認できませんでした。もう一度お試しください。",
     builderConnected: "Builder.io 接続済み",
     waitingForBuilder: "Builder を待機中...",
-    description:
-      "録画した動画を Builder.io または S3 互換ストレージに保存します。Builder.io には無料のホスティングと AI クレジットが含まれています。",
+    description: "録画した動画の保存先を選びます。",
     createBuilderAccount: "Builder.io を使う",
     signInWithBuilderAccount: "Builder.io アカウントでサインイン",
     free: "無料",

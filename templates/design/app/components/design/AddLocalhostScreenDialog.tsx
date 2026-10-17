@@ -161,6 +161,7 @@ export function AddLocalhostScreenDialog({
     routes.length === 0 &&
     search.trim().length === 0;
   const showNoRoutes =
+    search.trim().length > 0 &&
     !connectionsFetching &&
     !connectionError &&
     search.trim().length > 0 &&

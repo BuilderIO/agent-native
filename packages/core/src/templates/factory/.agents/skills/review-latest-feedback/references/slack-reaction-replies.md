@@ -1,5 +1,7 @@
 # Slack Reaction Replies
 
+Use the connected Slack integration for every Slack read and write. Never use a browser, screenshots, or UI automation to operate Slack.
+
 At sweep exit, reconcile every report root in the scoped inventory that has
 this task's `👀`, `✅`, or `🎫`, including marks left by earlier runs. Capture
 the exact Slack actor ID used by the connected tool at sweep start. A mark is
@@ -203,14 +205,14 @@ and state the exact question; do not add `🎫` solely for that wait. Use `🎫`
 only after a named person accepts that distinct action in the source thread. A
 role or requested handoff without acceptance does not qualify.
 
-Preserve cluster handling: identify known duplicates before claiming them;
-represent duplicate non-owner threads by permalink and **Clustered** in one
-owner-thread status. Do not react or reply in a non-owner thread unless a
-distinct question or update needs its own disposition; if it does, react and
-reply there as a separate item. If a duplicate is discovered after this run
-added `👀`, record its permalink in the owner's **Clustered** status and keep
-the eye as history. Keep distinct scopes and their current disposition clear
-in the status reply.
+Resolve duplicate clusters before claiming. Represent non-owner duplicates
+by permalink and **Clustered** in one owner-thread status; do not react or reply
+separately unless a distinct question needs its own disposition. For a late
+duplicate that already has `👀`, recheck ownership. If this task still owns it,
+keep the eye and post one concise **Clustered** reply with the owner permalink;
+do not send a second owner update. If another task owns it or ownership is
+unclear, preserve the eye, record the source in the ledger, and stop. Keep
+distinct scopes and their status clear.
 
 Compare each reported symptom with the evidence. State what is fixed and what
 is not. Use one root `✅` when at least one fixed scope is verified; it covers every
@@ -226,17 +228,17 @@ has accepted, keep `👀` and state who still needs to act or what reporter inpu
 is needed, with no `🎫`. Do not create or promise a ticket without
 authorization. Never imply a partial fix resolved the whole report.
 
-For beta app fixes, check the matching merge-triggered publisher, but keep its
-details in the recap. In the reply, link the merged PR and say it merged, then
-give the beta status in plain language. Say the behavior is live on beta only
-after checking it there. While publication is queued or running, say the update
-should arrive within about 24 hours. If publication finished but the app or
-behavior is unavailable to check, say the beta update is out and briefly name
-what could not be checked. If the publisher is missing or failed, give no ETA
-and state the next action and owner. Leave commit hashes, branch names, CI
-results, workflow or publisher details, and run IDs out of reporter replies.
-For packages, link the merged PR and state availability without verification
-details.
+For beta app fixes, check the matching merge-triggered publisher and keep
+details in the recap. Do not post a routine second reply for merge or rollout.
+If a reporter-facing reply is otherwise due, link the merged PR and state the
+beta status in plain language. Say it is live only after checking it there. If
+publication is pending, say it should follow soon without an exact date. If
+the app or behavior cannot be checked, name that limit. If the publisher is
+missing or failed, give no ETA and name the next action and owner. Keep hashes,
+branch names, CI, workflow details, and run IDs out of reporter replies. For
+package work, distinguish the source PR from any release PR and registry proof;
+source merge alone does not establish publication. Give no ETA for a pending
+package release.
 
 For every reply in each final full-thread snapshot, record a read-back of the
 workflow reactions on that reply. If the connector shows `👀`, `✅`, or `🎫`,

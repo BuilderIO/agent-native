@@ -2,6 +2,24 @@ const messages = {
   meetingAsk: {
     resizeOrDismissAnswers: "Cambiar el tamaño o cerrar las respuestas",
   },
+  meetingBrowserConfirmation:
+    "Clips detecta actividad del micrófono en este navegador, pero no puede saber qué pestaña está en la reunión.",
+  meetingReplacement: {
+    title: "Hay notas de reunión que requieren atención",
+    description:
+      "No se pudieron guardar las notas de la reunión anterior. Cópialas antes de empezar esta reunión.",
+    copyAndStart: "Copiar notas y empezar",
+    actionFailed:
+      "No se pudo continuar con la recuperación de la reunión. Inténtalo de nuevo.",
+  },
+  quitRecovery: {
+    title: "Clips aún está terminando la reunión",
+    body: "Clips aún no ha terminado de detener y guardar esta reunión. Si sales ahora, es posible que se pierda la transcripción más reciente.",
+    keepOpen: "Mantener Clips abierto",
+    quitAnyway: "Salir de todos modos",
+    actionFailed:
+      "Clips no pudo actualizar el estado de recuperación. Inténtalo de nuevo.",
+  },
   lookbackContext: {
     includeLast: "Incluir los últimos",
     whatIsThis: "¿Qué es esto?",
@@ -1622,6 +1640,9 @@ const messages = {
     disconnected: "Micrófono desconectado.",
   },
   storageSetup: {
+    builderStorageOffer:
+      "El plan gratuito de Builder.io incluye almacenamiento de vídeo y configuración en un clic.",
+    customKeys: "Claves personalizadas",
     builderConnectPopupError:
       "No se pudo abrir Builder.io. Si esta aplicación está integrada en un chat, ábrela en una pestaña del navegador; de lo contrario, inténtalo de nuevo.",
     builderConnectError:
@@ -1643,8 +1664,7 @@ const messages = {
       "No se pudo confirmar que el almacenamiento de Builder.io esté listo. Inténtalo de nuevo.",
     builderConnected: "Builder.io conectado",
     waitingForBuilder: "Esperando a Builder...",
-    description:
-      "Guarda los vídeos grabados con Builder.io o con almacenamiento compatible con S3. Builder.io incluye alojamiento gratuito y créditos de IA.",
+    description: "Elige dónde guardar los vídeos grabados.",
     createBuilderAccount: "Usar Builder.io",
     signInWithBuilderAccount: "Iniciar sesión con una cuenta de Builder.io",
     free: "Gratis",

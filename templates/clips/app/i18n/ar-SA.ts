@@ -2,6 +2,21 @@ const messages = {
   meetingAsk: {
     resizeOrDismissAnswers: "تغيير حجم الإجابات أو إغلاقها",
   },
+  meetingBrowserConfirmation:
+    "يرصد Clips نشاط الميكروفون في هذا المتصفح، لكنه لا يستطيع تحديد علامة التبويب المستخدمة في الاجتماع.",
+  meetingReplacement: {
+    title: "تحتاج ملاحظات الاجتماع إلى انتباهك",
+    description: "تعذر حفظ ملاحظات الاجتماع السابق. انسخها قبل بدء هذا الاجتماع.",
+    copyAndStart: "نسخ الملاحظات وبدء الاجتماع",
+    actionFailed: "تعذر متابعة استعادة الاجتماع. حاول مرة أخرى.",
+  },
+  quitRecovery: {
+    title: "ما زال Clips يُنهي الاجتماع",
+    body: "لم يُكمل Clips إيقاف هذا الاجتماع وحفظه بعد. قد تفقد أحدث نسخة من النص إذا أغلقت التطبيق الآن.",
+    keepOpen: "إبقاء Clips مفتوحًا",
+    quitAnyway: "إنهاء على أي حال",
+    actionFailed: "تعذر على Clips تحديث حالة استعادة الإنهاء. حاول مرة أخرى.",
+  },
   lookbackContext: {
     includeLast: "تضمين آخر",
     whatIsThis: "ما هذا؟",
@@ -1582,6 +1597,9 @@ const messages = {
     disconnected: "تم فصل الميكروفون.",
   },
   storageSetup: {
+    builderStorageOffer:
+      "تتضمن الخطة المجانية من Builder.io تخزينًا للفيديو، مع إعداد بنقرة واحدة.",
+    customKeys: "مفاتيح مخصصة",
     builderConnectPopupError:
       "تعذّر فتح Builder.io. إذا كان التطبيق مضمّنًا في محادثة، فافتحه في علامة تبويب بالمتصفح؛ وإلا فحاول مرة أخرى.",
     builderConnectError:
@@ -1601,8 +1619,7 @@ const messages = {
     builderTimeout: "تعذّر تأكيد جاهزية تخزين Builder.io. حاول مرة أخرى.",
     builderConnected: "Builder.io متصل",
     waitingForBuilder: "بانتظار Builder...",
-    description:
-      "خزّن مقاطع الفيديو المسجّلة باستخدام Builder.io أو تخزين متوافق مع S3. يتضمّن Builder.io استضافة مجانية ورصيد ذكاء اصطناعي.",
+    description: "اختر مكان تخزين مقاطع الفيديو المسجّلة.",
     createBuilderAccount: "استخدم Builder.io",
     signInWithBuilderAccount: "تسجيل الدخول بحساب Builder.io",
     free: "مجاني",
