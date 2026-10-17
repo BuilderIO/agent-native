@@ -61,7 +61,7 @@ async function runScorer(
 interface ScoreEvalOptions {
   thresholdOverride?: number;
   onRunOutput?: (output: AgentRunOutput) => void;
-  /** Preserve production policy when scoring through the lower-level APIs. */
+  /** Lower-level callback evals must explicitly declare a non-production path. */
   productionPath?: boolean;
 }
 
@@ -89,10 +89,10 @@ export async function scoreEval(
 
   if (
     evalCase.run &&
-    (opts.productionPath || isProductionContextAgentRunner(runner))
+    (opts.productionPath !== false || isProductionContextAgentRunner(runner))
   ) {
     throw new Error(
-      "Production-path evals cannot define custom run callbacks; every case must use the production chat adapter.",
+      "Production-path evals cannot define custom run callbacks; lower-level APIs require an explicit non-production path.",
     );
   }
   if (

@@ -249,9 +249,7 @@ describe("scoreEval with a JS scorer", () => {
       scoreEval(evalCase, reconstructedRunnerWithForwarders),
     ).rejects.toThrow("cannot define custom run callbacks");
     await expect(
-      scoreEval(evalCase, reconstructedWithFreshEngine, {
-        productionPath: true,
-      }),
+      scoreEval(evalCase, reconstructedWithFreshEngine),
     ).rejects.toThrow("cannot define custom run callbacks");
     await expect(
       runEvals([evalCase], runner, { persist: false }),
@@ -265,7 +263,6 @@ describe("scoreEval with a JS scorer", () => {
     await expect(
       runEvals([evalCase], reconstructedWithFreshEngine, {
         persist: false,
-        productionPath: true,
       }),
     ).rejects.toThrow("cannot define custom run callbacks");
 
