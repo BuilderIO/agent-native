@@ -539,6 +539,30 @@ export const DESIGN_E2E_REGRESSION_PINS = [
     title:
       "Keyboard paste preserves relative roots without an anchor across screens",
   },
+  {
+    shard: "drag-1a",
+    file: "board-option-drag-placement.spec.ts",
+    title:
+      "an Option-drag copy dropped on empty board space between layers lands at the release point",
+  },
+  {
+    shard: "drag-1b",
+    file: "interaction-drag-reparent.spec.ts",
+    title:
+      "a screen layer dropped on the board stays there when the screen save's response is cut off",
+  },
+  {
+    shard: "drag-2a",
+    file: "drag-release-coordinates.spec.ts",
+    title:
+      "an Alt pressed after the last move does not copy at a release the move never reached",
+  },
+  {
+    shard: "inspector-4b",
+    file: "design-component-behavior.spec.ts",
+    title:
+      "redoing a duplicated component while the undo's save is in flight reads no missing node",
+  },
 ] as const satisfies readonly DesignE2ERegressionPin[];
 
 function escapeRegExp(value: string): string {

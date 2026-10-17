@@ -1077,6 +1077,83 @@ test.describe("drag reparent interaction", () => {
       .toBe(true);
   });
 
+  test("a screen layer dropped on the board stays there when the screen save's response is cut off", async ({
+    app,
+    page,
+  }) => {
+    const id = await newTwoScreenDesign(app);
+    await gotoEditor(page, id);
+    const screenId = await fileIdFor(page, id, "index.html");
+    const widget = await boxFor(page, screenId, "widget");
+    const boardPoint = await emptyBoardPoint(page);
+
+    // The server applies the screen's save, then its response body is lost,
+    // as when the page reloads before the response is read.
+    let cutResponses = 0;
+    await page.route("**/_agent-native/actions/update-file", async (route) => {
+      const body = route.request().postDataJSON() as { id?: string } | null;
+      if (body?.id !== screenId || cutResponses > 0) return route.continue();
+      cutResponses += 1;
+      const response = await route.fetch();
+      await route.fulfill({
+        status: response.status(),
+        headers: response.headers(),
+        body: '{"id":',
+      });
+    });
+
+    const deepSelectModifier =
+      process.platform === "darwin" ? "Meta" : "Control";
+    await page.keyboard.down(deepSelectModifier);
+    await page.mouse.click(
+      widget.x + widget.width / 2,
+      widget.y + widget.height / 2,
+    );
+    await page.keyboard.up(deepSelectModifier);
+    await expect
+      .poll(
+        async () =>
+          (await selectionContext(page)).selectedElement?.sourceId ?? null,
+      )
+      .toBe("widget");
+    await page.mouse.move(
+      widget.x + widget.width / 2,
+      widget.y + widget.height / 2,
+    );
+    await page.mouse.down();
+    await page.mouse.move(
+      widget.x + widget.width / 2 + 20,
+      widget.y + widget.height / 2,
+      { steps: 5 },
+    );
+    await page.mouse.move(boardPoint.x, boardPoint.y, { steps: 30 });
+    await expect(page.locator("[data-cross-screen-drag-ghost]")).toBeVisible({
+      timeout: 5_000,
+    });
+    await page.mouse.up();
+    await expect.poll(() => cutResponses).toBe(1);
+
+    const widgetIsOnTheBoardOnly = async () => {
+      const indexHtml = await fileContent(page, id, "index.html");
+      const boardHtml = await fileContent(page, id, "__board__.html").catch(
+        () => "",
+      );
+      return (
+        !indexHtml.includes('data-agent-native-node-id="widget"') &&
+        boardHtml.includes('data-agent-native-node-id="widget"')
+      );
+    };
+    await expect.poll(widgetIsOnTheBoardOnly, { timeout: 10_000 }).toBe(true);
+    // A rollback is one more save; wait until every save has settled.
+    await app.settled();
+    await page.unroute("**/_agent-native/actions/update-file");
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(
+      page.getByRole("button", { name: "Move", exact: true }),
+    ).toBeVisible({ timeout: 30_000 });
+    await expect.poll(widgetIsOnTheBoardOnly, { timeout: 10_000 }).toBe(true);
+  });
+
   test("a held screen child dropped beyond the rendered board window persists at that canvas point", async ({
     app,
     page,
