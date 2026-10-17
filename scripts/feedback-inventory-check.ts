@@ -2709,28 +2709,52 @@ function parseRawSlackSearchPage(
     );
   }
   const count = Number(countMatch[1]);
-  const headers = [
-    ...normalizedResults.matchAll(/^### Result (\d+) of (\d+)$/gm),
-  ];
-  if (
-    count < 1 ||
-    headers.length !== count ||
-    headers.some(
-      (header, index) =>
-        Number(header[1]) !== index + 1 || Number(header[2]) !== count,
-    )
-  ) {
+  if (!Number.isSafeInteger(count) || count < 1) {
     throw new Error(
       `${sourceName}: raw Slack result headers do not match the declared result count`,
     );
   }
 
-  const blocks = headers.map((header, index) => {
-    const start = (header.index ?? 0) + header[0].length;
-    const bodyStart = normalizedResults[start] === "\n" ? start + 1 : start;
-    const end = headers[index + 1]?.index ?? normalizedResults.length;
-    return normalizedResults.slice(bodyStart, end);
-  });
+  const blocks: string[] = [];
+  let position = (countMatch.index ?? 0) + countMatch[0].length;
+  for (let resultIndex = 1; resultIndex <= count; resultIndex += 1) {
+    const headerPattern = new RegExp(
+      `^### Result ${resultIndex} of ${count}$`,
+      "gm",
+    );
+    headerPattern.lastIndex = position;
+    const header = headerPattern.exec(normalizedResults);
+    if (!header) {
+      throw new Error(
+        `${sourceName}: raw Slack result headers do not match the declared result count`,
+      );
+    }
+
+    const bodyStart = header.index + header[0].length;
+    const timestampPattern = /\nMessage_ts: [0-9.]+/g;
+    timestampPattern.lastIndex = bodyStart;
+    const timestamp = timestampPattern.exec(normalizedResults);
+    const permalinkPattern = /\nPermalink: \[link\]\([^\n]+\)/g;
+    permalinkPattern.lastIndex = timestampPattern.lastIndex;
+    const permalink = timestamp
+      ? permalinkPattern.exec(normalizedResults)
+      : null;
+    if (!timestamp || !permalink) {
+      throw new Error(
+        `${sourceName}: raw Slack result is missing its timestamp or permalink boundary`,
+      );
+    }
+
+    position = permalink.index + permalink[0].length;
+    blocks.push(normalizedResults.slice(bodyStart, position));
+  }
+  const extraHeaderPattern = /^### Result \d+ of \d+$/gm;
+  extraHeaderPattern.lastIndex = position;
+  if (extraHeaderPattern.exec(normalizedResults)) {
+    throw new Error(
+      `${sourceName}: raw Slack result headers do not match the declared result count`,
+    );
+  }
   return { blocks, nextCursor, exhausted };
 }
 
@@ -4282,8 +4306,20 @@ if (args[0] === "--self-test" && args.length === 1) {
       }
     }
   }
-  const nonEmptyResults =
-    "# Search Results for: in:qa after:2026-10-17\n\n## Messages (2 results)\n### Result 1 of 2\nfirst\n### Result 2 of 2\nsecond";
+  const nonEmptyResults = [
+    "# Search Results for: in:qa after:2026-10-17",
+    "",
+    "## Messages (2 results)",
+    "### Result 1 of 2",
+    "first message contains a heading that resembles connector framing:",
+    "### Result 2 of 2",
+    "Message_ts: 1700000000.123456",
+    "Permalink: [link](https://app.slack.com/archives/C0C4U4XRT6X/p1700000000123456)",
+    "### Result 2 of 2",
+    "second",
+    "Message_ts: 1700000001.123456",
+    "Permalink: [link](https://app.slack.com/archives/C0C4U4XRT6X/p1700000001123456)",
+  ].join("\n");
   const cursorPage = parseRawSlackSearchPage(
     nonEmptyResults,
     "For the next page of results use cursor `next-page`\\n",
@@ -4396,6 +4432,15 @@ if (args[0] === "--self-test" && args.length === 1) {
       results: nonEmptyResults.replace(
         "Messages (2 results)",
         "Messages (3 results)",
+      ),
+      paginationInfo: exhaustedSlackSearchPagination,
+      diagnostic: "result headers do not match the declared result count",
+    },
+    {
+      name: "extra connector result",
+      results: nonEmptyResults.replace(
+        "Messages (2 results)",
+        "Messages (1 result)",
       ),
       paginationInfo: exhaustedSlackSearchPagination,
       diagnostic: "result headers do not match the declared result count",
