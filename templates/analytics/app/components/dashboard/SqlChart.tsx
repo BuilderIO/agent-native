@@ -1273,6 +1273,7 @@ type DatumClickHandler = (datum: ChartDatum) => void;
 interface AccessibleDrilldownItem {
   datum: ChartDatum;
   label: string;
+  valueLabel?: string;
 }
 
 interface AccessibleDrilldownPage {
@@ -1286,11 +1287,13 @@ function chartDrilldownItems(
   rows: Record<string, unknown>[],
   xKey: string,
   seriesKeys: string[],
+  valueKeys: string[],
   formatXLabel: (value: unknown) => string,
   formatSeriesLabel: (key: string) => string,
+  formatValue: (value: unknown, key?: string) => string,
+  formatList: (values: string[]) => string,
   offset: number,
   limit: number,
-  valueKey?: string,
 ): AccessibleDrilldownPage {
   const seriesPerRow = Math.max(seriesKeys.length, 1);
   const total = rows.length * seriesPerRow;
@@ -1308,10 +1311,26 @@ function chartDrilldownItems(
         ? {
             datum: { x, series, value: row[series] },
             label: `${label} · ${formatSeriesLabel(series)}`,
+            valueLabel: formatValue(row[series], series),
           }
         : {
-            datum: { x, value: valueKey ? row[valueKey] : undefined },
-            label,
+            datum: {
+              x,
+              value: valueKeys.length === 1 ? row[valueKeys[0]] : undefined,
+            },
+            label:
+              valueKeys.length > 1
+                ? `${label} · ${formatList(
+                    valueKeys.map(
+                      (key) =>
+                        `${formatSeriesLabel(key)}: ${formatValue(row[key], key)}`,
+                    ),
+                  )}`
+                : label,
+            valueLabel:
+              valueKeys.length === 1
+                ? formatValue(row[valueKeys[0]], valueKeys[0])
+                : undefined,
           },
     );
   }
@@ -1325,21 +1344,62 @@ function useChartDrilldownItems(
   seriesKeys: string[],
   formatXLabel: (value: unknown) => string,
   formatSeriesLabel: (key: string) => string,
-  valueKey?: string,
+  valueKeys: string[],
+  valueFormatter: (value: number, name?: string | number) => string,
 ) {
+  const formatters = useFormatters();
+  const formatAccessibleXLabel = useCallback(
+    (value: unknown) => {
+      const text = stringifyValue(value);
+      const dateKey =
+        /^\d{8}$/.test(text) || /^\d{4}-\d{2}-\d{2}(?:[T ]|$)/.test(text);
+      const date = dateKey ? parseCalendarDate(text) : null;
+      if (!date) return formatXLabel(value);
+      return formatters.formatDate(date, {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        ...(isDailyChartKey(xKey) ? { weekday: "long" } : {}),
+      });
+    },
+    [formatXLabel, formatters, xKey],
+  );
+  const formatValue = useCallback(
+    (value: unknown, key?: string) => {
+      if (value == null || (typeof value === "string" && !value.trim())) {
+        return stringifyValue(value);
+      }
+      const numeric = typeof value === "number" ? value : Number(value);
+      return Number.isFinite(numeric)
+        ? valueFormatter(numeric, key)
+        : stringifyValue(value);
+    },
+    [valueFormatter],
+  );
   return useCallback(
     (offset: number, limit: number) =>
       chartDrilldownItems(
         rows,
         xKey,
         seriesKeys,
-        formatXLabel,
+        valueKeys,
+        formatAccessibleXLabel,
         formatSeriesLabel,
+        formatValue,
+        formatters.formatList,
         offset,
         limit,
-        valueKey,
       ),
-    [rows, xKey, seriesKeys, formatXLabel, formatSeriesLabel, valueKey],
+    [
+      rows,
+      xKey,
+      seriesKeys,
+      formatAccessibleXLabel,
+      formatSeriesLabel,
+      valueKeys,
+      formatValue,
+      formatters.formatList,
+    ],
   );
 }
 
@@ -1386,12 +1446,9 @@ function ChartDrilldownList({
       </summary>
       {open && (
         <ul className="mt-1 max-h-24 space-y-0.5 overflow-y-auto rounded-sm border border-border/50 p-1">
-          {result?.items.map(({ datum, label }, index) => {
-            const valueLabel =
-              datum.value === undefined || datum.value === null
-                ? ""
-                : ` · ${String(datum.value)}`;
-            const pointLabel = `${label}${valueLabel}`;
+          {result?.items.map(({ datum, label, valueLabel }, index) => {
+            const formattedValue = valueLabel ? ` · ${valueLabel}` : "";
+            const pointLabel = `${label}${formattedValue}`;
             return (
               <li key={`${datum.x}:${datum.series ?? ""}:${index}`}>
                 <button
@@ -3037,13 +3094,18 @@ function PieRenderer({
     (value: unknown) => seriesNameFormatter(stringifyValue(value)),
     [seriesNameFormatter],
   );
+  const valueFormatter = useCallback(
+    (value: number) => formatYValue(value, panel.config?.yFormatter),
+    [panel.config?.yFormatter],
+  );
   const drilldownItems = useChartDrilldownItems(
     rows,
     xKey,
     EMPTY_DRILLDOWN_SERIES,
     xLabelFormatter,
     seriesNameFormatter,
-    yKey,
+    [yKey],
+    valueFormatter,
   );
   const legendKeys = rows.map((row) => stringifyValue(row[xKey]));
 
@@ -3263,13 +3325,10 @@ function BarRenderer({
         : EMPTY_DRILLDOWN_SERIES,
     [panel.config?.pivot, yKeys, hiddenKeys],
   );
-  const drilldownItems = useChartDrilldownItems(
-    rows,
-    xKey,
-    drilldownSeriesKeys,
-    xLabelFormatter,
-    seriesNameFormatter,
-    yKeys[0],
+  const drilldownValueKeys = useMemo(
+    () =>
+      panel.config?.pivot ? [] : yKeys.filter((key) => !hiddenKeys.has(key)),
+    [panel.config?.pivot, yKeys, hiddenKeys],
   );
   const dualAxis = resolveDualAxis(yKeys, panel.config, seriesNameFormatter);
   const valueFormatter = seriesValueFormatter(
@@ -3277,6 +3336,15 @@ function BarRenderer({
     dualAxis,
     seriesNameFormatter,
     yFormatter,
+  );
+  const drilldownItems = useChartDrilldownItems(
+    rows,
+    xKey,
+    drilldownSeriesKeys,
+    xLabelFormatter,
+    seriesNameFormatter,
+    drilldownValueKeys,
+    valueFormatter,
   );
 
   return (
@@ -3428,13 +3496,10 @@ function ComboRenderer({
         : EMPTY_DRILLDOWN_SERIES,
     [panel.config?.pivot, yKeys, hiddenKeys],
   );
-  const drilldownItems = useChartDrilldownItems(
-    rows,
-    xKey,
-    drilldownSeriesKeys,
-    xLabelFormatter,
-    seriesNameFormatter,
-    yKeys[0],
+  const drilldownValueKeys = useMemo(
+    () =>
+      panel.config?.pivot ? [] : yKeys.filter((key) => !hiddenKeys.has(key)),
+    [panel.config?.pivot, yKeys, hiddenKeys],
   );
   const dualAxis = resolveDualAxis(yKeys, panel.config, seriesNameFormatter);
   const valueFormatter = seriesValueFormatter(
@@ -3442,6 +3507,15 @@ function ComboRenderer({
     dualAxis,
     seriesNameFormatter,
     yFormatter,
+  );
+  const drilldownItems = useChartDrilldownItems(
+    rows,
+    xKey,
+    drilldownSeriesKeys,
+    xLabelFormatter,
+    seriesNameFormatter,
+    drilldownValueKeys,
+    valueFormatter,
   );
   const barKeySet = new Set(barKeys);
 
@@ -3603,6 +3677,10 @@ function TimeSeriesRenderer({
     () => (panel.config?.pivot ? visibleKeys : EMPTY_DRILLDOWN_SERIES),
     [panel.config?.pivot, visibleKeys],
   );
+  const drilldownValueKeys = useMemo(
+    () => (panel.config?.pivot ? [] : visibleKeys),
+    [panel.config?.pivot, visibleKeys],
+  );
   const dualAxis = resolveDualAxis(yKeys, panel.config, seriesNameFormatter);
   const valueFormatter = seriesValueFormatter(
     yKeys,
@@ -3631,7 +3709,8 @@ function TimeSeriesRenderer({
     drilldownSeriesKeys,
     xLabelFormatter,
     seriesNameFormatter,
-    yKeys[0],
+    drilldownValueKeys,
+    valueFormatter,
   );
   const dataNoteLayout = useDataNoteLayout(dataNotes, chartRows, xKey);
   const eventGroups = useEventMarkerGroups(panelEvents, chartRows, xKey);

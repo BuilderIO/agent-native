@@ -15,7 +15,11 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
-  useFormatters: () => ({ formatNumber: String }),
+  useFormatters: () => ({
+    formatDate: () => "localized date",
+    formatList: (values: string[]) => values.join(" + "),
+    formatNumber: (value: number) => `localized:${value}`,
+  }),
 }));
 
 vi.mock("@/lib/sql-query", () => ({
@@ -313,6 +317,44 @@ describe("SqlChart drilldown clicks", () => {
         'button[aria-label="sqlDashboard.drilldownNextPage"]',
       )?.disabled,
     ).toBe(true);
+  });
+
+  it("lists every visible metric for a non-pivot point with localized labels", async () => {
+    const onDatumClick = vi.fn<(datum: ChartDatum) => void>();
+    const panelWithoutPivot = {
+      ...panel("line"),
+      config: { xKey: "day", yKeys: ["signups", "views"] },
+    };
+
+    await act(async () => {
+      root.render(
+        <SqlChart
+          panel={panelWithoutPivot}
+          onDatumClick={onDatumClick}
+          resultOverride={{
+            rows: [{ day: "2026-10-15", signups: 3, views: 1500 }],
+          }}
+        />,
+      );
+    });
+
+    const disclosure = container.querySelector<HTMLDetailsElement>("details");
+    await act(async () => {
+      disclosure!.open = true;
+      disclosure!.dispatchEvent(new Event("toggle"));
+    });
+
+    const point = disclosure?.querySelector<HTMLButtonElement>("ul button");
+    expect(point?.textContent).toContain("localized date");
+    expect(point?.textContent).toContain("signups: 3");
+    expect(point?.textContent).toContain("views: 1,500");
+
+    await act(async () => point!.click());
+
+    expect(onDatumClick).toHaveBeenCalledWith({
+      x: "2026-10-15",
+      value: undefined,
+    });
   });
 
   it("offers keyboard-operable controls for pie chart slices", async () => {

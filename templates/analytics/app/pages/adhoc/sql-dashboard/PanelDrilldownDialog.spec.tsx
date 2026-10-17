@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   callAction: vi.fn(),
   drilldownQueryOptions: [] as Array<Record<string, unknown>>,
   sqlQueries: [] as Array<{ enabled: boolean; key: unknown; sql: string }>,
+  sqlError: null as unknown,
   sqlRows: [{ record: "aggregate fallback" }] as Record<string, unknown>[],
 }));
 
@@ -32,7 +33,9 @@ vi.mock("@tanstack/react-query", () => ({
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, values?: Record<string, string>) =>
     values ? `${key} ${JSON.stringify(values)}` : key,
-  useFormatters: () => ({ formatNumber: (value: number) => String(value) }),
+  useFormatters: () => ({
+    formatNumber: (value: number) => `localized:${value}`,
+  }),
 }));
 
 vi.mock("@/lib/sql-query", () => ({
@@ -47,7 +50,7 @@ vi.mock("@/lib/sql-query", () => ({
       data: { rows: mocks.sqlRows },
       isLoading: false,
       isFetching: false,
-      error: null,
+      error: mocks.sqlError,
     };
   },
 }));
@@ -143,6 +146,7 @@ describe("PanelDrilldownDialog metadata lookup", () => {
     root = createRoot(container);
     mocks.sqlQueries.length = 0;
     mocks.drilldownQueryOptions.length = 0;
+    mocks.sqlError = null;
     mocks.callAction.mockReset();
     mocks.sqlRows = [{ record: "aggregate fallback" }];
   });
@@ -222,6 +226,9 @@ describe("PanelDrilldownDialog metadata lookup", () => {
     await render();
 
     expect(container.textContent).toContain(
+      '"shown":"localized:2","total":"localized:501"',
+    );
+    expect(container.textContent).toContain(
       "sqlDashboard.drilldownCsvTruncated",
     );
     const downloadButton = Array.from(
@@ -241,6 +248,29 @@ describe("PanelDrilldownDialog metadata lookup", () => {
     expect(click).toHaveBeenCalledTimes(1);
     createObjectURL.mockRestore();
     click.mockRestore();
+  });
+
+  it("disables CSV export when a refetch fails with cached rows", async () => {
+    mocks.actionQuery = {
+      data: {
+        drilldown: { sql: "SELECT record FROM signups" },
+      },
+      isError: false,
+      isLoading: false,
+      isSuccess: true,
+    };
+    mocks.sqlRows = [{ record: "cached result" }];
+    mocks.sqlError = new Error("query failed");
+
+    await render();
+
+    expect(container.textContent).toContain("sqlDashboard.drilldownLoadFailed");
+    const downloadButton = Array.from(
+      container.querySelectorAll("button"),
+    ).find((button) =>
+      button.textContent?.includes("sqlDashboard.drilldownDownloadCsv"),
+    );
+    expect(downloadButton?.disabled).toBe(true);
   });
 
   it("posts long panel SQL in the request body", async () => {

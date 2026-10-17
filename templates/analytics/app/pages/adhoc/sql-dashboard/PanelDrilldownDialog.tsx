@@ -227,8 +227,8 @@ export function PanelDrilldownDialog({
           />
           <span className="text-xs text-muted-foreground tabular-nums">
             {t("sqlDashboard.drilldownShowing", {
-              shown: String(rows.length),
-              total: String(totalMatching),
+              shown: formatNumber(rows.length),
+              total: formatNumber(totalMatching),
             })}
           </span>
           <div className="ml-auto flex items-center gap-1">
@@ -244,7 +244,7 @@ export function PanelDrilldownDialog({
             <Button
               variant="ghost"
               size="sm"
-              disabled={rows.length === 0}
+              disabled={rows.length === 0 || Boolean(error)}
               onClick={() =>
                 downloadCsv(title, columns, rows, csvTruncationMessage)
               }
@@ -262,8 +262,8 @@ export function PanelDrilldownDialog({
         {showMismatch ? (
           <p className="shrink-0 text-xs text-amber-600 dark:text-amber-400">
             {t("sqlDashboard.drilldownCountMismatch", {
-              chart: String(chartValue),
-              total: String(totalMatching),
+              chart: formatNumber(chartValue),
+              total: formatNumber(totalMatching),
             })}
           </p>
         ) : null}
