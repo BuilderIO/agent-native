@@ -14,6 +14,7 @@ import {
 import { accessFilter } from "@agent-native/core/sharing";
 import {
   and,
+  asc,
   eq,
   gt,
   inArray,
@@ -190,36 +191,71 @@ export async function processContentTrashPurge(operationId: string) {
                 eq(schema.contentTrashPurgePlanItems.eligibility, "eligible"),
                 eq(schema.contentTrashPurgePlanItems.outcome, "pending"),
               ),
+            )
+            .orderBy(
+              asc(schema.contentTrashPurgePlanItems.unitId),
+              asc(schema.contentTrashPurgePlanItems.documentId),
             );
-          // In the same transaction as the deletes it allows: a check from an
-          // earlier unit's transaction misses a share revoked since it
-          // committed.
-          const authorizedIds = await authorizedTrashDocumentIds(
-            transactionDb,
-            allPending.map(({ documentId }) => documentId),
-          );
-          const blockedUnits = new Set<string>();
+          // Through every item of a blocked unit, as the planner propagates:
+          // the item that lost access may not be the one whose collection
+          // another unit owns.
+          const ancestorsOf = new Map<string, Set<string>>();
+          const dependentsOf = new Map<string, Set<string>>();
           for (const item of allPending) {
-            if (!authorizedIds.has(item.documentId))
-              blockedUnits.add(item.unitId);
+            for (const ancestor of JSON.parse(
+              item.ancestorUnitIdsJson,
+            ) as string[]) {
+              ancestorsOf.set(
+                item.unitId,
+                (ancestorsOf.get(item.unitId) ?? new Set()).add(ancestor),
+              );
+              dependentsOf.set(
+                ancestor,
+                (dependentsOf.get(ancestor) ?? new Set()).add(item.unitId),
+              );
+            }
           }
-          // Through every item of a blocked unit, to a fixed point, as the
-          // planner propagates: the item that lost access may not be the one
-          // whose collection another unit owns.
-          const dependencies = allPending.map((item) => ({
-            unitId: item.unitId,
-            ancestorUnitIds: JSON.parse(item.ancestorUnitIdsJson) as string[],
-          }));
-          let propagated = blockedUnits.size > 0;
-          while (propagated) {
-            propagated = false;
-            for (const { unitId, ancestorUnitIds } of dependencies) {
-              if (!blockedUnits.has(unitId)) continue;
-              for (const ancestor of ancestorUnitIds) {
-                if (blockedUnits.has(ancestor)) continue;
-                blockedUnits.add(ancestor);
-                propagated = true;
-              }
+          const closure = (start: string, edges: Map<string, Set<string>>) => {
+            const reached = new Set([start]);
+            for (const unitId of reached) {
+              for (const next of edges.get(unitId) ?? []) reached.add(next);
+            }
+            return reached;
+          };
+
+          // In the same transaction as the delete it allows: a check from an
+          // earlier unit's transaction misses a share revoked since it
+          // committed. A unit is blocked exactly when it or a unit that
+          // depends on it has lost access, so only those are checked.
+          const pendingUnits = [
+            ...new Map(allPending.map((item) => [item.unitId, item])).values(),
+          ];
+          const checkedUnits = new Set<string>();
+          const blockedUnits = new Set<string>();
+          let unitToDelete: (typeof pendingUnits)[number] | undefined;
+          for (const candidate of pendingUnits) {
+            if (blockedUnits.has(candidate.unitId)) continue;
+            const unchecked = new Set(
+              [...closure(candidate.unitId, dependentsOf)].filter(
+                (unitId) => !checkedUnits.has(unitId),
+              ),
+            );
+            const items = allPending.filter((item) =>
+              unchecked.has(item.unitId),
+            );
+            const authorizedIds = await authorizedTrashDocumentIds(
+              transactionDb,
+              items.map(({ documentId }) => documentId),
+            );
+            for (const unitId of unchecked) checkedUnits.add(unitId);
+            for (const item of items) {
+              if (authorizedIds.has(item.documentId)) continue;
+              for (const unitId of closure(item.unitId, ancestorsOf))
+                blockedUnits.add(unitId);
+            }
+            if (!blockedUnits.has(candidate.unitId)) {
+              unitToDelete = candidate;
+              break;
             }
           }
 
@@ -268,12 +304,7 @@ export async function processContentTrashPurge(operationId: string) {
             }
           }
 
-          const pendingUnits = [
-            ...new Map(allPending.map((item) => [item.unitId, item])).values(),
-          ];
-          const units = pendingUnits
-            .filter((unit) => !blockedUnits.has(unit.unitId))
-            .slice(0, 1);
+          const units = unitToDelete ? [unitToDelete] : [];
           let deletedDelta = 0;
           for (const unit of units) {
             const frozen = allPending.filter(
