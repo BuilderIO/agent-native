@@ -15,6 +15,7 @@ import {
   DBT_PROVIDER_ID,
   DBT_SEMANTIC_LAYER_TOKEN_KEY,
   dbtConnectionReadiness,
+  hasDbtTokenRef,
 } from "../server/lib/dbt-connection.js";
 import { ANALYTICS_APP_ID } from "../server/lib/provider-credentials.js";
 
@@ -108,11 +109,7 @@ export default defineAction({
           status: connection.status,
           // The metric query resolves the token through this row's credential
           // reference, so a row without it cannot serve a query.
-          tokenConfigured:
-            tokenConfigured &&
-            connection.credentialRefs.some(
-              (ref) => ref.key === DBT_SEMANTIC_LAYER_TOKEN_KEY,
-            ),
+          tokenConfigured: tokenConfigured && hasDbtTokenRef(connection),
           environmentId,
         }),
       };

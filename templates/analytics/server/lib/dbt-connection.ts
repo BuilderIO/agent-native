@@ -4,6 +4,20 @@ export const DBT_SEMANTIC_LAYER_TOKEN_KEY = "DBT_SEMANTIC_LAYER_TOKEN";
 export const DBT_BASE_URL_CONFIG_KEY = "semanticLayerBaseUrl";
 export const DBT_ENVIRONMENT_CONFIG_KEY = "semanticLayerEnvironmentId";
 
+// The credential resolver reads the token ref from the Analytics grant as well as
+// the connection, and matches keys case-insensitively. Readiness must agree with it.
+export function hasDbtTokenRef(connection: {
+  credentialRefs: Array<{ key: string }>;
+  explicitGrant?: { credentialRefs: Array<{ key: string }> } | null;
+}): boolean {
+  return [
+    ...connection.credentialRefs,
+    ...(connection.explicitGrant?.credentialRefs ?? []),
+  ].some(
+    (ref) => ref.key.trim().toUpperCase() === DBT_SEMANTIC_LAYER_TOKEN_KEY,
+  );
+}
+
 const DBT_HOST_SUFFIXES = ["dbt.com", "getdbt.com"] as const;
 
 export type DbtConnectionCheck<T> =

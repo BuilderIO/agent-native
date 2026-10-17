@@ -236,9 +236,71 @@ describe("query-dbt-semantic-metric", () => {
       },
     ]);
 
+    const result = await action.run({
+      metricName: "active_workspaces",
+      limit: 20,
+    });
+    expect(result).toMatchObject({ status: "connection_selection_required" });
+    expect(
+      (result as { connections: Array<{ id: string }> }).connections,
+    ).toEqual([expect.objectContaining({ id: connection.id })]);
+  });
+
+  it("lists a connected row without an environment ID out of the choices", async () => {
+    mocks.listWorkspaceConnectionsForApp.mockResolvedValueOnce([
+      connection,
+      { ...connection, id: "conn_b", label: "Staging dbt", config: {} },
+    ]);
+
+    const result = await action.run({
+      metricName: "active_workspaces",
+      limit: 20,
+    });
+    expect(
+      (result as { connections: Array<{ id: string }> }).connections.map(
+        (c) => c.id,
+      ),
+    ).toEqual([connection.id]);
+  });
+
+  it("counts a token reference on the Analytics grant as ready", async () => {
+    mocks.listWorkspaceConnectionsForApp.mockResolvedValueOnce([
+      {
+        ...connection,
+        id: "conn_a",
+        credentialRefs: [],
+        explicitGrant: {
+          credentialRefs: [
+            { key: "dbt_semantic_layer_token", scope: "org", provider: "dbt" },
+          ],
+        },
+      },
+      { ...connection, id: "conn_b", credentialRefs: [] },
+    ]);
+
+    const result = await action.run({
+      metricName: "active_workspaces",
+      limit: 20,
+    });
+    expect(result).toMatchObject({ status: "connection_selection_required" });
+    expect(
+      (result as { connections: Array<{ id: string }> }).connections.map(
+        (c) => c.id,
+      ),
+    ).toEqual(["conn_a"]);
+  });
+
+  it("reports connection_error, not connection_unavailable, when the token lookup fails", async () => {
+    mocks.hasAppSecret.mockRejectedValueOnce(new Error("secret store down"));
+    mocks.listWorkspaceConnectionsForApp.mockResolvedValueOnce([
+      connection,
+      { ...connection, id: "conn_b", label: "Staging dbt" },
+    ]);
+
     await expect(
       action.run({ metricName: "active_workspaces", limit: 20 }),
-    ).resolves.toMatchObject({ status: "connection_selection_required" });
+    ).resolves.toMatchObject({ status: "connection_error" });
+    expect(mocks.executeProviderApiRequest).not.toHaveBeenCalled();
   });
 
   it("reports connection_unavailable when every connected row lacks an environment or a token reference", async () => {

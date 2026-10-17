@@ -516,13 +516,24 @@ export default defineAction({
         ? connections[0]
         : null;
     // Asking for a choice among rows that cannot run a query only sends the user
-    // round in a circle. Offer one only when a listed row is ready to query.
+    // round in a circle. Offer only the rows that are ready to query.
     if (!connectionId && connections.length > 1) {
       const tokenConfigured = await tokenConfiguredFor(orgId);
-      const anyReady = connections.some(
+      // A failed secret lookup is unknown, not a missing token, so it is not
+      // reported as an unready connection.
+      if (tokenConfigured === null) {
+        return {
+          status: "connection_error",
+          metricName,
+          connection: { id: connections[0].id, label: connections[0].label },
+          message:
+            "The dbt token could not be checked. Retry the request or check the workspace secrets.",
+        };
+      }
+      const ready = connections.filter(
         (connection) => rowReadiness(connection, tokenConfigured) === "ready",
       );
-      if (!anyReady) {
+      if (ready.length === 0) {
         return {
           status: "connection_unavailable",
           metricName,
@@ -531,13 +542,10 @@ export default defineAction({
             "None of the dbt workspace connections is ready. Check them in Settings → Integrations.",
         };
       }
-    }
-    if (!selected && connections.length > 1 && !connectionId) {
       return {
         status: "connection_selection_required",
-        message:
-          "Choose a connected dbt workspace connection to run this metric.",
-        connections: connections.map(({ id, label, status }) => ({
+        message: "Choose a dbt workspace connection to run this metric.",
+        connections: ready.map(({ id, label, status }) => ({
           id,
           label,
           status,

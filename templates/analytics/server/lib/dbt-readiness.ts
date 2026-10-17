@@ -5,21 +5,26 @@ import {
   DBT_ENVIRONMENT_CONFIG_KEY,
   DBT_SEMANTIC_LAYER_TOKEN_KEY,
   dbtConnectionReadiness,
+  hasDbtTokenRef,
   type DbtConnectionReadiness,
 } from "./dbt-connection.js";
+
+// Rows from resolveWorkspaceConnectionsForApp also carry the Analytics grant's
+// token refs. Callers type rows as the serialized shape, so the grant is optional.
+type DbtReadinessRow = SerializedWorkspaceConnection & {
+  explicitGrant?: { credentialRefs: Array<{ key: string }> } | null;
+};
 
 // One corrupt row must not throw out of the shared status action, so a
 // non-string saved ID is reported as an invalid environment ID instead.
 export function rowReadiness(
-  connection: SerializedWorkspaceConnection,
+  connection: DbtReadinessRow,
   tokenConfigured: boolean | null,
 ): DbtConnectionReadiness {
   const value = connection.config[DBT_ENVIRONMENT_CONFIG_KEY];
   // The metric query resolves the token through this connection's credential
-  // reference, so a row without it cannot serve a query, whatever the org holds.
-  const hasTokenRef = connection.credentialRefs.some(
-    (ref) => ref.key === DBT_SEMANTIC_LAYER_TOKEN_KEY,
-  );
+  // references, so a row without one cannot serve a query, whatever the org holds.
+  const hasTokenRef = hasDbtTokenRef(connection);
   const readiness = dbtConnectionReadiness({
     status: connection.status,
     tokenConfigured:
@@ -63,7 +68,7 @@ export async function tokenConfiguredFor(
 // otherwise the first row's reason is reported. A null orgId means the org
 // token cannot be checked, which is an error, not a missing token.
 export async function dbtProviderReadiness(
-  grantedConnections: SerializedWorkspaceConnection[],
+  grantedConnections: DbtReadinessRow[],
   orgId: string | null,
 ): Promise<DbtConnectionReadiness> {
   if (grantedConnections.length === 0) return "not_connected";
