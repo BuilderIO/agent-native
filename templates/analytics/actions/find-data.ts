@@ -77,7 +77,7 @@ function sourceIndexSourcesFreshnessGuidance(
 
 export default defineAction({
   description:
-    "Find definitions, dashboard SQL, and source-index references. Returns ranked metadata, freshness and coverage, not live values. For rosters, use row-grain sources over aggregates. Stale generated entries are hints; use `search-bigquery-schema` for columns or partitions, then query live before reporting.",
+    "Find definitions, dashboard SQL, and source-index references. Returns ranked metadata, freshness and coverage, not live values. dbt-sourced metrics are owner-defined: query them with `query-dbt-semantic-metric` before warehouse SQL. For rosters, use row-grain sources over aggregates. Stale generated entries are hints; use `search-bigquery-schema` for columns or partitions, then query live before reporting.",
   schema: z.object({
     question: z
       .string()
@@ -130,7 +130,7 @@ export default defineAction({
       ...paginationAndCoverage,
       resultType: "reference-metadata",
       guidance: [
-        "Treat saved SQL and source-index entries as examples or unapproved metadata. Verify source scope, live schema, partitions, and current values before answering. For rosters, exclude aggregates and snapshots as member sources. If none remain, report no row-grain source and check index coverage or schema. If truncated is true and nextPage is present, continue with that cursor; if truncated is true and nextPage is null, refine the search or use an explicit dashboard/schema search because a source cap was reached.",
+        "Treat saved SQL and source-index entries as examples or unapproved metadata, except dbt-sourced metrics, which are owner-defined and go through `query-dbt-semantic-metric`. Verify source scope, live schema, partitions, and current values before answering. For rosters, exclude aggregates and snapshots as member sources. If none remain, report no row-grain source and check index coverage or schema. If truncated is true and nextPage is present, continue with that cursor; if truncated is true and nextPage is null, refine the search or use an explicit dashboard/schema search because a source cap was reached.",
         sourceIndexGuidance,
         scanGuidance,
         freshnessGuidance,

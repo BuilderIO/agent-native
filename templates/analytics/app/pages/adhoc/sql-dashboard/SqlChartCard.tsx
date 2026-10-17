@@ -36,7 +36,11 @@ import {
 } from "@/components/dashboard/data-note-bands";
 import type { PanelFreshness } from "@/components/dashboard/panel-freshness";
 import { PanelFreshnessClock } from "@/components/dashboard/PanelFreshnessClock";
-import { ChartFillHeight, SqlChart } from "@/components/dashboard/SqlChart";
+import {
+  ChartFillHeight,
+  SqlChart,
+  type ChartDatum,
+} from "@/components/dashboard/SqlChart";
 import { InlineMarkdownLinks } from "@/components/Markdown";
 import {
   AlertDialog,
@@ -84,6 +88,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import { serializePanelSql } from "./panel-sql";
+import { PanelDrilldownDialog } from "./PanelDrilldownDialog";
 import { timeRangeDays } from "./pivot";
 import type { DashboardFilter, SqlPanel, TableColumnConfig } from "./types";
 import { ViewSqlPopover } from "./ViewSqlPopover";
@@ -292,6 +297,7 @@ export function SqlChartCard({
   const shouldLoadData =
     visible || (authorization.key === queryKey && authorization.allowed);
   const [refreshToken, setRefreshToken] = useState(0);
+  const [drilldownDatum, setDrilldownDatum] = useState<ChartDatum | null>(null);
   const cardRef = useRef<HTMLDivElement | null>(null);
   const setCardNodeRef = useCallback((node: HTMLDivElement | null) => {
     cardRef.current = node;
@@ -980,6 +986,7 @@ export function SqlChartCard({
               refreshToken={refreshToken}
               onRefreshRequested={handleRefresh}
               dashboardId={dashboardId}
+              onDatumClick={setDrilldownDatum}
               onExportCsvChange={handleExportCsvChange}
               onFreshnessChange={handleFreshnessChange}
               onCopyTableChange={handleCopyTableChange}
@@ -1008,12 +1015,24 @@ export function SqlChartCard({
                 onRefreshRequested={handleRefresh}
                 {...tableColumnProps}
                 dashboardId={dashboardId}
+                onDatumClick={setDrilldownDatum}
                 extensionContext={extensionContext}
               />
             </ChartFillHeight>
           </div>
         </DialogContent>
       </Dialog>
+
+      {drilldownDatum ? (
+        <PanelDrilldownDialog
+          panel={panel}
+          datum={drilldownDatum}
+          resolvedSql={resolvedSql}
+          dashboardId={dashboardId}
+          filters={filters}
+          onClose={() => setDrilldownDatum(null)}
+        />
+      ) : null}
 
       {editable ? (
         <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>

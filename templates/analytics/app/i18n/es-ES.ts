@@ -1375,6 +1375,23 @@ export default {
     resetFilters: "Restablecer filtros",
     collapseFilters: "Contraer filtros",
     expandFilters: "Ampliar filtros",
+    drilldownChartPoints: "Puntos del gráfico",
+    drilldownPreviousPage: "Página anterior de puntos del gráfico",
+    drilldownNextPage: "Página siguiente de puntos del gráfico",
+    drilldownPageRange: "Mostrando {{start}}–{{end}} de {{total}}",
+    drilldownFilterRows: "Filtrar filas",
+    drilldownShowSql: "Mostrar SQL",
+    drilldownHideSql: "Ocultar SQL",
+    drilldownDownloadCsv: "Descargar CSV",
+    drilldownShowing: "Mostrando {{shown}} de {{total}} registros",
+    drilldownCsvTruncated:
+      "Exportación incompleta: la consulta encontró {{total}} registros, pero solo se cargaron los primeros {{loaded}}; este archivo incluye {{exported}} después de filtrar.",
+    drilldownCountMismatch:
+      "El gráfico muestra {{chart}}, pero coinciden {{total}} registros",
+    drilldownAggregateOnly:
+      "Este panel solo tiene filas agregadas. Las filas del punto seleccionado aparecen resaltadas.",
+    drilldownNoRecords: "No hay registros coincidentes",
+    drilldownLoadFailed: "No se pudieron cargar los registros",
     filterSeries: "Filter",
     chartTimeRangeOverride: "Anular el rango de tiempo de este gráfico",
     chartTimeRangeInherit: "Rango del panel",
@@ -2201,6 +2218,8 @@ export default {
     dbtAdminOnly:
       "Solo los administradores de la organización pueden cambiar esta conexión.",
     dbtReadFailed: "No se pudo cargar la conexión con dbt.",
+    dbtSeveralConnections:
+      "Varias conexiones de dbt están concedidas a Analytics, así que este panel no puede editar ninguna. Quite las conexiones adicionales en Configuración → Integraciones para conservar una.",
     dbtSave: "Guardar conexión",
     dbtChecking: "Comprobando",
     dbtSaveFailed: "No se pudo guardar la conexión con dbt.",

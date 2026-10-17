@@ -1354,6 +1354,23 @@ export default {
     resetFilters: "フィルターをリセット",
     collapseFilters: "フィルターを折りたたむ",
     expandFilters: "フィルターを展開する",
+    drilldownChartPoints: "グラフのデータポイント",
+    drilldownPreviousPage: "グラフのデータポイントの前のページ",
+    drilldownNextPage: "グラフのデータポイントの次のページ",
+    drilldownPageRange: "全{{total}}件中{{start}}～{{end}}件を表示",
+    drilldownFilterRows: "行をフィルター",
+    drilldownShowSql: "SQLを表示",
+    drilldownHideSql: "SQLを非表示",
+    drilldownDownloadCsv: "CSVをダウンロード",
+    drilldownShowing: "{{total}} 件中 {{shown}} 件を表示",
+    drilldownCsvTruncated:
+      "不完全なエクスポート: クエリに一致した {{total}} 件のうち、最初の {{loaded}} 件のみ読み込まれました。フィルター適用後、このファイルには {{exported}} 件が含まれます。",
+    drilldownCountMismatch:
+      "グラフは {{chart}} ですが、一致したレコードは {{total}} 件です",
+    drilldownAggregateOnly:
+      "このパネルには集計行しかありません。クリックしたポイントに一致する行を強調表示しています。",
+    drilldownNoRecords: "一致するレコードがありません",
+    drilldownLoadFailed: "レコードを読み込めませんでした",
     filterSeries: "Filter",
     chartTimeRangeOverride: "このチャートの期間を上書き",
     chartTimeRangeInherit: "ダッシュボードの期間",
@@ -2184,6 +2201,8 @@ export default {
     dbtDisabled: "無効",
     dbtAdminOnly: "この接続を変更できるのは組織の管理者のみです。",
     dbtReadFailed: "dbt 接続を読み込めませんでした。",
+    dbtSeveralConnections:
+      "Analytics に複数の dbt 接続が許可されているため、このパネルでは編集できません。設定 → 連携 で余分な接続を削除し、1 つだけ残してください。",
     dbtSave: "接続を保存",
     dbtChecking: "確認中",
     dbtSaveFailed: "dbt 接続を保存できませんでした。",
