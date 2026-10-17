@@ -141,6 +141,10 @@ function nowIso(): string {
 }
 
 const ALERT_RULE_RUNNING_STALE_MS = 15 * 60 * 1000;
+// Synthetic budget: 2 days x 1M events/day x 2 KiB selected/event (including JSON)
+// x 3 batch branches x 2 scope scans, with ~2x headroom. Pre-execution estimates
+// do not credit clustering savings.
+const ANALYTICS_ALERT_MAX_BYTES_BILLED = 50_000_000_000;
 const DEFAULT_HTTP_5XX_ALERT_ID_PREFIX = "default-http-5xx-spike";
 const DEFAULT_AGENT_CHAT_STUCK_ALERT_ID_PREFIX =
   "default-agent-chat-stuck-spike";
@@ -1171,10 +1175,11 @@ export async function evaluateBigQueryAnalyticsAlertBatch(
       ...(first.orgId !== null ? { orgId: first.orgId } : {}),
     },
     () =>
-      queryFirstPartyAnalytics(query, {
-        userEmail: first.ownerEmail,
-        orgId: first.orgId,
-      }),
+      queryFirstPartyAnalytics(
+        query,
+        { userEmail: first.ownerEmail, orgId: first.orgId },
+        { maxBytesBilled: ANALYTICS_ALERT_MAX_BYTES_BILLED },
+      ),
   );
   if (result.truncated || result.rows.length !== 1) {
     throw new Error(
@@ -1538,6 +1543,7 @@ async function loadCandidateEvents(
           const result = await queryFirstPartyAnalytics(
             buildBigQueryAlertQuery(rule, windowStart, windowEnd, cursor),
             { userEmail: rule.ownerEmail, orgId: rule.orgId },
+            { maxBytesBilled: ANALYTICS_ALERT_MAX_BYTES_BILLED },
           );
           if (result.truncated) {
             throw new Error(
