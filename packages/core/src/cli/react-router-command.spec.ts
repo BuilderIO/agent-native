@@ -8,6 +8,7 @@ import { AGENT_NATIVE_TYPEGEN_ENV } from "../shared/runtime-config.js";
 import {
   findReactRouterInvocation,
   reactRouterTypegenEnv,
+  usesGeneratedRouteTypes,
 } from "./react-router-command.js";
 
 const roots: string[] = [];
@@ -87,5 +88,70 @@ describe("reactRouterTypegenEnv", () => {
       DATABASE_URL: "test",
       [AGENT_NATIVE_TYPEGEN_ENV]: "1",
     });
+  });
+});
+
+describe("usesGeneratedRouteTypes", () => {
+  function appWith(files: Record<string, string>) {
+    const root = makeRoot();
+    for (const [relativePath, source] of Object.entries(files)) {
+      const file = path.join(root, relativePath);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, source);
+    }
+    return root;
+  }
+
+  it.each([
+    [
+      "rootDirs route types",
+      "app/routes/home.tsx",
+      'import type { Route } from "./+types/home";\n',
+    ],
+    [
+      "a direct generated types path",
+      "app/routes/plans.$id.tsx",
+      'import type { Route } from ".react-router/types/app/routes/+types/plans.$id";\n',
+    ],
+    [
+      "typed href",
+      "shared/links.ts",
+      'import {\n  Link,\n  href,\n} from "react-router";\n',
+    ],
+    [
+      "typed useRoute",
+      "app/root.tsx",
+      'import { unstable_useRoute as useRoute } from "react-router";\n',
+    ],
+  ])("detects %s", (_label, file, source) => {
+    expect(
+      usesGeneratedRouteTypes(
+        appWith({ "app/routes/_index.tsx": "export {};\n", [file]: source }),
+      ),
+    ).toBe(true);
+  });
+
+  it("ignores apps that only load the server build", () => {
+    const root = appWith({
+      "app/routes/_index.tsx":
+        'import { useHref, useLoaderData } from "react-router";\n',
+      "server/routes/[...page].get.ts":
+        'export default () => import("virtual:react-router/server-build");\n',
+    });
+
+    expect(usesGeneratedRouteTypes(root)).toBe(false);
+  });
+
+  it("ignores generated, deploy, and dependency directories", () => {
+    const routeTypes = 'import type { Route } from "./+types/home";\n';
+    const root = appWith({
+      "app/routes/_index.tsx": "export {};\n",
+      ".react-router/types/app/routes/+types/home.ts": routeTypes,
+      ".netlify/functions-internal/server/home.ts": routeTypes,
+      "node_modules/some-package/index.ts": routeTypes,
+      "app/routes/notes.md": routeTypes,
+    });
+
+    expect(usesGeneratedRouteTypes(root)).toBe(false);
   });
 });

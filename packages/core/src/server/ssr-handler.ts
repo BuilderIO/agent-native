@@ -1,3 +1,4 @@
+/// <reference path="./react-router-server-build.d.ts" preserve="true" />
 import { defineEventHandler } from "h3";
 import { createRequestHandler } from "react-router";
 

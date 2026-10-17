@@ -23,11 +23,15 @@ const SOURCE_EXTENSIONS = new Set([
   ".tsx",
 ]);
 const SKIP_DIRECTORIES = new Set([
+  ".deploy-tmp",
   ".git",
+  ".netlify",
   ".next",
+  ".nitro",
   ".react-router",
   ".output",
   ".turbo",
+  ".vercel",
   "build",
   "coverage",
   "dist",
