@@ -33,6 +33,26 @@ vi.mock("@agent-native/creative-context/server", async (importOriginal) => ({
   >()),
   getGenerationCreativeContext: vi.fn(async () => null),
 }));
+// Runs once, before the next editor flush: a legacy restore flushes after
+// it chose its path and before its transaction.
+const { beforeEditorFlush } = vi.hoisted(() => ({
+  beforeEditorFlush: { current: null as null | (() => Promise<void>) },
+}));
+vi.mock("../../actions/_document-flush.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../../actions/_document-flush.js")>();
+  return {
+    ...actual,
+    flushOpenDocumentEditorToSql: async (
+      ...args: Parameters<typeof actual.flushOpenDocumentEditorToSql>
+    ) => {
+      const hook = beforeEditorFlush.current;
+      beforeEditorFlush.current = null;
+      await hook?.();
+      return actual.flushOpenDocumentEditorToSql(...args);
+    },
+  };
+});
 
 const TEST_DB_PATH = join(
   tmpdir(),
@@ -2202,6 +2222,56 @@ describe("a version restore on a switched page", () => {
         ),
       );
     expect(references).toEqual([{ assetId: "restore-icon-asset" }]);
+  });
+
+  it("refuses a legacy restore whose page switched to its live copy before it committed", async () => {
+    await switchedPage("restore-switching", "First draft");
+    await serverEdit("restore-switching", "Second draft");
+    const versionId = await versionHolding("restore-switching", "First draft");
+    await switching.switchPageToLegacy("restore-switching");
+    const prepared = await metadata("restore-switching");
+    beforeEditorFlush.current = async () => {
+      await expect(
+        switching.switchPageToLiveCopy("restore-switching"),
+      ).resolves.toEqual({ writePath: "live_copy" });
+    };
+    try {
+      await expect(
+        restore("restore-switching", versionId, prepared.updatedAt),
+      ).rejects.toMatchObject({
+        errorCode: "LIVE_BODY_WRITE_PATH_CHANGED",
+        statusCode: 409,
+      });
+    } finally {
+      beforeEditorFlush.current = null;
+    }
+    expect((await page("restore-switching")).content).toBe("Second draft");
+    expect(await gateFor("restore-switching")).toEqual({
+      writePath: "live_copy",
+    });
+  });
+
+  it("refuses a legacy restore whose page's flags turned on before it committed", async () => {
+    await switchedPage("restore-flags-on", "First draft");
+    await serverEdit("restore-flags-on", "Second draft");
+    const versionId = await versionHolding("restore-flags-on", "First draft");
+    await setFlags(false);
+    const prepared = await metadata("restore-flags-on");
+    beforeEditorFlush.current = () => setFlags(true);
+    try {
+      await expect(
+        restore("restore-flags-on", versionId, prepared.updatedAt),
+      ).rejects.toMatchObject({
+        errorCode: "LIVE_BODY_WRITE_PATH_CHANGED",
+        statusCode: 409,
+      });
+    } finally {
+      beforeEditorFlush.current = null;
+    }
+    expect((await page("restore-flags-on")).content).toBe("Second draft");
+    expect(await gateFor("restore-flags-on")).toEqual({
+      writePath: "live_copy",
+    });
   });
 
   it("restores through main's path once the page's flags are off (SF-11)", async () => {
